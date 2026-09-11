@@ -434,8 +434,9 @@ def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
     adapter = _OverlayAdapter(_live_cluster_fps())
     cell = _cell()
 
-    uuid = view_mod._draw_bbox_worker(adapter, cell, "CL", "", {},
-                                      "User.KiCadStamp")
+    bbox_key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
+    uuid = view_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+                                        bbox_key, "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
     rect = adapter.created[0]
@@ -448,51 +449,56 @@ def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
     assert abs(centre_y_mm - 198.0) <= 0.01
 
     adapter.created.clear()
-    assert view_mod._place_marker_worker(
-        adapter, cell, "CL", "", {}, "User.KiCadStamp") is not None
+    marker_key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
+    assert view_mod._ensure_marker_worker(
+        adapter, cell, "CL", "", {}, marker_key,
+        "User.KiCadStamp") is not None
 
 
-def test_replace_marker_worker_removes_the_previous_marker_first(monkeypatch):
+def test_ensure_marker_worker_removes_the_previous_marker_first(monkeypatch):
     """J.2 (2026-09-10, Denis: "Если он есть, его не надо рисовать ещё!"):
-    a second "Place marker" must leave ONE marker on the board — the remembered
-    uuid is removed in the SAME worker operation, before the new draw."""
+    a second "Place marker" for the SAME key must leave ONE marker on the board
+    — the owner removes the key's previous shape in the SAME worker operation,
+    before the new draw (E.2.2)."""
     import gui.board_overlay as bo
     view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     adapter = _OverlayAdapter(_live_cluster_fps())
     cell = _cell()
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
 
-    first = view_mod._replace_marker_worker(adapter, cell, "CL", "", {},
-                                            "User.KiCadStamp", [])
+    first = view_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
+                                           key, "User.KiCadStamp")
     assert first is not None
     assert len(adapter.created) == 1
 
     adapter.created.clear()
-    second = view_mod._replace_marker_worker(adapter, cell, "CL", "", {},
-                                             "User.KiCadStamp", [first])
+    second = view_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
+                                            key, "User.KiCadStamp")
     assert second is not None and second != first
     assert adapter.removed == [first]        # the old shape is gone...
     assert len(adapter.created) == 1         # ...and exactly ONE was drawn
 
 
-def test_replace_bbox_worker_removes_the_previous_bbox_first(monkeypatch):
+def test_ensure_bbox_worker_removes_the_previous_bbox_first(monkeypatch):
     """The bbox twin of the marker replacement — a stale rectangle left at the
     previous position was the "marker doesn't land in the bbox" complaint."""
     import gui.board_overlay as bo
     view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     adapter = _OverlayAdapter(_live_cluster_fps())
     cell = _cell()
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
 
-    first = view_mod._replace_bbox_worker(adapter, cell, "CL", "", {},
-                                          "User.KiCadStamp", [])
+    first = view_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+                                         key, "User.KiCadStamp")
     adapter.created.clear()
-    second = view_mod._replace_bbox_worker(adapter, cell, "CL", "", {},
-                                           "User.KiCadStamp", [first])
+    second = view_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+                                          key, "User.KiCadStamp")
     assert second is not None and second != first
     assert adapter.removed == [first]
     assert len(adapter.created) == 1
 
 
-def test_replace_worker_survives_a_shape_already_swept():
+def test_ensure_worker_survives_a_shape_already_swept():
     """A uuid the user already deleted in KiCad (or a stale one from a previous
     session) is NOT an error — the draw simply proceeds."""
     import gui.board_overlay as bo
@@ -503,8 +509,13 @@ def test_replace_worker_survives_a_shape_already_swept():
             raise ValidationError("no such shape")
 
     adapter = _AngryAdapter(_live_cluster_fps())
-    assert view_mod._replace_marker_worker(
-        adapter, _cell(), "CL", "", {}, "User.KiCadStamp", ["stale"]) is not None
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
+    # A stale persisted key makes the owner try to remove "stale" first; the
+    # failing removal must be swallowed, not stop the draw.
+    view_mod.settings.state.set(
+        view_mod.overlay_markers.OVERLAY_MARKERS_KEY, {key: "stale"})
+    assert view_mod._ensure_marker_worker(
+        adapter, _cell(), "CL", "", {}, key, "User.KiCadStamp") is not None
     assert len(adapter.created) == 1
 
 
@@ -513,9 +524,10 @@ def test_bbox_worker_reports_the_honest_error(monkeypatch):
     import gui.board_overlay as bo
     view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "OTHER", 1.0, 1.0)])
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
     with pytest.raises(ValidationError) as ei:
-        view_mod._draw_bbox_worker(adapter, _cell(), "CL", "", {},
-                                   "User.KiCadStamp")
+        view_mod._ensure_bbox_worker(adapter, _cell(), "CL", "", {},
+                                     key, "User.KiCadStamp")
     assert "not on the live board" in str(ei.value)
 
 
@@ -654,20 +666,21 @@ def test_cluster_narrowing_updates_role_combo(main_window, tmp_path):
 def test_set_root_path_same_path_keeps_overlay_state(main_window, tmp_path):
     """Regression (Phase D): DockHub re-sends the SAME root on every graph
     refresh (_refresh_graph_dependent_choices), so re-setting it must NOT drop
-    the marker/bbox the user is mid-edit with — only an ACTUAL root switch
+    the overlay keys the user is mid-edit with — only an ACTUAL root switch
     cleans up."""
     view, target = _make_view(main_window, tmp_path)
-    view._marker_uuid = "marker-uuid-1"
-    view._bbox_uuid = "bbox-uuid-1"
-    view._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+    marker_key, bbox_key = view._marker_key(), view._bbox_key()
+    view_mod.settings.state.set(view_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                                {marker_key: "marker-uuid-1",
+                                 bbox_key: "bbox-uuid-1"})
 
     view.set_root_path(target)                # same root (graph refresh)
-    assert view._marker_uuid == "marker-uuid-1"
-    assert view._bbox_uuid == "bbox-uuid-1"
+    assert view._overlay.has_key(marker_key)
+    assert view._overlay.has_key(bbox_key)
 
     view.set_root_path(tmp_path / "other.sexp")   # real project switch
-    assert view._marker_uuid is None
-    assert view._bbox_uuid is None
+    assert not view._overlay.has_key(marker_key)
+    assert not view._overlay.has_key(bbox_key)
 
 
 def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_path):
@@ -693,8 +706,9 @@ def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_pat
     cell = Cell(name="cell1", components=[TemplateComponentSlot(role="ORIG")])
     adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "CL", 100.0, 200.0)])
 
-    uuid = view_mod._place_marker_worker(adapter, cell, "CL", "", [],
-                                         "User.KiCadStamp")
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
+    uuid = view_mod._ensure_marker_worker(adapter, cell, "CL", "", [],
+                                          key, "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
     circle = adapter.created[0]
@@ -708,7 +722,7 @@ def test_marker_worker_draws_with_settings_layer_and_radius(main_window, tmp_pat
     assert circle.attributes.stroke.width == int(0.05 * MM)
 
 
-def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatch):
+def test_ensure_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatch):
     """The bbox outline width also comes from the settings (0.22 seeded below)
     — the draw reaches create_items with the configured stroke.
 
@@ -728,8 +742,9 @@ def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatc
     monkeypatch.setattr(view_mod, "cell_content_bbox",
                         lambda entry: (0.0, 10.0, 0.0, 10.0))
 
-    uuid = view_mod._draw_bbox_worker(adapter, cell, "CL", "", [],
-                                      "User.KiCadStamp")
+    key = view_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
+    uuid = view_mod._ensure_bbox_worker(adapter, cell, "CL", "", [],
+                                        key, "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
     rect = adapter.created[0]
@@ -737,57 +752,55 @@ def test_draw_bbox_worker_uses_settings_stroke(main_window, tmp_path, monkeypatc
     assert rect.attributes.stroke.width == int(0.22 * MM)
 
 
-def test_stale_overlay_uuids_merge_memory_and_persistence(main_window, tmp_path):
-    """J.2: the uuids handed to the replace-worker are BOTH the in-memory one
-    and the persisted one (a leftover from a previous session must be replaced
-    too), without duplicates."""
+def test_persisted_overlay_key_drives_the_button_state(main_window, tmp_path):
+    """The widget no longer tracks uuids itself: the Marker buttons are enabled
+    from the owner's KEY presence (the map is the single source of truth, and a
+    leftover from a previous session is seen too)."""
     view, _path = _make_view(main_window, tmp_path)
-    view._cell_name = "cell1"
-    view._marker_uuid = "mem-marker"
-    view._bbox_uuid = None
-    view._remember_overlay("persisted-marker", None)
+    marker_key = view._marker_key()
+    view_mod.settings.state.set(view_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                                {marker_key: "persisted-marker"})
 
-    assert view._stale_overlay_uuids("marker") == ["mem-marker",
-                                                   "persisted-marker"]
-    assert view._stale_overlay_uuids("bbox") == []
+    view._reload_form()
+
+    assert view._read_marker_button.isEnabled()
+    assert view._remove_marker_button.isEnabled()
+    assert not view._hide_bbox_button.isEnabled()
+    assert view._remove_overlay_button.isEnabled()
 
 
-def test_overlay_uuids_persist_across_view_recreation(main_window, tmp_path):
-    """Persisted marker/bbox uuids survive a 'restart' — a fresh CellAnchorView
-    over the same gui_state.json re-reads them (Phase D reuses the Phase-C
-    cell_anchor_overlay mechanism; no second store)."""
+def test_overlay_keys_persist_across_view_recreation(main_window, tmp_path):
+    """Persisted overlay keys survive a 'restart' — a fresh CellAnchorView over
+    the same gui_state.json asks the same owner and sees them (the map is one
+    store, not a per-widget copy)."""
     view1, _ = _make_view(main_window, tmp_path)
-    view1._marker_uuid = "marker-uuid-1"
-    view1._bbox_uuid = "bbox-uuid-1"
-    view1._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+    key = view1._marker_key()
+    view_mod.settings.state.set(view_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                                {key: "marker-uuid-1"})
 
     view2, _ = _make_view(main_window, tmp_path)   # 'restart'
-    assert view2._marker_uuid == "marker-uuid-1"
-    assert view2._bbox_uuid == "bbox-uuid-1"
+    assert view2._overlay.has_key(view2._marker_key())
 
 
-def test_cleanup_forgets_overlay_and_drops_persisted_uuids(main_window, tmp_path):
+def test_cleanup_forgets_overlay_keys(main_window, tmp_path):
     """The explicit per-cell cleanup (button / page leave / root change): the
-    in-memory + persisted uuids are dropped; offline it never dispatches IPC
-    and never raises."""
+    cell's marker+bbox KEYS are dropped from the owner; offline it never
+    dispatches IPC and never raises."""
     view, target = _make_view(main_window, tmp_path)
-    view._marker_uuid = "marker-uuid-1"
-    view._bbox_uuid = "bbox-uuid-1"
-    view._remember_overlay("marker-uuid-1", "bbox-uuid-1")
+    marker_key, bbox_key = view._marker_key(), view._bbox_key()
+    view_mod.settings.state.set(view_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                                {marker_key: "marker-uuid-1",
+                                 bbox_key: "bbox-uuid-1"})
 
     view.cleanup()                     # no live board -> state only
 
-    assert view._marker_uuid is None
-    assert view._bbox_uuid is None
-    root = str(target)
-    per_cell = (view_mod.settings.state.get(view_mod.board_overlay.OVERLAY_STATE_KEY, {})
-                .get(root, {}))
-    assert per_cell.get("cell1") == {"marker": None, "bbox": None}
+    assert not view._overlay.has_key(marker_key)
+    assert not view._overlay.has_key(bbox_key)
 
 
 def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp, main_window):
-    """The GUI-exit cleanup: every persisted marker/bbox uuid is removed from
-    the board (by uuid, on the worker thread) and the map is cleared."""
+    """The GUI-exit cleanup: every overlay uuid the owner tracks is removed
+    from the board (by uuid, on the worker thread) and the map is cleared."""
     from types import SimpleNamespace as _NS
 
     class _Adapter:
@@ -810,15 +823,17 @@ def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp, main_windo
 
     adapter = _Adapter()
     main_window.connection.board = _NS(adapter=adapter)
-    view_mod.settings.state.set(view_mod.board_overlay.OVERLAY_STATE_KEY, {
-        "/root/a": {"cellA": {"marker": "m1", "bbox": "b1"}},
-        "/root/b": {"cellB": {"marker": "m2", "bbox": None}},
+    key = view_mod.overlay_markers.cell_anchor_key
+    view_mod.settings.state.set(view_mod.overlay_markers.OVERLAY_MARKERS_KEY, {
+        key("/root/a", "cellA", "marker"): "m1",
+        key("/root/a", "cellA", "bbox"): "b1",
+        key("/root/b", "cellB", "marker"): "m2",
     })
 
     view_mod.cleanup_all_overlays_sync(main_window.connection, timeout_s=5.0)
 
     assert sorted(adapter.removed) == ["b1", "m1", "m2"]
-    assert view_mod.board_overlay.persisted_overlay_uuids() == []
+    assert view_mod.overlay_markers.owner.all_uuids() == []
 
 
 # ── G.2: the Sheet narrows the Cluster list ───────────────────────────────

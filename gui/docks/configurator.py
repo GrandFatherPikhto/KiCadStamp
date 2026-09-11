@@ -62,7 +62,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
-from .. import board_overlay, settings
+from .. import board_overlay, overlay_markers, settings
 from ..color_schemes import available_color_schemes, load_color_scheme
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
 from ..worker import start_long_op
@@ -506,8 +506,9 @@ class ConfiguratorDock(QWidget):
             adapter, layer_name)
 
     def _on_overlay_sweep_done(self, count) -> None:
-        # The whole layer is gone, so the persisted by-uuid map is stale.
-        board_overlay.clear_persisted_overlay()
+        # The whole layer is gone, so the owner's key map is stale: forget it
+        # in one operation (map + layer cleared together, E.2.4 / Е.3).
+        overlay_markers.owner.forget_all()
         layer_name = self.overlay_layer_combo.currentText().strip() \
             or board_overlay.OVERLAY_DEFAULT_LAYER
         QMessageBox.information(

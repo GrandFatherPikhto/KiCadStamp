@@ -841,6 +841,11 @@ class MainWindow(QMainWindow):
                 .format(count=len(snapshot)))
             self._dock_hub.push_snapshot(snapshot, self.connection.board)
             self._dock_hub.push_fieldstool_snapshot(snapshot)
+            # Overlay housekeeping (E.2.4, plan_2026_09_11_overlay_markers_
+            # owner): on connect and on every manual refresh, make the overlay
+            # key map agree with the live layer (drop dead keys, Log orphans).
+            # Runs on a worker thread and never raises; a no-op without a board.
+            self._dock_hub.reconcile_overlay(self.connection)
 
         # Phase 5.1 — the embedded fieldstool shares this connection and no
         # longer runs its own connect/refresh poll, so mirror the status we

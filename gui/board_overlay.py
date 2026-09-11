@@ -42,7 +42,7 @@ KiCadBoardAdapter in production, a fake in tests) exposing:
 No method is added to kicadstamp/kicad/interfaces.py — it is an ABC, and
 every new abstract method would break the test doubles across the project.
 """
-from typing import Any
+from typing import Any, NamedTuple
 
 from kipy.board_types import BoardCircle, BoardLayer, BoardRectangle
 from kipy.geometry import Vector2 as KipyVector2
@@ -76,10 +76,10 @@ OVERLAY_BBOX_STROKE_KEY = "overlay_bbox_stroke_mm"
 OVERLAY_MARKER_RADIUS_KEY = "overlay_marker_radius_mm"
 OVERLAY_MARKER_STROKE_KEY = "overlay_marker_stroke_mm"
 
-# gui_state.json key holding the marker/bbox uuids currently drawn per
-# (root config, cell) — written by cell_anchor_view, read back by the by-uuid
-# cleanup paths (page close / GUI exit) and cleared after a whole-layer sweep
-# (see persisted_overlay_uuids / clear_persisted_overlay).
+# LEGACY gui_state.json key: the pre-owner flat map
+# `{root: {cell: {"marker": uuid, "bbox": uuid}}}`. Nothing writes it any more
+# — gui/overlay_markers.py owns the marker map (key `overlay_markers`) and
+# reads this one ONCE to migrate it (migrate_legacy_state), so no uuid is lost.
 OVERLAY_STATE_KEY = "cell_anchor_overlay"
 
 
@@ -106,36 +106,6 @@ def overlay_marker_stroke_mm() -> float:
     when the key is absent)."""
     return float(settings.state.get(OVERLAY_MARKER_STROKE_KEY, OVERLAY_MARKER_STROKE_MM))
 
-
-def persisted_overlay_uuids() -> list[str]:
-    """Every marker/bbox uuid persisted under OVERLAY_STATE_KEY across all
-    roots and cells — the by-uuid fast cleanup path (page close / GUI exit)."""
-    try:
-        raw = settings.state.get(OVERLAY_STATE_KEY, {}) or {}
-    except Exception:  # noqa: BLE001 — a state read must never fail cleanup
-        return []
-    uuids: list[str] = []
-    for per_cell in (raw if isinstance(raw, dict) else {}).values():
-        if not isinstance(per_cell, dict):
-            continue
-        for shapes in per_cell.values():
-            if not isinstance(shapes, dict):
-                continue
-            for slot in ("marker", "bbox"):
-                value = shapes.get(slot)
-                if value:
-                    uuids.append(str(value))
-    return uuids
-
-
-def clear_persisted_overlay() -> None:
-    """Drop the whole persisted overlay-uuid map — after a successful by-uuid
-    removal or a whole-layer sweep (the shapes are gone, tracking them would
-    be stale). Best-effort: a failed write must never crash cleanup."""
-    try:
-        settings.state.set(OVERLAY_STATE_KEY, {})
-    except Exception:  # noqa: BLE001 — best-effort by design
-        pass
 
 # kipy layer-enum member name lookup (value -> 'BL_User_5', ...), used ONLY to
 # classify a layer as user-drawn; the user-visible name always comes from the
@@ -299,16 +269,54 @@ def remove_overlay(adapter, uuids: list[str]) -> bool:
     return ok
 
 
+class OverlayShape(NamedTuple):
+    """One overlay graphic on a layer, seen through the owner's eyes — the
+    uuid plus just enough shape information for reconciliation. Raw kipy
+    objects never leave this module (see the module docstring)."""
+
+    uuid: str
+    kind: str                                # "circle" | "rect" | "other"
+    center_mm: tuple[float, float] | None    # circles only
+
+
+def list_overlay_shapes(adapter, layer) -> list[OverlayShape]:
+    """Every graphic shape on `layer`, with its uuid and (for circles) centre
+    in world mm. READ-ONLY, and the SINGLE layer traversal this module has:
+    sweep_layer() and the markers owner both go through here, so the sweep and
+    the owner can never disagree about what is on the layer (E.2.3 of
+    plan_2026_09_11_overlay_markers_owner.md).
+
+    There is NO user-layer guard here — nothing is deleted. sweep_layer()
+    keeps its own guard, unchanged."""
+    adapter.refresh_board()
+    shapes: list[OverlayShape] = []
+    for s in _board(adapter).get_shapes():
+        if s.layer != layer:
+            continue
+        if isinstance(s, BoardCircle):
+            # gotcha 3: the radius is a method; reconciliation needs only the
+            # centre, so no radius read is done here.
+            shapes.append(OverlayShape(
+                str(s.id.value), "circle",
+                (s.center.x / MM, s.center.y / MM)))
+        elif isinstance(s, BoardRectangle):
+            shapes.append(OverlayShape(str(s.id.value), "rect", None))
+        else:
+            shapes.append(OverlayShape(str(s.id.value), "other", None))
+    return shapes
+
+
 def sweep_layer(adapter, layer) -> int:
-    """Guaranteed cleanup: delete EVERY graphic shape on `layer` (the
-    get_shapes() filter verified live in §0.7) and return how many were
-    removed. The safe path against uuid leaks — call this on the dedicated
-    overlay user layer, never on a copper/real-content layer.
+    """Guaranteed cleanup: delete EVERY graphic shape on `layer` and return
+    how many were removed. The safe path against uuid leaks — call this on the
+    dedicated overlay user layer, never on a copper/real-content layer.
 
     Guard: REFUSES (fatal ValidationError) to sweep a layer that is not in
     the enabled USER-layer set — sweeping Edge.Cuts / a silkscreen / a copper
     layer would delete real board content (the very data-loss path a Phase-D
-    "sweep the overlay layer" button must never be able to reach)."""
+    "sweep the overlay layer" button must never be able to reach). The sweep
+    and the markers owner share list_overlay_shapes(), so they always see the
+    same set of shapes."""
     known = {lay for lay, _name in overlay_layers(adapter)}
     if layer not in known:
         display = _layer_display(adapter, layer)
@@ -318,11 +326,10 @@ def sweep_layer(adapter, layer) -> int:
             [_("choose the dedicated overlay user layer (e.g. "
                "User.KiCadStamp); a sweep on copper, silkscreen or Edge.Cuts "
                "would erase real board content")]))
-    adapter.refresh_board()
-    shapes = [s for s in _board(adapter).get_shapes() if s.layer == layer]
+    shapes = list_overlay_shapes(adapter, layer)
     if not shapes:
         return 0
-    adapter.remove_by_ids(_uuids(shapes))
+    adapter.remove_by_ids([s.uuid for s in shapes])
     adapter.select_items([])  # gotcha 2 — repaint after the delete
     return len(shapes)
 

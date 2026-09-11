@@ -81,7 +81,9 @@ from kicadstamp.i18n import _
 from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
 from kicadstamp.utils.units import MM
 
-from .. import board_overlay, settings
+# `settings` is imported for the tests that reach `view_mod.settings.state`
+# (the module itself reads the overlay map through overlay_markers.owner).
+from .. import board_overlay, overlay_markers, settings  # noqa: F401
 from ..cell_edit_context import (
     cluster_present_on_board,
     remember_cell_edit_context,
@@ -109,15 +111,8 @@ from .scheme_list import snapshot_with_resolved_sheets
 
 logger = logging.getLogger(__name__)
 
-# The gui_state.json key holding the currently-drawn overlay uuids, scoped by
-# the root config and the cell. Owned by gui.board_overlay (Phase D — the
-# whole-map helpers persisted_overlay_uuids/clear_persisted_overlay and the
-# exit sweep live there); this alias keeps the existing per-cell call sites.
-_OVERLAY_STATE_KEY = board_overlay.OVERLAY_STATE_KEY
-
-
 # ────────────────────────────────────────────────────────────────────────────
-# Phase-D shutdown cleanup (D.2) — remove EVERY persisted overlay shape.
+# Phase-D shutdown cleanup (D.2) — remove EVERY overlay shape the owner owns.
 # ────────────────────────────────────────────────────────────────────────────
 
 def _wait_long_op_done(controller, timeout_s: float) -> bool:
@@ -143,17 +138,17 @@ def _wait_long_op_done(controller, timeout_s: float) -> bool:
 
 
 def cleanup_all_overlays_sync(connection, timeout_s: float = 5.0) -> None:
-    """GUI-shutdown cleanup of EVERY persisted overlay shape (Phase D D.2) —
-    the by-uuid fast path across all roots/cells of cell_anchor_overlay. The
-    removal IPC runs on the worker thread via start_long_op (never a
-    synchronous adapter call on the UI thread); this function then waits for
-    it with a BOUNDED nested event loop, so quitting never races the worker
-    and a dead socket never stalls shutdown for more than timeout_s.
+    """GUI-shutdown cleanup of EVERY overlay shape the owner knows about
+    (Phase D D.2) — the by-uuid fast path across all namespaces/keys of the
+    overlay map. The removal IPC runs on the worker thread via start_long_op
+    (never a synchronous adapter call on the UI thread); this function then
+    waits for it with a BOUNDED nested event loop, so quitting never races the
+    worker and a dead socket never stalls shutdown for more than timeout_s.
 
-    No-op (persisted map left for a later whole-layer sweep) when there is
-    nothing persisted, no live board, another long op is already on the
-    shared kipy socket, or the removal did not finish within timeout_s."""
-    uuids = board_overlay.persisted_overlay_uuids()
+    No-op (the map is left for a later whole-layer sweep) when there is
+    nothing tracked, no live board, another long op is already on the shared
+    kipy socket, or the removal did not finish within timeout_s."""
+    uuids = overlay_markers.owner.all_uuids()
     if not uuids:
         return
     board = getattr(connection, "board", None)
@@ -166,11 +161,11 @@ def cleanup_all_overlays_sync(connection, timeout_s: float = 5.0) -> None:
         connection, [], board_overlay.remove_overlay,
         lambda _ok: None, lambda _message: None, adapter, uuids)
     waited = _wait_long_op_done(controller, timeout_s)
-    # Clear the persisted map only once the removal has genuinely finished (a
-    # timeout while the op is still on the socket means the shapes may still
-    # be there — leave the state for a later whole-layer sweep).
+    # Clear the map only once the removal has genuinely finished (a timeout
+    # while the op is still on the socket means the shapes may still be there
+    # — leave the map for a later whole-layer sweep).
     if waited and not getattr(connection, "long_op_active", False):
-        board_overlay.clear_persisted_overlay()
+        overlay_markers.owner.forget_all()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -411,14 +406,6 @@ def resolve_clone_context(cfg, cell_name: str, cluster: str, sheet: str):
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def _resolve_layer(adapter, layer_name: str):
-    """Live layer enum for the overlay display name — shared fatal when the
-    layer is not enabled on this board (see
-    board_overlay.require_overlay_layer; the same helper the whole-layer
-    sweep uses, so the two surface one message)."""
-    return board_overlay.require_overlay_layer(adapter, layer_name)
-
-
 def _cell_entry_mount_offset(entry: dict) -> tuple[float, float]:
     """The cell entry's CURRENT mount A in its stored frame (anchor_xy, else
     anchor_role's centre offset, else (0,0)) — the dict twin of
@@ -500,31 +487,30 @@ def overlay_world_bbox_mm(entry: dict, origin: Vector2, rotation_deg: float,
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-def _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
-                      layer_name) -> Optional[str]:
-    """Draw the cell's bbox rectangle over the LIVE cluster's instance of this
-    cell — returns the created rectangle's uuid. The frame is read from the
-    cluster standing on the board (_live_cluster_frame), never from a
-    placement."""
-    layer = _resolve_layer(adapter, layer_name)
+def _ensure_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
+                        key, layer_name) -> Optional[str]:
+    """Idempotently make `key` own exactly ONE bbox rectangle over the LIVE
+    cluster's instance of this cell — returns the created rectangle's uuid (or
+    None when the cell has no geometry). The frame is read from the cluster
+    standing on the board (_live_cluster_frame), never from a placement; the
+    owner (gui/overlay_markers) replaces this key's previous rectangle inside
+    the same call (E.2.2), so no stale bbox can survive at the old position."""
     origin, rotation, mirror = _live_cluster_frame(
         adapter, cell, cluster, sheet, sheet_names)
     box = overlay_world_bbox_mm(_cell_to_entry(cell), origin, rotation, mirror)
     if box is None:
         return None
     x1, y1, x2, y2 = box
-    # Phase D: the stroke width comes from the Settings "Board overlay" page
-    # (board_overlay module constants are only the DEFAULTS).
-    return board_overlay.draw_bbox(adapter, layer, x1, y1, x2, y2,
-                                   board_overlay.overlay_bbox_stroke_mm())
+    return overlay_markers.owner.ensure_bbox(
+        adapter, key, x1, y1, x2, y2, layer_name=layer_name)
 
 
-def _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                         layer_name) -> Optional[str]:
-    """Draw the draggable marker circle at the cell's CURRENT anchor (the
-    live cluster's mount) or, when the cell has no anchor, at the centre of its
-    bbox — returns the marker's uuid."""
-    layer = _resolve_layer(adapter, layer_name)
+def _ensure_marker_worker(adapter, cell, cluster, sheet, sheet_names,
+                          key, layer_name) -> Optional[str]:
+    """Idempotently make `key` own exactly ONE draggable marker circle at the
+    cell's CURRENT anchor (the live cluster's mount) or, when the cell has no
+    anchor, at the centre of its bbox — returns the created circle's uuid (or
+    None when the cell has no geometry)."""
     origin, rotation, mirror = _live_cluster_frame(
         adapter, cell, cluster, sheet, sheet_names)
     entry = _cell_to_entry(cell)
@@ -537,58 +523,19 @@ def _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
             if bbox else (0.0, 0.0)
         x_mm, y_mm = _cell_point_to_world_mm(
             origin, rotation, mirror, 0.0, 0.0, centre[0], centre[1])
-    # Phase D: radius/stroke come from the Settings "Board overlay" page
-    # (board_overlay module constants are only the DEFAULTS).
-    return board_overlay.draw_marker(adapter, layer, x_mm, y_mm,
-                                     board_overlay.overlay_marker_radius_mm(),
-                                     board_overlay.overlay_marker_stroke_mm())
-
-
-def _remove_overlay_silently(adapter, uuids) -> None:
-    """Best-effort removal of already-drawn overlay shapes (J.2). A shape the
-    user has already deleted in KiCad, or a stale uuid from a previous session,
-    is NOT an error — the caller is about to draw a fresh one."""
-    doomed = [u for u in (uuids or ()) if u]
-    if not doomed:
-        return
-    try:
-        board_overlay.remove_overlay(adapter, doomed)
-    except Exception:  # noqa: BLE001 — the draw that follows is the point
-        logger.debug("overlay replacement could not remove %s", doomed,
-                     exc_info=True)
-
-
-def _replace_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
-                         layer_name, old_uuids) -> Optional[str]:
-    """Draw the cell's bbox, REPLACING any rectangle already drawn for it: the
-    remembered uuid(s) are removed in the SAME worker operation as the draw —
-    ONE start_long_op, never two in a row (that would race the redraw), because
-    Denis, 2026-09-10: "Если он есть, его не надо рисовать ещё!" A stale bbox
-    left from a previous position was also a direct cause of "маркер не попадает
-    в bbox"."""
-    _remove_overlay_silently(adapter, old_uuids)
-    return _draw_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
-                             layer_name)
-
-
-def _replace_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                           layer_name, old_uuids) -> Optional[str]:
-    """The marker twin of _replace_bbox_worker — the previously drawn marker is
-    removed in the same worker op before the new one is drawn."""
-    _remove_overlay_silently(adapter, old_uuids)
-    return _place_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                                layer_name)
+    return overlay_markers.owner.ensure_marker(
+        adapter, key, x_mm, y_mm, layer_name=layer_name)
 
 
 def _read_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                        marker_uuid) -> Optional[tuple[float, float]]:
-    """Read the (user-dragged) marker's world position and convert it into the
-    cell's own bbox-frame anchor (anchor_xy) — the world->local inversion uses
-    the SAME live-cluster frame the marker was placed from
+                        key) -> Optional[tuple[float, float]]:
+    """Read the (user-dragged) marker's world position for `key` and convert it
+    into the cell's own bbox-frame anchor (anchor_xy) — the world->local
+    inversion uses the SAME live-cluster frame the marker was placed from
     (world_pos_to_cell_local_offset, live_position.py — one implementation); the
     result is the ABSOLUTE bbox offset (the current mount + the offset relative
     to it). None when the marker is no longer on the board."""
-    pos = board_overlay.read_marker(adapter, marker_uuid)
+    pos = overlay_markers.owner.read_position(adapter, key)
     if pos is None:
         return None
     origin, rotation, mirror = _live_cluster_frame(
@@ -630,9 +577,10 @@ class CellAnchorView(QWidget):
         # refills / prefill must never write the remembered context over fresh
         # data.
         self._loading = False
-        # Persisted overlay uuids (survive an app restart, see _OVERLAY_STATE_KEY).
-        self._marker_uuid: Optional[str] = None
-        self._bbox_uuid: Optional[str] = None
+        # The overlay marker/bbox map is owned by gui/overlay_markers: the
+        # widget only asks it for KEY presence (never a uuid), and every draw
+        # goes through the owner's idempotent ensure_* operations.
+        self._overlay = overlay_markers.owner
 
         self._build_ui()
         self._reload_form()
@@ -833,8 +781,6 @@ class CellAnchorView(QWidget):
                 self._sheet_combo.clear()
             finally:
                 self._loading = False
-        self._marker_uuid = None
-        self._bbox_uuid = None
         # The sheet map may have changed — re-narrow the Cluster list.
         self._refill_cluster_choices()
         if self._cell_name is not None:
@@ -989,37 +935,25 @@ class CellAnchorView(QWidget):
         finally:
             self._loading = False
 
-    # ── Persisted overlay uuids ───────────────────────────────────────────
+    # ── Overlay keys (the map itself is owned by gui/overlay_markers) ─────
 
-    def _overlay_state(self) -> dict:
-        """The persisted overlay-uuid map {root: {cell: {marker, bbox}}}."""
-        try:
-            raw = settings.state.get(_OVERLAY_STATE_KEY, {}) or {}
-            return raw if isinstance(raw, dict) else {}
-        except Exception:  # noqa: BLE001
-            return {}
+    def _marker_key(self) -> Optional[str]:
+        if self._root_path is None or self._cell_name is None:
+            return None
+        return overlay_markers.cell_anchor_key(
+            self._root_path, self._cell_name, "marker")
 
-    def _cell_overlay_state(self) -> dict:
-        root = str(self._root_path) if self._root_path is not None else ""
-        return (self._overlay_state().get(root, {}) or {}).get(
-            self._cell_name or "", {})
+    def _bbox_key(self) -> Optional[str]:
+        if self._root_path is None or self._cell_name is None:
+            return None
+        return overlay_markers.cell_anchor_key(
+            self._root_path, self._cell_name, "bbox")
 
-    def _remember_overlay(self, marker: Optional[str], bbox: Optional[str]) -> None:
-        if self._cell_name is None:
-            return
-        root = str(self._root_path) if self._root_path is not None else ""
-        state = self._overlay_state()
-        per_root = state.setdefault(root, {})
-        per_root[self._cell_name] = {"marker": marker, "bbox": bbox}
-        settings.state.set(_OVERLAY_STATE_KEY, state)
-
-    def _stale_overlay_uuids(self, which: str) -> list:
-        """Every uuid this cell's overlay may still own for `which`
-        ('marker' | 'bbox') — the in-memory one AND the persisted one, so a
-        leftover from a previous session is replaced too (J.2, 2026-09-10)."""
-        current = self._marker_uuid if which == "marker" else self._bbox_uuid
-        persisted = self._cell_overlay_state().get(which)
-        return [u for u in dict.fromkeys([current, persisted]) if u]
+    def _overlay_scope(self) -> Optional[str]:
+        if self._root_path is None or self._cell_name is None:
+            return None
+        return overlay_markers.cell_anchor_scope(
+            self._root_path, self._cell_name)
 
     # ── Entry / form state ────────────────────────────────────────────────
 
@@ -1198,11 +1132,6 @@ class CellAnchorView(QWidget):
             self._read_selection_button.setEnabled(False)
             return
 
-        # Persisted overlay uuids for this cell/root.
-        cell_state = self._cell_overlay_state()
-        self._marker_uuid = cell_state.get("marker")
-        self._bbox_uuid = cell_state.get("bbox")
-
         roles = sorted({c.get("role") for c in entry.get("components", [])
                         if c.get("role")})
         self._fill_role_choices(roles, self._cluster_combo.currentText().strip())
@@ -1216,11 +1145,13 @@ class CellAnchorView(QWidget):
         self._clear_anchor_button.setEnabled(True)
         self._place_marker_button.setEnabled(True)
         self._show_bbox_button.setEnabled(True)
-        self._read_marker_button.setEnabled(bool(self._marker_uuid))
-        self._remove_marker_button.setEnabled(bool(self._marker_uuid))
-        self._hide_bbox_button.setEnabled(bool(self._bbox_uuid))
-        self._remove_overlay_button.setEnabled(
-            bool(self._marker_uuid or self._bbox_uuid))
+        marker_key, bbox_key = self._marker_key(), self._bbox_key()
+        has_marker = bool(marker_key and self._overlay.has_key(marker_key))
+        has_bbox = bool(bbox_key and self._overlay.has_key(bbox_key))
+        self._read_marker_button.setEnabled(has_marker)
+        self._remove_marker_button.setEnabled(has_marker)
+        self._hide_bbox_button.setEnabled(has_bbox)
+        self._remove_overlay_button.setEnabled(has_marker or has_bbox)
         self._refresh_overlay_layer_note()
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
@@ -1445,73 +1376,69 @@ class CellAnchorView(QWidget):
             self._connection, widgets, fn, on_success, on_error,
             adapter, cell, cluster, sheet, sheet_names, *extra_args)
 
-    def _dispatch_draw(self, worker_fn, success_msg_ok, on_error, *extra):
-        """Dispatch a DRAW overlay op (worker takes the layer name — Phase D:
-        the CURRENT configured overlay layer from Settings, read on the UI
-        thread and passed into the worker, then `*extra` — J.2's stale uuids)."""
-        def ok(uuid: Optional[str]) -> None:
-            success_msg_ok(uuid)
-
-        self._dispatch(worker_fn, ok, on_error,
-                       board_overlay.overlay_layer_name(), *extra)
+    def _dispatch_draw(self, worker_fn, key, ok, on_error):
+        """Dispatch a DRAW overlay op for `key` — the worker receives the key
+        and the CURRENT configured overlay layer name (Phase D: read on the UI
+        thread from Settings and passed into the worker)."""
+        self._dispatch(worker_fn, ok, on_error, key,
+                       board_overlay.overlay_layer_name())
 
     def _on_place_marker(self) -> None:
+        key = self._marker_key()
+        if key is None:
+            return
+
         def ok(uuid: Optional[str]) -> None:
             if uuid is None:
                 show_message(_("Place marker: the cell has no geometry on the "
                                "board."), _WARN_STYLE, logger)
                 return
-            self._marker_uuid = uuid
-            self._remember_overlay(self._marker_uuid, self._bbox_uuid)
-            show_message(_("Marker placed (uuid {uuid}) — drag it in KiCad, "
-                           "then press “Read position”.").format(uuid=uuid),
-                         _SUCCESS_STYLE, logger)
+            show_message(_("Marker placed — drag it in KiCad, then press "
+                           "“Read position”."), _SUCCESS_STYLE, logger)
             self._reload_form()
 
         def err(message: str) -> None:
             show_message(_("Place marker failed: {message}").format(message=message),
                          _ERROR_STYLE, logger)
 
-        # J.2: REPLACE the marker instead of piling a second one on the board —
-        # the remembered uuid(s) are dropped in the same worker op.
-        self._dispatch_draw(_replace_marker_worker, ok, err,
-                            self._stale_overlay_uuids("marker"))
+        # The owner replaces this key's previous shape inside the same worker
+        # operation (E.2.2) — a second "Place marker" can no longer stack.
+        self._dispatch_draw(_ensure_marker_worker, key, ok, err)
 
     def _on_show_bbox(self) -> None:
+        key = self._bbox_key()
+        if key is None:
+            return
+
         def ok(uuid: Optional[str]) -> None:
             if uuid is None:
                 show_message(_("Show bbox: the cell has no geometry."),
                              _WARN_STYLE, logger)
                 return
-            self._bbox_uuid = uuid
-            self._remember_overlay(self._marker_uuid, self._bbox_uuid)
-            show_message(_("Bbox drawn (uuid {uuid}).").format(uuid=uuid),
-                         _SUCCESS_STYLE, logger)
+            show_message(_("Bbox drawn."), _SUCCESS_STYLE, logger)
             self._reload_form()
 
         def err(message: str) -> None:
             show_message(_("Show bbox failed: {message}").format(message=message),
                          _ERROR_STYLE, logger)
 
-        # J.2: the same replacement semantics for the bbox — a stale rectangle
-        # left at the previous position was the "marker doesn't land in the
-        # bbox" complaint.
-        self._dispatch_draw(_replace_bbox_worker, ok, err,
-                            self._stale_overlay_uuids("bbox"))
+        # The owner replaces this key's previous rectangle inside the same
+        # worker op — no stale bbox can survive at the old position.
+        self._dispatch_draw(_ensure_bbox_worker, key, ok, err)
 
     def _on_read_marker(self) -> None:
-        if not self._marker_uuid:
+        key = self._marker_key()
+        if key is None or not self._overlay.has_key(key):
             show_message(_("No marker to read — place one first."),
                          _WARN_STYLE, logger)
             return
-        marker_uuid = self._marker_uuid
 
         def ok(xy: Optional[tuple]) -> None:
             if xy is None:
                 show_message(_("Marker not found on the board (deleted or "
                                "swept?) — place a new one."), _WARN_STYLE, logger)
-                self._marker_uuid = None
-                self._remember_overlay(None, self._bbox_uuid)
+                self._overlay.forget_key(key)
+                self._reload_form()
                 return
             entry = self._current_entry()
             if entry is None:
@@ -1526,10 +1453,14 @@ class CellAnchorView(QWidget):
             show_message(_("Read marker failed: {message}").format(message=message),
                          _ERROR_STYLE, logger)
 
-        self._dispatch(_read_marker_worker, ok, err, marker_uuid)
+        self._dispatch(_read_marker_worker, ok, err, key)
 
-    def _remove_overlay_uuid(self, uuid: Optional[str]) -> None:
-        if not uuid:
+    def _remove_uuids(self, uuids: list) -> None:
+        """Delete the given overlay shape uuids on the worker thread — the IPC
+        half of a removal whose KEY the owner already forgot synchronously (so
+        the buttons were updated on the UI thread before this dispatch)."""
+        doomed = [u for u in (uuids or []) if u]
+        if not doomed:
             return
         adapter = self._adapter_required()
         if adapter is None:
@@ -1543,23 +1474,24 @@ class CellAnchorView(QWidget):
             lambda message: show_message(
                 _("Remove overlay failed: {message}").format(message=message),
                 _ERROR_STYLE, logger),
-            adapter, [uuid])
+            adapter, doomed)
 
     def _remove_marker_only(self) -> None:
-        """Clear the marker uuid + remove the marker shape (after “Read
+        """Forget the marker key (state cleared FIRST, so the buttons update
+        immediately) + remove the shape on the worker thread (after “Read
         position” stored the point)."""
-        self._remove_overlay_uuid(self._marker_uuid)
-        self._marker_uuid = None
-        self._remember_overlay(None, self._bbox_uuid)
+        key = self._marker_key()
+        uuid = self._overlay.forget_key(key) if key else None
+        self._remove_uuids([uuid])
         self._reload_form()
 
     def _on_remove_marker(self) -> None:
         self._remove_marker_only()
 
     def _on_hide_bbox(self) -> None:
-        self._remove_overlay_uuid(self._bbox_uuid)
-        self._bbox_uuid = None
-        self._remember_overlay(self._marker_uuid, None)
+        key = self._bbox_key()
+        uuid = self._overlay.forget_key(key) if key else None
+        self._remove_uuids([uuid])
         self._reload_form()
 
     # ── Phase D: explicit overlay cleanup (D.2) ────────────────────────────
@@ -1578,9 +1510,9 @@ class CellAnchorView(QWidget):
                      .format(layer=board_overlay.overlay_layer_name()))
 
     def cleanup(self) -> None:
-        """Remove THIS cell's drawn overlay (marker + bbox) from the live
-        board by the persisted uuids, then forget them (Phase D D.2 — the
-        by-uuid fast path). Called when the anchor page is left, when a
+        """Forget THIS cell's drawn overlay keys (marker + bbox) and remove
+        their shapes from the live board (Phase D D.2 — the by-uuid fast path
+        scoped to this cell). Called when the anchor page is left, when a
         DIFFERENT cell is opened, when the root changes, and by the page's
         own "Remove overlay" button.
 
@@ -1593,15 +1525,12 @@ class CellAnchorView(QWidget):
         if getattr(self._connection, "long_op_active", False):
             # Never interleave two IPC ops on the shared kipy REQ socket —
             # rapid Config-tree clicks switch cells faster than an overlay
-            # removal completes. Leave this cell's state AND its persisted
-            # uuids in place so the GUI-exit / whole-layer sweep still finds
-            # the shape later (same discipline as cleanup_all_overlays_sync).
+            # removal completes. Leave this cell's keys in place so the
+            # GUI-exit / whole-layer sweep still finds the shape later (same
+            # discipline as cleanup_all_overlays_sync).
             return
-        marker, bbox = self._marker_uuid, self._bbox_uuid
-        self._marker_uuid = None
-        self._bbox_uuid = None
-        self._remember_overlay(None, None)  # also drops any stale persisted uuid
-        uuids = [u for u in (marker, bbox) if u]
+        scope = self._overlay_scope()
+        uuids = self._overlay.forget_scope(scope) if scope else []
         adapter = self._adapter()
         if not uuids or adapter is None:
             return

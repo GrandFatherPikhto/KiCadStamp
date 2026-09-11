@@ -1474,21 +1474,28 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   error naming the cluster/role — never "place the cell first". **Place marker** puts the marker at
   the current anchor (or bbox centre when there is no anchor), you drag it with KiCad's own tools,
   **Read position** converts the dragged world point into the cell's bbox frame (reusing
-  `world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad anchor. Marker/bbox
-  uuids are persisted in `gui_state.json` (key `cell_anchor_overlay`). Since 2026-09-10 **Place
-  marker** and **Show bbox** REPLACE the shape already drawn for this cell — the remembered uuid, plus
-  any leftover persisted from a previous session, is removed in the SAME worker operation before the
-  new shape is drawn (Denis: "Если он есть, его не надо рисовать ещё!"), so pressing the button twice
-  leaves ONE marker. A stale bbox at the previous position was itself a cause of "the marker does not
-  land in the bbox".
+  `world_pos_to_cell_local_offset`) and writes `anchor_xy`, clearing any Role/Pad anchor.
+
+  The drawn shapes are OWNED by `gui/overlay_markers.py` (2026-09-11, task Е of
+  `plan_2026_09_11_overlay_markers_owner.md`): a NAMESPACED KEY map in `gui_state.json` under
+  `overlay_markers`, e.g. `cell-anchor/<root>/<cell>/marker` and `.../bbox` (later namespaces:
+  `point/<name>`, `tree-inner/<tree>`). A KEY owns EXACTLY ONE shape — **Place marker**/**Show bbox**
+  replace the key's previous shape inside the same worker operation (Denis: "Если он есть, его не
+  надо рисовать ещё!"), so pressing the button twice leaves ONE marker, and two circles for one key
+  are impossible by construction. A crash leftover within half a marker radius of the point being
+  drawn is replaced instead of stacked. The old flat `cell_anchor_overlay` map is migrated INTO the
+  new keys once (no uuid is lost) — nothing disappears after the update.
+
+  On connect and on every manual Refresh the map is RECONCILED with the live layer: keys whose shape
+  is gone are dropped; shapes no key owns are logged and LEFT UNTOUCHED, because they may be
+  something you drew yourself on the same layer.
 
   **Overlay cleanup** (Phase D, 2026-09-09): the drawn marker/bbox are an editing aid, removed
-  explicitly when done — the Marker anchor tab's **Remove overlay** button (by-uuid), when you
-  leave the anchor page (open another Config tree node) or open a different cell/root, and at GUI
-  exit (all
-  persisted uuids, bounded + best-effort). The guaranteed recovery from a uuid leak is the
+  explicitly when done — the Marker anchor tab's **Remove overlay** button (this cell's keys), when
+  you leave the anchor page (open another Config tree node) or open a different cell/root, and at GUI
+  exit (every tracked uuid, bounded + best-effort). The guaranteed recovery from a leaked shape is the
   Settings → Board overlay **Remove entire overlay layer** button, which sweeps the WHOLE chosen
-  user layer (confirmed first; only that layer is affected).
+  user layer (confirmed first; only that layer is affected) and forgets the owner's map.
 
 **Remembered cell context** (2026-09-09, Phase E of the same plan): when a Cell is created
 (`Extract cluster...` / `Extract tree...`) or its anchor is re-read with the Role anchor tab's

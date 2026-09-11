@@ -15115,3 +15115,32 @@ msgstr "tree_instance: шаблон {template!r} обязан быть role-як
 
 msgid "⚓ (self)"
 msgstr "⚓ (self)"
+
+# ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
+#: gui/overlay_markers.py
+msgid "No live board — the overlay marker {key!r} was not drawn."
+msgstr "Нет живой платы — маркер оверлея {key!r} не нарисован."
+
+#: gui/overlay_markers.py
+msgid "No live board — the overlay bbox {key!r} was not drawn."
+msgstr "Нет живой платы — рамка bbox оверлея {key!r} не нарисована."
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: layer {layer!r} is not enabled on this board — nothing to reconcile."
+msgstr "Сверка оверлея: слой {layer!r} не включён на этой плате — сверять нечего."
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: could not read layer {layer!r}: {error}"
+msgstr "Сверка оверлея: не удалось прочитать слой {layer!r}: {error}"
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: {count} shape(s) on layer {layer!r} have no owner key — left untouched (use the overlay sweep to remove stale shapes)."
+msgstr "Сверка оверлея: у {count} фигур(ы) на слое {layer!r} нет ключа-владельца — они не тронуты (для удаления устаревших фигур используйте очистку слоя оверлея)."
+
+#: gui/docks/cell_anchor_view.py
+msgid "Marker placed — drag it in KiCad, then press “Read position”."
+msgstr "Маркер поставлен — перетащите его в KiCad и нажмите «Считать позицию»."
+
+#: gui/docks/cell_anchor_view.py
+msgid "Bbox drawn."
+msgstr "Bbox нарисован."

@@ -16465,3 +16465,32 @@ msgstr ""
 
 msgid "⚓ (self)"
 msgstr ""
+
+# ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
+#: gui/overlay_markers.py
+msgid "No live board — the overlay marker {key!r} was not drawn."
+msgstr ""
+
+#: gui/overlay_markers.py
+msgid "No live board — the overlay bbox {key!r} was not drawn."
+msgstr ""
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: layer {layer!r} is not enabled on this board — nothing to reconcile."
+msgstr ""
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: could not read layer {layer!r}: {error}"
+msgstr ""
+
+#: gui/overlay_markers.py
+msgid "Overlay reconcile: {count} shape(s) on layer {layer!r} have no owner key — left untouched (use the overlay sweep to remove stale shapes)."
+msgstr ""
+
+#: gui/docks/cell_anchor_view.py
+msgid "Marker placed — drag it in KiCad, then press “Read position”."
+msgstr ""
+
+#: gui/docks/cell_anchor_view.py
+msgid "Bbox drawn."
+msgstr ""

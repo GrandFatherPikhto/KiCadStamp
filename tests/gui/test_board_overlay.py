@@ -226,21 +226,12 @@ def test_settings_accessors_read_persisted_values():
     assert overlay.overlay_marker_stroke_mm() == 0.05
 
 
-def test_persisted_overlay_uuids_collects_across_roots_and_cells():
-    """The whole-map view the by-uuid cleanup (page close / GUI exit) sweeps:
-    every non-None marker/bbox uuid across every root and cell."""
-    from gui import settings as gui_settings
-    gui_settings.state.set(overlay.OVERLAY_STATE_KEY, {
-        "/root/a": {"cellA": {"marker": "m1", "bbox": "b1"},
-                    "cellB": {"marker": "m2", "bbox": None}},
-        "/root/b": {"cellC": {"marker": None, "bbox": "b3"},
-                    "cellD": {"marker": "", "bbox": "b4"}},
-        "/root/c": "not-a-dict",          # defensive: stray values ignored
-    })
-    uuids = overlay.persisted_overlay_uuids()
-    assert sorted(uuids) == ["b1", "b3", "b4", "m1", "m2"]
-    overlay.clear_persisted_overlay()
-    assert overlay.persisted_overlay_uuids() == []
+def test_overlay_state_key_is_the_legacy_migration_key():
+    """OVERLAY_STATE_KEY is now the LEGACY key the owner migrates FROM
+    (overlay_markers.migrate_legacy_state) — its name must stay stable, or an
+    existing gui_state.json would silently stop being migrated. The map itself
+    is owned by gui/overlay_markers (see tests/gui/test_overlay_markers.py)."""
+    assert overlay.OVERLAY_STATE_KEY == "cell_anchor_overlay"
 
 
 # ── Phase D: whole-layer sweep by display name ─────────────────────────────

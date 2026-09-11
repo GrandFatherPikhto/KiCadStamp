@@ -52,6 +52,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
+from . import overlay_markers
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import (
     CellAnchorView,
@@ -2509,8 +2510,8 @@ class DockHub:
             logger.exception("cell-anchor page-leave overlay cleanup failed")
 
     def cleanup_overlay_on_quit(self, connection) -> None:
-        """GUI-shutdown overlay cleanup (Phase D D.2) — remove EVERY persisted
-        overlay shape (marker/bbox across all roots/cells) from the board,
+        """GUI-shutdown overlay cleanup (Phase D D.2) — remove EVERY overlay
+        shape the owner tracks (across all namespaces/keys) from the board,
         bounded and best-effort. Called by MainWindow._persist_settings — the
         one choke point shared by the real-quit closeEvent and the tray
         Quit. Never blocks quit for more than a bounded wait; never crashes
@@ -2519,6 +2520,25 @@ class DockHub:
             cleanup_all_overlays_sync(connection)
         except Exception:  # noqa: BLE001 — quit must never be blocked
             logger.exception("overlay cleanup on quit failed")
+
+    def reconcile_overlay(self, connection) -> None:
+        """Reconcile the overlay key map with the live layer (E.2.4) — called
+        by MainWindow._finish_poll on connect and on every manual refresh.
+
+        The board read runs on a WORKER thread (start_long_op), never on the UI
+        thread, and the report only reaches the Log — never a modal. Best
+        effort by design: no adapter, a busy socket or a disabled layer is a
+        silent no-op, because this is a visualisation housekeeping step."""
+        from .worker import start_long_op
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            return
+        if getattr(connection, "long_op_active", False):
+            return  # never interleave on the shared kipy REQ socket
+        self._overlay_reconcile_op = start_long_op(
+            connection, [], overlay_markers.owner.reconcile,
+            lambda _report: None, lambda _message: None, adapter)
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live
