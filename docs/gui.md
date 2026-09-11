@@ -1189,6 +1189,19 @@ hosts the same live form as the old Detail-dock page; it auto-closes after a suc
   config, renaming a point here (or switching the project root) removes its circle, and a circle left
   behind by a point deleted in the Config tree is an orphan the owner's reconcile reports on the next
   connect.
+- **Read from board** (2026-09-12, plan `plan_2026_09_12_point_read_from_marker.md`) — a circle is a
+  real KiCad graphic, so it can be **dragged with the mouse** in the PCB editor: move it where the
+  point belongs, press **Read from board**, and the form is filled from the circle's new centre (read
+  back through the same keyed owner the cell-anchor editor's own "Read position" uses). WHERE the
+  number goes depends on what the point IS, never on the panel's own mode: a literal-xy point gets its
+  **xy replaced** (the dragged position IS the new literal), an anchored point (Anchor/Point/Board
+  origin) gets its **Shift X/Y recomputed from the base** — `dragged − (resolved − old shift)` — so
+  reading twice never makes the point creep, and a shift is never written on top of an `xy` (that
+  combination is fatal in the schema). The button only FILLS THE FORM: nothing reaches the config
+  until the usual Save, exactly like every other field here. No circle for this point yet, or the one
+  on the board was deleted in KiCad → one Log line telling you to Resolve first (the read never draws
+  a circle silently — you must see where the numbers came from); no live board → one Log line, no
+  dialog. The read goes to the board on a worker, never on the UI thread.
 - **Save** — writes into the project root file's `points:` section (a dict keyed by name, unlike
   Placer/Thermal via's list-of-dicts sections — an existing name is replaced in place, not
   duplicated).

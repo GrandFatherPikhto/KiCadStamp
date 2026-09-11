@@ -98,6 +98,24 @@ the owner's reconcile counts orphans on the next connect, and "Show all
 points" re-places the circles. Circles are pure visualisation and are never
 written to the config.
 
+Read from board (2026-09-12, plan plan_2026_09_12_point_read_from_marker.md,
+К): a circle is DRAGGABLE in KiCad (overlay_markers.owner.read_position is the
+"where did the user drag it" call the cell-anchor editor already makes), so a
+point's position can be set by hand instead of by numbers — the button reads
+the circle's centre back and fills the FORM only (К.2.2: the read never
+writes the config, Save stays explicit, like every other field of this dock).
+Where the number goes is decided by what the point IS (К.1), never by the
+mode the user happens to look at: a literal-xy point gets its xy REPLACED, an
+anchored point (anchor_ref/anchor_role/anchor_point/anchor_origin) gets its
+SHIFT — never both, because a shift on top of xy is fatal (Point's own
+docstring: "just edit the literal coordinate instead"). The new shift is
+recomputed from the BASE — base = resolved position − old shift, so
+new_shift = dragged position − base — which is what keeps a repeated read
+from making the point creep (the shift is board-absolute mm, not a delta).
+No circle for this point -> one Log line telling the user to Resolve first,
+never a silent draw: the user must see where the numbers came from (К.2.1).
+The whole read runs on the same worker path as Resolve (К.2.3).
+
 sheet_names is passed as {} for now (same cross-dock-dependency
 deferral as anchor_sheet's own free-text field above) — anchor_sheet is
 saved correctly into the YAML either way, it just won't narrow ambiguity
@@ -105,6 +123,7 @@ in THIS panel's own Resolve preview yet (a real `apply`/CLI run already
 builds sheet_names properly from the project's schematic_dir).
 """
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -141,6 +160,26 @@ _POINT_KEY_PREFIX = overlay_markers.NS_POINT + "/"
 def _point_key(name: str) -> str:
     """The overlay key one named point's circle owns."""
     return _POINT_KEY_PREFIX + str(name)
+
+
+def _nm_to_mm_exact(nm: int) -> float:
+    """The board-mm float whose OWN nanometre round trip — `int(mm * MM)`, the
+    conversion point_resolver.resolve_point performs — returns exactly `nm`.
+
+    A plain `nm / MM` cannot promise that: for about 1% of nanometre counts the
+    product lands a hair BELOW the integer and the resolver's truncating
+    `int()` then returns one nanometre less (measured: ~23k of 2M samples in
+    [-2m, +2m] mm). A dragged circle carries a whole nanometre count, and К.5.3
+    is exactly "read, save, Resolve again, land on the same nanometre", so the
+    value written to the form must survive that round trip by construction.
+    Nudging by at most a couple of ULPs (≈1e-7 nm) never moves the value to a
+    different nanometre."""
+    value = nm / MM
+    for _ in range(4):
+        if int(value * MM) == nm:
+            return value
+        value = math.nextafter(value, math.inf)
+    return value
 
 
 def _ensure_point_marker(adapter, name: str, x_mm: float, y_mm: float) -> Optional[str]:
@@ -224,6 +263,13 @@ class PointsDock(QWidget):
         self.resolve_button = QPushButton(_("Resolve"))
         self.resolve_button.clicked.connect(self._on_resolve)
         button_row.addWidget(self.resolve_button)
+        # К: "the circle is draggable" — read its centre back into the form.
+        self.read_position_button = QPushButton(_("Read from board"))
+        self.read_position_button.setToolTip(
+            _("Fill the position from this point's marker circle — drag the "
+              "circle in KiCad first (Resolve places it)."))
+        self.read_position_button.clicked.connect(self._on_read_position)
+        button_row.addWidget(self.read_position_button)
         # Ж.2.2: ONE toggle button for the whole list (space in the dock is
         # expensive). Its label follows the map — see _refresh_show_all_button.
         self.show_all_button = QPushButton(_("Show all points"))
@@ -385,7 +431,17 @@ class PointsDock(QWidget):
             self._show_message(_("Not connected."), _ERROR_STYLE)
             return None
 
-        points = {}
+        return {"name": name, "points": self._all_points_with(name, point),
+                "board": board}
+
+    def _all_points_with(self, name: str, point: Any) -> Dict[str, Any]:
+        """The whole include graph's points, with `name` REPLACED by the form's
+        own just-validated Point — the dict both Resolve and the marker read
+        hand to resolve_point_chain. An unrelated OTHER entry that fails to
+        load is silently skipped (see the module docstring), and the
+        replace-by-name is the same discipline PlacerDock/ThermalViaArrayDock's
+        Redraw uses."""
+        points: Dict[str, Any] = {}
         for other_name, other_data in collect_section_entries(self._root_path, "points").items():
             if other_name == name:
                 continue
@@ -393,9 +449,8 @@ class PointsDock(QWidget):
                 points[other_name] = load_point(other_name, other_data or {})
             except ValidationError:
                 continue  # unrelated broken entry — must not block this preview
-        points[name] = point  # replace-by-name, same as PlacerDock/ThermalViaArrayDock's Redraw
-
-        return {"name": name, "points": points, "board": board}
+        points[name] = point
+        return points
 
     def _run_resolve(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: board IPC only, never touches a widget."""
@@ -446,6 +501,166 @@ class PointsDock(QWidget):
             return
         result = self._run_resolve(payload)
         self._finish_resolve(result)
+
+    # ── Read the marker position back (К, 2026-09-12) ─────────────────────
+
+    def _on_read_position(self) -> None:
+        """UI thread (button "Read from board"): the point's circle is
+        DRAGGABLE in KiCad, so the user sets the position by hand and this
+        reads the circle's centre back into the FORM. The write to the config
+        stays the explicit, existing Save (К.2.2) — a read is not a save."""
+        self._show_message("")
+        payload = self._collect_read_inputs()
+        if payload is None:
+            return
+        self._active_op = start_long_op(
+            self._connection,
+            (self.resolve_button, self.read_position_button),
+            self._run_read_position, self._finish_read_position,
+            self._on_read_failed, payload)
+
+    def _collect_read_inputs(self) -> Optional[Dict[str, Any]]:
+        """UI thread: reading is a board IPC (К.2.3), so it needs the same
+        preconditions Resolve has — plus a circle that really exists. Without
+        one there is nothing to read, and it is deliberately NOT drawn here:
+        the user must see where the numbers came from (К.2.1)."""
+        name = self.name_edit.text().strip()
+        if not name:
+            self._show_message(_("Name is required."), _ERROR_STYLE)
+            return None
+        if self._path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return None
+        board = self._connection.board
+        if board is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return None
+        key = _point_key(name)
+        if not self._overlay.has_key(key):
+            self._show_message(
+                _("Point {name!r}: no marker on the board — press Resolve "
+                  "first (nothing was read).").format(name=name),
+                _WARN_STYLE)
+            return None
+        built = self._build_entry()
+        if built is None:
+            return None
+        try:
+            point = load_point(name, built[1])
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        return {"name": name, "key": key, "point": point,
+                "points": self._all_points_with(name, point), "board": board}
+
+    def _run_read_position(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: board IPC only, never touches a widget. The circle
+        gives an ABSOLUTE board position; WHERE that number belongs is decided
+        by what the point IS (К.1): a literal-xy point gets its xy REPLACED, an
+        anchored point gets its SHIFT — never both (a shift on top of xy is
+        fatal, see Point's own docstring).
+
+        The new shift is recomputed from the BASE, not from the old shift:
+        base = resolved position − old shift, new_shift = dragged − base. That
+        is what keeps a repeated read from making the point creep (the shift is
+        board-absolute mm, not a delta on top of the previous shift)."""
+        adapter = payload["board"].adapter
+        name = payload["name"]
+        try:
+            resolved = resolve_point_chain(adapter, payload["points"], name,
+                                          sheet_names={})
+        except (ValidationError, ApiError) as e:
+            return {"error": _("Read position failed: {error}").format(error=e)}
+        marker = overlay_markers.owner.read_position(adapter, payload["key"])
+        if marker is None:
+            return {"name": name, "gone": True}
+        # The drag is a whole nanometre count (the board stores nm), and it must
+        # stay one all the way into the config so that a re-Resolve lands on it
+        # EXACTLY (К.5.3) — hence _nm_to_mm_exact below, not a bare mm float.
+        marker_x_nm = int(round(marker[0] * MM))
+        marker_y_nm = int(round(marker[1] * MM))
+        point = payload["point"]
+        if point.xy is not None:
+            # A literal point has no shift to write (both at once is fatal) —
+            # the marker's absolute position IS the new literal, and the old
+            # literal is exactly where the point resolved before the drag.
+            return {
+                "name": name,
+                "mode": "xy",
+                "x_mm": _nm_to_mm_exact(marker_x_nm),
+                "y_mm": _nm_to_mm_exact(marker_y_nm),
+                "old_x_mm": resolved.position.x / MM,
+                "old_y_mm": resolved.position.y / MM,
+            }
+        base_x_nm = resolved.position.x - int(point.shift_x_mm * MM)
+        base_y_nm = resolved.position.y - int(point.shift_y_mm * MM)
+        return {
+            "name": name,
+            "mode": "shift",
+            "shift_x_mm": _nm_to_mm_exact(marker_x_nm - base_x_nm),
+            "shift_y_mm": _nm_to_mm_exact(marker_y_nm - base_y_nm),
+            "old_shift_x_mm": point.shift_x_mm,
+            "old_shift_y_mm": point.shift_y_mm,
+            "x_mm": marker_x_nm / MM,
+            "y_mm": marker_y_nm / MM,
+        }
+
+    def _finish_read_position(self, result: Dict[str, Any]) -> None:
+        if result.get("error"):
+            self._show_message(result["error"], _ERROR_STYLE)
+            return
+        name = result["name"]
+        if result.get("gone"):
+            # The circle was deleted in KiCad (or swept): nothing to read, the
+            # fields stay as they are — the stale key is left for Resolve to
+            # replace (ensure_marker drops a dead uuid by itself).
+            self._show_message(
+                _("Point {name!r}: the marker is gone from the board (deleted "
+                  "in KiCad or swept) — press Resolve to place a new one.")
+                .format(name=name), _WARN_STYLE)
+            return
+        # Programmatic population must not look like a user edit to the
+        # auto-stage path (same _loading guard new_point/load_entry use).
+        self._loading = True
+        try:
+            if result["mode"] == "xy":
+                self.x_edit.setText(str(result["x_mm"]))
+                self.y_edit.setText(str(result["y_mm"]))
+            else:
+                self.shift_x_edit.setText(str(result["shift_x_mm"]))
+                self.shift_y_edit.setText(str(result["shift_y_mm"]))
+        finally:
+            self._loading = False
+        if result["mode"] == "xy":
+            self._show_message(
+                _("Read from the board: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm "
+                  "(was X={old_x:.3f}mm Y={old_y:.3f}mm).").format(
+                    name=name, x=result["x_mm"], y=result["y_mm"],
+                    old_x=result["old_x_mm"], old_y=result["old_y_mm"]),
+                _SUCCESS_STYLE)
+            return
+        self._show_message(
+            _("Read from the board: {name!r} shift = X={shift_x:+.3f}mm "
+              "Y={shift_y:+.3f}mm (was X={old_x:+.3f}mm Y={old_y:+.3f}mm); the "
+              "point resolves to X={x:.3f}mm Y={y:.3f}mm.").format(
+                name=name, shift_x=result["shift_x_mm"],
+                shift_y=result["shift_y_mm"],
+                old_x=result["old_shift_x_mm"], old_y=result["old_shift_y_mm"],
+                x=result["x_mm"], y=result["y_mm"]),
+            _SUCCESS_STYLE)
+
+    def _on_read_failed(self, message: str) -> None:
+        self._show_message(
+            _("Read position failed: {error}").format(error=message),
+            _ERROR_STYLE)
+
+    def _do_read_position(self) -> None:
+        """Synchronous composition of collect + run + finish — for tests and
+        any caller that must not return until the read is complete."""
+        payload = self._collect_read_inputs()
+        if payload is None:
+            return
+        self._finish_read_position(self._run_read_position(payload))
 
     # ── Show / hide every point circle (Ж.2.2) ────────────────────────────
 

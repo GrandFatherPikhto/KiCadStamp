@@ -5,6 +5,11 @@ position.md §1.4) + guard tests locking the "no button" decisions
 (§1.5 spoke / §1.6 Points / §1.9 nested clone). (2026-09-01, plan
 rules_to_chains: RuleDock -> ChainDock in gui/docks/chain.py.)
 
+2026-09-12 (task К, plan_2026_09_12_point_read_from_marker.md): the Points
+guard changed shape, NOT meaning — see its own docstring below. §1.6 rejected
+a button with the SAME meaning as Resolve ("where does this point resolve
+now"); what Points gained is a read of the DRAGGED OVERLAY MARKER's centre.
+
 Headless: the live resolver (read_anchor_live) is monkeypatched — the test
 drives the dock's orchestration (adapter check, anchor read, label text,
 failure warning) exactly like test_trees_dock.py drives _resolve_live_offset.
@@ -98,13 +103,28 @@ def test_rule_spoke_has_no_read_position_button(main_window):
     assert not hasattr(dock, "spoke_read_position_button")  # never a spoke one
 
 
-def test_points_has_no_read_position_button(main_window):
-    """Points already have "Resolve" (which reads the live board via
-    resolve_point_chain) — a separate "Read current position" would be a
-    duplicate (design §1.6)."""
+def test_points_has_no_live_readout_and_the_marker_read_is_not_it(main_window):
+    """design §1.6: Points already have "Resolve" (which reads the live board
+    via resolve_point_chain and reports WHERE the point resolves), so a second
+    button with that same meaning would be a duplicate — there is still none:
+    no live-position readout label/button exists here.
+
+    2026-09-12 (task К, plan_2026_09_12_point_read_from_marker.md, design
+    §О.4): the dock DID gain a button, and it is deliberately not that readout
+    — it reads the DRAGGED OVERLAY MARKER's centre back into the form (the
+    very shape this dock drew with Resolve), i.e. a geometry hand-off from the
+    user's own mouse drag, not "where does this anchor resolve right now".
+    §1.6 therefore stands as a "no live readout" decision, and the new button
+    must not become a second Resolve (its own behaviour is pinned down by
+    tests/gui/test_points_dock.py's К.5 section)."""
     dock = PointsDock(main_window)
     assert hasattr(dock, "resolve_button")
-    assert not hasattr(dock, "read_position_button")
+    # No live-position readout anywhere on this dock (§1.6) …
+    assert not hasattr(dock, "anchor_position_label")
+    # … while the marker read exists and is a DIFFERENT button than Resolve.
+    assert hasattr(dock, "read_position_button")
+    assert dock.read_position_button is not dock.resolve_button
+    assert dock.read_position_button.text() != dock.resolve_button.text()
 
 
 def test_nested_clone_has_no_read_position_button(main_window):

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from kipy.board_types import BoardCircle, BoardLayer
+from kipy.geometry import Vector2
 
 import gui.board_overlay as board_overlay
 import gui.docks.points as points_mod
@@ -942,4 +943,226 @@ def test_rename_of_the_loaded_point_drops_the_old_circle(
     assert not markers_mod.owner.has_key("point/old")
     assert markers_mod.owner.keys() == []
     assert calls and calls[0][2] == board_overlay.remove_overlay
+
+
+# ── Read from board (К, plan_2026_09_12_point_read_from_marker.md) ────────
+#
+# One test per item of the plan's К.5 checklist. A drag is simulated on the
+# fake board's REAL BoardCircle: read_position only ever reads
+# `.center.x/.center.y`, so a new centre IS the dragged position. Coordinates
+# are given in NANOMETRES — the board's own unit — because that is what makes
+# К.5.3's round trip checkable exactly ("до нанометра") instead of within a
+# float tolerance.
+
+def _drag_circle(adapter, x_nm, y_nm, layer=LAYER):
+    """Move the ONE overlay circle of the point to a board position (nm) —
+    the user's mouse drag, as far as read_position can tell."""
+    circles = _circles(adapter, layer)
+    assert len(circles) == 1, "expected exactly one marker circle to drag"
+    circles[0].center = Vector2.from_xy(int(x_nm), int(y_nm))
+    return circles[0]
+
+
+def test_read_from_board_fills_the_literal_xy_of_a_plain_point(
+        main_window, tmp_path, caplog):
+    """К.5.1 — a literal point: the marker's absolute position REPLACES `xy`,
+    as numbers, and no shift appears next to it (shift on top of xy is fatal,
+    so _build_entry must never emit both)."""
+    dock, target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+    dock._do_resolve()
+    before = target.read_text(encoding="utf-8")
+
+    _drag_circle(adapter, 12_500_000, -3_250_000)
+    dock._do_read_position()
+
+    assert dock.x_edit.text() == "12.5"
+    assert dock.y_edit.text() == "-3.25"
+    assert dock.shift_x_edit.text() == "" and dock.shift_y_edit.text() == ""
+    _name, entry = dock._build_entry()
+    assert entry == {"xy": [12.5, -3.25]}
+    assert any("xy = X=12.500mm Y=-3.250mm" in r.message for r in caplog.records)
+    # К.5.8 — the read itself never writes the config (Save stays explicit).
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_read_from_board_writes_the_shift_of_an_anchored_point(
+        main_window, tmp_path, caplog):
+    """К.5.2 — an anchored point: the dragged position becomes the SHIFT
+    (`marker − base`), as numbers, and no `xy` appears."""
+    dock, target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "base": {"xy": [5.0, 5.0]},
+        "p": {"anchor_point": "base"},
+    }})
+    dock.load_entry("p")
+    dock._do_resolve()                      # the circle lands on the base (5, 5)
+    before = target.read_text(encoding="utf-8")
+
+    _drag_circle(adapter, 7_250_000, 9_500_000)
+    dock._do_read_position()
+
+    assert dock.shift_x_edit.text() == "2.25"
+    assert dock.shift_y_edit.text() == "4.5"
+    assert dock.x_edit.text() == "" and dock.y_edit.text() == ""
+    _name, entry = dock._build_entry()
+    assert entry == {"anchor_point": "base", "shift_x_mm": 2.25, "shift_y_mm": 4.5}
+    assert "xy" not in entry
+    assert any("shift = X=+2.250mm Y=+4.500mm" in r.message for r in caplog.records)
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_read_then_save_then_resolve_lands_exactly_on_the_dragged_point(
+        main_window, tmp_path):
+    """К.5.3, the main test — drag, read, save, Resolve again: the point
+    resolves to the dragged position TO THE NANOMETRE. Uses the REAL
+    resolve_point_chain (an anchor_point chain to a literal `base` is fully
+    offline), so the drag→config→resolve round trip is the production one."""
+    from kicadstamp.placement.services.point_resolver import resolve_point_chain
+
+    dock, target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "base": {"xy": [1.0, 2.0]},
+        "p": {"anchor_point": "base", "shift_x_mm": 0.5},
+    }})
+    dock.load_entry("p")
+    dock._do_resolve()
+    dragged = (33_333_333, -7_777_777)
+    _drag_circle(adapter, *dragged)
+
+    dock._do_read_position()
+    dock._on_save()
+
+    saved = _load(target)["points"]
+    assert "xy" not in saved["p"]
+    points = {n: load_point(n, d) for n, d in saved.items()}
+    resolved = resolve_point_chain(adapter, points, "p", sheet_names={})
+    assert (resolved.position.x, resolved.position.y) == dragged
+
+
+def test_read_from_board_recomputes_the_shift_from_the_base_not_the_old_shift(
+        main_window, tmp_path):
+    """К.5.4 — a point that already carries a shift: the new one is measured
+    from the BASE (marker − base), never added on top of the old shift, or the
+    point would "run away" by the old shift on every single read."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "base": {"xy": [5.0, 5.0]},
+        "p": {"anchor_point": "base", "shift_x_mm": 1.0, "shift_y_mm": 2.0},
+    }})
+    dock.load_entry("p")
+    dock._do_resolve()                      # resolves to (6, 7) mm with the old shift
+    _drag_circle(adapter, 10_000_000, 7_000_000)
+
+    dock._do_read_position()
+
+    # base is (5, 5), so the shift is (5, 2) — NOT old + delta = (4, 0).
+    assert dock.shift_x_edit.text() == "5.0"
+    assert dock.shift_y_edit.text() == "2.0"
+
+
+def test_read_from_board_without_a_marker_logs_and_touches_nothing(
+        main_window, tmp_path, caplog):
+    """К.5.5 — no circle for this point: one Log line telling the user to
+    Resolve first, the fields untouched — and NOTHING drawn silently (the user
+    must see where the numbers came from)."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+
+    dock._do_read_position()
+
+    assert any("no marker on the board" in r.message for r in caplog.records)
+    assert dock.x_edit.text() == "1.0" and dock.y_edit.text() == "2.0"
+    assert _circles(adapter) == []
+
+
+def test_read_from_board_when_the_circle_was_deleted_logs_and_touches_nothing(
+        main_window, tmp_path, caplog):
+    """К.5.6 — the user deleted the circle in KiCad: read_position returns
+    None, one Log line, the fields untouched (the stale key is left for the
+    next Resolve's idempotent ensure_marker to replace)."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+    dock._do_resolve()
+    assert markers_mod.owner.has_key("point/origin")
+
+    adapter._board.shapes = []              # deleted under us in KiCad
+    dock._do_read_position()
+
+    assert any("the marker is gone from the board" in r.message
+               for r in caplog.records)
+    assert dock.x_edit.text() == "1.0" and dock.y_edit.text() == "2.0"
+
+
+def test_read_from_board_without_a_board_shows_no_modal(
+        main_window, tmp_path, monkeypatch, caplog):
+    """К.5.7 — no board: one Log line, no exception, no dialog ever."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    def _no_modal(*_a, **_k):
+        raise AssertionError("no modal must ever be shown")
+
+    for name in ("question", "information", "warning", "critical"):
+        monkeypatch.setattr(QMessageBox, name, _no_modal)
+    dock, _target = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+
+    dock._do_read_position()                # must not raise
+
+    assert any("Not connected" in r.message for r in caplog.records)
+
+
+def test_read_from_board_is_dispatched_on_a_worker_with_the_buttons_locked(
+        main_window, tmp_path, monkeypatch):
+    """К.2.3 — the read goes to the board on a worker, never on the UI thread,
+    with the same button lock Resolve uses."""
+    dock, _target, _adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("origin")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+    dock._do_resolve()                      # the circle this read needs
+    calls = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: calls.append(a) or "controller")
+
+    dock._on_read_position()
+
+    assert calls, "the read must be dispatched on a worker"
+    connection, widgets, fn, _ok, _err, payload = calls[0]
+    assert connection is dock._connection
+    assert fn == dock._run_read_position
+    assert set(widgets) == {dock.resolve_button, dock.read_position_button}
+    assert payload["key"] == "point/origin"
+
+
+def test_read_from_board_leaves_resolve_and_the_toggle_as_they_were(
+        main_window, tmp_path):
+    """К.5.9 — regression: the read writes NO board state, so the circle, its
+    key and the toggle's label are exactly what Resolve/Show-all left behind,
+    and Resolve still works right afterwards."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    dock._do_show_all_points()
+    assert dock.show_all_button.text() == "Hide all points"
+    uuid = markers_mod.owner.uuid_for("point/a")
+
+    _drag_circle(adapter, 4_000_000, 5_000_000)
+    dock._do_read_position()
+
+    assert len(_circles(adapter)) == 1
+    assert markers_mod.owner.uuid_for("point/a") == uuid
+    assert dock.show_all_button.text() == "Hide all points"
+    dock._do_resolve()                      # the numbers really reached the form
+    circles = _circles(adapter)
+    assert len(circles) == 1
+    assert circles[0].center.x == int(4.0 * MM)
+    assert circles[0].center.y == int(5.0 * MM)
 

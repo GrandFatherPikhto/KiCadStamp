@@ -15283,3 +15283,31 @@ msgstr "Убрать собственный якорь этой строки —
 #: gui/docks/instances_dialog.py
 msgid "Edit this instance's own place (anchor)"
 msgstr "Изменить собственное место экземпляра (якорь)"
+
+#: gui/docks/points.py
+msgid "Read from board"
+msgstr "Прочитать с платы"
+
+#: gui/docks/points.py
+msgid "Fill the position from this point's marker circle — drag the circle in KiCad first (Resolve places it)."
+msgstr "Заполнить позицию по кружку-маркеру этой точки — сначала перетащите кружок в KiCad (его ставит Resolve)."
+
+#: gui/docks/points.py
+msgid "Point {name!r}: no marker on the board — press Resolve first (nothing was read)."
+msgstr "Точка {name!r}: на плате нет маркера — сначала нажмите Resolve (ничего не прочитано)."
+
+#: gui/docks/points.py
+msgid "Read position failed: {error}"
+msgstr "Не удалось прочитать позицию: {error}"
+
+#: gui/docks/points.py
+msgid "Point {name!r}: the marker is gone from the board (deleted in KiCad or swept) — press Resolve to place a new one."
+msgstr "Точка {name!r}: маркер исчез с платы (удалён в KiCad или снесён) — нажмите Resolve, чтобы поставить новый."
+
+#: gui/docks/points.py
+msgid "Read from the board: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm (was X={old_x:.3f}mm Y={old_y:.3f}mm)."
+msgstr "Прочитано с платы: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm (было X={old_x:.3f}mm Y={old_y:.3f}mm)."
+
+#: gui/docks/points.py
+msgid "Read from the board: {name!r} shift = X={shift_x:+.3f}mm Y={shift_y:+.3f}mm (was X={old_x:+.3f}mm Y={old_y:+.3f}mm); the point resolves to X={x:.3f}mm Y={y:.3f}mm."
+msgstr "Прочитано с платы: {name!r} сдвиг = X={shift_x:+.3f}mm Y={shift_y:+.3f}mm (было X={old_x:+.3f}mm Y={old_y:+.3f}mm); точка теперь разрешается в X={x:.3f}mm Y={y:.3f}mm."
