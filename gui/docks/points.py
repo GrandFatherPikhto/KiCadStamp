@@ -66,8 +66,39 @@ applied — see ResolvedPoint's own docstring), that footprint is also
 selected on the live board via adapter.select_items(), the same highlight
 mechanism the Components tree's own "click a node -> highlight on board"
 already uses (kicadstamp/kicad/adapter.py's select_items). A bare xy point,
-or one with a shift applied, has no footprint to highlight — text-only in
-that case. sheet_names is passed as {} for now (same cross-dock-dependency
+or one with a shift applied, has no footprint to highlight (the position
+text says so) — which is exactly the gap the overlay circle closes.
+
+Overlay circles (2026-09-11, plan plan_2026_09_11_points_markers.md, Ж).
+A resolved point is ALSO drawn as a marker circle on the overlay user layer,
+through gui/overlay_markers.py's OWNER — the key `point/<name>` was reserved
+for this consumer by that owner's key shape (Е.2.1), so no new kind of key
+is invented here. Resolve draws it on the WORKER that already resolves the
+point (never IPC on the UI thread), and the owner's ensure_marker is
+idempotent BY KEY: resolving the same point again MOVES its one circle
+instead of stacking a second one (the "мы это так и не исправили"
+complaint). The select_items highlight is untouched and now works TOGETHER
+with the circle.
+
+The single "Show all points" / "Hide all points" toggle button (Ж.2.2) does
+the same for the WHOLE flat list: every point that resolves gets its circle,
+a point that does NOT resolve is skipped with a Log line naming it (one bad
+point never cancels the rest), and the second press calls the owner's
+remove_namespace("point") — our keys only, shapes of other namespaces are
+never touched. The toggle's state is READ FROM THE MAP (is there any
+`point/...` key), never a GUI flag that could drift from reality. No live
+board -> one Log line and the button does nothing; a circle is a
+visualisation and never raises and never shows a modal (Е.2.6).
+
+Cleanup (Ж.2.3): renaming a point through this dock drops the key of the
+previous name, and a root switch (set_root_path) clears the whole point
+namespace. A point deleted or renamed SOMEWHERE ELSE (the config tree)
+leaves its circle behind as an orphan — deliberately accepted for this pass:
+the owner's reconcile counts orphans on the next connect, and "Show all
+points" re-places the circles. Circles are pure visualisation and are never
+written to the config.
+
+sheet_names is passed as {} for now (same cross-dock-dependency
 deferral as anchor_sheet's own free-text field above) — anchor_sheet is
 saved correctly into the YAML either way, it just won't narrow ambiguity
 in THIS panel's own Resolve preview yet (a real `apply`/CLI run already
@@ -88,13 +119,45 @@ from kicadstamp.i18n import _
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.utils.units import MM
 
+from .. import board_overlay, overlay_markers
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      display_path, merge_write, show_message)
+                      WARN_STYLE as _WARN_STYLE, display_path, merge_write,
+                      show_message)
 from .rename import collect_all_sheet_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
+
+# ── Overlay circles for the flat point list (Ж, 2026-09-11) ──────────────
+# `point/<name>` was already reserved by the overlay owner's key shape
+# (gui/overlay_markers.py, Е.2.1) — this dock is that consumer. The string is
+# built here from the PUBLIC namespace constant: the owner exposes a key
+# builder only for the cell-anchor consumer (cell_anchor_key) and treats every
+# key as an opaque string otherwise.
+_POINT_KEY_PREFIX = overlay_markers.NS_POINT + "/"
+
+
+def _point_key(name: str) -> str:
+    """The overlay key one named point's circle owns."""
+    return _POINT_KEY_PREFIX + str(name)
+
+
+def _ensure_point_marker(adapter, name: str, x_mm: float, y_mm: float) -> Optional[str]:
+    """WORKER-side: make the overlay owner give `name` exactly ONE circle at
+    (x_mm, y_mm) — idempotent by key, so a repeat call MOVES that circle
+    (Е.2.2). Never raises: a circle is a visualisation and must not fail the
+    operation that asked for it (Е.2.6), so a disabled overlay layer or a
+    dead board read degrades to a Log line."""
+    try:
+        return overlay_markers.owner.ensure_marker(
+            adapter, _point_key(name), x_mm, y_mm)
+    except Exception:  # noqa: BLE001 — drawing must never break the caller
+        logger.warning(
+            _("Point {name!r}: marker not drawn — the overlay layer {layer!r} "
+              "is not enabled on this board, or the board read failed.")
+            .format(name=name, layer=board_overlay.overlay_layer_name()))
+        return None
 
 
 class PointsDock(QWidget):
@@ -115,6 +178,13 @@ class PointsDock(QWidget):
         self._active_op: Optional[Any] = None
         self._path: Optional[Path] = None
         self._root_path: Optional[Path] = None
+        # The overlay map is owned by gui/overlay_markers (the map itself is
+        # the shared gui_state.json entry); this dock only asks it for KEY
+        # presence and for its idempotent ensure_*/forget_* operations.
+        self._overlay = overlay_markers.owner
+        # The name currently loaded in the form — lets Save detect a RENAME
+        # and drop the previous name's circle (Ж.2.3).
+        self._loaded_name: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -154,6 +224,11 @@ class PointsDock(QWidget):
         self.resolve_button = QPushButton(_("Resolve"))
         self.resolve_button.clicked.connect(self._on_resolve)
         button_row.addWidget(self.resolve_button)
+        # Ж.2.2: ONE toggle button for the whole list (space in the dock is
+        # expensive). Its label follows the map — see _refresh_show_all_button.
+        self.show_all_button = QPushButton(_("Show all points"))
+        self.show_all_button.clicked.connect(self._on_show_all_points)
+        button_row.addWidget(self.show_all_button)
         layout.addLayout(button_row)
 
         # 2026-09-01 (plan project_save_model): no per-dock Save button — a
@@ -166,6 +241,10 @@ class PointsDock(QWidget):
         for w in self.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)
 
+        # The toggle's starting label follows whatever the map already owns —
+        # the map lives in gui_state.json and survives a GUI restart.
+        self._refresh_show_all_button()
+
         layout.addStretch(1)
 
     # ── Wiring from the Config tree ─────────────────────────────────────
@@ -177,10 +256,17 @@ class PointsDock(QWidget):
         point-chain autocomplete now reads the WHOLE include graph (a point
         can live in any included file), same graph-wide scope as every other
         dock's point autocomplete."""
+        if path != self._root_path:
+            # Ж.2.3: an ACTUAL root switch invalidates every circle this dock
+            # drew (the points belonged to the previous project). A repeat
+            # call with the SAME path (DockHub broadcasts root_changed on
+            # graph refreshes) must NOT wipe circles the user is looking at.
+            self._clear_point_markers()
         self._root_path = path
         self._path = path
         self._refresh_sheet_names()
         self._refresh_point_names()
+        self._refresh_show_all_button()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -320,9 +406,15 @@ class PointsDock(QWidget):
             return {"error": _("Resolve failed: {error}").format(error=e)}
         if resolved.footprint is not None:
             adapter.select_items([resolved.footprint])
+        x_mm = resolved.position.x / MM
+        y_mm = resolved.position.y / MM
+        # Ж.2.1: Resolve also puts the circle — same worker as the IPC above,
+        # so nothing is drawn from the UI thread. The owner MOVES the existing
+        # circle of this key on a repeat Resolve, it never stacks a second.
+        _ensure_point_marker(adapter, payload["name"], x_mm, y_mm)
         return {
-            "x_mm": resolved.position.x / MM,
-            "y_mm": resolved.position.y / MM,
+            "x_mm": x_mm,
+            "y_mm": y_mm,
             "has_footprint": resolved.footprint is not None,
         }
 
@@ -335,6 +427,8 @@ class PointsDock(QWidget):
             _("X={x:.3f}mm Y={y:.3f}mm{suffix}").format(
                 x=result["x_mm"], y=result["y_mm"], suffix=suffix),
             _SUCCESS_STYLE)
+        # Resolve put a circle — the toggle's label follows the map (Ж.2.2).
+        self._refresh_show_all_button()
 
     def _start_resolve_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
@@ -352,6 +446,175 @@ class PointsDock(QWidget):
             return
         result = self._run_resolve(payload)
         self._finish_resolve(result)
+
+    # ── Show / hide every point circle (Ж.2.2) ────────────────────────────
+
+    def _has_point_markers(self) -> bool:
+        """True when the owner holds ANY key of the point namespace — the
+        toggle's state, read FROM THE MAP. A separate GUI flag is deliberately
+        not kept: it would drift from what is really on the board."""
+        return any(k.startswith(_POINT_KEY_PREFIX) for k in self._overlay.keys())
+
+    def _refresh_show_all_button(self) -> None:
+        """The label follows the fact (Ж.2.2): with no `point/...` key the
+        button offers to draw the circles, with at least one it offers to
+        clear the whole namespace."""
+        self.show_all_button.setText(
+            _("Hide all points") if self._has_point_markers()
+            else _("Show all points"))
+
+    def _on_show_all_points(self) -> None:
+        """UI thread (button): the ONE toggle — hide when the map already owns
+        point keys, draw for every resolvable point otherwise. Both halves run
+        on a worker with the same button lock as Resolve (the list can be long
+        and every point is a board read)."""
+        if self._has_point_markers():
+            payload = self._collect_hide_all_inputs()
+            if payload is None:
+                return
+            self._active_op = start_long_op(
+                self._connection, (self.resolve_button, self.show_all_button),
+                self._run_hide_all_points, self._finish_hide_all_points,
+                self._on_show_all_failed, payload)
+            return
+        payload = self._collect_show_all_inputs()
+        if payload is None:
+            return
+        self._active_op = start_long_op(
+            self._connection, (self.resolve_button, self.show_all_button),
+            self._run_show_all_points, self._finish_show_all_points,
+            self._on_show_all_failed, payload)
+
+    def _collect_show_all_inputs(self) -> Optional[Dict[str, Any]]:
+        """UI thread: load every point of the flat list (the WHOLE include
+        graph, same scope as the point-name autocomplete) and hand the worker
+        plain data. An entry that does not even load is REPORTED, never
+        silently dropped, and never blocks the others (Ж.2.2)."""
+        if self._root_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return None
+        board = self._connection.board
+        if board is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return None
+        points: Dict[str, Any] = {}
+        names = []
+        failed = []
+        for name, data in collect_section_entries(self._root_path, "points").items():
+            try:
+                points[name] = load_point(name, data or {})
+            except ValidationError as e:
+                failed.append((name, str(e)))
+                continue
+            names.append(name)
+        return {"points": points, "names": names, "failed": failed,
+                "board": board}
+
+    def _run_show_all_points(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: resolve EVERY point and give each resolved one its
+        circle. One bad point is NOT fatal (Ж.2.2) — it is skipped and
+        reported, and the rest of the list still gets its circles."""
+        adapter = payload["board"].adapter
+        drawn = []
+        failed = list(payload.get("failed") or [])
+        for name in payload["names"]:
+            try:
+                resolved = resolve_point_chain(adapter, payload["points"], name,
+                                               sheet_names={})
+            except (ValidationError, ApiError) as e:
+                failed.append((name, str(e)))
+                continue
+            _ensure_point_marker(adapter, name,
+                                 resolved.position.x / MM,
+                                 resolved.position.y / MM)
+            drawn.append(name)
+        return {"drawn": drawn, "failed": failed}
+
+    def _finish_show_all_points(self, result: Dict[str, Any]) -> None:
+        for name, error in result.get("failed") or []:
+            self._show_message(
+                _("Point {name!r} did not resolve: {error}").format(
+                    name=name, error=error),
+                _ERROR_STYLE)
+        if not result.get("drawn") and not result.get("failed"):
+            self._show_message(_("No points to show."), _WARN_STYLE)
+        self._refresh_show_all_button()
+
+    def _collect_hide_all_inputs(self) -> Optional[Dict[str, Any]]:
+        """UI thread: clearing the namespace is board-side IPC too, so it
+        needs a live board — without one the button does nothing but say so
+        (Ж.2.2), never a modal."""
+        board = self._connection.board
+        if board is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return None
+        return {"board": board}
+
+    def _run_hide_all_points(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: drop the WHOLE point namespace — OUR keys only;
+        shapes of other namespaces are never touched (Е.2.1)."""
+        self._overlay.remove_namespace(payload["board"].adapter,
+                                       overlay_markers.NS_POINT)
+        return {}
+
+    def _finish_hide_all_points(self, _result: Dict[str, Any]) -> None:
+        self._refresh_show_all_button()
+
+    def _on_show_all_failed(self, message: str) -> None:
+        self._show_message(
+            _("Show all points failed: {error}").format(error=message),
+            _ERROR_STYLE)
+
+    def _do_show_all_points(self) -> None:
+        """Synchronous composition of collect + run + finish — for tests and
+        any caller that must not return until the toggle is complete."""
+        if self._has_point_markers():
+            payload = self._collect_hide_all_inputs()
+            if payload is None:
+                return
+            self._finish_hide_all_points(self._run_hide_all_points(payload))
+            return
+        payload = self._collect_show_all_inputs()
+        if payload is None:
+            return
+        self._finish_show_all_points(self._run_show_all_points(payload))
+
+    # ── Cleanup of point circles (Ж.2.3) ──────────────────────────────────
+
+    def _live_adapter(self):
+        """The live board's adapter, or None when there is no board."""
+        board = getattr(self._connection, "board", None)
+        return getattr(board, "adapter", None) if board is not None else None
+
+    def _forget_point_marker(self, name: str) -> None:
+        """Drop ONE name's circle: state on the UI thread, the board-side
+        removal on a worker — the same split as cell_anchor_view.cleanup()
+        (never a synchronous adapter call on the UI thread)."""
+        if getattr(self._connection, "long_op_active", False):
+            return  # never interleave two IPC ops on the shared kipy REQ socket
+        uuid = self._overlay.forget_key(_point_key(name))
+        self._refresh_show_all_button()
+        adapter = self._live_adapter()
+        if not uuid or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._connection, [], board_overlay.remove_overlay,
+            lambda _ok: None, lambda _message: None, adapter, [uuid])
+
+    def _clear_point_markers(self) -> None:
+        """Drop EVERY circle this dock owns (an actual root switch). State
+        FIRST, so a missing board never leaves stale tracking behind; the
+        shapes themselves go on a worker."""
+        if getattr(self._connection, "long_op_active", False):
+            return
+        uuids = self._overlay.forget_scope(overlay_markers.NS_POINT)
+        self._refresh_show_all_button()
+        adapter = self._live_adapter()
+        if not uuids or adapter is None:
+            return
+        self._active_op = start_long_op(
+            self._connection, [], board_overlay.remove_overlay,
+            lambda _ok: None, lambda _message: None, adapter, uuids)
 
     # ── Save (auto-stage) ─────────────────────────────────────────────────
 
@@ -398,6 +661,13 @@ class PointsDock(QWidget):
                 name=name, path=display_path(self._path)),
             _SUCCESS_STYLE)
         self._refresh_point_names()
+        # Ж.2.3: a Save under a DIFFERENT name is a rename — the point the old
+        # name labelled no longer exists, so its circle must go with it (this
+        # dock's own delete path does not exist; deletes live in the config
+        # tree and leave an orphan by design, see the module docstring).
+        if self._loaded_name is not None and self._loaded_name != name:
+            self._forget_point_marker(self._loaded_name)
+        self._loaded_name = name
         self.saved.emit()
 
     # ── Starting a brand new entry (ConfigTreeDock's Add point...) ──────────
@@ -411,6 +681,7 @@ class PointsDock(QWidget):
         self._loading = True
         try:
             self._path = self._root_path
+            self._loaded_name = None
             self.name_edit.setText("")
             self.origin_widget.clear()
         finally:
@@ -434,6 +705,9 @@ class PointsDock(QWidget):
         source = find_dict_entry_file(self._root_path, "points", name)
         if source is not None:
             self._path = source
+        # Remember which name is in the form, so a later Save under another
+        # name is recognised as a RENAME (Ж.2.3).
+        self._loaded_name = name
         entry = {}
         if self._root_path is not None:
             entry = collect_section_entries(self._root_path, "points").get(name) or {}

@@ -1,20 +1,31 @@
 # tests/gui/test_points_dock.py
 """
-PointsDock tests are deliberately headless AND board-mutation-free — same
-reasoning as tests/gui/test_placer_dock.py/test_thermal_via_dock.py.
-Resolve's own live-board math is covered by tests/test_point_resolver.py
+PointsDock tests are deliberately headless — same reasoning as
+tests/gui/test_placer_dock.py/test_thermal_via_dock.py. Resolve's own
+live-board math is covered by tests/test_point_resolver.py
 (resolve_point_chain itself); here resolve_point_chain is monkeypatched so
 these tests only check what PointsDock builds/passes/shows around it.
+
+The overlay-circle half (Ж, plan_2026_09_11_points_markers.md) runs against
+the same duck-typed fake adapter gui/board_overlay.py and gui/overlay_markers.py
+already use (create_items / remove_by_ids / select_items / refresh_board /
+`_board`) — created shapes REALLY land on the fake board, so "one circle per
+key" is observable rather than asserted on a call log.
 """
 from types import SimpleNamespace
 
 import pytest
 
+from kipy.board_types import BoardCircle, BoardLayer
+
+import gui.board_overlay as board_overlay
 import gui.docks.points as points_mod
+import gui.overlay_markers as markers_mod
 from gui.docks.points import PointsDock
 from kicadstamp.config import Point, load_point
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.utils.units import MM
 
 
 def _fill_cell_defaults(data: dict) -> dict:
@@ -373,18 +384,87 @@ def test_refresh_known_roles_populates_role_and_cluster_combos(main_window, tmp_
 
 # ── Resolve ───────────────────────────────────────────────────────────────
 
+# The overlay layer the fakes expose under its DEFAULT display name
+# (board_overlay.OVERLAY_DEFAULT_LAYER = "User.Drawings"), so a drawn circle
+# resolves a live layer exactly like on a real board.
+LAYER = BoardLayer.BL_Dwgs_User
+OTHER_LAYER = BoardLayer.BL_User_5
+
+
+class _FakeBoard:
+    """Duck-typed `_board` — the exact surface gui/board_overlay.py reads."""
+
+    def __init__(self, layers=None, shapes=None):
+        self.layers = list(layers) if layers is not None else [LAYER, OTHER_LAYER]
+        self.shapes = list(shapes) if shapes is not None else []
+        self.names = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp"}
+
+    def get_enabled_layers(self):
+        return list(self.layers)
+
+    def get_layer_name(self, layer):
+        return self.names.get(layer, str(layer))
+
+    def get_shapes(self):
+        return list(self.shapes)
+
+
 class _FakeAdapter:
-    def __init__(self):
-        self.selected = None
+    """Board-mutation-free fake with the overlay-drawing duck surface.
+    Created shapes are registered on the fake board and remove_by_ids() really
+    removes them, so what idempotency and cleanup must see (a live layer) is
+    what these tests see. `selections` records every select_items() call in
+    order: the Resolve footprint highlight first, then one repaint per draw."""
+
+    def __init__(self, board=None):
+        self._board = board if board is not None else _FakeBoard()
+        self.created = []
+        self.removed = []
+        self.refreshes = 0
+        self.selections = []
+        self._next_id = 0
+
+    def refresh_board(self):
+        self.refreshes += 1
+
+    def create_items(self, items):
+        items = list(items)
+        # The real board assigns a uuid on create; a freshly built kipy shape
+        # carries an EMPTY id.value, so the fake must do the same or every
+        # created shape would collide on "".
+        for item in items:
+            self._next_id += 1
+            item.id.value = f"shape-{self._next_id}"
+        self.created.extend(items)
+        self._board.shapes = list(self._board.shapes) + items
+        return items
 
     def select_items(self, items):
-        self.selected = items
+        self.selections.append(list(items))
+
+    def remove_by_ids(self, uuid_strs):
+        doomed = {str(u) for u in uuid_strs}
+        self.removed.extend(uuid_strs)
+        self._board.shapes = [s for s in self._board.shapes
+                              if str(s.id.value) not in doomed]
+        return True
 
 
 def _connect_board(dock):
     adapter = _FakeAdapter()
     dock._connection.board = SimpleNamespace(adapter=adapter)
     return adapter
+
+
+def _circles(adapter, layer=LAYER):
+    return [s for s in adapter._board.shapes
+            if isinstance(s, BoardCircle) and s.layer == layer]
+
+
+def _make_dock_with_board(main_window, tmp_path, data=None):
+    dock, target = _make_dock(main_window, tmp_path, data)
+    adapter = _connect_board(dock)
+    return dock, target, adapter
 
 
 def test_resolve_without_connection_shows_error(main_window, tmp_path, caplog):
@@ -440,7 +520,9 @@ def test_resolve_shows_position_and_selects_the_footprint(main_window, tmp_path,
     # select_items is called inside _run_resolve itself (worker thread),
     # not by the dock — confirm the adapter it was handed is the live one.
     assert captured["adapter"] is adapter
-    assert adapter.selected == [fp]
+    # The footprint highlight is the FIRST select_items() call; the marker
+    # circle this task adds repaints right after it.
+    assert adapter.selections[0] == [fp]
 
 
 def test_resolve_shows_no_footprint_suffix_when_shift_applied(main_window, tmp_path, monkeypatch, caplog):
@@ -527,4 +609,337 @@ def test_set_root_path_point_name_autocomplete_covers_whole_graph(main_window, t
 
     assert sorted(dock.point_edit.itemText(i) for i in range(dock.point_edit.count())) == \
         ["a", "b"]
+
+
+# ── Overlay circles (Ж, plan_2026_09_11_points_markers.md) ────────────────
+#
+# One test per item of the plan's Ж.4 checklist. The "resolved through a live
+# footprint" item is a REGRESSION test on today's highlight, which must keep
+# working TOGETHER with the new circle.
+
+def _fx_xy(name, x_mm, y_mm):
+    """A resolve_point_chain stub result for a bare xy point — the numbers the
+    dock must translate into a circle centre."""
+    return SimpleNamespace(
+        position=SimpleNamespace(x=int(x_mm * MM), y=int(y_mm * MM)),
+        footprint=None)
+
+
+def test_resolve_draws_exactly_one_circle_at_the_computed_position(
+        main_window, tmp_path, caplog):
+    """Ж.4.1 — one circle, and its centre IS the resolved position (numbers).
+    Ж.4.10 — the Resolve text output is unchanged by this task."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("p1")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("12.5")
+    dock.y_edit.setText("-3.25")
+
+    dock._do_resolve()
+
+    assert any("X=12.500mm Y=-3.250mm" in r.message for r in caplog.records)
+    circles = _circles(adapter)
+    assert len(circles) == 1
+    assert circles[0].center.x == int(12.5 * MM)
+    assert circles[0].center.y == int(-3.25 * MM)
+    assert markers_mod.owner.has_key("point/p1")
+
+
+def test_resolve_twice_moves_the_same_circle(main_window, tmp_path):
+    """Ж.4.2 — a repeat Resolve MOVES the one circle of that key; the previous
+    shape is removed in the same operation, never left stacked on the layer."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("p1")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("2.0")
+    dock._do_resolve()
+    first_uuid = markers_mod.owner.uuid_for("point/p1")
+    assert len(_circles(adapter)) == 1
+
+    dock.x_edit.setText("7.5")
+    dock.y_edit.setText("8.25")
+    dock._do_resolve()
+
+    circles = _circles(adapter)
+    assert len(circles) == 1
+    assert circles[0].center.x == int(7.5 * MM)
+    assert circles[0].center.y == int(8.25 * MM)
+    assert first_uuid in [str(u) for u in adapter.removed]
+    assert markers_mod.owner.uuid_for("point/p1") == str(circles[0].id.value)
+
+
+def test_resolve_two_different_points_gives_two_circles(main_window, tmp_path):
+    """Ж.4.3 — two keys, two circles."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.origin_mode_combo.setCurrentIndex(0)
+
+    dock.name_edit.setText("p1")
+    dock.x_edit.setText("1.0")
+    dock.y_edit.setText("1.0")
+    dock._do_resolve()
+    dock.name_edit.setText("p2")
+    dock.x_edit.setText("2.0")
+    dock.y_edit.setText("2.0")
+    dock._do_resolve()
+
+    assert len(_circles(adapter)) == 2
+    assert markers_mod.owner.has_key("point/p1")
+    assert markers_mod.owner.has_key("point/p2")
+
+
+def test_bare_xy_point_gets_a_circle_without_any_highlight(
+        main_window, tmp_path, caplog):
+    """Ж.4.4 — the whole point of the task: a bare xy point has no footprint to
+    highlight, and now becomes visible as a circle."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    dock.name_edit.setText("p1")
+    dock.origin_mode_combo.setCurrentIndex(0)
+    dock.x_edit.setText("4.0")
+    dock.y_edit.setText("5.0")
+
+    dock._do_resolve()
+
+    assert any("no footprint to highlight" in r.message for r in caplog.records)
+    assert len(_circles(adapter)) == 1
+    # The ONLY select_items() call is the repaint of the created circle — the
+    # footprint-highlight branch never ran.
+    assert len(adapter.selections) == 1
+    assert isinstance(adapter.selections[0][0], BoardCircle)
+
+
+def test_resolve_through_a_live_footprint_draws_circle_and_highlight(
+        main_window, tmp_path, monkeypatch):
+    """Ж.4.5 — regression on today's behaviour: the footprint is still
+    highlighted, next to the new circle."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path)
+    fp = object()
+    monkeypatch.setattr(points_mod, "resolve_point_chain",
+                        lambda *a, **k: SimpleNamespace(
+                            position=SimpleNamespace(x=1_000_000, y=2_000_000),
+                            footprint=fp))
+    dock.name_edit.setText("p1")
+    dock.origin_mode_combo.setCurrentIndex(1)
+    dock.anchor_ref_edit.setText("U3")
+
+    dock._do_resolve()
+
+    assert adapter.selections[0] == [fp]
+    circles = _circles(adapter)
+    assert len(circles) == 1
+    assert circles[0].center.x == int(1.0 * MM)
+    assert circles[0].center.y == int(2.0 * MM)
+
+
+def test_show_all_skips_one_bad_point_and_keeps_going(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Ж.4.6 — three points, one does not resolve: two circles, a Log line
+    naming the third, and NO exception."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+        "b": {"xy": [2.0, 2.0]},
+        "c": {"anchor_ref": "U_MISSING"},
+    }})
+
+    def fake_resolve(adapter_arg, points, name, sheet_names=None):
+        if name == "c":
+            raise ValidationError("no component matching 'U_MISSING'")
+        return _fx_xy(name, points[name].xy[0], points[name].xy[1])
+
+    monkeypatch.setattr(points_mod, "resolve_point_chain", fake_resolve)
+
+    dock._do_show_all_points()
+
+    assert len(_circles(adapter)) == 2
+    assert markers_mod.owner.has_key("point/a")
+    assert markers_mod.owner.has_key("point/b")
+    assert not markers_mod.owner.has_key("point/c")
+    assert any("'c'" in r.message and "did not resolve" in r.message
+               for r in caplog.records)
+
+
+def test_show_all_reports_a_point_that_does_not_even_load(
+        main_window, tmp_path, caplog):
+    """An entry that fails load_point() is reported BY NAME — never dropped
+    silently — and the other points still get their circles (Ж.2.2)."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "good": {"xy": [3.0, 4.0]},
+        "bad": {"anchor_sheet": "Channel_1"},  # anchor_sheet without anchor_role
+    }})
+
+    dock._do_show_all_points()
+
+    assert len(_circles(adapter)) == 1
+    assert any("'bad'" in r.message and "did not resolve" in r.message
+               for r in caplog.records)
+
+
+def test_show_all_with_an_empty_list_logs_and_draws_nothing(
+        main_window, tmp_path, caplog):
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {}})
+
+    dock._do_show_all_points()
+
+    assert any("No points to show" in r.message for r in caplog.records)
+    assert _circles(adapter) == []
+
+
+def test_second_press_hides_every_point_circle_and_spares_other_namespaces(
+        main_window, tmp_path, monkeypatch):
+    """Ж.4.7 — the second press clears the WHOLE point namespace (shape
+    included) and leaves a foreign namespace's shape alone. The toggle's state
+    follows the MAP, not a GUI flag (Ж.2.2)."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    monkeypatch.setattr(points_mod, "resolve_point_chain",
+                        lambda *a, **k: _fx_xy("a", 1.0, 1.0))
+    foreign_key = markers_mod.cell_anchor_key("/root/x", "cellA", "marker")
+    foreign_uuid = markers_mod.owner.ensure_marker(adapter, foreign_key, 50.0, 50.0)
+
+    assert dock.show_all_button.text() == "Show all points"
+    dock._do_show_all_points()
+    assert markers_mod.owner.has_key("point/a")
+    assert dock.show_all_button.text() == "Hide all points"
+    assert len(_circles(adapter)) == 2
+
+    dock._do_show_all_points()
+
+    assert [k for k in markers_mod.owner.keys() if k.startswith("point/")] == []
+    assert markers_mod.owner.has_key(foreign_key)
+    assert foreign_uuid not in [str(u) for u in adapter.removed]
+    assert len(_circles(adapter)) == 1     # only the foreign cell-anchor circle
+    assert dock.show_all_button.text() == "Show all points"
+
+
+def test_show_all_without_a_board_logs_and_draws_nothing(
+        main_window, tmp_path, caplog):
+    """Ж.4.8 — no board: one Log line, the button does nothing, no exception."""
+    dock, _target = _make_dock(main_window, tmp_path,
+                               {"points": {"a": {"xy": [1.0, 1.0]}}})
+    assert dock._connection.board is None
+
+    dock._do_show_all_points()
+
+    assert any("Not connected" in r.message for r in caplog.records)
+    assert markers_mod.owner.keys() == []
+
+
+def test_show_all_without_a_board_shows_no_modal(main_window, tmp_path, monkeypatch):
+    """Е.2.6/Ж.2.2 — a visualisation never opens a dialog (Denis: "диалоговые
+    окошки с ошибками — это просто ппц")."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    def _no_modal(*_a, **_k):
+        raise AssertionError("no modal must ever be shown")
+
+    for name in ("question", "information", "warning", "critical"):
+        monkeypatch.setattr(QMessageBox, name, _no_modal)
+    dock, _target = _make_dock(main_window, tmp_path,
+                               {"points": {"a": {"xy": [1.0, 1.0]}}})
+
+    dock._do_show_all_points()      # must not raise
+
+
+def test_show_all_dispatches_on_a_worker_with_the_buttons_locked(
+        main_window, tmp_path, monkeypatch):
+    """Ж.2.2 — the whole list is resolved on a worker (every point is a board
+    read) with the same button lock Resolve uses."""
+    dock, _target, _adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    calls = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: calls.append(a) or "controller")
+
+    dock._on_show_all_points()
+
+    assert calls, "show-all must be dispatched on a worker"
+    connection, widgets, fn, _ok, _err, payload = calls[0]
+    assert connection is dock._connection
+    assert fn == dock._run_show_all_points
+    assert set(widgets) == {dock.resolve_button, dock.show_all_button}
+    assert payload["names"] == ["a"]
+
+
+def test_hide_all_is_dispatched_on_a_worker_too(main_window, tmp_path, monkeypatch):
+    dock, _target, _adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    monkeypatch.setattr(points_mod, "resolve_point_chain",
+                        lambda *a, **k: _fx_xy("a", 1.0, 1.0))
+    dock._do_show_all_points()          # seeds one point key
+    calls = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: calls.append(a) or "controller")
+
+    dock._on_show_all_points()
+
+    assert calls[0][2] == dock._run_hide_all_points
+
+
+def test_root_switch_clears_the_point_namespace(main_window, tmp_path, monkeypatch):
+    """Ж.4.9 — a NEW root clears the whole point namespace (state) and
+    dispatches the shape removal on a worker; foreign keys stay."""
+    dock, _target, adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    monkeypatch.setattr(points_mod, "resolve_point_chain",
+                        lambda *a, **k: _fx_xy("a", 1.0, 1.0))
+    dock._do_show_all_points()
+    uuid = markers_mod.owner.uuid_for("point/a")
+    assert uuid
+    foreign_key = markers_mod.cell_anchor_key("/root/x", "cellA", "marker")
+    markers_mod.owner.ensure_marker(adapter, foreign_key, 50.0, 50.0)
+
+    calls = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: calls.append(a) or "controller")
+    other = tmp_path / "other.sexp"
+    _write(other, {"points": {}})
+    dock.set_root_path(other)
+
+    assert [k for k in markers_mod.owner.keys() if k.startswith("point/")] == []
+    assert markers_mod.owner.has_key(foreign_key)
+    assert calls and calls[0][2] == board_overlay.remove_overlay
+    assert calls[0][6] == [uuid]
+
+
+def test_set_root_path_with_the_same_path_keeps_the_circles(
+        main_window, tmp_path, monkeypatch):
+    """DockHub broadcasts root_changed on graph refreshes with the UNCHANGED
+    path — that must not wipe circles the user is looking at (Ж.2.3)."""
+    dock, target, _adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "a": {"xy": [1.0, 1.0]},
+    }})
+    monkeypatch.setattr(points_mod, "resolve_point_chain",
+                        lambda *a, **k: _fx_xy("a", 1.0, 1.0))
+    dock._do_show_all_points()
+
+    dock.set_root_path(target)
+
+    assert markers_mod.owner.has_key("point/a")
+    assert dock.show_all_button.text() == "Hide all points"
+
+
+def test_rename_of_the_loaded_point_drops_the_old_circle(
+        main_window, tmp_path, monkeypatch):
+    """Ж.2.3 — a Save under another name IS a rename: the old name's key is
+    dropped and its shape removal is dispatched on a worker."""
+    dock, _target, _adapter = _make_dock_with_board(main_window, tmp_path, {"points": {
+        "old": {"xy": [1.0, 1.0]},
+    }})
+    dock.load_entry("old")
+    dock._do_resolve()
+    assert markers_mod.owner.has_key("point/old")
+
+    calls = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: calls.append(a) or "controller")
+    dock.name_edit.setText("new")
+    dock._on_save()
+
+    assert not markers_mod.owner.has_key("point/old")
+    assert markers_mod.owner.keys() == []
+    assert calls and calls[0][2] == board_overlay.remove_overlay
 

@@ -15176,3 +15176,28 @@ msgstr "Маркер поставлен — перетащите его в KiCad
 #: gui/docks/cell_anchor_view.py
 msgid "Bbox drawn."
 msgstr "Bbox нарисован."
+
+# ── Points dock: overlay circles (plan_2026_09_11_points_markers) ──
+#: gui/docks/points.py
+msgid "Show all points"
+msgstr "Показать все точки"
+
+#: gui/docks/points.py
+msgid "Hide all points"
+msgstr "Скрыть все точки"
+
+#: gui/docks/points.py
+msgid "Point {name!r}: marker not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr "Точка {name!r}: маркер не нарисован — слой оверлея {layer!r} не включён на этой плате, либо не удалось прочитать плату."
+
+#: gui/docks/points.py
+msgid "Point {name!r} did not resolve: {error}"
+msgstr "Точка {name!r} не разрешилась: {error}"
+
+#: gui/docks/points.py
+msgid "No points to show."
+msgstr "Нет точек для показа."
+
+#: gui/docks/points.py
+msgid "Show all points failed: {error}"
+msgstr "Показ всех точек не удался: {error}"

@@ -16526,3 +16526,28 @@ msgstr ""
 #: gui/docks/cell_anchor_view.py
 msgid "Bbox drawn."
 msgstr ""
+
+# ── Points dock: overlay circles (plan_2026_09_11_points_markers) ──
+#: gui/docks/points.py
+msgid "Show all points"
+msgstr ""
+
+#: gui/docks/points.py
+msgid "Hide all points"
+msgstr ""
+
+#: gui/docks/points.py
+msgid "Point {name!r}: marker not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed."
+msgstr ""
+
+#: gui/docks/points.py
+msgid "Point {name!r} did not resolve: {error}"
+msgstr ""
+
+#: gui/docks/points.py
+msgid "No points to show."
+msgstr ""
+
+#: gui/docks/points.py
+msgid "Show all points failed: {error}"
+msgstr ""

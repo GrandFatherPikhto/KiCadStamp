@@ -1142,6 +1142,20 @@ hosts the same live form as the old Detail-dock page; it auto-closes after a suc
   preview specifically (it needs the project's `schematic_dir`, a second file dependency this first
   pass deferred) — Sheet is still saved correctly for a real `apply` run, which does build that
   narrowing properly.
+- **Point circles** (2026-09-11, plan `plan_2026_09_11_points_markers.md`) — Resolve ALSO draws the
+  point as a marker circle on the overlay user layer (the **Settings → Board overlay** layer,
+  `User.Drawings` by default; the colour is the LAYER's), so a bare xy point — the one case with no
+  footprint to highlight — becomes visible on the board. The circles belong to the SAME keyed owner
+  as the cell-anchor overlay (`gui/overlay_markers.py`, key `point/<name>`): resolving the same point
+  again MOVES its one circle instead of stacking a second one. **Show all points** is the single
+  toggle for the whole flat list — it draws a circle for every point that resolves (a point that does
+  not resolve is skipped with a Log line naming it, never cancelling the rest) and, on the second
+  press (the label then reads **Hide all points**), drops the whole `point` namespace; the label
+  always follows what the map actually owns, never a separate flag. Without a live board the button
+  only writes a Log line — no dialog. Circles are pure visualisation: nothing is written to the
+  config, renaming a point here (or switching the project root) removes its circle, and a circle left
+  behind by a point deleted in the Config tree is an orphan the owner's reconcile reports on the next
+  connect.
 - **Save** — writes into the project root file's `points:` section (a dict keyed by name, unlike
   Placer/Thermal via's list-of-dicts sections — an existing name is replaced in place, not
   duplicated).
@@ -1488,8 +1502,9 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
 
   The drawn shapes are OWNED by `gui/overlay_markers.py` (2026-09-11, task Е of
   `plan_2026_09_11_overlay_markers_owner.md`): a NAMESPACED KEY map in `gui_state.json` under
-  `overlay_markers`, e.g. `cell-anchor/<root>/<cell>/marker` and `.../bbox` (later namespaces:
-  `point/<name>`, `tree-inner/<tree>`). A KEY owns EXACTLY ONE shape — **Place marker**/**Show bbox**
+  `overlay_markers`, e.g. `cell-anchor/<root>/<cell>/marker` and `.../bbox` (other namespaces so far:
+  `point/<name>` — the [Points](#points) dock's own circles — and, later, `tree-inner/<tree>`). A KEY
+  owns EXACTLY ONE shape — **Place marker**/**Show bbox**
   replace the key's previous shape inside the same worker operation (Denis: "Если он есть, его не
   надо рисовать ещё!"), so pressing the button twice leaves ONE marker, and two circles for one key
   are impossible by construction. A crash leftover within half a marker radius of the point being
