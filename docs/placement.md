@@ -58,26 +58,28 @@ own anchor base (origin/ref/role/another Entity ref — recursion, cycle-guarded
 An Entity referenced by no placement node, by more than one, or through a chain that loops into a
 cycle is a CONFIG error — fatal, never silently skipped.
 
-A tree with NO `(anchor ...)` at all (2026-08-31, plan tree_self_anchor_from_entity; reworked
-2026-09-05, design_2026_09_05 v2) gets an AUTO anchor: the single top-level `kind "placement"`
-node's Entity becomes the anchor subject — its cell's MOUNT role (`anchor_role`; for a not-yet-
-migrated legacy cell, the single component at the stored (0,0), the old "zero slot") — narrowed by
-the Entity's OWN `sheet`/`cluster`, then resolved LIVE exactly like an explicit
-`(anchor (role ...))` (an `anchor_pad` moves the base onto that pad). An explicit `(anchor ...)`
-ALWAYS wins; auto applies ONLY to an absent anchor (a literal `(anchor (ref "self"))` is still the
-pre-existing cycle-fatal). Config ambiguity (no mount role AND 0/2+ zero slots, or 0/2+ top-level
-placement nodes) is a whole-run fatal, never a silent guess; a live role-resolution failure (role
-missing or ambiguous on the board) is the usual per-tree skip.
+A tree with NO `(anchor ...)` at all, or one with an explicit `(anchor (self ...))` (2026-09-11, plan
+tree_self_anchor, task Д — the former AUTO anchor, 2026-08-31 / reworked 2026-09-05) hangs on a
+component the tree places ITSELF: the anchor subject is the self anchor's own `(self (ref "..."))` node
+when named (a `kind "placement"` node of this tree), else the single top-level `kind "placement"` node's
+Entity — its cell's MOUNT role (`anchor_role`; for a not-yet-migrated legacy cell, the single component
+at the stored (0,0), the old "zero slot") — narrowed by the Entity's OWN `sheet`/`cluster`, then
+resolved LIVE exactly like an explicit `(anchor (role ...))` (an `(self (pad "..."))` moves the base onto
+that pad). An ABSENT `(anchor ...)` is read as `(self)` FOREVER — no migration. Config ambiguity (no
+mount role AND 0/2+ zero slots, or a BARE `(self)` with 0/2+ top-level placement nodes) is a whole-run
+fatal, never a silent guess; a live role-resolution failure (role missing or ambiguous on the board) is
+the usual per-tree skip.
 
 A top-level `kind "placement"` node whose Entity's mount identity equals the tree's OWN EXPLICIT
 `(role ...)` anchor is a SELF-DUPLICATE (2026-09-06, plan `tree_root_rotation_drift`): node and anchor
 resolve the SAME physical part, so redrawing it can compound-rotate the anchor — the node's cell re-
 adds its mount slot's `angle_deg` on top of the very angle the anchor was just read from (e.g. cell
-`conn_pm5v`'s -90.0 under the CONN_PM5V anchor of "power"). "Extract tree from selection" no longer
-creates such a node (the checked cluster matching the explicit anchor is skipped — the anchor resolves
-independently of the node list), and the Trees dock highlights an existing duplicate so it is safe to
-delete. Materialization itself does not special-case the node; an `is_auto` tree's single root node is
-structural by construction and is never treated as a duplicate.
+`conn_pm5v`'s -90.0 under the CONN_PM5V anchor of "power"). "Extract tree from selection" NAMES the
+checked cluster matching the explicit anchor as the tree's own `(self (ref ...))` anchor (2026-09-11,
+plan tree_self_anchor, task Д) instead of creating a second node for it, and the Trees dock highlights an
+existing duplicate so it is safe to delete. Materialization itself does not special-case the node; an
+`is_self` tree's single root node is its anchor source by construction and is never treated as a
+duplicate.
 
 Extraction capture note (2026-09-06): when "Extract tree from selection" autopositions a node it
 records the node's offset in the ANCHOR's LOCAL frame (`xy`) and its `rotation` = (live mount angle −

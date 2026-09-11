@@ -85,15 +85,22 @@ class TreeAnchor:
                            anchor); sheet/cluster narrow ambiguity, pad moves
                            the anchor point to a specific pad
       - point set       -> (anchor (point "...")): a points: entry name
+      - is_self=True    -> (anchor (self [(ref "...") (pad "...")])): the tree
+                           hangs on a component the tree ITSELF places; the
+                           base is read LIVE from that component (plan
+                           2026-09-11 tree_self_anchor, task Д — replaces the
+                           implicit is_auto flag). Optional ref names a
+                           kind "placement" node OF THIS TREE (unset = the
+                           single top-level placement node, today's rule);
+                           optional pad moves the base onto that pad.
     is_external=True marks a ref anchor as live-board-only (never resolved
     against config) — symmetric to kind="external" on TreeNode (the anchor's
     own collision shield).
 
-    is_auto=True (2026-08-31, plan tree_self_anchor_from_entity) — NO explicit
-    (anchor ...) at all: the tree's anchor is derived at materialization time
-    from its own root Entity placement's cell "zero slot" (the single
-    component at local offset (0,0)), live-resolved like a (role ...) anchor.
-    Explicit anchors ALWAYS win; is_auto is only ever the ABSENT-anchor case.
+    An ABSENT (anchor ...) is read as (self) FOREVER (plan Д.2 rule 1): the
+    tree's anchor is derived at materialization time from its own root Entity
+    placement's cell mount point, live-resolved like a (role ...) anchor.
+    Explicit anchors ALWAYS win. No migration and no converter is involved.
 
     shift_xy (2026-09-11, plan_2026_09_11_external_point_materialization §X.2):
     the anchor's OWN ``(shift x y)`` — an offset in LOCAL millimetres of the
@@ -111,8 +118,28 @@ class TreeAnchor:
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
     point: str | None = None
-    is_auto: bool = False
+    is_self: bool = False         # (anchor (self ...)) — was the is_auto flag
+    self_ref: str | None = None   # optional node ref OF THIS TREE (placement)
+    self_pad: str | None = None   # optional pad of that node's component
     shift_xy: tuple[float, float] | None = None
+
+    @property
+    def mode(self) -> str:
+        """THE single predicate answering "what kind of anchor is this" — one
+        of "origin" / "record" / "external" / "self" / "role" / "point".
+        Centralised so no caller has to re-derive the kind by hand (plan Д.3).
+        An ABSENT anchor (all base fields unset) IS the self mode."""
+        if self.is_origin:
+            return "origin"
+        if self.is_self:
+            return "self"
+        if self.role is not None:
+            return "role"
+        if self.point is not None:
+            return "point"
+        if self.ref is not None:
+            return "external" if self.is_external else "record"
+        return "self"
 
 
 @dataclass
@@ -128,7 +155,7 @@ class TreeNode:
     # kind "mount" ONLY (2026-09-11, plan_2026_09_11_tree_mount_nodes §Y.1): the
     # node's own live (role ...) anchor — the point this node (and therefore its
     # whole subtree) hangs from. Only the role-anchor shape is meaningful
-    # (origin/ref/point/is_auto are tree-anchor-only and load-time fatals, see
+    # (origin/ref/point/self are tree-anchor-only and load-time fatals, see
     # _parse_mount_anchor/_dict_mount_anchor). A nested (anchor ...) on ANY other
     # kind is a load-time fatal pointing at the tree converter — that was the
     # removed TreeNode.own_anchor grammar (2026-09-03 .. 2026-09-11). None
@@ -241,7 +268,14 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     refdes, NEVER resolved against config);
     (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)]) -> role-based
     anchor by the Role custom field on a live component;
-    (anchor (point "...")) -> points: entry anchor.
+    (anchor (point "...")) -> points: entry anchor;
+    (anchor (self [(ref "...") (pad "...")])) -> SELF anchor (2026-09-11, plan
+    tree_self_anchor, task Д): the tree hangs on a component it places itself,
+    read LIVE. The optional (ref ...) names a kind "placement" node OF THIS
+    TREE — deliberately NOT the tree-level (ref "...") record anchor it nests
+    beside; the optional (pad ...) moves the base onto that specific pad. Both
+    are validated against the tree's own nodes later (_validate_self_ref, which
+    needs the parsed node list).
     Exactly one base kind is required (fatal otherwise). ref/role/point are NOT
     validated for uniqueness against nodes — an anchor is a base, not something
     the tree places (rule 2).
@@ -250,24 +284,26 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     shift_xy = _parse_anchor_shift(anchor_node)
     is_origin = child(anchor_node, "origin") is not None
     is_external = child(anchor_node, "external") is not None
+    self_node = child(anchor_node, "self")
     ref = atom(anchor_node, "ref")
     role = atom(anchor_node, "role")
     point = atom(anchor_node, "point")
     mode_count = sum(1 for m in (is_origin, ref is not None,
-                                 role is not None, point is not None) if m)
+                                 role is not None, point is not None,
+                                 self_node is not None) if m)
     if mode_count != 1:
         _fatal(_("anchor must specify exactly one of (origin), (ref \"...\"), "
-                 "(role \"...\"), (point \"...\")"))
+                 "(role \"...\"), (point \"...\"), (self ...)"))
     if is_origin:
         if is_external:
             _fatal(_("anchor: (origin) and (external) are mutually exclusive"))
         return TreeAnchor(ref=None, is_origin=True, is_external=False,
                           shift_xy=shift_xy)
-    # (external) is a REF-anchor modifier only: a role/point anchor is never a
-    # config record, so "external" on it would be silently meaningless. Checked
-    # HERE (before the ref/point/role branches) so a (point ...) (external) or
-    # (role ...) (external) combination is a hard fatal on BOTH paths, never a
-    # silent drop.
+    # (external) is a REF-anchor modifier only: a role/point/self anchor is
+    # never a config record, so "external" on it would be silently meaningless.
+    # Checked HERE (before the ref/point/role/self branches) so a (point ...)
+    # (external) or (role ...) (external) combination is a hard fatal on BOTH
+    # paths, never a silent drop.
     if is_external and ref is None:
         _fatal(_("anchor: (external) is only valid with a (ref \"...\") anchor"))
     if ref is not None:
@@ -275,6 +311,15 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
                           shift_xy=shift_xy)
     if point is not None:
         return TreeAnchor(point=sval(point), is_origin=False, shift_xy=shift_xy)
+    if self_node is not None:
+        # (self (ref "...") (pad "...")) — ref/pad NEST inside the (self ...)
+        # node; the top-level (ref "...") above is the record anchor.
+        return TreeAnchor(
+            is_self=True,
+            self_ref=atom(self_node, "ref"),
+            self_pad=atom(self_node, "pad"),
+            shift_xy=shift_xy,
+        )
     return TreeAnchor(
         role=sval(role),
         is_origin=False,
@@ -289,18 +334,20 @@ def _parse_mount_anchor(ref: str, anchor_node) -> TreeAnchor:
     """A kind "mount" node's nested (anchor ...) child. Only the ROLE shape is
     meaningful (plan §Y.1.2): the mount node's children are measured from this
     anchor's LIVE role position instead of the parent. (origin)/(ref ...)/
-    (point ...)/(external) are tree-anchor-only concepts — hard fatal, mirroring
-    the tree-level _parse_anchor discipline; sheet/cluster narrow an ambiguous
-    Role, pad moves the base onto a specific pad (all optional). A (shift x y)
-    is likewise tree-anchor-only for now (the shift belongs to the tree's OUTER
-    point, plan §X.2): fatal rather than silently dropped."""
+    (point ...)/(external)/(self ...) are tree-anchor-only concepts — hard
+    fatal, mirroring the tree-level _parse_anchor discipline; sheet/cluster
+    narrow an ambiguous Role, pad moves the base onto a specific pad (all
+    optional). A (shift x y) is likewise tree-anchor-only for now (the shift
+    belongs to the tree's OUTER point, plan §X.2): fatal rather than silently
+    dropped."""
     if (child(anchor_node, "origin") is not None
             or atom(anchor_node, "ref") is not None
             or atom(anchor_node, "point") is not None
             or child(anchor_node, "external") is not None
+            or child(anchor_node, "self") is not None
             or child(anchor_node, "shift") is not None):
         _fatal(_("mount node {ref!r}: anchor supports only (role ...) — "
-                 "origin/ref/point/external/shift are tree-anchor-only")
+                 "origin/ref/point/external/self/shift are tree-anchor-only")
                .format(ref=ref))
     role = atom(anchor_node, "role")
     if not role:
@@ -348,6 +395,30 @@ def _validate_mount_refs(nodes: list[TreeNode], tree_name: str) -> None:
                  "positioned node of the same tree — mount refs must be "
                  "distinct so a node can be named unambiguously")
                .format(tree=tree_name, refs=", ".join(collisions)))
+
+
+_PLACEMENT_KINDS = ("placement", "clone")
+
+
+def _validate_self_ref(tree_name: str, nodes: list[TreeNode],
+                       anchor: TreeAnchor) -> None:
+    """A self anchor's optional (ref ...) must name a kind "placement" node OF
+    THIS TREE (plan 2026-09-11 tree_self_anchor, task Д.4). A NAMED node makes
+    the anchor unambiguous, so the EXACTLY-ONE top-level rule is dropped for it
+    (that rule stays only for a bare (self) — see the resolvers). Both
+    violations are load-time fatals, mirroring _validate_tree_pivot_ref."""
+    if anchor is None or not anchor.is_self or anchor.self_ref is None:
+        return
+    by_ref = {n.ref: n for n in _walk_nodes(nodes)}
+    target = by_ref.get(anchor.self_ref)
+    if target is None:
+        _fatal(_("tree {name!r}: self anchor ref {ref!r} names no node of this "
+                 "tree").format(name=tree_name, ref=anchor.self_ref))
+    if target.kind not in _PLACEMENT_KINDS:
+        _fatal(_("tree {name!r}: self anchor ref {ref!r} is a kind {kind!r} node "
+                 "— a self anchor must name a kind \"placement\" node of this "
+                 "tree").format(name=tree_name, ref=anchor.self_ref,
+                                kind=target.kind))
 
 
 def _find_entity(cfg, name: str):
@@ -715,6 +786,19 @@ def tree_pivot_ref_candidates(tree: Tree) -> list[str]:
             if _pivot_ref_rejection(n, tree.nodes) is None]
 
 
+def tree_self_ref_candidates(tree: Tree | None) -> list[str]:
+    """Refs of THIS tree's kind "placement" nodes, in depth-first traversal
+    order — the picker list for a (self (ref "...")) anchor (plan 2026-09-11
+    tree_self_anchor, task Д.7). The SAME set the load-time validator
+    (_validate_self_ref) accepts. Legitimately EMPTY (a create-tree dialog with
+    no tree yet, or a tree with no placement nodes) — the (self) form then just
+    offers the bare form."""
+    if tree is None:
+        return []
+    return [n.ref for n in _walk_nodes(tree.nodes)
+            if n.kind in _PLACEMENT_KINDS]
+
+
 def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
                              pivot_ref: str | None) -> None:
     """A tree's pivot-ref must name a node OF THIS TREE whose base FOLLOWS the
@@ -786,15 +870,20 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
     seen_names.add(name)
 
     anchor_node = child(tree_node, "anchor")
-    # A missing (anchor ...) is now legal — the tree's anchor is AUTO-derived
-    # at materialization time from its own root Entity placement's cell zero
-    # slot (2026-08-31, plan tree_self_anchor_from_entity).
-    anchor = _parse_anchor(anchor_node) if anchor_node is not None else TreeAnchor(is_auto=True)
+    # A missing (anchor ...) is read as (self) FOREVER (2026-09-11, plan
+    # tree_self_anchor, task Д.2 rule 1): the tree's anchor is derived at
+    # materialization time from its own root Entity placement's cell mount
+    # point. No migration — every existing config keeps loading unchanged.
+    anchor = (_parse_anchor(anchor_node) if anchor_node is not None
+              else TreeAnchor(is_self=True))
 
     top_nodes = children(tree_node, "node")
     parsed_nodes = [_parse_node(n, seen_refs, f"{location}:tree {name!r}")
                     for n in top_nodes]
     _validate_mount_refs(parsed_nodes, name)
+    # A self (ref ...) names a node of THIS tree — validated with the nodes in
+    # hand (the anchor is parsed before them).
+    _validate_self_ref(name, parsed_nodes, anchor)
     # The tree's OWN inner point + angle (plan §V.1/§V.2) — parsed here, so a
     # pivot-ref is validated against THIS tree's nodes without needing a Config.
     pivot_xy, pivot_polar, pivot_ref = _parse_tree_pivot(tree_node, name, parsed_nodes)
@@ -869,15 +958,20 @@ def _node_to_sexp(node: TreeNode) -> list:
     return out
 
 
-def _anchor_to_sexp(anchor: TreeAnchor) -> list | None:
+def _anchor_to_sexp(anchor: TreeAnchor) -> list:
     """Serialize one anchor node: (origin), (ref ...) [(external)],
-    (role ...) (+ sheet/cluster/pad), (point ...), and the optional own
-    (shift x y). None for an AUTO anchor (no explicit anchor — the (anchor ...)
-    node is omitted entirely, so the round-trip load_trees(save_trees(x)) == x
-    keeps holding)."""
-    if anchor.is_auto:
-        return None
-    if anchor.is_origin:
+    (role ...) (+ sheet/cluster/pad), (point ...), (self ...), and the optional
+    own (shift x y). An ABSENT anchor is written EXPLICITLY as (anchor (self))
+    (plan Д.2 rule 2): the self mode is the canonical form of "no anchor", so
+    the result is never empty and the (anchor ...) node is never omitted."""
+    if anchor.is_self:
+        self_node: list = [sym("self")]
+        if anchor.self_ref is not None:
+            self_node.append([sym("ref"), anchor.self_ref])
+        if anchor.self_pad is not None:
+            self_node.append([sym("pad"), anchor.self_pad])
+        out = [sym("anchor"), self_node]
+    elif anchor.is_origin:
         out = [sym("anchor"), [sym("origin")]]
     else:
         out = [sym("anchor")]
@@ -902,13 +996,12 @@ def _anchor_to_sexp(anchor: TreeAnchor) -> list | None:
 
 def _tree_to_sexp(tree: Tree) -> list:
     """Serialize one Tree (name, anchor, inner point, own angle, top-level
-    nodes). The (anchor ...) node is omitted for an AUTO anchor (None from
-    _anchor_to_sexp); the pivot-*/rotation keys are written only when set, the
-    same no-noise discipline every other optional field follows."""
+    nodes). The (anchor ...) node is ALWAYS written (a self anchor serializes
+    as (anchor (self)), plan Д.2 rule 2); the pivot-*/rotation keys are written
+    only when set, the same no-noise discipline every other optional field
+    follows."""
     out: list = [sym("tree"), [sym("name"), tree.name]]
-    anchor_sexp = _anchor_to_sexp(tree.anchor)
-    if anchor_sexp is not None:
-        out.append(anchor_sexp)
+    out.append(_anchor_to_sexp(tree.anchor))
     if tree.pivot_xy is not None:
         out.append([sym("pivot-xy"), tree.pivot_xy[0], tree.pivot_xy[1]])
     elif tree.pivot_polar is not None:
@@ -942,14 +1035,20 @@ def save_trees(path: str, trees: list[Tree]) -> None:
 # default-valued fields omitted on serialization (same no-noise principle as
 # _node_to_sexp) — tree_to_dict(tree_from_dict(d)) is the canonical form.
 
-def _anchor_to_dict(anchor: TreeAnchor) -> dict | None:
-    """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay). None
-    for an AUTO anchor — tree_to_dict then omits the "anchor" key entirely.
-    The anchor's own "shift" (local-mm, §X.2) is added on ANY base kind."""
-    if anchor.is_auto:
-        return None
-    if anchor.is_origin:
-        out: dict = {"origin": True}
+def _anchor_to_dict(anchor: TreeAnchor) -> dict:
+    """Mirror of _anchor_to_sexp in plain-dict shape (the config inlay). A self
+    anchor serializes as {"self": {}} (with optional "ref"/"pad" inside), NEVER
+    by omitting the key (plan Д.2 rule 2). The anchor's own "shift" (local-mm,
+    §X.2) is added on ANY base kind."""
+    if anchor.is_self:
+        self_data: dict = {}
+        if anchor.self_ref is not None:
+            self_data["ref"] = anchor.self_ref
+        if anchor.self_pad is not None:
+            self_data["pad"] = anchor.self_pad
+        out: dict = {"self": self_data}
+    elif anchor.is_origin:
+        out = {"origin": True}
     elif anchor.ref is not None:
         out = {"ref": anchor.ref}
         if anchor.is_external:
@@ -1008,9 +1107,7 @@ def tree_to_dict(tree: Tree) -> dict:
     children) so the dict stays minimal — same principle as _node_to_sexp.
     The tree's own inner point + angle (§V.1/§V.2) are written only when set."""
     out: dict = {"name": tree.name}
-    anchor_dict = _anchor_to_dict(tree.anchor)
-    if anchor_dict is not None:
-        out["anchor"] = anchor_dict
+    out["anchor"] = _anchor_to_dict(tree.anchor)
     if tree.pivot_xy is not None:
         out["pivot_xy"] = [tree.pivot_xy[0], tree.pivot_xy[1]]
     elif tree.pivot_polar is not None:
@@ -1030,9 +1127,22 @@ def _raw_anchor(anchor_node) -> dict:
     """(anchor ...) -> the config-dict anchor shape, WITHOUT validation — the
     converter must be able to read whatever a pre-2026-09-11 config holds.
     A (shift x y) is passed through verbatim (it is the NEW grammar, but the
-    converter must round-trip it unchanged — idempotency)."""
-    if child(anchor_node, "origin") is not None:
-        out: dict = {"origin": True}
+    converter must round-trip it unchanged — idempotency). A (self ...) anchor
+    (the NEW grammar, plan Д) is passed through too — WITHOUT this the pass
+    would fall through to the role branch and rewrite (anchor (self)) as
+    (anchor (role None)), corrupting an already-converted config."""
+    if child(anchor_node, "self") is not None:
+        self_node = child(anchor_node, "self")
+        self_data: dict = {}
+        s_ref = atom(self_node, "ref")
+        if s_ref is not None:
+            self_data["ref"] = s_ref
+        s_pad = atom(self_node, "pad")
+        if s_pad is not None:
+            self_data["pad"] = s_pad
+        out: dict = {"self": self_data}
+    elif child(anchor_node, "origin") is not None:
+        out = {"origin": True}
     else:
         ref = atom(anchor_node, "ref")
         point = atom(anchor_node, "point")
@@ -1158,7 +1268,8 @@ def _dict_mount_anchor(ref: str, anchor_data: dict) -> TreeAnchor:
     are load-time fatal (mirrors _parse_mount_anchor)."""
     if not isinstance(anchor_data, dict):
         _fatal(_("mount node {ref!r}: anchor must be a mapping").format(ref=ref))
-    forbidden = [k for k in ("origin", "ref", "point", "external", "shift")
+    forbidden = [k for k in ("origin", "ref", "point", "external", "self",
+                             "shift")
                  if anchor_data.get(k) is not None]
     if forbidden:
         _fatal(_("mount node {ref!r}: anchor supports only role — {keys} are "
@@ -1310,23 +1421,33 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
         _fatal(_("a tree is missing a (name ...)"))
     anchor_data = data.get("anchor") or {}
     shift_xy = _dict_anchor_shift(anchor_data, name)
-    anchor_modes = [k for k in ("origin", "ref", "role", "point")
+    anchor_modes = [k for k in ("origin", "ref", "role", "point", "self")
                     if anchor_data.get(k) is not None]
     if len(anchor_modes) > 1:
-        _fatal(_("anchor must specify exactly one of origin/ref/role/point"))
+        _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))
     if not anchor_modes:
-        # A tree with no (anchor ...) gets an AUTO anchor, derived at
-        # materialization time from its own root Entity placement's cell zero
-        # slot (2026-08-31, plan tree_self_anchor_from_entity). A shift with no
-        # base is meaningless — fatal (mirrors the s-expr mode-count fatal).
+        # A tree with no (anchor ...) is read as (self) FOREVER (plan Д.2 rule
+        # 1). A shift with no base is meaningless — fatal (mirrors the s-expr
+        # mode-count fatal).
         if shift_xy is not None:
             _fatal(_("anchor: shift needs a base — set one of "
-                     "origin/ref/role/point"))
-        anchor = TreeAnchor(is_auto=True)
+                     "origin/ref/role/point/self"))
+        anchor = TreeAnchor(is_self=True)
     elif anchor_data.get("origin"):
         if anchor_data.get("external"):
             _fatal(_("anchor: origin and external are mutually exclusive"))
         anchor = TreeAnchor(is_origin=True, shift_xy=shift_xy)
+    elif anchor_data.get("self") is not None:
+        self_data = anchor_data["self"]
+        if self_data is not None and not isinstance(self_data, dict):
+            _fatal(_("anchor: self must be a mapping with an optional ref/pad"))
+        self_data = self_data or {}
+        anchor = TreeAnchor(
+            is_self=True,
+            self_ref=self_data.get("ref"),
+            self_pad=self_data.get("pad"),
+            shift_xy=shift_xy,
+        )
     elif anchor_data.get("ref") is not None:
         anchor = TreeAnchor(ref=anchor_data["ref"],
                             is_external=bool(anchor_data.get("external")),
@@ -1350,6 +1471,7 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
                     for n in data.get("nodes") or []]
     _validate_mount_refs(parsed_nodes, name)
+    _validate_self_ref(name, parsed_nodes, anchor)
     # The tree's OWN inner point + angle (plan §V.1/§V.2) — the dict mirror of
     # tree_from_sexp's tail.
     pivot_xy, pivot_polar, pivot_ref = _dict_tree_pivot(data, name, parsed_nodes)

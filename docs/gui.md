@@ -295,18 +295,20 @@ Editing a generated INSTANCE tree shows the same read-only notice as its context
 editor. The anchor editor covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Chain/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
-**External refdes** (a live-board component outside the config), **Auto (derive from Entity's own
-cell)** (no explicit anchor — derived at materialization from the root Entity's cell zero slot),
+**External refdes** (a live-board component outside the config), **Self (component this tree places)**
+(RENAMED 2026-09-11 from the old "Auto (derive from Entity's own cell)", same combo index — plan
+tree_self_anchor, task Д.7: an optional **Node** = one of this tree's `kind "placement"` nodes (else the
+single top-level one), plus an optional **Pad**; the base is read LIVE from that component),
 **Role** (role + optional sheet/cluster/pad) and **Point** (a `points:` entry name). The external
 choice is stored with an explicit `external` marker so it is NEVER resolved against a config record
 name: a refdes that happens to match a config record (e.g. a stale `coordinate_placement` named
 `"fpga"`) cannot hijack the anchor (2026-08-28). Because a ref anchor pointing at the tree's OWN root
 Entity can never resolve (a guaranteed self-reference), the Config-record list excludes that Entity
 whenever the tree already roots it with its single top-level `kind="placement"` node (2026-08-31) —
-and if that exclusion empties the Entity section, a hint points to the Auto mode instead of a bare
+and if that exclusion empties the Entity section, a hint points to the Self mode instead of a bare
 empty combo. Save also guards the paths the dialog cannot see (an anchor set while the tree was still
 empty and the root node added/edited in afterwards, or a hand-edited `.sexp`): the same self-reference
-is silently switched to an Auto anchor with a status-bar/log notice. Editing an existing anchor is
+is silently switched to a Self anchor with a status-bar/log notice. Editing an existing anchor is
 free: the anchor form always pre-fills the current anchor's mode and fields (only **Create tree…**
 still asks for an anchor in a modal — a not-yet-created tree has no tab yet), so a small
 tweak (e.g. changing a role anchor's sheet) doesn't rebuild the anchor from scratch. Node
@@ -317,7 +319,7 @@ parent (a `kind="placement"` node) resolves its live position/rotation from the 
 the same recursive anchor-base + node-path composition the Apply-time materializer uses — so the
 offset preview works for a resolvable Entity parent too. An Entity that no tree places (yet) falls
 back to its own cell's single zero-offset (local 0,0) component's role (the same derivation as the
-auto-anchor), so "Read current position" for e.g. fpga_flash works even BEFORE the node that places
+self-anchor), so "Read current position" for e.g. fpga_flash works even BEFORE the node that places
 it is saved; only an Entity with NEITHER a placement node NOR a readable zero-offset component (or
 one placed twice / in a cycle) warns with the materializer's own fatal text (2026-08-31). Nothing
 reaches the disk until **Save**, which replaces the whole root `trees:` section through the single
@@ -715,23 +717,19 @@ whose cluster has no Entity or a missing cell are marked and block OK; an empty/
 or a missing Role also blocks OK.
 
 A cluster whose (role, sheet, cluster) identity equals the chosen EXPLICIT role anchor is the tree's
-OWN anchor subject and is treated specially (2026-09-08, plan `extract_tree_self_anchor_as_auto_root`,
-which replaced the 2026-09-06 anti-drift skip of plan `tree_root_rotation_drift`). Instead of being
-dropped, that cluster becomes the tree's SOLE top-level auto-root node (`xy=(0,0)`, `rotation=0` — it
-is the point its siblings are measured from); every other checked cluster AND every checked inter-
-cluster `net_trace` becomes its CHILD, and the tree's anchor is switched to `is_auto` regardless of
-what the Anchor tab held. The old skip was correct for a standalone tree redraw (the anchor live-
-resolves that block on its own), but it silently removed the block when the SAME tree was later
-embedded as a module: `layout_tree_from_base` lays a module's content from the parent marker, NOT
-from the tree's own anchor, so the anchor-subject block had nothing to place it with (Denis's live
-`ch0_dac_buf` — its PIF/OA nodes travelled with the marker, the DAC_BUF block stayed put). All numeric
-offsets are unchanged by the reparenting (the anchor base already equalled the root's own live
-position by definition of the match), and the `net_trace` nodes must be reparented too because an
-auto anchor requires exactly one top-level node. Two exceptions: an `anchor_pad` on the matched
-anchor (a specific-pad narrowing the auto root cannot represent) keeps the old skip and returns a
-warning instead of converting; more than one checked cluster matching the anchor is a config
-conflict and blocks the build. An `is_auto` anchor is never treated this way (its single top-level
-node is structurally required by the auto-anchor). A self-anchor duplicate that already exists in a
+OWN anchor subject. REWRITTEN 2026-09-11 (plan `tree_self_anchor`, task Д.5, replacing the 2026-09-08
+auto-root reparenting of plan `extract_tree_self_anchor_as_auto_root`): instead of dropping it or making
+it the sole top-level auto root, "Extract tree" NAMES it as the tree's own self anchor —
+`(anchor (self (ref "<entity>") [(pad ...)]))` — and it becomes an ordinary TOP-LEVEL node at
+`xy=(0,0)`, `rotation=0` (it is the point its siblings are measured from). Every other checked cluster
+AND every checked inter-cluster `net_trace` stays TOP-LEVEL (no reparenting), which the self anchor
+allows because it NAMES its subject; all numeric offsets are unchanged (the anchor base already equalled
+the subject's own live position by definition of the match, and a zero-offset root and a top-level node
+compute identical children). An `anchor_pad` on the matched anchor is NO LONGER skipped — it is carried
+onto the self anchor as `(self (ref ...) (pad ...))`, the cluster is included and no warning is
+returned. More than one checked cluster matching the anchor is still a config conflict and blocks the
+build. A self anchor is never treated as a duplicate (its subject node is the anchor source by
+construction). A self-anchor duplicate that already exists in a
 tree (hand-made, or from an older extract before this rule — e.g. `conn_pm5v_power` under the
 CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock with a neutral background +
 tooltip ("this node duplicates the tree's own anchor — safe to delete"), so it is visible without

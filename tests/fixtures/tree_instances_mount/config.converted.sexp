@@ -2,6 +2,9 @@
   (trees
     (tree
       (name "tpl")
+      (anchor
+        (self)
+      )
       (pivot-xy 0.0 0.0)
       (node
         (ref "tpl_root")

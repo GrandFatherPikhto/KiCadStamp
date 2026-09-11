@@ -17,12 +17,14 @@ chosen anchor point, captured at build time like "Reread current position" (the
 tree freezes the current geometry of the selection relative to the anchor). At
 apply the clusters stand relative to the anchor by the captured offsets. An
 explicit role anchor permits N top-level placement nodes (the "exactly one
-top-level placement" rule is only for is_auto anchors) — so N clusters = N
-top-level nodes WHEN NO checked cluster is the tree's own explicit role anchor
-subject. If one IS (self-anchor auto-root, 2026-09-08, plan
-extract_tree_self_anchor_as_auto_root.md), it becomes the sole top-level node
-and the other N-1 clusters + net_trace nodes become its children, with the tree
-anchor switched to is_auto — see build_tree_from_clusters below.
+top-level placement" rule applies only to a BARE self anchor, not to an explicit
+role anchor) — so N clusters = N top-level nodes. When one checked cluster IS
+the tree's own explicit role anchor subject (2026-09-08, plan
+extract_tree_self_anchor_as_auto_root.md; reworked 2026-09-11, plan
+tree_self_anchor task Д.5), the tree NAMES it as its own self anchor
+(`(anchor (self (ref "<entity>") [(pad ...)]))`) and it stays a TOP-LEVEL node
+at (0,0); every other cluster AND net_trace node stays top-level too — no
+reparenting — see build_tree_from_clusters below.
 
 Inter-cluster copper (tracks/vias between 2+ selected Clusters) is captured
 separately as `net_traces:` records — NOT as tree nodes (KINDS has no
@@ -510,12 +512,12 @@ def cluster_is_anchor_duplicate(c: ReReadCluster, anchor: TreeAnchor,
     anchor_identity predicate as the runtime materializer (layer 1) and the
     Trees-dock highlight.
 
-    Only an EXPLICIT role anchor is a candidate (auto/origin/ref/point -> False:
-    an is_auto tree's root node is structural — `_auto_anchor_base` needs it).
-    Only a cluster whose EXISTING Entity can be resolved to its own anchor
+    Only an EXPLICIT role anchor is a candidate (self/origin/ref/point -> False:
+    a self tree's root node IS its anchor source — `_self_anchor_base` needs
+    it). Only a cluster whose EXISTING Entity can be resolved to its own anchor
     identity is checkable — an auto-derived Entity (phase A, cell generated at
     save time) has no cell yet, so it is never flagged here."""
-    if anchor is None or anchor.is_auto or anchor.role is None:
+    if anchor is None or anchor.is_self or anchor.role is None:
         return False
     entity_name, _cell, is_new = resolve_cluster_entity(c, cfg)
     if is_new:
@@ -644,42 +646,28 @@ def build_tree_from_clusters(
     anchor_base (a raw world delta, correct only while the anchor sits at 0°) or
     None (live-position rule at apply) and rotation stays 0.0.
 
-    SELF-ANCHOR AUTO-ROOT (2026-09-08, plan_2026_09_08_extract_tree_self_anchor_
-    as_auto_root.md — REPLACES the 2026-09-06 anti-drift skip of plan_2026_09_05_
-    tree_root_rotation_drift.md): a checked cluster that IS the tree's own
+    SELF ANCHOR (2026-09-11, plan tree_self_anchor, task Д.5 — REPLACES the
+    2026-09-08 auto-root reparenting): a checked cluster that IS the tree's own
     explicit (role ...) anchor subject (cluster_is_anchor_duplicate) used to get
-    NO node — the anti-drift skip, correct for a STANDALONE tree redraw (the
-    anchor live-resolves that block). That is invisible while the tree stands
-    alone, but breaks when the SAME tree is later embedded as a module:
-    layout_tree_from_base (kicadstamp/tree_position.py) lays content from the
-    parent marker INSTEAD of the tree's own anchor, so a tree with NO node for
-    its anchor subject has nothing to place that block at (Denis's live
-    ch0_dac_buf — only the PIF/OA nodes travelled with the marker, the DAC_BUF
-    block stayed put). The fix (§1): when exactly ONE checked cluster matches
-    the explicit anchor, that cluster becomes the SOLE top-level node
-    (xy=(0.0, 0.0), rotation=0.0 — it IS the point its siblings are measured
-    from); EVERY other checked cluster AND every checked net_trace node becomes
-    its CHILD (not a flat top-level sibling), and the tree's anchor is replaced
-    with TreeAnchor(is_auto=True) regardless of what the dialog's Anchor tab
-    held. is_auto derives the SAME live base the explicit role anchor resolved
-    (the root's own cell zero slot — see plan §0), so every numeric offset is
-    unchanged by the reparenting (§1). Reparenting the net_trace nodes too is
-    REQUIRED — _root_entity_ref/_auto_anchor_base need EXACTLY ONE top-level
-    node with no exceptions (tree_position.py / entity_placement.py), so a
-    net_trace left top-level would make is_auto unreachable (§2).
+    NO node (the anti-drift skip), then was made the SOLE top-level node with
+    everything else reparented under it (an auto anchor needs EXACTLY ONE
+    top-level placement node). Now the tree simply NAMES it as its self anchor:
+    the tree's anchor becomes (anchor (self (ref "<entity>") [(pad ...)])) and
+    the matched cluster becomes an ordinary top-level node at (0,0)/rotation 0
+    (it IS the point its siblings are measured from). Every other checked
+    cluster AND every checked net_trace node stays TOP-LEVEL — no reparenting
+    (plan Д.5а). The self anchor derives the SAME live base the explicit role
+    anchor resolved (the subject's own cell mount), and a zero-offset root and
+    a top-level node compute identical child positions, so every numeric offset
+    is unchanged.
 
-    Guards (§3/§4): an anchor_pad on the matched explicit anchor (a specific-
-    pad narrowing the auto root cannot represent) keeps TODAY's skip-and-warn —
-    no node for that cluster, the tree keeps its explicit anchor, and a warning
-    is returned (never a silent precision loss). More than one checked cluster
-    matching the anchor is a config conflict — fatal (None, errors), never
-    silently resolved. An auto-derived cluster (no existing Entity yet) or an
-    is_auto anchor never matches (its node is structural — the auto-anchor
-    needs it).
+    Guards (§4): more than one checked cluster matching the anchor is a config
+    conflict — fatal (None, errors), never silently resolved. A self-derived
+    cluster (no existing Entity yet) or a self anchor never matches (its node is
+    structural — the self anchor needs it).
 
     Returns (None, errors) when the tree name is empty/duplicate or the §4
-    multi-match conflict fires. Non-fatal warnings (the §3 anchor_pad guard)
-    are returned alongside a valid tree. A cluster without an Entity/cell is
+    multi-match conflict fires. A cluster without an Entity/cell is
     auto-satisfiable (phase A) and no longer blocks the build.
     """
     errors = _name_errors(tree_name, cfg, allow_existing=allow_existing)
@@ -708,10 +696,9 @@ def build_tree_from_clusters(
     if len(root_candidates) > 1:
         # Guard (plan §4): role+sheet+cluster identity is unique by design, so
         # 2+ checked clusters matching the SAME explicit anchor means a
-        # corrupted config — which of them would be the root? A hard error
-        # naming every candidate's Entity (their cluster tags may coincide on a
-        # corrupt config), never a silent arbitrary pick (the _name_errors
-        # shape).
+        # corrupted config — which of them would be the self subject? A hard
+        # error naming every candidate's Entity (their cluster tags may coincide
+        # on a corrupt config), never a silent arbitrary pick.
         names = ", ".join(
             repr(resolve_cluster_entity(c, cfg)[0]) for c in root_candidates)
         return None, [_("Checked clusters {clusters} all match the tree's own "
@@ -719,47 +706,36 @@ def build_tree_from_clusters(
                         "subject").format(clusters=names)]
 
     matched = root_candidates[0] if root_candidates else None
-    if matched is not None and anchor.anchor_pad is not None:
-        # Guard (plan §3): the matched explicit anchor carries anchor_pad — it
-        # narrows the anchor point to a specific pad of the anchor component
-        # (NOT the component centre), a precision is_auto cannot represent
-        # (cell.anchor_pad is a different, cell-level concept). Keep today's
-        # skip-and-warn: no node for this cluster, the tree anchor stays the
-        # ORIGINAL explicit one, and the warning is returned — never silently
-        # convert to auto with the pad point lost.
-        messages.append(_(
-            "Cluster {cluster!r} is the tree's own anchor subject, but the "
-            "anchor also narrows to pad {pad!r} — an auto root cannot preserve "
-            "the pad point; the cluster's node is skipped and the tree keeps "
-            "its explicit role anchor").format(cluster=matched.cluster,
-                                               pad=anchor.anchor_pad))
-        matched = None
 
-    if matched is not None:
-        # ── Auto-root conversion (plan §1/§2) ──
-        root_entity_name, _cell, _is_new = resolve_cluster_entity(matched, cfg)
-        children = [_cluster_placement_node(
-                        c, entities, cfg, entity_positions, anchor_base,
-                        anchor_rot_deg) for c in rest]
-        children += [_net_trace_node(net) for net in net_nodes]
-        root_node = TreeNode(ref=root_entity_name, kind="placement",
-                             xy=(0.0, 0.0), polar=None, rotation=0.0,
-                             name=None, group=None, children=children)
-        logger.info(
-            "Extract tree %r: checked cluster %r IS the tree's own explicit "
-            "role anchor subject — promoted to the sole top-level auto root "
-            "node (its %d siblings are now its children); the tree's anchor is "
-            "switched to is_auto (plan extract_tree_self_anchor_as_auto_root)",
-            tree_name, matched.cluster, len(children))
-        return Tree(name=tree_name.strip(), anchor=TreeAnchor(is_auto=True),
-                    nodes=[root_node]), messages
-
-    # ── Flat path (no match, or the §3 anchor_pad skip) ──
+    # Every non-matched cluster and every net_trace stays a TOP-LEVEL node (plan
+    # Д.5а): the self anchor names the matched subject, so no EXACTLY-ONE
+    # top-level rule applies. The arithmetic is unchanged — each node's xy is
+    # measured from the anchor's live base (== the matched subject's own live
+    # mount) at the anchor's angle.
     nodes = [_cluster_placement_node(
                  c, entities, cfg, entity_positions, anchor_base,
                  anchor_rot_deg) for c in rest]
     nodes += [_net_trace_node(net) for net in net_nodes]
-    return Tree(name=tree_name.strip(), anchor=anchor, nodes=nodes), messages
+
+    if matched is None:
+        # ── Flat path (no cluster matches the explicit anchor) ──
+        return Tree(name=tree_name.strip(), anchor=anchor, nodes=nodes), messages
+
+    # ── Self-anchor conversion (plan Д.5а) ──
+    root_entity_name, _cell, _is_new = resolve_cluster_entity(matched, cfg)
+    root_node = TreeNode(ref=root_entity_name, kind="placement",
+                         xy=(0.0, 0.0), polar=None, rotation=0.0,
+                         name=None, group=None, children=[])
+    self_anchor = TreeAnchor(is_self=True, self_ref=root_entity_name,
+                             self_pad=anchor.anchor_pad)
+    logger.info(
+        "Extract tree %r: checked cluster %r IS the tree's own explicit role "
+        "anchor subject — named as the tree's self anchor (self ref %r, pad %r); "
+        "%d other node(s) stay top-level (plan extract_tree_self_anchor)",
+        tree_name, matched.cluster, root_entity_name, anchor.anchor_pad,
+        len(nodes))
+    return Tree(name=tree_name.strip(), anchor=self_anchor,
+                nodes=[root_node, *nodes]), messages
 
 
 # ── Inter-cluster copper detection ────────────────────────────────────────

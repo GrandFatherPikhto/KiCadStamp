@@ -86,14 +86,15 @@ substitution (the EXTERNAL anchor_cluster narrowing) is a separate concept and
 is NOT affected by this guard (set unconditionally whenever `cluster:` is
 given, see _expand_template).
 
-v1.4 (2026-09-08, plan tree_instances_auto_root_template_support): an
-auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_auto, trees.py:
-the anchor is derived from the tree's OWN single top-level placement node)
-with EXACTLY ONE top-level placement node — is now also a valid tree_instances
-template, alongside the role-anchored one (the old "must be role-anchored"
-fatal is relaxed). For an auto template the anchor IS that root node (the
-whole point of is_auto), so there is no separate anchor.sheet/anchor.cluster
-substitution to make: the instance sheet lands on every generated copy — root
+v1.4 (2026-09-08, plan tree_instances_auto_root_template_support; reworked
+2026-09-11, plan tree_self_anchor task Д): a SELF-anchored template — an
+explicit (anchor (self [(ref "...")])) OR no (anchor ...) at all
+(TreeAnchor.is_self) — is also a valid tree_instances template, alongside the
+role-anchored one. A BARE (self) needs EXACTLY ONE top-level placement node
+(the anchor subject); a NAMED (self (ref "...")) does not. For a self template
+the subject Entity's cell mount IS the anchor, so there is no separate
+anchor.sheet/anchor.cluster substitution to make: the instance sheet lands on
+every generated copy — root
 included — through the SAME unconditional _expand_node `ent['sheet'] = sheet`
 path, and the v1.2.1 composite-guard walks template nodes generically (the
 root is not special-cased), so cluster behaves identically for both shapes.
@@ -331,6 +332,38 @@ def _rewrite_pivot_ref(gen: dict, template_name: str, instance_name: str,
     gen['pivot_ref'] = new_ref
 
 
+def _rewrite_self_ref(gen: dict, template_name: str, instance_name: str,
+                      ref_map: dict[str, str]) -> None:
+    """Follow the node renames for a template's (self (ref "...")) anchor
+    (2026-09-11, plan tree_self_anchor, task Д.6).
+
+    A self anchor's ref names a node of the SAME tree; expansion renames nodes
+    (placement -> __{instance}, net_trace -> lead-sheet substitution, mount ->
+    unchanged), so the copied ref must follow the SAME map the expansion walk
+    collected. A name missing from it is a template bug and a fatal HERE, naming
+    the template and the instance — otherwise the generated tree fails to load
+    with "self anchor ref ... names no node of this tree", blaming the generated
+    tree instead of the template."""
+    anchor = gen.get('anchor')
+    if not isinstance(anchor, dict):
+        return
+    self_data = anchor.get('self')
+    if not isinstance(self_data, dict):
+        return
+    ref = self_data.get('ref')
+    if ref is None:
+        return
+    new_ref = ref_map.get(ref)
+    if new_ref is None:
+        raise ValidationError(format_fatal_error(
+            _("tree_instance {name!r}: template {template!r} self anchor ref "
+              "{ref!r} names no node of the template tree").format(
+                  name=instance_name, template=template_name, ref=ref),
+            [_("the self anchor's (ref ...) must name a placement node of the "
+               "same tree — check the template's anchor")]))
+    self_data['ref'] = new_ref
+
+
 def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_net: dict,
                  generated_entities: list, generated_net_traces: list,
@@ -502,9 +535,9 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
 
     The template may be role-anchored (an (anchor (role ...)) at the top) OR —
     v1.4 (plan tree_instances_auto_root_template_support) — auto-anchored (no
-    (anchor ...) at all, with exactly ONE top-level placement node,
-    TreeAnchor.is_auto; the shape is checked at the entry gate via
-    _template_root_entity_ref, mirroring auto-anchor resolution's own rule). For
+    (anchor ...) at all, with exactly ONE top-level placement node, or a self
+    anchor (explicit (self ...) / absent); the shape is checked at the entry
+    gate via _template_root_entity_ref, mirroring self-anchor resolution). For
     a ROLE template the instance sheet is written into the deep-copied anchor
     (gen['anchor']['sheet']) and `old_sheet` (the net_trace leading-segment
     rewrite's source) is anchor.sheet. For an AUTO template there is no 'anchor'
@@ -531,46 +564,62 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     is_role_anchor = (isinstance(anchor, dict)
                       and isinstance(anchor.get('role'), str)
                       and bool(anchor.get('role')))
-    # v1.4 (plan tree_instances_auto_root_template_support): the entry gate now
-    # admits TWO template shapes — a role-anchored one AND an auto-anchored one
-    # (no (anchor ...) at all = TreeAnchor.is_auto). An explicit NON-role anchor
-    # (origin/ref/point) is neither and stays a fatal (not parameterized by
-    # sheet). For an auto template the anchor IS its own single top-level
-    # placement node (the whole point of is_auto) — so the gate mirrors
-    # auto-anchor resolution's EXACTLY-ONE rule (tree_position._root_entity_ref
-    # / entity_placement._auto_anchor_base) at EXPANSION time: an auto template
-    # that could never resolve its own anchor fails HERE with a clear message,
-    # not later during a live redraw of the generated instance.
-    root_ref = None if is_role_anchor else _template_root_entity_ref(template)
-    if not is_role_anchor and (anchor or root_ref is None):
+    # Self anchor (2026-09-11, plan tree_self_anchor, task Д.6): the template may
+    # be self-anchored — an explicit (self ...) OR (v1.4 back-compat) NO
+    # (anchor ...) at all, both read as self. An explicit NON-role, NON-self
+    # anchor (origin/ref/point) is neither and stays a fatal (not parameterized
+    # by sheet).
+    if anchor is None:
+        self_data: dict | None = {}
+    elif isinstance(anchor, dict) and anchor.get('self') is not None:
+        self_data = anchor.get('self') or {}
+    else:
+        self_data = None
+    is_self_anchor = self_data is not None
+    explicit_self_ref = (self_data.get('ref')
+                         if isinstance(self_data, dict) else None)
+    # The subject node: the self anchor's OWN (ref ...) when named, else the
+    # single top-level placement node (today's EXACTLY-ONE rule). A NAMED ref
+    # drops that rule — several top-level nodes (incl. a net_trace) are legal
+    # (plan Д.4/Д.6).
+    root_ref = None
+    if not is_role_anchor:
+        root_ref = explicit_self_ref or _template_root_entity_ref(template)
+    if not is_role_anchor and not is_self_anchor:
         raise ValidationError(format_fatal_error(
             _("tree_instance: template {template!r} must be role-anchored OR "
-              "auto-anchored with exactly one top-level placement node (v1.4)")
+              "self-anchored (an explicit (self ...), or no (anchor ...) at all)")
             .format(template=template_name),
-            [_("either an (anchor (role ...)) template, or NO (anchor ...) at "
-               "all with exactly one top-level placement node (the same shape "
-               "auto-anchor resolution itself requires) — the instance sheet "
-               "substitutes the role anchor's sheet, or (for an auto template) "
-               "the root Entity's own sheet; origin/ref/point anchors are still "
-               "not parameterized by sheet")]))
+            [_("either an (anchor (role ...)) template, or a self anchor — an "
+               "explicit (anchor (self [(ref \"...\")])) OR no (anchor ...) at "
+               "all with exactly one top-level placement node; origin/ref/point "
+               "anchors are still not parameterized by sheet")]))
+    if not is_role_anchor and root_ref is None:
+        # A self template whose subject cannot be resolved at EXPANSION time —
+        # fail HERE with a clear message, not later during a live redraw of the
+        # generated instance.
+        raise ValidationError(format_fatal_error(
+            _("tree_instance: template {template!r} is self-anchored but names "
+              "no resolvable subject node").format(template=template_name),
+            [_("a bare (self) needs EXACTLY ONE top-level placement node; with "
+               "several, name the subject explicitly: "
+               "(anchor (self (ref \"...\")))")]))
 
     if is_role_anchor:
         old_sheet = anchor.get('sheet')
     else:
-        # Auto template: the old sheet for net_trace leading-segment rewriting
-        # comes from the root node's OWN Entity record (there is no anchor.sheet
-        # to read). The missing-record fatal deliberately duplicates
-        # _expand_node's "no matching entities:" wording — identical cause,
-        # identical message (and _expand_node still repeats the same check for
-        # non-root nodes further down, as always — not removed).
+        # Self template: the old sheet for net_trace leading-segment rewriting
+        # comes from the subject Entity's OWN record (there is no anchor.sheet to
+        # read). The missing-record fatal deliberately duplicates _expand_node's
+        # "no matching entities:" wording — identical cause, identical message.
         root_entity = entities_by_name.get(root_ref)
         if root_entity is None:
             raise ValidationError(format_fatal_error(
                 _("tree_instance: template {template!r} node {ref!r} has no "
                   "matching entities: record").format(template=template_name,
                                                        ref=root_ref),
-                [_("the auto-anchored template's single top-level node must "
-                   "reference an existing entities: entry by its name")]))
+                [_("the self-anchored template's subject node must reference an "
+                   "existing entities: entry by its name")]))
         old_sheet = root_entity.get('sheet')
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
@@ -583,12 +632,10 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
             # cluster is given, same pattern as sheet — even if the template
             # anchor carried no cluster of its own.
             gen['anchor']['cluster'] = cluster
-    # else (auto-anchored template): there is no 'anchor' key to mutate — the
-    # generated tree stays auto-anchored too (gen has no 'anchor' key, same as
-    # the template), which is exactly right: the generated instance's own root
-    # Entity copy (its sheet already substituted unconditionally by
-    # _expand_node, its cluster by the same composite-guard rule as every other
-    # node) already carries everything a NEW auto-anchor resolution needs.
+    # else (self template): the generated tree keeps its self anchor (deep copy).
+    # Its OWN (ref ...), when present, must follow the node renames — done after
+    # the node walk, via _rewrite_self_ref (the SAME ref_map as pivot_ref, plan
+    # Д.6). A bare (self) carries no ref and needs nothing.
 
     # 2026-09-08 (plan tree_instances_cluster_composite_guard): the per-node
     # Entity cluster override below is a DIFFERENT concept from the anchor's
@@ -634,6 +681,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                                  effective_node_cluster, params, ref_map, cluster)
                     for n in (template.get('nodes') or [])]
     _rewrite_pivot_ref(gen, template_name, instance_name, ref_map)
+    _rewrite_self_ref(gen, template_name, instance_name, ref_map)
     return gen, generated_entities, generated_net_traces
 
 

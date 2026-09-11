@@ -157,93 +157,86 @@ def test_build_tree_node_shape_and_anchor_preserved():
     assert all(n.children == [] for n in tree.nodes)
 
 
-def test_build_tree_skips_cluster_matching_explicit_role_anchor():
-    """REWRITTEN for plan_2026_09_08_extract_tree_self_anchor_as_auto_root.md:
-    a cluster that IS the tree's EXPLICIT role anchor is no longer dropped — it
-    becomes the tree's SOLE top-level auto-root node (xy=(0.0, 0.0),
-    rotation=0.0 — it is the point its siblings are measured from), every other
-    checked cluster becomes its CHILD, and the tree anchor is switched to
-    is_auto. (The old 2026-09-06 anti-drift skip was correct for a STANDALONE
-    redraw but silently removed the anchor's own block on module embedding —
-    layout_tree_from_base ignores tree.anchor, so the block had nothing to
-    place it with.)"""
+def test_build_tree_names_cluster_matching_explicit_role_anchor_as_self():
+    """REWRITTEN for plan_2026_09_11_tree_self_anchor (task Д.5а): a cluster that
+    IS the tree's EXPLICIT role anchor is no longer dropped AND no longer a
+    reparented sole root — the tree NAMES it as its self anchor
+    (TreeAnchor(is_self=True, self_ref=...)), and it becomes an ordinary
+    TOP-LEVEL node at (xy=(0,0), rotation=0 — it is the point its siblings are
+    measured from). Every other checked cluster stays TOP-LEVEL too (plan
+    Д.5а: no reparenting)."""
     cfg = _cfg_with_entities()
     tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", _anchor_matching(), cfg.entities, cfg)
     assert errors == []
-    assert tree.anchor == TreeAnchor(is_auto=True)
-    assert len(tree.nodes) == 1
+    assert tree.anchor == TreeAnchor(is_self=True, self_ref="CH1_PIF_AVDD")
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
     root = tree.nodes[0]
     assert root.ref == "CH1_PIF_AVDD"
     assert root.kind == "placement"
     assert root.xy == (0.0, 0.0)
     assert root.rotation == 0.0
-    assert [c.ref for c in root.children] == ["CH1_PIF_CLKVDD"]
-    assert root.children[0].kind == "placement"
-    assert root.children[0].children == []
+    assert root.children == []
+    sibling = tree.nodes[1]
+    assert sibling.kind == "placement"
+    assert sibling.children == []
 
 
-def test_build_tree_auto_root_reparents_net_trace_nodes():
-    """plan §2: the checked inter-cluster net_trace nodes must be reparented
-    under the auto root too, NEVER left as flat top-level siblings —
-    _root_entity_ref/_auto_anchor_base require EXACTLY ONE top-level node with
-    no exceptions, so a flat net_trace sibling would keep is_auto unreachable
-    (the fatal "auto-anchor needs EXACTLY ONE top-level placement node")."""
+def test_build_tree_does_not_reparent_net_trace_nodes():
+    """plan Д.5а: the checked inter-cluster net_trace nodes stay TOP-LEVEL — the
+    self anchor NAMES its subject ((self (ref ...))), so the EXACTLY-ONE
+    top-level rule no longer applies and no reparenting is needed."""
     cfg = _cfg_with_entities()
     tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", _anchor_matching(), cfg.entities, cfg,
         net_nodes=["SHARED"])
     assert errors == []
-    assert tree.anchor == TreeAnchor(is_auto=True)
-    assert len(tree.nodes) == 1
-    root = tree.nodes[0]
-    assert root.ref == "CH1_PIF_AVDD"
-    assert [c.ref for c in root.children] == ["CH1_PIF_CLKVDD", "SHARED"]
-    assert [c.kind for c in root.children] == ["placement", "net_trace"]
-    # The net_trace node is NOT a top-level node (it would break is_auto).
-    assert all(n.kind != "net_trace" for n in tree.nodes)
+    assert tree.anchor == TreeAnchor(is_self=True, self_ref="CH1_PIF_AVDD")
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD",
+                                           "SHARED"]
+    assert [n.kind for n in tree.nodes] == ["placement", "placement",
+                                            "net_trace"]
+    # The net_trace node IS top-level now (plan Д.5а).
+    assert any(n.kind == "net_trace" for n in tree.nodes)
 
 
-def test_build_tree_auto_root_offsets_unchanged_by_reparenting():
-    """plan §1 'offsets are numerically unchanged by the reparenting': the
-    auto-root conversion stores the SAME xy for the sibling clusters that the
-    flat explicit-anchor build would store for the same live positions (the
-    anchor_base already equalled the root's own live position by definition of
-    the match)."""
+def test_build_tree_self_anchor_offsets_unchanged_by_conversion():
+    """plan Д.5а 'offsets are numerically unchanged': the self-anchor conversion
+    stores the SAME xy for the sibling clusters that the flat explicit-anchor
+    build stores for the same live positions, and the matched subject becomes a
+    top-level (0,0) node."""
     cfg = _cfg_with_entities()
     positions = {"CH1_PIF_AVDD": (10.0, 20.0), "CH1_PIF_CLKVDD": (16.0, 25.0)}
     anchor_base = (5.0, 10.0)
-    # Auto-root conversion path (the anchor matches CH1_PIF_AVDD).
-    auto_tree, errors = build_tree_from_clusters(
+    # Self-anchor conversion path (the anchor matches CH1_PIF_AVDD).
+    self_tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", _anchor_matching(), cfg.entities, cfg,
         entity_positions=positions, anchor_base=anchor_base)
     assert errors == []
-    assert auto_tree.anchor == TreeAnchor(is_auto=True)
-    assert len(auto_tree.nodes) == 1
-    root = auto_tree.nodes[0]
+    assert self_tree.anchor == TreeAnchor(is_self=True, self_ref="CH1_PIF_AVDD")
+    assert [n.ref for n in self_tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
+    root = self_tree.nodes[0]
     assert root.ref == "CH1_PIF_AVDD"
     assert root.xy == (0.0, 0.0)
-    child = root.children[0]
+    child = self_tree.nodes[1]
     assert child.ref == "CH1_PIF_CLKVDD"
     # Flat explicit-anchor control: the SAME clusters with a NON-matching anchor
-    # (the pre-fix flat build) for the same live positions.
+    # (the flat build) for the same live positions.
     flat_tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", _anchor(), cfg.entities, cfg,
         entity_positions=positions, anchor_base=anchor_base)
     assert errors == []
     flat_child = next(n for n in flat_tree.nodes if n.ref == "CH1_PIF_CLKVDD")
     assert child.xy == flat_child.xy == (11.0, 15.0)  # 16-5, 25-10
-    # The auto root itself is the origin of its own frame.
     flat_root = next(n for n in flat_tree.nodes if n.ref == "CH1_PIF_AVDD")
-    assert flat_root.xy == (5.0, 10.0)  # 10-5, 20-10 — the pre-fix delta
-    # Under the auto root that same numeric delta is captured from the root at
-    # (0,0), so it is unchanged; only its parent differs.
+    assert flat_root.xy == (5.0, 10.0)  # 10-5, 20-10 — the flat delta
+    # The self subject is (0,0) in its own frame; the sibling delta is unchanged.
     assert child.xy == flat_child.xy
 
 
-def test_build_tree_auto_root_rotation_aware_capture():
-    """plan §1 rotation-aware analog of test_build_tree_rotation_aware_capture
-    through the auto-root conversion path: the reparented CHILD keeps the same
+def test_build_tree_self_anchor_rotation_aware_capture():
+    """plan Д.5а rotation-aware analog of test_build_tree_rotation_aware_capture
+    through the self-anchor conversion path: the sibling keeps the same
     local-frame xy + relative-rotation capture, and the round-trip
     (child_absolute_position reproduces the live position) stays valid for it."""
     cfg = _cfg_with_entities()
@@ -259,13 +252,13 @@ def test_build_tree_auto_root_rotation_aware_capture():
         entity_positions=positions, anchor_base=anchor_base,
         anchor_rot_deg=anchor_rot_deg)
     assert errors == []
-    assert tree.anchor == TreeAnchor(is_auto=True)
-    assert len(tree.nodes) == 1
+    assert tree.anchor == TreeAnchor(is_self=True, self_ref="CH1_PIF_AVDD")
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
     root = tree.nodes[0]
     assert root.ref == "CH1_PIF_AVDD"
     assert root.xy == (0.0, 0.0)
     assert root.rotation == 0.0
-    child = root.children[0]
+    child = tree.nodes[1]
     assert child.ref == "CH1_PIF_CLKVDD"
     assert child.xy is not None
     expected_xy = child_local_offset(
@@ -288,21 +281,21 @@ def test_build_tree_auto_root_rotation_aware_capture():
         (15.0 - 30.0) % 360.0)
 
 
-def test_build_tree_anchor_pad_guard_skips_not_converts():
-    """plan §3 guard: the matched explicit anchor carries anchor_pad (a
-    specific-pad narrowing the auto root cannot represent — cell.anchor_pad is
-    a different, cell-level concept). The conversion does NOT fire: the cluster
-    is skipped exactly as before the fix, the tree anchor stays the original
-    explicit one (NOT auto), and a warning is returned."""
+def test_build_tree_anchor_pad_is_preserved_on_the_self_anchor():
+    """REWRITTEN for plan Д.5б: the matched explicit anchor's anchor_pad is NO
+    LONGER skipped — the tree NAMES the subject and carries the pad on its self
+    anchor ((self (ref "...") (pad "...)"))), and the cluster IS included as a
+    top-level node (no warning)."""
     cfg = _cfg_with_entities()
     anchor = TreeAnchor(role="DAC", anchor_sheet="Channel_1",
                         anchor_cluster="PIF_AVDD", anchor_pad="3")
     tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", anchor, cfg.entities, cfg)
     assert tree is not None
-    assert tree.anchor == anchor  # NOT auto — pad narrowing preserved
-    assert [n.ref for n in tree.nodes] == ["CH1_PIF_CLKVDD"]
-    assert any("pad" in e for e in errors)
+    assert errors == []
+    assert tree.anchor == TreeAnchor(is_self=True, self_ref="CH1_PIF_AVDD",
+                                     self_pad="3")
+    assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
 
 
 def test_build_tree_multiple_anchor_duplicates_is_fatal():
@@ -329,12 +322,12 @@ def test_build_tree_multiple_anchor_duplicates_is_fatal():
 
 
 def test_build_tree_keeps_cluster_for_auto_anchor():
-    """§3: for an is_auto anchor the node MUST stay — an auto tree's single
+    """§3: for an is_self anchor the node MUST stay — an auto tree's single
     top-level placement node is its anchor SOURCE by construction
     (_auto_anchor_base needs exactly one); the skip never applies to auto."""
     cfg = _cfg_with_entities()
     tree, errors = build_tree_from_clusters(
-        _clusters(), "power_tree", TreeAnchor(is_auto=True), cfg.entities, cfg)
+        _clusters(), "power_tree", TreeAnchor(is_self=True), cfg.entities, cfg)
     assert errors == []
     assert [n.ref for n in tree.nodes] == ["CH1_PIF_AVDD", "CH1_PIF_CLKVDD"]
 
@@ -1359,16 +1352,16 @@ def test_link_trees_net_trace_requires_explicit_kind():
         link_trees(cfg, [tree])
 
 
-def test_build_tree_auto_root_matches_ch0_dac_buf_shape():
-    """Live-shaped regression (Denis, 3CH-AWG-TIA, ch0_dac_buf, plan_2026_09_08
-    §7): 1 DAC_BUF-like cluster that IS the tree's own explicit role anchor
-    (AD_DAC) + 5 PIF/OA-like clusters + 5 checked inter-cluster net_trace
-    nodes. Result: the DAC_BUF cluster becomes the SOLE top-level auto root and
-    ALL 10 others (5 placement + 5 net_trace) become its CHILDREN — and, the
-    assertion that closes the bug, layout_tree_from_base (the module-embedding
-    layouter, which IGNORES tree.anchor) now places ALL 11 nodes from an
-    arbitrary base instead of only the non-anchor ones: the DAC_BUF block
-    travels with the PIF/OA blocks."""
+def test_build_tree_self_anchor_matches_ch0_dac_buf_shape():
+    """Live-shaped regression (Denis, 3CH-AWG-TIA, ch0_dac_buf): 1 DAC_BUF-like
+    cluster that IS the tree's own explicit role anchor (AD_DAC) + 5 PIF/OA-like
+    clusters + 5 checked inter-cluster net_trace nodes. REWRITTEN for plan Д.5а:
+    the DAC_BUF cluster is NAMED as the tree's self anchor
+    (self_ref="dac_buf_channel_0") and becomes a top-level (0,0) node; ALL 10
+    others (5 placement + 5 net_trace) stay TOP-LEVEL. layout_tree_from_base
+    (the module-embedding layouter, which IGNORES tree.anchor) places all 11
+    nodes from an arbitrary base — the DAC_BUF block travels with the PIF/OA
+    blocks."""
     entities = [
         Entity(name="dac_buf_channel_0", cell="dac_buf", cluster="DAC_BUF",
                sheet="Channel_0"),
@@ -1400,24 +1393,23 @@ def test_build_tree_auto_root_matches_ch0_dac_buf_shape():
         entity_positions=positions, anchor_base=(100.0, 200.0),
         anchor_rot_deg=0.0, net_nodes=nets)
     assert errors == []
-    assert tree.anchor == TreeAnchor(is_auto=True)
-    assert len(tree.nodes) == 1
+    assert tree.anchor == TreeAnchor(is_self=True, self_ref="dac_buf_channel_0")
+    assert len(tree.nodes) == 11
     root = tree.nodes[0]
     assert root.ref == "dac_buf_channel_0"
     assert root.kind == "placement"
     assert root.xy == (0.0, 0.0)
-    placement_kids = [c for c in root.children if c.kind == "placement"]
-    net_kids = [c for c in root.children if c.kind == "net_trace"]
-    assert len(placement_kids) == 5
+    assert root.children == []
+    placement_kids = [n for n in tree.nodes if n.kind == "placement"]
+    net_kids = [n for n in tree.nodes if n.kind == "net_trace"]
+    assert len(placement_kids) == 6   # the subject + 5 PIF/OA clusters
     assert len(net_kids) == 5
-    assert len(root.children) == 10
-    # Module-embedding layout from an arbitrary base: ALL 11 nodes are placed —
-    # the root (DAC_BUF) together with every one of its 10 children.
+    # Module-embedding layout from an arbitrary base: ALL 11 nodes are placed.
     laid = layout_tree_from_base(tree, Vector2.from_xy_mm(10.0, 20.0), 30.0)
     assert len(laid) == 11
     assert "dac_buf_channel_0" in laid
-    # The root sits at the layout base (its xy is the (0,0) origin of its own
-    # frame), and a reparented child's offset is placed relative to it.
+    # The self subject sits at the layout base (its xy is the (0,0) origin of
+    # its own frame).
     from kicadstamp.utils.units import MM as _MM
     assert laid["dac_buf_channel_0"][0].x / _MM == pytest.approx(10.0)
     assert laid["dac_buf_channel_0"][0].y / _MM == pytest.approx(20.0)
@@ -1449,7 +1441,7 @@ def test_build_tree_allow_existing_rebuilds_on_duplicate_name():
 def test_tree_round_trip_and_link_trees_with_role_anchor_and_n_nodes():
     """tree_to_dict -> load_tree == the built tree, and link_trees is happy
     with an explicit role anchor + N top-level placement nodes (the "exactly
-    one top-level placement" rule is only for is_auto anchors)."""
+    one top-level placement" rule is only for is_self anchors)."""
     cfg = _cfg_with_entities()
     tree, errors = build_tree_from_clusters(
         _clusters(), "power_tree", _anchor(), cfg.entities, cfg,

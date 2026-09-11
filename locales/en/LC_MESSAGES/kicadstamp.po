@@ -16390,3 +16390,78 @@ msgstr ""
 
 msgid "node {ref!r}: mount node's anchor names pad {pad!r} — reading a pad's shape needs a live board connection"
 msgstr ""
+
+msgid "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity {ref!r} never resolves (self-reference) — switched to Self."
+msgstr ""
+
+msgid "Self (component this tree places)"
+msgstr ""
+
+msgid "This tree's own root Entity {ref!r} can't anchor itself — use Self."
+msgstr ""
+
+msgid "a (self (ref \"...\")) anchor must name a kind \"placement\" node of the same tree"
+msgstr ""
+
+msgid "a bare (self) needs EXACTLY ONE top-level placement node; with several, name the subject explicitly: (anchor (self (ref \"...\")))"
+msgstr ""
+
+msgid "anchor must specify exactly one of (origin), (ref \"...\"), (role \"...\"), (point \"...\"), (self ...)"
+msgstr ""
+
+msgid "anchor must specify exactly one of origin/ref/role/point/self"
+msgstr ""
+
+msgid "anchor: self must be a mapping with an optional ref/pad"
+msgstr ""
+
+msgid "anchor: shift needs a base — set one of origin/ref/role/point/self"
+msgstr ""
+
+msgid "either an (anchor (role ...)) template, or a self anchor — an explicit (anchor (self [(ref \"...\")])) OR no (anchor ...) at all with exactly one top-level placement node; origin/ref/point anchors are still not parameterized by sheet"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor supports only (role ...) — origin/ref/point/external/self/shift are tree-anchor-only"
+msgstr ""
+
+msgid "node of this tree (optional)"
+msgstr ""
+
+msgid "self-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)) — name a node with (self (ref \"...\")) or add an explicit (anchor ...) to this tree instead"
+msgstr ""
+
+msgid "self-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)); name one with (self (ref \"...\")) or add an explicit (anchor ...) to this tree instead"
+msgstr ""
+
+msgid "the self anchor's (ref ...) must name a placement node of the same tree — check the template's anchor"
+msgstr ""
+
+msgid "the self-anchored template's subject node must reference an existing entities: entry by its name"
+msgstr ""
+
+msgid "tree {name!r} has no explicit anchor and cannot derive one"
+msgstr ""
+
+msgid "tree {name!r} self-anchor"
+msgstr ""
+
+msgid "tree {name!r} self-anchor names node {ref!r}, which is not a placement Entity of this tree"
+msgstr ""
+
+msgid "tree {name!r}: self anchor ref {ref!r} is a kind {kind!r} node — a self anchor must name a kind \"placement\" node of this tree"
+msgstr ""
+
+msgid "tree {name!r}: self anchor ref {ref!r} names no node of this tree"
+msgstr ""
+
+msgid "tree_instance {name!r}: template {template!r} self anchor ref {ref!r} names no node of the template tree"
+msgstr ""
+
+msgid "tree_instance: template {template!r} is self-anchored but names no resolvable subject node"
+msgstr ""
+
+msgid "tree_instance: template {template!r} must be role-anchored OR self-anchored (an explicit (self ...), or no (anchor ...) at all)"
+msgstr ""
+
+msgid "⚓ (self)"
+msgstr ""

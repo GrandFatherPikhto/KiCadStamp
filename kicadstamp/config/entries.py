@@ -1647,7 +1647,7 @@ _TREE_KNOWN_KEYS = {"name", "anchor", "nodes", "pivot_xy", "pivot_polar",
 # own "shift" [x, y] in LOCAL mm of the base frame (2026-09-11,
 # plan_2026_09_11_external_point_materialization §X.2) — orthogonal to the base.
 _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
-                           "sheet", "cluster", "pad", "shift"}
+                           "self", "sheet", "cluster", "pad", "shift"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
                          # pivot_* stayed LISTED here on purpose (2026-09-11, plan
                          # §V.3): they moved to the tree level, but a config still

@@ -318,7 +318,7 @@ def _tab2_with_roles(main_window, roles=("R1", "DAC")):
     return dlg
 
 
-def test_tab2_origin_override_unchecked_is_automatic(main_window):
+def test_tab2_origin_override_unchecked_is_selfmatic(main_window):
     """Checkbox off -> origin_override() == (None, None): the manual override is
     an OPT-IN — today's automatic zero-slot detection stays the default."""
     dlg = _tab2_with_roles(main_window)
@@ -376,7 +376,7 @@ def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
             {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
         ],
         "trees": [{
-            "name": "fpga",  # no anchor key -> is_auto (no resolvable base)
+            "name": "fpga",  # no anchor key -> is_self (no resolvable base)
             "nodes": [{"ref": "pif_p2v5_vcca", "kind": "placement", "xy": [1.0, 2.0]}],
         }],
     }

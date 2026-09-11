@@ -43,7 +43,6 @@ from kicadstamp.link_trees import (
 )
 from kicadstamp.tree_position import (
     _anchor_base_live_position,
-    _root_entity_record,
     _root_entity_ref,
     board_offset_to_local_mm,
     board_rotation_to_local_deg,
@@ -63,7 +62,7 @@ from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
                               _walk_nodes, tree_pivot_ref_candidates,
-                              tree_to_dict)
+                              tree_self_ref_candidates, tree_to_dict)
 from kicadstamp.utils.units import MM
 
 from .. import settings
@@ -149,13 +148,13 @@ _REDRAWABLE_NODE_KINDS = frozenset(
 def _anchor_label(anchor: TreeAnchor) -> str:
     """Human-readable label for a tree's anchor pseudo-root — one branch per
     TreeAnchor mode; never renders "None" (2026-08-31, anchor-dialog GUI gap:
-    auto/role/point anchors carry ref=None and would otherwise show "⚓ None").
+    self/role/point anchors carry ref=None and would otherwise show "⚓ None").
     The exact tag per mode is a display convention only — the underlying
     TreeAnchor is unchanged."""
     if anchor.is_origin:
         return _("⚓ (origin)")
-    if anchor.is_auto:
-        return _("⚓ (auto)")
+    if anchor.is_self:
+        return _("⚓ (self)")
     if anchor.role:
         details = " / ".join(
             part for part in (anchor.anchor_sheet, anchor.anchor_cluster,
@@ -1095,12 +1094,12 @@ class TreesDock(QWidget):
         made duplicate like conn_pm5v_power in "power" is visible; deleting it
         is safe (the anchor resolves independently of the node list).
 
-        Only an EXPLICIT role anchor is considered — an is_auto tree's single
+        Only an EXPLICIT role anchor is considered — a self tree's single
         top-level node is its anchor SOURCE by construction (never a duplicate)
         and origin/ref/point anchors carry no role. Empty when the config is
         not loaded or no node matches."""
         if self._cfg is None or tree is None or tree.anchor is None \
-                or tree.anchor.is_auto or tree.anchor.role is None:
+                or tree.anchor.is_self or tree.anchor.role is None:
             return set()
         by_name = {e.name: e for e in self._cfg.entities}
         dup: set[str] = set()
@@ -1594,15 +1593,17 @@ class TreesDock(QWidget):
 
     @staticmethod
     def _is_self_ref_anchor(tree: Tree) -> bool:
-        """True when the tree's explicit ref anchor points at its OWN single
-        top-level placement node — the self-reference combination that can
-        never resolve (plan 2026-08-31 anchor_self_ref_guard §3). Only an
-        explicit, non-external ref anchor is a candidate: origin/auto/role/
-        point anchors carry no ref, an external refdes is not an Entity record
-        by construction, and _root_entity_ref already enforces the EXACTLY ONE
-        rule (empty / multi-top-level / non-placement roots are untouched)."""
+        """True when the tree's explicit (anchor (ref "...")) RECORD anchor
+        points at its OWN single top-level placement node — the self-reference
+        combination that can never resolve (plan 2026-08-31 anchor_self_ref_
+        guard §3). Only an explicit, non-external ref anchor is a candidate:
+        origin/self/role/point anchors carry no ref, an external refdes is not
+        an Entity record by construction, and _root_entity_ref already enforces
+        the EXACTLY ONE rule (empty / multi-top-level / non-placement roots are
+        untouched). The SANCTIONED way to anchor on that component is the
+        dedicated (self) mode, which resolves it LIVE."""
         anchor = tree.anchor
-        if (anchor is None or anchor.is_auto or anchor.is_origin
+        if (anchor is None or anchor.is_self or anchor.is_origin
                 or anchor.role is not None or anchor.point is not None
                 or not anchor.ref or anchor.is_external):
             return False
@@ -1614,7 +1615,7 @@ class TreesDock(QWidget):
         tree is EMPTY (a legitimate candidate then), and the (ref X) root node
         added afterwards (or edited/moved to top level, or loaded from a
         hand-edited .sexp). The combination is ALWAYS fatal at materialization
-        (never "sometimes useful"), so silently switch such an anchor to Auto
+        (never "sometimes useful"), so silently switch such an anchor to Self
         (Denis: quiet auto-replace as the fallback) + a non-intrusive
         log/status-bar notice instead of a modal."""
         for tree in self._trees:
@@ -1623,11 +1624,11 @@ class TreesDock(QWidget):
             ref = tree.anchor.ref
             message = _("Anchor for tree {name!r}: a ref anchor pointing at "
                         "its own root Entity {ref!r} never resolves "
-                        "(self-reference) — switched to Auto.").format(
+                        "(self-reference) — switched to Self.").format(
                             name=tree.name, ref=ref)
             logger.info(message)
             self._show_status(message)
-            tree.anchor = TreeAnchor(is_auto=True)
+            tree.anchor = TreeAnchor(is_self=True)
 
     def _stage_trees(self) -> None:
         """Auto-stage the trees: section into the working set after every
@@ -2293,11 +2294,12 @@ class TreesDock(QWidget):
     @staticmethod
     def _tree_anchor_ready(tree: Tree) -> bool:
         """A tree has a REAL anchor when one is written (role/ref/point/origin)
-        — an is_auto anchor (no (anchor ...) at all) has no resolvable base, so
-        "position relative to the tree anchor" is meaningless for it. The
-        Instantiate-from-Cell flow must refuse an auto/absent anchor in ANY
-        positioning mode (plan instantiate_from_entity §1.5)."""
-        return tree.anchor is not None and not tree.anchor.is_auto
+        — a self anchor (a component the tree places itself, incl. an absent
+        (anchor ...)) is the tree's own reference, not a fixed external point,
+        so "position relative to the tree anchor" is meaningless for it. The
+        Instantiate-from-Cell flow must refuse a self anchor in ANY positioning
+        mode (plan instantiate_from_entity §1.5)."""
+        return tree.anchor is not None and not tree.anchor.is_self
 
     def _anchor_base_mm(self, tree: Tree) -> Optional[tuple[float, float]]:
         """Live base (mm) of the tree's own anchor, or None when it cannot be
@@ -3579,18 +3581,21 @@ class _NodeDialog(QDialog):
 # visibility (_on_mode_changed) and any future append read THIS table, so
 # adding a mode is adding one entry here (plus its build/prefill line) — never
 # a re-plumbing of hand-wired mode switches. The mode list is deliberately
-# OPEN: the follow-up task replaces `is_auto` with a new explicit `self` mode
-# ("my own live root"), which is exactly one more entry below.
+# OPEN: 2026-09-11 replaced the old `auto` flag with the explicit `self` mode
+# ("my own live root", plan tree_self_anchor task Д) — one entry below.
 #
 # `rows` names the field groups the mode shows: "record" = the kind-filtered
-# ref row, "role" = the role/sheet/pad/cluster row, "point" = the point row.
+# ref row, "role" = the role/sheet/pad/cluster row, "point" = the point row,
+# "self" = the node/pad row (a component this tree places itself).
 # The order is FROZEN: existing tests drive the combo by INDEX (0 origin,
-# 1 record, 2 external, ...), so new modes append AFTER point.
+# 1 record, 2 external, ...), so new modes append AFTER point. The former
+# `auto` mode became the explicit `self` (2026-09-11, plan tree_self_anchor,
+# task Д) at the SAME index 3.
 _TREE_ANCHOR_MODES = (
     ("origin", _("Origin (board 0,0)"), ()),
     ("record", _("Config record"), ("record",)),
     ("external", _("External refdes"), ("record",)),
-    ("auto", _("Auto (derive from Entity's own cell)"), ()),
+    ("self", _("Self (component this tree places)"), ("self",)),
     ("role", _("Role"), ("role",)),
     ("point", _("Point"), ("point",)),
 )
@@ -3605,9 +3610,11 @@ class AnchorFormWidget(QWidget):
                     a PICKER AID only: the anchor grammar has no kind (a name
                     shared across sections is fatal at link_trees either way)
       - external -> (anchor (ref "...") (external)): live-board-only refdes
-      - auto     -> NO (anchor ...): derived from the root Entity's own cell
-                    zero slot at materialization (is_auto=True) — the only
-                    way to get an auto anchor through the GUI
+      - self     -> (anchor (self [(ref "...") (pad "...")])): the tree hangs on
+                    a component it places ITSELF — the optional ref names one of
+                    THIS tree's kind "placement" nodes, else the single
+                    top-level placement node, and the optional pad moves the
+                    base onto that pad; the base is read LIVE
       - role     -> (anchor (role "...") [(sheet ...) (cluster ...) (pad ...)])
       - point    -> (anchor (point "...")): a points: entry name
     Every mode also carries an OPTIONAL own (shift x y) in LOCAL mm of the
@@ -3703,7 +3710,7 @@ class AnchorFormWidget(QWidget):
         record_form.addRow(_("Ref:"), self.ref_combo)
         # Self-reference hint (§2 of plan_2026_08_31_anchor_self_ref_guard): a
         # static label (never a modal) shown when the Entity section emptied
-        # BECAUSE of the self-ref exclusion, pointing the user at the Auto mode
+        # BECAUSE of the self-ref exclusion, pointing the user at the Self mode
         # instead of a bare empty combo. Hidden by default; _update_hint drives
         # it.
         self.hint_label = QLabel("")
@@ -3740,6 +3747,23 @@ class AnchorFormWidget(QWidget):
             set_combo_items(self.point_edit, sorted(getattr(self._cfg, "points", {}) or {}))
         point_form.addRow(_("Point:"), self.point_edit)
         form.addRow(self.point_row)
+
+        # self rows (2026-09-11, plan tree_self_anchor, task Д.7): the tree hangs
+        # on a component it places ITSELF — read live. The Node combo lists this
+        # tree's OWN kind "placement" nodes; both fields are OPTIONAL (a bare
+        # self uses the single top-level placement node, today's rule).
+        self.self_row = QWidget()
+        self_form = QFormLayout(self.self_row)
+        self_form.setContentsMargins(0, 0, 0, 0)
+        self.self_combo = QComboBox()
+        configure_searchable(self.self_combo)
+        self.self_combo.setPlaceholderText(_("node of this tree (optional)"))
+        set_combo_items(self.self_combo, tree_self_ref_candidates(tree))
+        self_form.addRow(_("Node:"), self.self_combo)
+        self.self_pad_edit = QLineEdit()
+        self.self_pad_edit.setPlaceholderText(_("pad (optional)"))
+        self_form.addRow(_("Pad:"), self.self_pad_edit)
+        form.addRow(self.self_row)
 
         # Shift row (§X.2.3): the anchor's OWN (shift x y). Stored in LOCAL mm
         # of the base, SHOWN in board mm — the same five conversion functions
@@ -3913,6 +3937,7 @@ class AnchorFormWidget(QWidget):
         self.record_row.setVisible("record" in rows)
         self.role_row.setVisible("role" in rows)
         self.point_row.setVisible("point" in rows)
+        self.self_row.setVisible("self" in rows)
         if "record" in rows:
             self._on_kind_changed()
 
@@ -3949,7 +3974,7 @@ class AnchorFormWidget(QWidget):
         BECAUSE of the self-ref exclusion (§2 of plan_2026_08_31_anchor_self_
         ref_guard): the tree's own root Entity was a real candidate
         (_had_self_entity) and no other Entity record is left. A static label,
-        never a modal — it tells the user where to switch (Auto) instead of
+        never a modal — it tells the user where to switch (Self) instead of
         leaving them staring at an empty combo."""
         mode = self.mode_combo.currentData()
         kind = self.kind_combo.currentData()
@@ -3957,7 +3982,7 @@ class AnchorFormWidget(QWidget):
         if (mode == "record" and self._had_self_entity
                 and (kind is None or kind == "placement") and entity_empty):
             self.hint_label.setText(_(
-                "This tree's own root Entity {ref!r} can't anchor itself — use Auto.")
+                "This tree's own root Entity {ref!r} can't anchor itself — use Self.")
                 .format(ref=self._self_entity_ref))
             self.hint_label.show()
         else:
@@ -4009,22 +4034,24 @@ class AnchorFormWidget(QWidget):
         field (symmetric to _NodeDialog._prefill). The mode handler runs even
         when the index did not change (a fresh dialog defaults to origin), so
         the right rows are shown and the ref list is built for record/external."""
-        if existing.is_origin:
-            mode = "origin"
-        elif existing.is_auto:
-            mode = "auto"
-        elif existing.role is not None:
-            mode = "role"
-        elif existing.point is not None:
-            mode = "point"
-        else:
-            mode = "external" if existing.is_external else "record"
+        # The mode comes from THE single predicate on the anchor
+        # (TreeAnchor.mode): origin/record/external/self/role/point — never a
+        # hand-rolled field chain (plan Д.3).
+        mode = existing.mode
         idx = self.mode_combo.findData(mode)
         if idx >= 0:
             self.mode_combo.setCurrentIndex(idx)
         self._on_mode_changed()
 
-        if existing.role is not None:
+        if mode == "self":
+            if existing.self_ref is not None:
+                ci = self.self_combo.findText(existing.self_ref)
+                if ci >= 0:
+                    self.self_combo.setCurrentIndex(ci)
+                else:
+                    self.self_combo.setCurrentText(existing.self_ref)
+            self.self_pad_edit.setText(existing.self_pad or "")
+        elif existing.role is not None:
             self.role_edit.setCurrentText(existing.role)
             self.sheet_edit.setCurrentText(existing.anchor_sheet or "")
             self.cluster_edit.setCurrentText(existing.anchor_cluster or "")
@@ -4505,8 +4532,11 @@ class AnchorFormWidget(QWidget):
         mode = self.mode_combo.currentData()
         if mode == "origin":
             return (TreeAnchor(ref=None, is_origin=True, is_external=False), None)
-        if mode == "auto":
-            return (TreeAnchor(is_auto=True), None)
+        if mode == "self":
+            return (TreeAnchor(
+                is_self=True,
+                self_ref=self.self_combo.currentText().strip() or None,
+                self_pad=self.self_pad_edit.text().strip() or None), None)
         if mode == "role":
             role = self.role_edit.currentText().strip()
             if not role:

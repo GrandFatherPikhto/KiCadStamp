@@ -821,7 +821,7 @@ def _role_adapter(role="FPGA", x=30.0, y=40.0, cluster=None):
 
 
 def _auto_tree(nodes):
-    return Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=nodes)
+    return Tree(name="t", anchor=TreeAnchor(is_self=True), nodes=nodes)
 
 
 def test_auto_anchor_materializes_on_zero_slot_role():
@@ -900,7 +900,7 @@ def test_auto_anchor_multiple_top_level_nodes_is_fatal():
     nodes, so auto-derivation requires exactly one)."""
     cfg = Config(cells={"c": _cell("c")},
                  entities=[Entity(name="E1", cell="c"), Entity(name="E2", cell="c")],
-                 trees=[Tree(name="t", anchor=TreeAnchor(is_auto=True),
+                 trees=[Tree(name="t", anchor=TreeAnchor(is_self=True),
                              nodes=[_node(ref="E1", xy=(0.0, 0.0)),
                                     _node(ref="E2", xy=(0.0, 0.0))])])
     with pytest.raises(ValidationError, match="EXACTLY ONE"):
@@ -963,28 +963,40 @@ def test_auto_anchor_literal_self_ref_stays_cycle_fatal():
         materialize_entity_placements(None, cfg, {})
 
 
-def test_auto_anchor_roundtrips_through_dict_bridge():
-    """The config dict inlay round-trips an auto-anchored tree: no "anchor" key
-    in -> TreeAnchor(is_auto=True); tree_to_dict omits the key again."""
+def test_self_anchor_roundtrips_through_dict_bridge():
+    """The config dict inlay round-trips a self-anchored tree: no "anchor" key
+    in -> TreeAnchor(is_self=True); tree_to_dict WRITES the canonical
+    {"self": {}} (plan Д.2 rule 2 — the writer always NAMES the anchor, so
+    absence is normalized to the explicit self form on the way out)."""
     from kicadstamp.trees import tree_from_dict, tree_to_dict
     data = {"name": "t",
             "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}]}
     tree = tree_from_dict(data)
-    assert tree.anchor.is_auto is True
-    assert tree_to_dict(tree) == data
+    assert tree.anchor.is_self is True
+    canonical = {**data, "anchor": {"self": {}}}
+    assert tree_to_dict(tree) == canonical
+    # Re-loading the canonical form gives the very same tree (numbers unchanged).
+    assert tree_from_dict(canonical) == tree
 
 
-def test_auto_anchor_roundtrips_through_sexp_bridge():
-    """The s-expr path (used by .sexp configs via sexp_format) round-trips an
-    auto-anchored tree too: a (tree ...) node with no (anchor ...) child ->
-    TreeAnchor(is_auto=True), and no (anchor ...) node is re-emitted."""
+def test_self_anchor_roundtrips_through_sexp_bridge():
+    """The s-expr path (used by .sexp configs via sexp_format) round-trips a
+    self-anchored tree: a (tree ...) node with no (anchor ...) child ->
+    TreeAnchor(is_self=True), and the writer always re-emits (anchor (self))
+    (plan Д.2 rule 2)."""
     from kicadstamp.cloner.sexp import sym
     from kicadstamp.trees import tree_from_sexp, tree_to_sexp
     sexp = [sym("tree"), [sym("name"), "t"],
             [sym("node"), [sym("ref"), "E1"], [sym("kind"), sym("placement")]]]
     tree = tree_from_sexp(sexp, seen_names=set(), seen_refs=set(), location="test")
-    assert tree.anchor.is_auto is True
-    assert tree_to_sexp(tree) == sexp
+    assert tree.anchor.is_self is True
+    canonical = [sym("tree"), [sym("name"), "t"],
+                 [sym("anchor"), [sym("self")]],
+                 [sym("node"), [sym("ref"), "E1"], [sym("kind"), sym("placement")]]]
+    assert tree_to_sexp(tree) == canonical
+    same = tree_from_sexp(canonical, seen_names=set(), seen_refs=set(),
+                          location="test")
+    assert same == tree
 
 
 # ---------------------------------------------------------------------------

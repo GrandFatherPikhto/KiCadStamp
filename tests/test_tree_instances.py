@@ -1019,7 +1019,7 @@ def _auto_net_trace_template_data(instances) -> dict:
 
 class TestAutoAnchorTemplates:
     """v1.4 (2026-09-08, plan tree_instances_auto_root_template_support): an
-    auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_auto) with
+    auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_self) with
     EXACTLY ONE top-level placement node — is now a valid tree_instances
     template, alongside the role-anchored one. For an auto template the anchor
     IS its root node, so sheet/cluster reach the generated copies through the
@@ -1045,10 +1045,10 @@ class TestAutoAnchorTemplates:
         p = _write(tmp_path, "t.sexp", data)
         cfg, _ = load_config(str(p))
         tree = _tree_by_name(cfg, "ch1_dac_buf")
-        assert tree.anchor.is_auto is True
+        assert tree.anchor.is_self is True
         assert tree.anchor.role is None
         # template itself stays auto too (deep-copy expansion, never mutates)
-        assert _tree_by_name(cfg, "dac_buf_tpl").anchor.is_auto is True
+        assert _tree_by_name(cfg, "dac_buf_tpl").anchor.is_self is True
         # every copy (root + nested child) gets the instance sheet
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
         assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").sheet == "Channel_1"
@@ -1059,10 +1059,52 @@ class TestAutoAnchorTemplates:
         assert tree.nodes[0].ref == "dac_buf__ch1_dac_buf"
         assert tree.nodes[0].children[0].ref == "pif_avdd__ch1_dac_buf"
 
+    def test_self_ref_template_substitutes_the_named_node(self, tmp_path):
+        """plan Д.6: a template's (self (ref "...")) NAMES a node; expansion
+        renames nodes, so the ref must follow the SAME map the walk collected
+        (dac_buf -> dac_buf__ch1_dac_buf). The generated tree loads, and the
+        template itself is never mutated."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}])
+        data["trees"][0]["anchor"] = {"self": {"ref": "dac_buf"}}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        gen = _tree_by_name(cfg, "ch1_dac_buf")
+        assert gen.anchor.is_self is True
+        assert gen.anchor.self_ref == "dac_buf__ch1_dac_buf"
+        assert _tree_by_name(cfg, "dac_buf_tpl").anchor.self_ref == "dac_buf"
+
+    def test_self_ref_template_names_a_nested_node_too(self, tmp_path):
+        """plan Д.6: the subject may be ANY placement node of the template
+        (here the nested pif_avdd) — the substituted ref is its __instance
+        name."""
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}])
+        data["trees"][0]["anchor"] = {"self": {"ref": "pif_avdd"}}
+        p = _write(tmp_path, "t.sexp", data)
+        cfg, _ = load_config(str(p))
+        gen = _tree_by_name(cfg, "ch1_dac_buf")
+        assert gen.anchor.self_ref == "pif_avdd__ch1_dac_buf"
+
+    def test_self_ref_template_missing_ref_is_fatal_naming_template(self):
+        """plan Д.9.4 #13: a self ref naming nothing resolvable is fatal AT
+        EXPANSION with the template's name — never a later redraw crash."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}])
+        data["trees"][0]["anchor"] = {"self": {"ref": "NOPE"}}
+        with pytest.raises(ValidationError,
+                           match="template 'dac_buf_tpl' node 'NOPE'"):
+            expand_tree_instances(data)
+
     def test_multiple_top_level_nodes_without_anchor_is_fatal(self, tmp_path):
-        """An auto template with TWO top-level nodes can never auto-anchor
-        (auto-anchor resolution needs EXACTLY ONE) — a clear fatal at expansion
-        time (the new v1.4 message), not a crash later at redraw."""
+        """A bare self template ((anchor (self)) or no (anchor ...) at all) with
+        TWO top-level nodes can never resolve its own subject — a clear fatal at
+        expansion time, not a crash later at redraw. Naming the subject via
+        (self (ref "...")) is the documented escape hatch (plan Д.6)."""
         nodes = [
             {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
             {"ref": "pif_avdd", "kind": "placement", "xy": [0.5, 0.0]},
@@ -1073,8 +1115,8 @@ class TestAutoAnchorTemplates:
             nodes=nodes))
         p = _write(tmp_path, "t.sexp", data)
         with pytest.raises(ValidationError,
-                           match="auto-anchored with exactly one top-level "
-                                 "placement node"):
+                           match="is self-anchored but names no resolvable "
+                                 "subject node"):
             load_config(str(p))
 
     def test_top_level_node_missing_entity_is_fatal(self, tmp_path):
@@ -1094,7 +1136,7 @@ class TestAutoAnchorTemplates:
     def test_generated_tree_stays_auto(self, tmp_path):
         """The generated tree must itself stay auto-anchored: the deep copy of
         a template with no (anchor ...) carries no 'anchor' key at all (raw
-        dict level), so it loads with is_auto=True — the generated Channel_1
+        dict level), so it loads with is_self=True — the generated Channel_1
         clone keeps the SAME self-resolving root-node anchor its template has
         (important when it too gets embedded as a module)."""
         from kicadstamp.config.tree_instances import expand_tree_instances
@@ -1108,7 +1150,7 @@ class TestAutoAnchorTemplates:
         p = _write(tmp_path, "t.sexp", data)
         cfg, _ = load_config(str(p))
         gen = _tree_by_name(cfg, "ch1_dac_buf")
-        assert gen.anchor.is_auto is True
+        assert gen.anchor.is_self is True
         assert not gen.anchor.is_origin and gen.anchor.role is None
 
     def test_composite_cluster_override_guard_still_applies(self, tmp_path):
@@ -1154,7 +1196,7 @@ class TestAutoAnchorTemplates:
              "sheet": "Channel_1", "cluster": "DAC_BUF"}]))
         cfg, _ = load_config(str(p))
         tree = _tree_by_name(cfg, "ch1_dac_buf")
-        assert tree.anchor.is_auto is True
+        assert tree.anchor.is_self is True
         # the generated tree's net_trace child nodes point at the REWRITTEN nets
         nt_refs = sorted(n.ref for n in tree.nodes[0].children
                          if n.kind == "net_trace")

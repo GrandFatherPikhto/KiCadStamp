@@ -170,11 +170,11 @@ def _resolve_anchor_ref(anchor: TreeAnchor,
     outside the config (kept for backward compatibility)."""
     if anchor.is_origin:
         return None, False
-    if anchor.is_auto:
-        # No explicit anchor at all — the base is AUTO-derived at materialization
-        # time from the tree's own root Entity placement's cell zero slot
-        # (2026-08-31, plan tree_self_anchor_from_entity); there is no config
-        # record to link and it is NOT a live-board external refdes either.
+    if anchor.is_self:
+        # A (self ...) anchor (or an ABSENT one, read as self) derives its base
+        # from a component THIS tree places (2026-09-11, plan tree_self_anchor,
+        # task Д); there is no config record to link and it is NOT a live-board
+        # external refdes either.
         return None, False
     if anchor.is_external:
         return None, True

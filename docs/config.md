@@ -526,6 +526,18 @@ resolved by its OWN rules first (including the point's own, **board-absolute**
 be readable in the GUI yet fatal at Apply. Because a `Point` has no orientation, a `(point ...)` /
 `(origin)` anchor takes its content rotation SOLELY from the tree's own `(rotation ...)`.
 
+**A `(anchor (self ...))` is the tree's own reference (2026-09-11, plan tree_self_anchor, task Д).** It
+replaces the old implicit "no `(anchor ...)` at all = auto" shape with a NAMED mode: the tree hangs on a
+component THIS tree places, read LIVE from the board. The anchor subject is the anchor's OWN
+`(self (ref "..."))` node when named — a `kind "placement"` node of THIS tree, and the nested `ref` is
+NOT the top-level `(ref "...")` record anchor — else the single top-level `kind "placement"` node (the
+old EXACTLY-ONE rule; a NAMED ref drops it, so several top-level nodes incl. a `net_trace` are legal).
+An optional `(self (pad "..."))` moves the base onto that pad of the subject component. An ABSENT
+`(anchor ...)` is read as `(self)` FOREVER — no migration, every existing config keeps loading — and the
+WRITER always emits the explicit `(anchor (self))` (or `{"self": {}}` in the dict bridge), so absence is
+normalized to the named form on the way out. A self `ref` naming no node of the tree, or a node of
+another kind, is a load-time fatal.
+
 **An `(anchor (ref ...))` may point at an Entity** — the tree is then anchored on ANOTHER tree's
 placement node (cross-tree entity anchoring, since Phase 4.1 live). Because an Entity carries no
 position of its own, such an anchor base is resolved RECURSIVELY at materialization: find the
@@ -621,31 +633,33 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `sheet` — needed for live re-reading by Role+Sheet+Cluster (Q2, revised 2026-09-02) — while the
   generated COPY unconditionally gets the instance's `sheet`. Expansion only ever deep-copies; the
   template and the file on disk are never mutated.
-- **Template constraints (v1.1; auto-anchored templates added v1.4 2026-09-08, each a load-time
-  fatal):** the template tree must be role-anchored (`(anchor (role ...))`) OR auto-anchored — no
-  `(anchor ...)` at all, with exactly ONE top-level `placement` node (the same shape auto-anchor
-  resolution itself requires). `origin`/`ref`/`point` anchors are not parameterized by sheet. Every
-  template node is `kind "placement"` (or unset/auto) and must reference an existing `entities:`
+- **Template constraints (v1.1; self-anchored templates 2026-09-08, reworked 2026-09-11, each a
+  load-time fatal):** the template tree must be role-anchored (`(anchor (role ...))`) OR
+  self-anchored — an explicit `(anchor (self ...))` (optionally naming the subject node via
+  `(self (ref "..."))`) or no `(anchor ...)` at all. A BARE `(self)` requires exactly ONE top-level
+  `placement` node (the same shape the self-anchor resolution itself requires); a NAMED
+  `(self (ref "..."))` drops that rule. `origin`/`ref`/`point` anchors are not parameterized by sheet.
+  Every template node is `kind "placement"` (or unset/auto) and must reference an existing `entities:`
   record, `kind "net_trace"` and reference an existing `net_traces:` record by its net, OR `kind
   "mount"` (v1.5 2026-09-11) and carry a `(anchor (role ...) ...)` — see the mount bullet below.
   (chain/coordinate/clone/module nodes inside a template stay unsupported.)
-- **Auto-anchored templates are supported too (v1.4, 2026-09-08, plan
-  tree_instances_auto_root_template_support):** a template with no `(anchor ...)` at all — the
-  `is_auto` shape (its anchor derives from its own single top-level placement Entity) — may also be a
-  `tree_instances:` target, provided it has exactly ONE top-level `placement` node. For such a
-  template the anchor IS that root node, so no separate anchor substitution exists: the instance
-  `sheet` (and any per-copy `cluster`/`params`) reaches the generated copies through the same per-node
-  mechanism as any other template, `old_sheet` (net_trace rewriting) comes from the root Entity's own
-  sheet, and the generated instance tree stays auto-anchored itself (a deep copy of a template that
-  has no `anchor`).
+- **Self-anchored templates (v1.4 2026-09-08, reworked 2026-09-11 plan tree_self_anchor, task Д):** a
+  template that is self-anchored may also be a `tree_instances:` target. The subject node is the named
+  `(self (ref "..."))` when present (no EXACTLY-ONE rule), else the single top-level `placement` node.
+  There is no separate anchor substitution for `sheet`: the instance `sheet` (and any per-copy
+  `cluster`/`params`) reaches the generated copies through the same per-node mechanism as any other
+  template, `old_sheet` (net_trace rewriting) comes from the SUBJECT Entity's own sheet, and the
+  generated instance tree stays self-anchored itself (a deep copy). A `(self (ref "..."))` ref is
+  rewritten through the SAME rename map as `pivot-ref` — a ref naming no template node is a fatal AT
+  EXPANSION, naming the template.
 - **net_trace nodes inside a template (v1.1):** a `kind "net_trace"` node's `ref` is a real board NET
   (e.g. `/Channel_0/DAC/+3V3_AVDD`) that must stay a valid net name for the planner/KiCad — so it is
   NOT suffixed with `__{instance.name}` like a placement ref. Instead the net's LEADING SHEET SEGMENT
   is replaced with the instance `sheet` (`/Channel_1/DAC/+3V3_AVDD`), independently on the record's
   `net`, on every `tracks[].net` and every `vias[].net`; the generated `net_traces:` copy's
   `anchor_sheet` is unconditionally set to the instance `sheet`. The old sheet comes from the template
-  tree's own role-anchor `sheet` (or, for an auto-anchored template — v1.4 — from its root Entity's
-  own `sheet`, since there is no `anchor.sheet`) — a net whose leading segment isn't it is a fatal
+  tree's own role-anchor `sheet` (or, for a self-anchored template, from its subject Entity's
+  own `sheet`) — a net whose leading segment isn't it is a fatal
   (it's not this template's copper), never silently rewritten. Distinct per-instance nets keep the
   one-record-per-net
   dedup happy for free.

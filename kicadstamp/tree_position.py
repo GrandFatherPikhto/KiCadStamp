@@ -758,27 +758,37 @@ def anchor_shift_offset_nm(anchor: "TreeAnchor | None",
 
 def _root_entity_ref(tree: Tree | None) -> str | None:
     """The ref of the tree's OWN single top-level kind="placement" node — the
-    "root Entity" whose record must never be offered as this tree's own ref
-    anchor, because a ref anchor pointing at the tree's own root Entity is a
-    self-reference that can never resolve (plan 2026-08-31 anchor self-ref
-    guard). Mirrors the auto-anchor's EXACTLY ONE rule
-    (_auto_anchor_base in entity_placement.py): an empty tree, several top-level
-    nodes, or a single top-level node that isn't a placement all mean "no
-    self-reference to guard" — the auto-anchor is unreachable for those anyway,
-    so neither the dialog filter nor the save-time auto-switch may touch them."""
+    "root Entity" whose record must never be offered as this tree's own
+    (anchor (ref "...")) record anchor, because such a ref anchor pointing at
+    the tree's own root Entity is a self-reference that can never resolve
+    (plan 2026-08-31 anchor self-ref guard). Mirrors the self anchor's EXACTLY
+    ONE rule (_self_anchor_base in entity_placement.py): an empty tree, several
+    top-level nodes, or a single top-level node that isn't a placement all mean
+    "no canonical root" — a bare (self) is unreachable for those anyway, so
+    neither the dialog filter nor the save-time guard may touch them."""
     if tree is None or len(tree.nodes) != 1:
         return None
     top = tree.nodes[0]
     return top.ref if top.kind == "placement" else None
 
 
-def _root_entity_record(cfg, tree: Tree) -> object | None:
-    """The Entity (a cfg.entities record) behind the tree's OWN single top-level
-    kind="placement" node — `_root_entity_ref`'s ref resolved to its record, or
-    None when there is no such canonical root. Resolved via build_records so the
-    effective-name keying matches link_trees exactly (the same source the
-    apply-time materializer reads its auto-anchor subject from)."""
-    ref = _root_entity_ref(tree)
+def _self_subject_ref(tree: Tree, anchor: TreeAnchor | None) -> str | None:
+    """The ref of the Entity a (self ...) anchor reads (plan 2026-09-11
+    tree_self_anchor, task Д.4): the anchor's OWN (ref ...) when set (validated
+    at load to name a placement node of THIS tree), else the tree's canonical
+    single top-level placement node (_root_entity_ref — today's rule)."""
+    if anchor is not None and getattr(anchor, "self_ref", None) is not None:
+        return anchor.self_ref
+    return _root_entity_ref(tree)
+
+
+def _self_entity_record(cfg, tree: Tree, anchor: TreeAnchor | None) -> object | None:
+    """The Entity (a cfg.entities record) behind a (self ...) anchor's subject —
+    `_self_subject_ref`'s ref resolved to its record, or None when there is no
+    such canonical root. Resolved via build_records so the effective-name keying
+    matches link_trees exactly (the same source the apply-time materializer
+    reads its self-anchor subject from)."""
+    ref = _self_subject_ref(tree, anchor)
     if ref is None:
         return None
     for rec in build_records(cfg):
@@ -798,10 +808,11 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
     through to a ref-less live read -> "Якорь None не найден на плате" (the old
     _linked_base_for understood only origin/ref).
       - origin -> the board origin (0,0), rotation 0.0
-      - auto   -> the root Entity's cell zero-slot live position (the SAME
-                  derivation _auto_anchor_base uses at materialization); a tree
-                  without EXACTLY ONE top-level placement Entity cannot
-                  auto-anchor — a clear error, never a bogus "None" read
+      - self   -> the subject Entity's cell mount live position (the SAME
+                  derivation _self_anchor_base uses at materialization): the
+                  anchor's OWN (ref "...") node when named, else the single
+                  top-level placement Entity; a tree with neither cannot
+                  self-anchor — a clear error, never a bogus "None" read
       - role   -> the Role-matching live footprint (sheet/cluster/pad narrow)
       - point  -> the points: entry's resolved chain position (no rotation)
       - ref    -> the referenced config record / external refdes (existing path)
@@ -810,21 +821,22 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
     anchor = tree.anchor
     if anchor.is_origin:
         pos, deg = _ORIGIN, 0.0
-    elif anchor.is_auto:
-        entity = _root_entity_record(cfg, tree)
+    elif anchor.is_self:
+        entity = _self_entity_record(cfg, tree, anchor)
         if entity is None:
-            # Reuses the materializer's own existing message for a tree that
-            # cannot auto-anchor (entity_placement._auto_anchor_base).
+            # Mirrors the materializer's own message for a tree that cannot
+            # self-anchor (entity_placement._self_anchor_base).
             raise ValidationError(_(
-                "auto-anchor needs EXACTLY ONE top-level placement node on an "
-                "Entity (found {n} top-level node(s)); add an explicit (anchor "
-                "...) to this tree instead").format(n=len(tree.nodes)))
+                "self-anchor needs EXACTLY ONE top-level placement node on an "
+                "Entity (found {n} top-level node(s)) — name a node with "
+                "(self (ref \"...\")) or add an explicit (anchor ...) to this "
+                "tree instead").format(n=len(tree.nodes)))
         # Local import: entity_placement imports tree_position at module level,
         # so the same soft-edge idiom tree_position itself uses for the cycle.
         from .placement.entity_placement import _entity_own_zero_slot_live_position
         pos, deg = _entity_own_zero_slot_live_position(
-            adapter, cfg, entity, sheet_names,
-            label=_("tree {name!r} auto-anchor").format(name=tree.name))
+            adapter, cfg, entity, sheet_names, pad=anchor.self_pad,
+            label=_("tree {name!r} self-anchor").format(name=tree.name))
     elif anchor.role:
         resolver = ComponentResolver(adapter, cfg, sheet_names)
         label = anchor.role

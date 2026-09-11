@@ -268,7 +268,7 @@ def test_non_trees_top_level_is_fatal(tmp_path):
         load_trees(_write(tmp_path, text))
 
 
-def test_tree_missing_anchor_is_auto(tmp_path):
+def test_tree_missing_anchor_is_self(tmp_path):
     """A tree with NO (anchor ...) is no longer fatal — it gets an AUTO anchor
     (2026-08-31, plan tree_self_anchor_from_entity): the base is derived at
     materialization time from the tree's own root Entity placement's cell zero
@@ -279,7 +279,7 @@ def test_tree_missing_anchor_is_auto(tmp_path):
     (node (ref "R1") (xy 1 1))))"""
     trees = load_trees(_write(tmp_path, text))
     assert len(trees) == 1
-    assert trees[0].anchor.is_auto is True
+    assert trees[0].anchor.is_self is True
     assert trees[0].anchor.ref is None
     assert trees[0].anchor.role is None
     assert trees[0].anchor.is_origin is False
@@ -437,7 +437,7 @@ def test_module_kind_roundtrips_through_sexp(tmp_path):
                      rotation=0.0, name=None, group=None, children=[])
     marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0), rotation=15.0,
                           children=[child])
-    trees = [Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker],
+    trees = [Tree(name="fpga", anchor=TreeAnchor(is_self=True), nodes=[marker],
                   pivot_xy=(0.5, -0.25), rotation=7.5)]
     path = tmp_path / "module.trees"
     save_trees(str(path), trees)
@@ -446,7 +446,7 @@ def test_module_kind_roundtrips_through_sexp(tmp_path):
 
 def test_tree_pivot_polar_roundtrips_through_sexp(tmp_path):
     """A tree's pivot_polar serializes as (pivot-polar r a) and round-trips."""
-    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="t", anchor=TreeAnchor(is_self=True),
                 nodes=[_module_node(ref="ch0")], pivot_polar=(3.0, 45.0))
     trees = [tree]
     path = tmp_path / "module.trees"
@@ -458,7 +458,7 @@ def test_tree_pivot_polar_roundtrips_through_sexp(tmp_path):
 def test_tree_pivot_default_omitted_in_sexp(tmp_path):
     """A tree pivot default (None = (0,0)) and rotation 0 must NOT be written —
     same no-noise discipline as xy/polar."""
-    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="t", anchor=TreeAnchor(is_self=True),
                 nodes=[_module_node(ref="ch0", xy=(10.0, 5.0))])
     trees = [tree]
     path = tmp_path / "module.trees"
@@ -472,7 +472,7 @@ def test_tree_dict_bridge_roundtrips():
     """The config-dict bridge (tree_to_dict/tree_from_dict) keeps the TREE's
     pivot_xy/rotation and omits the defaults — same no-noise discipline."""
     marker = _module_node(ref="ch0_dac_buf", xy=(10.0, 5.0))
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[marker],
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_self=True), nodes=[marker],
                 pivot_xy=(0.5, -0.25), rotation=7.5)
     d = tree_to_dict(tree)
     assert d["nodes"][0]["kind"] == "module"
@@ -501,7 +501,7 @@ def test_module_ref_is_exempt_from_file_wide_seen_refs(tmp_path):
 def test_module_ref_exempt_in_dict_node_seen_refs():
     """Same exemption in the dict bridge: a module ref whose name is already a
     RECORD node ref elsewhere must not trip rule 2."""
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_self=True),
                 nodes=[_module_node(ref="ch0_dac_buf")])
     out = tree_from_dict(tree_to_dict(tree), seen_refs={"ch0_dac_buf"})
     assert out == tree
@@ -723,7 +723,7 @@ def test_config_dict_tree_with_pivot_passes_known_key_check():
     """_TREE_KNOWN_KEYS must accept the tree-level pivot_*/rotation keys — the
     same class of unknown-key fatal that killed is_reference."""
     from kicadstamp.config.entries import _load_tree
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_self=True),
                 nodes=[_module_node(ref="ch0_dac_buf")],
                 pivot_xy=(0.5, -0.25), rotation=7.5)
     loaded = _load_tree(tree_to_dict(tree))
@@ -904,7 +904,7 @@ def test_config_dict_tree_with_mount_node_passes_known_key_check():
     nested "anchor" key + its role-only subkeys — the config inlay must not
     fatal on a mount node."""
     from kicadstamp.config.entries import _load_tree
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_self=True),
                 nodes=[TreeNode(ref="m1", kind="mount", xy=None, polar=None,
                                 rotation=0.0, name=None, group=None,
                                 children=[], anchor=TreeAnchor(role="IC1"))])
@@ -985,3 +985,96 @@ def test_anchor_shift_passes_config_known_key_check():
                 nodes=[])
     loaded = _load_tree(tree_to_dict(tree))
     assert loaded.anchor == TreeAnchor(role="R", shift_xy=(5.0, -2.0))
+
+
+# ── self anchor grammar (2026-09-11, plan tree_self_anchor, task Д) ────────
+
+
+def test_self_anchor_bare_equals_absent_anchor(tmp_path):
+    """plan Д.9.1 #2: (anchor (self)) and an ABSENT (anchor ...) parse to the
+    SAME Tree (numbers included) — compared by dataclass equality."""
+    with_self = load_trees(_write(tmp_path, """(kicadstamp-trees
+      (tree (name "t") (anchor (self))
+        (node (ref "R1") (xy 1 1))))"""))
+    without = load_trees(_write(tmp_path, """(kicadstamp-trees
+      (tree (name "t")
+        (node (ref "R1") (xy 1 1))))"""))
+    assert with_self == without
+    assert with_self[0].anchor.is_self is True
+    assert with_self[0].anchor.self_ref is None
+    assert with_self[0].anchor.mode == "self"
+    # A bare default anchor also reads as the self mode.
+    assert TreeAnchor().mode == "self"
+
+
+def test_self_anchor_with_ref_and_pad_roundtrips():
+    """plan Д.9.2 #5/#8: (self (ref "...") (pad "...")) parses and serializes
+    back unchanged."""
+    from kicadstamp.cloner.sexp import sym
+    from kicadstamp.trees import tree_from_sexp, tree_to_sexp
+    sexp = [sym("tree"), [sym("name"), "t"],
+            [sym("anchor"), [sym("self"), [sym("ref"), "E1"], [sym("pad"), "3"]]],
+            [sym("node"), [sym("ref"), "E1"], [sym("kind"), sym("placement")]]]
+    tree = tree_from_sexp(sexp, seen_names=set(), seen_refs=set(), location="t")
+    assert tree.anchor.mode == "self"
+    assert tree.anchor.self_ref == "E1"
+    assert tree.anchor.self_pad == "3"
+    assert tree_to_sexp(tree) == sexp
+
+
+def test_self_anchor_with_ref_allows_multiple_top_level_nodes():
+    """plan Д.9.2 #5: a NAMED subject drops the EXACTLY-ONE top-level rule."""
+    from kicadstamp.trees import tree_from_dict
+    tree = tree_from_dict({"name": "t", "anchor": {"self": {"ref": "E2"}},
+                           "nodes": [{"ref": "E1", "kind": "placement"},
+                                     {"ref": "E2", "kind": "placement"}]})
+    assert tree.anchor.self_ref == "E2"
+    assert [n.ref for n in tree.nodes] == ["E1", "E2"]
+
+
+def test_self_anchor_ref_naming_unknown_node_is_fatal():
+    """plan Д.9.2 #7: a self ref naming no node of this tree is a load-time
+    fatal."""
+    from kicadstamp.trees import tree_from_dict
+    with pytest.raises(ValidationError, match="names no node of this tree"):
+        tree_from_dict({"name": "t", "anchor": {"self": {"ref": "NOPE"}},
+                        "nodes": [{"ref": "E1", "kind": "placement"}]})
+
+
+def test_self_anchor_ref_naming_non_placement_node_is_fatal():
+    """plan Д.9.2 #7: a self ref naming a node of a NON-placement kind is a
+    load-time fatal."""
+    from kicadstamp.trees import tree_from_dict
+    with pytest.raises(ValidationError, match="kind \"placement\" node"):
+        tree_from_dict({"name": "t", "anchor": {"self": {"ref": "NT"}},
+                        "nodes": [{"ref": "NT", "kind": "net_trace"}]})
+
+
+def test_self_anchor_on_a_node_is_fatal():
+    """plan Д.9.1 #4: (self) inside a node (mount or positioned) is a fatal,
+    like origin/point."""
+    mount = TreeNode(ref="M1", kind="mount", xy=None, polar=None,
+                     rotation=0.0, name=None, group=None, children=[],
+                     anchor=TreeAnchor(role="R"))
+    d = tree_to_dict(Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                          nodes=[mount]))
+    d["nodes"][0]["anchor"] = {"self": {}}
+    with pytest.raises(ValidationError, match="tree-anchor-only"):
+        tree_from_dict(d)
+
+
+def test_self_anchor_candidates_are_placement_nodes_only():
+    """plan Д.7: the self-ref picker list is this tree's kind "placement" nodes,
+    excluding net_trace/mount."""
+    from kicadstamp.trees import tree_self_ref_candidates
+    mount = TreeNode(ref="M1", kind="mount", xy=None, polar=None,
+                     rotation=0.0, name=None, group=None, children=[],
+                     anchor=TreeAnchor(role="R"))
+    tree = Tree(name="t", anchor=TreeAnchor(),
+                nodes=[TreeNode(ref="E1", kind="placement", xy=(0.0, 0.0),
+                                polar=None, rotation=0.0, name=None, group=None),
+                       TreeNode(ref="NT", kind="net_trace", xy=None, polar=None,
+                                rotation=0.0, name=None, group=None),
+                       mount])
+    assert tree_self_ref_candidates(tree) == ["E1"]
+    assert tree_self_ref_candidates(None) == []

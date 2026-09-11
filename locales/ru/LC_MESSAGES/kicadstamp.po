@@ -15040,3 +15040,78 @@ msgstr "node {ref!r}: mount-узлу нужно живое подключени�
 
 msgid "node {ref!r}: mount node's anchor names pad {pad!r} — reading a pad's shape needs a live board connection"
 msgstr "node {ref!r}: привязка mount-узла называет пад {pad!r} — чтение формы пада требует живого подключения к плате"
+
+msgid "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity {ref!r} never resolves (self-reference) — switched to Self."
+msgstr "Якорь дерева {name!r}: ref-якорь, указывающий на собственный корневой Entity {ref!r}, никогда не разрешится (самоссылка) — переключено на Self."
+
+msgid "Self (component this tree places)"
+msgstr "Self (компонент, который размещает это дерево)"
+
+msgid "This tree's own root Entity {ref!r} can't anchor itself — use Self."
+msgstr "Собственный корневой Entity {ref!r} этого дерева не может быть сам себе якорем — используйте Self."
+
+msgid "a (self (ref \"...\")) anchor must name a kind \"placement\" node of the same tree"
+msgstr "якорь (self (ref \"...\")) обязан называть узел вида \"placement\" того же дерева"
+
+msgid "a bare (self) needs EXACTLY ONE top-level placement node; with several, name the subject explicitly: (anchor (self (ref \"...\")))"
+msgstr "«голому» (self) нужен РОВНО ОДИН top-level placement-узел; если их несколько, назовите субъект явно: (anchor (self (ref \"...\")))"
+
+msgid "anchor must specify exactly one of (origin), (ref \"...\"), (role \"...\"), (point \"...\"), (self ...)"
+msgstr "якорь обязан задавать ровно одно из (origin), (ref \"...\"), (role \"...\"), (point \"...\"), (self ...)"
+
+msgid "anchor must specify exactly one of origin/ref/role/point/self"
+msgstr "якорь обязан задавать ровно одно из origin/ref/role/point/self"
+
+msgid "anchor: self must be a mapping with an optional ref/pad"
+msgstr "якорь: self должен быть отображением с необязательными ref/pad"
+
+msgid "anchor: shift needs a base — set one of origin/ref/role/point/self"
+msgstr "якорь: shift требует базы — задайте одно из origin/ref/role/point/self"
+
+msgid "either an (anchor (role ...)) template, or a self anchor — an explicit (anchor (self [(ref \"...\")])) OR no (anchor ...) at all with exactly one top-level placement node; origin/ref/point anchors are still not parameterized by sheet"
+msgstr "либо шаблон с (anchor (role ...)), либо self-якорь — явный (anchor (self [(ref \"...\")])) ИЛИ вообще без (anchor ...) ровно с одним top-level placement-узлом; якоря origin/ref/point по-прежнему не параметризуются листом"
+
+msgid "mount node {ref!r}: anchor supports only (role ...) — origin/ref/point/external/self/shift are tree-anchor-only"
+msgstr "mount-узел {ref!r}: якорь поддерживает только (role ...) — origin/ref/point/external/self/shift допустимы только у якоря дерева"
+
+msgid "node of this tree (optional)"
+msgstr "узел этого дерева (необязательно)"
+
+msgid "self-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)) — name a node with (self (ref \"...\")) or add an explicit (anchor ...) to this tree instead"
+msgstr "self-якорю нужен РОВНО ОДИН top-level placement-узел на Entity (найдено {n} top-level узлов) — назовите узел через (self (ref \"...\")) либо добавьте явный (anchor ...) этому дереву"
+
+msgid "self-anchor needs EXACTLY ONE top-level placement node on an Entity (found {n} top-level node(s)); name one with (self (ref \"...\")) or add an explicit (anchor ...) to this tree instead"
+msgstr "self-якорю нужен РОВНО ОДИН top-level placement-узел на Entity (найдено {n} top-level узлов); назовите узел через (self (ref \"...\")) либо добавьте явный (anchor ...) этому дереву"
+
+msgid "the self anchor's (ref ...) must name a placement node of the same tree — check the template's anchor"
+msgstr "(ref ...) self-якоря обязан называть placement-узел того же дерева — проверьте якорь шаблона"
+
+msgid "the self-anchored template's subject node must reference an existing entities: entry by its name"
+msgstr "узел-субъект self-якорного шаблона обязан ссылаться на существующую запись entities: по имени"
+
+msgid "tree {name!r} has no explicit anchor and cannot derive one"
+msgstr "дерево {name!r} не имеет явного якоря и не может его вывести"
+
+msgid "tree {name!r} self-anchor"
+msgstr "дерево {name!r} self-якорь"
+
+msgid "tree {name!r} self-anchor names node {ref!r}, which is not a placement Entity of this tree"
+msgstr "self-якорь дерева {name!r} называет узел {ref!r}, который не является placement-Entity этого дерева"
+
+msgid "tree {name!r}: self anchor ref {ref!r} is a kind {kind!r} node — a self anchor must name a kind \"placement\" node of this tree"
+msgstr "дерево {name!r}: ref self-якоря {ref!r} — узел вида {kind!r}; self-якорь обязан называть узел вида \"placement\" этого дерева"
+
+msgid "tree {name!r}: self anchor ref {ref!r} names no node of this tree"
+msgstr "дерево {name!r}: ref self-якоря {ref!r} не называет ни одного узла этого дерева"
+
+msgid "tree_instance {name!r}: template {template!r} self anchor ref {ref!r} names no node of the template tree"
+msgstr "tree_instance {name!r}: ref self-якоря шаблона {template!r} ({ref!r}) не называет ни одного узла дерева-шаблона"
+
+msgid "tree_instance: template {template!r} is self-anchored but names no resolvable subject node"
+msgstr "tree_instance: шаблон {template!r} self-якорный, но не называет разрешимого узла-субъекта"
+
+msgid "tree_instance: template {template!r} must be role-anchored OR self-anchored (an explicit (self ...), or no (anchor ...) at all)"
+msgstr "tree_instance: шаблон {template!r} обязан быть role-якорным ИЛИ self-якорным (явный (self ...) либо вообще без (anchor ...))"
+
+msgid "⚓ (self)"
+msgstr "⚓ (self)"

@@ -13,12 +13,12 @@ reads the ALREADY rotated part as the anchor and rotates it again -> a compound
 drift of exactly `slot.angle_deg` per redraw (position drifts too when the slot
 has a non-zero local offset).
 
-SCOPE — explicit role anchors ONLY. An is_auto tree's single root placement
+SCOPE — explicit role anchors ONLY. An is_self tree's single root placement
 Entity is its anchor source BY CONSTRUCTION (there is no other part to anchor
-on) and typically carries its own copper (e.g. cell fpga under an auto-anchored
+on) and typically carries its own copper (e.g. cell fpga under a self-anchored
 fpga tree); it must keep materializing, so it is deliberately NOT treated as a
-removable "duplicate" here (and the extract flow must keep such a node too,
-`build_tree_from_clusters` — a structural requirement of `_auto_anchor_base`).
+removable "duplicate" here (and the extract flow NAMES such a node as the tree's
+`(self (ref ...))` anchor in `build_tree_from_clusters`).
 Only a redundant EXPLICIT (role ...)-anchor duplicate (like conn_pm5v_power
 under the role-anchored "power" tree) is the bug this module describes.
 
@@ -41,7 +41,7 @@ __all__ = [
 
 def entity_anchor_identity(entity: Entity, cfg: Any) -> tuple[str, str | None, str | None] | None:
     """(role, sheet, cluster) of the Entity's OWN live anchor subject — the
-    "mount" identity the tree (role ...) anchor and the auto-anchor both read
+    "mount" identity the tree (role ...) anchor and the self anchor both read
     (`_anchor_base` / `_entity_own_zero_slot_live_position`). role is the
     cell's anchor_role when set (design_2026_09_05 v2), else the role of the
     single zero-offset (local (0,0)) component (the legacy "zero slot"), else

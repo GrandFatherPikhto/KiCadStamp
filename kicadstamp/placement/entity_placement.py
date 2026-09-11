@@ -95,41 +95,71 @@ def _find_entity_node(forest: list[LinkedTree], entity_name: str
     return matches
 
 
-def _auto_anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
-                      linked_tree: LinkedTree, sheet_names: dict) -> tuple[Vector2, float]:
-    """Auto-derive a tree's anchor base when it has NO explicit (anchor ...)
-    (2026-08-31, plan tree_self_anchor_from_entity): the single top-level
-    kind="placement" node's Entity becomes the anchor subject — the ONE
-    component of its cell sitting at local offset (0,0) (no
-    offset_along_mm/offset_across_mm — the "zero", self-referencing slot, e.g.
-    role "FPGA" in the fpga/fpga_supp cells) acts as the anchor role, narrowed
-    by the Entity's OWN sheet/cluster, then resolved LIVE exactly like an
-    explicit (role ...) anchor (Phase 4.2 — no new board-reading logic).
+def _linked_entity_by_ref(linked_tree: LinkedTree, ref: str) -> Entity | None:
+    """The Entity behind a kind "placement" node of `linked_tree` with this ref,
+    or None (plan 2026-09-11 tree_self_anchor, task Д.4). Walks the WHOLE tree —
+    a (self (ref "...")) anchor may name ANY placement node, not only a
+    top-level one."""
+    def walk(nodes):
+        for ln in nodes:
+            yield ln
+            yield from walk(ln.children)
+    for ln in walk(linked_tree.nodes):
+        if ln.node.ref == ref and isinstance(getattr(ln.record, "obj", None), Entity):
+            return ln.record.obj
+    return None
 
-    Config errors (no/2+ zero slots, 0/2+ top-level placement nodes, a missing
-    cell) are _EntityAnchorError — fatal for the whole run, NEVER a silent
-    origin/guess. A LIVE error from the role resolution (role not found /
-    ambiguous on the board) is a plain ValidationError — the SAME per-tree
-    skip tolerance materialize_entity_placements already applies to explicit
-    role anchors."""
-    placement_roots = [ln for ln in linked_tree.nodes
-                       if ln.node.kind == "placement" and ln.record is not None
-                       and isinstance(ln.record.obj, Entity)]
-    if len(linked_tree.nodes) != 1 or len(placement_roots) != 1:
-        raise _EntityAnchorError(format_fatal_error(
-            _("tree {name!r} has no explicit anchor and cannot auto-derive one")
-            .format(name=linked_tree.name),
-            [_("auto-anchor needs EXACTLY ONE top-level placement node on an Entity "
-               "(found {n} top-level node(s)); add an explicit (anchor ...) to this "
-               "tree instead").format(n=len(linked_tree.nodes))]))
-    entity = placement_roots[0].record.obj
+
+def _self_anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
+                      linked_tree: LinkedTree, anchor,
+                      sheet_names: dict) -> tuple[Vector2, float]:
+    """Self anchor base (2026-09-11, plan tree_self_anchor, task Д.1 — replaces
+    the auto anchor): the tree hangs on a component it places ITSELF, read LIVE.
+    The subject is the anchor's OWN (ref "...") node when named (load-validated
+    to be a kind "placement" node of this tree), else the single top-level
+    placement node (today's EXACTLY-ONE rule). That node's Entity becomes the
+    anchor subject — the ONE component of its cell sitting at local offset (0,0)
+    (no offset_along_mm/offset_across_mm — the "zero", self-referencing slot)
+    acts as the anchor role, narrowed by the Entity's OWN sheet/cluster, then
+    resolved LIVE exactly like an explicit (role ...) anchor (Phase 4.2 — no new
+    board-reading logic). An optional (pad "...") moves the base onto that pad.
+
+    Config errors (no/2+ zero slots, no/2+ top-level placement nodes, a missing
+    cell, a self ref that is not a placement Entity) are _EntityAnchorError —
+    fatal for the whole run, NEVER a silent origin/guess. A LIVE error from the
+    role resolution (role not found / ambiguous on the board) is a plain
+    ValidationError — the SAME per-tree skip tolerance
+    materialize_entity_placements already applies to explicit role anchors."""
+    if anchor is not None and anchor.self_ref is not None:
+        entity = _linked_entity_by_ref(linked_tree, anchor.self_ref)
+        if entity is None:
+            raise _EntityAnchorError(format_fatal_error(
+                _("tree {name!r} self-anchor names node {ref!r}, which is not a "
+                  "placement Entity of this tree").format(
+                      name=linked_tree.name, ref=anchor.self_ref),
+                [_("a (self (ref \"...\")) anchor must name a kind \"placement\" "
+                   "node of the same tree")]))
+    else:
+        placement_roots = [ln for ln in linked_tree.nodes
+                           if ln.node.kind == "placement" and ln.record is not None
+                           and isinstance(ln.record.obj, Entity)]
+        if len(linked_tree.nodes) != 1 or len(placement_roots) != 1:
+            raise _EntityAnchorError(format_fatal_error(
+                _("tree {name!r} has no explicit anchor and cannot derive one")
+                .format(name=linked_tree.name),
+                [_("self-anchor needs EXACTLY ONE top-level placement node on an "
+                   "Entity (found {n} top-level node(s)); name one with "
+                   "(self (ref \"...\")) or add an explicit (anchor ...) to this "
+                   "tree instead").format(n=len(linked_tree.nodes))]))
+        entity = placement_roots[0].record.obj
     # The "Entity -> its Cell -> single zero-offset component -> role -> live
     # read" core is shared with resolve_entity_live_position's fallback for an
     # Entity that is not placed by any tree — one source of truth, only the
     # label differs (tree-anchor context here, Entity's own context there).
     return _entity_own_zero_slot_live_position(
         adapter, cfg, entity, sheet_names,
-        label=_("tree {name!r} auto-anchor").format(name=linked_tree.name))
+        pad=(anchor.self_pad if anchor is not None else None),
+        label=_("tree {name!r} self-anchor").format(name=linked_tree.name))
 
 
 def _find_entity_record(cfg: "Config", entity_name: str) -> Entity | None:
@@ -146,7 +176,8 @@ def _find_entity_record(cfg: "Config", entity_name: str) -> Entity | None:
 def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
                                         cfg: "Config",
                                         entity: Entity, sheet_names: dict,
-                                        label: str | None = None
+                                        label: str | None = None,
+                                        pad: str | None = None,
                                         ) -> tuple[Vector2, float]:
     """(position_nm, rotation_deg) of an Entity's OWN live position — the
     position of its cell's MOUNT point on the board (design_2026_09_05 v2).
@@ -156,7 +187,9 @@ def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
     convention — so existing auto-anchor behaviour is unchanged until cells
     carry an anchor_role. Either way it is live-resolved via ComponentResolver
     exactly like an explicit (role ...) anchor (Phase 4.2 — no new board-reading
-    logic), with cell.anchor_pad moving the mount onto that pad. This is the
+    logic). An explicit `pad` argument moves the mount onto that pad (a
+    (self (pad "...")) anchor wins over cell.anchor_pad); without it,
+    cell.anchor_pad is used. This is the
     standalone core of the auto-anchor derivation (_auto_anchor_base, plan
     2026-08-31 tree_self_anchor_from_entity), extracted so
     resolve_entity_live_position can fall back to it for an Entity that is NOT
@@ -207,9 +240,10 @@ def _entity_own_zero_slot_live_position(adapter: "KiCadBoardAdapter",
         None, surrogate_role, entity.sheet, entity.cluster,
         label=label or _("Entity {name!r} own live position")
         .format(name=entity.name))
-    if cell.anchor_pad is not None:
+    effective_pad = pad if pad is not None else cell.anchor_pad
+    if effective_pad is not None:
         pos = resolve_anchor_pad_position(
-            adapter, fp, cell.anchor_pad,
+            adapter, fp, effective_pad,
             label or _("Entity {name!r} own live position").format(name=entity.name))
         return pos, fp.angle_deg
     return fp.position, fp.angle_deg
@@ -264,8 +298,10 @@ def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
     """(position_nm, rotation_deg | None) for a tree's RAW anchor base — the
     anchor itself, BEFORE the tree's own inner point / angle are applied (see
     _anchor_base, which every layout caller must use instead of this one).
-    AUTO (no explicit (anchor ...)) -> derived from the tree's own root Entity
-    placement's cell zero slot (_auto_anchor_base) — live role resolution.
+    SELF ((self ...), or no explicit (anchor ...) at all) -> derived from a
+    component THIS tree places (_self_anchor_base): the anchor's own (ref ...)
+    node when named, else its single top-level placement node — live role
+    resolution.
     (origin) -> the board origin (0,0), rotation 0.
     (ref ...) -> the referenced record's / live footprint's current position
     and rotation (external refdes handled by resolve_base_*). When the ref
@@ -296,10 +332,13 @@ def _anchor_base_raw(adapter: "KiCadBoardAdapter", cfg: "Config",
     The anchor's OWN (shift x y) is applied LAST, at the anchor's angle
     (anchor_shift_offset_nm) — the same helper the live path uses."""
     anchor = linked_tree.anchor
-    if anchor.anchor.is_auto:
-        # No explicit (anchor ...): derive the base from the tree's own root
-        # Entity placement's cell zero slot, live-resolved like a role anchor.
-        pos, rot = _auto_anchor_base(adapter, cfg, linked_tree, sheet_names)
+    if anchor.anchor.is_self:
+        # A (self ...) anchor (or an absent one, read as self): derive the base
+        # from a component THIS tree places — the anchor's own (ref ...) node
+        # when named, else its single top-level placement node — live-resolved
+        # like a role anchor.
+        pos, rot = _self_anchor_base(adapter, cfg, linked_tree, anchor.anchor,
+                                     sheet_names)
     elif anchor.is_origin:
         pos, rot = _ORIGIN, 0.0
     elif anchor.anchor.role is not None:

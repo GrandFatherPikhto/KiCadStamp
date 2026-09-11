@@ -840,23 +840,24 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert any(t["name"] == "power_tree" for t in trees)
     tree = next(t for t in trees if t["name"] == "power_tree")
     # PIF_AVDD IS the tree's own explicit role anchor (role DAC / sheet
-    # Channel_1 / cluster PIF_AVDD) — since 2026-09-08 (plan
-    # extract_tree_self_anchor_as_auto_root) "Extract tree" promotes that
-    # cluster to the SOLE top-level auto root instead of dropping it, so the
-    # tree no longer carries an explicit (anchor ...) (is_auto = absent).
-    assert "anchor" not in tree
-    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD"]
-    assert [n["kind"] for n in tree["nodes"]] == ["placement"]
-    root = tree["nodes"][0]
-    # The auto root is the origin of its own frame.
-    assert root["xy"] == [0.0, 0.0]
-    # ...and every other checked cluster AND the net_trace node become its
-    # children (is_auto needs EXACTLY ONE top-level placement node).
-    assert [c["ref"] for c in root["children"]] == ["CH1_PIF_CLKVDD", "SHARED"]
-    assert [c["kind"] for c in root["children"]] == ["placement", "net_trace"]
-    # Autopositioning of the reparented child: entity (10,20) - anchor base
-    # (5,10) = (5,10) — numerically unchanged by the reparenting.
-    assert root["children"][0]["xy"] == [5.0, 10.0]
+    # Channel_1 / cluster PIF_AVDD) — since 2026-09-11 (plan tree_self_anchor,
+    # task Д.5а) "Extract tree" NAMES that cluster as the tree's self anchor
+    # instead of dropping it or reparenting everything under it, so the tree
+    # carries an explicit (anchor (self (ref ...))) and every node stays
+    # TOP-LEVEL.
+    assert tree["anchor"] == {"self": {"ref": "CH1_PIF_AVDD"}}
+    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD",
+                                                 "CH1_PIF_CLKVDD", "SHARED"]
+    assert [n["kind"] for n in tree["nodes"]] == ["placement", "placement",
+                                                  "net_trace"]
+    # The self subject is the origin of its own frame.
+    assert tree["nodes"][0]["xy"] == [0.0, 0.0]
+    # Autopositioning of the sibling: entity (10,20) - anchor base (5,10) =
+    # (5,10) — numerically unchanged.
+    assert tree["nodes"][1]["xy"] == [5.0, 10.0]
+    # No reparenting (plan Д.5а): the subject has no children any more.
+    assert "children" not in tree["nodes"][0]
+    assert "children" not in tree["nodes"][1]
     nets = data.get("net_traces") or []
     assert any(n["net"] == "SHARED" for n in nets)
 

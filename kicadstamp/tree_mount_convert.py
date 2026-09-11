@@ -40,8 +40,9 @@ already been truncated (a real profile was destroyed this way — see В.1). The
 instance now resolves to its TEMPLATE: a default (zero) pivot is dropped, a
 non-zero one that differs from the template's is a STOP.
 
-What it does NOT touch: a tree's own (anchor ...), is_auto, the tree's own
-`rotation`, and every non-trees section (those are stage Б3 / later).
+What it does NOT touch: a tree's own (anchor ...) (incl. the self anchor),
+the tree's own `rotation`, and every non-trees section (those are stage Б3 /
+later).
 """
 from __future__ import annotations
 

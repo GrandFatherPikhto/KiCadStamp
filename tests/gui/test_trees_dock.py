@@ -806,20 +806,39 @@ def test_anchor_dialog_record_mode_stays_non_external(main_window):
     assert dlg._result == TreeAnchor(ref="CL_A", is_origin=False, is_external=False)
 
 
-def test_anchor_dialog_auto_mode_returns_is_auto(main_window):
-    """The new "Auto (derive from Entity's own cell)" mode must yield
-    TreeAnchor(is_auto=True) with every other field at its default — the only
-    GUI path to an auto anchor (2026-08-31 plan)."""
+def test_anchor_dialog_self_mode_returns_self_anchor(main_window):
+    """The "Self (component this tree places)" mode must yield
+    TreeAnchor(is_self=True) with every other field at its default — the only
+    GUI path to a self anchor (plan tree_self_anchor, task Д.7)."""
     from gui.docks.trees_dock import _AnchorDialog
     dlg = _AnchorDialog(main_window, [("placement", "FPGA")])
-    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("auto"))
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("self"))
     dlg._accept()
-    assert dlg._result == TreeAnchor(is_auto=True)
+    assert dlg._result == TreeAnchor(is_self=True)
+
+
+def test_anchor_dialog_self_mode_lists_this_trees_placement_nodes(main_window):
+    """plan Д.7/Д.9.5 #15: the self mode's Node combo offers ONLY this tree's
+    kind "placement" nodes, and build_anchor reads the chosen node + pad."""
+    from gui.docks.trees_dock import _AnchorDialog
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                nodes=[_placement_node("E1"),
+                       TreeNode(ref="NT", kind="net_trace", xy=None, polar=None,
+                                rotation=0.0, name=None, group=None),
+                       _placement_node("E2")])
+    dlg = _AnchorDialog(main_window, [], tree=tree)
+    dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("self"))
+    texts = [dlg.self_combo.itemText(i) for i in range(dlg.self_combo.count())]
+    assert texts == ["E1", "E2"]
+    dlg.self_combo.setCurrentText("E2")
+    dlg.self_pad_edit.setText("3")
+    dlg._accept()
+    assert dlg._result == TreeAnchor(is_self=True, self_ref="E2", self_pad="3")
 
 
 def test_anchor_dialog_role_mode_returns_role_anchor(main_window):
     """The new "Role" mode builds a role anchor: role required, sheet/cluster/
-    pad optional, nothing else set (ref/is_origin/is_external/is_auto all off)."""
+    pad optional, nothing else set (ref/is_origin/is_external/is_self all off)."""
     from gui.docks.trees_dock import _AnchorDialog
     dlg = _AnchorDialog(main_window, [],
                         role_candidates=["FPGA", "R_FB"],
@@ -918,10 +937,10 @@ def test_anchor_dialog_all_kinds_prefixed_collisions(main_window):
 
 # ── _AnchorDialog edit-mode prefill (2026-08-31) ───────────────────────────
 
-def test_anchor_dialog_prefills_auto(main_window):
+def test_anchor_dialog_prefills_self(main_window):
     from gui.docks.trees_dock import _AnchorDialog
-    dlg = _AnchorDialog(main_window, [], existing=TreeAnchor(is_auto=True))
-    assert dlg.mode_combo.currentData() == "auto"
+    dlg = _AnchorDialog(main_window, [], existing=TreeAnchor(is_self=True))
+    assert dlg.mode_combo.currentData() == "self"
 
 
 def test_anchor_dialog_prefills_role(main_window):
@@ -982,7 +1001,7 @@ def test_anchor_dialog_excludes_own_root_entity(main_window):
     own ref anchor (a ref anchor pointing at its own root Entity can never
     resolve). Other (non-self) Entities stay available."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dlg = _AnchorDialog(main_window,
                         [("placement", "fpga"), ("placement", "CL_A"),
@@ -999,7 +1018,7 @@ def test_anchor_dialog_empty_tree_keeps_self_entity(main_window):
     """§1 regression: an EMPTY tree (no top-level nodes) has no self-reference
     yet — the Entity is still a legitimate candidate and must stay."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True), nodes=[])
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True), nodes=[])
     dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
                         tree=tree)
     dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
@@ -1013,7 +1032,7 @@ def test_anchor_dialog_multiple_top_level_not_filtered(main_window):
     """§edge-case: with several top-level nodes there is no single "own root
     Entity" (and the auto-anchor is unreachable) — the dialog must not filter."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="multi", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="multi", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga"), _placement_node("CL_A")])
     dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
                         tree=tree)
@@ -1028,7 +1047,7 @@ def test_anchor_dialog_non_placement_root_not_filtered(main_window):
     """§edge-case: the single top-level node is NOT kind=placement — there is
     no self-referencing Entity to guard."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="rule_root", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="rule_root", anchor=TreeAnchor(is_self=True),
                 nodes=[TreeNode(ref="R_FB", kind="rule", xy=None, polar=None,
                                 rotation=0.0, name=None, group=None)])
     dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("rule", "R_FB")],
@@ -1045,7 +1064,7 @@ def test_anchor_dialog_all_kinds_removes_self_ref(main_window):
     placement entry was dropped), so it shows as a plain "fpga" and stays
     selectable: it is NOT the self-Entity."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dlg = _AnchorDialog(main_window,
                         [("placement", "fpga"), ("rule", "fpga"), ("rule", "R_FB")],
@@ -1062,7 +1081,7 @@ def test_anchor_dialog_hint_when_self_ref_empties_entities(main_window):
     the Entity section empties BECAUSE of the self-ref exclusion), a non-modal
     hint points at the Auto mode instead of a bare empty combo."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("rule", "R_FB")],
                         tree=tree)
@@ -1077,7 +1096,7 @@ def test_anchor_dialog_hint_hidden_when_other_entity_remains(main_window):
     a usable (non-self) candidate — the filter is working, the list isn't a
     dead end."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dlg = _AnchorDialog(main_window, [("placement", "fpga"), ("placement", "CL_A")],
                         tree=tree)
@@ -1090,7 +1109,7 @@ def test_anchor_dialog_hint_hidden_outside_record_mode(main_window):
     """§2 regression: outside the Config-record mode the hint is never shown
     (e.g. Auto — the very switch the hint suggests — must not carry it)."""
     from gui.docks.trees_dock import _AnchorDialog
-    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga_tree", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dlg = _AnchorDialog(main_window, [("placement", "fpga")], tree=tree)
     dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("auto"))
@@ -1117,7 +1136,7 @@ def test_save_guard_switches_self_ref_anchor_to_auto(main_window):
                 nodes=[_placement_node("fpga")])
     dock = _guard_dock(main_window, tree)
     dock._enforce_no_self_ref()
-    assert tree.anchor.is_auto is True
+    assert tree.anchor.is_self is True
     assert tree.anchor.ref is None
 
 
@@ -1144,11 +1163,11 @@ def test_save_guard_does_not_touch_external_self_named_anchor(main_window):
 
 def test_save_guard_does_not_touch_auto_anchor(main_window):
     """§edge-case: an already-auto anchor has nothing to replace."""
-    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="t", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     dock = _guard_dock(main_window, tree)
     dock._enforce_no_self_ref()
-    assert tree.anchor.is_auto is True
+    assert tree.anchor.is_self is True
 
 
 def test_save_guard_does_not_touch_origin_anchor(main_window):
@@ -1197,10 +1216,10 @@ def test_save_guard_notifies_via_status_bar(main_window):
     assert "fpga" in dock.status_label.text()
 
 
-def test_save_guard_roundtrip_yields_auto_anchor(main_window):
-    """§3 round-trip: after the auto-switch, tree_to_dict omits the anchor key
-    and load_tree recovers is_auto=True — the exact path _do_save writes to
-    disk, and the same behavior as a hand-authored auto anchor."""
+def test_save_guard_roundtrip_yields_self_anchor(main_window):
+    """§3 round-trip: after the self-switch, tree_to_dict writes the canonical
+    {"self": {}} and load_tree recovers is_self=True — the exact path _do_save
+    writes to disk (plan Д.2 rule 2)."""
     from kicadstamp.config import load_tree
     from kicadstamp.trees import tree_to_dict
     tree = Tree(name="fpga_tree",
@@ -1208,19 +1227,20 @@ def test_save_guard_roundtrip_yields_auto_anchor(main_window):
                 nodes=[_placement_node("fpga")])
     dock = _guard_dock(main_window, tree)
     dock._enforce_no_self_ref()
+    assert tree_to_dict(tree)["anchor"] == {"self": {}}
     reloaded = load_tree(tree_to_dict(tree))
-    assert reloaded.anchor.is_auto is True
+    assert reloaded.anchor.is_self is True
 
 
 # ── Anchor pseudo-root label (_anchor_label / _render_tree) ────────────────
 
 def test_anchor_label_all_modes_never_none():
     """Every TreeAnchor mode renders a human-readable label with NO "None"
-    (auto/role/point carry ref=None — the pre-2026-08-31 render showed '⚓ None')."""
+    (self/role/point carry ref=None — the pre-2026-08-31 render showed '⚓ None')."""
     from gui.docks.trees_dock import _anchor_label
     cases = [
         (TreeAnchor(is_origin=True), "origin"),
-        (TreeAnchor(is_auto=True), "auto"),
+        (TreeAnchor(is_self=True), "self"),
         (TreeAnchor(role="FPGA"), "role"),
         (TreeAnchor(role="FPGA", anchor_sheet="S1", anchor_cluster="CL_A",
                     anchor_pad="A1"), "S1"),
@@ -1234,15 +1254,15 @@ def test_anchor_label_all_modes_never_none():
         assert needle in label
 
 
-def test_render_tree_auto_anchor_label(main_window, tmp_path):
-    """A tree with NO (anchor ...) loads as is_auto and its pseudo-root renders
-    '⚓ (auto)' — never '⚓ None' (2026-08-31 gap)."""
-    trees = {"trees": [{"name": "t", "nodes": []}]}  # no anchor key -> auto
+def test_render_tree_self_anchor_label(main_window, tmp_path):
+    """A tree with NO (anchor ...) loads as is_self and its pseudo-root renders
+    '⚓ (self)' — never '⚓ None' (2026-08-31 gap; renamed in plan Д.7)."""
+    trees = {"trees": [{"name": "t", "nodes": []}]}  # no anchor key -> self
     dock, _root = _dock_with(main_window, tmp_path, trees)
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tops = _children(tree_widget.invisibleRootItem())
     assert len(tops) == 1
-    assert "auto" in tops[0].text(0)
+    assert "self" in tops[0].text(0)
     assert "None" not in tops[0].text(0)
 
 
@@ -1847,10 +1867,11 @@ def test_anchor_base_live_auto_anchor_uses_root_entity_zero_slot(monkeypatch):
     import kicadstamp.placement.entity_placement as ep_mod
 
     zero_pos = object()
-    monkeypatch.setattr(tp_mod, "_root_entity_record", lambda cfg, tree: object())
+    monkeypatch.setattr(tp_mod, "_self_entity_record",
+                        lambda cfg, tree, anchor: object())
     monkeypatch.setattr(ep_mod, "_entity_own_zero_slot_live_position",
                         lambda *a, **k: (zero_pos, 15.0))
-    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="t", anchor=TreeAnchor(is_self=True),
                 nodes=[_placement_node("fpga")])
     pos, rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is zero_pos
@@ -1862,7 +1883,7 @@ def test_anchor_base_live_auto_anchor_non_canonical_raises_clear_error(monkeypat
     unreachable -> a clear error, never the old "Якорь None не найден" read."""
     import gui.docks.trees_dock as td_mod
 
-    tree = Tree(name="t", anchor=TreeAnchor(is_auto=True), nodes=[])
+    tree = Tree(name="t", anchor=TreeAnchor(is_self=True), nodes=[])
     try:
         td_mod._anchor_base_live_position(object(), object(), tree, {})
     except ValidationError as e:
@@ -3760,7 +3781,7 @@ def test_auto_anchor_tree_single_node_not_marked(main_window):
             name="fpga_cell", components=[TemplateComponentSlot(role="FPGA")])},
         trees=[],
     )
-    tree = Tree(name="fpga", anchor=TreeAnchor(is_auto=True),
+    tree = Tree(name="fpga", anchor=TreeAnchor(is_self=True),
                 nodes=[TreeNode(ref="fpga", kind="placement", xy=(0.0, 0.0),
                                 polar=None, rotation=0.0, name=None, group=None)])
     cfg.trees = [tree]
@@ -5098,7 +5119,7 @@ def test_every_tree_anchor_mode_roundtrips(main_window):
     round-trips without loss (adding a mode = one _TREE_ANCHOR_MODES entry)."""
     expected = {
         "origin": dict(ref=None, is_origin=True, is_external=False),
-        "auto": dict(is_auto=True),
+        "self": dict(is_self=True),
         "role": dict(role="R", anchor_sheet="S", anchor_cluster="C", anchor_pad="3"),
         "point": dict(point="P"),
         "record": dict(ref="REC", is_external=False),

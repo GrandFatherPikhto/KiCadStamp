@@ -531,7 +531,7 @@ def _role_adapter(role="FPGA", x=30.0, y=40.0, angle=0.0):
 
 def _auto_fpga_cfg(with_child=False):
     """Denis's real-profile shape (plan_2026_08_31_read_position_entity_parent_
-    live_resolve.md): a tree "fpga" with an is_auto anchor (derived from the
+    live_resolve.md): a tree "fpga" with an is_self anchor (derived from the
     root Entity's cell zero slot role "FPGA"), placing the fpga Entity at node
     offset (1,2)/rotation 45, optionally with a nested child placement node."""
     cell = Cell(name="fpga", components=[TemplateComponentSlot(role="FPGA")])
@@ -542,14 +542,14 @@ def _auto_fpga_cfg(with_child=False):
         cells={"fpga": cell},
         entities=[Entity(name="fpga", cell="fpga"),
                   Entity(name="child", cell="c")],
-        trees=[Tree(name="fpga", anchor=TreeAnchor(is_auto=True), nodes=[root])],
+        trees=[Tree(name="fpga", anchor=TreeAnchor(is_self=True), nodes=[root])],
     )
 
 
 def test_dispatch_placement_resolves_live_from_auto_anchor_tree():
     """A placement record's live position/rotation IS resolvable — from the
     TREE that places it (plan_2026_08_31_read_position_entity_parent_live_
-    resolve.md). Denis's case: the fpga tree with an is_auto anchor on role
+    resolve.md). Denis's case: the fpga tree with an is_self anchor on role
     "FPGA" at node offset (1,2)/rotation 45. fpga's live position = the live
     Role=FPGA footprint (30,40) + the node offset (1,2) (base rotation 0, so
     flat) = (31,42); its rotation = base 0 + node 45 = 45. This is the exact
@@ -1297,7 +1297,7 @@ def _leaf_tree(name, nodes, *, pivot_xy=None, pivot_polar=None, pivot_ref=None,
                rotation=0.0):
     """A standalone leaf tree; the pivot_*/rotation kwargs are the TREE's own
     inner point and angle (plan §V.1/§V.2)."""
-    return Tree(name=name, anchor=TreeAnchor(is_auto=True), nodes=nodes,
+    return Tree(name=name, anchor=TreeAnchor(is_self=True), nodes=nodes,
                 pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref,
                 rotation=rotation)
 
