@@ -2260,14 +2260,22 @@ class TreesDock(QWidget):
         # decision — cf. plan_2026_09_03_fpga_oscill_missing_copper_and_
         # cell_import.md).
         fully_selected: list = []
+        fully_selected_diagnostics = ""
         if self._ctx is not None:
+            from .extract_diagnostics import format_cluster_rejections
             from .reead import fully_selected_clusters
             sheet_names = self._ctx.sheet_names or {}
+            rejections: list = []
             fully_selected = fully_selected_clusters(
                 list(selected or []), list(snapshot),
-                list(self._cfg.entities), (), sheet_names=sheet_names)
+                list(self._cfg.entities), (), sheet_names=sheet_names,
+                rejections=rejections)
             fully_selected = [c for c in fully_selected
                               if c.cluster and "\n" not in c.cluster]
+            # V.2 (plan_2026_09_11_extract_selection_diagnostics): the SAME
+            # concrete cause the two Extract flows show, so tab 2's strict gate
+            # no longer blames the selection alone.
+            fully_selected_diagnostics = format_cluster_rejections(rejections)
         dialog = InstantiateCellDialog(
             self, self._cfg,
             cells=sorted(self._cfg.cells),
@@ -2275,7 +2283,8 @@ class TreesDock(QWidget):
             clusters=self._live_clusters(),
             selected=list(selected or []),
             snapshot=list(snapshot),
-            fully_selected=[(c.cluster, c.sheet) for c in fully_selected])
+            fully_selected=[(c.cluster, c.sheet) for c in fully_selected],
+            fully_selected_diagnostics=fully_selected_diagnostics)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         entity_name = dialog.entity_name()

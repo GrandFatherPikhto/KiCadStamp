@@ -43,7 +43,7 @@ def _sel(ref, role=None, cluster=None, sheet=None, fp=None):
 
 
 def _open(main_window, cfg=None, *, selected=(), snapshot=(), cells=("c_pif",),
-          fully_selected=()):
+          fully_selected=(), diagnostics=""):
     cfg = cfg or _cfg(cells={c: _cell("R1", "C1") for c in cells},
                       entities=["existing_entity"])
     return InstantiateCellDialog(
@@ -53,7 +53,8 @@ def _open(main_window, cfg=None, *, selected=(), snapshot=(), cells=("c_pif",),
         clusters=["PIF_1V2_VCCINT", "PIF_P2V5_VCCA"],
         selected=list(selected),
         snapshot=list(snapshot),
-        fully_selected=list(fully_selected))
+        fully_selected=list(fully_selected),
+        fully_selected_diagnostics=diagnostics)
 
 
 def test_manual_mode_is_default(main_window):
@@ -252,6 +253,20 @@ def test_tab2_zero_fully_selected_blocks_ok_and_validate(main_window):
     dlg.tabs.setCurrentIndex(0)  # tab 1 unaffected
     assert dlg.is_new_cell() is False
     assert dlg._ok_button.isEnabled()
+
+
+def test_tab2_zero_fully_selected_shows_the_concrete_cause_when_supplied(
+        main_window):
+    """plan_2026_09_11_extract_selection_diagnostics V.2: when the caller
+    supplies the structured rejection detail (e.g. "no schematic_dir"), tab 2
+    shows THAT instead of the generic "select ALL components" wording."""
+    cause = ("No sheet could be resolved: the config has no schematic_dir — "
+             "sheet-based narrowing cannot work.")
+    dlg = _open(main_window, diagnostics=cause)
+    _to_tab2(dlg)
+    assert not dlg._ok_button.isEnabled()
+    assert dlg.tab2_status_label.text() == cause
+    assert dlg.validate() == cause
 
 
 def test_tab2_several_fully_selected_blocks(main_window):

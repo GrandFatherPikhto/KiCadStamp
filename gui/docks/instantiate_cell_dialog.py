@@ -81,7 +81,8 @@ class InstantiateCellDialog(QDialog):
     the caller persists (staged via config_writer) and appends the tree node."""
 
     def __init__(self, parent, cfg, *, cells, sheets, clusters,
-                 selected, snapshot, fully_selected=()):
+                 selected, snapshot, fully_selected=(),
+                 fully_selected_diagnostics: str = ""):
         super().__init__(parent)
         self._cfg = cfg
         self.setWindowTitle(_("Instantiate from Cell"))
@@ -96,6 +97,12 @@ class InstantiateCellDialog(QDialog):
         # fully_selected_clusters) — the strict tab-2 enablement source. Sheet
         # may be None (no resolvable channel).
         self._fully_selected = [(c[0], c[1]) for c in (fully_selected or ())]
+        # The caller's already-formatted rejection detail (plan_2026_09_11_
+        # extract_selection_diagnostics V.2) — shown INSTEAD of the generic
+        # "select ALL components" text when the detection found zero clusters,
+        # so the real cause (missing schematic_dir, unresolved sheet, an
+        # unknown pair, a partial selection) is visible here too.
+        self._fully_selected_diagnostics = fully_selected_diagnostics or ""
         # Last auto cell-name prefill — so switching the Cluster tab updates
         # the prefill without clobbering a name the user already typed.
         self._auto_cell_name = ""
@@ -288,11 +295,13 @@ class InstantiateCellDialog(QDialog):
 
     def _tab2_state_problem(self) -> Optional[str]:
         """A blocking problem on tab 2 caused by the DETECTION (before any
-        field validation): zero fully-selected clusters (the strict message,
-        shared with "Extract cluster...") or several (ambiguous — a Cell is
-        extracted from exactly one cluster)."""
+        field validation): zero fully-selected clusters (the concrete cause
+        when the caller supplied one, else the strict generic message shared
+        with "Extract cluster...") or several (ambiguous — a Cell is extracted
+        from exactly one cluster)."""
         if len(self._fully_selected) == 0:
-            return _(_NO_FULLY_SELECTED)
+            return (self._fully_selected_diagnostics
+                    or _(_NO_FULLY_SELECTED))
         if len(self._fully_selected) > 1:
             return _("Select exactly ONE fully selected Cluster — the new Cell "
                      "is extracted from exactly one cluster.")

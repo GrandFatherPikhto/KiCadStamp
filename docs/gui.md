@@ -647,6 +647,18 @@ the area-select is dropped by the extractor's connectivity filter (the cluster's
 is kept — no registry dependency). This is how the three PIF_AVDD channels (Channel_0/1/2, same
 cell) are told apart: the selection's sheet picks the instance.
 
+A cluster counts as **fully selected** only when ALL four conditions hold: every selected footprint
+carries a Cluster tag; its sheet resolves; the (Cluster, sheet) pair exists in the board snapshot; and
+EVERY board component of that pair is in the selection. When nothing qualifies, the message names the
+real cause(s) instead of always telling you to select more — one line per dropped group: the untagged
+footprints, a sheet that did not resolve, an unknown (Cluster, sheet) pair, or "selected N of M,
+missing: R...". The most common cause is a config WITHOUT `schematic_dir` (`schematic_dir:` /
+`schematic_files:` at the project root): without it sheet names cannot be resolved anywhere, so a
+Cluster placed once per channel cannot be told apart and sheet-based narrowing is disabled
+project-wide — the message says so explicitly, and the same fact is logged ONCE when such a config is
+loaded with a live board. On-screen Ref lists are capped (the full list goes to the Log). The same
+concrete cause is shown on **Instantiate from Cell...** tab 2's strict gate.
+
 The main menu's **Tools → Trees → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
 selection's own tree. Select a group of clusters on the board, then run it. The fully-selected-cluster

@@ -40,6 +40,8 @@ from PyQt6.QtWidgets import (QDialog, QMessageBox, QSizePolicy, QTabWidget)
 
 from .docks._common import display_path, show_message
 from .docks.entity_delete import delete_entry
+from .docks.extract_diagnostics import (format_cluster_rejections,
+                                        rejections_log_detail)
 from .docks.rename import entry_effective_name
 
 from kicadstamp.cli_common import peek_log_file
@@ -98,6 +100,10 @@ class DockHub:
         # The root-config log_file: FileHandler currently attached to the
         # root logger, if any — see _on_root_file_changed_for_logging().
         self._log_file_handler: Optional[logging.Handler] = None
+        # V.3 (plan_2026_09_11_extract_selection_diagnostics): root paths
+        # already checked for the "no schematic_dir -> sheet narrowing is off"
+        # Log line — once per root, only with a live board.
+        self._sheet_dir_checked: set[str] = set()
 
         # ── CENTRAL: the Components / Config / Trees tab group ─────────────
         # 2026-09-10 (task T, prompt_2026_09_10_central_widget_layout.md): these
@@ -1138,6 +1144,10 @@ class DockHub:
         auto-fill reads the current selection's Cluster)."""
         self._selection_raw_items = list(items)
         self._selection_footprints = list(selected)
+        # V.3: a selection tick proves a live board — the place to catch a root
+        # opened BEFORE connecting (see _warn_if_sheet_narrowing_disabled).
+        self._warn_if_sheet_narrowing_disabled(
+            self.root_metadata_dock.root_path)
         self.placer_dock.set_board_selection(items, selected)
         # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
         # Place page's opt-in "from selection" hint reads the current selection
@@ -1871,20 +1881,32 @@ class DockHub:
         sheet_names = dict(ctx.sheet_names or {})
 
         from .docks.reead import fully_selected_clusters
+        # V.2: the engine reports WHICH gate dropped each group (structured,
+        # not text); the formatter turns them into a concrete message naming the
+        # real cause instead of always blaming the selection.
+        rejections: list = []
         clusters = fully_selected_clusters(
             self._selection_footprints,
             list(connection.snapshot or []),
             list(cfg.entities),
             (),
-            sheet_names=sheet_names)
+            sheet_names=sheet_names,
+            rejections=rejections)
         # Diagnostic + defensive filter (same rationale as the retired
         # Re-read flow: a row must be a sane single-line cluster).
         clusters = [c for c in clusters if c.cluster and "\n" not in c.cluster]
         if not clusters:
+            detail = format_cluster_rejections(rejections)
+            if detail:
+                # The on-screen message keeps the short Ref list; the full
+                # detail goes to the Log (plan V.2).
+                logging.info("Extract tree: no fully selected cluster — full "
+                             "detail:\n%s", rejections_log_detail(rejections))
             QMessageBox.warning(
                 self.main_window, _("Extract tree"),
-                _("No fully selected Cluster found — select ALL components of a "
-                  "cluster (its Cluster tag + sheet) first."))
+                detail or _("No fully selected Cluster found — select ALL "
+                            "components of a cluster (its Cluster tag + sheet) "
+                            "first."))
             return
 
         from .docks.tree_from_selection import (
@@ -2158,20 +2180,29 @@ class DockHub:
         sheet_names = dict(ctx.sheet_names or {})
 
         from .docks.reead import fully_selected_clusters
+        # V.2: same structured diagnostics as "Extract tree..." — the concrete
+        # cause, not the generic "select more" text.
+        rejections: list = []
         clusters = fully_selected_clusters(
             self._selection_footprints,
             list(connection.snapshot or []),
             list(cfg.entities),
             (),
-            sheet_names=sheet_names)
+            sheet_names=sheet_names,
+            rejections=rejections)
         # Diagnostic + defensive filter (same rationale as "Extract tree...": a
         # row must be a sane single-line cluster).
         clusters = [c for c in clusters if c.cluster and "\n" not in c.cluster]
         if not clusters:
+            detail = format_cluster_rejections(rejections)
+            if detail:
+                logging.info("Extract cluster: no fully selected cluster — full "
+                             "detail:\n%s", rejections_log_detail(rejections))
             QMessageBox.warning(
                 self.main_window, _("Extract cluster"),
-                _("No fully selected Cluster found — select ALL components of a "
-                  "cluster (its Cluster tag + sheet) first."))
+                detail or _("No fully selected Cluster found — select ALL "
+                            "components of a cluster (its Cluster tag + sheet) "
+                            "first."))
             return
 
         from .docks.tree_from_selection import create_cell_and_entity_for_cluster
@@ -2555,6 +2586,11 @@ class DockHub:
                         self.fieldstool_dock.set_root_path, path)
         self._safe_call("_on_root_file_changed_for_logging",
                         self._on_root_file_changed_for_logging, path)
+        # V.3: a root config WITHOUT schematic_dir silently disables sheet-based
+        # narrowing everywhere (Extract, anchor_sheet) — one informational Log
+        # line, once per root, only when a live board makes it actionable.
+        self._safe_call("_warn_if_sheet_narrowing_disabled",
+                        self._warn_if_sheet_narrowing_disabled, path)
 
     def reload_project_from_disk(self) -> None:
         """Discard (File > Discard unsaved changes...): the working set was
@@ -2595,6 +2631,41 @@ class DockHub:
         fn = getattr(self.main_window, "_update_dirty_indicator", None)
         if fn is not None:
             fn()
+
+    def _warn_if_sheet_narrowing_disabled(self, path) -> None:
+        """V.3 (plan_2026_09_11_extract_selection_diagnostics): without
+        schematic_dir/schematic_files sheet names cannot be resolved, so every
+        sheet-based narrowing silently does nothing — the misleading "No fully
+        selected Cluster found" of V.0 is one symptom. Log ONE informational
+        line (never a modal, never repeated for the same root) the first time
+        such a config is loaded WITH a live board. Gated on the board because
+        without it the warning is not actionable; skipped entirely for configs
+        that DO carry schematic_dir. Called from _sync_root_to_docks (a project
+        opened while already connected) and set_board_selection (connected
+        after opening)."""
+        if path is None:
+            return
+        key = str(path)
+        if key in self._sheet_dir_checked:
+            return
+        connection = getattr(self.main_window, "connection", None)
+        if getattr(connection, "board", None) is None:
+            return
+        self._sheet_dir_checked.add(key)
+        try:
+            from kicadstamp.config import load_config
+            _cfg, ctx = load_config(key)
+            # len() materialises the lazy RuntimeContext map (its own __bool__
+            # is deliberately always True — see sheet_names.LazySheetNameMap).
+            has_sheets = len(ctx.sheet_names) > 0
+        except Exception:  # noqa: BLE001 — a broken config is reported by the docks
+            return
+        if has_sheets:
+            return
+        logging.info(_(
+            "This config has no schematic_dir/schematic_files — sheet names "
+            "cannot be resolved, so sheet-based narrowing (Extract "
+            "cluster/tree, anchor_sheet) is disabled."))
 
     def _on_root_file_changed_for_logging(self, path) -> None:
         """Attaches a FileHandler using the CURRENT root config's own

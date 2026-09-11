@@ -191,6 +191,27 @@ msgstr ""
 "Не найден полностью выделенный кластер — выдели ВСЕ компоненты кластера "
 "(его тег Cluster + лист) сначала."
 
+msgid "The selection has {count} footprint(s) without a Cluster tag: {refs}. A cluster can be extracted only from components that carry the Cluster field (not vias/tracks)."
+msgstr "В выделении {count} футпринт(ов) без тега Cluster: {refs}. Кластер можно извлечь только из компонентов, у которых есть поле Cluster (не из переходных отверстий/дорожек)."
+
+msgid "No sheet could be resolved: the config has no schematic_dir (or schematic_files) — without it sheet names are unknown everywhere, so sheet-based narrowing cannot work and a Cluster placed once per channel cannot be told apart. Set schematic_dir in the project root config."
+msgstr "Не удалось разрешить ни один лист: в конфиге не задан schematic_dir (или schematic_files) — без него имена листов неизвестны нигде, поэтому сужение по листам не работает, и кластер, размещённый по одному на канал, невозможно различить. Задай schematic_dir в корневом конфиге проекта."
+
+msgid "Cluster {cluster!r}: its sheet did not resolve even though schematic_dir is set — check that the schematic files cover this footprint's sheet path."
+msgstr "Кластер {cluster!r}: его лист не разрешился, хотя schematic_dir задан — проверь, что файлы схем покрывают путь листа этого футпринта."
+
+msgid "Cluster {cluster!r} / sheet {sheet!r}: this pair is not in the board snapshot — Refresh the snapshot (the component may have been added or renamed after connecting)."
+msgstr "Кластер {cluster!r} / лист {sheet!r}: такой пары нет в снимке платы — обнови снимок (компонент могли добавить или переименовать после подключения)."
+
+msgid "Cluster {cluster!r} / sheet {sheet!r}: selected {selected} of {total}, missing: {missing}."
+msgstr "Кластер {cluster!r} / лист {sheet!r}: выделено {selected} из {total}, не хватает: {missing}."
+
+msgid " (+{n} more)"
+msgstr " (+{n} ещё)"
+
+msgid "This config has no schematic_dir/schematic_files — sheet names cannot be resolved, so sheet-based narrowing (Extract cluster/tree, anchor_sheet) is disabled."
+msgstr "В этом конфиге нет schematic_dir/schematic_files — имена листов не разрешаются, поэтому сужение по листам (Extract cluster/tree, anchor_sheet) отключено."
+
 #: gui/dock_hub.py:974
 msgid "No clusters selected."
 msgstr "Не выбрано ни одного кластера."

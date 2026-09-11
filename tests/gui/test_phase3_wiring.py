@@ -2149,8 +2149,10 @@ def test_extract_tree_refreshes_the_snapshot_before_detecting_clusters(
     # R.4 #2/#3 — exactly ONE rebuild, on the worker thread (never the UI one).
     assert len(threads) == 1
     assert threads[0] != threading.main_thread().name
-    # R.4 #4 — the component added after connect is honoured.
-    assert any("No fully selected Cluster" in w for w in warnings)
+    # R.4 #4 — the component added after connect is honoured. The message now
+    # NAMES the partial-selection cause (plan_2026_09_11_extract_selection_
+    # diagnostics V.2) instead of the generic "select ALL components" text.
+    assert any("selected 1 of 2" in w and "R2" in w for w in warnings)
     assert constructed == []
 
 
@@ -2187,5 +2189,6 @@ def test_extract_cluster_refreshes_the_snapshot_first(
 
     assert len(threads) == 1
     assert threads[0] != threading.main_thread().name
-    assert any("No fully selected Cluster" in w for w in warnings)
+    # Same precise partial-selection cause as "Extract tree..." (V.2).
+    assert any("selected 1 of 2" in w and "R2" in w for w in warnings)
     assert constructed == []

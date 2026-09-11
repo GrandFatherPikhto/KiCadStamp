@@ -191,6 +191,27 @@ msgstr ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
 
+msgid "The selection has {count} footprint(s) without a Cluster tag: {refs}. A cluster can be extracted only from components that carry the Cluster field (not vias/tracks)."
+msgstr ""
+
+msgid "No sheet could be resolved: the config has no schematic_dir (or schematic_files) — without it sheet names are unknown everywhere, so sheet-based narrowing cannot work and a Cluster placed once per channel cannot be told apart. Set schematic_dir in the project root config."
+msgstr ""
+
+msgid "Cluster {cluster!r}: its sheet did not resolve even though schematic_dir is set — check that the schematic files cover this footprint's sheet path."
+msgstr ""
+
+msgid "Cluster {cluster!r} / sheet {sheet!r}: this pair is not in the board snapshot — Refresh the snapshot (the component may have been added or renamed after connecting)."
+msgstr ""
+
+msgid "Cluster {cluster!r} / sheet {sheet!r}: selected {selected} of {total}, missing: {missing}."
+msgstr ""
+
+msgid " (+{n} more)"
+msgstr ""
+
+msgid "This config has no schematic_dir/schematic_files — sheet names cannot be resolved, so sheet-based narrowing (Extract cluster/tree, anchor_sheet) is disabled."
+msgstr ""
+
 #: gui/dock_hub.py:974
 msgid "No clusters selected."
 msgstr "No clusters selected."
