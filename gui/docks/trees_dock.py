@@ -13,14 +13,15 @@ curated Redraw through run_curated_tree_redraw_worker.
 """
 import logging
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog,
-                             QFormLayout, QHBoxLayout, QInputDialog, QLabel,
-                             QLineEdit, QMenu, QMessageBox, QPushButton,
+                             QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
+                             QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                              QSizePolicy, QSplitter, QStackedWidget, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
@@ -49,6 +50,7 @@ from kicadstamp.tree_position import (
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
     rotate_offset_mm,
+    tree_pivot_offset,
     resolve_base_live_position,
     resolve_base_rotation_deg,
     relative_rotation_deg,
@@ -59,7 +61,9 @@ from kicadstamp.placement.services.component_resolver import (
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
-from kicadstamp.trees import KINDS, Tree, TreeAnchor, TreeNode, tree_to_dict
+from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
+                              _walk_nodes, tree_pivot_ref_candidates,
+                              tree_to_dict)
 from kicadstamp.utils.units import MM
 
 from .. import settings
@@ -85,6 +89,17 @@ _ANCHOR_DUPLICATE_BG = QColor("#f5e6b8")
 _ANCHOR_DUPLICATE_TOOLTIP = _(
     "this node duplicates the tree's own anchor (role {role}) — safe to "
     "delete; the anchor resolves independently of the node list")
+
+# Accent + tag for the node a tree HANGS FROM — its pivot-ref / inner point
+# (design §3.10, plan_2026_09_11_tree_settings_form §W.6). A cool tint,
+# deliberately different from the duplicate-anchor amber so "this is the
+# handle" never reads as "this is a redundant duplicate"; informational only,
+# NEVER an error accent.
+_PIVOT_HANDLE_BG = QColor("#cfe3f5")
+_PIVOT_HANDLE_TAG = _("handle")
+_PIVOT_HANDLE_TOOLTIP = _(
+    "this node is the tree's suspension point (pivot-ref) — the tree is "
+    "positioned and rotated around it")
 
 # Short kind tags, shown next to a node's ref when the kind is set. "external"
 # is included here — trees need it.
@@ -1001,7 +1016,8 @@ class TreesDock(QWidget):
                        if dup_refs else None)
         for node in tree.nodes:
             self._render_node(anchor_item, node, expanded_refs,
-                              dup_refs=dup_refs, dup_tooltip=dup_tooltip)
+                              dup_refs=dup_refs, dup_tooltip=dup_tooltip,
+                              pivot_ref=tree.pivot_ref)
         # The anchor pseudo-root is the one item that shows/hides the tree's
         # ENTIRE content — persist/restore its expansion separately from nodes.
         anchor_item.setExpanded(anchor_expanded)
@@ -1098,27 +1114,53 @@ class TreesDock(QWidget):
                 dup.add(node.ref)
         return dup
 
-    def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode,
-                     expanded_refs: Optional[set] = None,
-                     dup_refs: Optional[set] = None,
-                     dup_tooltip: Optional[str] = None) -> None:
-        item = QTreeWidgetItem(parent_item)
+    @staticmethod
+    def _node_item_text(node: TreeNode, *, is_handle: bool = False) -> str:
+        """One row's text: the ref, plus the short kind tag (_KIND_TAGS) and, for
+        the tree's own suspension node, the handle tag — the SAME single-column
+        tag idiom, so no second column is added (plan §W.6). Shared by the
+        initial render and _refresh_tree_marks."""
         text = node.ref
         if node.kind is not None:
             tag = _KIND_TAGS.get(node.kind)
             if tag:
                 text = f"{text} ({tag})"
-        item.setText(0, text)
-        # A top-level placement node duplicating its tree's own EXPLICIT (role
-        # ...) anchor (plan_2026_09_05_tree_root_rotation_drift §2): neutral
-        # informational accent + tooltip so the duplicate is visible in the dock
-        # instead of only by the redraw drift on the live board. Informational,
-        # not an error — the node is safe to delete (the anchor resolves
-        # independently of the node list). Auto-anchor trees never produce dup
-        # refs (_anchor_duplicate_refs) — their single root is not a duplicate.
-        if dup_refs and node.ref in dup_refs and dup_tooltip:
+        if is_handle:
+            text = f"{text} ({_PIVOT_HANDLE_TAG})"
+        return text
+
+    @staticmethod
+    def _apply_node_marks(item: QTreeWidgetItem, node: TreeNode, *,
+                          is_handle: bool, dup_refs: Optional[set],
+                          dup_tooltip: Optional[str]) -> None:
+        """Set the informational accent + tooltip of ONE row. The suspension
+        handle always WINS over the duplicate-anchor accent (a handle is never
+        'just a redundant duplicate'). Shared by the initial render and the
+        in-place _refresh_tree_marks, so the two can never disagree.
+
+        A top-level placement node duplicating its tree's own EXPLICIT (role
+        ...) anchor (plan_2026_09_05_tree_root_rotation_drift §2) gets the amber
+        accent + tooltip: informational, not an error — the node is safe to
+        delete (the anchor resolves independently of the node list)."""
+        item.setBackground(0, QBrush())
+        item.setToolTip(0, "")
+        if is_handle:
+            item.setBackground(0, QBrush(_PIVOT_HANDLE_BG))
+            item.setToolTip(0, _PIVOT_HANDLE_TOOLTIP)
+        elif dup_refs and node.ref in dup_refs and dup_tooltip:
             item.setBackground(0, QBrush(_ANCHOR_DUPLICATE_BG))
             item.setToolTip(0, dup_tooltip)
+
+    def _render_node(self, parent_item: QTreeWidgetItem, node: TreeNode,
+                     expanded_refs: Optional[set] = None,
+                     dup_refs: Optional[set] = None,
+                     dup_tooltip: Optional[str] = None,
+                     pivot_ref: Optional[str] = None) -> None:
+        item = QTreeWidgetItem(parent_item)
+        is_handle = pivot_ref is not None and node.ref == pivot_ref
+        item.setText(0, self._node_item_text(node, is_handle=is_handle))
+        self._apply_node_marks(item, node, is_handle=is_handle,
+                               dup_refs=dup_refs, dup_tooltip=dup_tooltip)
         # Keep the TreeNode itself on the item — needed by the static preview
         # and structural editing.
         item.setData(0, Qt.ItemDataRole.UserRole, node)
@@ -1130,12 +1172,32 @@ class TreesDock(QWidget):
         self._node_items[node.ref] = item
         for child in node.children:
             self._render_node(item, child, expanded_refs,
-                              dup_refs=dup_refs, dup_tooltip=dup_tooltip)
+                              dup_refs=dup_refs, dup_tooltip=dup_tooltip,
+                              pivot_ref=pivot_ref)
         # (P2) Re-apply the saved expansion for this node — done after the
         # children exist (setExpanded is only meaningful on a populated parent).
         if expanded_refs is None:
             expanded_refs = set()
         item.setExpanded(node.ref in expanded_refs)
+
+    def _refresh_tree_marks(self, tree: Optional[Tree]) -> None:
+        """Re-apply the informational ROW MARKS (suspension handle, duplicate
+        anchor) of an ALREADY BUILT tree widget IN PLACE — no rebuild, so
+        selection, expansion and focus survive. Called after the tree settings
+        form applies a new pivot-ref/rotation (plan §W.6/W.8.5 item 14)."""
+        if tree is None:
+            return
+        dup_refs = self._anchor_duplicate_refs(tree)
+        dup_tooltip = (_ANCHOR_DUPLICATE_TOOLTIP.format(role=tree.anchor.role)
+                       if dup_refs else None)
+        for node in _walk_nodes(tree.nodes):
+            item = self._node_items.get(node.ref)
+            if item is None:
+                continue
+            is_handle = tree.pivot_ref is not None and node.ref == tree.pivot_ref
+            item.setText(0, self._node_item_text(node, is_handle=is_handle))
+            self._apply_node_marks(item, node, is_handle=is_handle,
+                                   dup_refs=dup_refs, dup_tooltip=dup_tooltip)
 
     # ── Static preview (Phase 1, §5) ─────────────────────────────────────
 
@@ -1304,7 +1366,8 @@ class TreesDock(QWidget):
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
-            existing=tree.anchor, tree=tree)
+            existing=tree.anchor, tree=tree,
+            adapter=self._live_adapter(), all_trees=self._trees)
 
     def _build_node_form(self, tree: Tree, node: TreeNode) -> "NodeFormWidget":
         """A NodeFormWidget (EDIT mode, existing=node) for the master-detail
@@ -2732,46 +2795,10 @@ class NodeFormWidget(QWidget):
         self.offset_frame_label.setVisible(False)
         form.addRow("", self.offset_frame_label)
 
-        # pivot block (kind=="module" only; hidden otherwise, plan P4 п.1) —
-        # which point INSIDE the referenced tree's own local offset frame must
-        # land on this marker. The offset above stays the MARKER's own offset
-        # in the parent; pivot is a second, independent field. NOTE (plan
-        # §3.5): the pivot is in the EMBEDDED TREE's own frame, NOT the board
-        # frame — deliberately NOT converted, and the label says so, so it
-        # cannot be mistaken for the board-frame Offset right above.
-        self.pivot_widget = AnchorOriginWidget(modes=["xy"], polar=True)
-        self.pivot_widget.fieldChanged.connect(self._on_pivot_widget_field_changed)
-        form.addRow(_("Pivot (embedded tree's own frame):"), self.pivot_widget)
-        self.pivot_from_node_button = QPushButton(_("From child node..."))
-        self.pivot_from_node_button.setToolTip(_(
-            "Compute a static pivot-xy from a node's CURRENT position — a "
-            "one-time snapshot, does not track later changes to the "
-            "referenced tree."))
-        self.pivot_from_node_button.clicked.connect(self._on_use_child_offset)
-        form.addRow(self.pivot_from_node_button)
-        # pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md): a
-        # THIRD, persistent pivot source — names a node INSIDE the referenced
-        # tree instead of a bare number, re-resolved live on every redraw
-        # (unlike the static snapshot above). self._pivot_ref is the form's
-        # own state (TreeNode has no widget of its own to read back from);
-        # kept in sync with pivot_widget by _on_pivot_widget_field_changed
-        # (typing xy/polar cancels an active pivot-ref) and by
-        # _on_pick_pivot_ref (picking a ref clears xy/polar).
-        self._pivot_ref: Optional[str] = None
-        self.pivot_by_ref_button = QPushButton(_("Pivot by ref..."))
-        self.pivot_by_ref_button.setToolTip(_(
-            "Pin the pivot to a node's ref, re-resolved live at every "
-            "redraw — unlike 'From child node...' above, this follows the "
-            "referenced tree if its internal layout changes later."))
-        self.pivot_by_ref_button.clicked.connect(self._on_pick_pivot_ref)
-        form.addRow(self.pivot_by_ref_button)
-        self.pivot_ref_status_label = QLabel("")
-        self.pivot_ref_status_label.setWordWrap(True)
-        form.addRow("", self.pivot_ref_status_label)
-        self.pivot_widget.setVisible(False)
-        self.pivot_from_node_button.setVisible(False)
-        self.pivot_by_ref_button.setVisible(False)
-        self.pivot_ref_status_label.setVisible(False)
+        # (2026-09-11, plan_2026_09_11_tree_settings_form §W.5): the per-NODE
+        # pivot block that used to live here is GONE — the inner point is a
+        # property of the TREE and is edited by AnchorFormWidget's "Tree
+        # settings" group. `build_node` carries no pivot field at all.
 
         self.rotation_edit = QLineEdit()
         self.rotation_edit.setPlaceholderText(_("0"))
@@ -2860,8 +2887,7 @@ class NodeFormWidget(QWidget):
         self.ref_combo.currentTextChanged.connect(self._mark_touched)
         for _edit in (self.rotation_edit, self.name_edit, self.group_edit):
             _edit.textChanged.connect(self._mark_touched)
-        for _origin in (self.offset_widget, self.pivot_widget,
-                        self.mount_anchor_widget):
+        for _origin in (self.offset_widget, self.mount_anchor_widget):
             _origin.fieldChanged.connect(self._mark_touched)
 
         # Anchor change -> the frame the offset/rotation are expressed against
@@ -3201,13 +3227,6 @@ class NodeFormWidget(QWidget):
                 "No live board connection — showing the STORED values in the "
                 "base's own frame; editing the offset and rotation is disabled "
                 "until KiCad is connected."))
-        # The per-NODE pivot round-trip that used to sit here is GONE
-        # (2026-09-11, plan §V.3): a node carries no inner point any more — it
-        # belongs to the TREE, whose editor arrives in stage Б2.1. The widget
-        # itself is kept (hidden) so `build_node` needs no branching.
-        self.pivot_widget.load()
-        self._pivot_ref = None
-        self._update_pivot_ref_label()
         self.rotation_edit.setText(str(
             local_rotation_to_board_deg(existing.rotation, base_rot)
             if online else existing.rotation))
@@ -3314,17 +3333,9 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
         is_mount = kind == "mount"
-        # The pivot rows are HIDDEN for every kind now (2026-09-11, plan §V.3):
-        # a node carries no inner point — it belongs to the TREE, and the
-        # tree-level editor arrives in stage Б2.1. Kept (not deleted) so
-        # `build_node` and the tests that reference them stay simple until then.
-        # Everything else: the "Read current position" row (a live read of a
-        # module ref — a tree, not a record — is meaningless; a MOUNT node's
-        # position IS its anchor, so a read is meaningless there too).
-        self.pivot_widget.setVisible(False)
-        self.pivot_from_node_button.setVisible(False)
-        self.pivot_by_ref_button.setVisible(False)
-        self.pivot_ref_status_label.setVisible(False)
+        # The "Read current position" row (a live read of a module ref — a tree,
+        # not a record — is meaningless; a MOUNT node's position IS its anchor,
+        # so a read is meaningless there too).
         self.read_position_button.setVisible(not is_module and not is_mount)
         self.read_status_label.setVisible(not is_module and not is_mount)
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
@@ -3385,125 +3396,6 @@ class NodeFormWidget(QWidget):
             return
         self.kind_combo.setCurrentIndex(kind_idx)
         self.ref_combo.setCurrentText(name)
-
-    def _child_tree_for_pivot(self) -> Optional["Tree"]:
-        """The currently referenced (child) tree object for a module node —
-        None when no tree is picked yet or it isn't loaded. Shared lookup for
-        every pivot-picking action (the static 'From child node...' snapshot
-        and the persistent 'Pivot by ref...' picker)."""
-        ref = self.ref_combo.currentText().strip()
-        if not ref or not self._all_trees:
-            return None
-        return next((t for t in self._all_trees if t.name == ref), None)
-
-    @staticmethod
-    def _child_tree_node_refs(child: "Tree") -> list[str]:
-        """Every node ref inside `child`, recursively through .children (NOT
-        through a nested module's OWN referenced tree — the same shallow
-        scope the pre-existing 'From child node...' convenience already
-        used). Shared candidate list for both pivot pickers."""
-        refs: list[str] = []
-
-        def collect(nodes: list) -> None:
-            for n in nodes:
-                refs.append(n.ref)
-                collect(n.children)
-
-        collect(child.nodes)
-        return refs
-
-    def _on_pick_pivot_ref(self) -> None:
-        """Pivot-by-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md):
-        pick a node inside the referenced (child) tree whose position — LIVE-
-        resolved at every redraw, unlike the static 'From child node...'
-        snapshot — must land exactly on this module's marker. Stored as
-        self._pivot_ref (TreeNode.pivot_ref at build_node() time), mutually
-        exclusive with pivot_xy/pivot_polar: picking a ref here clears the
-        pivot_widget fields; typing into them cancels an active pivot-ref
-        (_on_pivot_widget_field_changed)."""
-        child = self._child_tree_for_pivot()
-        if child is None:
-            QMessageBox.warning(
-                self, _("Add node"),
-                _("No tree named {name!r} is loaded.").format(
-                    name=self.ref_combo.currentText().strip()))
-            return
-        refs = self._child_tree_node_refs(child)
-        if not refs:
-            QMessageBox.warning(self, _("Add node"),
-                                _("The referenced tree has no nodes."))
-            return
-        none_label = _("(none — use XY/Polar)")
-        items = [none_label] + refs
-        start_idx = (refs.index(self._pivot_ref) + 1
-                    if self._pivot_ref in refs else 0)
-        choice, ok = QInputDialog.getItem(
-            self, _("Pivot by ref"), _("Child node:"), items, start_idx, False)
-        if not ok:
-            return
-        # Clear the XY/Polar fields FIRST (fires fieldChanged, which would
-        # otherwise clear the ref we are about to set right back to None) —
-        # then set the authoritative value.
-        self.pivot_widget.load()
-        self._pivot_ref = None if choice == none_label else choice
-        self._update_pivot_ref_label()
-
-    def _update_pivot_ref_label(self) -> None:
-        self.pivot_ref_status_label.setText(
-            _("Pivot ref: {ref}").format(ref=self._pivot_ref)
-            if self._pivot_ref else "")
-
-    def _on_pivot_widget_field_changed(self) -> None:
-        """Typing into Pivot X/Y/Radius/Angle cancels an active pivot-ref —
-        the three pivot sources are mutually exclusive (build_node()/
-        link_trees.py enforce it at save time; this catches it live in the
-        form too, before the user is surprised by which one 'won')."""
-        if self._pivot_ref is not None:
-            self._pivot_ref = None
-            self._update_pivot_ref_label()
-
-    def _on_use_child_offset(self) -> None:
-        """P4 п.2 convenience (pure UI sugar over the pivot field, no extra
-        logic): pick a node of the currently referenced (child) tree and put
-        its static offset from the child tree's origin into the pivot fields —
-        computed by ordinary composition inside the child tree at zero anchor
-        rotation (a plain read, nothing is written anywhere). A ONE-TIME
-        snapshot — see 'Pivot by ref...' for a persistent, live-tracking
-        alternative (2026-09-07)."""
-        from kicadstamp.tree_position import node_position
-        from kicadstamp.domain.geometry import Vector2
-
-        child = self._child_tree_for_pivot()
-        if child is None:
-            QMessageBox.warning(
-                self, _("Add node"),
-                _("No tree named {name!r} is loaded.").format(
-                    name=self.ref_combo.currentText().strip()))
-            return
-        refs = self._child_tree_node_refs(child)
-        if not refs:
-            QMessageBox.warning(self, _("Add node"),
-                                _("The referenced tree has no nodes."))
-            return
-        choice, ok = QInputDialog.getItem(self, _("Use child node"),
-                                          _("Child node:"), refs, 0, False)
-        if not ok:
-            return
-        origin = Vector2.from_xy(0, 0)
-
-        def find_abs(nodes: list, px, prot):
-            for n in nodes:
-                pos = node_position(n, px, prot)
-                if n.ref == choice:
-                    return pos
-                found = find_abs(n.children, pos, prot + n.rotation)
-                if found is not None:
-                    return found
-            return None
-
-        abs_nm = find_abs(child.nodes, origin, 0.0)
-        if abs_nm is not None:
-            self.pivot_widget.load(x=abs_nm.x / MM, y=abs_nm.y / MM)
 
     def build_node(self) -> Optional[TreeNode]:
         """Collect + validate the form into a TreeNode, or None (invalid —
@@ -3724,7 +3616,7 @@ class AnchorFormWidget(QWidget):
 
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
                  role_candidates=None, cluster_candidates=None, existing=None,
-                 tree=None):
+                 tree=None, adapter=None, all_trees=None):
         super().__init__(parent)
         self._ref_candidates = list(ref_candidates or [])
         self._cfg = cfg
@@ -3732,6 +3624,11 @@ class AnchorFormWidget(QWidget):
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
         self._tree = tree
+        # Board-frame conversion base (plan §W.4): the anchor is resolved LIVE
+        # from the anchor rows of THIS form, and all_trees lets a pivot-ref
+        # snapshot lay this tree out (tree_pivot_offset needs the forest).
+        self._adapter = adapter
+        self._all_trees = list(all_trees or [])
         self._dock = parent if getattr(parent, "_mark_dirty", None) else None
         self._touched = False
 
@@ -3834,6 +3731,57 @@ class AnchorFormWidget(QWidget):
         # embedding context. What stays here: the picker rows + the non-blocking
         # apply-status label that apply()/redraw() write to (design §9.4).
         root.addLayout(form)
+
+        # ── Tree settings (plan_2026_09_11_tree_settings_form §W.2): the tree's
+        # INNER point (pivot-*) and its own angle, grouped in one box so the
+        # right-hand panel stays compact. Hidden for the create-tree dialog
+        # (no tree yet) by _load_settings.
+        self.settings_box = QGroupBox(_("Tree settings"))
+        settings_form = QFormLayout(self.settings_box)
+        self.pivot_mode_combo = QComboBox()
+        self.pivot_mode_combo.addItem(_("Tree origin (0,0)"), "origin")
+        self.pivot_mode_combo.addItem(_("Coordinate (xy/polar)"), "coordinate")
+        self.pivot_mode_combo.addItem(_("Node of this tree"), "node")
+        settings_form.addRow(_("Suspension point:"), self.pivot_mode_combo)
+        # xy/polar coordinate in the tree's OWN frame, shown in the BOARD frame
+        # (mm) exactly like the node offset widget — same shared widget, same
+        # five conversion functions (§W.4).
+        self.pivot_widget = AnchorOriginWidget(modes=["xy"], polar=True)
+        settings_form.addRow(self.pivot_widget)
+        self.pivot_from_node_button = QPushButton(_("Use node's offset..."))
+        self.pivot_from_node_button.setToolTip(_(
+            "Fill the coordinate with the LOCAL offset of the selected node — "
+            "a static snapshot of this tree's own layout."))
+        settings_form.addRow(self.pivot_from_node_button)
+        self.pivot_ref_combo = QComboBox()
+        configure_searchable(self.pivot_ref_combo)
+        settings_form.addRow(_("Node:"), self.pivot_ref_combo)
+        self.rotation_edit = QLineEdit()
+        self.rotation_edit.setPlaceholderText(_("0"))
+        settings_form.addRow(_("Angle (board deg):"), self.rotation_edit)
+        # W.3.1: the empty candidate list is a NORMAL state (e.g. ch0_dac_buf) —
+        # explained here rather than left as a broken-looking empty combo.
+        self.pivot_hint_label = QLabel("")
+        self.pivot_hint_label.setWordWrap(True)
+        self.pivot_hint_label.setVisible(False)
+        settings_form.addRow(self.pivot_hint_label)
+        # Why the settings may be read-only (anchor does not resolve live, §W.4.2).
+        self.settings_frame_label = QLabel("")
+        self.settings_frame_label.setWordWrap(True)
+        self.settings_frame_label.setVisible(False)
+        settings_form.addRow(self.settings_frame_label)
+        root.addWidget(self.settings_box)
+        # Form state kept in the CONFIG frame (the tree's own frame / dovоrот):
+        # the board-frame DISPLAY is derived from it, never the other way round,
+        # so an angle edit re-expresses the display without rewriting the stored
+        # values (§W.4.1 — the 9887468 trap).
+        self._stored_pivot_xy = None
+        self._stored_pivot_polar = None
+        self._stored_pivot_ref = None
+        self._stored_rotation = 0.0
+        # Reentrancy counter for programmatic widget loads (they emit signals).
+        self._loading_settings = 0
+
         self.apply_status_label = QLabel("")
         self.apply_status_label.setWordWrap(True)
         root.addWidget(self.apply_status_label)
@@ -3849,6 +3797,10 @@ class AnchorFormWidget(QWidget):
             self._prefill(existing)
         else:
             self._on_mode_changed()
+        # Tree settings (inner point + angle): seed the config-frame state from
+        # the tree and show it in the board frame. Runs BEFORE the touched wiring
+        # so a programmatic load never marks the fresh form dirty.
+        self._load_settings()
         # design §9.4: after prefill/initial populate the form is clean —
         # _touched reflects only USER edits since the last load()/Apply.
         self._touched = False
@@ -3864,6 +3816,31 @@ class AnchorFormWidget(QWidget):
         self.cluster_edit.currentTextChanged.connect(self._mark_touched)
         self.point_edit.currentTextChanged.connect(self._mark_touched)
         self.pad_edit.textChanged.connect(self._mark_touched)
+
+        # ── Tree settings wiring (plan_2026_09_11_tree_settings_form) ──────
+        self.pivot_mode_combo.currentIndexChanged.connect(self._on_pivot_mode_changed)
+        self.pivot_ref_combo.currentIndexChanged.connect(self._on_pivot_ref_changed)
+        self.pivot_widget.fieldChanged.connect(self._on_pivot_coordinate_edited)
+        self.pivot_widget.fieldChanged.connect(self._mark_touched)
+        self.pivot_from_node_button.clicked.connect(self._on_use_node_offset)
+        self.rotation_edit.textChanged.connect(self._on_rotation_edited)
+        self.rotation_edit.textChanged.connect(self._mark_touched)
+        # The board frame the settings are shown in follows the ANCHOR part of
+        # this same form (W.4.1): a mode switch refreshes at once, a field edit
+        # coalesces behind a short timer (an anchor resolve is an adapter call).
+        self._settings_base_timer = QTimer(self)
+        self._settings_base_timer.setSingleShot(True)
+        self._settings_base_timer.setInterval(250)
+        self._settings_base_timer.timeout.connect(self._on_settings_base_refresh)
+        for _sig in (self.kind_combo.currentIndexChanged,
+                     self.ref_combo.currentTextChanged,
+                     self.role_edit.currentTextChanged,
+                     self.sheet_edit.currentTextChanged,
+                     self.cluster_edit.currentTextChanged,
+                     self.point_edit.currentTextChanged,
+                     self.pad_edit.textChanged):
+            _sig.connect(self._schedule_settings_base_refresh)
+        self.mode_combo.currentIndexChanged.connect(self._on_settings_base_refresh)
 
     def _mark_touched(self) -> None:
         """design §9.4: any user field edit flags the form as having unapplied
@@ -4008,6 +3985,366 @@ class AnchorFormWidget(QWidget):
             self._on_kind_changed()
             self.ref_combo.setCurrentText(existing.ref)
 
+    # ── Tree settings: inner point + own angle (plan §W.2–W.4) ────────────
+
+    def _pivot_mode(self) -> str:
+        """The suspension-point source currently selected (origin/coordinate/
+        node)."""
+        return self.pivot_mode_combo.currentData()
+
+    def _apply_pivot_mode_visibility(self) -> None:
+        mode = self._pivot_mode()
+        self.pivot_widget.setVisible(mode == "coordinate")
+        self.pivot_from_node_button.setVisible(mode == "coordinate")
+        self.pivot_ref_combo.setVisible(mode == "node")
+
+    def _set_pivot_mode(self, mode: str) -> None:
+        """Select a suspension-point mode; runs the visibility even when the
+        index does not change (a programmatic switch back to the same mode)."""
+        idx = self.pivot_mode_combo.findData(mode)
+        if idx >= 0 and idx != self.pivot_mode_combo.currentIndex():
+            self.pivot_mode_combo.setCurrentIndex(idx)
+        else:
+            self._apply_pivot_mode_visibility()
+
+    def _on_pivot_mode_changed(self) -> None:
+        """3-way mutex: origin (0,0) / coordinate / node. Switching CLEARS the
+        sources that no longer apply, so two can never ride together (§W.8.1
+        item 6)."""
+        self._apply_pivot_mode_visibility()
+        if self._loading_settings:
+            return
+        mode = self._pivot_mode()
+        if mode != "coordinate":
+            self._stored_pivot_xy = None
+            self._stored_pivot_polar = None
+        if mode != "node":
+            self._stored_pivot_ref = None
+        if mode == "coordinate":
+            self._redisplay_pivot()
+        elif mode == "node" and not self.pivot_ref_combo.currentData():
+            # Default to the first usable node, so the mode is never "on" but
+            # empty on a tree that HAS candidates.
+            if (self.pivot_ref_combo.count()
+                    and self.pivot_ref_combo.itemData(0) is not None):
+                self.pivot_ref_combo.setCurrentIndex(0)
+        self._mark_touched()
+
+    def _on_pivot_ref_changed(self) -> None:
+        if self._loading_settings:
+            return
+        ref = self.pivot_ref_combo.currentData()
+        self._stored_pivot_ref = ref or None
+        if ref:
+            self._stored_pivot_xy = None
+            self._stored_pivot_polar = None
+            self._set_pivot_mode("node")
+        self._mark_touched()
+
+    def _on_pivot_coordinate_edited(self) -> None:
+        """A coordinate edit updates the CONFIG-frame state using the angle in
+        force RIGHT NOW (§W.4.1) — never a cached base."""
+        if self._loading_settings or self._pivot_mode() != "coordinate":
+            return
+        base = self._conversion_base_deg()
+        if base is None:
+            return
+        eff_rot = base[0]
+        fields, err = self.pivot_widget.build()
+        if err or not fields:
+            return  # incomplete input — build_settings reports it on Apply
+        if "radius" in fields:
+            self._stored_pivot_xy = None
+            self._stored_pivot_polar = (
+                fields["radius"],
+                board_rotation_to_local_deg(fields["angle"], eff_rot))
+        else:
+            self._stored_pivot_xy = board_offset_to_local_mm(
+                (fields["x"], fields["y"]), eff_rot)
+            self._stored_pivot_polar = None
+        self._stored_pivot_ref = None
+        self._mark_touched()
+
+    def _on_rotation_edited(self) -> None:
+        """Angle edit: the STORED dovоrот changes, and the coordinate DISPLAY is
+        re-expressed through the new angle while its stored value does NOT
+        (§W.4.1 — the 9887468 trap)."""
+        if self._loading_settings:
+            return
+        base = self._conversion_base_deg()
+        if base is None:
+            return
+        anchor_rot = base[1]
+        text = self.rotation_edit.text().strip()
+        if text == "":
+            self._stored_rotation = board_rotation_to_local_deg(0.0, anchor_rot)
+        else:
+            try:
+                shown = float(text)
+            except ValueError:
+                return  # incomplete input — build_settings reports it on Apply
+            self._stored_rotation = board_rotation_to_local_deg(shown, anchor_rot)
+        self._mark_touched()
+        self._redisplay_pivot()
+
+    def _redisplay_pivot(self) -> None:
+        """Re-show the stored inner-point coordinate in the board frame using
+        the CURRENT angle — the STORED value is never touched here."""
+        base = self._conversion_base_deg()
+        if base is None:
+            return
+        eff_rot = base[0]
+        self._loading_settings += 1
+        try:
+            if self._stored_pivot_xy is not None:
+                bx, by = local_offset_to_board_mm(self._stored_pivot_xy, eff_rot)
+                self.pivot_widget.load(x=bx, y=by)
+            elif self._stored_pivot_polar is not None:
+                radius, angle = self._stored_pivot_polar
+                self.pivot_widget.load(
+                    polar=True, radius=radius,
+                    angle=local_rotation_to_board_deg(angle, eff_rot))
+        finally:
+            self._loading_settings -= 1
+
+    def _on_use_node_offset(self) -> None:
+        """'Use node's offset…': snapshot the selected node's LOCAL offset (this
+        tree laid out from zero) into the coordinate field as a pivot-xy."""
+        if self._tree is None:
+            return
+        ref = self.pivot_ref_combo.currentData()
+        if not ref:
+            return
+        forest = {t.name: t for t in self._all_trees}
+        probe = replace(self._tree, pivot_ref=ref)
+        try:
+            offset = tree_pivot_offset(probe, forest, adapter=self._adapter,
+                                       cfg=self._cfg, sheet_names=self._sheet_names)
+        except Exception as exc:  # noqa: BLE001 — a UI action, report not crash
+            self.apply_status_label.setText(str(exc))
+            return
+        self._stored_pivot_xy = (offset.x / MM, offset.y / MM)
+        self._stored_pivot_polar = None
+        self._stored_pivot_ref = None
+        self._set_pivot_mode("coordinate")
+        self._reload_settings_display()
+        self._mark_touched()
+
+    def _schedule_settings_base_refresh(self, *_args) -> None:
+        if self._loading_settings:
+            return
+        self._settings_base_timer.start()
+
+    def _on_settings_base_refresh(self, *_args) -> None:
+        if self._loading_settings:
+            return
+        self._reload_settings_display()
+
+    def _conversion_base_deg(self) -> Optional[tuple]:
+        """(eff_rot_deg, anchor_rot_deg) for the ANCHOR COLUMN'S CURRENT values,
+        or None when the anchor does not resolve (§W.4.2).
+
+        eff_rot == anchor_rot + tree.rotation is exactly the tree content frame
+        orientation tree_effective_base yields; anchor_rot is what the tree's own
+        rotation is stored RELATIVE to. The form's anchor may differ from the
+        saved tree.anchor (an unsaved edit) — that is the point of §W.4.1.
+
+        No adapter is NOT by itself "unresolvable": an `origin` anchor resolves
+        offline to 0 deg, so an offline rename+save round-trips. Only a real
+        resolution failure disables the fields."""
+        if self._cfg is None or self._tree is None:
+            return None
+        anchor, err = self.build_anchor()
+        if err or anchor is None:
+            return None
+        probe = replace(self._tree, anchor=anchor)
+        try:
+            _pos, anchor_rot = _anchor_base_live_position(
+                self._adapter, self._cfg, probe, self._sheet_names)
+        except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
+            return None
+        anchor_rot = 0.0 if anchor_rot is None else anchor_rot
+        return anchor_rot + self._stored_rotation, anchor_rot
+
+    def _refresh_pivot_candidates(self) -> None:
+        combo = self.pivot_ref_combo
+        combo.blockSignals(True)
+        combo.clear()
+        refs = (tree_pivot_ref_candidates(self._tree)
+                if self._tree is not None else [])
+        for ref in refs:
+            combo.addItem(ref, ref)
+        if not refs:
+            combo.addItem(_("(no node can be a handle)"), None)
+        combo.blockSignals(False)
+
+    def _update_pivot_hint(self) -> None:
+        refs = (tree_pivot_ref_candidates(self._tree)
+                if self._tree is not None else [])
+        if self._tree is None or refs:
+            self.pivot_hint_label.setVisible(False)
+            return
+        self.pivot_hint_label.setText(_(
+            "No node of this tree can be a suspension point: every positioned "
+            "node hangs from a live component through a mount node. Use a "
+            "coordinate instead."))
+        self.pivot_hint_label.setVisible(True)
+
+    def _set_settings_editable(self, editable: bool, *, reason: str = "") -> None:
+        """Enable/disable the whole tree-settings group. Disabled means the
+        board frame is unavailable, so the fields hold RAW stored values —
+        editing them would silently change their meaning (§W.4.2)."""
+        self.pivot_mode_combo.setEnabled(editable)
+        self.pivot_widget.setEnabled(editable)
+        self.pivot_from_node_button.setEnabled(editable)
+        refs = (tree_pivot_ref_candidates(self._tree)
+                if self._tree is not None else [])
+        self.pivot_ref_combo.setEnabled(editable and bool(refs))
+        self.rotation_edit.setEnabled(editable)
+        self.settings_frame_label.setText(reason)
+        self.settings_frame_label.setVisible(bool(reason))
+
+    def _show_raw_settings(self) -> None:
+        """Show the RAW stored (config-frame) settings — used when no live base
+        is available, so a save can never re-interpret board-frame numbers."""
+        self._loading_settings += 1
+        try:
+            self.rotation_edit.setText(str(self._stored_rotation))
+            if self._stored_pivot_xy is not None:
+                self.pivot_widget.load(x=self._stored_pivot_xy[0],
+                                       y=self._stored_pivot_xy[1])
+            elif self._stored_pivot_polar is not None:
+                self.pivot_widget.load(polar=True,
+                                       radius=self._stored_pivot_polar[0],
+                                       angle=self._stored_pivot_polar[1])
+            else:
+                self.pivot_widget.load()
+        finally:
+            self._loading_settings -= 1
+
+    def _reload_settings_display(self) -> None:
+        """Express the stored settings in the board frame (angle absolute, pivot
+        coordinate as a board-frame vector). No live base -> the fields are
+        disabled with a reason and the RAW values are shown (§W.4.2)."""
+        self._loading_settings += 1
+        try:
+            base = self._conversion_base_deg()
+            if base is None:
+                self._show_raw_settings()
+                self._set_settings_editable(False, reason=_(
+                    "The selected anchor does not resolve on the live board — "
+                    "the suspension point and angle are shown disabled until it "
+                    "resolves."))
+                return
+            eff_rot, anchor_rot = base
+            self.rotation_edit.setText(str(
+                local_rotation_to_board_deg(self._stored_rotation, anchor_rot)))
+            if self._stored_pivot_xy is not None:
+                bx, by = local_offset_to_board_mm(self._stored_pivot_xy, eff_rot)
+                self.pivot_widget.load(x=bx, y=by)
+            elif self._stored_pivot_polar is not None:
+                radius, angle = self._stored_pivot_polar
+                self.pivot_widget.load(
+                    polar=True, radius=radius,
+                    angle=local_rotation_to_board_deg(angle, eff_rot))
+            else:
+                self.pivot_widget.load()
+            self._set_settings_editable(True)
+        finally:
+            self._loading_settings -= 1
+
+    def _load_settings(self) -> None:
+        """Seed the config-frame state from the tree and refresh the picker list,
+        mode, visibility and board-frame display. Hidden for the create-tree
+        dialog (tree is None)."""
+        self._refresh_pivot_candidates()
+        self._update_pivot_hint()
+        if self._tree is None:
+            self.settings_box.setVisible(False)
+            return
+        self._loading_settings += 1
+        try:
+            self._stored_rotation = self._tree.rotation
+            self._stored_pivot_xy = self._tree.pivot_xy
+            self._stored_pivot_polar = self._tree.pivot_polar
+            self._stored_pivot_ref = self._tree.pivot_ref
+            if self._tree.pivot_ref is not None:
+                mode = "node"
+            elif (self._tree.pivot_xy is not None
+                  or self._tree.pivot_polar is not None):
+                mode = "coordinate"
+            else:
+                mode = "origin"
+            idx = self.pivot_mode_combo.findData(mode)
+            if idx >= 0:
+                self.pivot_mode_combo.setCurrentIndex(idx)
+            if self._tree.pivot_ref is not None:
+                ci = self.pivot_ref_combo.findData(self._tree.pivot_ref)
+                if ci >= 0:
+                    self.pivot_ref_combo.setCurrentIndex(ci)
+            self._apply_pivot_mode_visibility()
+        finally:
+            self._loading_settings -= 1
+        self._reload_settings_display()
+
+    def build_settings(self) -> tuple[Optional[dict], Optional[str]]:
+        """(dict, error) — the tree's inner point + own angle in CONFIG-frame
+        values, converted from the board frame the form shows (§W.4). Keys:
+        pivot_xy / pivot_polar / pivot_ref / rotation. Writes nothing; apply()
+        commits. Returns (None, None) for a tree-less (create-tree) form."""
+        if self._tree is None:
+            return None, None
+        mode = self._pivot_mode()
+        if mode == "node":
+            ref = self.pivot_ref_combo.currentData()
+            if not ref:
+                return None, _(
+                    "Suspension point: choose a node of this tree, or switch to "
+                    "a coordinate.")
+            if ref not in tree_pivot_ref_candidates(self._tree):
+                return None, _(
+                    "Suspension point: {ref!r} cannot be a handle of this "
+                    "tree.").format(ref=ref)
+            pivot_xy = pivot_polar = None
+            pivot_ref = ref
+        elif mode == "coordinate":
+            base = self._conversion_base_deg()
+            if base is None:
+                return None, _(
+                    "The anchor does not resolve — cannot convert the "
+                    "suspension point.")
+            eff_rot = base[0]
+            fields, err = self.pivot_widget.build()
+            if err:
+                return None, err
+            if "radius" in fields:
+                pivot_xy = None
+                pivot_polar = (
+                    fields["radius"],
+                    board_rotation_to_local_deg(fields["angle"], eff_rot))
+            else:
+                pivot_xy = board_offset_to_local_mm(
+                    (fields["x"], fields["y"]), eff_rot)
+                pivot_polar = None
+            pivot_ref = None
+        else:  # origin
+            pivot_xy = pivot_polar = pivot_ref = None
+        base = self._conversion_base_deg()
+        if base is None:
+            return None, _("The anchor does not resolve — cannot convert the angle.")
+        anchor_rot = base[1]
+        text = self.rotation_edit.text().strip()
+        if text == "":
+            shown = 0.0
+        else:
+            try:
+                shown = float(text)
+            except ValueError:
+                return None, _("Angle: {text!r} is not a number.").format(text=text)
+        rotation = board_rotation_to_local_deg(shown, anchor_rot)
+        return ({"pivot_xy": pivot_xy, "pivot_polar": pivot_polar,
+                 "pivot_ref": pivot_ref, "rotation": rotation}, None)
+
     def build_anchor(self) -> tuple[Optional[TreeAnchor], Optional[str]]:
         """Collect + validate the form into a TreeAnchor, or an error string —
         the same (value, error) idiom as AnchorOriginWidget.build()/build_node()
@@ -4043,17 +4380,33 @@ class AnchorFormWidget(QWidget):
                            is_external=(mode == "external")), None)
 
     def apply(self) -> bool:
-        """Anchor-tab Phase B Apply (plan §2.3): write the form's value onto
-        the tree's anchor in place and mark the dock dirty — stays open (the
-        caller owns the button row). Resets _touched (design §9.4)."""
+        """Anchor + tree-settings Phase B Apply (plan §2.3, §W.2): write the
+        anchor, the inner point and the tree's own angle onto the tree in place
+        and mark the dock dirty — stays open (the caller owns the button row).
+        Resets _touched (design §9.4)."""
         anchor, err = self.build_anchor()
         if err:
             self.apply_status_label.setText(err)
             return False
+        settings, serr = self.build_settings()
+        if serr:
+            self.apply_status_label.setText(serr)
+            return False
         if self._tree is not None:
             self._tree.anchor = anchor
+            self._tree.pivot_xy = settings["pivot_xy"]
+            self._tree.pivot_polar = settings["pivot_polar"]
+            self._tree.pivot_ref = settings["pivot_ref"]
+            self._tree.rotation = settings["rotation"]
         if self._dock is not None:
             self._dock._mark_dirty()
+            refresh = getattr(self._dock, "_refresh_tree_marks", None)
+            if refresh is not None:
+                refresh(self._tree)
+        if self._tree is not None:
+            # Re-read the committed tree so the display reflects exactly what
+            # was written (and a no-op Apply round-trips bit-for-bit, §W.8.1).
+            self._load_settings()
         self._touched = False
         self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
         return True

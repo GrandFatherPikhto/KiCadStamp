@@ -14903,3 +14903,57 @@ msgstr "дерево {name!r}: {key} должен состоять ровно и
 
 msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
 msgstr "дерево {tree_name!r}: pivot-ref {pivot_ref!r} не найден в его собственной раскладке"
+
+msgid "(no node can be a handle)"
+msgstr "(нет узла, годного в ручку)"
+
+msgid "Angle (board deg):"
+msgstr "Угол (град. платы):"
+
+msgid "Coordinate (xy/polar)"
+msgstr "Координата (xy/полярная)"
+
+msgid "Fill the coordinate with the LOCAL offset of the selected node — a static snapshot of this tree's own layout."
+msgstr "Заполнить координату ЛОКАЛЬНЫМ смещением выбранного узла — статичный снимок собственной раскладки этого дерева."
+
+msgid "No node of this tree can be a suspension point: every positioned node hangs from a live component through a mount node. Use a coordinate instead."
+msgstr "Ни один узел этого дерева не может быть точкой подвеса: каждый позиционируемый узел висит на живом компоненте через mount-узел. Используй координату."
+
+msgid "Node of this tree"
+msgstr "Узел этого дерева"
+
+msgid "Node:"
+msgstr "Узел:"
+
+msgid "Suspension point:"
+msgstr "Точка подвеса:"
+
+msgid "Suspension point: choose a node of this tree, or switch to a coordinate."
+msgstr "Точка подвеса: выбери узел этого дерева или переключись на координату."
+
+msgid "Suspension point: {ref!r} cannot be a handle of this tree."
+msgstr "Точка подвеса: {ref!r} не может быть ручкой этого дерева."
+
+msgid "The anchor does not resolve — cannot convert the angle."
+msgstr "Якорь не резолвится — невозможно пересчитать угол."
+
+msgid "The anchor does not resolve — cannot convert the suspension point."
+msgstr "Якорь не резолвится — невозможно пересчитать точку подвеса."
+
+msgid "The selected anchor does not resolve on the live board — the suspension point and angle are shown disabled until it resolves."
+msgstr "Выбранный якорь не резолвится на живой плате — точка подвеса и угол показаны отключёнными, пока он не зарезолвится."
+
+msgid "Tree origin (0,0)"
+msgstr "Начало дерева (0,0)"
+
+msgid "Tree settings"
+msgstr "Настройки дерева"
+
+msgid "Use node's offset..."
+msgstr "Взять смещение узла..."
+
+msgid "handle"
+msgstr "ручка"
+
+msgid "this node is the tree's suspension point (pivot-ref) — the tree is positioned and rotated around it"
+msgstr "этот узел — точка подвеса дерева (pivot-ref): относительно неё дерево позиционируется и вращается"

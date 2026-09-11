@@ -542,24 +542,51 @@ def _mount_ancestor_of(target: TreeNode, nodes: list[TreeNode]) -> TreeNode | No
     return None
 
 
+def _pivot_ref_rejection(target: TreeNode, nodes: list[TreeNode]) -> str | None:
+    """Why `target` may NOT serve as a tree's pivot-ref, or None when it may.
+
+    THE single source of truth for pivot-ref eligibility, shared by the
+    load-time validator below AND the GUI picker (tree_pivot_ref_candidates):
+    both must agree on exactly the same set, or the form would offer a name the
+    grammar refuses (or hide one it accepts). Three barred shapes:
+
+    * "external" — a bare live refdes with no config record, so hanging the
+      handle on it would cost the WHOLE tree its portability (plan §V.1.3);
+    * "module" / "mount" — absent from layout_tree_from_base's returned map (a
+      module node places no record of its own; a mount node's base is LIVE), so
+      tree_pivot_offset could not resolve them;
+    * a node hanging under a mount node at ANY depth — its base is pinned to a
+      LIVE component (mount_node_base), so it does NOT move when the tree moves
+      — physically not a handle (plan_2026_09_11_pivot_ref_mount_ancestor
+      §P.1.3)."""
+    if target.kind == "external":
+        return "external"
+    if target.kind in ("module", "mount"):
+        return target.kind
+    if _mount_ancestor_of(target, nodes) is not None:
+        return "mount-ancestor"
+    return None
+
+
+def tree_pivot_ref_candidates(tree: Tree) -> list[str]:
+    """Refs of THIS tree's nodes that may legally be its pivot-ref, in
+    depth-first traversal order — the picker list for the tree settings form.
+
+    Derived from the SAME predicate the load-time validator enforces, so the
+    list can never offer a name that `_validate_tree_pivot_ref` would reject
+    (plan_2026_09_11_tree_settings_form §W.3). May legitimately be EMPTY: a
+    tree whose every record-backed node hangs under a mount node (e.g. the
+    working `ch0_dac_buf`) has no node that follows the tree, so `pivot-xy`
+    is the only usable inner point there (§W.3.1)."""
+    return [n.ref for n in _walk_nodes(tree.nodes)
+            if _pivot_ref_rejection(n, tree.nodes) is None]
+
+
 def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
                              pivot_ref: str | None) -> None:
     """A tree's pivot-ref must name a node OF THIS TREE whose base FOLLOWS the
-    tree — which rules out three shapes:
-
-    * a kind "external" node: a bare live refdes with no config record, so
-      hanging the handle on it would cost the WHOLE tree its portability —
-      exactly what the inner point exists to provide (plan §V.1.3);
-    * a kind "module"/"mount" node itself: neither appears in
-      layout_tree_from_base's returned map (a module node places no record of
-      its own; a mount node's base is LIVE), so tree_pivot_offset could not
-      resolve it;
-    * a node hanging under a mount node at ANY depth: its base is pinned to a
-      LIVE component (mount_node_base), so it does NOT move when the tree moves
-      — physically not a handle (plan_2026_09_11_pivot_ref_mount_ancestor
-      §P.1.3).
-
-    All three are load-time fatals on BOTH paths (s-expr and dict bridge)."""
+    tree — which rules out the three shapes `_pivot_ref_rejection` names. All
+    three are load-time fatals on BOTH paths (s-expr and dict bridge)."""
     if pivot_ref is None:
         return
     by_ref = {n.ref: n for n in _walk_nodes(nodes)}
@@ -567,7 +594,8 @@ def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
     if target is None:
         _fatal(_("tree {name!r}: pivot-ref {ref!r} names no node of this tree")
                .format(name=tree_name, ref=pivot_ref))
-    if target.kind == "external":
+    reason = _pivot_ref_rejection(target, nodes)
+    if reason == "external":
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a "
                  "live refdes is not portable, so it cannot be the tree's inner "
                  "point").format(name=tree_name, ref=pivot_ref))
@@ -576,13 +604,13 @@ def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
     # instead of here. Rejecting at LOAD keeps the failure early and explicit.
     # Opening a mount node up needs a real decision about the FRAME its live base
     # is expressed in.
-    if target.kind in ("module", "mount"):
+    if reason in ("module", "mount"):
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which "
                  "the layout cannot resolve yet (it places no record of its own) — "
                  "use a record-backed node of this tree as the inner point")
-               .format(name=tree_name, ref=pivot_ref, kind=target.kind))
-    mount_ancestor = _mount_ancestor_of(target, nodes)
-    if mount_ancestor is not None:
+               .format(name=tree_name, ref=pivot_ref, kind=reason))
+    if reason == "mount-ancestor":
+        mount_ancestor = _mount_ancestor_of(target, nodes)
         _fatal(_("tree {name!r}: pivot-ref {ref!r} hangs under mount node "
                  "{mount!r} — a node under a mount node is pinned to that live "
                  "component's position and does not follow the tree, so it "

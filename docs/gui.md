@@ -324,6 +324,24 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+**UPDATE 2026-09-11 (plan_2026_09_11_tree_settings_form):** the root row's form is now the TREE
+SETTINGS form — the anchor editor PLUS a **Tree settings** group carrying the tree's own inner point
+(the "suspension point") and its own angle. The suspension point is a 3-way choice: **Tree origin
+(0,0)** (the default), a **Coordinate (xy/polar)** in the tree's own frame, or a **Node of this
+tree** (`pivot-ref`). The node list offers ONLY nodes that follow the tree — never `mount`,
+`module`, `external`, or a node hanging under a mount node — so it can be legitimately EMPTY (every
+positioned node pinned to a live component, as in `ch0_dac_buf`); the form then says so in place
+and points at the coordinate, which stays fully usable. Coordinate and node are mutually exclusive.
+Like a node's offset, the settings are shown in the PCB Editor frame (design §3.9): the **Angle
+(board deg)** field is the ABSOLUTE plate angle (anchor angle + the stored dovоrот) and the
+coordinate is a board-frame millimetre vector, while the config keeps only the dovоrот and the
+tree-frame coordinate. Changing the angle re-expresses the coordinate DISPLAY without touching the
+stored value, and typing a coordinate converts it with the angle in force at that moment (no cached
+base — the `9887468` class of bug). When the anchor does not resolve live the settings fields are
+disabled with a reason and Apply writes nothing. The node serving as the handle is marked in the
+tree list with a blue accent and a `(handle)` tag (never a second column), and the mark follows the
+`pivot-ref` when it changes.
+
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail panel for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**

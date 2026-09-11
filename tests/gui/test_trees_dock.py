@@ -21,9 +21,11 @@ from PyQt6.QtWidgets import (QLabel, QMessageBox, QSplitter, QStackedWidget,
 
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode, tree_from_dict
 
+import gui.docks.trees_dock as trees_dock_mod
 from gui import settings
 from gui.docks.trees_dock import (
     AnchorFormWidget,
@@ -2685,11 +2687,11 @@ def test_node_dialog_module_kind_lists_trees_and_builds_pivot(main_window, tmp_p
     dlg.kind_combo.setCurrentIndex(idx)
     texts = [dlg.ref_combo.itemText(i) for i in range(dlg.ref_combo.count())]
     assert "ch0_dac_buf" in texts and "dac_x" in texts
-    # The dialog is not shown, so visibility means "not explicitly hidden
-    # w.r.t. the dialog" (isVisibleTo), not Qt's on-screen isVisible().
-    # Interim (2026-09-11, plan §V.3): the per-node pivot rows are HIDDEN — the
-    # inner point moves to the TREE, whose editor arrives in stage Б2.1.
-    assert not dlg.pivot_widget.isVisibleTo(dlg)
+    # 2026-09-11 (plan_2026_09_11_tree_settings_form §W.5): the per-node pivot
+    # block is GONE — the inner point is a TREE property, edited by
+    # AnchorFormWidget's "Tree settings" group. The module ref combo still
+    # lists tree names.
+    assert not hasattr(dlg._form, "pivot_widget")
     assert not dlg.read_position_button.isVisibleTo(dlg)
 
     dlg.ref_combo.setCurrentText("ch0_dac_buf")
@@ -2700,20 +2702,20 @@ def test_node_dialog_module_kind_lists_trees_and_builds_pivot(main_window, tmp_p
     assert node is not None
     assert node.kind == "module"
     assert node.ref == "ch0_dac_buf"
-    assert not hasattr(node, "pivot_xy")   # interim: no pivot on a node (Б2.1)
+    assert not hasattr(node, "pivot_xy")   # a node carries no inner point (§W.5)
 
 
 def test_node_dialog_module_prefill_round_trips_the_marker_offset(main_window, tmp_path):
-    """P4 п.1 (migrated 2026-09-11, plan §V.3): editing a module node pre-fills
-    its MARKER offset/rotation. The per-node pivot is gone (the widget is
-    hidden); its editor moves to the TREE in stage Б2.1."""
+    """P4 п.1 (migrated 2026-09-11, plan_2026_09_11_tree_settings_form §W.5):
+    editing a module node pre-fills its MARKER offset/rotation. The per-node
+    pivot block is DELETED — its editor lives on the TREE."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
                         polar=None, rotation=0.0, name=None, group=None)
     dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
                       module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
-    assert not dlg.pivot_widget.isVisibleTo(dlg)
+    assert not hasattr(dlg._form, "pivot_widget")
     node = dlg.build_node()
     assert node is not None
     assert node.kind == "module"
@@ -2721,13 +2723,12 @@ def test_node_dialog_module_prefill_round_trips_the_marker_offset(main_window, t
     assert node.xy == (10.0, 5.0)
 
 
-def test_node_dialog_pivot_rows_are_hidden_until_stage_b2_1(
+def test_node_form_has_no_pivot_widgets_after_the_tree_settings_move(
         main_window, tmp_path, monkeypatch):
-    """MIGRATED 2026-09-11 (plan §V.3): the pivot-by-ref flow used to store
-    TreeNode.pivot_ref. The inner point now lives on the TREE, so every
-    per-node pivot row is HIDDEN and build_node carries no pivot at all. The
-    tree-level editor (pivot-xy / pivot-polar / pivot-ref on the ROOT row) is
-    stage Б2.1 — this test pins the interim contract."""
+    """2026-09-11 (plan_2026_09_11_tree_settings_form §W.5): the per-node pivot
+    block is DELETED, not merely hidden — the inner point is a TREE property,
+    edited by AnchorFormWidget's "Tree settings" group. build_node carries no
+    pivot field at all."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
@@ -2739,10 +2740,10 @@ def test_node_dialog_pivot_rows_are_hidden_until_stage_b2_1(
     dlg.offset_widget.x_edit.setText("10.0")
     dlg.offset_widget.y_edit.setText("5.0")
 
-    assert not dlg.pivot_widget.isVisibleTo(dlg)
-    assert not dlg.pivot_by_ref_button.isVisibleTo(dlg)
-    assert not dlg.pivot_from_node_button.isVisibleTo(dlg)
-    assert not dlg.pivot_ref_status_label.isVisibleTo(dlg)
+    for gone in ("pivot_widget", "pivot_by_ref_button",
+                 "pivot_from_node_button", "pivot_ref_status_label",
+                 "_on_pick_pivot_ref", "_on_use_child_offset", "_pivot_ref"):
+        assert not hasattr(dlg._form, gone)
 
     node = dlg.build_node()
     assert node is not None
@@ -2751,92 +2752,18 @@ def test_node_dialog_pivot_rows_are_hidden_until_stage_b2_1(
     assert not hasattr(node, "pivot_ref")
 
 
-def test_node_dialog_pivot_by_ref_none_sentinel_clears_existing_ref(
-        main_window, tmp_path, monkeypatch):
-    """Picking the leading '(none — use XY/Polar)' sentinel cancels an
-    already-active pivot-ref, going back to manual pivot_xy/pivot_polar."""
-    from PyQt6.QtWidgets import QInputDialog
-    from kicadstamp.i18n import _
-
-    dock, _root = _module_dock(main_window, tmp_path)
-    fpga = _tree_of(dock, "fpga")
-    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
-                      module_candidates=["ch0_dac_buf", "dac_x"],
-                      all_trees=dock._trees)
-    idx = dlg.kind_combo.findData("module")
-    dlg.kind_combo.setCurrentIndex(idx)
-    dlg.ref_combo.setCurrentText("ch0_dac_buf")
-    # _NodeDialog.__getattr__ only proxies GETS to the embedded form, not
-    # assignments — `dlg._pivot_ref = ...` would shadow it with a plain
-    # attribute on the dialog itself. Set it on the real owner.
-    dlg._form._pivot_ref = "D0"
-    dlg._update_pivot_ref_label()
-
-    none_label = _("(none — use XY/Polar)")
-    monkeypatch.setattr(QInputDialog, "getItem",
-                        staticmethod(lambda *a, **k: (none_label, True)))
-    dlg._on_pick_pivot_ref()
-
-    assert dlg._pivot_ref is None
-    assert dlg.pivot_ref_status_label.text() == ""
-
-
-def test_node_dialog_pivot_widget_edit_clears_pivot_ref(main_window, tmp_path):
-    """Typing directly into Pivot X/Y after picking a ref cancels the ref —
-    the two pivot sources must never both silently apply."""
-    dock, _root = _module_dock(main_window, tmp_path)
-    fpga = _tree_of(dock, "fpga")
-    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
-                      module_candidates=["ch0_dac_buf", "dac_x"],
-                      all_trees=dock._trees)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
-    # _NodeDialog.__getattr__ only proxies GETS to the embedded form, not
-    # assignments — `dlg._pivot_ref = ...` would shadow it with a plain
-    # attribute on the dialog itself. Set it on the real owner.
-    dlg._form._pivot_ref = "D0"
-    dlg._update_pivot_ref_label()
-
-    dlg.pivot_widget.x_edit.setText("3")
-
-    assert dlg._pivot_ref is None
-    assert dlg.pivot_ref_status_label.text() == ""
-
-
-def test_node_dialog_pivot_by_ref_no_nodes_warns(main_window, tmp_path, monkeypatch):
-    """Picking pivot-by-ref against a childless tree warns instead of opening
-    an empty picker or crashing — mirrors 'From child node...''s own guard."""
-    import gui.docks.trees_dock as td_mod
-
-    dock, _root = _module_dock(main_window, tmp_path)
-    fpga = _tree_of(dock, "fpga")
-    dlg = _NodeDialog(dock, [], set(), "Add child", tree=fpga,
-                      module_candidates=["ch0_dac_buf", "dac_x"],
-                      all_trees=dock._trees)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
-    dlg.ref_combo.setCurrentText("dac_x")  # MODULE_TREES: dac_x has NO nodes
-
-    shown = []
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: shown.append(a))
-    dlg._on_pick_pivot_ref()
-
-    assert len(shown) == 1
-    assert dlg._pivot_ref is None
-
-
-def test_node_dialog_module_prefill_ignores_a_legacy_node_pivot_ref(
+def test_node_dialog_module_prefill_has_no_legacy_node_pivot_ref(
         main_window, tmp_path):
-    """MIGRATED 2026-09-11 (plan §V.3): a pivot_ref can no longer sit on a node,
-    so an Edit open neither reads nor echoes one — the pivot is a TREE property
-    now (stage Б2.1 wires its editor)."""
+    """2026-09-11 (plan_2026_09_11_tree_settings_form §W.5): a pivot_ref can no
+    longer sit on a node, so an Edit open neither reads nor echoes one — the
+    inner point is a TREE property, edited on the root row."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     existing = TreeNode(ref="ch0_dac_buf", kind="module", xy=(10.0, 5.0),
                         polar=None, rotation=0.0, name=None, group=None)
     dlg = _NodeDialog(dock, [], set(), "Edit node", tree=fpga, existing=existing,
                       module_candidates=["ch0_dac_buf"], all_trees=dock._trees)
-    assert dlg._pivot_ref is None
-    assert dlg.pivot_ref_status_label.text() == ""
+    assert not hasattr(dlg._form, "_pivot_ref")
     node = dlg.build_node()
     assert node is not None
     assert not hasattr(node, "pivot_ref")
@@ -4847,3 +4774,252 @@ def test_double_click_on_the_root_row_is_a_noop(main_window, tmp_path):
     anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
     dock._on_node_activated(anchor_item, 0)   # must not raise
     assert dock._selected_real_node(dock._current_tree()) is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Tree settings form (plan_2026_09_11_tree_settings_form §W.2–W.8): the inner
+# point (pivot-*) and the tree's own angle, edited on the ROOT row — in the
+# PCB Editor frame, like every other form (design §3.9).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _settings_form(dock):
+    form = _embedded_form(dock._active_form_page())
+    assert isinstance(form, AnchorFormWidget)
+    return form
+
+
+def _one_tree_dock(main_window, tmp_path, tree):
+    return _dock_with(main_window, tmp_path, {"trees": [tree]})
+
+
+def _form_for_tree(main_window, tree, *, cfg=None):
+    """A STANDALONE tree-settings form (no dock) — for cases whose node refs
+    would not survive load_config's record linking."""
+    return AnchorFormWidget(main_window, [], cfg=cfg, tree=tree)
+
+
+def test_tree_settings_form_shows_pivot_and_angle_fields(main_window, tmp_path):
+    """§W.8.1 item 1: selecting the root row shows the TREE settings — a
+    suspension-point picker and an angle field, not just the anchor."""
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True},
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    assert form.settings_box.isVisibleTo(form)
+    assert form.pivot_mode_combo.isVisibleTo(form)
+    assert form.rotation_edit.isVisibleTo(form)
+
+
+def test_tree_settings_noop_apply_leaves_pivot_xy_unchanged(main_window, tmp_path):
+    """§W.8.1 item 2 — THE round-trip gate: open a tree with pivot-xy, apply
+    nothing, and the config must not move a nanometre."""
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.5, -2.25],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert tree.pivot_xy == (1.5, -2.25)
+    assert form.apply() is True
+    assert tree.pivot_xy == (1.5, -2.25)
+    assert tree.pivot_polar is None and tree.pivot_ref is None
+    assert tree.rotation == 0.0
+
+
+def test_tree_settings_noop_apply_leaves_pivot_polar_unchanged(main_window, tmp_path):
+    """§W.8.1 item 3: same round trip for pivot-polar (radius untouched, angle
+    exact — never via Cartesian)."""
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_polar": [3.0, 45.0],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert tree.pivot_polar == (3.0, 45.0)
+    assert form.apply() is True
+    assert tree.pivot_polar == (3.0, 45.0)
+    assert tree.pivot_xy is None and tree.pivot_ref is None
+
+
+def test_tree_settings_noop_apply_leaves_pivot_ref_unchanged(main_window, tmp_path):
+    """§W.8.1 item 3: same round trip for pivot-ref (a name, nothing to
+    convert). Built as a STANDALONE form because a non-external ref would not
+    survive the throwaway config's record linking."""
+    tree = tree_from_dict({
+        "name": "t", "anchor": {"origin": True}, "pivot_ref": "A",
+        "nodes": [{"ref": "A", "kind": "placement", "xy": [1.0, 0.0]}]})
+    form = _form_for_tree(main_window, tree, cfg=object())
+    assert form.apply() is True
+    assert tree.pivot_ref == "A"
+    assert tree.pivot_xy is None and tree.pivot_polar is None
+
+
+def test_tree_settings_angle_is_shown_absolute_and_saved_as_dovorot(
+        main_window, tmp_path, monkeypatch):
+    """§W.8.1 item 4 + §3.9: the angle field shows the ABSOLUTE plate angle
+    (anchor angle + dovоrот); the config keeps only the dovоrот."""
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 90.0))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "rotation": 30.0,
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert float(form.rotation_edit.text()) == pytest.approx(120.0)  # 90 + 30
+    assert form.apply() is True
+    assert tree.rotation == pytest.approx(30.0)   # the dovоrот survived
+
+
+def test_tree_settings_pivot_xy_is_shown_in_board_mm(main_window, tmp_path, monkeypatch):
+    """§W.8.1 item 5: pivot-xy shows as a BOARD-frame vector (the five pure
+    functions), the config keeps the tree frame."""
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 90.0))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.0, 2.0],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    # rotate (1, 2) by 90 in the Y-down convention -> (2, -1)
+    assert float(form.pivot_widget.x_edit.text()) == pytest.approx(2.0)
+    assert float(form.pivot_widget.y_edit.text()) == pytest.approx(-1.0)
+    assert form.apply() is True
+    assert tree.pivot_xy == (1.0, 2.0)
+
+
+def test_tree_settings_inner_point_sources_are_mutually_exclusive(main_window, tmp_path):
+    """§W.8.1 item 6: a node handle cancels the coordinate and vice versa."""
+    tree = tree_from_dict({
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.0, 2.0],
+        "nodes": [{"ref": "A", "kind": "placement", "xy": [0.0, 0.0]}]})
+    form = _form_for_tree(main_window, tree, cfg=object())
+    form.pivot_mode_combo.setCurrentIndex(form.pivot_mode_combo.findData("node"))
+    form.pivot_ref_combo.setCurrentIndex(0)
+    settings, err = form.build_settings()
+    assert err is None
+    assert settings["pivot_ref"] == "A" and settings["pivot_xy"] is None
+    form.pivot_mode_combo.setCurrentIndex(
+        form.pivot_mode_combo.findData("coordinate"))
+    form.pivot_widget.x_edit.setText("1")
+    form.pivot_widget.y_edit.setText("2")
+    settings, err = form.build_settings()
+    assert err is None
+    assert settings["pivot_ref"] is None and settings["pivot_xy"] is not None
+
+
+def test_tree_settings_angle_change_redisplays_pivot_without_storing(
+        main_window, tmp_path, monkeypatch):
+    """§W.8.2 item 7 (the W.4.1 trap): changing the ANGLE re-expresses the
+    coordinate display, but the STORED pivot-xy is untouched."""
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 0.0))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.0, 2.0],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert float(form.pivot_widget.x_edit.text()) == pytest.approx(1.0)
+    form.rotation_edit.setText("90")          # user edits the ANGLE only
+    # display moved with the angle...
+    assert float(form.pivot_widget.x_edit.text()) == pytest.approx(2.0)
+    assert float(form.pivot_widget.y_edit.text()) == pytest.approx(-1.0)
+    # ...but the stored value stayed put
+    assert form.apply() is True
+    assert tree.pivot_xy == (1.0, 2.0)
+    assert tree.rotation == pytest.approx(90.0)
+
+
+def test_tree_settings_coordinates_after_angle_use_the_new_angle(
+        main_window, tmp_path, monkeypatch):
+    """§W.8.2 item 8: after an angle change, typed board-mm coordinates are
+    converted with the NEW angle (no cached base)."""
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(0, 0), 0.0))
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.0, 2.0],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    form.rotation_edit.setText("90")
+    form.pivot_widget.x_edit.setText("3")
+    form.pivot_widget.y_edit.setText("4")
+    assert form.apply() is True
+    # board (3, 4) with eff_rot 90 -> tree frame (-4, 3)
+    assert tree.pivot_xy == (-4.0, 3.0)
+    assert tree.rotation == pytest.approx(90.0)
+
+
+def test_tree_settings_node_picker_lists_only_handles(main_window, tmp_path):
+    """§W.8.3 item 9: the picker offers record-backed nodes OUTSIDE mount
+    subtrees — never mount/module/external or a pinned node."""
+    tree = tree_from_dict({
+        "name": "t", "anchor": {"origin": True},
+        "nodes": [
+            {"ref": "M1", "kind": "mount", "anchor": {"role": "R"},
+             "children": [{"ref": "PINNED", "kind": "placement", "xy": [1.0, 1.0]}]},
+            {"ref": "FREE", "kind": "placement", "xy": [0.0, 0.0]},
+            {"ref": "EXT", "kind": "external"},
+        ]})
+    form = _form_for_tree(main_window, tree, cfg=object())
+    offered = [form.pivot_ref_combo.itemData(i)
+               for i in range(form.pivot_ref_combo.count())]
+    assert offered == ["FREE"]
+
+
+def test_tree_settings_empty_picker_is_explained_and_coordinate_works(
+        main_window, tmp_path):
+    """§W.8.3 item 11 (the working ch0_dac_buf shape): an empty list is a
+    NORMAL state — clearly explained, coordinate still available, form usable."""
+    tree = tree_from_dict({
+        "name": "ch0_dac_buf", "anchor": {"origin": True},
+        "nodes": [
+            {"ref": "M1", "kind": "mount", "anchor": {"role": "AD_DAC"},
+             "children": [{"ref": "pif_dvdd", "kind": "placement",
+                           "xy": [0.0, 0.0]}]}]})
+    form = _form_for_tree(main_window, tree, cfg=object())
+    assert form.pivot_hint_label.isVisibleTo(form)
+    assert form.pivot_hint_label.text() != ""
+    assert form.pivot_ref_combo.isEnabled() is False
+    form.pivot_mode_combo.setCurrentIndex(
+        form.pivot_mode_combo.findData("coordinate"))
+    form.pivot_widget.x_edit.setText("1")
+    form.pivot_widget.y_edit.setText("2")
+    settings, err = form.build_settings()
+    assert err is None
+    assert settings["pivot_xy"] is not None
+
+
+def test_tree_settings_fields_disabled_when_anchor_does_not_resolve(
+        main_window, tmp_path, monkeypatch):
+    """§W.8.4 item 12: an unresolvable anchor disables the settings with a
+    reason and Apply writes NOTHING (never numbers of a silently changed
+    meaning)."""
+    def _boom(*a, **k):
+        raise ValidationError("no live board")
+
+    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position", _boom)
+    dock, _root = _one_tree_dock(main_window, tmp_path, {
+        "name": "t", "anchor": {"origin": True}, "pivot_xy": [1.0, 2.0],
+        "nodes": [{"ref": "E1", "kind": "external", "xy": [0.0, 0.0]}]})
+    form = _settings_form(dock)
+    tree = dock._current_tree()
+    assert form.rotation_edit.isEnabled() is False
+    assert form.settings_frame_label.text() != ""
+    assert form.apply() is False
+    assert tree.pivot_xy == (1.0, 2.0) and tree.rotation == 0.0
+
+
+def test_render_tree_marks_the_pivot_ref_handle(main_window):
+    """§W.8.5 items 13/14: the node named in pivot-ref is marked in the tree
+    (a handle tag, single column), and moving the ref moves the mark."""
+    tree = tree_from_dict({
+        "name": "t", "anchor": {"origin": True}, "pivot_ref": "A",
+        "nodes": [{"ref": "A", "kind": "placement", "xy": [0.0, 0.0]},
+                  {"ref": "B", "kind": "placement", "xy": [1.0, 0.0]}]})
+    dock = TreesDock(main_window)
+    widget = QTreeWidget()
+    dock._render_tree(widget, tree)
+    assert "(handle)" in dock._node_items["A"].text(0)
+    assert "(handle)" not in dock._node_items["B"].text(0)
+    tree.pivot_ref = "B"
+    dock._refresh_tree_marks(tree)
+    assert "(handle)" not in dock._node_items["A"].text(0)
+    assert "(handle)" in dock._node_items["B"].text(0)

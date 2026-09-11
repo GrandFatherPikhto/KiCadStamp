@@ -10,7 +10,8 @@ import pytest
 
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, load_trees, save_trees,
-                              tree_from_dict, tree_to_dict)
+                              tree_from_dict, tree_to_dict,
+                              tree_pivot_ref_candidates)
 
 
 def _write(tmp_path, text, name="trees.trees"):
@@ -664,6 +665,58 @@ def test_pivot_ref_on_a_branch_without_mount_ancestors_is_legal():
                    {"ref": "P1", "kind": "placement", "xy": [2, 3]}]}
     tree = tree_from_dict(d)
     assert tree.pivot_ref == "P1"
+
+
+# ── tree settings form (plan_2026_09_11_tree_settings_form §W.3): the picker ──
+# ── list must be derived from the SAME predicate the validator enforces. ──────
+
+def test_tree_pivot_ref_candidates_lists_only_handle_worthy_nodes_in_order():
+    """§W.3: only nodes that FOLLOW the tree are offered — a record-backed node
+    (placement/chain/coordinate/point/net_trace) outside every mount subtree,
+    depth-first. external / module / mount themselves and every node pinned
+    under a mount node are excluded."""
+    d = {"name": "t", "nodes": [
+        {"ref": "EXT", "kind": "external"},
+        {"ref": "MOD", "kind": "module"},
+        {"ref": "MNT", "kind": "mount", "anchor": {"role": "R"},
+         "children": [{"ref": "PINNED", "kind": "placement", "xy": [1, 1]}]},
+        {"ref": "FREE", "kind": "placement", "xy": [1, 2],
+         "children": [{"ref": "FREE_CHILD", "kind": "placement", "xy": [0, 0]}]},
+        {"ref": "PT", "kind": "point"},
+    ]}
+    tree = tree_from_dict(d)
+    assert tree_pivot_ref_candidates(tree) == ["FREE", "FREE_CHILD", "PT"]
+
+
+def test_tree_pivot_ref_candidates_is_empty_when_every_node_is_pinned():
+    """§W.3.1: the working `ch0_dac_buf` shape — every positioned node hangs
+    under a mount node, so the list is EMPTY and pivot-xy is the only inner
+    point. This is a NORMAL state, not an error."""
+    d = {"name": "ch0_dac_buf", "nodes": [
+        {"ref": "M1", "kind": "mount", "anchor": {"role": "AD_DAC"},
+         "children": [{"ref": "pif_dvdd_channel_0", "kind": "placement",
+                       "xy": [0.0, 0.0]}]},
+    ]}
+    tree = tree_from_dict(d)
+    assert tree_pivot_ref_candidates(tree) == []
+
+
+def test_every_offered_pivot_ref_candidate_loads_without_fatal():
+    """§W.3: list and validator agree — setting any offered ref as the tree's
+    pivot_ref must load cleanly (the form may never offer a name the grammar
+    refuses, nor hide one it accepts)."""
+    d = {"name": "t", "nodes": [
+        {"ref": "M1", "kind": "mount", "anchor": {"role": "R"},
+         "children": [{"ref": "PINNED", "kind": "placement", "xy": [1, 1]}]},
+        {"ref": "A", "kind": "placement", "xy": [0, 0]},
+        {"ref": "B", "kind": "chain"},
+    ]}
+    tree = tree_from_dict(d)
+    offered = tree_pivot_ref_candidates(tree)
+    assert offered == ["A", "B"]
+    for ref in offered:
+        reloaded = tree_from_dict({**d, "pivot_ref": ref})
+        assert reloaded.pivot_ref == ref
 
 
 def test_config_dict_tree_with_pivot_passes_known_key_check():
