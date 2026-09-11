@@ -28,7 +28,8 @@ master-detail):
     (the schematic-vs-board diff) — and the embedded **fieldstool** window as
     the right pane.
   - **Config** — the include-graph tree (left) + its context QView (right).
-  - **Trees** — one tab per tree, each a tree | Anchor/Node splitter.
+  - **Trees** — one tab per tree, each a tree | form-panel splitter (ONE panel
+    that follows the selection — no Anchor/Node tabs).
 - **Bottom**: **Log**.
 - **Status bar**: connection state, Reconnect/Refresh button, Always on top /
   Tray icon (Settings), Open fieldstool button, KiCad processes... button.
@@ -282,14 +283,15 @@ default), **Anchor position**, **Redraw selected** / **Redraw whole tree**, **Fu
 and modules)…** and **Instances…**. The dock keeps the tabs, the checkbox subtree selection and the
 read-only status row (anchor live position + unsaved-changes ●). Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
-/ Move to…); the tree anchor pseudo-root's menu keeps **Add node** and a **Set anchor…** shortcut that
-brings the right-hand **Anchor** tab to the front. Since 2026-09-04 (plan
-plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab is a **master-detail** splitter: the
-node list on the LEFT, a FIXED two-tab panel (**Anchor** / **Node**) on the RIGHT. The **Anchor** tab
-always edits the current tree's anchor; the **Node** tab shows the editor of the currently selected
-REAL node — a single click loads it (pseudo-roots / an empty selection show a "Select a node to edit
-it." hint). The panel's rows are **Apply** / **Redraw** (no OK/Cancel — it stays open); editing a
-generated INSTANCE tree shows the same read-only notice as its context menu in BOTH tabs instead of an
+/ Move to…); the tree ROOT row's menu keeps **Add node** and a **Set anchor…** shortcut that selects
+that root row. Since 2026-09-04 (plan plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab
+is a **master-detail** splitter: the node list on the LEFT, ONE form panel on the RIGHT. **UPDATED
+2026-09-11 (plan_2026_09_11_trees_dock_single_panel.md):** that panel used to be a FIXED two-tab widget
+(**Anchor** / **Node**); the tab strip is gone because it read as "this node's anchor". The panel now
+FOLLOWS THE SELECTION: select the tree's ROOT row (its anchor — now SELECTABLE) or clear the selection
+to edit the tree ANCHOR; select a REAL node (any kind, `mount` included) to edit that node. A single
+click loads an editor, the panel's rows are **Apply** / **Redraw** (no OK/Cancel — it stays open).
+Editing a generated INSTANCE tree shows the same read-only notice as its context menu instead of an
 editor. The anchor editor covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Chain/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
@@ -305,7 +307,7 @@ and if that exclusion empties the Entity section, a hint points to the Auto mode
 empty combo. Save also guards the paths the dialog cannot see (an anchor set while the tree was still
 empty and the root node added/edited in afterwards, or a hand-edited `.sexp`): the same self-reference
 is silently switched to an Auto anchor with a status-bar/log notice. Editing an existing anchor is
-free: the **Anchor** tab always pre-fills the current anchor's mode and fields (only **Create tree…**
+free: the anchor form always pre-fills the current anchor's mode and fields (only **Create tree…**
 still asks for an anchor in a modal — a not-yet-created tree has no tab yet), so a small
 tweak (e.g. changing a role anchor's sheet) doesn't rebuild the anchor from scratch. Node
 offsets are typed by hand or read from the live board via **Read current position** in the
@@ -323,7 +325,7 @@ config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs
 `kicadstamp.link_trees`.
 
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
-master-detail **Node** tab for a selected node, and inside the modal Add dialog while no node exists
+master-detail panel for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**
 (everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a **Position**
 tab. **UPDATE 2026-09-11 (plan_2026_09_11_tree_mount_nodes):** the Position tab used to offer a
@@ -373,8 +375,8 @@ it). If the new anchor cannot be resolved live, the fields are disabled with an 
 stored values are restored, so a Save can never write board-frame numbers as a different frame.
 
 Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
-master-detail **Node** tab, so double-clicking such a node no longer opens a modal — it just makes
-sure the node is selected and brings the Node tab to the front; a module node / a "⇐ embedded in" /
+master-detail panel, so double-clicking such a node no longer opens a modal — it just makes sure the
+node is selected (the panel then shows its editor); a module node / a "⇐ embedded in" /
 "→ instance:" pseudo item still jumps to the referenced tree's tab. The node editor's **Apply**
 writes the form onto the node in place (marks the dock dirty, stays open — nothing reaches disk until
 Save); **Redraw** applies first, then places that node's REAL component on the live board at its
@@ -462,8 +464,8 @@ are a deep copy of the template — refs suffixed `__{instance.name}`, the insta
 the declaration sets it, its `cluster`) substituted into the copied Entities and the role anchor.
 Instance tabs are **READ-ONLY**: their
 node context menu offers no Add/Edit/Delete/Rename/Move (the geometry is owned by the template + the
-declaration), their master-detail Anchor/Node panel shows the same read-only notice instead of an
-editor, and Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
+declaration), their master-detail panel shows the same read-only notice instead of an editor, and
+Rename/Delete tree refuse them — but **Redraw** works normally (instances are fully
 placeable trees). An instance tab shows one top **"⇐ instance of {template} (sheet={sheet})"** item; a
 template tree shows one **"→ instance: {name}"** item per instance — double-click navigates either way
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal

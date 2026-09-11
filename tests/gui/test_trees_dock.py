@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QMessageBox, QSplitter, QTabWidget, QTreeWidget
+from PyQt6.QtWidgets import (QLabel, QMessageBox, QSplitter, QStackedWidget,
+                             QTreeWidget)
 
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -366,67 +367,70 @@ def _embedded_redraw_button(page):
     return btn_item.widget() if btn_item is not None else None
 
 
-def test_master_detail_right_panel_has_fixed_anchor_and_node_tabs(main_window, tmp_path):
-    """§3.1/§3.2: each real-tree page is a QSplitter — the tree on the left, a
-    fixed two-tab (Anchor/Node) QTabWidget on the right. The Anchor tab is
-    always filled with the ACTIVE tree's AnchorFormWidget."""
+def test_master_detail_right_panel_is_one_selection_following_panel(main_window, tmp_path):
+    """Z.3.1/Z.3.2 (REWRITTEN from the two-tab test): each real-tree page is a
+    QSplitter — the tree on the left, ONE form panel (a one-visible-page
+    QStackedWidget, no tab bar) on the right. With nothing selected it shows the
+    ACTIVE tree's AnchorFormWidget."""
     dock, _root = _dock_with(main_window, tmp_path)
     page = dock.tree_tabs.currentWidget()
     assert isinstance(page, QSplitter)
     assert isinstance(page.widget(0), QTreeWidget)
-    tabs = dock._active_form_tabs()
-    assert isinstance(tabs, QTabWidget)
-    assert tabs.count() == 2
-    anchor_form = _embedded_form(tabs.widget(0))
+    panel = dock._active_form_panel()
+    assert isinstance(panel, QStackedWidget)
+    assert panel.count() == 1  # a single visible page — no Anchor/Node tab bar
+    anchor_form = _embedded_form(dock._active_form_page())
     assert isinstance(anchor_form, AnchorFormWidget)
     assert anchor_form._tree is dock._trees[0]
     # The placeholder (no trees) page stays a bare tree — no form panel.
     dock2 = TreesDock(main_window)
     dock2.set_root_file(None)
-    assert not isinstance(dock2._active_form_tabs(), QTabWidget)
+    assert dock2._active_form_panel() is None
 
 
-def test_master_detail_node_tab_tracks_selected_real_node(main_window, tmp_path):
-    """§3.2: a freshly loaded dock has nothing selected, so the Node tab shows
-    the empty hint; selecting a REAL node swaps it for that node's editor."""
+def test_master_detail_panel_tracks_selected_real_node(main_window, tmp_path):
+    """Z.3.2 (REWRITTEN from the two-tab test): a freshly loaded dock has nothing
+    selected, so the panel shows the tree ANCHOR form; selecting a REAL node
+    swaps it for that node's editor."""
     dock, _root = _dock_with(main_window, tmp_path)
-    tabs = dock._active_form_tabs()
-    assert isinstance(tabs.widget(1), QLabel)  # nothing selected yet
+    assert isinstance(_embedded_form(dock._active_form_page()), AnchorFormWidget)
 
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG — a real TreeNode
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._existing is dock._trees[0].nodes[0]
 
     # A different node re-fills the SAME tab with its own editor.
     tree_widget.setCurrentItem(nodes[1])  # R_AROUND
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._existing is dock._trees[0].nodes[1]
 
 
-def test_master_detail_node_tab_hint_when_selection_cleared(main_window, tmp_path):
-    """§3.2: clearing the selection returns the Node tab to the 'select a node'
-    hint — never a stale editor for a node that is no longer selected."""
+def test_master_detail_panel_returns_to_anchor_form_when_cleared(main_window, tmp_path):
+    """Z.3.2 (REWRITTEN from the two-tab hint test): clearing the selection
+    returns the panel to the tree ANCHOR form — never a stale editor for a node
+    that is no longer selected."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])
-    assert isinstance(_embedded_form(dock._active_form_tabs().widget(1)),
+    assert isinstance(_embedded_form(dock._active_form_page()),
                       NodeFormWidget)
     tree_widget.clearSelection()
-    assert isinstance(dock._active_form_tabs().widget(1), QLabel)
+    assert isinstance(_embedded_form(dock._active_form_page()),
+                      AnchorFormWidget)
 
 
 def test_master_detail_anchor_panel_rebuilds_for_new_active_tree(main_window, tmp_path):
     """§3.2: switching the tree tab rebuilds the right panel for the newly
     active tree — the Anchor tab must edit THAT tree's anchor, not the old one."""
     dock, _root = _dock_with(main_window, tmp_path)
-    assert _embedded_form(dock._active_form_tabs().widget(0))._tree is dock._trees[0]
+    assert _embedded_form(dock._active_form_page())._tree is dock._trees[0]
     dock.tree_tabs.setCurrentIndex(1)  # misc
-    anchor_form = _embedded_form(dock._active_form_tabs().widget(0))
+    anchor_form = _embedded_form(dock._active_form_page())
     assert isinstance(anchor_form, AnchorFormWidget)
     assert anchor_form._tree is dock._trees[1]
 
@@ -440,7 +444,7 @@ def test_node_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_pa
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])  # AMS1117_REG
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._touched is False
     form.name_edit.setText("edited")
@@ -456,7 +460,7 @@ def test_node_form_offset_field_marks_touched(main_window, tmp_path):
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._touched is False
     form.offset_widget.x_edit.setText("7.25")
@@ -467,7 +471,7 @@ def test_anchor_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_
     """§3c gate: editing a REAL field of an AnchorFormWidget sets _touched; a
     successful apply() resets it (Origin is a guaranteed-valid anchor)."""
     dock, _root = _dock_with(main_window, tmp_path)
-    form = _embedded_form(dock._active_form_tabs().widget(0))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, AnchorFormWidget)
     assert form._touched is False
     form.mode_combo.setCurrentIndex(0)  # Origin (board 0,0)
@@ -485,13 +489,13 @@ def test_master_detail_node_switch_warns_when_draft_discarded(main_window, tmp_p
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG — editor shown
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.name_edit.setText("unsaved")
     assert form._touched is True
     tree_widget.setCurrentItem(nodes[1])  # R_AROUND — discards the draft
     assert "Unapplied changes were discarded." in dock.status_label.text()
-    new_form = _embedded_form(dock._active_form_tabs().widget(1))
+    new_form = _embedded_form(dock._active_form_page())
     assert isinstance(new_form, NodeFormWidget)
     assert new_form._existing is dock._trees[0].nodes[1]
 
@@ -503,7 +507,7 @@ def test_rebuild_warns_when_active_page_form_touched(main_window, tmp_path):
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.name_edit.setText("unsaved")
     assert form._touched is True
@@ -518,30 +522,28 @@ def test_master_detail_same_node_reselect_keeps_editor(main_window, tmp_path):
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])
-    form0 = _embedded_form(dock._active_form_tabs().widget(1))
+    form0 = _embedded_form(dock._active_form_page())
     assert isinstance(form0, NodeFormWidget)
     dock._on_selection_changed()  # same row re-selected: the rebuild is skipped
-    form1 = _embedded_form(dock._active_form_tabs().widget(1))
+    form1 = _embedded_form(dock._active_form_page())
     assert form1 is form0
     assert "discarded" not in dock.status_label.text()
 
 
 def test_instance_tree_right_panel_is_read_only(main_window, tmp_path):
-    """§7.1.4: a generated INSTANCE tree's Anchor/Node tabs never host an
-    editor — both show the same read-only stub as the instance context menu,
-    and selecting a real node of the instance keeps the stub."""
+    """§7.1.4 + Z.3 (REWRITTEN from the two-tab test): a generated INSTANCE
+    tree's panel never hosts an editor — it shows the same read-only stub as the
+    instance context menu, and selecting a real node of the instance keeps it."""
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tree_tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
-    tabs = dock._active_form_tabs()
-    assert tabs is not None
-    for idx in (0, 1):  # Anchor and Node tabs
-        page = tabs.widget(idx)
-        assert isinstance(page, QLabel), f"tab {idx} must be the read-only stub"
-        assert "read-only" in page.text()
+    assert dock._active_form_panel() is not None
+    page = dock._active_form_page()
+    assert isinstance(page, QLabel)
+    assert "read-only" in page.text()
     dock._current_tree_widget().expandAll()
     node_item = dock._node_items["dac_buf__ch1_dac_buf"]
     dock._current_tree_widget().setCurrentItem(node_item)
-    page = dock._active_form_tabs().widget(1)
+    page = dock._active_form_page()
     assert isinstance(page, QLabel)
     assert "read-only" in page.text()
 
@@ -552,7 +554,7 @@ def test_master_detail_anchor_tab_apply_and_redraw(main_window, tmp_path, monkey
     moves the whole tree — design §9.3)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    form = _embedded_form(dock._active_form_tabs().widget(0))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, AnchorFormWidget)
     assert not tree.anchor.is_origin
     form.mode_combo.setCurrentIndex(0)  # Origin (board 0,0)
@@ -565,9 +567,10 @@ def test_master_detail_anchor_tab_apply_and_redraw(main_window, tmp_path, monkey
     assert redraws == [True]
 
 
-def test_context_edit_node_focuses_node_tab(main_window, tmp_path, monkeypatch):
-    """§3.3/§6: 'Edit node…' no longer opens a modal — triggering it selects the
-    node and brings the master-detail Node tab to the front with that node."""
+def test_context_edit_node_shows_node_form(main_window, tmp_path, monkeypatch):
+    """Z.3 (REWRITTEN from the two-tab test): 'Edit node…' no longer opens a
+    modal — triggering it selects the node, and the single right-hand panel then
+    shows that node's editor."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     node = tree.nodes[0]
@@ -575,24 +578,27 @@ def test_context_edit_node_focuses_node_tab(main_window, tmp_path, monkeypatch):
     item = dock._node_items[node.ref]
     actions = dict(_context_menu_actions(dock, item, monkeypatch))
     actions["Edit node…"].trigger()
-    tabs = dock._active_form_tabs()
-    assert tabs is not None and tabs.currentIndex() == 1
-    form = _embedded_form(tabs.widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._existing is node
 
 
-def test_context_set_anchor_focuses_anchor_tab(main_window, tmp_path, monkeypatch):
-    """§3.3/§6: 'Set anchor…' no longer opens a modal picker — triggering it
-    brings the right-hand Anchor tab of the active tree to the front."""
+def test_context_set_anchor_shows_anchor_form(main_window, tmp_path, monkeypatch):
+    """Z.3 (REWRITTEN from the two-tab test): 'Set anchor…' no longer opens a
+    modal picker — triggering it selects the tree's ROOT row (Z.2), so the single
+    right-hand panel switches from the node editor back to the anchor form."""
     dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dock._current_tree_widget().expandAll()
+    dock._current_tree_widget().setCurrentItem(
+        dock._node_items[tree.nodes[0].ref])
+    assert isinstance(_embedded_form(dock._active_form_page()), NodeFormWidget)
     anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
     actions = dict(_context_menu_actions(dock, anchor_item, monkeypatch))
     assert "Set anchor…" in actions
     actions["Set anchor…"].trigger()
-    tabs = dock._active_form_tabs()
-    assert tabs is not None and tabs.currentIndex() == 0
-    assert isinstance(_embedded_form(tabs.widget(0)), AnchorFormWidget)
+    assert dock._current_tree_widget().currentItem() is anchor_item
+    assert isinstance(_embedded_form(dock._active_form_page()), AnchorFormWidget)
 
 
 def test_master_detail_touched_draft_survives_tree_switch(main_window, tmp_path):
@@ -603,13 +609,13 @@ def test_master_detail_touched_draft_survives_tree_switch(main_window, tmp_path)
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])  # AMS1117_REG
-    form0 = _embedded_form(dock._active_form_tabs().widget(1))
+    form0 = _embedded_form(dock._active_form_page())
     assert isinstance(form0, NodeFormWidget)
     form0.name_edit.setText("draft")
     assert form0._touched is True
     dock.tree_tabs.setCurrentIndex(1)  # misc
     dock.tree_tabs.setCurrentIndex(0)  # back to power_tree
-    form1 = _embedded_form(dock._active_form_tabs().widget(1))
+    form1 = _embedded_form(dock._active_form_page())
     assert form1 is form0  # the same editor object — not rebuilt
     assert form1._touched is True
     assert "discarded" not in dock.status_label.text()
@@ -1974,7 +1980,7 @@ def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, 
     node.rotation = 1.0
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     tree_widget.setCurrentItem(dock._node_items[node.ref])
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.rotation_edit.setText("77")
     form.name_edit.setText("new_label")
@@ -2908,7 +2914,7 @@ def test_master_detail_module_node_apply_copies_pivot(main_window, tmp_path):
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
     tree_widget.expandAll()
     tree_widget.setCurrentItem(dock._node_items[node.ref])
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.pivot_widget.x_edit.setText("3")
     form.pivot_widget.y_edit.setText("4")
@@ -2943,7 +2949,7 @@ def test_master_detail_redraw_button_enabled_for_module_node(main_window, tmp_pa
     tree_widget.expandAll()
 
     tree_widget.setCurrentItem(dock._node_items[module_node.ref])
-    page = dock._active_form_tabs().widget(1)
+    page = dock._active_form_page()
     form = _embedded_form(page)
     assert isinstance(form, NodeFormWidget)
     assert form.kind_combo.currentData() == "module"
@@ -2959,7 +2965,7 @@ def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
     tree_widget.setCurrentItem(nodes[0])
-    page = dock._active_form_tabs().widget(1)
+    page = dock._active_form_page()
     form = _embedded_form(page)
     assert isinstance(form, NodeFormWidget)
     assert form.kind_combo.currentData() in ("placement", "clone")
@@ -2980,7 +2986,7 @@ def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_p
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
     tree_widget.expandAll()
     tree_widget.setCurrentItem(dock._node_items[module_node.ref])
-    page = dock._active_form_tabs().widget(1)
+    page = dock._active_form_page()
     form = _embedded_form(page)
     redraw_btn = _embedded_redraw_button(page)
 
@@ -3604,19 +3610,17 @@ def test_node_dialog_prefill_restores_mount_anchor(main_window, tmp_path):
 
 # ── Phase B: double-click -> edit, Apply/Redraw/Close dialog (2026-09-03) ──
 
-def test_double_click_on_plain_node_focuses_node_tab(main_window, tmp_path):
-    """Master-detail §3.2: double-clicking a NON-module real node no longer
-    opens the modal editor — a single click already shows the editor on the
-    right-hand Node tab, so the double-click is a convenience that makes sure
-    the node is selected and brings the Node tab to the front. Module nodes
-    still switch to their referenced tree's tab (kept by the next test)."""
+def test_double_click_on_plain_node_shows_node_form(main_window, tmp_path):
+    """Master-detail §3.2 + Z.3 (REWRITTEN from the two-tab test): double-clicking
+    a NON-module real node no longer opens the modal editor — it makes sure the
+    node is selected, and the single right-hand panel then shows its editor.
+    Module nodes still switch to their referenced tree's tab (next test)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     node = tree.nodes[0]
     item = dock._node_items[node.ref]
     dock._on_node_activated(item, 0)
-    assert dock._active_form_tabs().currentIndex() == 1  # Node tab in front
-    form = _embedded_form(dock._active_form_tabs().widget(1))
+    form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._existing is node
 
@@ -4737,3 +4741,111 @@ def test_unchanged_mount_anchor_keeps_the_form_bit_identical(
     built = dlg.build_node()
     assert built.xy == (-0.5, 1.0)
     assert built.rotation == 90.0
+
+
+# ── Z.2/Z.3: root row selectable + single selection-following panel ────────
+# plan_2026_09_11_trees_dock_single_panel.md — Z.2 (root selectable) + Z.3
+# (one panel instead of the Anchor|Node tabs).
+
+def test_tree_root_row_is_selectable(main_window, tmp_path):
+    """Z.2: the tree's root row IS its anchor and must be selectable — it is the
+    one row that answers "where does the whole tree stand"."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._current_tree_widget()
+    anchor_item = _children(tree_widget.invisibleRootItem())[0]
+    assert anchor_item.flags() & Qt.ItemFlag.ItemIsSelectable
+    tree_widget.setCurrentItem(anchor_item)
+    assert tree_widget.currentItem() is anchor_item
+
+
+def test_embedded_in_pseudo_root_stays_unselectable(main_window, tmp_path):
+    """Z.2: only the anchor root row became selectable — the "⇐ embedded in"
+    navigation pseudo-root must stay unselectable."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    dock.tree_tabs.setCurrentIndex(dock._trees.index(_tree_of(dock, "ch0_dac_buf")))
+    tree_widget = dock._current_tree_widget()
+    embedded = [it for it in _children(tree_widget.invisibleRootItem())
+                if it.text(0).startswith("⇐ embedded in")]
+    assert embedded, "expected an embedded-in pseudo-root"
+    assert not (embedded[0].flags() & Qt.ItemFlag.ItemIsSelectable)
+
+
+def test_selecting_the_root_row_shows_the_anchor_form(main_window, tmp_path):
+    """Z.2 + Z.3.2: clicking the tree's ROOT row shows the tree ANCHOR form in
+    the single right-hand panel."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._current_tree_widget()
+    anchor_item = _children(tree_widget.invisibleRootItem())[0]
+    tree_widget.setCurrentItem(anchor_item)
+    form = _embedded_form(dock._active_form_page())
+    assert isinstance(form, AnchorFormWidget)
+    assert form._tree is dock._trees[0]
+
+
+def test_root_node_root_selection_switches_the_single_panel(main_window, tmp_path):
+    """Z.3.2: selection root -> node -> root swaps the panel content (anchor ->
+    node -> anchor) while the page stays BUILT (`_panel_built`) — a content swap,
+    never a structural rebuild."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._current_tree_widget()
+    tree_widget.expandAll()
+    panel = dock._active_form_panel()
+    anchor_item = _children(tree_widget.invisibleRootItem())[0]
+    nodes = _children(anchor_item)
+    tree_widget.setCurrentItem(anchor_item)
+    assert isinstance(_embedded_form(dock._active_form_page()), AnchorFormWidget)
+    assert panel.property("_panel_built") is True
+    tree_widget.setCurrentItem(nodes[0])
+    assert isinstance(_embedded_form(dock._active_form_page()), NodeFormWidget)
+    assert panel.property("_panel_built") is True
+    tree_widget.setCurrentItem(anchor_item)
+    assert isinstance(_embedded_form(dock._active_form_page()), AnchorFormWidget)
+    assert panel.property("_panel_built") is True
+
+
+def test_panel_shows_the_mount_node_form_with_its_picker(main_window, tmp_path):
+    """Z.3.2 + B1 regression (Z.6.4): selecting a kind "mount" node shows its
+    NodeFormWidget with the mount anchor picker VISIBLE — the picker must survive
+    the single-panel refactor."""
+    trees = {"trees": [
+        {"name": "t", "anchor": {"origin": True},
+         "nodes": [
+             {"ref": "m_ad_dac", "kind": "mount", "xy": [0.0, 0.0],
+              "anchor": {"role": "AD_DAC", "pad": "3"},
+              "children": [{"ref": "E1", "kind": "external", "xy": [1.0, 0.0]}]},
+         ]},
+    ]}
+    dock, _root = _dock_with(main_window, tmp_path, trees)
+    tree_widget = dock._current_tree_widget()
+    tree_widget.expandAll()
+    tree_widget.setCurrentItem(dock._node_items["m_ad_dac"])
+    form = _embedded_form(dock._active_form_page())
+    assert isinstance(form, NodeFormWidget)
+    assert form.kind_combo.currentData() == "mount"
+    assert form.mount_anchor_widget.isHidden() is False
+
+
+def test_context_menu_on_the_root_row_offers_no_node_actions(
+        main_window, tmp_path, monkeypatch):
+    """Z.2/Z.6.7: with the root row selected the context menu offers the ANCHOR
+    actions only, and "Set anchor…" must not treat the anchor as a node."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree_widget = dock._current_tree_widget()
+    anchor_item = _children(tree_widget.invisibleRootItem())[0]
+    tree_widget.setCurrentItem(anchor_item)
+    actions = dict(_context_menu_actions(dock, anchor_item, monkeypatch))
+    assert "Set anchor…" in actions and "Add node" in actions
+    for forbidden in ("Add child", "Add sibling", "Edit node…",
+                      "Delete node", "Rename…", "Move to…"):
+        assert forbidden not in actions
+    actions["Set anchor…"].trigger()          # must not raise / must not misfire
+    assert isinstance(_embedded_form(dock._active_form_page()), AnchorFormWidget)
+
+
+def test_double_click_on_the_root_row_is_a_noop(main_window, tmp_path):
+    """Z.6.7: double-clicking the root row (no TreeNode payload) does nothing —
+    no crash, nothing applied to the anchor as if it were a node."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
+    dock._on_node_activated(anchor_item, 0)   # must not raise
+    assert dock._selected_real_node(dock._current_tree()) is None

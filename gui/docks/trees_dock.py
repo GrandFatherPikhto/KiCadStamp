@@ -21,7 +21,7 @@ from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                              QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QSizePolicy, QSplitter, QTabWidget,
+                             QSizePolicy, QSplitter, QStackedWidget, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
 
@@ -264,8 +264,8 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     by hand far from where the config records put it is now visible (bug 0.1).
 
     Reuses the EXACT link_trees resolution rules via _resolve_probe_ref, and the
-    shared base resolver (_resolve_node_base_pose) for own_anchor / tree anchor /
-    parent node.
+    shared base resolver (_resolve_node_base_pose) for the mount anchor / tree
+    anchor / parent node.
 
     Rotation is None when the CHILD has no rotation concept (point kind) — the
     caller must leave the field blank, never write a fake 0. Raises
@@ -699,24 +699,23 @@ class TreesDock(QWidget):
             tree_widget.itemCollapsed.connect(
                 lambda item, name=tree.name: self._on_item_expand_changed(name, item))
             self._render_tree(tree_widget, tree, saved_tree_state.get(tree.name, {}))
-            # Master-detail page (plan §3.1): a QSplitter — the SAME tree on
-            # the left (widget(0), so _tree_widget_of_page finds it), and a
-            # fixed two-tab form panel (Anchor/Node) on the right. The form
-            # CONTENT is filled lazily for the active page in §3.2; here the
-            # right panel is created with empty placeholder pages so the
-            # splitter structure is stable from the first build.
+            # Master-detail page (plan §3.1 + Z.3): a QSplitter — the SAME tree
+            # on the left (widget(0), so _tree_widget_of_page finds it), and ONE
+            # form panel on the right (widget(1)). The panel is a QStackedWidget
+            # used as a single-visible-page container (the project's master-detail
+            # idiom, as in ChainDock/ConfigTreeDock): there is NO Anchor|Node tab
+            # bar any more — WHICH form is shown follows the SELECTION (Z.3.2),
+            # never a tab the user has to pick. The content is filled lazily for
+            # the active page (Z.3.4, `_panel_built`); the placeholder page below
+            # keeps the splitter structure stable from the first build.
             splitter = QSplitter(Qt.Orientation.Horizontal)
             splitter.setChildrenCollapsible(False)
             splitter.addWidget(tree_widget)
-            form_tabs = QTabWidget()
-            form_tabs.setObjectName(f"tree_form_tabs_{tree.name}")
-            # §3c (master-detail): a fresh page is UNBUILT — _rebuild_active_
-            # form_panel fills it on first activation and then leaves it alone,
-            # so an unapplied draft survives a tree switch (§9.4).
-            form_tabs.setProperty("_panel_built", False)
-            form_tabs.addTab(QWidget(), _("Anchor"))
-            form_tabs.addTab(QWidget(), _("Node"))
-            splitter.addWidget(form_tabs)
+            form_panel = QStackedWidget()
+            form_panel.setObjectName(f"tree_form_panel_{tree.name}")
+            form_panel.setProperty("_panel_built", False)
+            form_panel.addWidget(QWidget())
+            splitter.addWidget(form_panel)
             splitter.setStretchFactor(0, 1)
             splitter.setStretchFactor(1, 0)
             # Per-tree splitter persistence (2026-09-05, same as the Config
@@ -989,10 +988,12 @@ class TreesDock(QWidget):
         raw_refs = entry.get("expanded_refs")
         expanded_refs = ({r for r in raw_refs if isinstance(r, str)}
                          if isinstance(raw_refs, list) else set())
-        # Pseudo-root showing the anchor, visually distinct (not selectable).
+        # The tree's ROOT row IS its anchor (Z.2): SELECTABLE, so the user can
+        # pick the one row that answers "where does the whole tree stand" and
+        # edit the anchor in the single right-hand panel. Every OTHER pseudo-root
+        # (instance-of / embedded-in / instance:) stays unselectable.
         anchor_item = QTreeWidgetItem(tree_widget.invisibleRootItem())
         anchor_item.setText(0, _anchor_label(tree.anchor))
-        anchor_item.setFlags(anchor_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         dup_refs = self._anchor_duplicate_refs(tree)
         dup_tooltip = (_ANCHOR_DUPLICATE_TOOLTIP.format(role=tree.anchor.role)
                        if dup_refs else None)
@@ -1038,7 +1039,8 @@ class TreesDock(QWidget):
         tree_widget = self._current_tree_widget()
         if tree_widget is not None:
             tree_widget.setCurrentItem(item)
-        self._focus_form_tab(1)
+        # Z.3: selecting the node is enough — the single right-hand panel follows
+        # the selection, so there is no Node tab to bring to the front any more.
 
     def _switch_to_tree(self, name: str) -> None:
         """Activate the tab of the tree named `name` (no-op if not loaded)."""
@@ -1056,16 +1058,15 @@ class TreesDock(QWidget):
         self.raise_()
 
     def _edit_in_panel(self, tree: Tree, node: TreeNode) -> None:
-        """§3.3: 'Edit node…' is now a shortcut — a single click already shows
-        the node's editor on the master-detail Node tab. This makes sure the
-        node is selected (a right-click does not select by default) and brings
-        the Node tab to the front. No modal, no separate edit action."""
+        """Z.3: 'Edit node…' is a shortcut — a single click already shows the
+        node's editor in the single right-hand panel. This makes sure the node is
+        selected (a right-click does not select by default); the panel then
+        follows the selection. No modal, no separate edit action, no tab."""
         tree_widget = self._tree_widget_for(tree) or self._current_tree_widget()
         if tree_widget is not None:
             item = self._node_items.get(node.ref)
             if item is not None:
                 tree_widget.setCurrentItem(item)
-        self._focus_form_tab(1)
 
     def _anchor_duplicate_refs(self, tree: Tree) -> set[str]:
         """Refs of `tree`'s top-level kind="placement" nodes that duplicate the
@@ -1152,14 +1153,14 @@ class TreesDock(QWidget):
         tree_widget = self._current_tree_widget()
         if tree_widget is None:
             return
-        # Master-detail (§3.2): reflect the current selection in the right-hand
-        # Node tab — a real node opens its editor, a pseudo-root/empty
-        # selection the "select a node to edit it" hint. Skipped while
+        # Master-detail (Z.3): reflect the current selection in the single
+        # right-hand panel — a real node shows its editor, the root row / an
+        # empty selection shows the tree anchor form. Skipped while
         # _rebuild_tabs is repopulating — its own final
-        # _rebuild_active_form_panel() already covers the restored tab.
+        # _rebuild_active_form_panel() already covers the restored page.
         discarded = False
         if not self._rebuilding_tabs:
-            discarded = self._update_active_node_tab()
+            discarded = self._refresh_form_panel()
         # design §9.4: when switching away from a node whose editor held
         # UNAPPLIED edits, the notice wins over the new node's static preview —
         # it is the one thing the user must see (the preview returns on the
@@ -1193,37 +1194,57 @@ class TreesDock(QWidget):
     def _show_status(self, text: str) -> None:
         self.status_label.setText(text)
 
-    # ── Master-detail right panel (plan §3) ──────────────────────────────
+    # ── Master-detail right panel (plan §3 + Z.3) ────────────────────────
     #
-    # Each tree page (§3.1) is a QSplitter: the tree on the left (widget(0)),
-    # a fixed two-tab QTabWidget (Anchor / Node) on the right (widget(1)).
-    # The forms are built LAZILY for the ACTIVE page only — candidates are
-    # collected at build time (the same populate-don't-restrict idiom
-    # _prompt_node/_build_anchor_form/_build_node_form use), so inactive
-    # pages stay cheap and no
-    # N live widget trees are kept around. Rebuild the active panel on: tab
-    # switch (new tree), tree selection change (Node tab content).
+    # Each tree page (Z.3.1) is a QSplitter: the tree on the left (widget(0)),
+    # ONE form panel on the right (widget(1)) — a QStackedWidget used as a
+    # single-visible-page container (the project's master-detail idiom, as in
+    # ChainDock/ConfigTreeDock). There is NO Anchor|Node tab bar: WHICH form is
+    # shown follows the SELECTION (Z.3.2), so the panel is re-filled on a tree
+    # switch (new tree) and on a selection change (which node/root row). The
+    # forms are built LAZILY for the ACTIVE page only — candidates are collected
+    # at build time (the same populate-don't-restrict idiom _prompt_node/
+    # _build_anchor_form/_build_node_form use), so inactive pages stay cheap and
+    # no N live widget trees are kept around.
 
     def _active_page_splitter(self) -> Optional[QSplitter]:
         """The QSplitter of the CURRENT page, or None (placeholder/no tree)."""
         page = self.tree_tabs.currentWidget()
         return page if isinstance(page, QSplitter) else None
 
-    def _active_form_tabs(self) -> Optional[QTabWidget]:
-        """The right-hand Anchor/Node QTabWidget of the current page, or None."""
+    def _active_form_panel(self) -> Optional[QStackedWidget]:
+        """The right-hand form PANEL (a one-visible-page QStackedWidget) of the
+        current page, or None (the placeholder page / no tree)."""
         splitter = self._active_page_splitter()
         if splitter is None:
             return None
         right = splitter.widget(1)
-        return right if isinstance(right, QTabWidget) else None
+        return right if isinstance(right, QStackedWidget) else None
 
-    def _replace_tab(self, tabs: QTabWidget, index: int, label: str,
-                     widget: QWidget) -> None:
-        """Replace one page of a QTabWidget in place, preserving its position
-        and label — the master-detail Anchor/Node tabs are FIXED two tabs, so
-        remove+insert keeps the layout stable and cheap."""
-        tabs.removeTab(index)
-        tabs.insertTab(index, widget, label)
+    @staticmethod
+    def _panel_page(panel: QStackedWidget) -> Optional[QWidget]:
+        """The content page currently shown by `panel` — a _form_action_row
+        wrapper, a read-only instance stub (QLabel) or the empty placeholder —
+        or None when the panel holds no page."""
+        return panel.currentWidget() if panel.count() else None
+
+    def _active_form_page(self) -> Optional[QWidget]:
+        """The widget currently shown in the active page's form panel, or None.
+        The single-panel successor of the retired _active_form_tabs(): callers
+        that want "the form on screen" read this."""
+        panel = self._active_form_panel()
+        return self._panel_page(panel) if panel is not None else None
+
+    @staticmethod
+    def _set_panel_content(panel: QStackedWidget, widget: QWidget) -> None:
+        """Replace the panel's ONE page in place — the single-panel successor of
+        _replace_tab. The previous page is dropped (deleteLater): its content is
+        decided by the selection, never kept as a hidden tab."""
+        while panel.count():
+            old = panel.widget(0)
+            panel.removeWidget(old)
+            old.deleteLater()
+        panel.addWidget(widget)
 
     def _form_action_row(self, form) -> QWidget:
         """Wrap a modal-agnostic form (NodeFormWidget/AnchorFormWidget) with
@@ -1291,8 +1312,8 @@ class TreesDock(QWidget):
     def _embedded_form_of(page: Optional[QWidget]) -> Optional[QWidget]:
         """The modal-agnostic form inside a _form_action_row wrapper page (the
         wrapper's top VBox puts the form at itemAt(0), the Apply/Redraw row at
-        itemAt(1)), or None when `page` is not a wrapper (the empty-hint QLabel
-        or the §3a placeholder QWidget)."""
+        itemAt(1)), or None when `page` is not a wrapper (the read-only instance
+        stub QLabel, or the §3a placeholder QWidget)."""
         if page is None:
             return None
         lay = page.layout()
@@ -1303,31 +1324,43 @@ class TreesDock(QWidget):
 
     @staticmethod
     def _discard_if_touched(form: Optional[QWidget]) -> bool:
-        """design §9.4: True when `form` (the editor currently shown in a tab)
-        carries unapplied edits and is about to be replaced/discarded. The
-        caller surfaces the non-blocking notice; the replacement still happens."""
+        """design §9.4: True when `form` (the editor currently shown in the
+        panel) carries unapplied edits and is about to be replaced/discarded.
+        The caller surfaces the non-blocking notice; the replacement still
+        happens."""
         return bool(form is not None and getattr(form, "_touched", False))
 
-    def _current_node_tab_ref(self, tabs: QTabWidget) -> Optional[str]:
-        """The ref of the real node currently shown in `tabs`' Node tab, or None
-        for the hint / a placeholder — keeps the §7.1.5 rebuild guard in sync
-        with the content actually on the page."""
-        form = self._embedded_form_of(tabs.widget(1))
+    def _current_panel_node_ref(self, panel: QStackedWidget) -> Optional[str]:
+        """The ref of the real node whose editor the panel currently shows, or
+        None for the anchor form / a stub / the placeholder — keeps the §7.1.5
+        rebuild guard in sync with the form actually on screen."""
+        form = self._embedded_form_of(self._panel_page(panel))
         existing = getattr(form, "_existing", None) if form is not None else None
         return existing.ref if isinstance(existing, TreeNode) else None
 
-    def _focus_form_tab(self, index: int) -> None:
-        """Switch the active page's right panel to Anchor (0) or Node (1) — the
-        §3.3 context-menu / §3.2 double-click shortcuts. No-op when the current
-        page has no form panel (placeholder/no tree)."""
-        tabs = self._active_form_tabs()
-        if tabs is not None and 0 <= index < tabs.count():
-            tabs.setCurrentIndex(index)
+    def _select_anchor_row(self, tree: Optional[Tree] = None) -> None:
+        """Z.3: 'Set anchor…' is a shortcut — select the tree's ROOT row (now
+        selectable, Z.2) so the single right-hand panel shows the tree ANCHOR
+        form. Falls back to re-filling the panel directly when the row is not
+        built yet (headless/partial state)."""
+        tree = tree if tree is not None else self._current_tree()
+        tree_widget = (self._tree_widget_for(tree) if tree is not None else None) \
+            or self._current_tree_widget()
+        root = tree_widget.invisibleRootItem() if tree_widget is not None else None
+        if root is not None and root.childCount():
+            tree_widget.setCurrentItem(root.child(0))
+            return
+        panel = self._active_form_panel()
+        if panel is not None and tree is not None:
+            self._set_panel_content(
+                panel, self._form_action_row(self._build_anchor_form(tree)))
+            self._current_node_ref = None
+            panel.setProperty("_panel_built", True)
 
     def _read_only_stub(self, inst: TreeInstance) -> QLabel:
         """The read-only instance notice (plan §7.1.4) — the SAME wording as the
-        instance context menu, shown as a tab's content instead of an editor for
-        a generated tree."""
+        instance context menu, shown as the panel's content instead of an editor
+        for a generated tree."""
         label = QLabel(
             _("Instance of {template} — read-only: edit the template tree to "
               "change the geometry").format(template=inst.template))
@@ -1337,62 +1370,57 @@ class TreesDock(QWidget):
 
     def _warn_rebuild_discard(self) -> None:
         """design §9.4/§7.1.2: _rebuild_tabs() is about to clear every page, so
-        a touched Node/Anchor form on the ACTIVE page is discarded — surface a
-        non-blocking notice BEFORE clear() takes them away (the lazy panel only
-        ever hosts forms for the active page, so this is one cheap read)."""
-        tabs = self._active_form_tabs()
-        if tabs is None:
+        a touched form on the ACTIVE page is discarded — surface a non-blocking
+        notice BEFORE clear() takes it away (the lazy panel only ever hosts ONE
+        form for the active page, so this is one cheap read)."""
+        panel = self._active_form_panel()
+        if panel is None:
             return
-        if (self._discard_if_touched(self._embedded_form_of(tabs.widget(0)))
-                or self._discard_if_touched(self._embedded_form_of(tabs.widget(1)))):
+        if self._discard_if_touched(
+                self._embedded_form_of(self._panel_page(panel))):
             self._show_status(_("Unapplied changes were discarded."))
 
     def _rebuild_active_form_panel(self) -> None:
-        """(Re)build the right-hand Anchor/Node panel of the CURRENT page for
-        its current tree. Lazy: only ever touches the active page. The Anchor
-        tab is always an AnchorFormWidget for that tree (or the read-only
-        instance stub, §7.1.4); the Node tab shows the editor of the currently
-        selected real node, or the empty hint.
-
-        §9.4 (on-the-spot decision, §3c): a page that was ALREADY built is NOT
-        rebuilt on re-activation — its forms live inside the page and survive a
+        """(Re)build the right-hand FORM PANEL of the CURRENT page. Lazy: only
+        ever touches the active page, and a page that was ALREADY built is NOT
+        rebuilt on re-activation — its form lives inside the page and survives a
         tree switch, so an unapplied draft is never lost by merely tabbing away
         (a structural edit that calls _rebuild_tabs() is what actually discards
-        it, and _warn_rebuild_discard() reports that at the point of loss)."""
-        tabs = self._active_form_tabs()
-        if tabs is None:
+        it, and _warn_rebuild_discard() reports that at the point of loss).
+
+        The panel shows ONE form, chosen by the SELECTION (Z.3.2): a real node ->
+        that node's editor; the root row / nothing selected -> the tree anchor
+        form (it always exists); a generated instance -> the read-only stub."""
+        panel = self._active_form_panel()
+        if panel is None:
             return
-        if bool(tabs.property("_panel_built")):
-            self._current_node_ref = self._current_node_tab_ref(tabs)
+        if bool(panel.property("_panel_built")):
+            self._current_node_ref = self._current_panel_node_ref(panel)
             return
+        self._current_node_ref = self._fill_form_panel(panel)
+        panel.setProperty("_panel_built", True)
+
+    def _fill_form_panel(self, panel: QStackedWidget) -> Optional[str]:
+        """Set `panel`'s content to the form the CURRENT tree + selection call
+        for; returns the ref of the node whose editor is shown (None for the
+        anchor form / the read-only stub / no tree)."""
         tree = self._current_tree()
         if tree is None:
-            return
+            return None
         inst = self._instance_of(tree)
         if inst is not None:
             # Read-only instance (plan §7.1.4): never an editor — a generated
             # tree's anchor/nodes belong to the template + the declaration.
-            self._replace_tab(tabs, 0, _("Anchor"), self._read_only_stub(inst))
-            self._replace_tab(tabs, 1, _("Node"), self._read_only_stub(inst))
-            self._current_node_ref = None
-            tabs.setProperty("_panel_built", True)
-            return
-        # Anchor tab (always index 0).
-        self._replace_tab(tabs, 0, _("Anchor"),
-                          self._form_action_row(self._build_anchor_form(tree)))
-        # Node tab (always index 1): selected real node or empty hint.
+            self._set_panel_content(panel, self._read_only_stub(inst))
+            return None
         node = self._selected_real_node(tree)
         if node is not None:
-            self._replace_tab(tabs, 1, _("Node"),
-                              self._form_action_row(self._build_node_form(tree, node)))
-            self._current_node_ref = node.ref
-        else:
-            hint = QLabel(_("Select a node to edit it."))
-            hint.setWordWrap(True)
-            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._replace_tab(tabs, 1, _("Node"), hint)
-            self._current_node_ref = None
-        tabs.setProperty("_panel_built", True)
+            self._set_panel_content(
+                panel, self._form_action_row(self._build_node_form(tree, node)))
+            return node.ref
+        self._set_panel_content(
+            panel, self._form_action_row(self._build_anchor_form(tree)))
+        return None
 
     def _selected_real_node(self, tree: Tree) -> Optional[TreeNode]:
         """The currently selected REAL TreeNode of `tree`'s widget, or None —
@@ -1415,46 +1443,36 @@ class TreesDock(QWidget):
             return None
         return self._tree_widget_of_page(self.tree_tabs.widget(idx))
 
-    def _update_active_node_tab(self) -> bool:
-        """Selection changed on the active tree -> refresh the Node tab's
-        editor (new node) or show the empty hint (pseudo-root/deselection).
-        Returns True when a TOUCHED editor was discarded (design §9.4) so the
-        caller can surface the non-blocking notice after its own status write.
+    def _refresh_form_panel(self) -> bool:
+        """Selection changed on the active tree -> show the form the new
+        selection calls for (a real node's editor, or the tree anchor form for
+        the root row / an empty selection). Returns True when a TOUCHED editor
+        was discarded (design §9.4) so the caller can surface the non-blocking
+        notice after its own status write.
 
-        §7.1.5: a rebuild is skipped when the newly selected REAL node is the
-        one already shown (`self._current_node_ref`) — a "Redraw selected"
-        checkbox toggle re-selects the same row and must not tear the form
-        down (or flash a discard notice) on every click.
+        §7.1.5: a refresh is skipped when the newly selected REAL node is the one
+        already shown (`self._current_node_ref`) — a "Redraw selected" checkbox
+        toggle re-selects the same row and must not tear the form down (or flash
+        a discard notice) on every click. The None→None case (root row / cleared
+        selection) is likewise left alone, so clicking the root does not rebuild
+        the anchor form under the user.
 
-        §7.1.4: a node of a generated INSTANCE tree is read-only — the tab gets
+        §7.1.4: a node of a generated INSTANCE tree is read-only — the panel gets
         the same stub as the instance context menu, never an editor."""
-        tabs = self._active_form_tabs()
-        if tabs is None:
+        panel = self._active_form_panel()
+        if panel is None:
             return False
         tree = self._current_tree()
         if tree is None:
             return False
         node = self._selected_real_node(tree)
-        inst = self._instance_of(tree)
-        if inst is not None:
-            # Read-only instance: the whole panel is a stub — keep it in sync.
-            self._replace_tab(tabs, 1, _("Node"), self._read_only_stub(inst))
-            self._current_node_ref = None
-            return False
         new_ref = node.ref if node is not None else None
-        if node is not None and new_ref == self._current_node_ref:
-            return False  # same node still selected (e.g. a checkbox toggle)
+        if new_ref == self._current_node_ref:
+            return False  # same node / still the anchor form — keep the form
         discarded = self._discard_if_touched(
-            self._embedded_form_of(tabs.widget(1)))
-        self._current_node_ref = new_ref
-        if node is not None:
-            node_page = self._form_action_row(self._build_node_form(tree, node))
-            self._replace_tab(tabs, 1, _("Node"), node_page)
-        else:
-            hint = QLabel(_("Select a node to edit it."))
-            hint.setWordWrap(True)
-            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._replace_tab(tabs, 1, _("Node"), hint)
+            self._embedded_form_of(self._panel_page(panel)))
+        self._current_node_ref = self._fill_form_panel(panel)
+        panel.setProperty("_panel_built", True)
         return discarded
 
     # ── Status / dirty state helpers ─────────────────────────────────────
@@ -1762,11 +1780,11 @@ class TreesDock(QWidget):
             # is no TreeNode to right-click until one exists).
             menu.addAction(_("Add node")).triggered.connect(
                 lambda: self._add_node_flow(tree))
-            # §3.3: 'Set anchor…' no longer opens a modal picker — the Anchor
-            # tab on the right is always the active tree's anchor editor, so
-            # the action is a shortcut that just brings that tab to the front.
+            # Z.3: 'Set anchor…' no longer opens a modal picker — it selects the
+            # tree's ROOT row (now selectable, Z.2), which makes the single
+            # right-hand panel show the active tree's anchor form.
             menu.addAction(_("Set anchor…")).triggered.connect(
-                lambda: self._focus_form_tab(0))
+                lambda: self._select_anchor_row(tree))
             # "Instantiate from Cell..." (2026-09-03, plan instantiate_from_
             # entity) — add a NEW group reusing an EXISTING Cell into THIS
             # tree. Routed through DockHub so it has the live board selection.
@@ -1872,8 +1890,9 @@ class TreesDock(QWidget):
             # regardless of how many trees actually exist (found live).
             module_candidates=self._module_tree_candidates(tree),
             all_trees=self._trees,
-            # Position-tab (own_anchor) candidate lists — the same live sources
-            # the anchor dialog uses (plan tree_node_own_anchor §3.1).
+            # Position-tab (mount anchor) candidate lists — the same live
+            # sources the mount anchor picker uses (plan tree_node_own_anchor
+            # §3.1 — the plan NAME is historical, the mechanism is "mount" now).
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
         )

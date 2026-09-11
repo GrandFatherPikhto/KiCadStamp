@@ -6,7 +6,8 @@ profile snapshot (Denis's 3ch-awg-tia-v103 config, reduced to its 5 cells / 5
 entities / 1 tree — see the plan's Y.7.1): `config.sexp` is the PRE-migration
 grammar, `config.converted.sexp` the converter's output, and
 `expected_geometry.json` the geometry fingerprint captured from the BEFORE
-config (diagnostics/tree_mount_baseline.py) against a deterministic fake board.
+config (kicadstamp/diagnostics/tree_mount_baseline.py) against a deterministic
+fake board.
 
 The core acceptance claim (Y.7.2) is that the conversion is BIT-EXACT for the
 layout AND for every materialized cell component — that is the first test
@@ -38,8 +39,8 @@ _ORIGIN = Vector2.from_xy(0, 0)
 _BASE_ANGLE = 30.0
 
 # (ref, role, cluster, x_mm, y_mm, angle_deg, {pad: (dx_mm, dy_mm)}) — MUST
-# stay identical to diagnostics/tree_mount_baseline.py, or the frozen
-# expected_geometry.json stops describing this board.
+# stay identical to kicadstamp/diagnostics/tree_mount_baseline.py, or the
+# frozen expected_geometry.json stops describing this board.
 _FAKE_FOOTPRINTS = (
     ("IC2", "AD_DAC", "DAC_BUF", 220.55, 113.4881, _BASE_ANGLE,
      {"3": (0.0, 0.0), "11": (1.7, 3.2), "18": (4.9, 2.0)}),
@@ -360,3 +361,12 @@ def test_drift_guard_is_enforced_by_load_config(tmp_path):
 def test_mount_kind_has_a_display_tag():
     from gui.docks.trees_dock import _KIND_TAGS
     assert _KIND_TAGS["mount"]
+
+
+def test_the_frozen_fixture_set_is_complete():
+    """Z.1 (plan_2026_09_11_trees_dock_single_panel): all THREE frozen fixture
+    files must be present. expected_geometry.json was silently gitignored once —
+    the acceptance test then failed everywhere but the author's machine — so this
+    pins the whole set."""
+    for name in ("config.sexp", "config.converted.sexp", "expected_geometry.json"):
+        assert (FIXTURES / name).is_file(), f"missing frozen fixture: {name}"

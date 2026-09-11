@@ -254,10 +254,10 @@ def pivot_offset(node: TreeNode, child: "Tree | None" = None,
     zero base directly YIELDS the local-offset value pivot_xy/pivot_polar
     already carry, with no separate "subtract the anchor" step needed — and
     reading `node.pivot_ref`'s resolved position back out of the result. This
-    correctly handles a pivot_ref that sits behind a nested module or an
-    own_anchor node (both already handled by layout_tree_from_base itself);
+    correctly handles a pivot_ref that sits behind a nested module or a
+    mount node (both already handled by layout_tree_from_base itself);
     it needs `child`/`forest` (and adapter/cfg/sheet_names only if something
-    inside `child` actually uses own_anchor) — every OTHER pivot mode stays
+    inside `child` actually uses a mount anchor) — every OTHER pivot mode stays
     pure geometry, no live board, as before. Raises ValidationError if
     `child`/`forest` are missing or the ref cannot be found (link_trees
     already rejects an unreachable pivot_ref at Save time — reaching this at

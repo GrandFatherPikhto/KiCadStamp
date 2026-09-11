@@ -81,6 +81,11 @@ fp-info-cache
 *.tar.gz
 
 *.json
+# Исключение для ЗАКОММИЧЕННЫХ фикстур (Z.1): глобальный *.json съел
+# эталонный expected_geometry.json приёмки Б1, и тест
+# test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly падал
+# FileNotFoundError у всех, кроме машины автора. Общее правило не ослабляем.
+!tests/fixtures/**/*.json
 # Атомарная запись gui_state.json: временный файл из os.replace (gui/settings.py)
 *.json.tmp
 *.log
