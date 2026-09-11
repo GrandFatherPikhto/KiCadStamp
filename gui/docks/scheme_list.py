@@ -59,7 +59,7 @@ from kicadstamp.scheme_list_capture import (
 )
 from kicadstamp.utils.units import MM
 
-from ..worker import start_long_op
+from ..worker import refresh_snapshot_then, start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE,
                       add_include, display_path, read_data, show_message,
@@ -563,7 +563,8 @@ class RecordSchemeListDialog(QDialog):
     def __init__(self, snapshot: list, selection_refs: List[str], parent=None,
                  fixed_name: Optional[str] = None, *,
                  adapter=None, selected_footprints=None, pivot_initial=None,
-                 selection_provider=None, snapshot_provider=None):
+                 selection_provider=None, snapshot_provider=None,
+                 connection=None):
         super().__init__(parent)
         self._fixed_name = fixed_name
         # Pivot/Anchor tab context (Commit F): the live adapter + current board
@@ -588,6 +589,17 @@ class RecordSchemeListDialog(QDialog):
         # (DockHub's connection.snapshot, refreshed by the poll timer); None ->
         # fall back to the constructor snapshot (tests/fallback).
         self._snapshot_provider = snapshot_provider
+        # R.2.1 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md): the
+        # snapshot_provider above can only ever return a snapshot built BEFORE
+        # this modal dialog opened — the main window's own Refresh button is
+        # blocked while exec() runs, and the automatic poll tick is a no-op once
+        # connected — so its positions are frozen at connect/manual-refresh
+        # time. "Take from selection" therefore REBUILDS the snapshot first, on
+        # the worker thread, before reading any position out of it. None (or a
+        # connection without a live board) keeps the cached snapshot: the
+        # documented provider fallback, same as _live_snapshot.
+        self._connection = connection
+        self._pivot_op: Optional[Any] = None
         self._pivot_initial = (tuple(pivot_initial) if pivot_initial is not None
                                else (0.0, 0.0))
         if fixed_name:
@@ -805,11 +817,13 @@ class RecordSchemeListDialog(QDialog):
         """'Take from selection' — read the CURRENT board selection's centre and
         write x/y as the pivot in the centre-frame of the refs we would record
         now (selected centre minus the live centre of those refs' footprints,
-        Commit B2 helpers). Needs a live board; the selection AND the snapshot
-        are read LIVE at click time (Commit G + H), so selecting on the board
-        — or the board moving — while the dialog is open is honoured. The
-        region centre comes from the LIVE snapshot, never from a direct
-        adapter.get_footprints() call (Commit H — see live_record_centre_mm)."""
+        Commit B2 helpers). Needs a live board; the selection is read LIVE at
+        click time (Commit G), and the recorded refs' POSITIONS are read from a
+        freshly rebuilt full-board snapshot (R.2.1,
+        plan_2026_09_11_stale_snapshot_positions.md): the rebuild runs on the
+        worker thread first, so no adapter call happens on this GUI thread
+        (Commit H — see live_record_centre_mm). Without a refreshable
+        connection the cached snapshot is used as before (tests/fallback)."""
         if self._adapter is None:
             QMessageBox.warning(self, _("Scheme Lists"),
                                 _("Connect to KiCad first."))
@@ -822,6 +836,16 @@ class RecordSchemeListDialog(QDialog):
                   "on the 'By sheet' tab, or select footprints on the board "
                   "for 'By selection'."))
             return
+        self._pivot_op = refresh_snapshot_then(
+            self._connection, (self.pivot_from_selection_button,),
+            lambda: self._pivot_from_selection_now(refs),
+            self._on_pivot_snapshot_refresh_failed)
+
+    def _pivot_from_selection_now(self, refs: List[str]) -> None:
+        """UI thread, AFTER the snapshot rebuild (see
+        _on_pivot_from_selection): compute the pivot and fill the x/y fields.
+        Without a refreshable connection this is the old synchronous
+        cached-snapshot path (tests/fallback)."""
         try:
             x, y = pivot_centre_frame_from_selection(
                 refs, self._live_snapshot(), self._live_selection())
@@ -829,6 +853,15 @@ class RecordSchemeListDialog(QDialog):
             QMessageBox.warning(self, _("Scheme Lists"), str(e))
             return
         self._set_pivot_fields(x, y)
+
+    def _on_pivot_snapshot_refresh_failed(self, message: str) -> None:
+        """UI thread: the worker could not rebuild the snapshot (the live board
+        is gone — BoardConnection.refresh() drops the connection). Say so
+        instead of silently computing the pivot from stale coordinates."""
+        QMessageBox.warning(
+            self, _("Scheme Lists"),
+            _("Could not refresh the board snapshot: {error}").format(
+                error=message))
 
     # ── "By sheet" helpers ──────────────────────────────────────────────
 
@@ -1382,10 +1415,6 @@ class SchemeListFormWidget(QWidget):
         owning file (write_scheme_list_record with target_path=self._path;
         scheme_list_to_dict omits a (0,0) pivot). Pure config write, no live
         board. Emits saved() so ConfigTreeDock refreshes (see gui/dock_hub.py)."""
-        # TEMPORARY G-DIAG (Commit G): catch the exact "ERROR Load Scheme Record
-        # list..." failure — remove after diagnosis.
-        logger.warning("[SchemeList Pivot] Apply: entry=%r path=%r",
-                       self._entry.get("name"), self._path)
         self._show_message("")
         if not self._entry or self._path is None:
             self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
@@ -1433,7 +1462,10 @@ class SchemeListFormWidget(QWidget):
         commit_b2.md §1). The recorded refs' positions come from the full-board
         footprint SNAPSHOT (self._connection.snapshot), never from a direct
         adapter.get_footprints() call on this GUI thread (Commit H,
-        plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0)."""
+        plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0) — and that
+        snapshot is REBUILT first, on the worker thread, before any position is
+        read out of it: it otherwise freezes at connect/manual-refresh time
+        (R.2.1, plan_2026_09_11_stale_snapshot_positions.md)."""
         self._show_message("")
         if not self._entry or self._path is None:
             self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
@@ -1443,17 +1475,6 @@ class SchemeListFormWidget(QWidget):
         if adapter is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
-        # TEMPORARY G-DIAG (Commit G): catch the exact "ERROR Load Scheme Record
-        # list..." failure — remove after diagnosis.
-        logger.warning("[SchemeList Pivot] TakeFromSel: entry=%r path=%r "
-                       "board=%s selection=%d",
-                       self._entry.get("name"), self._path,
-                       board is not None,
-                       len(getattr(self, "_selection_footprints", []) or []))
-        # The polled full-board footprint snapshot (BoardConnection.snapshot) —
-        # the same cache Reread already reads (see _collect_reread_payload).
-        # `adapter` above is only the live-board gate; positions come from here.
-        snapshot = getattr(self._connection, "snapshot", None) or []
         try:
             record = load_scheme_list(self._entry)
         except ValidationError as e:
@@ -1461,6 +1482,22 @@ class SchemeListFormWidget(QWidget):
                            "failed: %r (%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
+        # R.2.1: rebuild the polled full-board snapshot on the worker thread
+        # (never an adapter call here) BEFORE reading any position out of it.
+        self._pivot_op = refresh_snapshot_then(
+            self._connection, (self.pivot_from_selection_button,),
+            lambda: self._pivot_from_selection_now(record),
+            self._on_pivot_snapshot_refresh_failed)
+
+    def _pivot_from_selection_now(self, record: SchemeListConfig) -> None:
+        """UI thread, AFTER the snapshot rebuild (see
+        _on_pivot_from_selection): the recorded refs' present positions feed the
+        pivot preview. Without a refreshable connection this is the old
+        synchronous cached-snapshot path (tests/fallback)."""
+        # The polled full-board footprint snapshot (BoardConnection.snapshot) —
+        # the same cache Reread already reads (see _collect_reread_payload).
+        # `adapter` above is only the live-board gate; positions come from here.
+        snapshot = getattr(self._connection, "snapshot", None) or []
         record_refs = [c.ref for c in record.components]
         missing = missing_record_refs(record_refs, snapshot)
         logger.warning("[SchemeList Pivot] TakeFromSel record=%r refs=%r "
@@ -1484,6 +1521,14 @@ class SchemeListFormWidget(QWidget):
             self._show_message(
                 _("Pivot taken from the board selection — press Apply to save it."),
                 _SUCCESS_STYLE)
+
+    def _on_pivot_snapshot_refresh_failed(self, message: str) -> None:
+        """UI thread: the worker could not rebuild the snapshot (the live board
+        is gone — BoardConnection.refresh() drops the connection). Say so
+        instead of silently computing the pivot from stale coordinates."""
+        self._show_message(
+            _("Could not refresh the board snapshot: {error}").format(
+                error=message), _ERROR_STYLE)
 
     # ── Reread ──────────────────────────────────────────────────────────
 

@@ -1783,7 +1783,7 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
                          pivot_initial=None, selection_provider=None,
-                         snapshot_provider=None):
+                         snapshot_provider=None, connection=None):
                 captured["selection_provider"] = selection_provider
                 captured["snapshot_provider"] = snapshot_provider
 
@@ -1879,7 +1879,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
             def __init__(self, snapshot, selection_refs, parent,
                          *, adapter=None, selected_footprints=None,
                          pivot_initial=None, selection_provider=None,
-                         snapshot_provider=None):
+                         snapshot_provider=None, connection=None):
                 # Commit H — connection.snapshot is live when the dialog opens.
                 assert snapshot_provider is not None
                 assert [s.ref for s in snapshot_provider()] == []
@@ -2127,7 +2127,8 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
             def __init__(self, snapshot, selection_refs, parent,
                          fixed_name=None, *, adapter=None,
                          selected_footprints=None, pivot_initial=None,
-                         selection_provider=None, snapshot_provider=None):
+                         selection_provider=None, snapshot_provider=None,
+                         connection=None):
                 seen["fixed_name"] = fixed_name
                 seen["selection_provider"] = selection_provider
                 seen["snapshot_provider"] = snapshot_provider
@@ -3166,3 +3167,111 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
         if hub._log_file_handler is not None:
             logging.getLogger().removeHandler(hub._log_file_handler)
             hub._log_file_handler.close()
+
+
+# ── R.2.1 (plan_2026_09_11_stale_snapshot_positions.md): the recorded refs' ──
+# positions must come from a REBUILT snapshot, not from the one frozen at
+# connect/manual-refresh time. The rebuild runs on the worker thread (never a
+# direct adapter call on the UI thread — Commit H); without a live board behind
+# the connection the cached snapshot is used exactly as before (the five tests
+# above stay green, unchanged).
+
+def test_record_page_pivot_uses_a_snapshot_rebuilt_on_the_worker_thread(
+        qapp, main_window, tmp_path):
+    """R.4 #1/#2/#3 — C2 is moved on the live board (x=24 -> x=34) AFTER the
+    record was written; the click must compute the pivot from the NEW region
+    centre: R1(10,10) - midpoint(10,34) = -12, where the frozen snapshot would
+    keep giving -7. Exactly ONE rebuild, on the WORKER thread, and the adapter
+    is never reached for positions."""
+    import threading
+
+    from tests.gui.conftest import _pump
+
+    adapter = _line_board()                      # C2 at x=24
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+    fps = _fps_by_ref(adapter)
+
+    adapter_calls = []
+    refresh_threads = []
+
+    class _GuardedAdapter(FakeAdapter):
+        def get_footprints(self):
+            adapter_calls.append(threading.current_thread().name)
+            return super().get_footprints()
+
+    connection = dock._connection
+    connection.board = SimpleNamespace(
+        adapter=_GuardedAdapter(adapter.get_footprints(), [], [], {}),
+        refresh=lambda: None)
+    connection.snapshot = _fp_snapshot(adapter)  # frozen at connect time
+
+    def _refresh():
+        # The live board moved on: C2 is at x=34 now.
+        refresh_threads.append(threading.current_thread().name)
+        connection.snapshot = _fp_snapshot(_line_board(c2_x_mm=34.0))
+        return None
+
+    connection.refresh = _refresh
+    adapter_calls.clear()                        # ignore the setup reads
+    dock.set_board_selection([], _selection_from(fps["R1"]))
+
+    dock.pivot_from_selection_button.click()
+    assert connection.long_op_active             # the rebuild owns the socket now
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    # R.4 #1 — the pivot follows the NEW geometry.
+    assert float(dock.pivot_x_edit.text()) == pytest.approx(-12.0)
+    assert float(dock.pivot_y_edit.text()) == pytest.approx(0.0)
+    # R.4 #2 — exactly ONE rebuild, before the positions were read.
+    assert len(refresh_threads) == 1
+    # R.4 #3 — off the UI thread, and never through the adapter.
+    assert refresh_threads[0] != threading.main_thread().name
+    assert adapter_calls == []
+
+
+def test_record_dialog_pivot_rebuilds_the_snapshot_before_reading_positions(
+        qapp, main_window):
+    """Same gate for the MODAL dialog (R.2.1): it is constructed with a live
+    `connection`, and "Take from selection" rebuilds the snapshot on the worker
+    thread first, so the refs' positions never come from the copy the dialog
+    was opened with (R1/C1/C2 at 10/20/24 -> pivot -7) but from the live board
+    (C2 at 34 -> pivot -12)."""
+    import threading
+
+    from tests.gui.conftest import _pump
+
+    adapter = _line_board()                      # C2 at x=24
+    fps = _fps_by_ref(adapter)
+    connection = SimpleNamespace(
+        board=SimpleNamespace(refresh=lambda: None),
+        snapshot=_fp_snapshot(adapter),          # the open-time, stale copy
+        long_op_active=False)
+    refresh_threads = []
+
+    def _refresh():
+        refresh_threads.append(threading.current_thread().name)
+        connection.snapshot = _fp_snapshot(_line_board(c2_x_mm=34.0))
+        return None
+
+    connection.refresh = _refresh
+    dialog = RecordSchemeListDialog(
+        _snap_live(adapter), ["R1", "C1", "C2"], main_window,
+        adapter=adapter,
+        selected_footprints=_selection_from(fps["R1"]),
+        selection_provider=lambda: _selection_from(fps["R1"]),
+        snapshot_provider=lambda: connection.snapshot,
+        connection=connection)
+    try:
+        dialog.tabs.setCurrentIndex(1)  # By selection — refs = R1/C1/C2
+        dialog.pivot_from_selection_button.click()
+        _pump(qapp, lambda: not connection.long_op_active)
+
+        x, y = dialog.pivot_value()
+        assert x == pytest.approx(-12.0)
+        assert y == pytest.approx(0.0)
+        assert len(refresh_threads) == 1
+        assert refresh_threads[0] != threading.main_thread().name
+    finally:
+        dialog.close()

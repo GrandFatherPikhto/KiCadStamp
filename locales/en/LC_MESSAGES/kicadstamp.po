@@ -16071,3 +16071,6 @@ msgstr ""
 
 msgid "Entity {name!r}: cannot read the live mount ({reason}) — using the zero-slot component's position instead, which may differ from the cell's mount A"
 msgstr ""
+
+msgid "Could not refresh the board snapshot: {error}"
+msgstr ""

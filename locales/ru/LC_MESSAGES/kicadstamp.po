@@ -14721,3 +14721,6 @@ msgstr "Entity {name!r}: не удалось прочитать живой мо�
 
 msgid "Entity {name!r}: cannot read the live mount ({reason}) — using the zero-slot component's position instead, which may differ from the cell's mount A"
 msgstr "Entity {name!r}: не удалось прочитать живой монтаж ({reason}) — берётся позиция zero-slot компонента, которая может отличаться от монтажа A ячейки"
+
+msgid "Could not refresh the board snapshot: {error}"
+msgstr "Не удалось перестроить снимок платы: {error}"

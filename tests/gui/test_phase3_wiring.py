@@ -2083,3 +2083,109 @@ def test_new_cell_save_visible_in_rules_spoke_cell_combo(main_window, tmp_path):
         assert "brand_new_cell" in combo_texts(hub.rules_dock.spoke_cell_combo)
     finally:
         _teardown_hub(hub)
+
+
+# ── R.2.2 (plan_2026_09_11_stale_snapshot_positions.md): the Extract flows ──
+# read BoardConnection.snapshot to decide which Clusters are selected WHOLE.
+# That snapshot freezes at connect/manual-refresh time (the automatic poll tick
+# is a no-op once connected), so it is now rebuilt FIRST — on the worker thread,
+# never a direct adapter call on the UI thread (Commit H) — through the ONE
+# shared point DockHub._refresh_snapshot_then.
+
+def _refreshing_connection(snapshot_at_connect, snapshot_now):
+    """A fake BoardConnection with a LIVE board: refresh() swaps the snapshot
+    frozen at connect time for the board as it is NOW, recording the thread the
+    rebuild ran on."""
+    import threading
+
+    threads = []
+    connection = SimpleNamespace(
+        board=SimpleNamespace(adapter=object(), refresh=lambda: None),
+        snapshot=list(snapshot_at_connect),
+        long_op_active=False)
+
+    def _refresh():
+        threads.append(threading.current_thread().name)
+        connection.snapshot = list(snapshot_now)
+        return None
+
+    connection.refresh = _refresh
+    return connection, threads
+
+
+def test_extract_tree_refreshes_the_snapshot_before_detecting_clusters(
+        qapp, real_main_window, tmp_path, monkeypatch):
+    """R.4 #2/#3/#4 — R2 joins the PIF_AVDD/Channel_1 cluster in KiCad AFTER the
+    connection, so R1 alone is no longer the whole cluster. On the stale
+    snapshot R1 looked fully selected and the dialog opened (the extract would
+    have captured a Cell missing R2); after the worker-thread rebuild the
+    partial selection is correctly refused."""
+    import threading
+
+    from tests.gui.conftest import _pump
+
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel1 = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    sel2 = _selected_tree("R2", "PIF_AVDD", "Channel_1", {})
+    connection, threads = _refreshing_connection([sel1], [sel1, sel2])
+    real_main_window.connection = connection
+    hub._selection_footprints = [sel1]
+    hub._selection_raw_items = []
+
+    warnings = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a[2]))
+    constructed = []
+    monkeypatch.setattr(tfsd_mod, "TreeFromSelectionDialog",
+                        lambda *a, **k: constructed.append(True) or object())
+
+    hub.extract_tree_from_selection()
+    assert connection.long_op_active          # the rebuild owns the socket now
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    # R.4 #2/#3 — exactly ONE rebuild, on the worker thread (never the UI one).
+    assert len(threads) == 1
+    assert threads[0] != threading.main_thread().name
+    # R.4 #4 — the component added after connect is honoured.
+    assert any("No fully selected Cluster" in w for w in warnings)
+    assert constructed == []
+
+
+def test_extract_cluster_refreshes_the_snapshot_first(
+        qapp, real_main_window, tmp_path, monkeypatch):
+    """The sibling flow goes through the SAME shared rebuild point (R.2.2 asks
+    for one place, not two copies) — same partial-selection-after-connect gate,
+    with the dialog never constructed."""
+    import threading
+
+    from tests.gui.conftest import _pump
+
+    root = tmp_path / "root.sexp"
+    _write(root)
+    real_main_window.root_metadata_dock.set_root_file(root)
+    hub = real_main_window._dock_hub
+    sel1 = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
+    sel2 = _selected_tree("R2", "PIF_AVDD", "Channel_1", {})
+    connection, threads = _refreshing_connection([sel1], [sel1, sel2])
+    real_main_window.connection = connection
+    hub._selection_footprints = [sel1]
+    hub._selection_raw_items = []
+
+    warnings = []
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a[2]))
+    constructed = []
+    monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
+                        lambda *a, **k: constructed.append(True) or object())
+
+    hub.extract_cluster_from_selection()
+    assert connection.long_op_active
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert len(threads) == 1
+    assert threads[0] != threading.main_thread().name
+    assert any("No fully selected Cluster" in w for w in warnings)
+    assert constructed == []

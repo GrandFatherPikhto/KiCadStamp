@@ -629,7 +629,12 @@ cell) are told apart: the selection's sheet picks the instance.
 
 The main menu's **Tools → Trees → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
-selection's own tree. Select a group of clusters on the board, then run it. A modal dialog has three
+selection's own tree. Select a group of clusters on the board, then run it. The fully-selected-cluster
+detection and the geometry payloads are built from a board snapshot REBUILT on the worker thread first
+(R.2.2, plan_2026_09_11_stale_snapshot_positions.md — one shared point, also used by "Extract
+cluster..."): a component added to a cluster in KiCad after connecting is honoured, so a selection that
+merely LOOKED complete no longer extracts a Cell missing it, and the recorded positions are current.
+A modal dialog has three
 tabs: **Clusters** (the FULLY-selected clusters, checkboxes on by default, with a live ΔX/ΔY offset
 preview once an anchor is chosen), **Anchor** (a root-cluster combo that prefills Sheet/Cluster/Role
 from the cluster's own Entity — the "existing cluster anchor" — or explicit Sheet/Cluster/Role/Pad
@@ -1201,7 +1206,11 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
   the pivot in the centre-frame of the refs the ACTIVE source tab would record (selected component
   centre minus the recorded region's centre; needs a live KiCad connection). The recorded region's
   centre is read from the polled full-board snapshot, never from a blocking board IPC on the shared
-  KiCad socket (Commit H) — the click stays instant and cannot race the poll. The dialog OK
+  KiCad socket (Commit H). That snapshot, in turn, is REBUILT FIRST — on the worker thread, inside the
+  same exclusive-socket long op every other live read uses — so the click cannot compute from
+  coordinates frozen at connect/manual-refresh time (R.2.1,
+  plan_2026_09_11_stale_snapshot_positions.md); a connection without a live board behind it keeps the
+  cached snapshot, exactly as before. The dialog OK
   (Record/Re-source) STORES these fields as the new record's pivot — there is no separate Apply in the
   dialog, and OK stays disabled while the x/y fields do not hold numbers. This third tab is NOT a
   source: visiting it never changes the chosen source ("By sheet"/"By selection"), and pressing OK
@@ -1279,7 +1288,10 @@ Since Commit F the page is a **two-tab** page:
   recomputed from the recorded components that are actually on the board; a warning is shown when some
   are missing; needs a live KiCad connection) and an **Apply** that SAVES the pivot into the record's
   owning file — a pure config write, no live board. "Take from selection" only PREFILLS the fields as a
-  preview — nothing is written until **Apply** is pressed.
+  preview — nothing is written until **Apply** is pressed. The recorded region's centre comes from the
+  polled full-board snapshot, which is REBUILT on the worker thread before the click reads any position
+  (R.2.1, plan_2026_09_11_stale_snapshot_positions.md): a component moved in KiCad is honoured at once,
+  still without any direct board IPC on the GUI thread (Commit H).
 
 The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
 (Re-source...) or re-syncing (Reread), never by hand.

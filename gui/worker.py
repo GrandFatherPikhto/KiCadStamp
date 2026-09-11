@@ -180,6 +180,86 @@ def start_long_op(connection, widgets, fn, on_success, on_error, *args):
     return controller
 
 
+def snapshot_refresh_supported(connection: Any) -> bool:
+    """True when `connection` can rebuild its own full-board snapshot — i.e. a
+    live board sits behind it (``Board.refresh()``, which
+    :meth:`gui.connection.BoardConnection.refresh` calls before
+    ``_rebuild_snapshot()``).
+
+    A stand-in connection/board WITHOUT that surface (a foreign/read-only
+    connection, a test double) has no fresher data to offer, so callers keep
+    the cached snapshot and continue — the same provider-or-fallback shape the
+    docks' live providers already use (see
+    ``SchemeListFormWidget._live_snapshot``'s "tests/fallback" and
+    ``RecordSchemeListDialog._live_selection``)."""
+    return callable(getattr(getattr(connection, "board", None), "refresh", None))
+
+
+def _refresh_snapshot_worker(connection: Any) -> Dict[str, Any]:
+    """Worker thread: rebuild ``BoardConnection.snapshot`` from the live board.
+
+    Runs inside :func:`start_long_op`, so the shared kipy REQ socket has
+    exactly one in-flight owner (``connection.long_op_active``) for the whole
+    rebuild: the polling timers skip their ticks and no second request can
+    interleave into this transaction — the 2026-08-08 hang
+    (``plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md`` §0). Never
+    touches a widget.
+
+    ``refresh()`` itself drops the connection and returns an error message when
+    the live board is gone (KiCad closed/crashed since connect) — that error is
+    handed back as-is instead of a stale snapshot."""
+    error = connection.refresh()
+    if error:
+        return {"error": error, "snapshot": []}
+    return {"error": None,
+            "snapshot": list(getattr(connection, "snapshot", None) or [])}
+
+
+def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
+                          on_ready: Callable[[], Any],
+                          on_error: Callable[[str], Any]) -> Any:
+    """Rebuild the board snapshot on a worker thread, then continue on the UI
+    thread — "freshness at the point of use".
+
+    ``MainWindow._poll``'s automatic tick is a deliberate no-op once the board
+    is connected (one IPC request at a time on the shared socket), so
+    ``BoardConnection.snapshot`` freezes at connect/manual-refresh time and
+    every GEOMETRY read from it follows stale coordinates. This helper
+    is the shared rebuild point for those reads (K.2 #5/#6,
+    ``plan_2026_09_11_stale_snapshot_positions.md`` R.1/R.2): callers pass the
+    continuation ``on_ready()`` and it runs on the UI thread AFTER the rebuild,
+    so every ``connection.snapshot`` read inside it sees the board as it is
+    now.
+
+    ``on_error(message)`` runs on the UI thread when the rebuild failed (the
+    connection has been dropped by then — see
+    :meth:`gui.connection.BoardConnection.refresh`).
+
+    Deliberate synchronous fallbacks (``None`` is returned for both):
+      * no refreshable board behind the connection (see
+        :func:`snapshot_refresh_supported`) — ``on_ready()`` runs at once on
+        the cached snapshot, the only data there is;
+      * another long op already holds the shared socket — the request is
+        REFUSED and logged, never queued (a second concurrent owner on the same
+        REQ socket is exactly the corruption this module exists to prevent).
+        Callers normally make that click impossible by passing a guard widget.
+
+    Note that no adapter call ever happens on the calling (UI) thread: the
+    rebuild runs on the worker thread, which is what keeps this compatible with
+    the Commit H fix (no direct ``adapter.get_footprints()`` on the GUI thread).
+
+    Returns the controller, or ``None`` when it fell back synchronously."""
+    if not snapshot_refresh_supported(connection):
+        on_ready()
+        return None
+    if getattr(connection, "long_op_active", False):
+        logger.warning("Snapshot refresh refused: another long operation already "
+                       "holds the shared kipy socket")
+        return None
+    return start_long_op(connection, widgets, _refresh_snapshot_worker,
+                         lambda _result: on_ready(), on_error, connection)
+
+
 class PollTask:
     """One unit of work for PollWorkerHandle.submit() — plain data, no Qt
     machinery, so building one never touches a signal/connection."""

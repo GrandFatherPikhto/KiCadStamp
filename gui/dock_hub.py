@@ -501,7 +501,13 @@ class DockHub:
             # timer under the dialog's modal event loop), never from a direct
             # adapter.get_footprints() IPC on the shared kipy REQ socket
             # (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0).
-            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [])
+            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [],
+            # R.2.1 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md):
+            # the provider above returns the connection's snapshot, which is
+            # only ever rebuilt by connect()/manual refresh — a no-op tick once
+            # connected. The dialog therefore REBUILDS it on the worker thread
+            # before "Take from selection" reads any position.
+            connection=connection)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         _name, _sheet_path, checked_paths = dialog.result_data()
@@ -1301,7 +1307,12 @@ class DockHub:
             # timer under the dialog's modal event loop), never from a direct
             # adapter.get_footprints() IPC on the shared kipy REQ socket
             # (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md §0).
-            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [])
+            snapshot_provider=lambda: getattr(connection, "snapshot", None) or [],
+            # R.2.1 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md):
+            # same as the Re-source dialog — the recorded refs' positions must
+            # not come from a snapshot frozen at connect time, so the dialog
+            # rebuilds it on the worker thread first.
+            connection=connection)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name, _sheet_path, checked_paths = dialog.result_data()
@@ -1681,7 +1692,54 @@ class DockHub:
         self._focus_trees_dock()
         self.trees_dock._on_redraw_whole_tree()
 
+    def _refresh_snapshot_then(self, title: str, on_ready) -> None:
+        """R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md) — the
+        ONE shared rebuild point of the two Extract flows.
+
+        Both flows read ``connection.snapshot`` three times: the fully-selected
+        Cluster detection and BOTH geometry payload builders (the inter-cluster
+        net detection and the entity/anchor position reads). That snapshot is
+        rebuilt only by connect()/manual refresh — MainWindow._poll's automatic
+        tick is a deliberate no-op once connected — so it is frozen at connect
+        time: a component ADDED to a cluster in KiCad afterwards is missing from
+        the snapshot, which makes a PARTIAL selection look fully selected (and
+        every position read out of it is stale). The rebuild runs on the worker
+        thread — never a direct adapter/IPC call on the UI thread, which is
+        exactly the 2026-08-08 hang fixed by Commit H
+        (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md) — and
+        ``on_ready`` then continues the flow on the UI thread with the snapshot
+        already fresh.
+
+        A connection with no live board behind it cannot be refreshed; the flow
+        then proceeds on the cached snapshot (the documented fallback, see
+        gui/worker.py::refresh_snapshot_then)."""
+        from .worker import refresh_snapshot_then
+        refresh_snapshot_then(
+            self.main_window.connection, (), on_ready,
+            lambda message: self._show_snapshot_refresh_error(title, message))
+
+    def _show_snapshot_refresh_error(self, title: str, message: str) -> None:
+        """UI thread: the worker could not rebuild the board snapshot (the live
+        board is gone — BoardConnection.refresh() drops the connection). Report
+        it instead of silently building the payload from stale coordinates."""
+        QMessageBox.warning(
+            self.main_window, title,
+            _("Could not refresh the board snapshot: {error}").format(error=message))
+
     def extract_tree_from_selection(self) -> None:
+        """Main menu "Tools -> Trees -> Extract tree...".
+
+        R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md): the
+        flow itself (below) reads the connection's board SNAPSHOT to decide
+        which Clusters are selected WHOLE and to build its geometry payloads,
+        and that snapshot freezes at connect/manual-refresh time. It is
+        therefore rebuilt first, on the worker thread — never a direct adapter
+        call on the UI thread — via the ONE shared point
+        :meth:`_refresh_snapshot_then`; everything else is unchanged."""
+        self._refresh_snapshot_then(_("Extract tree"),
+                                    self._extract_tree_from_selection_now)
+
+    def _extract_tree_from_selection_now(self) -> None:
         """Main menu "Tools -> Trees -> Extract tree..." (2026-09-01, plan
         extract_selection_as_tree.md): build a NEW tree from the current board
         selection and save it into the root config's trees: section.
@@ -1954,6 +2012,17 @@ class DockHub:
             .format(name=tree.name, path=root_path))
 
     def extract_cluster_from_selection(self) -> None:
+        """Main menu "Tools -> Trees -> Extract cluster...".
+
+        R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md): same
+        reason as "Extract tree..." above — the fully-selected-Cluster
+        detection must not run against a snapshot frozen at connect time, so
+        the shared :meth:`_refresh_snapshot_then` rebuilds it on the worker
+        thread first."""
+        self._refresh_snapshot_then(_("Extract cluster"),
+                                    self._extract_cluster_from_selection_now)
+
+    def _extract_cluster_from_selection_now(self) -> None:
         """Main menu "Tools -> Trees -> Extract cluster..." (2026-09-03, plan
         extract_cluster_entity): extract ONE fully-selected Cluster from the
         current selection as a standalone flat Entity — WITHOUT building any
