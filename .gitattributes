@@ -1,0 +1,9 @@
+# Frozen text fixtures must be checked out with LF on every platform: the tree
+# acceptance tests compare converter output (always LF — write_text_atomic uses
+# newline="") against them, and core.autocrlf=true on Windows would otherwise
+# lay them out as CRLF, making that comparison platform-dependent.
+#
+# Scoped to tests/fixtures/** ONLY. Deliberately NOT "* text=auto" or any
+# repository-wide rule: that would renormalize the whole tree and produce a huge
+# diff for no reason (see plan_2026_09_11_fixture_newlines_windows).
+tests/fixtures/** text eol=lf

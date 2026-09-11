@@ -14,8 +14,11 @@ Three groups:
 * the template's pivot_ref following the node renames (В.4).
 
 The frozen pair under tests/fixtures/tree_instances_mount/ is READ here (both
-files are in git); the CONVERTED file is what the converter must reproduce
-byte-for-byte.
+files are in git); the CONVERTED file is what the converter must reproduce —
+compared as NORMALIZED TEXT (CRLF/CR -> LF), never as raw bytes: git may lay a
+text fixture out with CRLF (core.autocrlf on Windows) while the converter always
+writes LF, and a line break is not part of the s-expr grammar (plan
+plan_2026_09_11_fixture_newlines_windows).
 
 The fixture's mount anchors deliberately name roles (HOST / FOREIGN) that are
 NOT in any cell the tree places, or the load-time drift guard (trees.py::
@@ -66,6 +69,17 @@ def _pivot_keys_on_nodes(trees: list) -> list:
     for tree in trees:
         walk(tree.get("nodes") or [], tree["name"])
     return bad
+
+
+def _read_text_lf(path: Path) -> str:
+    """The file's TEXT with CRLF/CR normalized to LF.
+
+    git may lay a text fixture out with CRLF (core.autocrlf=true on Windows,
+    no .gitattributes), while the converter always writes LF
+    (`write_text_atomic` uses `newline=""` on purpose). Comparing raw BYTES is
+    therefore platform-dependent and meaningless — a line break is not part of
+    the s-expr grammar (plan_2026_09_11_fixture_newlines_windows)."""
+    return path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _auto_template_with_mount(mount_anchor: dict, *, pivot_ref=None) -> dict:
@@ -172,8 +186,9 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     out = tmp_path / "converted.sexp"
     convert_config_file(root=str(FIXTURES / "config.sexp"), output=str(out))
 
-    # byte-for-byte the committed reference
-    assert out.read_bytes() == (FIXTURES / "config.converted.sexp").read_bytes()
+    # the committed reference, compared as NORMALIZED TEXT — never raw bytes:
+    # git may lay the fixture out with CRLF on Windows, the converter writes LF
+    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
     # readable by the NORMAL reader, no pivot-* left ON A NODE
     data = sexp_to_dict(out.read_text(encoding="utf-8"))
@@ -188,10 +203,25 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     assert _tree(expanded, "tpl_a")["pivot_xy"] == [0.0, 0.0]
     tree_from_dict(_tree(expanded, "tpl_a"))       # the generated tree loads
 
-    # idempotent
+    # idempotent (normalized text again — same reason)
     again = tmp_path / "again.sexp"
     convert_config_file(root=str(out), output=str(again))
-    assert again.read_bytes() == out.read_bytes()
+    assert _read_text_lf(again) == _read_text_lf(out)
+
+
+def test_conversion_is_independent_of_the_input_line_endings(tmp_path):
+    """Н.3.3 (plan_2026_09_11_fixture_newlines_windows): a CRLF input — how git
+    may lay the fixture out on Windows — must convert to the SAME normalized
+    reference, so a platform's checkout can no longer change the result
+    silently."""
+    lf_text = _read_text_lf(FIXTURES / "config.sexp")     # normalize the source
+    crlf_in = tmp_path / "crlf.sexp"
+    crlf_in.write_bytes(lf_text.replace("\n", "\r\n").encode("utf-8"))
+    assert b"\r\n" in crlf_in.read_bytes()                # the input IS CRLF
+
+    out = tmp_path / "converted.sexp"
+    convert_config_file(root=str(crlf_in), output=str(out))
+    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
 
 # ── В.6.3: a mount node inside a template ──────────────────────────────────
