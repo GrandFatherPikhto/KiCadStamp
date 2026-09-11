@@ -12,10 +12,11 @@ the single config_writer chokepoint, checkbox subtree selection + background
 curated Redraw through run_curated_tree_redraw_worker.
 """
 import logging
+import math
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog,
                              QFormLayout, QHBoxLayout, QInputDialog, QLabel,
@@ -47,6 +48,7 @@ from kicadstamp.tree_position import (
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
+    rotate_offset_mm,
     resolve_base_live_position,
     resolve_base_rotation_deg,
     relative_rotation_deg,
@@ -2614,13 +2616,23 @@ class NodeFormWidget(QWidget):
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
 
-        # Board-frame form state (plan_2026_09_11 §3): the base rotation the
-        # displayed offset/rotation are expressed against, resolved LIVE once
-        # per form load. None = no live base -> the form shows the RAW stored
-        # values and (Edit mode) disables the fields, so a rename+save offline
-        # can never corrupt them.
+        # Board-frame form state (plan_2026_09_11 §3): the base pose the
+        # displayed offset/rotation are expressed against, resolved LIVE
+        # LAZILY and INVALIDATED on every real anchor change (plan_2026_09_11_
+        # node_form_base_frame_follows_anchor). None = no live base -> the form
+        # shows the RAW stored values and (Edit mode) disables the fields, so a
+        # rename+save offline can never corrupt them.
         self._base_resolved: bool = False
-        self._base_rot: Optional[float] = None
+        # (Vector2 position_nm, float rotation_deg) of the current base, or None.
+        self._base_pose_value = None
+        # The pose the form was showing BEFORE the current anchor change,
+        # captured once per change burst so the refresh can hold the node still
+        # (U.1) without re-reading the old anchor.
+        self._base_pose_before_change = None
+        # The anchor the cached base was resolved for — a no-op guard so the
+        # debounced refresh (and the mode-change + synthetic-field double fire)
+        # never re-resolves the same anchor.
+        self._last_anchor_sig = None
 
         # Two-tab node editor (plan tree_node_own_anchor §3): the old single
         # form becomes the "General" tab (everything below is moved verbatim —
@@ -2797,6 +2809,20 @@ class NodeFormWidget(QWidget):
                         self.own_anchor_widget):
             _origin.fieldChanged.connect(self._mark_touched)
 
+        # Anchor change -> the frame the offset/rotation are expressed against
+        # changes too (plan_2026_09_11_node_form_base_frame_follows_anchor).
+        # modeChanged is a discrete action -> refresh right away; fieldChanged
+        # fires per keystroke, so it only INVALIDATES the cache immediately
+        # (cheap, no adapter call) and coalesces the actual re-resolve + display
+        # refresh behind a short single-shot timer — one resolution per
+        # committed anchor change, never one per character.
+        self.own_anchor_widget.modeChanged.connect(self._on_anchor_mode_changed)
+        self.own_anchor_widget.fieldChanged.connect(self._on_anchor_field_changed)
+        self._anchor_refresh_timer = QTimer(self)
+        self._anchor_refresh_timer.setSingleShot(True)
+        self._anchor_refresh_timer.setInterval(250)
+        self._anchor_refresh_timer.timeout.connect(self._refresh_for_new_anchor)
+
     def _mark_touched(self) -> None:
         """design §9.4: any user field edit flags the form as having unapplied
         changes — the discard-warning source for a constantly-open panel (the
@@ -2866,31 +2892,195 @@ class NodeFormWidget(QWidget):
 
     # ── Board frame <-> config frame (plan_2026_09_11 §3) ─────────────────
 
-    def _base_rotation_deg(self) -> Optional[float]:
-        """The node's BASE rotation, live-resolved ONCE per form load — the
-        frame the displayed offset/rotation are expressed against.
+    def _base_pose(self) -> Optional[tuple]:
+        """(position_nm, rotation_deg) of the frame the displayed offset/
+        rotation are expressed against, live-resolved LAZILY and cached until
+        the user changes the anchor.
 
-        None means "no live base": no connection, or the base itself cannot be
-        resolved (a role anchor the board does not carry, an Entity no tree
-        places, a point anchor with no live chain). The form then shows the RAW
-        stored values and, in Edit mode, disables the fields (plan §3.4) —
-        never a silent conversion against an assumed 0°."""
+        None means "no live base": no connection, the tree/config is missing,
+        the anchor is incomplete ("Relative to component" with no Role yet —
+        never a silent fall back to the parent, see build_node's own guard), or
+        the base itself cannot be resolved (a role anchor the board does not
+        carry, an Entity no tree places, a point anchor with no live chain).
+        The form then shows the RAW stored values and, in Edit mode, disables
+        the fields (plan §3.4) — never a silent conversion against an assumed
+        0°."""
         if self._base_resolved:
-            return self._base_rot
+            return self._base_pose_value
         self._base_resolved = True
-        self._base_rot = None
+        self._base_pose_value = None
         if self._adapter is None or self._cfg is None or self._tree is None:
             return None
         try:
-            base_anchor = (self.own_anchor()
-                           if self.own_anchor_widget.mode == "anchor" else None)
+            if self.own_anchor_widget.mode == "anchor":
+                base_anchor = self.own_anchor()
+                if base_anchor is None:
+                    return None
+            else:
+                base_anchor = None
             _pos, rot, _mirror = _resolve_node_base_pose(
                 self._cfg, self._adapter, self._sheet_names, self._tree,
                 self._parent_node, base_anchor)
-            self._base_rot = rot if rot is not None else 0.0
+            self._base_pose_value = (_pos, rot if rot is not None else 0.0)
         except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
-            self._base_rot = None
-        return self._base_rot
+            self._base_pose_value = None
+        return self._base_pose_value
+
+    def _base_rotation_deg(self) -> Optional[float]:
+        """The node's BASE rotation — the board-frame conversion half. A thin
+        view over the cached _base_pose(): None when there is no live base."""
+        pose = self._base_pose()
+        return None if pose is None else pose[1]
+
+    # ── Anchor change: the displayed frame follows the anchor ─────────────
+
+    def _anchor_signature(self) -> tuple:
+        """The anchor the base frame depends on — mode + every anchor field.
+        Compared against the last resolved one so a keystroke that does not
+        (yet) change the anchor, and the debounced timer's second fire after a
+        mode change, never trigger a redundant adapter call.
+
+        `is not None`, NOT truthiness: an empty QComboBox/QLineEdit is FALSY in
+        this PyQt build, so a truthiness guard reads every field as blank (the
+        same reason AnchorOriginWidget::build/own_anchor use explicit None
+        checks)."""
+        w = self.own_anchor_widget
+        return (
+            w.mode,
+            (w.anchor_role_edit.currentText().strip()
+             if w.anchor_role_edit is not None else ""),
+            (w.anchor_sheet_edit.currentText().strip()
+             if w.anchor_sheet_edit is not None else ""),
+            (w.anchor_cluster_edit.currentText().strip()
+             if w.anchor_cluster_edit is not None else ""),
+            (w.anchor_pad_edit.text().strip()
+             if w.anchor_pad_edit is not None else ""),
+        )
+
+    def _invalidate_base(self) -> None:
+        """Cheap, adapter-free: drop the cached base pose so the NEXT resolve
+        uses the anchor now in the form. Called on EVERY anchor signal,
+        including per keystroke — it only marks the cache stale, no resolve.
+
+        The frame the form is CURRENTLY showing is stashed once per change
+        burst (after the first call the cache is already unresolved), so the
+        refresh can hold the node still across the change (U.1)."""
+        if self._base_resolved:
+            # Keep only a REAL pose — a failed resolve (None) must not clobber a
+            # good pre-change frame still waiting to be consumed.
+            if self._base_pose_value is not None:
+                self._base_pose_before_change = self._base_pose_value
+            self._base_resolved = False
+            self._base_pose_value = None
+
+    def _on_anchor_mode_changed(self) -> None:
+        """parent <-> component is a discrete action: invalidate + refresh now."""
+        self._invalidate_base()
+        self._refresh_for_new_anchor()
+
+    def _on_anchor_field_changed(self) -> None:
+        """A field edit can be per keystroke: invalidate (cheap) now, coalesce
+        the resolve + refresh behind the single-shot timer."""
+        self._invalidate_base()
+        self._anchor_refresh_timer.start()
+
+    def _offset_widget_is_polar(self) -> bool:
+        w = self.offset_widget
+        return bool(w._polar and w._polar_combo is not None
+                    and w._polar_combo.currentIndex() == 1)
+
+    def _current_board_offset_mm(self) -> Optional[tuple]:
+        """The offset the form is showing as a board-frame (x, y) mm vector,
+        whichever coordinate style (Cartesian or Polar) is active — None when
+        the fields are not a complete pair. Polar is converted with the exact
+        rotate_offset_mm, the same primitive the load/save pair uses."""
+        fields, err = self.offset_widget.build()
+        if err or not fields:
+            return None
+        if "radius" in fields:
+            return rotate_offset_mm(fields["radius"], 0.0, fields["angle"])
+        return (fields["x"], fields["y"])
+
+    def _load_board_offset_mm(self, bx: float, by: float, *, polar: bool) -> None:
+        """Show a board-frame (x, y) mm vector in the offset widget, keeping
+        the coordinate style it already had (Cartesian -> x/y, Polar -> radius/
+        angle)."""
+        if polar:
+            radius = math.hypot(bx, by)
+            angle = math.degrees(math.atan2(-by, bx))
+            self.offset_widget.load(polar=True, radius=round(radius, 9),
+                                    angle=round(angle, 9))
+        else:
+            self.offset_widget.load(x=round(bx, 9), y=round(by, 9))
+
+    def _restore_raw_stored_values(self) -> None:
+        """Show a node's RAW stored (base-frame) values — used when the base is
+        unavailable, so a save can never re-interpret board-frame numbers as a
+        different frame (§3.4). No-op in Add mode (nothing stored yet)."""
+        existing = self._existing
+        if existing is None:
+            return
+        if existing.xy is not None:
+            self.offset_widget.load(x=existing.xy[0], y=existing.xy[1])
+        elif existing.polar is not None:
+            self.offset_widget.load(polar=True, radius=existing.polar[0],
+                                    angle=existing.polar[1])
+        else:
+            self.offset_widget.load()
+        self.rotation_edit.setText(str(existing.rotation))
+
+    def _refresh_for_new_anchor(self) -> None:
+        """Re-resolve the base for the anchor now in the form and re-express the
+        DISPLAYED offset through it so the NODE STAYS WHERE IT IS (U.1).
+
+        The absolute board position is preserved: abs = old_base + old_board_
+        offset, then the newly displayed offset = abs - new_base. The shown
+        ROTATION is an absolute board angle and therefore does NOT change; only
+        the RELATIVE angle the config stores does (implicitly, because
+        build_node converts with the NEW base).
+
+        If the new base cannot be resolved live, the fields are disabled with a
+        reason and (Edit mode) the RAW stored values are restored — never
+        numbers whose meaning silently changed."""
+        if (self.own_anchor_widget.mode == "anchor"
+                and self.own_anchor() is None):
+            # Incomplete anchor (no Role yet) — a transient state while the user
+            # is still filling the picker. Never resolve a missing anchor as the
+            # parent: disable the fields with the same wording build_node uses,
+            # but KEEP the pre-change frame and the displayed values, so once the
+            # Role arrives the node can still be held still (U.1). Saving is
+            # already refused by build_node, so the shown numbers cannot be
+            # written with a silently different meaning.
+            self._last_anchor_sig = self._anchor_signature()
+            self._set_offset_editable(False, reason=_("Anchor: Role is required."))
+            return
+        sig = self._anchor_signature()
+        if sig == self._last_anchor_sig:
+            return
+        old_pose = self._base_pose_before_change
+        self._base_pose_before_change = None
+        # Board-frame offset + coordinate style the form is showing right now,
+        # captured before any reload (a real reload fires widget signals).
+        old_board_offset = self._current_board_offset_mm()
+        old_polar = self._offset_widget_is_polar()
+        new_pose = self._base_pose()   # cache was invalidated by the signal
+        self._last_anchor_sig = sig
+        if new_pose is None:
+            self._restore_raw_stored_values()
+            self._set_offset_editable(False, reason=_(
+                "The selected anchor does not resolve on the live board — "
+                "showing the STORED values in the anchor's own frame; editing "
+                "the offset and rotation is disabled until it resolves."))
+            return
+        if old_pose is not None and old_board_offset is not None:
+            old_pos, _old_rot = old_pose
+            new_pos, _new_rot = new_pose
+            bx = old_board_offset[0] + (old_pos.x - new_pos.x) / MM
+            by = old_board_offset[1] + (old_pos.y - new_pos.y) / MM
+            self._load_board_offset_mm(bx, by, polar=old_polar)
+        # The absolute rotation shown in the field is unchanged — it is a board
+        # angle, independent of the base (U.1).
+        self._set_offset_editable(True)
 
     def _set_offset_editable(self, editable: bool, *, reason: str = "") -> None:
         """Enable/disable the offset + rotation fields as a group. Disabled
@@ -2974,6 +3164,10 @@ class NodeFormWidget(QWidget):
             if online else existing.rotation))
         self.name_edit.setText(existing.name or "")
         self.group_edit.setText(existing.group or "")
+        # The anchor the base was just resolved for; the first user change is
+        # therefore a real change, and the debounced double fires are no-ops.
+        self._last_anchor_sig = self._anchor_signature()
+        self._base_pose_before_change = None
 
     def _update_read_button_state(self) -> None:
         """Button enabled only once BOTH a ref and an explicit kind are set —

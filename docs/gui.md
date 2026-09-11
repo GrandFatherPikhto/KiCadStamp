@@ -363,6 +363,17 @@ the LIVE CLUSTER of its Entity's cell (the same reader the board overlay uses), 
 node that places it — a cluster moved by hand in KiCad is read where it actually stands; a MIRRORED
 instance is refused with an explicit warning (the trees layer has no mirror storage) and writes nothing.
 
+Since 2026-09-11 (plan node_form_base_frame_follows_anchor) the frame FOLLOWS the selected anchor.
+Changing the Position tab's base — switching **Relative to parent** <-> **Relative to component**, or
+editing the anchor Role/Sheet/Cluster/Pad — re-resolves the base and re-expresses the DISPLAYED offset
+through it so the NODE STAYS WHERE IT IS: the absolute position is preserved and the shown offset
+changes by exactly how much the base moved. The shown **Rotation** is an ABSOLUTE board angle, so it
+does not change at all on such a switch; only the RELATIVE angle the config stores changes (by the
+difference of the two bases' rotations). The resolve stays cheap and lazy — the base is re-read ONCE per
+committed anchor change, not per keystroke (typing only invalidates the cache; a short debounce coalesces
+it). If the new anchor cannot be resolved live, the fields are disabled with an explanation and the RAW
+stored values are restored, so a Save can never write board-frame numbers as a different frame.
+
 Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
 master-detail **Node** tab, so double-clicking such a node no longer opens a modal — it just makes
 sure the node is selected and brings the Node tab to the front; a module node / a "⇐ embedded in" /

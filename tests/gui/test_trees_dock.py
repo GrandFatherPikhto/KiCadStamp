@@ -4420,3 +4420,314 @@ def test_reread_agrees_with_extract_tree_for_a_rotated_anchor(
     assert offset_mm[0] == pytest.approx(extract_node.xy[0], abs=2e-6)
     assert offset_mm[1] == pytest.approx(extract_node.xy[1], abs=2e-6)
     assert rotation == pytest.approx(extract_node.rotation, abs=1e-9)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 2026-09-11: the node form's base frame FOLLOWS the selected anchor
+# (plan_2026_09_11_node_form_base_frame_follows_anchor.md)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _fake_base_pose(monkeypatch, *, parent, components=None):
+    """Patch _resolve_node_base_pose so the PARENT base and each named
+    COMPONENT (own_anchor) base are distinct — the whole point of this suite.
+    An unknown role raises ValidationError, the real "not on the live board"
+    failure."""
+    import gui.docks.trees_dock as td_mod
+    components = components or {}
+
+    def fake(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+        if base_anchor is None:
+            return (parent[0], parent[1], False)
+        pose = components.get(base_anchor.role)
+        if pose is None:
+            raise ValidationError(
+                "role {!r} is not on the live board".format(base_anchor.role))
+        return (pose[0], pose[1], False)
+
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose", fake)
+
+
+def test_anchor_switch_to_rotated_component_saves_with_the_new_base(
+        main_window, tmp_path, monkeypatch):
+    """Denis's exact flow (regression). Form open with the PARENT base (0°),
+    the user switches to "Relative to component" whose live base is rotated
+    -90°, types (30, 1) IN THE BOARD FRAME and saves. The config must hold
+    board_offset_to_local_mm((30, 1), -90), and node_position against the SAME
+    live base must reproduce base + (30, 1). Before the fix the cached 0° base
+    was reused, so (30, 1) was stored RAW and the node flew 30 mm down."""
+    from kicadstamp.tree_position import (board_offset_to_local_mm,
+                                          board_rotation_to_local_deg,
+                                          node_position)
+    from kicadstamp.utils.units import MM
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_X", kind="clone", xy=(5.0, 2.0), polar=None,
+                        rotation=10.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy(0, 0), 0.0),
+                    components={"OP_AMP": (Vector2.from_xy_mm(100.0, 200.0), -90.0)})
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    assert dlg.offset_widget.x_edit.text() == "5.0"     # parent base, 0 deg
+    assert dlg.rotation_edit.text() == "10.0"
+
+    # Mode toggle first, role second (AnchorOriginWidget.load order) — the
+    # debounced refresh is flushed deterministically here.
+    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP", pad="4")
+    dlg._refresh_for_new_anchor()
+
+    # The node STAYS PUT: abs was parent(0,0)+(5,2); re-expressed from the
+    # component base (100,200) => (-95,-198) in the board frame.
+    assert dlg.offset_widget.x_edit.text() == "-95.0"
+    assert dlg.offset_widget.y_edit.text() == "-198.0"
+    # The shown ROTATION is an absolute board angle -> unchanged on the switch.
+    assert dlg.rotation_edit.text() == "10.0"
+
+    dlg.offset_widget.x_edit.setText("30")
+    dlg.offset_widget.y_edit.setText("1")
+    built = dlg.build_node()
+    assert built is not None
+    assert built.xy == board_offset_to_local_mm((30.0, 1.0), -90.0)
+    assert built.rotation == board_rotation_to_local_deg(10.0, -90.0)
+    got = node_position(built, Vector2.from_xy_mm(100.0, 200.0), -90.0)
+    assert abs(got.x - (100.0 + 30.0) * MM) <= 1
+    assert abs(got.y - (200.0 + 1.0) * MM) <= 1
+
+
+def test_anchor_switch_keeps_the_node_still_and_re_expresses_the_offset(
+        main_window, tmp_path, monkeypatch):
+    """U.1 (no field edit): the absolute position computed before and after the
+    switch is the SAME, while the shown offset changed."""
+    from kicadstamp.tree_position import node_position
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_Y", kind="clone", xy=(5.0, 2.0), polar=None,
+                        rotation=40.0, name=None, group=None)
+    parent = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
+    component = (Vector2.from_xy_mm(100.0, 200.0), 30.0)
+    _fake_base_pose(monkeypatch, parent=parent, components={"OP_AMP": component})
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    before = dlg.build_node()
+    abs_before = node_position(before, parent[0], parent[1])
+
+    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg._refresh_for_new_anchor()
+    after = dlg.build_node()
+
+    assert after is not None
+    abs_after = node_position(after, component[0], component[1])
+    # node_position composes through the project's nm-grid rotate_local_offset,
+    # whose int() truncation can cost up to ONE nanometre per axis (the tree
+    # layer's own storage grid) — the invariant is exact to that grid.
+    assert abs_after.x == pytest.approx(abs_before.x, abs=2)
+    assert abs_after.y == pytest.approx(abs_before.y, abs=2)
+    # ...and the DISPLAYED offset did change (its base moved).
+    assert dlg.offset_widget.x_edit.text() != "5.0"
+    assert dlg.rotation_edit.text() == "40.0"
+
+
+def test_anchor_switch_keeps_the_absolute_rotation_stored_one_follows(
+        main_window, tmp_path, monkeypatch):
+    """U.1: the shown rotation is absolute and does NOT change; the stored
+    RELATIVE rotation changes by the base-rotation difference."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_ROT", kind="clone", xy=(0.0, 0.0), polar=None,
+                        rotation=40.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
+                    components={"OP_AMP": (Vector2.from_xy_mm(10, 20), -90.0)})
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    assert dlg.rotation_edit.text() == "40.0"
+
+    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg._refresh_for_new_anchor()
+
+    assert dlg.rotation_edit.text() == "40.0"           # absolute, unchanged
+    built = dlg.build_node()
+    assert built.rotation == 130.0                      # 40 - (-90)
+
+
+def test_anchor_switch_back_to_parent_is_symmetric(
+        main_window, tmp_path, monkeypatch):
+    """U.4 п.4: component -> parent is the mirror image of parent ->
+    component."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    parent = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
+    component = (Vector2.from_xy_mm(100.0, 200.0), -90.0)
+    existing = TreeNode(ref="R_B", kind="clone", xy=(1.0, -30.0), polar=None,
+                        rotation=130.0, name=None, group=None,
+                        own_anchor=TreeAnchor(role="OP_AMP"))
+    _fake_base_pose(monkeypatch, parent=parent, components={"OP_AMP": component})
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    # component base -90: stored local (1,-30) -> board (30,1)
+    assert dlg.offset_widget.x_edit.text() == "30.0"
+    assert dlg.offset_widget.y_edit.text() == "1.0"
+    assert dlg.rotation_edit.text() == "40.0"           # 130 + (-90)
+
+    dlg.own_anchor_widget.load(mode="parent")
+    dlg._refresh_for_new_anchor()
+
+    # node stays put: abs = (100,200)+(30,1); from the parent base (0,0)
+    assert dlg.offset_widget.x_edit.text() == "130.0"
+    assert dlg.offset_widget.y_edit.text() == "201.0"
+    built = dlg.build_node()
+    assert built.xy == (130.0, 201.0)
+    assert built.rotation == 40.0
+
+
+def test_anchor_role_change_follows_the_new_component_frame(
+        main_window, tmp_path, monkeypatch):
+    """U.4 п.5: changing the Role to a component at a different position/
+    rotation re-resolves the base and re-expresses the offset (the field edit
+    path — no mode toggle)."""
+    from kicadstamp.tree_position import node_position
+    from kicadstamp.utils.units import MM
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_R", kind="clone", xy=(5.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None,
+                        own_anchor=TreeAnchor(role="A"))
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
+                    components={
+                        "A": (Vector2.from_xy_mm(10.0, 20.0), 90.0),
+                        "B": (Vector2.from_xy_mm(30.0, 5.0), 0.0)})
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    # base A rot 90: stored local (5,0) -> board (0,-5); abs = (10,15)
+    assert dlg.offset_widget.x_edit.text() == "0.0"
+    assert dlg.offset_widget.y_edit.text() == "-5.0"
+
+    dlg.own_anchor_widget.anchor_role_edit.setCurrentText("B")
+    dlg._refresh_for_new_anchor()
+
+    # base B: board offset = abs - P_B = (10,15)-(30,5) = (-20,10)
+    assert dlg.offset_widget.x_edit.text() == "-20.0"
+    assert dlg.offset_widget.y_edit.text() == "10.0"
+    built = dlg.build_node()
+    got = node_position(built, Vector2.from_xy_mm(30.0, 5.0), 0.0)
+    assert abs(got.x - 10.0 * MM) <= 1
+    assert abs(got.y - 15.0 * MM) <= 1
+
+
+def test_anchor_switch_to_unresolvable_base_disables_and_saves_raw(
+        main_window, tmp_path, monkeypatch):
+    """U.4 п.6: the new base does not resolve (role not on the board) -> the
+    fields are disabled with a reason and the RAW stored values are restored,
+    so a save can never write numbers converted against the OLD base."""
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: None)
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_NB", kind="clone", xy=(5.0, 2.0), polar=None,
+                        rotation=40.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
+                    components={})               # every role fails
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    dlg.own_anchor_widget.load(mode="anchor", role="MISSING")
+    dlg._refresh_for_new_anchor()
+
+    assert dlg.offset_widget.isEnabled() is False
+    assert dlg.rotation_edit.isEnabled() is False
+    assert dlg.offset_frame_label.text() != ""
+    # RAW stored values restored — NOT the old-base board numbers.
+    assert dlg.offset_widget.x_edit.text() == "5.0"
+    assert dlg.offset_widget.y_edit.text() == "2.0"
+    assert dlg.rotation_edit.text() == "40.0"
+    built = dlg.build_node()
+    assert built is not None
+    assert built.xy == (5.0, 2.0)
+    assert built.rotation == 40.0
+
+
+def test_read_position_after_anchor_switch_uses_the_new_base(
+        main_window, tmp_path, monkeypatch):
+    """U.4 п.7: "Read current position" after the anchor switch fills the fields
+    in the BOARD frame of the NEW base (no separate logic — the shared cache)."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_READ", kind="clone", xy=(0.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
+                    components={"OP_AMP": (Vector2.from_xy_mm(100, 200), -90.0)})
+    monkeypatch.setattr(td_mod, "_resolve_live_offset",
+                        lambda *a, **k: ((1.0, -30.0), 100.0))
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg._refresh_for_new_anchor()
+
+    dlg._on_read_position()
+
+    # local (1,-30) with base -90 -> board (30,1); relative 100 -> absolute 10
+    assert dlg.offset_widget.x_edit.text() == "30.000"
+    assert dlg.offset_widget.y_edit.text() == "1.000"
+    assert dlg.rotation_edit.text() == "10.000"
+
+
+def test_anchor_fields_do_not_re_resolve_per_keystroke(
+        main_window, tmp_path, monkeypatch):
+    """U.2: the base is re-resolved ONCE per committed anchor change, never per
+    character typed. Prefill resolves once; typing pad digits only invalidates
+    the cache; the explicit refresh costs exactly one more call."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_K", kind="clone", xy=(1.0, 1.0), polar=None,
+                        rotation=0.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
+                    components={"OP_AMP": (Vector2.from_xy_mm(0, 0), 0.0)})
+    real = td_mod._resolve_node_base_pose
+    calls = []
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose", counting)
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    assert len(calls) == 1                       # prefill resolves once
+    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    # Kill the pending debounce so a pumping event loop cannot make the count
+    # nondeterministic — the claim under test is the SYNCHRONOUS behaviour.
+    dlg._anchor_refresh_timer.stop()
+    baseline = len(calls)
+    for text in ("4", "41", "41x"):
+        dlg.own_anchor_widget.anchor_pad_edit.setText(text)
+    assert len(calls) == baseline                # keystrokes: no adapter call
+    dlg._refresh_for_new_anchor()
+    assert len(calls) == baseline + 1            # one per committed change
+
+
+def test_unchanged_anchor_keeps_the_form_bit_identical(
+        main_window, tmp_path, monkeypatch):
+    """U.4 п.8: with the anchor left alone the refresh is a no-op and a no-op
+    save round-trips bit-for-bit."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_S", kind="clone", xy=(-0.5, 1.0), polar=None,
+                        rotation=90.0, name=None, group=None)
+    _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 90.0),
+                    components={})
+
+    dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
+    shown = (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),
+             dlg.rotation_edit.text())
+    dlg._refresh_for_new_anchor()                # no real change -> no-op
+    assert (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),
+            dlg.rotation_edit.text()) == shown
+    built = dlg.build_node()
+    assert built.xy == (-0.5, 1.0)
+    assert built.rotation == 90.0

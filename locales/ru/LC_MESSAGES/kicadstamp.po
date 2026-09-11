@@ -14662,6 +14662,9 @@ msgstr "Pivot (СК встраиваемого дерева):"
 msgid "No live board connection — showing the STORED values in the base's own frame; editing the offset and rotation is disabled until KiCad is connected."
 msgstr "Нет подключения к плате — показаны СОХРАНЁННЫЕ значения в СК базы; редактирование смещения и поворота заблокировано до подключения KiCad."
 
+msgid "The selected anchor does not resolve on the live board — showing the STORED values in the anchor's own frame; editing the offset and rotation is disabled until it resolves."
+msgstr "Выбранный якорь не резолвится на живой плате — показаны СОХРАНЁННЫЕ значения в СК якоря; редактирование смещения и поворота заблокировано, пока он не резолвится."
+
 msgid "the base of this node is MIRRORED on the live board"
 msgstr "база этого узла ОТЗЕРКАЛЕНА на живой плате"
 

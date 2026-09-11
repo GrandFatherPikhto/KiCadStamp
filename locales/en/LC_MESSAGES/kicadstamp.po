@@ -16012,6 +16012,9 @@ msgstr ""
 msgid "No live board connection — showing the STORED values in the base's own frame; editing the offset and rotation is disabled until KiCad is connected."
 msgstr ""
 
+msgid "The selected anchor does not resolve on the live board — showing the STORED values in the anchor's own frame; editing the offset and rotation is disabled until it resolves."
+msgstr ""
+
 msgid "the base of this node is MIRRORED on the live board"
 msgstr ""
 
