@@ -155,8 +155,9 @@ idempotent: it updates rather than duplicates.
 ## Configuration format
 
 The config is an **s-expression** (`.sexp`), like KiCad's own formats. A file with any other extension is
-rejected with a fatal error. (`.json` is still read as well — it backs the `scheme_lists.json` side file the
-GUI creates on its own the first time a Scheme List is recorded.)
+rejected with a fatal error. (`.json` is still read as well — it backs a legacy `scheme_lists.json` side
+file; the GUI now creates its own `scheme_lists.sexp` the first time a Scheme List is recorded, and keeps
+using an existing `scheme_lists.json` as-is where a profile already has one.)
 
 A profile can be split across several files: `include:` at the root pulls in other `.sexp`/`.json` files
 recursively, and each may carry any combination of sections. The `flatten` command folds such a graph back

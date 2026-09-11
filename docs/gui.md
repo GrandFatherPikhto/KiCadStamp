@@ -1334,7 +1334,8 @@ Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE t
 blocking the UI) and — when the connectivity closure dropped copper that reached only excluded
 footprints — a boundary-net dialog (v1: each such net is excluded as a whole connected component; the
 dialog shows which outside footprint dragged each net). The new record is written to the fixed
-`scheme_lists.json` next to the profile (auto-`include:`d on first use). A **"By sheet"** record
+`scheme_lists.sexp` next to the profile (auto-`include:`d on first use; a profile that already has
+the legacy `scheme_lists.json` writes there instead). A **"By sheet"** record
 additionally stores the CHECKED leaf paths as its `scope_sheet_paths` — the source a later Reread
 recomputes the current scope from; a **"By selection"** record stores no scope. Nothing is applied to
 the board. The **"By sheet"** tab also has an OPTIONAL **"Save as preset"** field: a non-empty name

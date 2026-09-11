@@ -31,7 +31,7 @@ Entity/Placement machinery in Trees (the P4 ApplyPipeline branch + the P6
 ever applies anything to the live board.
 
 The module also hosts the PURE storage helpers every Scheme List write path
-shares (``scheme_list_to_dict``, the fixed ``scheme_lists.json`` path + the
+shares (``scheme_list_to_dict``, the default storage path + the
 auto-``include:`` ensure, the read/write helpers and the duplicate pre-checks),
 so the Tools "Record..." flow (DockHub) and this form's Reread Apply use ONE
 implementation instead of two copies.
@@ -50,6 +50,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
 
 from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import SchemeListConfig, load_scheme_list
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.scheme_list_capture import (
@@ -298,24 +299,49 @@ def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
     return d
 
 
+# The storage side file a NEW Scheme List record lands in, and the pre-2026-09-12
+# name this code used to create unconditionally (JSON). Both names live here so
+# the backward-compatibility rule below has one source of truth.
+SCHEME_LIST_STORAGE_NAME = "scheme_lists.sexp"
+LEGACY_SCHEME_LIST_STORAGE_NAME = "scheme_lists.json"
+
+
 def default_scheme_list_path(root_path: Path) -> Path:
-    """The fixed storage file for NEW Scheme List records (plan §0.8) — a
-    ``scheme_lists.json`` sitting NEXT TO the main profile, auto-included on
+    """The storage file for NEW Scheme List records (plan §0.8) — a
+    ``scheme_lists.sexp`` sitting NEXT TO the main profile, auto-included on
     first Record... (records can be large — real copper, not a parametric
-    template — so they never bloat the hand-readable root profile)."""
-    return Path(root_path).parent / "scheme_lists.json"
+    template — so they never bloat the hand-readable root profile).
+
+    Backward compatibility (2026-09-12): a profile that ALREADY has the legacy
+    ``scheme_lists.json`` side file keeps using it — such a profile
+    ``include:``s exactly that name and must go on working with no change on
+    disk (profiles/3ch-awg-tia-v103-old is one). Only when no such file exists
+    does this return the s-expr name, so a fresh profile never creates a JSON
+    config file. Nothing is ever converted, migrated or rewritten."""
+    parent = Path(root_path).parent
+    legacy = parent / LEGACY_SCHEME_LIST_STORAGE_NAME
+    if legacy.exists():
+        return legacy
+    return parent / SCHEME_LIST_STORAGE_NAME
 
 
 def ensure_scheme_list_storage(root_path: Path) -> Path:
-    """Make the default ``scheme_lists.json`` writable: create it when absent
-    and wire ``include: [scheme_lists.json]`` into the ROOT profile (add_include
-    is idempotent — a re-enabled/again-included file returns without a
-    duplicate line). Returns the storage path."""
-    json_path = default_scheme_list_path(root_path)
-    if not json_path.exists():
-        json_path.write_text("{}\n", encoding="utf-8")
-    add_include(Path(root_path), "scheme_lists.json")
-    return json_path
+    """Make the default storage file writable: create it when absent and wire
+    its name into the ROOT profile's ``include:`` list (add_include is
+    idempotent — a re-enabled/again-included file returns without a duplicate
+    line). Returns the storage path.
+
+    A file created HERE is always s-expr: ``dict_to_sexp({})`` is exactly
+    ``(kicadstamp-config)\\n``, the empty config that reads back as ``{}``
+    through sexp_to_dict (measured 2026-09-12) — the s-expr counterpart of the
+    ``{}\\n`` the JSON storage used to be created as. A legacy
+    ``scheme_lists.json`` is reused as-is (see default_scheme_list_path) and is
+    NEVER rewritten or converted, so the two files can never both appear."""
+    path = default_scheme_list_path(root_path)
+    if not path.exists():
+        path.write_text(dict_to_sexp({}), encoding="utf-8")
+    add_include(Path(root_path), path.name)
+    return path
 
 
 def read_scheme_list_records(root_path: Path) -> List[Dict[str, Any]]:
@@ -372,7 +398,8 @@ def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list,
 def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
                              target_path: Optional[Path] = None) -> Path:
     """Persist one Scheme List record. Without ``target_path`` the record is
-    written to the default ``scheme_lists.json`` (created + auto-included on
+    written to the default storage file (``scheme_lists.sexp``, or the legacy
+    ``scheme_lists.json`` when that already exists — created + auto-included on
     first use); with it (Reread Apply — the file that actually owns the
     loaded record) the record is upserted there by name. Returns the written
     file. Pure file operation — callable from the UI thread or a worker."""
@@ -1664,7 +1691,8 @@ class SchemeListFormWidget(QWidget):
 
     def _run_reread_apply(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: fresh capture + write the record back to its owning
-        file (or the default scheme_lists.json when none). Pure file/IPC work.
+        file (or the default storage file when none — scheme_lists.sexp, or the
+        legacy scheme_lists.json). Pure file/IPC work.
 
         5c: the capture refs are the record's CURRENT ``scope_refs`` (the
         payload's, = the diff's refs_for_fresh whenever Apply is allowed, i.e.

@@ -428,8 +428,9 @@ class DockHub:
     # or selection) under the SAME name — the same two-tab Record dialog with
     # the name pinned read-only (plan_2026_09_06_scheme_list_sheet_capture.md
     # 5b.2). The record is REPLACED in the file that already owns it
-    # (target_path, like Reread Apply) — never moved to the default
-    # scheme_lists.json. Triple exposure: the context menu's "Re-source..."
+    # (target_path, like Reread Apply) — never moved to the default storage
+    # file (scheme_lists.sexp, or the legacy scheme_lists.json).
+    # Triple exposure: the context menu's "Re-source..."
     # (scheme_list_resource_requested) and the Tools menu's "Re-source..."
     # (needs a selected record); both converge on _run_resource_scheme_list.
     # The capture itself runs on the worker (_run_resource_capture, mirror of
@@ -1363,8 +1364,8 @@ class DockHub:
         selection"), derive the capture refs from what the user picked, ask a
         unique name inside the dialog, run capture on the worker (never
         blocking the UI — live-board IPC), confirm any boundary exclusions,
-        and write the record to scheme_lists.json (auto-including it on first
-        use). No anchor is picked at Record time — the record's frame is the
+        and write the record to the default storage file (auto-including it on
+        first use). No anchor is picked at Record time — the record's frame is the
         captured region's centre and its pivot defaults to that centre
         (design_2026_09_07_scheme_list_pivot.md)."""
         from .worker import start_long_op
@@ -1563,8 +1564,8 @@ class DockHub:
 
     def _write_record_result(self, result: Dict[str, Any]) -> None:
         """Shared Record tail (phase-1 all-exclude and phase-2): persist the
-        record to scheme_lists.json, refresh the Config tree and show the v1
-        status message."""
+        record to the default storage file, refresh the Config tree and show the
+        v1 status message."""
         record = result["record"]
         root_path = Path(result["root"])
         try:
@@ -1673,7 +1674,7 @@ class DockHub:
     def _write_resource_result(self, result: Dict[str, Any]) -> None:
         """Shared Re-source tail (phase-1 all-exclude and phase-2): persist the
         record under its SAME name IN THE FILE THAT OWNS IT (target_path — like
-        Reread Apply, NEVER the default scheme_lists.json: re-sourcing never
+        Reread Apply, NEVER the default storage file: re-sourcing never
         moves a record between files), refresh the Config tree and show the v1
         status message."""
         record = result["record"]

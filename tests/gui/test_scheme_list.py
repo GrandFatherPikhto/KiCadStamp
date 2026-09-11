@@ -10,8 +10,9 @@ test_phase3_wiring.py:
   - Reread: identical board -> "no differences"; a moved component -> the
     diff; explicit Apply rewrites the stored record in its owning file.
   - Storage helpers: scheme_list_to_dict round-trips through the loader; a
-    write auto-creates scheme_lists.json + include: on first use and upserts
-    by name afterwards; duplicate pre-checks fire before capture.
+    write auto-creates scheme_lists.sexp + include: on first use and upserts
+    by name afterwards (a legacy scheme_lists.json is reused as-is); duplicate
+    pre-checks fire before capture.
   - ConfigTreeDock: the scheme_lists section shows one leaf per record and a
     single click emits scheme_list_picked (-> DockHub opens the right page).
 """
@@ -35,6 +36,7 @@ from gui.docks.scheme_list import (
     boundary_net_rows,
     choose_boundary_actions,
     default_scheme_list_path,
+    ensure_scheme_list_storage,
     live_record_centre_mm,
     live_sheet_paths,
     missing_record_refs,
@@ -653,7 +655,7 @@ def test_reread_requires_live_board(main_window, tmp_path, caplog):
 
 # ── Storage helpers (Record... / Reread Apply write path) ──────────────────
 
-def test_write_record_auto_creates_json_and_includes_it(main_window, tmp_path):
+def test_write_record_auto_creates_sexp_and_includes_it(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
@@ -662,19 +664,67 @@ def test_write_record_auto_creates_json_and_includes_it(main_window, tmp_path):
     written = write_scheme_list_record(root, record)
 
     assert written == default_scheme_list_path(root)
+    assert written.name == "scheme_lists.sexp"
     assert written.exists()
-    json_data = json.loads(written.read_text(encoding="utf-8"))
-    assert json_data["scheme_lists"][0]["name"] == "amp"
+    # new storage is s-expr — no JSON side file is created any more
+    assert not (tmp_path / "scheme_lists.json").exists()
+    stored = sexp_to_dict(written.read_text(encoding="utf-8"))
+    assert stored["scheme_lists"][0]["name"] == "amp"
     root_data = _load(root)
-    assert root_data["include"] == ["scheme_lists.json"]
+    assert root_data["include"] == ["scheme_lists.sexp"]
 
     # A second record write must not duplicate the include line.
     write_scheme_list_record(root, record)
     root_data = _load(root)
-    assert root_data["include"] == ["scheme_lists.json"]
+    assert root_data["include"] == ["scheme_lists.sexp"]
 
 
-def test_write_record_upserts_by_name_into_existing_json(main_window, tmp_path):
+def test_write_record_reuses_legacy_json_when_one_exists(main_window, tmp_path):
+    """Backward compatibility (plan_2026_09_12_sexp_migration_tails §Э3.3): a
+    profile that ALREADY has scheme_lists.json keeps using it — the new s-expr
+    storage is not created, the JSON file is neither converted nor rewritten
+    as a whole (only the new record is appended to it), and the include: line
+    keeps naming the JSON file. Nothing is migrated."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["scheme_lists.json"]})
+    adapter = _line_board()
+    legacy = tmp_path / "scheme_lists.json"
+    legacy.write_text(json.dumps({"scheme_lists": [
+        scheme_list_to_dict(capture_scheme_list("keep", ["R1"], adapter=adapter)),
+    ]}), encoding="utf-8")
+
+    written = write_scheme_list_record(
+        root, capture_scheme_list("amp", ["C1"], adapter=adapter))
+
+    assert written == legacy
+    assert written == default_scheme_list_path(root)
+    assert not (tmp_path / "scheme_lists.sexp").exists()
+    data = json.loads(legacy.read_text(encoding="utf-8"))
+    assert [e["name"] for e in data["scheme_lists"]] == ["keep", "amp"]
+    assert _load(root)["include"] == ["scheme_lists.json"]  # still one line
+
+
+def test_new_storage_is_a_valid_empty_sexp_config(main_window, tmp_path):
+    """The created storage is a VALID empty config, not a zero-byte file:
+    dict_to_sexp({}) is exactly '(kicadstamp-config)\\n', which sexp_to_dict
+    reads back as {} (measured 2026-09-12) — the s-expr counterpart of the
+    '{}\\n' the JSON storage used to be created as. An empty storage must load
+    without a fatal error."""
+    root = tmp_path / "root.sexp"
+    _write(root, {})
+
+    written = ensure_scheme_list_storage(root)
+
+    assert written.name == "scheme_lists.sexp"
+    text = written.read_text(encoding="utf-8")
+    assert text == dict_to_sexp({})
+    assert sexp_to_dict(text) == {}
+    cfg, _ = load_config(str(root))
+    assert cfg.scheme_lists == []
+    assert _load(root)["include"] == ["scheme_lists.sexp"]
+
+
+def test_write_record_upserts_by_name_into_existing_storage(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
@@ -999,8 +1049,14 @@ def test_finish_record_capture_all_exclude_single_pass_and_writes(
     assert launched == []  # no phase-2
     data = read_scheme_list_records(root)
     assert [e["name"] for e in data] == ["ampA"]
-    assert data[0]["boundary_nets"] == [{"net": "NET1", "action": "exclude",
-                                         "external_ref": "R9"}]
+    # The s-expr writer omits DEFAULT-valued fields, so an exclude boundary net
+    # is stored WITHOUT its action key — the loader re-defaults it to exclude
+    # (the same contract the G3 Re-source test below documents), so the v1
+    # exclusion decision survives the storage format change.
+    assert data[0]["boundary_nets"] == [{"net": "NET1", "external_ref": "R9"}]
+    amp_loaded = load_scheme_list(data[0])
+    assert [(bn.net, bn.action)
+            for bn in amp_loaded.boundary_nets] == [("NET1", "exclude")]
 
 
 def test_finish_record_capture_cancel_writes_nothing(
@@ -1080,8 +1136,9 @@ def test_finish_record_capture_phase2_writes_phase2_result_without_dialog(
 # dialog (G1) and either writes phase-1 (no boundary nets / all-exclude — v1
 # single-pass) or launches phase-2 with the SAME payload +
 # boundary_net_actions; the phase-2 finish writes THAT result to the OWNING
-# file (target_path). Re-source never moves a record to the default
-# scheme_lists.json (the §7 invariant). The _record_hub stand-in (defined in
+# file (target_path). Re-source never moves a record to the default storage
+# file (scheme_lists.sexp, or the legacy scheme_lists.json) — the §7 invariant.
+# The _record_hub stand-in (defined in
 # the G2 section above) is reused — it exposes exactly the members the
 # Re-source finish methods touch.
 
@@ -1152,7 +1209,7 @@ def test_finish_resource_capture_no_boundary_nets_writes_to_target_without_dialo
         main_window, tmp_path, monkeypatch):
     """G3 v1 regression: a Re-source record with NO boundary nets is written
     straight to the OWNING file (target_path) — the per-net dialog is never
-    opened and nothing lands in the default scheme_lists.json."""
+    opened and nothing lands in the default storage file."""
     root, owner = _resource_owner(tmp_path)
     owner_before = _load(owner)
     import gui.dock_hub as dh_mod
@@ -1193,8 +1250,8 @@ def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
     assert launched == []  # no phase-2
     data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
     assert set(data) == {"amp", "keep"}
-    # The .sexp writer omits DEFAULT-valued fields (unlike the .json writer
-    # G2 uses): an exclude boundary net is persisted WITHOUT its action key —
+    # The s-expr writer omits DEFAULT-valued fields (the legacy JSON writer
+    # did not): an exclude boundary net is persisted WITHOUT its action key —
     # the loader re-defaults it to exclude on read, so the v1 exclusion
     # decision is preserved semantically.
     assert data["amp"]["boundary_nets"] == [
@@ -1202,7 +1259,7 @@ def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
     amp_loaded = load_scheme_list(data["amp"])
     assert [(bn.net, bn.action)
             for bn in amp_loaded.boundary_nets] == [("NET1", "exclude")]
-    # nothing was written to the DEFAULT scheme_lists.json
+    # nothing was written to the DEFAULT storage file
     assert not default_scheme_list_path(root).exists()
 
 

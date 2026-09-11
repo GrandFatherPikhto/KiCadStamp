@@ -879,10 +879,11 @@ and vias on ALL copper layers of the stack — F.Cu/In1.Cu..In30.Cu/B.Cu).
 Unlike a Cell (abstract Role), identity here is the literal `ref`, so a record
 is a snapshot, not a template. Records are captured from the live board (Tools
 → Scheme Lists → Record...) and physically live in an included
-`scheme_lists.json` (the section itself is format-agnostic — see `include:`).
+`scheme_lists.sexp` (the section itself is format-agnostic — see `include:`; a
+profile that still carries a legacy `scheme_lists.json` keeps using that file).
 
 ```sexp
-; e.g. scheme_lists.json — included via include: (the .sexp syntax is identical)
+; e.g. scheme_lists.sexp — included via include: (the .sexp syntax is identical)
 (scheme_lists
   (scheme_list
     (name "amp_avdd")               ; identity — the --only and Entity.scheme_list key
@@ -987,7 +988,9 @@ GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Scheme Li
 section): records are captured from the live board through the two-tab Record
 dialog (Tools → Scheme Lists → Record... — "By sheet" primary: root sheet +
 sub-sheet checklist; "By selection" secondary: the current board selection)
-into the fixed `scheme_lists.json` (auto-included on first use); Re-source...
+into the fixed `scheme_lists.sexp` (auto-included on first use; a profile that
+already has the legacy `scheme_lists.json` keeps writing there instead);
+Re-source...
 re-captures an EXISTING record from a different source under the same name;
 Reread (the form button / the record's context menu / Tools → Scheme Lists)
 shows the diff against the live board (including refs added to / removed from
