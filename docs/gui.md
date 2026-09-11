@@ -514,10 +514,27 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
 duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
-(generated instances can't themselves be templates) and edit its {name, sheet, cluster?} rows — the
+(generated instances can't themselves be templates) and edit its
+{name, sheet, cluster?, rotation?, anchor?} rows — the
 Cluster column is OPTIONAL (blank = inherit the template's own cluster unchanged); a non-empty value is
 substituted into the generated copies' `cluster` and the role anchor, mirroring `sheet`. The dialog
 only persists the declarations, the instances materialize on the next load.
+
+Two more OPTIONAL columns (2026-09-12, plan tree_instance_own_place §И.5) put the instance's OWN place
+in the same table:
+
+- **Rotation** — a plain number (degrees), blank = inherit the template's own angle. It is written to
+  the declaration as a number and REPLACES the template's angle (see the config docs);
+- **Anchor** — a one-line summary of the declaration's own `anchor` (written in the anchor grammar's
+  own keywords, e.g. `point p_ch1`, `role AD_DAC / Channel_0`, `origin`, `—` when not set) plus a
+  "…" button. The button opens the **same anchor form the tree's own Anchor tab uses**
+  (`AnchorFormWidget`), so there is no second anchor editor: every mode (origin / config record /
+  external refdes / self / role / point) and its optional `shift` are reachable. Its "Inherit from
+  template" button drops the row's own anchor (the key is removed from the declaration, the instance
+  goes back to standing where the template's anchor resolves). A blank Rotation cell and an inherited
+  anchor are both OMITTED on save — never written as `null`/`""`. The form's tree-settings box and the
+  anchor's `shift` row are hidden here (a declaration has no suspension point or angle of its own; an
+  existing `shift` is preserved verbatim).
 
 **Instantiate from Cell… (2026-09-03, plan instantiate_from_entity):** add ONE more physical group of
 the same kind INTO the current tree without duplicating geometry — pick an EXISTING Cell (e.g.

@@ -36,6 +36,10 @@ from ..cloner.sexp import sym, sval
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..trees import (
+    anchor_from_dict,
+    anchor_to_dict,
+    anchor_to_sexp,
+    parse_anchor,
     raw_tree_from_sexp,
     tree_from_dict,
     tree_from_sexp,
@@ -389,7 +393,14 @@ def _field_to_sexp(name: str, value, desc: tuple):
 def _record_to_sexp(dc, data: dict):
     """One schema record, e.g. (rule (net "x") (spokes ...)). Unknown keys are
     fatal (mirrors check_unknown_keys on the YAML side). Default-valued fields
-    are omitted (per-field rule, design grammar §3.1)."""
+    are omitted (per-field rule, design grammar §3.1).
+
+    One field is delegated to ANOTHER module's grammar instead of the generic
+    free-form machinery (see _CUSTOM_FIELD_WRITERS): a tree_instances
+    declaration's `anchor` is a TREE anchor, so it must be written as
+    (anchor (point "p")) — bare tags — not as the free-form type-driven shape
+    (anchor ("point" "p")) which the generic "any" path would produce. The
+    delegation is the reason a second anchor grammar never exists."""
     known = {f.name for f in dataclasses.fields(dc)}
     node = [sym(_TAG_BY_CLASS[dc])]
     for key, value in data.items():
@@ -401,8 +412,39 @@ def _record_to_sexp(dc, data: dict):
             ))
         if _is_default_value(dc, key, value):
             continue
+        writer = _CUSTOM_FIELD_WRITERS.get((dc, key))
+        if writer is not None:
+            node.append(writer(value, data))
+            continue
         node.append(_field_to_sexp(key, value, _field_type(dc, key)))
     return node
+
+
+def _write_tree_instance_anchor(value, record: dict):
+    """(anchor ...) for a tree_instances declaration — the TREE anchor grammar
+    (trees.anchor_to_sexp), the declaration's dict going through the SAME
+    validating dict->TreeAnchor bridge a tree uses (2026-09-12,
+    plan_2026_09_12_tree_instance_own_place §И.2)."""
+    return anchor_to_sexp(anchor_from_dict(value, record.get("name") or "?"))
+
+
+def _parse_tree_instance_anchor(field_node, path: str) -> dict:
+    """Parse-side mirror of _write_tree_instance_anchor: the (anchor ...) node
+    is read by the TREE anchor grammar (trees.parse_anchor, validating) and
+    stored in the canonical dict shape (trees.anchor_to_dict)."""
+    return anchor_to_dict(parse_anchor(field_node))
+
+
+# (record class, field name) -> serializer/parser owned by ANOTHER grammar.
+# A field listed on one side must be listed on the other too, with the same
+# key, or the round-trip is asymmetric. Currently ONE entry: a tree_instances
+# declaration's `anchor` speaks the TREE anchor grammar (§И.2).
+_CUSTOM_FIELD_WRITERS = {
+    (TreeInstance, "anchor"): _write_tree_instance_anchor,
+}
+_CUSTOM_FIELD_PARSERS = {
+    (TreeInstance, "anchor"): _parse_tree_instance_anchor,
+}
 
 
 def _free_field_to_sexp(name: str, value):
@@ -715,6 +757,10 @@ def _parse_record(dc, node, path: str) -> dict:
                 [_("in {path}: key {key!r} is not a field of the {tag} record "
                    "(same known-key rule as YAML's check_unknown_keys)")
                  .format(path=path, key=key, tag=_TAG_BY_CLASS[dc])])
+        parser = _CUSTOM_FIELD_PARSERS.get((dc, key))
+        if parser is not None:
+            out[key] = parser(field_node, f"{path}.{key}")
+            continue
         out[key] = _parse_field(field_node, _field_type(dc, key), f"{path}.{key}")
     return out
 

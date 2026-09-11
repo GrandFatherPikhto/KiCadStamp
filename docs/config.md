@@ -50,7 +50,7 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
-| `tree_instances` | list | Sheet-parameterized references to a template tree — see **`tree_instances:`** below. |
+| `tree_instances` | list | Sheet-/cluster-/params-parameterized references to a template tree, each optionally carrying its own place (`anchor`) and angle (`rotation`) — see **`tree_instances:`** below. |
 | `thermal_via_arrays` | list | Any number of thermal via grids, each independently named/anchored — see **`thermal_via_arrays:`** below. |
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
 | `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. Note (2026-08-31): the TRACK positional pre-check runs regardless of this flag — it only skips a planned track that already exists at the exact position/net/width/layer, so it can never remove copper, only prevent literal duplicates. Since 2026-09-08 the same holds for the VIA positional pre-check (`filter_existing_vias`, Phase 2) — it only skips a planned via that already exists at the exact position/net/drill/diameter. |
@@ -614,7 +614,9 @@ instantiates it per reuse:
   (tree_instance
     (template "dac_buf_tpl")     ; name of an existing trees: entry (the template)
     (name "ch1_dac_buf")         ; the generated tree's name
-    (sheet "Channel_1")))        ; substituted into the generated copies
+    (sheet "Channel_1")          ; substituted into the generated copies
+    (anchor (point "p_ch1"))     ; optional — the copy's OWN place (2026-09-12)
+    (rotation 90.0)))            ; optional — the copy's own angle
 ```
 
 Expansion runs inside `load_config()`, right after `include:` + `sheet_templates:` resolution and
@@ -679,6 +681,48 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `shift` unchanged; the template's `pivot-ref` is rewritten to follow the node renames (`placement`
   → `__{instance}`, `net_trace` → leading-sheet substitution, mount unchanged), and a `pivot-ref`
   naming no node of the template is a fatal at EXPANSION time.
+- **A declaration's own PLACE (`anchor:`) and own angle (`rotation:`)** (v1.6, 2026-09-12, plan
+  tree_instance_own_place §И.2, task C2): besides "the same role on another sheet", a declaration can
+  say WHERE the instance stands — the one thing the sheet substitution cannot express. Both keys are
+  OPTIONAL, and both absent means "inherit the template" — byte-for-byte the previous behaviour:
+
+  ```sexp
+  (tree_instances
+    (tree_instance
+      (template "ch0_dac_buf")
+      (name     "ch1_dac_buf")
+      (sheet    "Channel_1")
+      (anchor   (point "p_ch1"))    ; the copy's own place (optional)
+      (rotation 90.0)))             ; its own angle (optional)
+  ```
+
+  `anchor:` uses the TREE anchor grammar VERBATIM — the same six modes (`(origin)`, `(ref "...")`
+  with the optional `(external)` modifier, `(role "..." [(sheet ...) (cluster ...) (pad ...)])`,
+  `(point "...")`, `(self [(ref "...") (pad "...")])`) plus the optional `(shift x y)`, parsed and
+  written by the very same code a tree's own `anchor:` uses (there is no second anchor grammar).
+  Consequences, all deliberate:
+
+  * a declaration anchor **replaces the copy's anchor WHOLE**, and neither the instance `sheet` nor
+    the declaration's `cluster:` is substituted into it — a human named the place explicitly, and
+    guessing on top of an explicit answer is not allowed;
+  * because the place no longer has to come from a sheet, the **template may be of ANY anchor mode**
+    when the declaration carries its own `anchor:` — an `origin`/`ref`/`point` template stops being a
+    fatal. That is the whole point of the axis: a one-off instance with no role of its own on its
+    sheet;
+  * `old_sheet` — which copper is the template's own, and whether a mount looks inside — is STILL
+    taken from the TEMPLATE (its role anchor's `sheet`, or the subject Entity's own `sheet`) and
+    never from the declaration: `anchor:` moves the instance, it does not change what the instance
+    IS. A template that materializes `net_trace`/`mount` nodes and cannot yield a sheet is a fatal
+    that says exactly what to add (a `(sheet ...)` on a role anchor of the template, or a sheet on
+    its root Entity);
+  * a `(self (ref "X"))` inside a declaration names a node of the TEMPLATE, so `X` follows the SAME
+    rename map as `pivot-ref`; a name that resolves to nothing is a fatal at EXPANSION, naming the
+    declaration;
+  * `rotation:` lands on the generated tree's own angle and **replaces** the template's (it is not
+    added to it) — a sum would make the result depend on what the template happens to hold;
+  * the **suspension point (`pivot-*`) is deliberately NOT a declaration key**: it is a property of
+    the template's geometry, and the instance inherits it.
+
 - **Per-declaration overrides** (`cluster:` v1.2 2026-09-03, `params:` v1.3 2026-09-07): besides
   `sheet` (always substituted), a declaration may carry OPTIONAL `cluster:` and/or `params:` merged
   into EVERY generated Entity copy — same "override wins, rest inherited" semantics as `sheet`, just

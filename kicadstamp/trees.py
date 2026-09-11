@@ -958,6 +958,29 @@ def _node_to_sexp(node: TreeNode) -> list:
     return out
 
 
+def anchor_to_sexp(anchor: TreeAnchor) -> list:
+    """Public entry point to the anchor s-expr grammar (_anchor_to_sexp): the
+    tree_instances: DECLARATION's own (anchor ...) is written with THIS very
+    serializer (2026-09-12, plan_2026_09_12_tree_instance_own_place §И.2) so a
+    declaration never grows a second anchor grammar."""
+    return _anchor_to_sexp(anchor)
+
+
+def parse_anchor(anchor_node) -> TreeAnchor:
+    """Public entry point to the anchor s-expr PARSER (_parse_anchor) — the
+    symmetric half of anchor_to_sexp(), used for a tree_instances: declaration's
+    own (anchor ...) (§И.2). Validating: a malformed anchor is a fatal here,
+    with the s-expr grammar's own messages."""
+    return _parse_anchor(anchor_node)
+
+
+def anchor_to_dict(anchor: TreeAnchor) -> dict:
+    """Public entry point to the anchor dict bridge (_anchor_to_dict) — what a
+    tree_instances: declaration stores for its own anchor (the SAME dict shape a
+    tree's `anchor:` uses, §И.2)."""
+    return _anchor_to_dict(anchor)
+
+
 def _anchor_to_sexp(anchor: TreeAnchor) -> list:
     """Serialize one anchor node: (origin), (ref ...) [(external)],
     (role ...) (+ sheet/cluster/pad), (point ...), (self ...), and the optional
@@ -1407,6 +1430,67 @@ def _dict_anchor_shift(anchor_data: dict, tree_name: str
     return float(raw[0]), float(raw[1])
 
 
+def anchor_from_dict(anchor_data: dict, owner: str) -> TreeAnchor:
+    """Plain-dict anchor shape -> TreeAnchor, the ONE dict-bridge anchor parser:
+    shared by tree_from_dict and by a tree_instances: DECLARATION's own `anchor:`
+    (2026-09-12, plan_2026_09_12_tree_instance_own_place §И.2 — a declaration's
+    anchor is the TREE anchor grammar, verbatim; no second grammar).
+
+    `owner` is the name the anchor belongs to (a real tree's name, or a
+    declaration's instance name) and appears in every fatal message.
+
+    A missing/empty mapping reads as a bare (self) FOREVER (plan Д.2 rule 1);
+    a shift with no base is a fatal (mirrors the s-expr mode-count fatal)."""
+    anchor_data = anchor_data or {}
+    shift_xy = _dict_anchor_shift(anchor_data, owner)
+    anchor_modes = [k for k in ("origin", "ref", "role", "point", "self")
+                    if anchor_data.get(k) is not None]
+    if len(anchor_modes) > 1:
+        _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))
+    if not anchor_modes:
+        # (the self default also covers a shift-less {} — see the docstring)
+        if shift_xy is not None:
+            _fatal(_("anchor: shift needs a base — set one of "
+                     "origin/ref/role/point/self"))
+        return TreeAnchor(is_self=True)
+    if anchor_data.get("origin"):
+        if anchor_data.get("external"):
+            _fatal(_("anchor: origin and external are mutually exclusive"))
+        return TreeAnchor(is_origin=True, shift_xy=shift_xy)
+    if anchor_data.get("self") is not None:
+        self_data = anchor_data["self"]
+        if self_data is not None and not isinstance(self_data, dict):
+            _fatal(_("anchor: self must be a mapping with an optional ref/pad"))
+        self_data = self_data or {}
+        return TreeAnchor(
+            is_self=True,
+            self_ref=self_data.get("ref"),
+            self_pad=self_data.get("pad"),
+            shift_xy=shift_xy,
+        )
+    if anchor_data.get("ref") is not None:
+        return TreeAnchor(ref=anchor_data["ref"],
+                          is_external=bool(anchor_data.get("external")),
+                          shift_xy=shift_xy)
+    # (external) is a REF-anchor modifier only — a role/point anchor is never a
+    # config record, so "external" on it would be silently meaningless. Hard
+    # fatal, mirroring the s-expr path (_parse_anchor).
+    if anchor_data.get("external"):
+        _fatal(_("anchor: external is only valid with a ref anchor"))
+    if anchor_data.get("point") is not None:
+        return TreeAnchor(point=anchor_data["point"], shift_xy=shift_xy)
+    role = anchor_data.get("role")
+    if not role:
+        _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))
+    return TreeAnchor(
+        role=role,
+        anchor_sheet=anchor_data.get("sheet"),
+        anchor_cluster=anchor_data.get("cluster"),
+        anchor_pad=anchor_data.get("pad"),
+        shift_xy=shift_xy,
+    )
+
+
 def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     """Plain dict -> Tree, the inverse of tree_to_dict. seen_refs (optional,
     shared across the whole config) enforces node-ref uniqueness across the
@@ -1419,55 +1503,7 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     name = data.get("name")
     if name is None:
         _fatal(_("a tree is missing a (name ...)"))
-    anchor_data = data.get("anchor") or {}
-    shift_xy = _dict_anchor_shift(anchor_data, name)
-    anchor_modes = [k for k in ("origin", "ref", "role", "point", "self")
-                    if anchor_data.get(k) is not None]
-    if len(anchor_modes) > 1:
-        _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))
-    if not anchor_modes:
-        # A tree with no (anchor ...) is read as (self) FOREVER (plan Д.2 rule
-        # 1). A shift with no base is meaningless — fatal (mirrors the s-expr
-        # mode-count fatal).
-        if shift_xy is not None:
-            _fatal(_("anchor: shift needs a base — set one of "
-                     "origin/ref/role/point/self"))
-        anchor = TreeAnchor(is_self=True)
-    elif anchor_data.get("origin"):
-        if anchor_data.get("external"):
-            _fatal(_("anchor: origin and external are mutually exclusive"))
-        anchor = TreeAnchor(is_origin=True, shift_xy=shift_xy)
-    elif anchor_data.get("self") is not None:
-        self_data = anchor_data["self"]
-        if self_data is not None and not isinstance(self_data, dict):
-            _fatal(_("anchor: self must be a mapping with an optional ref/pad"))
-        self_data = self_data or {}
-        anchor = TreeAnchor(
-            is_self=True,
-            self_ref=self_data.get("ref"),
-            self_pad=self_data.get("pad"),
-            shift_xy=shift_xy,
-        )
-    elif anchor_data.get("ref") is not None:
-        anchor = TreeAnchor(ref=anchor_data["ref"],
-                            is_external=bool(anchor_data.get("external")),
-                            shift_xy=shift_xy)
-    else:
-        # (external) is a REF-anchor modifier only — a role/point anchor is
-        # never a config record, so "external" on it would be silently
-        # meaningless. Hard fatal, mirroring the s-expr path (_parse_anchor).
-        if anchor_data.get("external"):
-            _fatal(_("anchor: external is only valid with a ref anchor"))
-        if anchor_data.get("point") is not None:
-            anchor = TreeAnchor(point=anchor_data["point"], shift_xy=shift_xy)
-        else:
-            anchor = TreeAnchor(
-                role=anchor_data["role"],
-                anchor_sheet=anchor_data.get("sheet"),
-                anchor_cluster=anchor_data.get("cluster"),
-                anchor_pad=anchor_data.get("pad"),
-                shift_xy=shift_xy,
-            )
+    anchor = anchor_from_dict(data.get("anchor") or {}, name)
     parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
                     for n in data.get("nodes") or []]
     _validate_mount_refs(parsed_nodes, name)

@@ -478,11 +478,13 @@ def append_tree_child_node(path: Path, tree_name: str,
 
 # Fields Tools -> "Instances..." OWNS and may therefore CLEAR: the dialog's
 # row REPLACES each of them (a field absent from a row means "not set" — the
-# dialog's own blank-Cluster contract, see its rows()), while every OTHER key
-# of an existing declaration survives a write verbatim (2026-09-12,
-# plan_2026_09_12_tree_instance_own_place §И.1). A future editable axis
-# (anchor/rotation) is declared HERE, in one place, and nowhere else.
-_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster",)
+# dialog's own blank-cell contract, see its rows()), while every OTHER key of
+# an existing declaration survives a write verbatim (2026-09-12,
+# plan_2026_09_12_tree_instance_own_place §И.1). A future editable axis is
+# declared HERE, in one place, and nowhere else — `anchor`/`rotation` (the
+# §И.5 columns: an empty Rotation cell and the "Inherit from template" action
+# both mean "drop the key") are the reason this list is data, not a literal.
+_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster", "rotation", "anchor")
 
 
 def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:

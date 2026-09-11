@@ -310,6 +310,40 @@ class TestSexpRoundTrip:
         cfg, _ = load_config(str(p))
         assert _tree_by_name(cfg, "ch1_dac_buf").anchor.anchor_sheet == "Channel_1"
 
+    def test_declared_place_round_trips_in_the_TREE_anchor_grammar(self, tmp_path):
+        """§И.2/И.7.1.2: the declaration's own `anchor` is written with the TREE
+        anchor grammar — BARE tags, (anchor (point "p")) — never the free-form
+        type-driven shape (anchor ("point" "p")) the generic machinery would
+        produce for a plain mapping, and never a second grammar. Every mode
+        survives the text round-trip verbatim."""
+        from kicadstamp.config.sexp_format import sexp_to_dict
+        for anchor, on_disk in (
+                ({"origin": True}, "(origin)"),
+                ({"point": "p_home"}, '(point "p_home")'),
+                ({"ref": "R1", "external": True}, '(ref "R1")'),
+                ({"self": {"ref": "dac_buf", "pad": "4"}},
+                 '(self (ref "dac_buf") (pad "4"))'),
+                ({"role": "AD_DAC", "sheet": "S1", "cluster": "C1", "pad": "7"},
+                 '(role "AD_DAC")'),
+                ({"point": "p_home", "shift": [1.5, -2.0]},
+                 '(shift 1.5 -2.0)'),
+        ):
+            data = _template_data([{
+                "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                "sheet": "Channel_1", "anchor": anchor, "rotation": 90.0}])
+            text = dict_to_sexp(data)
+            # Whitespace-free comparison: the writer breaks a node with several
+            # children over lines (free-form by grammar), so only the tokens
+            # matter here.
+            compact = "".join(text.split())
+            assert "".join(on_disk.split()) in compact, text
+            # ... and never the free-form quoted-key shape.
+            assert '("origin"' not in compact
+            assert '("point"' not in compact
+            back = sexp_to_dict(text)["tree_instances"][0]
+            assert back["anchor"] == anchor
+            assert back["rotation"] == 90.0
+
 
 class TestTreeInstanceWriter:
     """Persistence behind Tools -> "Instances..." (2026-09-02, P3):
@@ -383,7 +417,12 @@ class TestUpsertPreservesUndeclaredFields:
     {name, sheet, cluster} literal, so any field it does not know was erased by
     one OK — measured live with `params:` (the v1.3 axis that feeds
     net_template's {placeholder}s). The writer now writes the edited row OVER
-    its declaration. These tests MEASURE the declaration before and after."""
+    its declaration. These tests MEASURE the declaration before and after.
+
+    The last three are the §И.7.1.2 case of the NEW own-place axes
+    (`anchor`/`rotation`): after §И.5 the dialog's rows DO carry them, so they
+    are written back unchanged (a recognised no-op), replaced, or cleared by
+    omitting them."""
 
     @staticmethod
     def _read(p) -> list:
@@ -490,6 +529,59 @@ class TestUpsertPreservesUndeclaredFields:
             "template": "dac_buf_tpl", "name": "ch1_dac_buf",
             "sheet": "Channel_1", "cluster": "GRP",
             "params": {"channel_sheet": "Channel_1"}}])
+        assert upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1"}]) is True
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}}]
+
+    def test_declared_place_and_angle_survive_the_write(self, tmp_path):
+        """§И.7.1.2: the NEW axes survive the same write when the row carries
+        them back unchanged (the "edits them, but the row did not change" case)
+        — and such a write is recognised as a no-op."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"point": "p_home"},
+            "rotation": 90}])
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1",
+             "anchor": {"point": "p_home"}, "rotation": 90.0}])
+        assert changed is False
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"point": "p_home"},
+            "rotation": 90}]
+
+    def test_declared_place_and_angle_survive_a_sheet_edit(self, tmp_path):
+        """The same, with a field the dialog DOES change: the anchor/rotation
+        carried by the row are written back, not dropped."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"point": "p_home"},
+            "rotation": 90}])
+        assert upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_2",
+             "anchor": {"role": "AD_DAC", "sheet": "Channel_9"},
+             "rotation": 45.0}]) is True
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_2",
+            "anchor": {"role": "AD_DAC", "sheet": "Channel_9"},
+            "rotation": 45.0}]
+
+    def test_clearing_rotation_and_anchor_removes_the_keys(self, tmp_path):
+        """A row WITHOUT rotation/anchor (the dialog's blank Rotation cell, its
+        "Inherit from template" action) clears those keys — the overlay must
+        not "preserve" them just because they are absent from the row, and they
+        are never written as null/"". Every field the dialog does NOT own
+        (`params:`) survives."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"point": "p_home"},
+            "rotation": 90, "params": {"channel_sheet": "Channel_1"}}])
         assert upsert_tree_instances(p, "dac_buf_tpl", [
             {"name": "ch1_dac_buf", "sheet": "Channel_1"}]) is True
         assert self._read(p) == [{
@@ -1335,3 +1427,265 @@ class TestAutoAnchorTemplates:
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
         assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
+
+
+def _raw_tree(out: dict, name: str) -> dict:
+    """The materialized template-dict of one instance (expand_tree_instances
+    output, BEFORE any load-time parsing)."""
+    return next(t for t in out["trees"] if t.get("name") == name)
+
+
+class TestDeclarationOwnPlace:
+    """И.7.2/И.7.3 (plan_2026_09_12_tree_instance_own_place, task C2): a
+    tree_instances declaration can carry its OWN `anchor` (the TREE anchor
+    grammar) and `rotation`. The mechanism is the most battle-tested part of
+    the project (v1.0–v1.5) — these tests pin that the new axis ADDS a place
+    without touching what the instance IS (sheet/cluster/params/nets)."""
+
+    ROOT_NODE = "dac_buf__ch1_dac_buf"
+
+    @staticmethod
+    def _load(tmp_path, instances, *, template_anchor=None, nodes=None,
+              points=None):
+        data = _template_data(instances, anchor=template_anchor, nodes=nodes)
+        if points is not None:
+            data["points"] = points
+        return load_config(str(_write(tmp_path, "own_place.sexp", data)))[0]
+
+    @staticmethod
+    def _node_pose(cfg, tree, ref):
+        """(x_mm, y_mm, rot_deg) of `ref` in `tree`, laid out OFFLINE from the
+        tree's own anchor — a (point ...) with a literal xy and an origin need
+        no live board."""
+        from kicadstamp.tree_position import layout_tree_from_anchor
+        from kicadstamp.utils.units import MM
+        pos, rot = layout_tree_from_anchor(
+            tree, adapter=None, cfg=cfg, sheet_names={})[ref]
+        return pos.x / MM, pos.y / MM, rot
+
+    # ── И.7.2: the place ────────────────────────────────────────────────
+
+    def test_absent_place_is_byte_for_byte_todays_behaviour(self):
+        """The compatibility requirement: neither key -> NOTHING changes. The
+        generated tree keeps the template's role anchor with ONLY the sheet
+        substituted, and has no rotation of its own."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        rows = [{"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                 "sheet": "Channel_1"}]
+        out = expand_tree_instances(_template_data(rows))
+        gen = _raw_tree(out, "ch1_dac_buf")
+        assert gen["anchor"] == {"role": "DAC_BUF", "sheet": "Channel_1"}
+        assert "rotation" not in gen
+
+    def test_explicit_nulls_are_the_same_as_absent_keys(self):
+        """A row declaring anchor: null / rotation: null (what a caller that
+        always emits the keys produces) expands identically to one that omits
+        them — the two spellings must never diverge."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        base = {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                "sheet": "Channel_1"}
+        out_absent = expand_tree_instances(_template_data([dict(base)]))
+        out_null = expand_tree_instances(
+            _template_data([dict(base, anchor=None, rotation=None)]))
+        assert out_absent["trees"] == out_null["trees"]
+        assert out_absent["entities"] == out_null["entities"]
+        assert out_absent["net_traces"] == out_null["net_traces"]
+
+    def test_declared_point_anchor_places_the_instance_by_number(self, tmp_path):
+        """`(anchor (point "p_home"))` -> the generated tree stands ON that
+        point: the root node lands at x=10+1, y=20+2 mm (its own xy is [1, 2]),
+        i.e. the position is checked as a NUMBER, not as "no exception"."""
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"point": "p_home"}}],
+            points={"p_home": {"xy": [10.0, 20.0]}})
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.point == "p_home"
+        x, y, rot = self._node_pose(cfg, tree, self.ROOT_NODE)
+        assert (x, y) == pytest.approx((11.0, 22.0))
+        assert rot == 90.0   # the node's own rotation is untouched
+
+    def test_declared_origin_anchor_is_used_and_not_sheet_substituted(self, tmp_path):
+        """`(anchor (origin))` -> board (0,0); the instance sheet is NOT written
+        into a declared anchor (И.3.1) — verified by VALUE (the root node sits
+        at its own [1, 2] from the origin)."""
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}])
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.is_origin is True
+        assert tree.anchor.anchor_sheet is None
+        x, y, _rot = self._node_pose(cfg, tree, self.ROOT_NODE)
+        assert (x, y) == pytest.approx((1.0, 2.0))
+
+    def test_declared_role_anchor_keeps_its_own_sheet_and_cluster(self, tmp_path):
+        """A declared role anchor is used VERBATIM: neither the instance's sheet
+        nor the declaration's own `cluster:` is substituted into it — the two
+        substitutions the old role-anchor path performed unconditionally."""
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "cluster": "NEWCLUST",
+            "anchor": {"role": "AD_DAC", "sheet": "Channel_9",
+                       "cluster": "CL9"}}])
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.role == "AD_DAC"
+        assert tree.anchor.anchor_sheet == "Channel_9"
+        assert tree.anchor.anchor_cluster == "CL9"
+        # ... while the copies STILL get the instance sheet (the other axis)
+        assert _entity_by_name(cfg, self.ROOT_NODE).sheet == "Channel_1"
+
+    def test_declared_rotation_turns_the_instance_by_number(self, tmp_path):
+        """`rotation: 90` rotates the whole instance: the root node's offset is
+        the template's [1, 2] rotated by 90 deg about the anchor (number)."""
+        from kicadstamp.geometry.spoke_layout import rotate_local_offset
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True},
+            "rotation": 90.0}])
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.rotation == 90.0
+        expected = rotate_local_offset(1.0, 2.0, 90.0)
+        x, y, rot = self._node_pose(cfg, tree, self.ROOT_NODE)
+        assert (x, y) == pytest.approx((expected.x / 1000000.0,
+                                        expected.y / 1000000.0))
+        assert rot == pytest.approx(180.0)   # 90 (tree) + 90 (node's own)
+
+    def test_declared_rotation_replaces_the_template_angle(self, tmp_path):
+        """§И.3.4: REPLACE, not add — a template carrying 30 deg + a declaration
+        carrying 90 deg gives 90, never 120 (a sum would make the result depend
+        on what the template happens to hold)."""
+        from kicadstamp.config.sexp_format import dict_to_sexp
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True},
+            "rotation": 90.0}])
+        data["trees"][0]["rotation"] = 30.0
+        p = tmp_path / "rot.sexp"
+        p.write_text(dict_to_sexp(data), encoding="utf-8")
+        cfg, _ = load_config(str(p))
+        assert _tree_by_name(cfg, "ch1_dac_buf").rotation == 90.0
+
+    def test_declared_self_anchor_ref_follows_the_node_suffix(self, tmp_path):
+        """§И.3.3: a declaration's `(self (ref "dac_buf"))` names a TEMPLATE
+        node, so it goes through the SAME rename map — the generated tree loads
+        with the suffixed ref (the loader fatals otherwise)."""
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"self": {"ref": "dac_buf"}}}])
+        tree = _tree_by_name(cfg, "ch1_dac_buf")
+        assert tree.anchor.is_self is True
+        assert tree.anchor.self_ref == self.ROOT_NODE
+
+    def test_declared_self_anchor_with_an_unknown_ref_is_a_fatal(self):
+        """§И.3.3: a name missing from the rename map is a fatal at EXPANSION
+        time, naming the declaration — never a later load-time error blaming
+        the generated tree."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"self": {"ref": "NOPE"}}}])
+        with pytest.raises(ValidationError,
+                           match=r"ch1_dac_buf.*self anchor ref 'NOPE'"):
+            expand_tree_instances(data)
+
+    # ── И.7.3: the entry gate ───────────────────────────────────────────
+
+    def test_origin_template_with_a_declared_anchor_expands(self):
+        """The point of the whole axis: a template that is NOT sheet-parameter-
+        ized (origin anchor) is legal as soon as the declaration brings its own
+        place — provided the template needs no old_sheet."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"origin": True})
+        out = expand_tree_instances(data)
+        assert _raw_tree(out, "ch1_dac_buf")["anchor"] == {"origin": True}
+        assert any(e["name"] == self.ROOT_NODE for e in out["entities"])
+
+    def test_gate_opens_for_a_point_template_without_copper(self, tmp_path):
+        """Same gate, the other formerly-forbidden mode: a (point ...) template
+        anchor + a declared anchor + no copper/mount nodes loads."""
+        cfg = self._load(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            template_anchor={"point": "p_tpl"},
+            points={"p_tpl": {"xy": [5.0, 5.0]}})
+        assert _tree_by_name(cfg, "ch1_dac_buf").anchor.is_origin is True
+
+    def test_origin_template_with_a_net_trace_needs_a_sheet(self):
+        """§И.4: a net_trace node's net is rewritten from the template's own
+        sheet, which an origin-anchored template cannot yield — the fatal says
+        exactly what to add instead of blaming a node deep in the walk."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"origin": True},
+            nodes=[
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "/Own/GRP/N", "kind": "net_trace"},
+            ])
+        with pytest.raises(ValidationError,
+                           match=r"the template's own sheet cannot be derived"):
+            expand_tree_instances(data)
+        with pytest.raises(ValidationError, match=r"add \(sheet"):
+            expand_tree_instances(data)
+
+    def test_origin_template_with_a_mount_node_needs_a_sheet(self):
+        """Same gate for a mount node: its anchor's sheet decides inside/outside
+        against the template's own sheet, so old_sheet is required."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"origin": True},
+            nodes=[
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "H1", "kind": "mount",
+                 "anchor": {"role": "HOST", "sheet": "Own"}},
+            ])
+        with pytest.raises(ValidationError,
+                           match=r"the template's own sheet cannot be derived"):
+            expand_tree_instances(data)
+
+    def test_gate_regression_without_a_declared_anchor(self):
+        """§И.4 regression: with NO declaration anchor the old rule and the old
+        text apply word for word — an origin-anchored template stays a fatal
+        even when it has no copper at all."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1"}], anchor={"origin": True})
+        with pytest.raises(ValidationError,
+                           match=r"must be role-anchored OR self-anchored"):
+            expand_tree_instances(data)
+
+    def test_old_sheet_still_comes_from_the_template_with_a_declared_anchor(self):
+        """§И.3.2: a declaration anchor moves the instance but does NOT change
+        what it IS — the template's own sheet (here the root Entity's, there is
+        no role anchor) still drives the net_trace leading-segment rewrite,
+        while the copy's ANCHOR is exactly the declared origin."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"origin": True})
+        # The template's own sheet lives on its ROOT ENTITY (the shape a
+        # non-role template uses — Q2 keeps it for live re-readability), and the
+        # template's own copper is the /Channel_0/ net path.
+        data["entities"][0]["sheet"] = "Channel_0"
+        data["trees"][0]["nodes"] = [
+            {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+             "children": [
+                 {"ref": "/Channel_0/GRP/N", "kind": "net_trace"},
+             ]},
+        ]
+        data["net_traces"] = [{
+            "net": "/Channel_0/GRP/N", "anchor_role": "DAC_BUF",
+            "anchor_sheet": "Channel_0"}]
+        out = expand_tree_instances(data)
+        gen = _raw_tree(out, "ch1_dac_buf")
+        assert gen["anchor"] == {"origin": True}
+        nets = sorted(nt["net"] for nt in out["net_traces"])
+        assert nets == ["/Channel_0/GRP/N", "/Channel_1/GRP/N"]

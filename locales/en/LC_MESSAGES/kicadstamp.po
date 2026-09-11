@@ -16580,3 +16580,56 @@ msgstr ""
 #: gui/docks/trees_dock.py
 msgid "Show tree markers failed: {error}"
 msgstr ""
+
+# ── tree_instances: a declaration's own place (plan_2026_09_12_tree_instance_own_place) ──
+#: kicadstamp/config/entries.py
+msgid "tree_instances: entry {name!r} has a non-mapping anchor:"
+msgstr ""
+
+#: kicadstamp/config/entries.py
+msgid "tree_instances: entry #{idx} has a non-mapping anchor:"
+msgstr ""
+
+#: kicadstamp/config/entries.py
+msgid "anchor:, when present, must be a mapping in the TREE anchor grammar (origin / ref / role / point / self, plus optional sheet / cluster / pad / shift) — omit the key entirely to keep the template's own place"
+msgstr ""
+
+#: kicadstamp/config/entries.py
+msgid "tree_instances: entry {name!r} has a non-numeric rotation:"
+msgstr ""
+
+#: kicadstamp/config/entries.py
+msgid "tree_instances: entry #{idx} has a non-numeric rotation:"
+msgstr ""
+
+#: kicadstamp/config/entries.py
+msgid "rotation:, when present, must be a number (degrees) — omit the key entirely to inherit the template's own angle"
+msgstr ""
+
+#: kicadstamp/config/tree_instances.py
+msgid "tree_instance {name!r}: template {template!r} declares its own place, but the template's own sheet cannot be derived"
+msgstr ""
+
+#: kicadstamp/config/tree_instances.py
+msgid "the template has net_trace or mount nodes, whose expansion needs the template's own sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an explicit sheet to the root Entity of the template tree"
+msgstr ""
+
+#: gui/docks/instances_dialog.py
+msgid "Rotation must be a number — got {value!r}."
+msgstr ""
+
+#: gui/docks/instances_dialog.py
+msgid "Instance anchor"
+msgstr ""
+
+#: gui/docks/instances_dialog.py
+msgid "Inherit from template"
+msgstr ""
+
+#: gui/docks/instances_dialog.py
+msgid "Drop this row's own anchor — the instance goes back to standing where the template's anchor resolves."
+msgstr ""
+
+#: gui/docks/instances_dialog.py
+msgid "Edit this instance's own place (anchor)"
+msgstr ""

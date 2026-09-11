@@ -130,6 +130,38 @@ old->new map the SAME walk collects; a name missing from it is a fatal at
 EXPANSION time naming the template (otherwise the generated tree fails to load
 with "pivot-ref names no node", blaming the wrong tree).
 
+v1.6 (2026-09-12, plan_2026_09_12_tree_instance_own_place, task C2): a
+declaration may carry its OWN PLACE and its own ANGLE — `anchor:` (the TREE
+anchor dict grammar, verbatim: origin/ref/external/role/point/self plus the
+optional sheet/cluster/pad/shift, parsed by trees.anchor_from_dict /
+written by trees.anchor_to_sexp) and `rotation:` (degrees). Both OPTIONAL and
+both None = today's behaviour, byte for byte (the профиль's two declarations
+carry neither). Four rules, all in _expand_template:
+  (а) §И.3.1 — a declaration anchor REPLACES the generated copy's anchor WHOLE
+      and the sheet/cluster substitution is then NOT done into it: a human
+      named the place, guessing on top of an explicit answer is not allowed.
+      The sheet/cluster substitution into the Entity copies, the mount anchor
+      sheet comparison and the copper net rewriting stay exactly as they were
+      — those are the "what the instance IS" axis, the anchor is the "where it
+      stands" one;
+  (б) §И.3.2/§И.4 — `old_sheet` is STILL derived from the TEMPLATE (a role
+      anchor's sheet, or the subject Entity's own sheet for a self/otherwise
+      anchored template). A declaration anchor therefore OPENS the entry gate
+      to a template of ANY anchor mode (origin/ref/point included — the very
+      case that used to be an unconditional fatal), but a template that NEEDS
+      old_sheet (it has net_trace or mount nodes) and cannot yield one is a
+      fatal that says what to add, instead of a per-node mystery deep in the
+      walk;
+  (в) §И.3.3 — a declaration anchor of the form (self (ref "X")) names a node
+      of the TEMPLATE, so X follows the SAME old->new ref map the walk collects
+      (the one pivot_ref and a template's own self anchor already use); a name
+      missing from it is a fatal naming the declaration;
+  (г) §И.3.4 — a declaration `rotation` lands on the copy's Tree.rotation and
+      REPLACES the template's own angle (a sum would make the result depend on
+      what the template happens to hold).
+`pivot` is deliberately NOT a declaration field: the suspension point is a
+property of the template's geometry and is inherited (design Б3.2).
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -146,7 +178,11 @@ v1 template constraints (each is a hard fatal, never a silent skip):
   - the template tree must be role-anchored ((anchor (role ...))) OR — v1.4 —
     auto-anchored (no (anchor ...) at all, with exactly ONE top-level placement
     node, the same shape auto-anchor resolution itself requires);
-    origin/ref/point anchors are not parameterized by sheet;
+    origin/ref/point anchors are not parameterized by sheet. v1.6: that rule
+    applies ONLY while the declaration has no `anchor:` of its own — with one,
+    the sheet parameterization is not needed for PLACEMENT and the template may
+    be of any anchor mode (the old_sheet requirement above still holds for a
+    template that materializes net_trace/mount nodes);
   - every template node must be kind=placement (or unset/auto) or kind=
     net_trace (chain/coordinate/clone/module nodes inside a template are not
     instantiated yet);
@@ -227,6 +263,25 @@ def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str
         if children:
             clusters |= _template_generated_clusters(children, entities_by_name)
     return clusters
+
+
+def _template_needs_old_sheet(nodes: list) -> bool:
+    """True when the template carries a node whose expansion READS the
+    template's own sheet (`old_sheet`): a net_trace node (its net's leading
+    sheet segment is rewritten) or a mount node (its anchor's sheet decides
+    inside/outside). Used by the entry gate (§И.4): a declaration that brings
+    its own `anchor` may use a template of ANY anchor mode, but such a template
+    must still be able to yield a sheet somewhere (a role anchor's sheet, or the
+    root Entity's own sheet) — otherwise the gate says exactly what to add
+    instead of leaving a per-node mystery fatal."""
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get('kind') in ('net_trace', 'mount'):
+            return True
+        if _template_needs_old_sheet(node.get('children') or []):
+            return True
+    return False
 
 
 def _template_root_entity_ref(template: dict) -> str | None:
@@ -528,7 +583,9 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                      sheet: str, entities_by_name: dict,
                      net_traces_by_net: dict,
                      cluster: str | None = None,
-                     params: dict[str, str] | None = None) -> tuple[dict, list, list]:
+                     params: dict[str, str] | None = None,
+                     decl_anchor: dict | None = None,
+                     decl_rotation: float | None = None) -> tuple[dict, list, list]:
     """Materialize ONE instance from a template Tree dict: returns
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
     mutated — deep copies only.
@@ -559,7 +616,21 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     copy keeps its own template cluster, while a role anchor is STILL overridden
     (the two substitutions are separate concepts — external-anchor narrowing vs
     each copy's own identity). A homogeneous template (<=1 distinct value) keeps
-    the unconditional per-copy override exactly as before (back-compat)."""
+    the unconditional per-copy override exactly as before (back-compat).
+
+    decl_anchor / decl_rotation (2026-09-12, plan_2026_09_12_tree_instance_own_place
+    §И.3, task C2): the DECLARATION's own place and angle. When `decl_anchor` is
+    not None it REPLACES the copy's anchor WHOLE (§И.3.1) — and `sheet`/`cluster`
+    are then NOT substituted into it, because a human named the place explicitly
+    and guessing on top of that is not allowed. The template may then be of ANY
+    anchor mode (§И.4): that is the whole point of the axis ("the same template,
+    standing here / at this node" was inexpressible while a role-/self-anchored
+    template was mandatory). `old_sheet` is STILL the TEMPLATE's (§И.3.2) — it
+    says what the template IS (which copper is its own), not where the copy
+    stands; a template that needs it and cannot yield it is a gate fatal.
+    `decl_rotation` not None lands on the copy's Tree.rotation and REPLACES the
+    template's own angle rather than adding to it (§И.3.4). Both None = today's
+    behaviour, byte for byte."""
     anchor = template.get('anchor')
     is_role_anchor = (isinstance(anchor, dict)
                       and isinstance(anchor.get('role'), str)
@@ -582,10 +653,14 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     # single top-level placement node (today's EXACTLY-ONE rule). A NAMED ref
     # drops that rule — several top-level nodes (incl. a net_trace) are legal
     # (plan Д.4/Д.6).
+    # The declaration's OWN place (§И.2/§И.4): present -> it replaces the copy's
+    # anchor whole AND opens the entry gate to a template of ANY anchor mode
+    # ("the same template, standing here" was inexpressible before).
+    has_decl_anchor = decl_anchor is not None
     root_ref = None
     if not is_role_anchor:
         root_ref = explicit_self_ref or _template_root_entity_ref(template)
-    if not is_role_anchor and not is_self_anchor:
+    if not has_decl_anchor and not is_role_anchor and not is_self_anchor:
         raise ValidationError(format_fatal_error(
             _("tree_instance: template {template!r} must be role-anchored OR "
               "self-anchored (an explicit (self ...), or no (anchor ...) at all)")
@@ -594,10 +669,11 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                "explicit (anchor (self [(ref \"...\")])) OR no (anchor ...) at "
                "all with exactly one top-level placement node; origin/ref/point "
                "anchors are still not parameterized by sheet")]))
-    if not is_role_anchor and root_ref is None:
+    if not is_role_anchor and is_self_anchor and root_ref is None:
         # A self template whose subject cannot be resolved at EXPANSION time —
         # fail HERE with a clear message, not later during a live redraw of the
-        # generated instance.
+        # generated instance. Checked REGARDLESS of a declaration anchor: the
+        # template's own sheet (below) is read from that very subject.
         raise ValidationError(format_fatal_error(
             _("tree_instance: template {template!r} is self-anchored but names "
               "no resolvable subject node").format(template=template_name),
@@ -605,25 +681,56 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                "several, name the subject explicitly: "
                "(anchor (self (ref \"...\")))")]))
 
+    # old_sheet (§И.3.2) is ALWAYS the TEMPLATE's own sheet, never the
+    # declaration's: it says which copper belongs to the template (and which
+    # mounts look INSIDE it), not where the copy stands. A role template takes
+    # it from the anchor; any other template that has a resolvable subject takes
+    # it from that subject Entity's OWN record (the template keeps its own sheet
+    # for its own live re-readability, see Q2).
     if is_role_anchor:
         old_sheet = anchor.get('sheet')
-    else:
-        # Self template: the old sheet for net_trace leading-segment rewriting
-        # comes from the subject Entity's OWN record (there is no anchor.sheet to
-        # read). The missing-record fatal deliberately duplicates _expand_node's
+    elif root_ref is not None:
+        # The missing-record fatal deliberately duplicates _expand_node's
         # "no matching entities:" wording — identical cause, identical message.
         root_entity = entities_by_name.get(root_ref)
         if root_entity is None:
-            raise ValidationError(format_fatal_error(
-                _("tree_instance: template {template!r} node {ref!r} has no "
-                  "matching entities: record").format(template=template_name,
-                                                       ref=root_ref),
-                [_("the self-anchored template's subject node must reference an "
-                   "existing entities: entry by its name")]))
-        old_sheet = root_entity.get('sheet')
+            if is_self_anchor:
+                raise ValidationError(format_fatal_error(
+                    _("tree_instance: template {template!r} node {ref!r} has no "
+                      "matching entities: record").format(template=template_name,
+                                                           ref=root_ref),
+                    [_("the self-anchored template's subject node must reference "
+                       "an existing entities: entry by its name")]))
+            old_sheet = None
+        else:
+            old_sheet = root_entity.get('sheet')
+    else:
+        old_sheet = None
+    if (has_decl_anchor and old_sheet is None
+            and _template_needs_old_sheet(template.get('nodes') or [])):
+        # §И.4: the declaration's anchor lets a template of any mode in, but a
+        # net_trace/mount node still needs the template's OWN sheet, and that
+        # cannot be invented. Say exactly what to add — the alternative would be
+        # a per-node fatal deep inside the walk, far from the real cause.
+        raise ValidationError(format_fatal_error(
+            _("tree_instance {name!r}: template {template!r} declares its own "
+              "place, but the template's own sheet cannot be derived")
+            .format(name=instance_name, template=template_name),
+            [_("the template has net_trace or mount nodes, whose expansion needs "
+               "the template's own sheet — add (sheet \"...\") to a (role ...) "
+               "anchor of the template, or an explicit sheet to the root Entity "
+               "of the template tree")]))
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
-    if is_role_anchor:
+    if has_decl_anchor:
+        # §И.3.1: the declaration's anchor REPLACES the copy's WHOLE, and the
+        # sheet/cluster substitution below is deliberately NOT applied to it — a
+        # human named the place explicitly, guessing on top of that is not
+        # allowed. Its own (self (ref ...)), when it has one, still follows the
+        # node renames — done after the walk by _rewrite_self_ref (§И.3.3, the
+        # SAME ref_map as pivot_ref: no third map).
+        gen['anchor'] = copy.deepcopy(decl_anchor)
+    elif is_role_anchor:
         gen['anchor']['sheet'] = sheet
         if cluster is not None and isinstance(gen['anchor'].get('role'), str):
             # Cluster override lands on the role anchor too (we are in the role
@@ -636,6 +743,13 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     # Its OWN (ref ...), when present, must follow the node renames — done after
     # the node walk, via _rewrite_self_ref (the SAME ref_map as pivot_ref, plan
     # Д.6). A bare (self) carries no ref and needs nothing.
+
+    if decl_rotation is not None:
+        # §И.3.4: the declared angle REPLACES the template's own instead of
+        # adding to it — a sum would make the instance's orientation depend on
+        # whatever the template happens to hold, which cannot be predicted from
+        # the declaration alone.
+        gen['rotation'] = decl_rotation
 
     # 2026-09-08 (plan tree_instances_cluster_composite_guard): the per-node
     # Entity cluster override below is a DIFFERENT concept from the anchor's
@@ -762,6 +876,31 @@ def expand_tree_instances(data: dict) -> dict:
                 [_("params:, when present, must be a mapping of string keys to "
                    "string values — omit the key entirely to inherit the "
                    "template Entity's own params unchanged")]))
+        # §И.2 (plan_2026_09_12_tree_instance_own_place): OPTIONAL own place and
+        # angle. Same deliberate duplication of the loader's guards as `cluster`/
+        # `params` above — this runs on the RAW dict before entries.py sees it.
+        # The anchor is only checked to BE a mapping here; its grammar is
+        # validated by the TREE loader (trees.anchor_from_dict), which sees the
+        # very same dict on the generated tree and reports it under that tree's
+        # (== the instance's) name.
+        decl_anchor = inst.get('anchor')
+        if decl_anchor is not None and not isinstance(decl_anchor, dict):
+            raise ValidationError(format_fatal_error(
+                _("tree_instances: entry #{idx} has a non-mapping anchor:")
+                .format(idx=idx + 1),
+                [_("anchor:, when present, must be a mapping in the TREE anchor "
+                   "grammar (origin / ref / role / point / self, plus optional "
+                   "sheet / cluster / pad / shift) — omit the key entirely to "
+                   "keep the template's own place")]))
+        decl_rotation = inst.get('rotation')
+        if decl_rotation is not None and (
+                not isinstance(decl_rotation, (int, float))
+                or isinstance(decl_rotation, bool)):
+            raise ValidationError(format_fatal_error(
+                _("tree_instances: entry #{idx} has a non-numeric rotation:")
+                .format(idx=idx + 1),
+                [_("rotation:, when present, must be a number (degrees) — omit "
+                   "the key entirely to inherit the template's own angle")]))
         template = trees_by_name.get(template_name)
         if template is None:
             raise ValidationError(format_fatal_error(
@@ -772,7 +911,7 @@ def expand_tree_instances(data: dict) -> dict:
         (generated_tree, generated_entities,
          generated_net_traces) = _expand_template(
             template, template_name, instance_name, sheet, entities_by_name,
-            net_traces_by_net, cluster, params)
+            net_traces_by_net, cluster, params, decl_anchor, decl_rotation)
         trees.append(generated_tree)
         entities.extend(generated_entities)
         net_traces.extend(generated_net_traces)

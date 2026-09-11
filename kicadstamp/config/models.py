@@ -893,6 +893,28 @@ class TreeInstance:
         anchor_* narrows an EXTERNAL search, not {placeholder}-parametrized
         geometry).
 
+    anchor — OPTIONAL (2026-09-12, plan_2026_09_12_tree_instance_own_place
+        §И.2, task C2): the generated tree's OWN place, in the TREE anchor dict
+        grammar (kicadstamp/trees.py::anchor_from_dict / _anchor_to_dict — the
+        SAME modes, shift included: origin/ref/external/role/point/self). When
+        set, expansion REPLACES the copy's anchor with it WHOLE and does NOT
+        substitute `sheet`/`cluster` into it (И.3.1 — a human named the place
+        explicitly, guessing on top of that is not allowed); the template's own
+        anchor may then be of ANY mode, which is the point of the axis: a
+        placement "not by role" was inexpressible before (v1 required a
+        role-/self-anchored template). None (the default) keeps today's
+        behaviour byte-for-byte.
+
+        The template's own sheet is STILL what drives the net_trace/mount
+        `old_sheet` (И.3.2) — `anchor` moves the instance, it does not change
+        what the instance IS.
+
+    rotation — OPTIONAL own angle of the generated tree (И.3.4, same meaning as
+        Tree.rotation): lands on the copy's Tree.rotation and REPLACES the
+        template's own angle rather than adding to it (otherwise the result
+        would depend on what happens to be stored in the template). None (the
+        default) inherits the template's angle verbatim.
+
     The declaration list stays on Config (cfg.tree_instances) even after
     expansion: the raw declarations are the single source of truth for the GUI
     to tell a materialized (read-only, never persisted) tree from a
@@ -902,6 +924,8 @@ class TreeInstance:
     sheet: str
     cluster: str | None = None
     params: dict[str, str] | None = None
+    anchor: dict | None = None
+    rotation: float | None = None
 
 
 @dataclass
