@@ -1,14 +1,21 @@
 # gui/docks/root_metadata.py
 """
 RootMetadataDock — edits the root-config-only scalar keys of the project's
-ONE root file: layer, schematic_dir/schematic_files/root_sheet, registry_path/
-track_registry_path, log_file, operation_log_dir, place_components/
-skip_existing_components, via_keepout_clearance_mm/via_search_step_mm/
-via_search_max_radius_mm/via_search_n_directions — exactly the field set
-config/models.py's Config dataclass carries OUTSIDE cells/points/
-thermal_via_arrays/rules/clone_placements (those are entity sections,
-already shown as tree leaves — see _common.py's non_includable_keys(), the
-same set this dock edits).
+ONE root file: layer, schematic_dir/schematic_files/root_sheet,
+place_components/skip_existing_components,
+via_keepout_clearance_mm/via_search_step_mm/via_search_max_radius_mm/
+via_search_n_directions — exactly the field set config/models.py's Config
+dataclass carries OUTSIDE cells/points/thermal_via_arrays/rules/
+clone_placements (those are entity sections, already shown as tree leaves —
+see _common.py's non_includable_keys(), the same set this dock edits).
+
+The Files tab (registry_path/track_registry_path/log_file/
+operation_log_dir) was REMOVED 2026-09-11 (plan
+project_settings_single_source, Этап 1): all four have a computed default
+(kicadstamp.utils.paths) and every consumer creates its directory/file on
+demand, so the tab solved a problem the code already solves a layer below.
+The keys stay part of the FORMAT — merge_write leaves keys it is not given
+untouched, so a profile that declares them keeps its values.
 
 root_sheet (added 2026-08-07, Denis: "рутовый шит надо перетащить хотя бы
 в настройки проекта") — used to live only in the GUI's fieldstool dock as a
@@ -39,8 +46,8 @@ fields would be invalid.
 Restructured into tabs the same day ("решил сделать root табами") to cut
 dock height, following the Extract dock's 2026-08-04 tabbing for the same
 reason — Layer/place_components/skip_existing_components stay above the
-tabs as general project settings; Files/Schematics/Via each get their own
-tab.
+tabs as general project settings; Files/Schematics/Via each initially got
+their own tab (Files removed 2026-09-11, see above).
 
 Read-merge-write via _common.merge_write(section=None) — every other key
 already in the file (cells:, include:, ...) is left untouched. A field is
@@ -52,16 +59,14 @@ one now typed back to its default). Actually clearing a key back to
 "absent" is out of scope here — same "reachable by hand-editing the saved
 YAML" spirit as PlacerDock's own documented scope limits.
 
-Path fields get a "..." browse button (2026-08-03, Denis: "надо бы кнопки
-с диалогом выбора пути/файла") — schematic_dir/operation_log_dir pick an
-existing DIRECTORY (QFileDialog.getExistingDirectory); registry_path/
-track_registry_path/log_file pick a FILE via a Save-mode dialog (these
-files are routinely created BY `apply` on first run, not beforehand — same
-"may not exist yet" reasoning ConfigTreeDock's own Add-included-file
-dialog already uses). Whatever absolute path the dialog returns is
-converted to a path relative to the target file's own directory before
-being written into the field — every one of these fields is documented as
-"relative to this YAML" (see config/models.py's Config docstring).
+Remaining path fields get a "..." browse button (2026-08-03, Denis: "надо
+бы кнопки с диалогом выбора пути/файла") — schematic_dir picks an
+existing DIRECTORY (QFileDialog.getExistingDirectory); root_sheet picks an
+existing FILE via an Open-mode dialog filtered to *.kicad_sch. Whatever
+absolute path the dialog returns is converted to a path relative to the
+target file's own directory before being written into the field — every
+one of these fields is documented as "relative to this YAML" (see
+config/models.py's Config docstring).
 
 schematic_files (a real list, not a single scalar) gets a QListWidget +
 Add.../Remove instead of a comma-separated QLineEdit (2026-08-03, Denis:
@@ -84,10 +89,6 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
 
 from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
-from kicadstamp.utils.paths import (default_log_file_for_config,
-                                    default_operation_log_dir_for_config,
-                                    registry_path_for_config,
-                                    track_registry_path_for_config)
 
 from .. import settings, yaml_io
 from ..hotkeys import build_action
@@ -122,35 +123,22 @@ _DEFAULTS: Dict[str, object] = {
     for f in dataclasses.fields(Config)
 }
 
-# Third element: "dir" -> browse button opens getExistingDirectory,
-# "file" -> Save-mode getSaveFileName (these are routinely created BY apply
-# on first run, so they may not exist yet — see module docstring), "sch" ->
+# Third element: "dir" -> browse button opens getExistingDirectory, "sch" ->
 # Open-mode getOpenFileName filtered to *.kicad_sch (this one must already
 # exist, same reasoning as schematic_files' own Add... button below).
 # Fourth element: where it lands — "common" -> the general-settings form
 # above the tabs (root_sheet, 2026-08-07, Denis: "перенеси на Project" —
 # it identifies the project as a whole, same standing as Layer, not
-# specific to any one tab), "schematics"/"files" -> that tab.
+# specific to any one tab), "schematics" -> that tab.
+#
+# The four former "files" entries (registry_path, track_registry_path,
+# log_file, operation_log_dir) were removed 2026-09-11 with the Files tab —
+# see the module docstring. Because that also emptied the placeholder map
+# that used to show their computed defaults, the map itself is gone.
 _TEXT_FIELDS = [
     ("root_sheet", _("Root sheet:"), "sch", "common"),
     ("schematic_dir", _("Schematic dir:"), "dir", "schematics"),
-    ("registry_path", _("Registry path:"), "file", "files"),
-    ("track_registry_path", _("Track registry path:"), "file", "files"),
-    ("log_file", _("Log file:"), "file", "files"),
-    ("operation_log_dir", _("Operation log dir:"), "dir", "files"),
 ]
-# Among _TEXT_FIELDS, these four path fields have a computable default-for-
-# config value (kicadstamp.registry's *_for_config family). The dock shows
-# that computed default as the field's PLACEHOLDER (2026-09-04, plan
-# root_metadata_path_defaults) — an empty field stays empty, the grey text
-# only tells what would actually be used. root_sheet/schematic_dir have no
-# such default and keep the generic "(relative to this YAML)" placeholder.
-_DEFAULT_PLACEHOLDER_FOR = {
-    "registry_path": registry_path_for_config,
-    "track_registry_path": track_registry_path_for_config,
-    "log_file": default_log_file_for_config,
-    "operation_log_dir": default_operation_log_dir_for_config,
-}
 _BOOL_FIELDS = [
     ("place_components", _("Place components")),
     ("skip_existing_components", _("Skip existing components")),
@@ -294,8 +282,6 @@ class RootMetadataDock(QWidget):
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs, 1)
 
-        files_page = QWidget()
-        files_form = QFormLayout(files_page)
         schematics_page = QWidget()
         schematics_form = QFormLayout(schematics_page)
         via_page = QWidget()
@@ -312,15 +298,11 @@ class RootMetadataDock(QWidget):
             if kind == "dir":
                 browse_button.clicked.connect(
                     lambda _checked=False, e=edit, l=label: self._browse_dir(e, l))
-            elif kind == "sch":
+            else:  # "sch"
                 browse_button.clicked.connect(
                     lambda _checked=False, e=edit, l=label: self._browse_sch(e, l))
-            else:
-                browse_button.clicked.connect(
-                    lambda _checked=False, e=edit, l=label: self._browse_file(e, l))
             row.addWidget(browse_button)
-            target_form = (common_form if group == "common" else
-                           schematics_form if group == "schematics" else files_form)
+            target_form = common_form if group == "common" else schematics_form
             target_form.addRow(label, row)
             self._text_edits[key] = edit
 
@@ -356,7 +338,8 @@ class RootMetadataDock(QWidget):
             via_form.addRow(label, edit)
             self._int_edits[key] = edit
 
-        self._tabs.addTab(files_page, _("Files"))
+        # Files tab removed 2026-09-11 (plan project_settings_single_source,
+        # Этап 1) — see the module docstring; only Schematics and Via remain.
         self._tabs.addTab(schematics_page, _("Schematics"))
         self._tabs.addTab(via_page, _("Via"))
 
@@ -552,18 +535,6 @@ class RootMetadataDock(QWidget):
         self.layer_combo.setCurrentText(data.get("layer", _DEFAULTS["layer"]))
         for key, _label, _kind, _group in _TEXT_FIELDS:
             self._text_edits[key].setText(data.get(key) or "")
-        # 2026-09-04 (plan root_metadata_path_defaults): for the 4 path fields
-        # with a computable default, show that default (computed for the
-        # CURRENT open root file) as placeholder — the field stays empty, the
-        # placeholder just reveals what apply/undo would actually use. With no
-        # open config (self._path is None) there is nothing to compute, so
-        # fall back to the generic placeholder set at widget creation.
-        if self._path is not None:
-            for key, compute in _DEFAULT_PLACEHOLDER_FOR.items():
-                self._text_edits[key].setPlaceholderText(compute(str(self._path)))
-        else:
-            for key in _DEFAULT_PLACEHOLDER_FOR:
-                self._text_edits[key].setPlaceholderText(_("(relative to this YAML)"))
         self.schematic_files_list.clear()
         self.schematic_files_list.addItems(data.get("schematic_files") or [])
         self._make_schematic_items_editable()
@@ -596,16 +567,6 @@ class RootMetadataDock(QWidget):
         start = (self._path.parent / edit.text()) if edit.text().strip() else self._path.parent
         chosen, _filter = QFileDialog.getOpenFileName(
             self, label, str(start), "KiCad Schematic (*.kicad_sch)")
-        if not chosen:
-            return
-        edit.setText(self._relative_to_target(chosen))
-
-    def _browse_file(self, edit: QLineEdit, label: str) -> None:
-        if self._path is None:
-            self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
-            return
-        start = (self._path.parent / edit.text()) if edit.text().strip() else self._path.parent
-        chosen, _filter = QFileDialog.getSaveFileName(self, label, str(start))
         if not chosen:
             return
         edit.setText(self._relative_to_target(chosen))

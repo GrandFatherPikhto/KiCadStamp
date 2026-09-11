@@ -275,30 +275,68 @@ def test_no_file_picked_shows_placeholder_and_defaults(main_window):
     assert not hasattr(dock, "save_button")
 
 
-def test_fields_are_grouped_into_files_schematics_via_tabs(main_window):
+def test_fields_are_grouped_into_schematics_via_tabs(main_window):
     """Restructured into tabs 2026-08-05 (Denis: "решил сделать root
     табами") to cut dock height, same reasoning as ExtractDock's 2026-08-04
     tabbing — Layer/place_components/skip_existing_components are general
-    project settings and stay above the tabs instead of in any one of
-    them."""
+    project settings and stay above the tabs instead of in any one of them.
+    The Files tab was removed 2026-09-11 (plan
+    project_settings_single_source, Этап 1)."""
     dock = RootMetadataDock(main_window)
     labels = [dock._tabs.tabText(i) for i in range(dock._tabs.count())]
-    assert labels == ["Files", "Schematics", "Via"]
+    assert labels == ["Schematics", "Via"]
 
-    files_page = dock._tabs.widget(0)
-    schematics_page = dock._tabs.widget(1)
-    via_page = dock._tabs.widget(2)
-
-    assert files_page.isAncestorOf(dock._text_edits["registry_path"])
-    assert files_page.isAncestorOf(dock._text_edits["track_registry_path"])
-    assert files_page.isAncestorOf(dock._text_edits["log_file"])
-    assert files_page.isAncestorOf(dock._text_edits["operation_log_dir"])
+    schematics_page = dock._tabs.widget(0)
+    via_page = dock._tabs.widget(1)
 
     assert schematics_page.isAncestorOf(dock._text_edits["schematic_dir"])
     assert schematics_page.isAncestorOf(dock.schematic_files_list)
 
     assert via_page.isAncestorOf(dock._float_edits["via_keepout_clearance_mm"])
     assert via_page.isAncestorOf(dock._int_edits["via_search_n_directions"])
+
+
+def test_files_tab_and_its_fields_are_gone(main_window):
+    """2026-09-11 (plan project_settings_single_source, Этап 1): the Files
+    tab and its four path fields (registry_path/track_registry_path/
+    log_file/operation_log_dir) are removed from the dock entirely — the
+    keys stay part of the config FORMAT, but the GUI no longer edits them."""
+    dock = RootMetadataDock(main_window)
+    labels = [dock._tabs.tabText(i) for i in range(dock._tabs.count())]
+    assert "Files" not in labels
+    for key in ("registry_path", "track_registry_path", "log_file",
+                "operation_log_dir"):
+        assert key not in dock._text_edits
+    assert not hasattr(dock, "_DEFAULT_PLACEHOLDER_FOR")
+
+
+def test_removed_files_keys_survive_saving_another_field(main_window, tmp_path):
+    """Regression for the Files-tab removal: a profile that explicitly
+    declares the four removed keys must keep every one of them (and its
+    other sections) byte-for-value when the dock saves an unrelated field.
+    merge_write leaves keys it was not given untouched."""
+    path = tmp_path / "root.sexp"
+    _write(path, {
+        "layer": "F.Cu",
+        "registry_path": "custom/registry.json",
+        "track_registry_path": "custom/tracks.json",
+        "log_file": "custom/run.log",
+        "operation_log_dir": "custom/operational",
+        "cells": {"c1": {}},
+    })
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(path)
+
+    dock.layer_combo.setCurrentText("B.Cu")
+    dock._on_save()
+
+    data = _load(path)
+    assert data["layer"] == "B.Cu"
+    assert data["registry_path"] == "custom/registry.json"
+    assert data["track_registry_path"] == "custom/tracks.json"
+    assert data["log_file"] == "custom/run.log"
+    assert data["operation_log_dir"] == "custom/operational"
+    assert data["cells"] == {"c1": {}}
 
 
 def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
@@ -320,7 +358,6 @@ def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
     assert dock._text_edits["schematic_dir"].text() == "../sch"
     assert [dock.schematic_files_list.item(i).text() for i in range(dock.schematic_files_list.count())] \
         == ["extra1.kicad_sch", "extra2.kicad_sch"]
-    assert dock._text_edits["registry_path"].text() == "registries/fpga.json"
     assert dock._bool_checks["place_components"].isChecked() is False
     assert dock._bool_checks["skip_existing_components"].isChecked() is True
     assert dock._int_edits["via_search_n_directions"].text() == "4"
@@ -458,21 +495,25 @@ def test_browse_dir_writes_path_relative_to_target_file(main_window, tmp_path, m
     assert dock._text_edits["schematic_dir"].text() == "schematics"
 
 
-def test_browse_file_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
+def test_browse_sch_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
+    """The "sch" picker (root_sheet, the one remaining text field above the
+    tabs) writes the chosen .kicad_sch path relative to the target config.
+    Replaces the Files-tab-era _browse_file test, removed 2026-09-11 along
+    with that picker."""
     target = tmp_path / "sub" / "root.sexp"
     target.parent.mkdir()
     _write(target, {})
-    picked_file = tmp_path / "sub" / "registries" / "fpga.json"
+    picked_file = tmp_path / "sub" / "board.kicad_sch"
 
     dock = RootMetadataDock(main_window)
     dock.set_target_file(target)
     monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getSaveFileName",
+        "gui.docks.root_metadata.QFileDialog.getOpenFileName",
         staticmethod(lambda *a, **k: (str(picked_file), "")))
 
-    dock._browse_file(dock._text_edits["registry_path"], "Registry path")
+    dock._browse_sch(dock._text_edits["root_sheet"], "Root sheet")
 
-    assert dock._text_edits["registry_path"].text() == "registries/fpga.json"
+    assert dock._text_edits["root_sheet"].text() == "board.kicad_sch"
 
 
 def test_add_schematic_file_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
