@@ -16104,3 +16104,101 @@ msgstr ""
 
 msgid "Board snapshot is stale: {count} selected component(s) are not in it yet ({refs}) — Refresh rebuilds it; until then their highlight and pending state stay skipped"
 msgstr ""
+
+msgid "  grouped {n} node(s) under a shared mount node"
+msgstr ""
+
+msgid "  tree {name!r}: mount name {old!r} was taken — using {new!r}"
+msgstr ""
+
+msgid "  tree {name!r}: {n} mount node(s)"
+msgstr ""
+
+msgid "A mount node needs a Role anchor."
+msgstr ""
+
+msgid "Config file whose trees: section is converted"
+msgstr ""
+
+msgid "Mount anchor (role)"
+msgstr ""
+
+msgid "Mount anchor: Role is required."
+msgstr ""
+
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, clone-plan, channel-copy, flatten, convert-trees."
+msgstr ""
+
+msgid "Nothing to do: no own_anchor node found (already converted)"
+msgstr ""
+
+msgid "Output file. Default: overwrite --root in place; an explicit path writes a NEW file and leaves the root untouched (recommended: keep a backup)"
+msgstr ""
+
+msgid "Print the conversion report without writing anything"
+msgstr ""
+
+msgid "Rewrite trees: from the removed own_anchor grammar to mount nodes"
+msgstr ""
+
+msgid "Tree mount conversion: {trees} tree(s) touched, {mounts} mount node(s) created, {wrapped} node(s) wrapped"
+msgstr ""
+
+msgid "WARNING: this file has include: entries — only ITS OWN trees were converted; convert each included file separately"
+msgstr ""
+
+msgid "convert-trees: wrote {path}"
+msgstr ""
+
+msgid "mount"
+msgstr ""
+
+msgid "mount node name (unique in tree)"
+msgstr ""
+
+msgid "mount node {ref!r}"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor must be a mapping"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor needs a (role ...)"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor needs a role"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor supports only (role ...) — origin/ref/point/external are tree-anchor-only"
+msgstr ""
+
+msgid "mount node {ref!r}: anchor supports only role — {keys} are tree-anchor-only"
+msgstr ""
+
+msgid "mount node {ref!r}: needs a (anchor (role ...)) — a mount node is a point of reference and places nothing itself"
+msgstr ""
+
+msgid "mount node {ref!r}: needs an anchor mapping with role — a mount node is a point of reference and places nothing itself"
+msgstr ""
+
+msgid "node {ref!r}: a nested (anchor ...) is only valid on a (kind mount) node — the old own_anchor grammar was removed 2026-09-11; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr ""
+
+msgid "node {ref!r}: a nested anchor mapping is only valid on a kind mount node — the old own_anchor grammar was removed 2026-09-11; run the tree converter (kicadstamp convert-trees) on this config"
+msgstr ""
+
+msgid "node {ref!r}: mount node has no anchor"
+msgstr ""
+
+msgid "node {ref!r}: mount node needs a live board connection"
+msgstr ""
+
+
+msgid "tree {tree!r}: mount node ref(s) {refs} are not unique — a mount node's ref must identify exactly one node in the tree"
+msgstr ""
+
+msgid "tree {tree!r}: mount node ref(s) {refs} collide with a positioned node of the same tree — mount refs must be distinct so a node can be named unambiguously"
+msgstr ""
+
+msgid "tree {tree!r}: {what} is anchored to role {role!r}, which this tree places itself — the base must be OUTSIDE the tree, otherwise every redraw silently drifts"
+msgstr ""
+

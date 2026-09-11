@@ -35,7 +35,13 @@ import sexpdata
 from ..cloner.sexp import sym, sval
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
-from ..trees import tree_from_dict, tree_from_sexp, tree_to_dict, tree_to_sexp
+from ..trees import (
+    raw_tree_from_sexp,
+    tree_from_dict,
+    tree_from_sexp,
+    tree_to_dict,
+    tree_to_sexp,
+)
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -503,6 +509,13 @@ def _trees_from_sexp(node) -> list:
     return out
 
 
+def _trees_raw_from_sexp(node) -> list:
+    """s-expr -> dict WITHOUT grammar validation (trees.raw_tree_from_sexp) —
+    ONLY for the one-way old-grammar converter, which must be able to read the
+    removed own_anchor grammar (see sexp_to_dict's raw_trees parameter)."""
+    return [raw_tree_from_sexp(tree_node) for tree_node in node[1:]]
+
+
 def _root_child_to_sexp(key: str, value):
     if key in _LIST_SECTION_CLASS:
         dc = _LIST_SECTION_CLASS[key]
@@ -905,7 +918,8 @@ def _parse_include(node, path: str) -> list:
     return entries
 
 
-def sexp_to_dict(text: str, apply_aliases: bool = True) -> dict:
+def sexp_to_dict(text: str, apply_aliases: bool = True,
+                 raw_trees: bool = False) -> dict:
     """Parse s-expr config text back into the dict that yaml.safe_load would
     have produced for the equivalent YAML. The top-level node MUST be
     (kicadstamp-config ...).
@@ -914,7 +928,12 @@ def sexp_to_dict(text: str, apply_aliases: bool = True) -> dict:
     `chains` at parse time (2026-09-01 Rule -> Chain rename) — every normal
     reader wants this. The converter tools/convert_rules_to_chains.py passes
     apply_aliases=False so it can still SEE a legacy `rules` key on disk and
-    rewrite the file to the canonical `(chains ...)` form."""
+    rewrite the file to the canonical `(chains ...)` form.
+
+    raw_trees=True skips trees.py's grammar validation for the trees: section
+    (trees.raw_tree_from_sexp): the one-way own_anchor -> mount converter
+    (kicadstamp/tree_mount_convert.py) must be able to READ a config written
+    in the removed grammar. Every normal reader keeps the default False."""
     try:
         root = sexpdata.loads(text)
     except Exception as e:  # sexpdata raises on unbalanced parens etc.
@@ -952,7 +971,8 @@ def sexp_to_dict(text: str, apply_aliases: bool = True) -> dict:
         elif key == "include":
             out[key] = _parse_include(child, path)
         elif key in _SPECIAL_SECTIONS:
-            out[key] = _trees_from_sexp(child)
+            out[key] = (_trees_raw_from_sexp(child) if raw_trees
+                        else _trees_from_sexp(child))
         elif key in _hints(Config):
             out[key] = _parse_field(child, _field_type(Config, key), path)
         else:

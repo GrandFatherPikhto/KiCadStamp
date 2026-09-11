@@ -299,6 +299,20 @@ def cmd_channel_copy(args) -> list[str] | None:
     return report or None
 
 
+def cmd_convert_trees(args) -> list[str] | None:
+    """Rewrite the trees: section of a config from the removed per-node
+    own_anchor grammar to the mount-node grammar (plan_2026_09_11_tree_mount_
+    nodes §Y.6).
+
+    Thin CLI wrapper for kicadstamp.tree_mount_convert.convert_config_file — a
+    pure file operation (no IPC, no board access). Returns the report (list of
+    lines) for the entry point to print, same shape as cmd_flatten.
+    """
+    from kicadstamp.tree_mount_convert import convert_config_file
+    return convert_config_file(root=args.root, output=args.output,
+                               dry_run=args.dry_run)
+
+
 def cmd_flatten(args) -> list[str] | None:
     """Consolidate a multi-file include: project into one self-contained file.
 

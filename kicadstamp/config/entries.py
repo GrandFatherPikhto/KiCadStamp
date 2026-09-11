@@ -1643,13 +1643,12 @@ _TREE_ANCHOR_KNOWN_KEYS = {"ref", "origin", "external", "role", "point",
                            "sheet", "cluster", "pad"}
 _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "group", "children",
                          "pivot_xy", "pivot_polar", "pivot_ref",
-                         # 2026-09-03 (plan tree_node_own_anchor): a node may
-                         # carry its OWN (role ...) anchor to be positioned
-                         # relative to a live component instead of its parent.
+                         # 2026-09-11 (plan_2026_09_11_tree_mount_nodes §Y.1): a
+                         # kind "mount" node carries its (role ...) anchor here.
                          "anchor"}
-# A node's own anchor is role-only — origin/ref/external/point are
+# A mount node's anchor is role-only — origin/ref/external/point are
 # tree-anchor-only and are rejected here as unknown keys (the parse-side fatal
-# in trees.py::_dict_own_anchor mirrors the same rule for the sexp shape).
+# in trees.py::_dict_mount_anchor mirrors the same rule for the sexp shape).
 _TREE_NODE_ANCHOR_KNOWN_KEYS = {"role", "sheet", "cluster", "pad"}
 
 

@@ -540,6 +540,53 @@ python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
 
 ---
 
+## `convert-trees` – rewrite `trees:` from the removed `own_anchor` grammar to mount nodes
+
+Since 2026-09-11 (plan_2026_09_11_tree_mount_nodes) a tree node's base is ALWAYS its parent: the old
+per-node `own_anchor` grammar (a nested `(anchor ...)` on a positioned node) was removed, and a node
+that must hang from a live component is now an explicit `kind "mount"` POINT OF REFERENCE. There is no
+runtime compatibility layer — a config still written in the old grammar is REJECTED at load with a
+pointer here — so an existing profile must be converted once.
+
+A pure file operation (no IPC, no board access): it reads the config's `trees:` section, wraps every
+node carrying a nested `(anchor ...)` in a mount node (grouping nodes with an IDENTICAL anchor under ONE
+mount node, keeping each node's `xy`/`polar`/`rotation` untouched), and writes the result back. Running
+it again on an already-converted config changes nothing. It does NOT touch `pivot-*`, a tree's own
+`(anchor ...)`, or any non-`trees:` section.
+
+### Syntax
+
+```
+python kicadstamp_cli.py convert-trees --root <config.sexp> [--output <file.sexp>] [--dry-run]
+```
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--root FILE` | Config whose `trees:` section is converted (required). |
+| `--output FILE` | Output file. Default: overwrite `--root` **in place**; an explicit path writes a NEW file and leaves the root untouched (recommended — keep a backup). |
+| `--dry-run` | Print the conversion report without writing anything. |
+
+### Notes
+
+- The report lists how many trees/mount nodes were created, how many nodes were grouped, and any mount
+  NAME that had to be suffixed because it collided with an existing ref in the same tree (`A` → `A_2`).
+- `include:` graphs are NOT expanded: each file is converted on its own (a warning line says so), so
+  convert every file of a multi-file project.
+- The converter's conversion of a real profile is pinned by
+  `tests/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
+  — layout and every materialized cell component must stay bit-identical.
+
+### Examples
+
+```
+python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.sexp --dry-run
+
+python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.sexp \
+    --output profiles/3ch-awg-tia-v103/config.mount.sexp
+```
+
 ## Utility scripts (`tools/`)
 
 ### `transform_template.py` – template transformation utility (optional)

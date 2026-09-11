@@ -322,28 +322,26 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
-Since 2026-09-03 (plan tree_node_own_anchor) the node editor is a TWO-TAB form — shown in the
+Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail **Node** tab for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**
-(everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a new
-**Position** tab that picks what a node's offset is measured from. Since 2026-09-04
-(plan plan_2026_09_04_unify_node_own_anchor_widget.md) this is the shared `AnchorOriginWidget` combo the
-config docks already use, offered here with two of its modes: the empty **Relative to parent** and the
-role-only anchor mode labeled **Relative to component**. **Relative to parent** (the default) keeps
-today's behaviour (offset from the tree anchor for a top-level node, from the enclosing node for a child);
-its anchor field row is hidden rather than disabled — functionally identical. **Relative to component**
-anchors the node to a chosen live component instead: pick a **Role** (optionally narrowed by
-**Sheet**/**Cluster**, shifted onto a specific **Pad**) — the node's `xy`/`polar` offset is then measured
-from that component's live position/rotation, and the node's own children keep inheriting that frame. The
-grammar writes it as a nested `(anchor (role ...) [(sheet ...) (cluster ...) (pad ...)])` inside the node
-— a per-node `own_anchor`; only the role shape is valid there (origin/ref/point/external are
-tree-anchor-only). Since 2026-09-10 (plan marker_frame_and_sheets J.3) the node editor's **Sheet**
+(everything above — Kind/Ref/Offset/Pivot/Rotation/Read current position/Name/Group) and a **Position**
+tab. **UPDATE 2026-09-11 (plan_2026_09_11_tree_mount_nodes):** the Position tab used to offer a
+per-node `own_anchor` ("Relative to component") — that grammar was REMOVED, because a node's base is now
+ALWAYS its parent (one rule, no exceptions), which is what makes the drawn tree and the computed tree
+agree. The shared `AnchorOriginWidget` picker in that tab now belongs to a **kind "mount"** node only and
+is HIDDEN for every other kind: a mount node is a POINT OF REFERENCE — it places nothing itself, carries
+the role anchor (**Role**, optionally narrowed by **Sheet**/**Cluster**, shifted onto a specific
+**Pad**) and its children are laid from that live component's position/rotation. Pick **Kind = mount** in
+the Add/Edit form to create one, or run the `convert-trees` CLI command on a config still written in the
+old `own_anchor` grammar (see `docs/commands.md`). A mount node's base is live-only: with no KiCad
+connection the offset/rotation fields are disabled and the raw values are shown, and a mount node WITHOUT
+a Role is refused on save. Since 2026-09-10 (plan marker_frame_and_sheets J.3) the node editor's **Sheet**
 combo is fed from the PROJECT's sheet map (`RuntimeContext.sheet_names`, built from the schematics),
 like the anchor dialog's own Sheet field always was — NOT from the ~2s board snapshot, whose
 `Selected.sheet` was empty for every footprint (measured live: 325 footprints, 72 roles, 34 clusters,
-0 sheet names), which left this combo permanently blank. **Read current position** in component mode
-diffs against the chosen component (not
-the parent), so the typed offset is relative to the right base.
+0 sheet names), which left this combo permanently blank. **Read current position** diffs against the
+node's parent — the one base — and is hidden for a mount node (whose position IS its anchor).
 
 Since 2026-09-11 (plan tree_node_live_read_and_board_frame) the editor and the STORED data speak
 deliberately different frames. The **Offset** row (labeled *Offset (board frame)*) and the

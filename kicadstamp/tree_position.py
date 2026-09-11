@@ -116,29 +116,29 @@ def node_position(node: TreeNode, parent_position: Vector2,
     return Vector2.from_xy(parent_position.x + offset.x, parent_position.y + offset.y)
 
 
-def node_own_anchor_base(node: TreeNode, adapter, cfg, sheet_names,
-                         ) -> tuple[Vector2, float] | None:
-    """Absolute (pos, rot) of a node's OWN (role) anchor, live-resolved, or
-    None when the node has no own_anchor (the caller then keeps the parent
-    frame — today's unchanged behaviour). The single source of truth for the
-    own_anchor substitution in BOTH recursive tree walks (entity_placement._walk
-    and layout_tree_from_base) so materialization (Apply) and the live/curated
-    path can never drift. Only the role shape is possible here (parse fatals on
-    any other). A resolve failure (role not found / ambiguous on the live
-    board) is a plain ValidationError — the same per-tree tolerance a tree-level
-    role anchor gets (design_2026_09_03_tree_node_component_anchor_and_editing
-    §1.2; the per-tree policy is unchanged)."""
-    anchor = node.own_anchor
+def mount_node_base(node: TreeNode, adapter, cfg, sheet_names,
+                    ) -> tuple[Vector2, float]:
+    """Absolute (pos, rot) of a kind "mount" node's LIVE (role) anchor — the
+    point the node's whole subtree hangs from (plan_2026_09_11_tree_mount_nodes
+    §Y.1.4). The single source of truth for the mount base substitution in
+    EVERY recursive tree walk (entity_placement._walk and its node-path walk,
+    layout_tree_from_base, scheme_list_apply) so materialization (Apply) and the
+    live/curated path can never drift. Only the role shape is possible here (the
+    parser fatals on any other). A resolve failure (role not found / ambiguous
+    on the live board) is a plain ValidationError — the same per-tree tolerance
+    a tree-level role anchor gets (design_2026_09_03_tree_node_component_anchor_
+    and_editing §1.2; the per-tree policy is unchanged)."""
+    anchor = node.anchor
     if anchor is None:
-        return None
-    if adapter is None:
-        # A node's own anchor is LIVE-only — there is no static fallback, so a
-        # pure (adapter-less) caller that reaches one gets a clear error, never
-        # a raw resolver crash or a silent wrong position (plan
-        # tree_node_own_anchor §2; the pure module-embedding callers never see
-        # an own_anchor node in practice).
         raise ValidationError(_(
-            "node {ref!r}: own anchor needs a live board connection"
+            "node {ref!r}: mount node has no anchor").format(ref=node.ref))
+    if adapter is None:
+        # A mount node's anchor is LIVE-only — there is no static fallback, so a
+        # pure (adapter-less) caller that reaches one gets a clear error, never a
+        # raw resolver crash or a silent wrong position (plan Y.1.4; the pure
+        # module-embedding callers never see a mount node in practice).
+        raise ValidationError(_(
+            "node {ref!r}: mount node needs a live board connection"
             ).format(ref=node.ref))
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
@@ -315,32 +315,28 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     Cycles cannot occur (link_trees rejects them); the stack is a defensive
     guard for this pure helper.
 
-    A node carrying its OWN (role) anchor (own_anchor, plan tree_node_own_anchor
-    §1) is laid from THAT anchor's LIVE position instead of its parent frame —
-    this needs the live board, so adapter/cfg/sheet_names are OPTIONAL: the live
-    callers (cascade.py's curated forest redraw, which already has an adapter)
-    pass them in; the pure geometry/module-embedding callers leave them None
-    (a node with own_anchor and no adapter is a hard ValidationError, never a
-    silent wrong position)."""
+    A kind "mount" node (plan_2026_09_11_tree_mount_nodes §Y.1) hangs from its
+    OWN (role) anchor's LIVE position instead of its parent frame; its children
+    are then laid from the mount node's absolute frame by the ordinary
+    recursion (the ONE base rule: a node's base is its parent). This needs the
+    live board, so adapter/cfg/sheet_names are OPTIONAL: the live callers
+    (cascade.py's curated forest redraw, which already has an adapter) pass them
+    in; the pure geometry/module-embedding callers leave them None (a mount node
+    reached with no adapter is a hard ValidationError, never a silent wrong
+    position). Mount nodes place no record and are NOT in the returned map."""
     out: dict[str, tuple[Vector2, float]] = {}
     forest = dict(forest or {})
     stack: list[str] = []
 
     def lay(nodes: list[TreeNode], pos: Vector2, rot: float) -> None:
         for n in nodes:
-            # Own-anchor node: laid from its OWN (role) anchor's live frame,
-            # not the parent's — base substitution is PER-NODE (siblings keep
-            # the parent frame; children of the own-anchor node inherit ITS
-            # abs frame as usual, so only `pos`/`rot` for THIS node change).
+            # Mount node: its base is the LIVE component its anchor names, not
+            # the parent frame. Siblings keep the parent frame; the mount node's
+            # children inherit ITS absolute frame through the ordinary recursion
+            # below (the one base rule). A mount node itself places nothing.
             base_pos, base_rot = pos, rot
-            if n.own_anchor is not None:
-                resolved = node_own_anchor_base(n, adapter, cfg, sheet_names)
-                if resolved is None:
-                    # Only reachable when own_anchor is None — defensive.
-                    raise ValidationError(_(
-                        "node {ref!r}: own anchor needs a live board to resolve"
-                        ).format(ref=n.ref))
-                base_pos, base_rot = resolved
+            if n.kind == "mount":
+                base_pos, base_rot = mount_node_base(n, adapter, cfg, sheet_names)
             abs_pos = node_position(n, base_pos, base_rot)
             abs_rot = base_rot + n.rotation
             if n.kind == "module":
@@ -356,7 +352,8 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                 lay(child.nodes, eff_pos, eff_rot)
                 stack.pop()
                 continue
-            out[n.ref] = (abs_pos, abs_rot)
+            if n.kind != "mount":
+                out[n.ref] = (abs_pos, abs_rot)
             lay(n.children, abs_pos, abs_rot)
 
     lay(tree.nodes, base_pos, base_rot_deg)

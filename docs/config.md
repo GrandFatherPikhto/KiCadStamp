@@ -527,7 +527,7 @@ position its MARKER in the parent; an optional `(pivot-xy x y)`, `(pivot-polar r
 frame lands exactly on the marker (absent = the referenced tree's origin). `pivot-ref` (2026-09-07,
 design_2026_09_07_module_pivot_by_ref.md) names a node's `ref` INSIDE the referenced tree instead of a
 bare number — an IDENTITY, matching how every other position source in this grammar works
-(TreeAnchor/own_anchor: ref/role+sheet+cluster+pad/point/origin), re-resolved live at every redraw
+(TreeAnchor / a mount node's anchor: ref/role+sheet+cluster+pad/point/origin), re-resolved live at every redraw
 instead of a one-time hand-computed snapshot; it must name something reachable inside the embedded
 tree (recursing through any tree IT embeds too) — a config fatal at link/Save otherwise, same
 discipline as an unknown module target. A module ref is a tree name, NOT a config record —
@@ -536,6 +536,20 @@ several different parents; a duplicate inside ONE parent, an unknown/self refere
 (A⊃B⊃A) are config fatals (validated at link/Save). When embedded, the referenced tree's OWN anchor is
 ignored — its content is laid out from the module's pivot-inverted marker (pure geometry, applied as a
 non-persistent position override by the forest-wide redraw).
+
+**Mount nodes (2026-09-11, plan_2026_09_11_tree_mount_nodes).** A node may have `kind "mount"`: it is a
+POINT OF REFERENCE — it carries its own `(anchor (role ...) [(sheet ...) (cluster ...) (pad ...)])` and
+places NOTHING itself; its CHILDREN are laid from that live component's position/rotation. This replaces
+the REMOVED per-node `own_anchor` grammar (a nested `(anchor ...)` on a positioned node), so the base
+rule is now uniform: **a node's base is its parent**, and what the tree DRAWS matches what it COMPUTES.
+A mount node's `ref` is a NAME (like a module's tree name): never resolved against the config, exempt
+from the one-ref-per-file rule, unique within its tree and not colliding with a positioned node's ref
+there (both fatal at load). A config still written in the old grammar is REJECTED at load with a pointer
+to the converter — there is no runtime compatibility layer; run
+`kicadstamp convert-trees --root <file>` (see `docs/commands.md`). At load, a mount node anchored to a
+role belonging to a cell THIS tree places is a FATAL (its position would depend on the previous Apply
+and every redraw would silently drift). The tree's OWN `(anchor (role ...))` is deliberately NOT subject
+to that check — the extract / self-anchor pattern legitimately anchors a tree on its own root component.
 
 ---
 

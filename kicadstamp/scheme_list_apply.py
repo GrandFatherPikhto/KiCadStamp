@@ -50,7 +50,7 @@ from .link_trees import link_trees
 from .placement.entity_placement import _anchor_base
 from .tree_position import (
     child_absolute_position,
-    node_own_anchor_base,
+    mount_node_base,
     node_position,
 )
 from .utils.layers import layer_from_str
@@ -401,11 +401,12 @@ def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
                           out: list[SchemeListNode], adapter, cfg, sheet_names) -> None:
     for ln in linked_nodes:
         node = ln.node
+        # Mount node: its children's base is the LIVE component its anchor
+        # names (plan §Y.1.4) — the same substitution every other tree walk
+        # applies, so Apply and the live read can never drift.
         base_pos, base_rot = pos, rot
-        if node.own_anchor is not None:
-            resolved = node_own_anchor_base(node, adapter, cfg, sheet_names)
-            if resolved is not None:
-                base_pos, base_rot = resolved
+        if node.kind == "mount":
+            base_pos, base_rot = mount_node_base(node, adapter, cfg, sheet_names)
         node_pos = node_position(node, base_pos, base_rot)
         node_rot = base_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \

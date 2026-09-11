@@ -191,9 +191,12 @@ def test_role_anchor_tree_with_anchor_pad_uses_pad_position():
     assert clones[0].xy[1] == pytest.approx(40.0)
 
 
-# ── node's own anchor (own_anchor, plan tree_node_own_anchor 2026-09-03) ──
+# ── mount nodes (kind "mount", plan_2026_09_11_tree_mount_nodes §Y.1) ──────
+# A mount node is a POINT OF REFERENCE: it places nothing itself, and its
+# children are laid from the live component its anchor names. Supersedes the
+# own_anchor suite (that grammar was removed 2026-09-11).
 
-def _own_anchor_adapter(role, x_mm=30.0, y_mm=40.0, angle=0.0, pad=None):
+def _mount_adapter(role, x_mm=30.0, y_mm=40.0, angle=0.0, pad=None):
     """A live-board mock with ONE footprint carrying `role` (optionally a pad),
     mirroring the role-anchor fixtures above."""
     fpga = MagicMock(spec=FootprintInstance)
@@ -216,15 +219,38 @@ def _own_anchor_adapter(role, x_mm=30.0, y_mm=40.0, angle=0.0, pad=None):
     return adapter
 
 
-def test_own_anchor_node_materializes_from_anchor_live_position_not_parent():
-    """Plan §2: a node with its OWN (role) anchor is laid from that component's
-    LIVE position — NOT from the tree anchor/parent. Under an (origin) tree,
-    node offset (1,2) with own_anchor role FPGA@(30,40) materializes at (31,42);
-    without own_anchor the same node would sit at (1,2) (origin parent)."""
-    adapter = _own_anchor_adapter("FPGA")
-    node = _node(ref="E1", xy=(1.0, 2.0))
-    node.own_anchor = TreeAnchor(role="FPGA")
-    cfg = _cfg([Entity(name="E1", cell="c")], [_origin_tree([node])])
+def _mount(ref, role, xy=None, rotation=0.0, children=None, **anchor_kw):
+    """A kind "mount" TreeNode (a point of reference + its anchor)."""
+    return TreeNode(ref=ref, kind="mount", xy=xy, polar=None,
+                    rotation=rotation, name=None, group=None,
+                    children=children or [],
+                    anchor=TreeAnchor(role=role, is_origin=False, **anchor_kw))
+
+
+def test_mount_node_places_nothing_itself():
+    """A mount node has no record at all: link_trees leaves record None (its ref
+    is a local NAME, like a module's tree name) and materialization yields only
+    its children (plan §Y.1.3)."""
+    from kicadstamp.link_trees import link_trees
+    adapter = _mount_adapter("FPGA")
+    child = _node(ref="E1", xy=(1.0, 2.0))
+    cfg = _cfg([Entity(name="E1", cell="c")],
+               [_origin_tree([_mount("m1", "FPGA", children=[child])])])
+    linked = link_trees(cfg, cfg.trees)
+    assert linked[0].nodes[0].record is None
+    clones = materialize_entity_placements(adapter, cfg, {})
+    assert [c.name for c in clones] == ["E1"]
+
+
+def test_mount_child_materializes_from_anchor_live_position_not_parent():
+    """A mount node's children are laid from the LIVE component its anchor names
+    — NOT from the tree anchor/parent. Under an (origin) tree, child offset
+    (1,2) with mount anchor FPGA@(30,40) materializes at (31,42); without the
+    mount node the same child would sit at (1,2) (the origin parent)."""
+    adapter = _mount_adapter("FPGA")
+    child = _node(ref="E1", xy=(1.0, 2.0))
+    cfg = _cfg([Entity(name="E1", cell="c")],
+               [_origin_tree([_mount("m1", "FPGA", children=[child])])])
     clones = materialize_entity_placements(adapter, cfg, {})
     assert len(clones) == 1
     assert clones[0].xy[0] == pytest.approx(31.0)
@@ -232,14 +258,14 @@ def test_own_anchor_node_materializes_from_anchor_live_position_not_parent():
     assert clones[0].rotation_deg == pytest.approx(0.0)
 
 
-def test_own_anchor_uses_anchor_rotation_as_parent_rotation():
-    """A node's own role anchor's live rotation feeds the node's parent frame
-    exactly like a tree-level role anchor: offset (1,0) rotated by the anchor's
-    90° lands at (30,39), and the clone inherits the anchor rotation."""
-    adapter = _own_anchor_adapter("FPGA", angle=90.0)
-    node = _node(ref="E1", xy=(1.0, 0.0))
-    node.own_anchor = TreeAnchor(role="FPGA")
-    cfg = _cfg([Entity(name="E1", cell="c")], [_origin_tree([node])])
+def test_mount_uses_anchor_rotation_as_parent_rotation():
+    """The mount anchor's live rotation feeds the child's parent frame exactly
+    like a tree-level role anchor: offset (1,0) rotated by the anchor's 90°
+    lands at (30,39), and the clone inherits the anchor rotation."""
+    adapter = _mount_adapter("FPGA", angle=90.0)
+    child = _node(ref="E1", xy=(1.0, 0.0))
+    cfg = _cfg([Entity(name="E1", cell="c")],
+               [_origin_tree([_mount("m1", "FPGA", children=[child])])])
     clones = materialize_entity_placements(adapter, cfg, {})
     assert len(clones) == 1
     assert clones[0].xy[0] == pytest.approx(30.0)
@@ -247,50 +273,65 @@ def test_own_anchor_uses_anchor_rotation_as_parent_rotation():
     assert clones[0].rotation_deg == pytest.approx(90.0)
 
 
-def test_own_anchor_node_children_inherit_its_frame():
-    """Children of an own-anchor node inherit ITS absolute frame (as with any
-    parent) — own_anchor only changes which base THIS node is measured from,
-    never the child-composition rule."""
-    adapter = _own_anchor_adapter("FPGA")
-    e2 = _node(ref="E2", xy=(0.0, 1.0))
-    node = _node(ref="E1", xy=(1.0, 0.0), children=[e2])
-    node.own_anchor = TreeAnchor(role="FPGA")
+def test_mount_children_and_grandchildren_inherit_its_frame():
+    """Children of a mount node inherit ITS absolute frame (the one base rule);
+    a GRANDchild is composed from its own parent, not from the mount node."""
+    adapter = _mount_adapter("FPGA")
+    grandchild = _node(ref="E3", xy=(0.0, 1.0))
+    child = _node(ref="E2", xy=(0.0, 0.0), children=[grandchild])
+    build = _node(ref="E1", xy=(1.0, 0.0), children=[child])
     cfg = _cfg(
-        [Entity(name="E1", cell="c"), Entity(name="E2", cell="c")],
-        [_origin_tree([node])])
+        [Entity(name="E1", cell="c"), Entity(name="E2", cell="c"),
+         Entity(name="E3", cell="c")],
+        [_origin_tree([_mount("m1", "FPGA", children=[build])])])
     clones = materialize_entity_placements(adapter, cfg, {})
     by_name = {c.name: c for c in clones}
-    # E1 at anchor(30,40)+(1,0); E2 at E1+(0,1).
-    assert by_name["E1"].xy[0] == pytest.approx(31.0)
-    assert by_name["E1"].xy[1] == pytest.approx(40.0)
-    assert by_name["E2"].xy[0] == pytest.approx(31.0)
-    assert by_name["E2"].xy[1] == pytest.approx(41.0)
+    # E1 at anchor(30,40)+(1,0); E2 at E1+(0,0); E3 at E2+(0,1).
+    assert by_name["E1"].xy == pytest.approx((31.0, 40.0))
+    assert by_name["E2"].xy == pytest.approx((31.0, 40.0))
+    assert by_name["E3"].xy == pytest.approx((31.0, 41.0))
 
 
-def test_own_anchor_node_with_anchor_pad_uses_pad_position():
-    """own_anchor's pad moves the base onto the matched footprint's specific
-    pad (same resolve_anchor_pad_position as a tree-level role anchor)."""
-    adapter = _own_anchor_adapter("FPGA", pad="A1")
-    node = _node(ref="E1", xy=(0.0, 0.0))
-    node.own_anchor = TreeAnchor(role="FPGA", anchor_pad="A1")
-    cfg = _cfg([Entity(name="E1", cell="c")], [_origin_tree([node])])
+def test_mount_anchor_pad_moves_the_base_onto_the_pad():
+    """The mount anchor's pad moves the base onto the matched footprint's
+    specific pad (same resolve_anchor_pad_position as a role anchor)."""
+    adapter = _mount_adapter("FPGA", pad="A1")
+    child = _node(ref="E1", xy=(0.0, 0.0))
+    cfg = _cfg([Entity(name="E1", cell="c")],
+               [_origin_tree([_mount("m1", "FPGA", children=[child],
+                                     anchor_pad="A1")])])
     clones = materialize_entity_placements(adapter, cfg, {})
     assert len(clones) == 1
     assert clones[0].xy[0] == pytest.approx(31.0)
     assert clones[0].xy[1] == pytest.approx(40.0)
 
 
-def test_own_anchor_unresolvable_role_is_per_tree_skip_not_fatal(caplog):
-    """An own-anchor node whose role is NOT on the live board raises a plain
+def test_mount_with_pad_only_touches_its_subtree_not_its_siblings():
+    """A mount node's live base is PER-NODE: a sibling outside the mount subtree
+    keeps the tree anchor as its parent frame (plan §Y.1.4)."""
+    adapter = _mount_adapter("FPGA")
+    inside = _node(ref="E1", xy=(1.0, 0.0))
+    outside = _node(ref="E2", xy=(5.0, 5.0))
+    cfg = _cfg(
+        [Entity(name="E1", cell="c"), Entity(name="E2", cell="c")],
+        [_origin_tree([_mount("m1", "FPGA", children=[inside]), outside])])
+    clones = materialize_entity_placements(adapter, cfg, {})
+    by_name = {c.name: c for c in clones}
+    assert by_name["E1"].xy == pytest.approx((31.0, 40.0))
+    assert by_name["E2"].xy == pytest.approx((5.0, 5.0))
+
+
+def test_mount_unresolvable_role_is_per_tree_skip_not_fatal(caplog):
+    """A mount node whose role is NOT on the live board raises a plain
     ValidationError (never _EntityAnchorError) -> the SAME per-tree warn+skip
-    tolerance a tree-level role anchor gets (plan §1.2/§2): the tree yields no
-    clones, the run never dies."""
+    tolerance a tree-level role anchor gets: the tree yields no clones, the run
+    never dies."""
     adapter = MagicMock()
     adapter.get_footprints.return_value = []
     adapter.get_selected_items.return_value = []
-    node = _node(ref="E1", xy=(0.0, 0.0))
-    node.own_anchor = TreeAnchor(role="NOPE")
-    cfg = _cfg([Entity(name="E1", cell="c")], [_origin_tree([node])])
+    child = _node(ref="E1", xy=(0.0, 0.0))
+    cfg = _cfg([Entity(name="E1", cell="c")],
+               [_origin_tree([_mount("m1", "NOPE", children=[child])])])
     with caplog.at_level(logging.WARNING,
                          logger="kicadstamp.placement.entity_placement"):
         clones = materialize_entity_placements(adapter, cfg, {})

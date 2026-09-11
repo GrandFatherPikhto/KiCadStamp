@@ -21,10 +21,17 @@ Syntactic rules enforced here (fatal via ValidationError):
   2. a flat record (ref ...) may appear in AT MOST ONE node across the whole
      file (a record's position source is exactly one); the same ref MAY be
      reused as a tree `anchor` (an anchor is a base, not something the tree
-     "places")
+     "places"); kind "module" and kind "mount" refs are NAMES, not records, so
+     they are exempt from this file-wide rule — mount refs must still be unique
+     WITHIN their tree and must not collide with a positioned node's ref there
+     (see _validate_mount_refs)
   3. xy / polar are mutually exclusive, each exactly 2 numbers
-  4. kind, if present, is one of clone/rule/coordinate/point/net_trace/external
+  4. kind, if present, is one of clone/placement/chain/coordinate/net_trace/
+     point/external/module/mount (see KINDS)
   5. cycles are impossible by construction (nested s-expr structure)
+  6. a nested (anchor (role ...)) is valid ONLY on a kind "mount" node; on any
+     other kind it is the removed own_anchor grammar and is a load-time fatal
+     pointing at the tree converter
 """
 from dataclasses import dataclass, field
 
@@ -48,7 +55,14 @@ from .i18n import _
 # at redraw it temporarily substitutes the referenced tree's base (pivot mechanism,
 # pivot_xy/pivot_polar fields). Deliberately NOT auto-searched (like net_trace):
 # see link_trees._PLACEABLE_KINDS.
-KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point", "external", "module")
+# "mount" — 2026-09-11 (plan_2026_09_11_tree_mount_nodes, task Y.1): a POINT OF
+# REFERENCE node. It carries the live (role ...) anchor the removed per-node
+# own_anchor used to carry and places NOTHING itself; its children are laid from
+# that anchor's live frame (the one base rule: a node's base is its PARENT, no
+# exceptions). Its ref is a NAME unique within the tree (like module), never a
+# config record — deliberately NOT auto-searched: see link_trees._PLACEABLE_KINDS.
+KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point",
+         "external", "module", "mount")
 
 # Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
 # with kind "rule" (the old record kind) are still accepted at parse time (a
@@ -95,7 +109,7 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module", or None (auto)
+    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module"/"mount", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
@@ -107,14 +121,15 @@ class TreeNode:
     # referenced tree's own origin. Mutually exclusive, independent of xy/polar.
     pivot_xy: tuple[float, float] | None = None
     pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
-    # NEW (2026-09-03, plan tree_node_own_anchor): optional per-node anchor
-    # override — when set, xy/polar are measured from THIS anchor's LIVE
-    # position instead of the parent's. Only the role-anchor shape is
-    # meaningful here (is_origin/ref/point/is_auto on a NODE's own anchor are
-    # load-time fatals, see _parse_own_anchor/_dict_own_anchor — those are
-    # tree-anchor-only concepts). None (default) = today's behaviour unchanged
-    # (offset from the parent / the tree's anchor for a top-level node).
-    own_anchor: TreeAnchor | None = None
+    # kind "mount" ONLY (2026-09-11, plan_2026_09_11_tree_mount_nodes §Y.1): the
+    # node's own live (role ...) anchor — the point this node (and therefore its
+    # whole subtree) hangs from. Only the role-anchor shape is meaningful
+    # (origin/ref/point/is_auto are tree-anchor-only and load-time fatals, see
+    # _parse_mount_anchor/_dict_mount_anchor). A nested (anchor ...) on ANY other
+    # kind is a load-time fatal pointing at the tree converter — that was the
+    # removed TreeNode.own_anchor grammar (2026-09-03 .. 2026-09-11). None
+    # (default) = an ordinary node, measured from its parent.
+    anchor: TreeAnchor | None = None
     # Module node only (kind "module", 2026-09-07 design_2026_09_07_module_
     # pivot_by_ref.md): a THIRD pivot source, mutually exclusive with
     # pivot_xy/pivot_polar — names a node's `ref` INSIDE the referenced tree
@@ -227,27 +242,23 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
     )
 
 
-def _parse_own_anchor(node) -> TreeAnchor | None:
-    """A node's own nested (anchor ...) child, or None when absent. Only the
-    ROLE shape is meaningful here (plan tree_node_own_anchor §1): the node's
-    xy/polar are measured from this anchor's LIVE role position instead of the
-    parent. (origin)/(ref ...)/(point ...)/(external) on a NODE's anchor are
-    tree-anchor-only concepts — hard fatal, mirroring the tree-level
-    _parse_anchor discipline; sheet/cluster narrow an ambiguous Role, pad
-    moves the base onto a specific pad (all optional)."""
-    anchor_node = child(node, "anchor")
-    if anchor_node is None:
-        return None
+def _parse_mount_anchor(ref: str, anchor_node) -> TreeAnchor:
+    """A kind "mount" node's nested (anchor ...) child. Only the ROLE shape is
+    meaningful (plan §Y.1.2): the mount node's children are measured from this
+    anchor's LIVE role position instead of the parent. (origin)/(ref ...)/
+    (point ...)/(external) are tree-anchor-only concepts — hard fatal, mirroring
+    the tree-level _parse_anchor discipline; sheet/cluster narrow an ambiguous
+    Role, pad moves the base onto a specific pad (all optional)."""
     if (child(anchor_node, "origin") is not None
             or atom(anchor_node, "ref") is not None
             or atom(anchor_node, "point") is not None
             or child(anchor_node, "external") is not None):
-        _fatal(_("node {ref!r}: own anchor supports only (role ...) — "
+        _fatal(_("mount node {ref!r}: anchor supports only (role ...) — "
                  "origin/ref/point/external are tree-anchor-only")
-               .format(ref=atom(node, "ref")))
+               .format(ref=ref))
     role = atom(anchor_node, "role")
     if not role:
-        _fatal(_("node {ref!r}: own anchor needs a (role ...)").format(ref=atom(node, "ref")))
+        _fatal(_("mount node {ref!r}: anchor needs a (role ...)").format(ref=ref))
     return TreeAnchor(
         role=sval(role),
         is_origin=False,
@@ -255,6 +266,139 @@ def _parse_own_anchor(node) -> TreeAnchor | None:
         anchor_cluster=_opt_sval(atom(anchor_node, "cluster")),
         anchor_pad=_opt_sval(atom(anchor_node, "pad")),
     )
+
+
+def _walk_nodes(nodes: list[TreeNode]):
+    """Every node of a tree, depth-first (the mount-ref uniqueness helper)."""
+    for n in nodes:
+        yield n
+        yield from _walk_nodes(n.children)
+
+
+def _validate_mount_refs(nodes: list[TreeNode], tree_name: str) -> None:
+    """Per-tree ref uniqueness for kind "mount" (plan §Y.1.3). A mount node's
+    ref is a local NAME: it must be unique among the tree's mount nodes AND must
+    not collide with any positioned node's ref of the same tree, or the design's
+    later stages (the tree's own inner point) could not say which node is meant.
+    Both checks are load-time fatals (reported separately — they mean different
+    things)."""
+    counts: dict[str, int] = {}
+    mount_refs: set[str] = set()
+    placed_refs: set[str] = set()
+    for n in _walk_nodes(nodes):
+        if n.kind == "mount":
+            counts[n.ref] = counts.get(n.ref, 0) + 1
+            mount_refs.add(n.ref)
+        else:
+            placed_refs.add(n.ref)
+    duplicates = sorted(ref for ref, count in counts.items() if count > 1)
+    if duplicates:
+        _fatal(_("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
+                 "mount node's ref must identify exactly one node in the tree")
+               .format(tree=tree_name, refs=", ".join(duplicates)))
+    collisions = sorted(mount_refs & placed_refs)
+    if collisions:
+        _fatal(_("tree {tree!r}: mount node ref(s) {refs} collide with a "
+                 "positioned node of the same tree — mount refs must be "
+                 "distinct so a node can be named unambiguously")
+               .format(tree=tree_name, refs=", ".join(collisions)))
+
+
+def _find_entity(cfg, name: str):
+    """cfg.entities record by name, or None (duck-typed: trees.py must not
+    depend on the config package — the loader calls the guard below after
+    loading, with a fully built Config)."""
+    for entity in getattr(cfg, "entities", []) or []:
+        if entity.name == name:
+            return entity
+    return None
+
+
+def _find_tree(cfg, name: str):
+    for tree in getattr(cfg, "trees", []) or []:
+        if tree.name == name:
+            return tree
+    return None
+
+
+def _tree_placed_roles(cfg, tree, seen_trees: frozenset = frozenset()
+                       ) -> list[tuple[str, str | None, str | None]]:
+    """Every (role, sheet, cluster) this tree places: for each kind "placement"
+    / legacy "clone" node, the roles of its Entity's cell narrowed by the
+    Entity's own sheet/cluster; a kind "module" node contributes the CONTENT of
+    the tree it embeds (recursively, cycle-guarded). This is the set the drift
+    guard below compares live bases against."""
+    out: list[tuple[str, str | None, str | None]] = []
+    cells = getattr(cfg, "cells", {}) or {}
+    for node in _walk_nodes(tree.nodes):
+        if node.kind == "module":
+            if node.ref in seen_trees:
+                continue
+            nested = _find_tree(cfg, node.ref)
+            if nested is None:
+                continue
+            out.extend(_tree_placed_roles(cfg, nested, seen_trees | {tree.name}))
+            continue
+        if node.kind not in ("placement", "clone"):
+            continue
+        entity = _find_entity(cfg, node.ref)
+        if entity is None:
+            continue
+        cell = cells.get(entity.cell)
+        if cell is None:
+            continue
+        sheet = getattr(entity, "sheet", None)
+        cluster = getattr(entity, "cluster", None)
+        for slot in cell.components:
+            out.append((slot.role, sheet, cluster))
+    return out
+
+
+def _check_anchor_drift(tree_name: str, what: str, anchor: TreeAnchor,
+                        placed: list[tuple[str, str | None, str | None]]) -> None:
+    """Fatal when a live base names a role THIS tree places — the position would
+    then depend on the result of the previous Apply and every Redraw would
+    silently drift (plan §Y.3). A narrower anchor (sheet/cluster set) only
+    collides with a placed Entity of the same sheet/cluster; an unset field
+    matches any."""
+    for role, sheet, cluster in placed:
+        if role != anchor.role:
+            continue
+        if anchor.anchor_sheet is not None and anchor.anchor_sheet != sheet:
+            continue
+        if anchor.anchor_cluster is not None and anchor.anchor_cluster != cluster:
+            continue
+        _fatal(_("tree {tree!r}: {what} is anchored to role {role!r}, which this "
+                 "tree places itself — the base must be OUTSIDE the tree, "
+                 "otherwise every redraw silently drifts")
+               .format(tree=tree_name, what=what, role=anchor.role))
+
+
+def check_mount_anchor_drift(cfg) -> None:
+    """Load-time FATAL guard (plan §Y.3; design 2026-09-11 §3.11 / §7.2): a
+    MOUNT node's anchor must never resolve to a component belonging to a cell
+    THIS tree places, or the node's position would depend on the result of the
+    previous Apply and every Redraw would silently drift. Pure config check, no
+    board needed (the placed set comes from cfg.entities + cfg.cells). A silent
+    drift is worse than a refusal, so this is a fatal, not a warning (Denis
+    2026-09-11).
+
+    Deliberately NOT applied to the tree's OWN (role ...) anchor — an empirical
+    finding on 2026-09-11: the extract / self-anchor pattern anchors a tree on
+    the very component its own root cell is built around (e.g. `dac_buf_tpl`
+    anchored on role `DAC_BUF`, which its placed cell also contains). That
+    component is the tree's REFERENCE, not something the tree moves, so a fatal
+    there rejected two real configs. Only the mount-node case was specified in
+    the plan (Y.3) and only that one is enforced."""
+    for tree in getattr(cfg, "trees", []) or []:
+        placed = _tree_placed_roles(cfg, tree)
+        if not placed:
+            continue
+        for node in _walk_nodes(tree.nodes):
+            if node.kind == "mount" and node.anchor is not None:
+                _check_anchor_drift(
+                    tree.name, _("mount node {ref!r}").format(ref=node.ref),
+                    node.anchor, placed)
 
 
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
@@ -267,17 +411,36 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     ref = sval(ref)
 
     # kind read BEFORE the seen_refs check: a module node's ref is another
-    # TREE's name, not a record — rule 2 (a record ref appears in at most one
-    # node of the file) does not apply to it (the same tree may be embedded by
-    # several different parents; per-parent duplicates are guarded in
-    # link_trees, plan P1).
+    # TREE's name and a mount node's ref is a local NAME — neither is a record,
+    # so rule 2 (a record ref appears in at most one node of the file) does not
+    # apply to them (the same tree may be embedded by several different
+    # parents; per-parent duplicates are guarded in link_trees; mount ref
+    # uniqueness is per-TREE, see _validate_mount_refs).
     kind = _parse_kind(node)
-    if kind != "module":
+    if kind not in ("module", "mount"):
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
                      "file — a record's position source must be exactly one")
                    .format(location=location, ref=ref))
         seen_refs.add(ref)
+
+    # A nested (anchor ...) belongs to a kind "mount" node ONLY (2026-09-11,
+    # plan Y.1). On any other kind it IS the removed own_anchor grammar: fatal
+    # with a pointer to the converter, never an AttributeError (plan Y.9.1.7).
+    anchor_node = child(node, "anchor")
+    if kind == "mount":
+        if anchor_node is None:
+            _fatal(_("mount node {ref!r}: needs a (anchor (role ...)) — a mount "
+                     "node is a point of reference and places nothing itself")
+                   .format(ref=ref))
+        node_anchor = _parse_mount_anchor(ref, anchor_node)
+    else:
+        if anchor_node is not None:
+            _fatal(_("node {ref!r}: a nested (anchor ...) is only valid on a "
+                     "(kind mount) node — the old own_anchor grammar was removed "
+                     "2026-09-11; run the tree converter (kicadstamp "
+                     "convert-trees) on this config").format(ref=ref))
+        node_anchor = None
 
     xy = _parse_offset(node, "xy")
     polar = _parse_offset(node, "polar")
@@ -316,7 +479,7 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
         pivot_ref=pivot_ref,
-        own_anchor=_parse_own_anchor(node),
+        anchor=node_anchor,
     )
 
 
@@ -342,11 +505,10 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
     anchor = _parse_anchor(anchor_node) if anchor_node is not None else TreeAnchor(is_auto=True)
 
     top_nodes = children(tree_node, "node")
-    return Tree(
-        name=name,
-        anchor=anchor,
-        nodes=[_parse_node(n, seen_refs, f"{location}:tree {name!r}") for n in top_nodes],
-    )
+    parsed_nodes = [_parse_node(n, seen_refs, f"{location}:tree {name!r}")
+                    for n in top_nodes]
+    _validate_mount_refs(parsed_nodes, name)
+    return Tree(name=name, anchor=anchor, nodes=parsed_nodes)
 
 
 def tree_to_sexp(tree: Tree) -> list:
@@ -400,13 +562,13 @@ def _node_to_sexp(node: TreeNode) -> list:
         out.append([sym("pivot-polar"), node.pivot_polar[0], node.pivot_polar[1]])
     elif node.pivot_ref is not None:
         out.append([sym("pivot-ref"), node.pivot_ref])
-    if node.own_anchor is not None:
-        # A node's own anchor serializes as a nested (anchor ...) child with
-        # the SAME role shape as a tree-level role anchor (plan
-        # tree_node_own_anchor §1.3) — written explicitly (not via
-        # _anchor_to_sexp) so a hand-built non-role own_anchor can never leak
-        # an origin/ref/point/external shape into a node (parse fatals on it).
-        a = node.own_anchor
+    if node.anchor is not None:
+        # A kind "mount" node's anchor serializes as a nested (anchor ...) child
+        # with the SAME role shape as a tree-level role anchor (plan §Y.1.1) —
+        # written explicitly (not via _anchor_to_sexp) so a hand-built non-role
+        # anchor can never leak an origin/ref/point/external shape into a node
+        # (the parser fatals on it).
+        a = node.anchor
         anchor_sexp = [sym("anchor"), [sym("role"), a.role]]
         if a.anchor_sheet is not None:
             anchor_sexp.append([sym("sheet"), a.anchor_sheet])
@@ -523,12 +685,12 @@ def _node_to_dict(node: TreeNode) -> dict:
         out["pivot_polar"] = [node.pivot_polar[0], node.pivot_polar[1]]
     elif node.pivot_ref is not None:
         out["pivot_ref"] = node.pivot_ref
-    if node.own_anchor is not None:
-        # A node's own anchor in the dict node shape — role-only (mirror of
-        # the s-expr (anchor ...) child of a node), written explicitly so a
-        # hand-built non-role own_anchor can never leak a ref/origin/point
-        # shape into the config dict (parse fatals on it).
-        a = node.own_anchor
+    if node.anchor is not None:
+        # A kind "mount" node's anchor in the dict node shape — role-only
+        # (mirror of the s-expr (anchor ...) child of a node), written
+        # explicitly so a hand-built non-role anchor can never leak a
+        # ref/origin/point shape into the config dict (the parser fatals on it).
+        a = node.anchor
         anchor_dict: dict = {"role": a.role}
         if a.anchor_sheet is not None:
             anchor_dict["sheet"] = a.anchor_sheet
@@ -555,6 +717,96 @@ def tree_to_dict(tree: Tree) -> dict:
     return out
 
 
+# ── raw (UNVALIDATED) s-expr -> config-dict, for the one-way converter only ──
+
+def _raw_anchor(anchor_node) -> dict:
+    """(anchor ...) -> the config-dict anchor shape, WITHOUT validation — the
+    converter must be able to read whatever a pre-2026-09-11 config holds."""
+    if child(anchor_node, "origin") is not None:
+        return {"origin": True}
+    ref = atom(anchor_node, "ref")
+    if ref is not None:
+        out: dict = {"ref": sval(ref)}
+        if child(anchor_node, "external") is not None:
+            out["external"] = True
+        return out
+    point = atom(anchor_node, "point")
+    if point is not None:
+        return {"point": sval(point)}
+    out = {"role": sval(atom(anchor_node, "role"))}
+    for key in ("sheet", "cluster", "pad"):
+        value = atom(anchor_node, key)
+        if value is not None:
+            out[key] = sval(value)
+    return out
+
+
+def _raw_offset(node, key: str):
+    c = child(node, key)
+    if c is None or len(c) != 3:
+        return None
+    return [c[1], c[2]]
+
+
+def _raw_node(node) -> dict:
+    """(node ...) -> the config-dict node shape, WITHOUT validation. Keeps a
+    nested (anchor ...) verbatim (the removed own_anchor grammar included) so
+    the converter can see it and rewrite it."""
+    out: dict = {"ref": sval(atom(node, "ref"))}
+    kind = atom(node, "kind")
+    if kind is not None:
+        out["kind"] = sval(kind)
+    xy = _raw_offset(node, "xy")
+    if xy is not None:
+        out["xy"] = xy
+    polar = _raw_offset(node, "polar")
+    if polar is not None:
+        out["polar"] = polar
+    rotation = atom(node, "rotation")
+    if rotation is not None:
+        out["rotation"] = rotation
+    name = atom(node, "name")
+    if name is not None:
+        out["name"] = sval(name)
+    group = atom(node, "group")
+    if group is not None:
+        out["group"] = sval(group)
+    for sexp_key, dict_key in (("pivot-xy", "pivot_xy"),
+                               ("pivot-polar", "pivot_polar")):
+        value = _raw_offset(node, sexp_key)
+        if value is not None:
+            out[dict_key] = value
+    pivot_ref = atom(node, "pivot-ref")
+    if pivot_ref is not None:
+        out["pivot_ref"] = sval(pivot_ref)
+    anchor_node = child(node, "anchor")
+    if anchor_node is not None:
+        out["anchor"] = _raw_anchor(anchor_node)
+    child_nodes = children(node, "node")
+    if child_nodes:
+        out["children"] = [_raw_node(c) for c in child_nodes]
+    return out
+
+
+def raw_tree_from_sexp(tree_node) -> dict:
+    """(tree ...) -> the config-dict tree shape, WITHOUT grammar validation.
+
+    Used ONLY by the one-way old-grammar converter (kicadstamp/
+    tree_mount_convert.py, plan §Y.6): unlike tree_from_sexp this ACCEPTS the
+    removed per-node own_anchor grammar, so the converter can read a
+    pre-2026-09-11 config and rewrite it. Every normal reader must keep using
+    tree_from_sexp, which fatals on the removed grammar with a pointer to the
+    converter."""
+    out: dict = {"name": sval(atom(tree_node, "name"))}
+    anchor_node = child(tree_node, "anchor")
+    if anchor_node is not None:
+        out["anchor"] = _raw_anchor(anchor_node)
+    nodes = children(tree_node, "node")
+    if nodes:
+        out["nodes"] = [_raw_node(n) for n in nodes]
+    return out
+
+
 def _dict_offset(data: dict, key: str, location: str) -> tuple[float, float] | None:
     """Node dict's (key, [x, y]) as a pair of floats, or None. Enforces
     "exactly 2 numbers" — a non-numeric value is fatal."""
@@ -569,26 +821,21 @@ def _dict_offset(data: dict, key: str, location: str) -> tuple[float, float] | N
     return float(raw[0]), float(raw[1])
 
 
-def _dict_own_anchor(data: dict, location: str) -> TreeAnchor | None:
-    """A node dict's own "anchor" mapping (mirror of the s-expr nested
-    (anchor ...) child of a node), or None when absent. Only the role shape is
-    valid here — origin/ref/point/external on a NODE's own anchor are
-    tree-anchor-only concepts and are load-time fatal (mirrors _parse_own_anchor)."""
-    anchor_data = data.get("anchor")
-    if anchor_data is None:
-        return None
+def _dict_mount_anchor(ref: str, anchor_data: dict) -> TreeAnchor:
+    """A kind "mount" node dict's nested "anchor" mapping (mirror of the s-expr
+    (anchor (role ...)) child). Only the role shape is valid — origin/ref/point/
+    external on a mount node's anchor are tree-anchor-only concepts and are
+    load-time fatal (mirrors _parse_mount_anchor)."""
     if not isinstance(anchor_data, dict):
-        _fatal(_("node {ref!r}: own anchor must be a mapping")
-               .format(ref=data.get("ref")))
+        _fatal(_("mount node {ref!r}: anchor must be a mapping").format(ref=ref))
     forbidden = [k for k in ("origin", "ref", "point", "external")
                  if anchor_data.get(k) is not None]
     if forbidden:
-        _fatal(_("node {ref!r}: own anchor supports only role — {keys} are "
-                 "tree-anchor-only").format(ref=data.get("ref"),
-                                            keys=", ".join(forbidden)))
+        _fatal(_("mount node {ref!r}: anchor supports only role — {keys} are "
+                 "tree-anchor-only").format(ref=ref, keys=", ".join(forbidden)))
     role = anchor_data.get("role")
     if not role:
-        _fatal(_("node {ref!r}: own anchor needs a role").format(ref=data.get("ref")))
+        _fatal(_("mount node {ref!r}: anchor needs a role").format(ref=ref))
     return TreeAnchor(
         role=role,
         is_origin=False,
@@ -610,15 +857,32 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
-    # Mirror of the s-expr _parse_node: a module node's ref is a TREE name, not
-    # a record — exempt it from the file-wide seen_refs (rule 2) check here too
-    # (the same tree may be embedded by several different parents).
-    if raw_kind != "module":
+    # Mirror of the s-expr _parse_node: a module node's ref is a TREE name and a
+    # mount node's ref is a local NAME — neither is a record, so exempt them
+    # from the file-wide seen_refs (rule 2) check here too (the same tree may be
+    # embedded by several different parents; mount ref uniqueness is per-TREE,
+    # see _validate_mount_refs).
+    if raw_kind not in ("module", "mount"):
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
                      "config — a record's position source must be exactly one")
                    .format(location=location, ref=ref))
         seen_refs.add(ref)
+
+    anchor_data = data.get("anchor")
+    if raw_kind == "mount":
+        if anchor_data is None:
+            _fatal(_("mount node {ref!r}: needs an anchor mapping with role — a "
+                     "mount node is a point of reference and places nothing "
+                     "itself").format(ref=ref))
+        node_anchor = _dict_mount_anchor(ref, anchor_data)
+    else:
+        if anchor_data is not None:
+            _fatal(_("node {ref!r}: a nested anchor mapping is only valid on a "
+                     "kind mount node — the old own_anchor grammar was removed "
+                     "2026-09-11; run the tree converter (kicadstamp "
+                     "convert-trees) on this config").format(ref=ref))
+        node_anchor = None
 
     xy = _dict_offset(data, "xy", location)
     polar = _dict_offset(data, "polar", location)
@@ -651,7 +915,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         pivot_xy=pivot_xy,
         pivot_polar=pivot_polar,
         pivot_ref=pivot_ref,
-        own_anchor=_dict_own_anchor(data, location),
+        anchor=node_anchor,
     )
 
 
@@ -699,8 +963,7 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
                 anchor_cluster=anchor_data.get("cluster"),
                 anchor_pad=anchor_data.get("pad"),
             )
-    return Tree(
-        name=name,
-        anchor=anchor,
-        nodes=[_dict_node(n, seen_refs, f"tree {name!r}") for n in data.get("nodes") or []],
-    )
+    parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
+                    for n in data.get("nodes") or []]
+    _validate_mount_refs(parsed_nodes, name)
+    return Tree(name=name, anchor=anchor, nodes=parsed_nodes)

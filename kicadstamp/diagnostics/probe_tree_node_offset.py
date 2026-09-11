@@ -56,16 +56,16 @@ def main() -> int:
             continue
         print(f"\n=== node {node.ref!r}  stored xy={node.xy} rotation={node.rotation}")
 
-        # ── the node's BASE (own anchor, else the tree anchor) ───────────────
-        if node.own_anchor is not None:
-            a = node.own_anchor
+        # ── the node's BASE (mount anchor, else the tree anchor) ─────────────
+        if node.kind == "mount" or node.anchor is not None:
+            a = node.anchor
             resolver = ComponentResolver(adapter, cfg, sheet_names)
             fp = resolver.resolve_anchor_fp(None, a.role, a.anchor_sheet,
                                             a.anchor_cluster, label=a.role)
             base_pos, base_rot = fp.position, fp.angle_deg
             if a.anchor_pad:
                 base_pos = resolve_anchor_pad_position(adapter, fp, a.anchor_pad, a.role)
-            print(f"    base: own anchor role={a.role!r} pad={a.anchor_pad!r} "
+            print(f"    base: mount anchor role={a.role!r} pad={a.anchor_pad!r} "
                   f"-> {fp.ref} at {_fmt(base_pos.x / MM, base_pos.y / MM)} rot={base_rot}")
         else:
             base_pos, base_rot = anchor_pos, anchor_rot

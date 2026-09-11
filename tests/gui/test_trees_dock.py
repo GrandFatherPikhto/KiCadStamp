@@ -3530,79 +3530,76 @@ def test_tree_splitter_sizes_invalid_saved_value_is_ignored(main_window, tmp_pat
         assert page.count() == 2
 
 
-# ── node editor Position tab / own_anchor (plan tree_node_own_anchor 2026-09-03)
+# ── node editor Position tab / mount anchor (plan_2026_09_11_tree_mount_nodes)
 
-def test_node_dialog_has_position_tab_default_relative_to_parent(main_window, tmp_path):
-    """The node editor is a two-tab dialog; the Position tab defaults to the
-    shared AnchorOriginWidget's "Relative to parent" mode (= own_anchor None,
-    today's behaviour) — under that empty mode no own_anchor field row is
-    shown (2026-09-04 unify: fields are hidden, not merely disabled)."""
+def test_node_dialog_hides_the_anchor_picker_for_ordinary_nodes(main_window, tmp_path):
+    """The node editor is a two-tab dialog; the Position tab's mount anchor
+    picker belongs to a kind "mount" node ONLY and is hidden (not just
+    disabled) for every other kind — an ordinary node's base is its parent."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
     assert dlg.tabs.count() == 2
     assert dlg.tabs.tabText(1) == "Position"
-    assert dlg.own_anchor_widget.mode == "parent"
-    assert dlg.own_anchor() is None
+    assert dlg.mount_anchor_widget.isHidden() is True
+    assert dlg.mount_anchor() is None
 
 
-def test_node_dialog_own_anchor_returns_tree_anchor_when_component(main_window, tmp_path):
-    """Selecting "Relative to component" + Role/Sheet/Cluster/Pad -> own_anchor()
-    returns the expected role-only TreeAnchor; switching back to parent -> None."""
+def test_node_dialog_mount_anchor_returns_tree_anchor_when_filled(main_window, tmp_path):
+    """For a kind "mount" node the picker is shown and mount_anchor() returns
+    the expected role-only TreeAnchor; in "parent" mode it returns None."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
-    dlg.own_anchor_widget.load(mode="anchor")
-    assert dlg.own_anchor_widget.anchor_role_edit.isEnabled()
-    dlg.own_anchor_widget.anchor_role_edit.setCurrentText("IC1")
-    dlg.own_anchor_widget.anchor_sheet_edit.setCurrentText("PWR")
-    dlg.own_anchor_widget.anchor_cluster_edit.setCurrentText("SUP")
-    dlg.own_anchor_widget.anchor_pad_edit.setText("3")
-    assert dlg.own_anchor() == TreeAnchor(
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("mount"))
+    assert dlg.mount_anchor_widget.isHidden() is False
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("IC1")
+    dlg.mount_anchor_widget.anchor_sheet_edit.setCurrentText("PWR")
+    dlg.mount_anchor_widget.anchor_cluster_edit.setCurrentText("SUP")
+    dlg.mount_anchor_widget.anchor_pad_edit.setText("3")
+    assert dlg.mount_anchor() == TreeAnchor(
         role="IC1", is_origin=False,
         anchor_sheet="PWR", anchor_cluster="SUP", anchor_pad="3")
-    dlg.own_anchor_widget.load(mode="parent")
-    assert dlg.own_anchor() is None
+    dlg.mount_anchor_widget.load(mode="parent")
+    assert dlg.mount_anchor() is None
 
 
-def test_node_dialog_component_without_role_refuses_build(main_window, tmp_path, monkeypatch):
-    """"Relative to component" with an EMPTY Role is a hard refusal in
-    build_node (QMessageBox) — never a silent downgrade to the parent base.
-    The message is the shared AnchorOriginWidget wording "Anchor: Role is
-    required." (2026-09-04 unify: one wording, no duplication)."""
+def test_mount_node_without_role_refuses_build(main_window, tmp_path, monkeypatch):
+    """A kind "mount" node with an EMPTY Role is a hard refusal in build_node
+    (QMessageBox) — never a silently parent-based mount node."""
     import gui.docks.trees_dock as td_mod
     warnings = []
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
                       sheet_names={}, tree=None, parent_node=None)
-    dlg.ref_combo.setCurrentText("NEW1")
+    dlg.ref_combo.setCurrentText("m1")
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("mount"))
     dlg.offset_widget.x_edit.setText("1.0")
     dlg.offset_widget.y_edit.setText("2.0")
-    dlg.own_anchor_widget.load(mode="anchor")
     assert dlg.build_node() is None
-    assert any("Anchor: Role is required." in str(w) for w in warnings)
+    assert any("mount node needs a Role anchor" in str(w) for w in warnings)
 
 
-def test_node_dialog_prefill_restores_own_anchor(main_window, tmp_path):
-    """Edit mode: an existing node's own_anchor restores the "Relative to
-    component" mode + Role/Sheet/Cluster/Pad, and own_anchor() returns it."""
+def test_node_dialog_prefill_restores_mount_anchor(main_window, tmp_path):
+    """Edit mode: an existing MOUNT node's anchor restores the picker's Role/
+    Sheet/Cluster/Pad, and mount_anchor() returns it."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="E1", kind="placement", xy=(1.0, 0.0), polar=None,
+    existing = TreeNode(ref="m1", kind="mount", xy=None, polar=None,
                         rotation=0.0, name=None, group=None, children=[],
-                        own_anchor=TreeAnchor(role="IC1", anchor_sheet="PWR",
-                                              anchor_pad="3"))
+                        anchor=TreeAnchor(role="IC1", anchor_sheet="PWR",
+                                          anchor_pad="3"))
     dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
                       "Edit node", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree, parent_node=None,
                       existing=existing)
-    assert dlg.own_anchor_widget.mode == "anchor"
-    assert dlg.own_anchor_widget.anchor_role_edit.currentText() == "IC1"
-    assert dlg.own_anchor_widget.anchor_sheet_edit.currentText() == "PWR"
-    assert dlg.own_anchor_widget.anchor_cluster_edit.currentText() == ""
-    assert dlg.own_anchor_widget.anchor_pad_edit.text() == "3"
-    assert dlg.own_anchor() == existing.own_anchor
+    assert dlg.mount_anchor_widget.mode == "anchor"
+    assert dlg.mount_anchor_widget.anchor_role_edit.currentText() == "IC1"
+    assert dlg.mount_anchor_widget.anchor_sheet_edit.currentText() == "PWR"
+    assert dlg.mount_anchor_widget.anchor_cluster_edit.currentText() == ""
+    assert dlg.mount_anchor_widget.anchor_pad_edit.text() == "3"
+    assert dlg.mount_anchor() == existing.anchor
 
 
 # ── Phase B: double-click -> edit, Apply/Redraw/Close dialog (2026-09-03) ──
@@ -3816,7 +3813,7 @@ def test_node_form_sheet_combo_comes_from_the_config(main_window, tmp_path,
 
     tree = _tree_of(dock, "fpga")
     form = dock._build_node_form(tree, tree.nodes[0])
-    combo = form.own_anchor_widget.anchor_sheet_edit
+    combo = form.mount_anchor_widget.anchor_sheet_edit
     assert [combo.itemText(i) for i in range(combo.count())] == \
         ["Channel_0", "OpAmp"]
 
@@ -4429,15 +4426,25 @@ def test_reread_agrees_with_extract_tree_for_a_rotated_anchor(
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2026-09-11: the node form's base frame FOLLOWS the selected anchor
-# (plan_2026_09_11_node_form_base_frame_follows_anchor.md)
+# (plan_2026_09_11_node_form_base_frame_follows_anchor.md).
+# MIGRATED 2026-09-11 to the mount-node grammar (plan_2026_09_11_tree_mount_
+# nodes): the anchor now lives on a kind "mount" node, so these cases drive a
+# MOUNT node's anchor picker instead of the removed own_anchor one.
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+def _mount_node(ref, role, xy=None, rotation=0.0, **anchor_kw):
+    """A kind "mount" node with the given anchor role (test helper)."""
+    return TreeNode(ref=ref, kind="mount", xy=xy, polar=None,
+                    rotation=rotation, name=None, group=None, children=[],
+                    anchor=TreeAnchor(role=role, is_origin=False, **anchor_kw))
 
 
 def _fake_base_pose(monkeypatch, *, parent, components=None):
     """Patch _resolve_node_base_pose so the PARENT base and each named
-    COMPONENT (own_anchor) base are distinct — the whole point of this suite.
-    An unknown role raises ValidationError, the real "not on the live board"
-    failure."""
+    COMPONENT (a mount node's anchor) base are distinct — the whole point of
+    this suite. An unknown role raises ValidationError, the real "not on the
+    live board" failure."""
     import gui.docks.trees_dock as td_mod
     components = components or {}
 
@@ -4453,14 +4460,14 @@ def _fake_base_pose(monkeypatch, *, parent, components=None):
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose", fake)
 
 
-def test_anchor_switch_to_rotated_component_saves_with_the_new_base(
+def test_mount_anchor_switch_to_rotated_component_saves_with_the_new_base(
         main_window, tmp_path, monkeypatch):
-    """Denis's exact flow (regression). Form open with the PARENT base (0°),
-    the user switches to "Relative to component" whose live base is rotated
-    -90°, types (30, 1) IN THE BOARD FRAME and saves. The config must hold
-    board_offset_to_local_mm((30, 1), -90), and node_position against the SAME
-    live base must reproduce base + (30, 1). Before the fix the cached 0° base
-    was reused, so (30, 1) was stored RAW and the node flew 30 mm down."""
+    """Denis's exact flow (regression), on a MOUNT node. The form opens with
+    anchor A at 0°, the user switches the anchor to OP_AMP whose live base is
+    rotated -90°, types (30, 1) IN THE BOARD FRAME and saves. The config must
+    hold board_offset_to_local_mm((30, 1), -90), and node_position against the
+    SAME live base must reproduce base + (30, 1). Before the fix the cached 0°
+    base was reused, so (30, 1) was stored RAW and the node flew 30 mm down."""
     from kicadstamp.tree_position import (board_offset_to_local_mm,
                                           board_rotation_to_local_deg,
                                           node_position)
@@ -4468,21 +4475,22 @@ def test_anchor_switch_to_rotated_component_saves_with_the_new_base(
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_X", kind="clone", xy=(5.0, 2.0), polar=None,
-                        rotation=10.0, name=None, group=None)
+    existing = _mount_node("M_X", "A", xy=(5.0, 2.0), rotation=10.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy(0, 0), 0.0),
-                    components={"OP_AMP": (Vector2.from_xy_mm(100.0, 200.0), -90.0)})
+                    components={"A": (Vector2.from_xy(0, 0), 0.0),
+                                "OP_AMP": (Vector2.from_xy_mm(100.0, 200.0), -90.0)})
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
-    assert dlg.offset_widget.x_edit.text() == "5.0"     # parent base, 0 deg
+    assert dlg.offset_widget.x_edit.text() == "5.0"     # anchor A base, 0 deg
     assert dlg.rotation_edit.text() == "10.0"
 
-    # Mode toggle first, role second (AnchorOriginWidget.load order) — the
-    # debounced refresh is flushed deterministically here.
-    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP", pad="4")
+    # Anchor switch (the field-edit path) — the debounced refresh is flushed
+    # deterministically here.
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("OP_AMP")
+    dlg.mount_anchor_widget.anchor_pad_edit.setText("4")
     dlg._refresh_for_new_anchor()
 
-    # The node STAYS PUT: abs was parent(0,0)+(5,2); re-expressed from the
+    # The node STAYS PUT: abs was A(0,0)+(5,2); re-expressed from the
     # component base (100,200) => (-95,-198) in the board frame.
     assert dlg.offset_widget.x_edit.text() == "-95.0"
     assert dlg.offset_widget.y_edit.text() == "-198.0"
@@ -4500,7 +4508,7 @@ def test_anchor_switch_to_rotated_component_saves_with_the_new_base(
     assert abs(got.y - (200.0 + 1.0) * MM) <= 1
 
 
-def test_anchor_switch_keeps_the_node_still_and_re_expresses_the_offset(
+def test_mount_anchor_switch_keeps_the_node_still_and_re_expresses_the_offset(
         main_window, tmp_path, monkeypatch):
     """U.1 (no field edit): the absolute position computed before and after the
     switch is the SAME, while the shown offset changed."""
@@ -4508,17 +4516,17 @@ def test_anchor_switch_keeps_the_node_still_and_re_expresses_the_offset(
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_Y", kind="clone", xy=(5.0, 2.0), polar=None,
-                        rotation=40.0, name=None, group=None)
-    parent = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
+    existing = _mount_node("M_Y", "A", xy=(5.0, 2.0), rotation=40.0)
+    base_a = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
     component = (Vector2.from_xy_mm(100.0, 200.0), 30.0)
-    _fake_base_pose(monkeypatch, parent=parent, components={"OP_AMP": component})
+    _fake_base_pose(monkeypatch, parent=base_a,
+                    components={"A": base_a, "OP_AMP": component})
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
     before = dlg.build_node()
-    abs_before = node_position(before, parent[0], parent[1])
+    abs_before = node_position(before, base_a[0], base_a[1])
 
-    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("OP_AMP")
     dlg._refresh_for_new_anchor()
     after = dlg.build_node()
 
@@ -4534,21 +4542,21 @@ def test_anchor_switch_keeps_the_node_still_and_re_expresses_the_offset(
     assert dlg.rotation_edit.text() == "40.0"
 
 
-def test_anchor_switch_keeps_the_absolute_rotation_stored_one_follows(
+def test_mount_anchor_switch_keeps_the_absolute_rotation_stored_one_follows(
         main_window, tmp_path, monkeypatch):
     """U.1: the shown rotation is absolute and does NOT change; the stored
     RELATIVE rotation changes by the base-rotation difference."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_ROT", kind="clone", xy=(0.0, 0.0), polar=None,
-                        rotation=40.0, name=None, group=None)
+    existing = _mount_node("M_ROT", "A", xy=(0.0, 0.0), rotation=40.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
-                    components={"OP_AMP": (Vector2.from_xy_mm(10, 20), -90.0)})
+                    components={"A": (Vector2.from_xy_mm(0, 0), 0.0),
+                                "OP_AMP": (Vector2.from_xy_mm(10, 20), -90.0)})
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
     assert dlg.rotation_edit.text() == "40.0"
 
-    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("OP_AMP")
     dlg._refresh_for_new_anchor()
 
     assert dlg.rotation_edit.text() == "40.0"           # absolute, unchanged
@@ -4556,18 +4564,17 @@ def test_anchor_switch_keeps_the_absolute_rotation_stored_one_follows(
     assert built.rotation == 130.0                      # 40 - (-90)
 
 
-def test_anchor_switch_back_to_parent_is_symmetric(
+def test_mount_anchor_switch_is_symmetric(
         main_window, tmp_path, monkeypatch):
-    """U.4 п.4: component -> parent is the mirror image of parent ->
-    component."""
+    """U.4 п.4 (migrated): mount anchor A -> B is the mirror image — the node
+    stays put and the stored relative rotation stays coherent."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    parent = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
-    component = (Vector2.from_xy_mm(100.0, 200.0), -90.0)
-    existing = TreeNode(ref="R_B", kind="clone", xy=(1.0, -30.0), polar=None,
-                        rotation=130.0, name=None, group=None,
-                        own_anchor=TreeAnchor(role="OP_AMP"))
-    _fake_base_pose(monkeypatch, parent=parent, components={"OP_AMP": component})
+    base_a = (Vector2.from_xy_mm(100.0, 200.0), -90.0)
+    base_b = (Vector2.from_xy_mm(0.0, 0.0), 0.0)
+    existing = _mount_node("M_B", "A", xy=(1.0, -30.0), rotation=130.0)
+    _fake_base_pose(monkeypatch, parent=base_b,
+                    components={"A": base_a, "B": base_b})
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
     # component base -90: stored local (1,-30) -> board (30,1)
@@ -4575,10 +4582,10 @@ def test_anchor_switch_back_to_parent_is_symmetric(
     assert dlg.offset_widget.y_edit.text() == "1.0"
     assert dlg.rotation_edit.text() == "40.0"           # 130 + (-90)
 
-    dlg.own_anchor_widget.load(mode="parent")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("B")
     dlg._refresh_for_new_anchor()
 
-    # node stays put: abs = (100,200)+(30,1); from the parent base (0,0)
+    # node stays put: abs = (100,200)+(30,1); from base B (0,0)
     assert dlg.offset_widget.x_edit.text() == "130.0"
     assert dlg.offset_widget.y_edit.text() == "201.0"
     built = dlg.build_node()
@@ -4586,7 +4593,7 @@ def test_anchor_switch_back_to_parent_is_symmetric(
     assert built.rotation == 40.0
 
 
-def test_anchor_role_change_follows_the_new_component_frame(
+def test_mount_anchor_role_change_follows_the_new_component_frame(
         main_window, tmp_path, monkeypatch):
     """U.4 п.5: changing the Role to a component at a different position/
     rotation re-resolves the base and re-expresses the offset (the field edit
@@ -4596,9 +4603,7 @@ def test_anchor_role_change_follows_the_new_component_frame(
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_R", kind="clone", xy=(5.0, 0.0), polar=None,
-                        rotation=0.0, name=None, group=None,
-                        own_anchor=TreeAnchor(role="A"))
+    existing = _mount_node("M_R", "A", xy=(5.0, 0.0), rotation=0.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
                     components={
                         "A": (Vector2.from_xy_mm(10.0, 20.0), 90.0),
@@ -4608,7 +4613,7 @@ def test_anchor_role_change_follows_the_new_component_frame(
     assert dlg.offset_widget.x_edit.text() == "0.0"
     assert dlg.offset_widget.y_edit.text() == "-5.0"
 
-    dlg.own_anchor_widget.anchor_role_edit.setCurrentText("B")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("B")
     dlg._refresh_for_new_anchor()
 
     # base B: board offset = abs - P_B = (10,15)-(30,5) = (-20,10)
@@ -4620,9 +4625,9 @@ def test_anchor_role_change_follows_the_new_component_frame(
     assert abs(got.y - 15.0 * MM) <= 1
 
 
-def test_anchor_switch_to_unresolvable_base_disables_and_saves_raw(
+def test_mount_anchor_unresolvable_base_disables_and_saves_raw(
         main_window, tmp_path, monkeypatch):
-    """U.4 п.6: the new base does not resolve (role not on the board) -> the
+    """U.4 п.6: the anchor does not resolve (role not on the board) -> the
     fields are disabled with a reason and the RAW stored values are restored,
     so a save can never write numbers converted against the OLD base."""
     import gui.docks.trees_dock as td_mod
@@ -4631,14 +4636,11 @@ def test_anchor_switch_to_unresolvable_base_disables_and_saves_raw(
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_NB", kind="clone", xy=(5.0, 2.0), polar=None,
-                        rotation=40.0, name=None, group=None)
+    existing = _mount_node("M_NB", "MISSING", xy=(5.0, 2.0), rotation=40.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
                     components={})               # every role fails
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
-    dlg.own_anchor_widget.load(mode="anchor", role="MISSING")
-    dlg._refresh_for_new_anchor()
 
     assert dlg.offset_widget.isEnabled() is False
     assert dlg.rotation_edit.isEnabled() is False
@@ -4653,23 +4655,24 @@ def test_anchor_switch_to_unresolvable_base_disables_and_saves_raw(
     assert built.rotation == 40.0
 
 
-def test_read_position_after_anchor_switch_uses_the_new_base(
+def test_read_position_after_mount_anchor_switch_uses_the_new_base(
         main_window, tmp_path, monkeypatch):
-    """U.4 п.7: "Read current position" after the anchor switch fills the fields
-    in the BOARD frame of the NEW base (no separate logic — the shared cache)."""
+    """U.4 п.7 (migrated): "Read current position" after the anchor switch fills
+    the fields in the BOARD frame of the NEW base (no separate logic — the
+    shared cache)."""
     import gui.docks.trees_dock as td_mod
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_READ", kind="clone", xy=(0.0, 0.0), polar=None,
-                        rotation=0.0, name=None, group=None)
+    existing = _mount_node("M_READ", "A", xy=(0.0, 0.0), rotation=0.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
-                    components={"OP_AMP": (Vector2.from_xy_mm(100, 200), -90.0)})
+                    components={"A": (Vector2.from_xy_mm(0, 0), 0.0),
+                                "OP_AMP": (Vector2.from_xy_mm(100, 200), -90.0)})
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: ((1.0, -30.0), 100.0))
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
-    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("OP_AMP")
     dlg._refresh_for_new_anchor()
 
     dlg._on_read_position()
@@ -4680,7 +4683,7 @@ def test_read_position_after_anchor_switch_uses_the_new_base(
     assert dlg.rotation_edit.text() == "10.000"
 
 
-def test_anchor_fields_do_not_re_resolve_per_keystroke(
+def test_mount_anchor_fields_do_not_re_resolve_per_keystroke(
         main_window, tmp_path, monkeypatch):
     """U.2: the base is re-resolved ONCE per committed anchor change, never per
     character typed. Prefill resolves once; typing pad digits only invalidates
@@ -4689,8 +4692,7 @@ def test_anchor_fields_do_not_re_resolve_per_keystroke(
 
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_K", kind="clone", xy=(1.0, 1.0), polar=None,
-                        rotation=0.0, name=None, group=None)
+    existing = _mount_node("M_K", "OP_AMP", xy=(1.0, 1.0), rotation=0.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 0.0),
                     components={"OP_AMP": (Vector2.from_xy_mm(0, 0), 0.0)})
     real = td_mod._resolve_node_base_pose
@@ -4704,28 +4706,27 @@ def test_anchor_fields_do_not_re_resolve_per_keystroke(
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
     assert len(calls) == 1                       # prefill resolves once
-    dlg.own_anchor_widget.load(mode="anchor", role="OP_AMP")
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("OP_AMP")
     # Kill the pending debounce so a pumping event loop cannot make the count
     # nondeterministic — the claim under test is the SYNCHRONOUS behaviour.
     dlg._anchor_refresh_timer.stop()
     baseline = len(calls)
     for text in ("4", "41", "41x"):
-        dlg.own_anchor_widget.anchor_pad_edit.setText(text)
+        dlg.mount_anchor_widget.anchor_pad_edit.setText(text)
     assert len(calls) == baseline                # keystrokes: no adapter call
     dlg._refresh_for_new_anchor()
     assert len(calls) == baseline + 1            # one per committed change
 
 
-def test_unchanged_anchor_keeps_the_form_bit_identical(
+def test_unchanged_mount_anchor_keeps_the_form_bit_identical(
         main_window, tmp_path, monkeypatch):
     """U.4 п.8: with the anchor left alone the refresh is a no-op and a no-op
     save round-trips bit-for-bit."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-    existing = TreeNode(ref="R_S", kind="clone", xy=(-0.5, 1.0), polar=None,
-                        rotation=90.0, name=None, group=None)
+    existing = _mount_node("M_S", "OP_AMP", xy=(-0.5, 1.0), rotation=90.0)
     _fake_base_pose(monkeypatch, parent=(Vector2.from_xy_mm(0, 0), 90.0),
-                    components={})
+                    components={"OP_AMP": (Vector2.from_xy_mm(0, 0), 90.0)})
 
     dlg = _build_dialog(dock, tree, None, existing=existing, title="Edit node")
     shown = (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),

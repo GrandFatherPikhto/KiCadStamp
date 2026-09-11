@@ -1622,13 +1622,21 @@ def test_forest_module_content_nested_flow_root_is_outer(tmp_path):
     assert flow_roots == ["a"]
 
 
-# ── node's own anchor in the live layout path (own_anchor, plan 2026-09-03) ──
+# ── mount nodes in the live layout path (plan_2026_09_11_tree_mount_nodes) ──
 
-def test_layout_own_anchor_node_laid_from_anchor_with_adapter(monkeypatch):
-    """layout_tree_from_base (the live/curated path) lays an own-anchor node
-    from its OWN (role) anchor's live position when a live adapter is passed —
-    the same node_own_anchor_base substitution the materializer's _walk uses,
-    so Apply and the curated path can never drift (plan §2)."""
+def _mount_dc(ref, role, children, xy=None, rotation=0.0):
+    return TreeNode(ref=ref, kind="mount", xy=xy, polar=None,
+                    rotation=rotation, name=None, group=None,
+                    children=list(children),
+                    anchor=TreeAnchor(role=role, is_origin=False))
+
+
+def test_layout_mount_child_laid_from_anchor_with_adapter(monkeypatch):
+    """layout_tree_from_base (the live/curated path) lays a MOUNT node's
+    children from the live component its anchor names when a live adapter is
+    passed — the same mount_node_base substitution the materializer's _walk
+    uses, so Apply and the curated path can never drift. The mount node itself
+    places no record and is NOT in the returned map."""
     import kicadstamp.tree_position as tp
 
     class _FakeFp:
@@ -1644,22 +1652,21 @@ def test_layout_own_anchor_node_laid_from_anchor_with_adapter(monkeypatch):
             return _FakeFp()
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
-    node = _node_dc(ref="d0", xy=(2.0, 1.0))
-    node.own_anchor = TreeAnchor(role="FPGA")
-    tree = _leaf_tree("t", [node])
+    child = _node_dc(ref="d0", xy=(2.0, 1.0))
+    tree = _leaf_tree("t", [_mount_dc("m1", "FPGA", [child])])
     out = layout_tree_from_base(tree, _ORIGIN, 0.0,
                                 adapter=object(), cfg=None, sheet_names={})
+    assert "m1" not in out
     pos, _rot = out["d0"]
     assert _mm(pos) == (32.0, 41.0)
 
 
-def test_layout_own_anchor_node_without_adapter_is_validation_error():
-    """A pure (adapter-less) layout call that reaches an own-anchor node is a
-    clear ValidationError — own_anchor is live-only, never a silent fallback to
-    the parent frame (a wrong position would be worse than an error)."""
-    node = _node_dc(ref="d0", xy=(1.0, 0.0))
-    node.own_anchor = TreeAnchor(role="FPGA")
-    tree = _leaf_tree("t", [node])
+def test_layout_mount_node_without_adapter_is_validation_error():
+    """A pure (adapter-less) layout call that reaches a mount node is a clear
+    ValidationError — a mount base is live-only, never a silent fallback to the
+    parent frame (a wrong position would be worse than an error)."""
+    child = _node_dc(ref="d0", xy=(1.0, 0.0))
+    tree = _leaf_tree("t", [_mount_dc("m1", "FPGA", [child])])
     with pytest.raises(ValidationError, match="needs a live board"):
         layout_tree_from_base(tree, _ORIGIN, 0.0)
 

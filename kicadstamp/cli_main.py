@@ -21,7 +21,8 @@ setup_i18n()
 
 from kicadstamp import __version__
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_clone_plan,
-                            cmd_extract, cmd_extract_net, cmd_flatten, cmd_undo)
+                            cmd_convert_trees, cmd_extract, cmd_extract_net,
+                            cmd_flatten, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -54,7 +55,7 @@ if hasattr(sys.stderr, "reconfigure"):
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
-                "clone-plan", "channel-copy", "flatten")
+                "clone-plan", "channel-copy", "flatten", "convert-trees")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -332,6 +333,19 @@ def main() -> int:
                                 help=_("Print the consolidation plan (sections and target path) "
                                        "without writing anything"))
 
+    convert_trees_parser = subparsers.add_parser(
+        "convert-trees",
+        help=_("Rewrite trees: from the removed own_anchor grammar to mount nodes")
+    )
+    convert_trees_parser.add_argument("--root", required=True, metavar="FILE",
+                                      help=_("Config file whose trees: section is converted"))
+    convert_trees_parser.add_argument("--output", metavar="FILE",
+                                      help=_("Output file. Default: overwrite --root in place; "
+                                             "an explicit path writes a NEW file and leaves the "
+                                             "root untouched (recommended: keep a backup)"))
+    convert_trees_parser.add_argument("--dry-run", action="store_true",
+                                      help=_("Print the conversion report without writing anything"))
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
@@ -339,7 +353,7 @@ def main() -> int:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
                     "apply, undo, extract, extract-net, clone-extract, clone-plan, "
-                    "channel-copy, flatten."),
+                    "channel-copy, flatten, convert-trees."),
                   file=sys.stderr)
         raise
 
@@ -378,6 +392,10 @@ def main() -> int:
                 print("\n".join(report))
         elif args.command == "flatten":
             report = cmd_flatten(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "convert-trees":
+            report = cmd_convert_trees(args)
             if report:
                 print("\n".join(report))
         else:

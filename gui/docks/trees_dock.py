@@ -103,6 +103,10 @@ _KIND_TAGS = {
     # "module" everywhere (files, KINDS, link_trees, ...); only what the user
     # reads here and in the Kind combo (NodeFormWidget, below) changes.
     "module": _("tree"),
+    # Mount node (2026-09-11, plan_2026_09_11_tree_mount_nodes): a POINT OF
+    # REFERENCE — it places nothing itself; its children hang from the live
+    # component its anchor names.
+    "mount": _("mount"),
 }
 
 # Node kinds the per-node Redraw button can actually act on. Most of these
@@ -336,7 +340,7 @@ def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
     target.group = built.group
     target.pivot_xy = built.pivot_xy
     target.pivot_polar = built.pivot_polar
-    target.own_anchor = built.own_anchor
+    target.anchor = built.anchor
 
 
 class TreesDock(QWidget):
@@ -2017,10 +2021,10 @@ class TreesDock(QWidget):
                 self._cfg, adapter,
                 self._ctx.sheet_names if self._ctx is not None else {},
                 tree, self._find_parent(tree, node), node.ref, node.kind,
-                # An own-anchor node's xy/polar are defined relative to its OWN
+                # A MOUNT node's xy/polar are defined relative to its OWN
                 # anchor, not the parent — reread against the same base the
-                # node is authored against (plan tree_node_own_anchor §2.3).
-                base_anchor=node.own_anchor)
+                # node is authored against (plan_2026_09_11_tree_mount_nodes).
+                base_anchor=node.anchor if node.kind == "mount" else None)
         except ValidationError as e:
             QMessageBox.warning(self, _("Reread current position"), str(e))
             return
@@ -2750,30 +2754,29 @@ class NodeFormWidget(QWidget):
         self.group_edit = QLineEdit()
         form.addRow(_("Group (optional):"), self.group_edit)
 
-        # ── Position tab: the offset base — parent (default, = today's node
-        # semantics) or a chosen live component (own_anchor, plan
-        # tree_node_own_anchor §3). The same shared picker as everywhere else
-        # (plan 2026-09-04 unify_node_own_anchor_widget) — AnchorOriginWidget
-        # with two modes: the empty "parent" mode (the dialog's historic
-        # default) and "anchor" restricted to Role+Sheet/Cluster/Pad — Ref
-        # makes no sense for a NODE's own base (a node is itself a placement
-        # record), so show_ref=False, and the mode label keeps the old radio's
-        # wording "Relative to component". Row visibility under each mode is
-        # driven by the widget itself (its mode combo), no manual wiring.
+        # ── Position tab: the offset base. 2026-09-11 (plan_2026_09_11_tree_
+        # mount_nodes §Y.1/Y.2): a node's base is ALWAYS its parent — the old
+        # per-node own_anchor picker is gone. The picker below now belongs to a
+        # kind "mount" node ONLY (a POINT OF REFERENCE whose children hang from
+        # the live component it names), so it is hidden for every other kind by
+        # _on_kind_changed. The same shared widget as the tree anchor's role
+        # mode: Role + optional Sheet/Cluster/Pad; Ref is meaningless for an
+        # anchor base, so show_ref=False.
         position_widget = QWidget()
         position_form = QFormLayout(position_widget)
-        self.own_anchor_widget = AnchorOriginWidget(
+        self.mount_anchor_widget = AnchorOriginWidget(
             modes=("parent", "anchor"), anchor_fields=("sheet", "cluster", "pad"),
-            show_ref=False, mode_labels={"anchor": _("Relative to component")})
-        position_form.addRow(self.own_anchor_widget)
-        self.own_anchor_widget.set_known_roles(
+            show_ref=False, mode_labels={"anchor": _("Mount anchor (role)")})
+        position_form.addRow(self.mount_anchor_widget)
+        self.mount_anchor_widget.setVisible(False)
+        self.mount_anchor_widget.set_known_roles(
             self._role_candidates, self._cluster_candidates)
         # J.3 (2026-09-10): the Sheet combo is fed from the CONFIG's sheet map
         # (RuntimeContext.sheet_names, built from the schematics), exactly like
         # AnchorFormWidget does — NOT from the ~2s board snapshot, whose
         # Selected.sheet was empty for every footprint (measured: 325
         # footprints, 0 sheet names), leaving this combo permanently blank.
-        self.own_anchor_widget.set_known_sheets(list(self._sheet_names.values()))
+        self.mount_anchor_widget.set_known_sheets(list(self._sheet_names.values()))
 
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
@@ -2819,7 +2822,7 @@ class NodeFormWidget(QWidget):
         for _edit in (self.rotation_edit, self.name_edit, self.group_edit):
             _edit.textChanged.connect(self._mark_touched)
         for _origin in (self.offset_widget, self.pivot_widget,
-                        self.own_anchor_widget):
+                        self.mount_anchor_widget):
             _origin.fieldChanged.connect(self._mark_touched)
 
         # Anchor change -> the frame the offset/rotation are expressed against
@@ -2829,8 +2832,8 @@ class NodeFormWidget(QWidget):
         # (cheap, no adapter call) and coalesces the actual re-resolve + display
         # refresh behind a short single-shot timer — one resolution per
         # committed anchor change, never one per character.
-        self.own_anchor_widget.modeChanged.connect(self._on_anchor_mode_changed)
-        self.own_anchor_widget.fieldChanged.connect(self._on_anchor_field_changed)
+        self.mount_anchor_widget.modeChanged.connect(self._on_anchor_mode_changed)
+        self.mount_anchor_widget.fieldChanged.connect(self._on_anchor_field_changed)
         self._anchor_refresh_timer = QTimer(self)
         self._anchor_refresh_timer.setSingleShot(True)
         self._anchor_refresh_timer.setInterval(250)
@@ -2853,17 +2856,21 @@ class NodeFormWidget(QWidget):
         (design §9.4, _discard_if_touched)."""
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
-        self.own_anchor_widget.set_known_roles(
+        self.mount_anchor_widget.set_known_roles(
             self._role_candidates, self._cluster_candidates)
 
-    def own_anchor(self) -> TreeAnchor | None:
-        """The Position tab's value: None when "Relative to parent" (the
-        default) or the widget's own validation failed, else the filled
-        role-only TreeAnchor. An empty Role under "Relative to component" is
-        returned as None here — the caller's validation (build_node) turns it
-        into a warning, never a silent parent."""
-        fields, err = self.own_anchor_widget.build()
-        if err or fields["mode"] == "parent":
+    def mount_anchor(self) -> TreeAnchor | None:
+        """The MOUNT node's anchor (plan §Y.1.2): None when the picker is not
+        in "anchor" mode or its validation failed, else the filled role-only
+        TreeAnchor. This value is meaningful ONLY for kind == "mount" —
+        build_node requires it there and ignores it otherwise (a non-mount
+        node's base is simply its parent)."""
+        fields, err = self.mount_anchor_widget.build()
+        if err or not fields or fields.get("mode") != "anchor":
+            return None
+        if not fields.get("role"):
+            # An incomplete mount anchor (no Role yet) counts as "no anchor" —
+            # build_node turns it into a refusal, never a silently-filled one.
             return None
         return TreeAnchor(
             role=fields["role"], is_origin=False,
@@ -2925,8 +2932,8 @@ class NodeFormWidget(QWidget):
         if self._adapter is None or self._cfg is None or self._tree is None:
             return None
         try:
-            if self.own_anchor_widget.mode == "anchor":
-                base_anchor = self.own_anchor()
+            if self.kind_combo.currentData() == "mount":
+                base_anchor = self.mount_anchor()
                 if base_anchor is None:
                     return None
             else:
@@ -2957,7 +2964,7 @@ class NodeFormWidget(QWidget):
         this PyQt build, so a truthiness guard reads every field as blank (the
         same reason AnchorOriginWidget::build/own_anchor use explicit None
         checks)."""
-        w = self.own_anchor_widget
+        w = self.mount_anchor_widget
         return (
             w.mode,
             (w.anchor_role_edit.currentText().strip()
@@ -3055,8 +3062,8 @@ class NodeFormWidget(QWidget):
         If the new base cannot be resolved live, the fields are disabled with a
         reason and (Edit mode) the RAW stored values are restored — never
         numbers whose meaning silently changed."""
-        if (self.own_anchor_widget.mode == "anchor"
-                and self.own_anchor() is None):
+        if (self.kind_combo.currentData() == "mount"
+                and self.mount_anchor() is None):
             # Incomplete anchor (no Role yet) — a transient state while the user
             # is still filling the picker. Never resolve a missing anchor as the
             # parent: disable the fields with the same wording build_node uses,
@@ -3114,15 +3121,16 @@ class NodeFormWidget(QWidget):
             self.kind_combo.setCurrentIndex(kind_idx)
         self._on_kind_changed()
         self.ref_combo.setCurrentText(existing.ref)
-        # Position tab: restore the node's own_anchor (or "Relative to parent").
-        if existing.own_anchor is not None:
-            self.own_anchor_widget.load(
-                mode="anchor", role=existing.own_anchor.role,
-                sheet=existing.own_anchor.anchor_sheet or "",
-                cluster=existing.own_anchor.anchor_cluster or "",
-                pad=existing.own_anchor.anchor_pad or "")
+        # Position tab: restore a MOUNT node's anchor (every other kind's base
+        # is its parent, so the picker stays in its empty "parent" mode).
+        if existing.kind == "mount" and existing.anchor is not None:
+            self.mount_anchor_widget.load(
+                mode="anchor", role=existing.anchor.role,
+                sheet=existing.anchor.anchor_sheet or "",
+                cluster=existing.anchor.anchor_cluster or "",
+                pad=existing.anchor.anchor_pad or "")
         else:
-            self.own_anchor_widget.load(mode="parent")
+            self.mount_anchor_widget.load(mode="parent")
         # Board frame (plan §3): the form shows the offset/rotation in the BOARD
         # frame, the config stores them in the base's local frame. The
         # conversion happens HERE (load) and in build_node (save) — twice,
@@ -3215,16 +3223,18 @@ class NodeFormWidget(QWidget):
                 self, _("Read current position"),
                 _("No root config loaded — cannot resolve the record."))
             return
-        # When the "Relative to component" mode is active the offset is defined
-        # from that component's live frame — the read must diff against it, not
-        # the parent (plan tree_node_own_anchor §2.3/§3).
-        is_component_mode = self.own_anchor_widget.mode == "anchor"
-        base_anchor = self.own_anchor() if is_component_mode else None
-        if is_component_mode and base_anchor is None:
-            QMessageBox.warning(
-                self, _("Read current position"),
-                _("Anchor: Role is required."))
-            return
+        # A MOUNT node's offset is defined from its anchor's live frame — the
+        # read must diff against it, not the parent (plan_2026_09_11_tree_mount_
+        # nodes). Every other kind reads against the parent base.
+        if kind == "mount":
+            base_anchor = self.mount_anchor()
+            if base_anchor is None:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("Mount anchor: Role is required."))
+                return
+        else:
+            base_anchor = None
         try:
             offset_mm, rotation = _resolve_live_offset(
                 self._cfg, self._adapter, self._sheet_names,
@@ -3275,15 +3285,22 @@ class NodeFormWidget(QWidget):
         names, plain (plan_2026_08_29_trees_node_kind_filtered_combo.md)."""
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
+        is_mount = kind == "mount"
         # Module-only rows: pivot + its convenience sugar. Everything else:
         # the "Read current position" row (a live read of a module ref — a
-        # tree, not a record — is meaningless).
+        # tree, not a record — is meaningless; a MOUNT node's position IS its
+        # anchor, so a read is meaningless there too).
         self.pivot_widget.setVisible(is_module)
         self.pivot_from_node_button.setVisible(is_module)
         self.pivot_by_ref_button.setVisible(is_module)
         self.pivot_ref_status_label.setVisible(is_module)
-        self.read_position_button.setVisible(not is_module)
-        self.read_status_label.setVisible(not is_module)
+        self.read_position_button.setVisible(not is_module and not is_mount)
+        self.read_status_label.setVisible(not is_module and not is_mount)
+        # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
+        # and is REQUIRED there, so it switches itself to "anchor" mode.
+        self.mount_anchor_widget.setVisible(is_mount)
+        if is_mount and self.mount_anchor_widget.mode != "anchor":
+            self.mount_anchor_widget.load(mode="anchor")
         if kind == "module":
             # Ref = a child TREE NAME (not a record) — the dialog's separate
             # tree-name candidate list, minus self/dups/cycle risks.
@@ -3291,6 +3308,12 @@ class NodeFormWidget(QWidget):
             self._set_ref_items([(name, None, name)
                                  for name in self._module_candidates])
             self.ref_combo.setPlaceholderText(_("child tree name"))
+            return
+        if kind == "mount":
+            # A mount node's ref is a local NAME (unique within the tree), not
+            # a config record — free text, like external (plan §Y.1.3).
+            self.ref_combo.clear()
+            self.ref_combo.setPlaceholderText(_("mount node name (unique in tree)"))
             return
         if kind == "external":
             self.ref_combo.clear()
@@ -3520,19 +3543,22 @@ class NodeFormWidget(QWidget):
                     pivot_polar = (pfields["radius"], pfields["angle"])
                 else:
                     pivot_xy = (pfields["x"], pfields["y"])
-        # Position tab: "Relative to component" with no Role is a hard refusal
-        # (never silently downgrade to the parent base) — same explicit style as
-        # the other guards above.
-        own_anchor = self.own_anchor()
-        if self.own_anchor_widget.mode == "anchor" and own_anchor is None:
-            QMessageBox.warning(
-                self, _("Add node"),
-                _("Anchor: Role is required."))
-            return None
+        # A mount node WITHOUT a Role anchor is a hard refusal (a mount node is
+        # a point of reference — with nothing to reference it is meaningless);
+        # every other kind carries no anchor at all (its base is its parent).
+        if kind == "mount":
+            node_anchor = self.mount_anchor()
+            if node_anchor is None:
+                QMessageBox.warning(
+                    self, _("Add node"),
+                    _("A mount node needs a Role anchor."))
+                return None
+        else:
+            node_anchor = None
         return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
                         name=name, group=group, pivot_xy=pivot_xy,
                         pivot_polar=pivot_polar, pivot_ref=pivot_ref,
-                        own_anchor=own_anchor)
+                        anchor=node_anchor)
 
 
 class _NodeDialog(QDialog):
@@ -3636,9 +3662,9 @@ class _NodeDialog(QDialog):
         a successful exec()."""
         return self._form.build_node()
 
-    def own_anchor(self):
-        """The form's own_anchor() (Position-tab value)."""
-        return self._form.own_anchor()
+    def mount_anchor(self):
+        """The form's mount_anchor() (Position-tab value, kind "mount")."""
+        return self._form.mount_anchor()
 
 
 class AnchorFormWidget(QWidget):

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from ..trees import check_mount_anchor_drift
 from ..runtime_context import RuntimeContext
 from ..utils.file_cache import cached_file_read, cached_graph_result
 
@@ -543,6 +544,10 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         operation_log_dir=operation_log_dir,
         board_name=board_name,
     )
+    # Load-time drift guard (plan §Y.3): a live base — a kind "mount" node's
+    # anchor or the tree's own (role ...) anchor — must never name a role the
+    # same tree places, or every Redraw silently drifts. Fatal, not a warning.
+    check_mount_anchor_drift(cfg)
     total_spokes = sum(len(c.spokes) for c in cfg.chains)
     logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, chains={chains}, "
                    "spokes={spokes}, clone_placements={clones}").format(
