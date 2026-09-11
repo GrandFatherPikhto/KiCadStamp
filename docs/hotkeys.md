@@ -14,8 +14,7 @@ below.
 | `Ctrl+O` | App-wide (Project dock / File menu) | **Open Root file...** — pick the project's root config. |
 | `Ctrl+N` | App-wide (Project dock / File menu) | **New Root file...** — create a new root config. |
 | `Ctrl+S` | App-wide (File menu) | **Save** — commit all staged config changes of the whole project to disk (see the "Save model" section in [docs/gui.md](gui.md)). |
-| `Ctrl+Shift+A` | Project dock | **Add...** — add schematic file(s) to the root's `schematic_files`. |
-| `Ctrl+Shift+R` | Project dock | **Remove** — remove the selected schematic file. |
+| `Ctrl+Shift+R` | Project dock | **Reload schematic sheets** — re-walk the project hierarchy and rewrite the root's `schematic_files`. |
 
 The app also has a **File** menu (`&File`) in the menu bar, built by FUNCTION rather than per
 dock: **Open**/**New** reuse the Project dock's own actions (one action = button + hotkey + menu

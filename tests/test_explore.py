@@ -10,6 +10,7 @@ from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 from kicadstamp.domain.board import Footprint
+import kicadstamp.explore as explore_module
 from kicadstamp.explore import Board, selection_signature
 
 
@@ -265,3 +266,55 @@ def test_select_reports_missing_role_field():
     assert s.role is None
     assert s.role_field_exists is False
     assert s.cluster_field_exists is True
+
+
+# ── Board.connect sheet-name gate (2026-09-11, plan
+#    project_settings_single_source Этап 2) — no live KiCad needed: the
+#    adapter and build_sheet_name_map are both replaced. ──────────────────
+
+def _fake_connect(monkeypatch, builder):
+    """Patch explore's adapter + sheet-name builder; return the call log."""
+    calls = {}
+
+    class _FakeAdapter:
+        def __init__(self, timeout_ms=0):
+            calls["adapter"] = timeout_ms
+
+        def refresh_board(self):
+            calls["refreshed"] = True
+
+        def get_footprints(self):
+            return []
+
+    monkeypatch.setattr(explore_module, "KiCadBoardAdapter", _FakeAdapter)
+    monkeypatch.setattr(explore_module, "build_sheet_name_map", builder)
+    return calls
+
+
+def test_connect_builds_name_map_from_schematic_files_without_schematic_dir(
+        monkeypatch, tmp_path):
+    """Regression: Board.connect used to gate the name map ONLY on
+    schematic_dir. The GUI now fills schematic_files and CLEARS schematic_dir,
+    so that gate silently produced an EMPTY map. It must fire when EITHER
+    source is set."""
+    calls = _fake_connect(
+        monkeypatch, lambda config_path, schematic_dir, schematic_files: {"u1": "Sheet1"})
+
+    board = Board.connect(schematic_dir=None, schematic_files=["a.kicad_sch"],
+                          config_path=str(tmp_path / "cfg.sexp"))
+
+    assert board.sheet_names == {"u1": "Sheet1"}
+    assert calls.get("refreshed") is True
+
+
+def test_connect_with_neither_source_skips_the_builder(monkeypatch, tmp_path):
+    """Neither schematic_dir nor schematic_files -> empty map and the builder
+    is never called (the original behaviour, kept on purpose)."""
+    def _boom(*a, **k):
+        raise AssertionError("build_sheet_name_map must not run with no source")
+
+    _fake_connect(monkeypatch, _boom)
+
+    board = Board.connect(config_path=str(tmp_path / "cfg.sexp"))
+
+    assert board.sheet_names == {}

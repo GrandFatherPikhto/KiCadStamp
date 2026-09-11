@@ -129,8 +129,12 @@ class Board:
         current working directory instead, for schematic_dir values already
         written relative to cwd."""
         adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
+        # Gate on EITHER source (2026-09-11, plan project_settings_single_source
+        # Этап 2): the GUI's RootMetadataDock now fills schematic_files and
+        # CLEARS schematic_dir, so gating on schematic_dir alone would silently
+        # return an empty name map even though schematic_files is populated.
         sheet_names = (build_sheet_name_map(config_path, schematic_dir, schematic_files or [])
-                       if schematic_dir else {})
+                       if (schematic_dir or schematic_files) else {})
         board = cls(adapter, sheet_names)
         board.refresh()
         return board

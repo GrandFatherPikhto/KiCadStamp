@@ -3,8 +3,8 @@ import gui.docks.root_metadata as root_metadata_mod
 from PyQt6.QtGui import QKeySequence
 
 from gui import settings
-from gui.docks.root_metadata import (ACTION_ADD_SCH, ACTION_NEW, ACTION_OPEN,
-                                     ACTION_REMOVE_SCH, RootMetadataDock)
+from gui.docks.root_metadata import (ACTION_NEW, ACTION_OPEN,
+                                     ACTION_RELOAD_SHEETS, RootMetadataDock)
 from gui.hotkeys import registered_hotkeys
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_working_set import WORKING_SET
@@ -275,25 +275,21 @@ def test_no_file_picked_shows_placeholder_and_defaults(main_window):
     assert not hasattr(dock, "save_button")
 
 
-def test_fields_are_grouped_into_schematics_via_tabs(main_window):
-    """Restructured into tabs 2026-08-05 (Denis: "решил сделать root
-    табами") to cut dock height, same reasoning as ExtractDock's 2026-08-04
-    tabbing — Layer/place_components/skip_existing_components are general
-    project settings and stay above the tabs instead of in any one of them.
-    The Files tab was removed 2026-09-11 (plan
-    project_settings_single_source, Этап 1)."""
+def test_only_the_via_tab_remains(main_window):
+    """2026-09-11 (plan project_settings_single_source): the Files (Этап 1)
+    and Schematics (Этап 2) tabs are both gone — only Via is left. Layer /
+    place_components / skip_existing_components, the KiCad project field and
+    the read-only sheet list live in the common form ABOVE the tabs."""
     dock = RootMetadataDock(main_window)
     labels = [dock._tabs.tabText(i) for i in range(dock._tabs.count())]
-    assert labels == ["Schematics", "Via"]
+    assert labels == ["Via"]
 
-    schematics_page = dock._tabs.widget(0)
-    via_page = dock._tabs.widget(1)
-
-    assert schematics_page.isAncestorOf(dock._text_edits["schematic_dir"])
-    assert schematics_page.isAncestorOf(dock.schematic_files_list)
-
+    via_page = dock._tabs.widget(0)
     assert via_page.isAncestorOf(dock._float_edits["via_keepout_clearance_mm"])
     assert via_page.isAncestorOf(dock._int_edits["via_search_n_directions"])
+    # the KiCad project field and the sheet list are NOT inside any tab
+    assert not dock._tabs.isAncestorOf(dock.kicad_project_edit)
+    assert not dock._tabs.isAncestorOf(dock.schematic_files_list)
 
 
 def test_files_tab_and_its_fields_are_gone(main_window):
@@ -304,10 +300,20 @@ def test_files_tab_and_its_fields_are_gone(main_window):
     dock = RootMetadataDock(main_window)
     labels = [dock._tabs.tabText(i) for i in range(dock._tabs.count())]
     assert "Files" not in labels
-    for key in ("registry_path", "track_registry_path", "log_file",
-                "operation_log_dir"):
-        assert key not in dock._text_edits
+    assert not hasattr(dock, "_text_edits")
     assert not hasattr(dock, "_DEFAULT_PLACEHOLDER_FOR")
+
+
+def test_schematics_tab_and_schematic_dir_editor_are_gone(main_window):
+    """2026-09-11 (plan project_settings_single_source, Этап 2): the
+    Schematics tab and the schematic_dir field are removed — the KiCad
+    project field replaced them, and the sheet list became read-only
+    (Add.../Remove hotkeys and buttons are gone too)."""
+    dock = RootMetadataDock(main_window)
+    labels = [dock._tabs.tabText(i) for i in range(dock._tabs.count())]
+    assert "Schematics" not in labels
+    assert not hasattr(dock, "action_add_schematic_file")
+    assert not hasattr(dock, "action_remove_schematic_file")
 
 
 def test_removed_files_keys_survive_saving_another_field(main_window, tmp_path):
@@ -344,6 +350,7 @@ def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
     _write(path, {
         "layer": "B.Cu",
         "schematic_dir": "../sch",
+        "root_sheet": "board.kicad_sch",
         "schematic_files": ["extra1.kicad_sch", "extra2.kicad_sch"],
         "registry_path": "registries/fpga.json",
         "place_components": False,
@@ -355,7 +362,8 @@ def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
     dock.set_target_file(path)
 
     assert dock.layer_combo.currentText() == "B.Cu"
-    assert dock._text_edits["schematic_dir"].text() == "../sch"
+    # the config stores root_sheet; the field shows the sibling .kicad_pro
+    assert dock.kicad_project_edit.text() == "board.kicad_pro"
     assert [dock.schematic_files_list.item(i).text() for i in range(dock.schematic_files_list.count())] \
         == ["extra1.kicad_sch", "extra2.kicad_sch"]
     assert dock._bool_checks["place_components"].isChecked() is False
@@ -393,11 +401,12 @@ def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tm
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
-    dock._text_edits["schematic_dir"].setText("../../schematics")
+    dock.kicad_project_edit.setText("../../schematics/board.kicad_pro")
     dock._on_save()
 
     data = _load(path)
-    assert data["schematic_dir"] == "../../schematics"
+    # the field is shown as .kicad_pro but STORED as root_sheet (.kicad_sch)
+    assert data["root_sheet"] == "../../schematics/board.kicad_sch"
     assert data["cells"] == {"c1": {}}
     assert any("Saved" in r.message for r in caplog.records)
 
@@ -464,134 +473,168 @@ def test_schematic_files_round_trips_as_a_list(main_window, tmp_path):
     assert _load(path)["schematic_files"] == ["a.kicad_sch", "b.kicad_sch"]
 
 
-def test_remove_schematic_file_removes_selected_item(main_window, tmp_path):
+def test_schematic_sheets_list_is_read_only(main_window, tmp_path):
+    """2026-09-11 (plan project_settings_single_source, Этап 2): the old
+    Add.../Remove buttons and inline editing are gone — the list only
+    displays Config.schematic_files and is refreshed by the Reload button."""
+    from PyQt6.QtWidgets import QListWidget
+
     path = tmp_path / "root.sexp"
     _write(path, {"schematic_files": ["a.kicad_sch", "b.kicad_sch"]})
     dock = RootMetadataDock(main_window)
     dock.set_target_file(path)
 
-    dock.schematic_files_list.item(0).setSelected(True)
-    dock._remove_schematic_file()
+    assert dock.schematic_files_list.selectionMode() \
+        == QListWidget.SelectionMode.NoSelection
+    assert not hasattr(dock, "_add_schematic_file")
+    assert not hasattr(dock, "_remove_schematic_file")
+    assert not hasattr(dock, "_make_schematic_items_editable")
+    assert [dock.schematic_files_list.item(i).text()
+            for i in range(dock.schematic_files_list.count())] \
+        == ["a.kicad_sch", "b.kicad_sch"]
 
-    assert [dock.schematic_files_list.item(i).text() for i in range(dock.schematic_files_list.count())] \
-        == ["b.kicad_sch"]
 
-
-def test_browse_dir_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
+def test_browse_kicad_project_derives_root_sheet_relative_to_config(
+        main_window, tmp_path, monkeypatch):
+    """Picking a .kicad_pro sets the field and, on save, stores Config.root_sheet
+    (same basename + .kicad_sch) relative to the config — the store-on-save half
+    of the derivation (plan project_settings_single_source, Этап 2)."""
     target = tmp_path / "sub" / "root.sexp"
     target.parent.mkdir()
     _write(target, {})
-    picked_dir = tmp_path / "sub" / "schematics"
-    picked_dir.mkdir()
-
-    dock = RootMetadataDock(main_window)
-    dock.set_target_file(target)
-    monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getExistingDirectory",
-        staticmethod(lambda *a, **k: str(picked_dir)))
-
-    dock._browse_dir(dock._text_edits["schematic_dir"], "Schematic dir")
-
-    assert dock._text_edits["schematic_dir"].text() == "schematics"
-
-
-def test_browse_sch_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
-    """The "sch" picker (root_sheet, the one remaining text field above the
-    tabs) writes the chosen .kicad_sch path relative to the target config.
-    Replaces the Files-tab-era _browse_file test, removed 2026-09-11 along
-    with that picker."""
-    target = tmp_path / "sub" / "root.sexp"
-    target.parent.mkdir()
-    _write(target, {})
-    picked_file = tmp_path / "sub" / "board.kicad_sch"
+    (tmp_path / "sub" / "board.kicad_sch").write_text("(kicad_sch\n)\n",
+                                                      encoding="utf-8")
+    picked = tmp_path / "sub" / "board.kicad_pro"
 
     dock = RootMetadataDock(main_window)
     dock.set_target_file(target)
     monkeypatch.setattr(
         "gui.docks.root_metadata.QFileDialog.getOpenFileName",
-        staticmethod(lambda *a, **k: (str(picked_file), "")))
+        staticmethod(lambda *a, **k: (str(picked), "")))
 
-    dock._browse_sch(dock._text_edits["root_sheet"], "Root sheet")
+    dock._browse_kicad_project()
+    dock._on_save()
 
-    assert dock._text_edits["root_sheet"].text() == "board.kicad_sch"
-
-
-def test_add_schematic_file_writes_path_relative_to_target_file(main_window, tmp_path, monkeypatch):
-    target = tmp_path / "sub" / "root.sexp"
-    target.parent.mkdir()
-    _write(target, {})
-    picked_file = tmp_path / "sub" / "extra.kicad_sch"
-
-    dock = RootMetadataDock(main_window)
-    dock.set_target_file(target)
-    monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
-        staticmethod(lambda *a, **k: ([str(picked_file)], "")))
-
-    dock._add_schematic_file()
-
-    assert [dock.schematic_files_list.item(i).text() for i in range(dock.schematic_files_list.count())] \
-        == ["extra.kicad_sch"]
+    assert dock.kicad_project_edit.text() == "board.kicad_pro"
+    assert _load(target)["root_sheet"] == "board.kicad_sch"
 
 
-def test_add_schematic_file_does_not_duplicate(main_window, tmp_path, monkeypatch):
+def test_browse_kicad_project_without_a_root_sheet_leaves_value(
+        main_window, tmp_path, monkeypatch, caplog):
+    """A picked .kicad_pro whose sibling .kicad_sch does not exist must leave
+    the current root_sheet untouched and say so in the log (plan Этап 2:
+    "если такого файла нет — сообщить в логе и не трогать текущее значение")."""
     target = tmp_path / "root.sexp"
-    _write(target, {"schematic_files": ["extra.kicad_sch"]})
-    picked_file = tmp_path / "extra.kicad_sch"
+    _write(target, {"root_sheet": "keep.kicad_sch"})
+    picked = tmp_path / "missing.kicad_pro"  # no missing.kicad_sch on disk
 
     dock = RootMetadataDock(main_window)
     dock.set_target_file(target)
+    before = dock.kicad_project_edit.text()
     monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
-        staticmethod(lambda *a, **k: ([str(picked_file)], "")))
+        "gui.docks.root_metadata.QFileDialog.getOpenFileName",
+        staticmethod(lambda *a, **k: (str(picked), "")))
 
-    dock._add_schematic_file()
+    dock._browse_kicad_project()
+    dock._on_save()
 
-    assert dock.schematic_files_list.count() == 1
+    assert before == "keep.kicad_pro"  # sanity: derived from root_sheet
+    assert dock.kicad_project_edit.text() == before
+    assert _load(target)["root_sheet"] == "keep.kicad_sch"
+    assert any("No root sheet" in r.message for r in caplog.records)
 
 
-def test_add_schematic_file_multiselect_adds_all_no_duplicates(main_window, tmp_path, monkeypatch):
-    """Task 2026-08-30: Add... uses getOpenFileNames, so several .kicad_sch
-    can be picked in one dialog; each is added relative to the target, and a
-    path already in the list is skipped (no duplicates)."""
-    target = tmp_path / "root.sexp"
-    _write(target, {"schematic_files": ["a.kicad_sch"]})
-    picked = [str(tmp_path / "b.kicad_sch"), str(tmp_path / "a.kicad_sch"),
-              str(tmp_path / "c.kicad_sch")]
+def _write_sch(path, sheet_files=()):
+    """Minimal .kicad_sch text good enough for walk_schematic_hierarchy: it
+    only needs (sheet blocks (newline right after the tag) carrying a
+    Sheetfile property (see schematic_discovery._SHEETFILE_RE)."""
+    body = "".join(
+        '(sheet\n'
+        '    (property "Sheetname" "{name}")\n'
+        '    (property "Sheetfile" "{f}")\n'
+        '  )\n'.format(name=f.rsplit(".", 1)[0], f=f)
+        for f in sheet_files)
+    path.write_text("(kicad_sch\n" + body + ")\n", encoding="utf-8")
+
+
+def test_reload_schematic_sheets_writes_reachable_and_clears_schematic_dir(
+        main_window, tmp_path):
+    """The Reload button walks the hierarchy from root_sheet, REPLACES
+    schematic_files with the reachable files (relative, including the root),
+    and CLEARS schematic_dir. A sibling .kicad_sch that is not reachable from
+    the root must NOT be picked up — the old schematic_dir: "." would have
+    globbed it (plan project_settings_single_source, Этап 2)."""
+    config = tmp_path / "root.sexp"
+    _write(config, {"schematic_dir": ".", "root_sheet": "board.kicad_sch",
+                    "schematic_files": ["stale.kicad_sch"]})
+    _write_sch(tmp_path / "board.kicad_sch", sheet_files=["child.kicad_sch"])
+    _write_sch(tmp_path / "child.kicad_sch")
+    _write_sch(tmp_path / "orphan.kicad_sch")  # unreachable from the root
 
     dock = RootMetadataDock(main_window)
-    dock.set_target_file(target)
-    monkeypatch.setattr(
-        "gui.docks.root_metadata.QFileDialog.getOpenFileNames",
-        staticmethod(lambda *a, **k: (picked, "")))
+    dock.set_target_file(config)
+    dock._reload_schematic_sheets()
 
-    dock._add_schematic_file()
-
+    data = _load(config)
+    assert data["schematic_files"] == ["board.kicad_sch", "child.kicad_sch"]
+    assert "orphan.kicad_sch" not in data["schematic_files"]
+    # schematic_dir cleared: None serializes away for s-expr
+    assert "schematic_dir" not in data
+    # the read-only widget mirrors the new list
     assert [dock.schematic_files_list.item(i).text()
             for i in range(dock.schematic_files_list.count())] \
-        == ["a.kicad_sch", "b.kicad_sch", "c.kicad_sch"]
+        == ["board.kicad_sch", "child.kicad_sch"]
+
+
+def test_reload_schematic_sheets_requires_a_project(main_window, tmp_path, caplog):
+    """No root_sheet in the config -> the button refuses with a log message
+    and writes nothing."""
+    config = tmp_path / "root.sexp"
+    _write(config, {"cells": {"c1": {}}})
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(config)
+
+    dock._reload_schematic_sheets()
+
+    assert _load(config) == {"cells": {"c1": {}}}
+    assert any("Pick a KiCad project" in r.message for r in caplog.records)
+
+
+def test_reload_schematic_sheets_missing_root_file_leaves_list(
+        main_window, tmp_path, caplog):
+    """root_sheet points at a file that does not exist -> log + no write."""
+    config = tmp_path / "root.sexp"
+    _write(config, {"root_sheet": "gone.kicad_sch",
+                    "schematic_files": ["keep.kicad_sch"]})
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(config)
+
+    dock._reload_schematic_sheets()
+
+    assert _load(config)["schematic_files"] == ["keep.kicad_sch"]
+    assert any("not found" in r.message for r in caplog.records)
 
 
 def test_browse_without_a_file_picked_shows_error(main_window, caplog):
     dock = RootMetadataDock(main_window)
-    dock._browse_dir(dock._text_edits["schematic_dir"], "Schematic dir")
+    dock._browse_kicad_project()
     assert any("Open or create a project" in r.message for r in caplog.records)
 
 
 # ── QAction hotkeys (2026-08-30, plan dock_toolbars_menus_hotkeys Этап 1) ──
 
 def test_creates_actions_with_stable_ids_and_defaults(main_window):
-    """Every action-bearing button (Open/New/Add.../Remove) got a QAction
-    with the stable action_id + default shortcut — the buttons adopt them via
-    setDefaultAction (one action = button + hotkey). No root_metadata.save: the
-    per-dock Save button was retired 2026-09-01 (Ctrl+S = the GLOBAL File >
-    Save, project.save — see test_vestigial_save_hotkey_removed)."""
+    """Every action-bearing button (Open/New/Reload schematic sheets) got a
+    QAction with the stable action_id + default shortcut. No
+    root_metadata.save: the per-dock Save button was retired 2026-09-01
+    (Ctrl+S = the GLOBAL File > Save, project.save — see
+    test_vestigial_save_hotkey_removed). The Add.../Remove hotkeys are gone
+    with the Schematics tab (2026-09-11)."""
     dock = RootMetadataDock(main_window)
     expected = {
         ACTION_OPEN: ("Open Root file...", "Ctrl+O"),
         ACTION_NEW: ("New Root file...", "Ctrl+N"),
-        ACTION_ADD_SCH: ("Add...", "Ctrl+Shift+A"),
-        ACTION_REMOVE_SCH: ("Remove", "Ctrl+Shift+R"),
+        ACTION_RELOAD_SHEETS: ("Reload schematic sheets", "Ctrl+Shift+R"),
     }
     window_actions = {a.objectName(): a for a in main_window.actions()}
     for action_id, (label, shortcut) in expected.items():
@@ -614,17 +657,14 @@ def test_action_triggers_reach_the_same_slots(main_window, monkeypatch):
                         lambda self: calls.append("open"))
     monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_on_new_root",
                         lambda self: calls.append("new"))
-    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_add_schematic_file",
-                        lambda self: calls.append("add"))
-    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_remove_schematic_file",
-                        lambda self: calls.append("remove"))
+    monkeypatch.setattr(root_metadata_mod.RootMetadataDock, "_reload_schematic_sheets",
+                        lambda self: calls.append("reload"))
 
     dock = RootMetadataDock(main_window)
     dock.action_open.trigger()
     dock.action_new.trigger()
-    dock.action_add_schematic_file.trigger()
-    dock.action_remove_schematic_file.trigger()
-    assert calls == ["open", "new", "add", "remove"]
+    dock.action_reload_sheets.trigger()
+    assert calls == ["open", "new", "reload"]
 
 
 def test_custom_binding_from_settings_applies_on_next_open(main_window):
@@ -661,7 +701,7 @@ def test_editing_a_field_marks_dirty(main_window, tmp_path):
     dock = RootMetadataDock(main_window)
     dock.set_root_file(path)
     assert not dock._dirty
-    dock._text_edits["schematic_dir"].setText("../../sch")
+    dock.kicad_project_edit.setText("../../sch/board.kicad_pro")
     assert dock._dirty
     dock._on_save()
     assert not dock._dirty  # a successful save clears it

@@ -3331,6 +3331,38 @@ msgstr "Root sheet:"
 msgid "Schematic dir:"
 msgstr "Schematic dir:"
 
+#: gui/docks/root_metadata.py
+msgid "KiCad project"
+msgstr "KiCad project"
+
+#: gui/docks/root_metadata.py
+msgid "KiCad project:"
+msgstr "KiCad project:"
+
+#: gui/docks/root_metadata.py
+msgid "Schematic sheets:"
+msgstr "Schematic sheets:"
+
+#: gui/docks/root_metadata.py
+msgid "Reload schematic sheets"
+msgstr "Reload schematic sheets"
+
+#: gui/docks/root_metadata.py
+msgid "Pick a KiCad project first."
+msgstr "Pick a KiCad project first."
+
+#: gui/docks/root_metadata.py
+msgid "No root sheet {path} next to the picked KiCad project — the current root sheet is left unchanged."
+msgstr "No root sheet {path} next to the picked KiCad project — the current root sheet is left unchanged."
+
+#: gui/docks/root_metadata.py
+msgid "Root sheet {path} not found — the sheet list is left unchanged."
+msgstr "Root sheet {path} not found — the sheet list is left unchanged."
+
+#: gui/docks/root_metadata.py
+msgid "Reloaded {count} schematic sheet(s) into the project config."
+msgstr "Reloaded {count} schematic sheet(s) into the project config."
+
 #: gui/docks/root_metadata.py:134
 msgid "Registry path:"
 msgstr "Registry path:"

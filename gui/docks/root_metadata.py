@@ -68,12 +68,26 @@ target file's own directory before being written into the field — every
 one of these fields is documented as "relative to this YAML" (see
 config/models.py's Config docstring).
 
-schematic_files (a real list, not a single scalar) gets a QListWidget +
-Add.../Remove instead of a comma-separated QLineEdit (2026-08-03, Denis:
-"диалоговое окошко со списком и кнопки добавить/удалить с диалогом выбора
-файла") — Add opens an Open-mode dialog filtered to *.kicad_sch (these
-files must already exist, unlike the path fields above), Remove deletes
-whatever's currently selected.
+schematic_files (a real list, not a single scalar) is shown as a READ-ONLY
+QListWidget — it used to have Add.../Remove and inline-editable items
+(2026-08-03), removed 2026-09-11 with the Schematics tab (see below).
+
+2026-09-11 (plan project_settings_single_source, Этап 2): the Schematics
+tab is GONE. A single "KiCad project:" field (a .kicad_pro picker) in the
+common area above the tabs is now the one way to point at the schematic:
+Config.root_sheet is DERIVED from it (same directory/basename, extension
+.kicad_sch) and stored as before. A "Reload schematic sheets" button walks
+the hierarchy from root_sheet (kicadstamp.schematic_discovery.
+walk_schematic_hierarchy) and REPLACES Config.schematic_files with the
+reachable files, relative to this config, ALSO CLEARING Config.schematic_dir
+— build_sheet_name_map adds BOTH sources, so a leftover schematic_dir glob
+would re-introduce exactly the unreachable sheets this change removes.
+Nothing is recomputed automatically on open/save: only the button does it
+(Denis: "надо добавить кнопку 'перечитать листы схемы'"). The list is
+STORED, not derived at load time, so the config stays self-contained when
+the KiCad project is not reachable — important, the project lives on two
+machines. The keys schematic_dir/schematic_files stay part of the FORMAT;
+only the GUI stops filling schematic_dir.
 """
 import dataclasses
 import logging
@@ -81,14 +95,15 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                              QListWidgetItem, QMessageBox, QPushButton,
-                              QTabWidget, QVBoxLayout, QWidget)
+                              QMessageBox, QPushButton, QTabWidget,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
+from kicadstamp.schematic_discovery import walk_schematic_hierarchy
 
 from .. import settings, yaml_io
 from ..hotkeys import build_action
@@ -111,8 +126,16 @@ _RECENT_LIMIT = 10
 # gui_state.json["hotkeys"] and the id the Settings-tab reassignment UI lists.
 ACTION_OPEN = "root_metadata.open"
 ACTION_NEW = "root_metadata.new"
-ACTION_ADD_SCH = "root_metadata.add_schematic_file"
-ACTION_REMOVE_SCH = "root_metadata.remove_schematic_file"
+ACTION_RELOAD_SHEETS = "root_metadata.reload_schematic_sheets"
+
+# The dock edits Config.root_sheet, but the user picks a KiCad PROJECT
+# (.kicad_pro) — root_sheet is DERIVED from it (2026-09-11, plan
+# project_settings_single_source, Этап 2): same directory/basename, this
+# suffix swap. Plain string manipulation (not Path.with_suffix) so a
+# Windows-authored relative path with backslashes survives untouched on
+# Linux.
+_KICAD_ROOT_SUFFIX = ".kicad_sch"
+_KICAD_PRO_SUFFIX = ".kicad_pro"
 
 # Config's own field defaults — single source of truth, read via
 # dataclasses instead of duplicated literals here (default_factory fields,
@@ -123,22 +146,6 @@ _DEFAULTS: Dict[str, object] = {
     for f in dataclasses.fields(Config)
 }
 
-# Third element: "dir" -> browse button opens getExistingDirectory, "sch" ->
-# Open-mode getOpenFileName filtered to *.kicad_sch (this one must already
-# exist, same reasoning as schematic_files' own Add... button below).
-# Fourth element: where it lands — "common" -> the general-settings form
-# above the tabs (root_sheet, 2026-08-07, Denis: "перенеси на Project" —
-# it identifies the project as a whole, same standing as Layer, not
-# specific to any one tab), "schematics" -> that tab.
-#
-# The four former "files" entries (registry_path, track_registry_path,
-# log_file, operation_log_dir) were removed 2026-09-11 with the Files tab —
-# see the module docstring. Because that also emptied the placeholder map
-# that used to show their computed defaults, the map itself is gone.
-_TEXT_FIELDS = [
-    ("root_sheet", _("Root sheet:"), "sch", "common"),
-    ("schematic_dir", _("Schematic dir:"), "dir", "schematics"),
-]
 _BOOL_FIELDS = [
     ("place_components", _("Place components")),
     ("skip_existing_components", _("Skip existing components")),
@@ -263,8 +270,8 @@ class RootMetadataDock(QWidget):
         self.target_label.setWordWrap(True)
         layout.addWidget(self.target_label)
 
-        # General project settings — apply regardless of tab, shown above
-        # them rather than forced into one of Files/Schematics/Via.
+        # General project settings — apply regardless of tab, shown above it
+        # rather than inside the one remaining (Via) tab.
         common_form = QFormLayout()
 
         self.layer_combo = QComboBox()
@@ -277,54 +284,47 @@ class RootMetadataDock(QWidget):
             common_form.addRow("", check)
             self._bool_checks[key] = check
 
+        # KiCad project (.kicad_pro) — the ONE way to point at the schematic
+        # (2026-09-11, plan project_settings_single_source, Этап 2). The
+        # stored key is still Config.root_sheet, derived from the picked
+        # project; see _root_sheet_from_project_field().
+        project_row = QHBoxLayout()
+        self.kicad_project_edit = QLineEdit()
+        self.kicad_project_edit.setPlaceholderText(_("(relative to this YAML)"))
+        project_row.addWidget(self.kicad_project_edit)
+        project_button = QPushButton("...")
+        project_button.setMaximumWidth(30)
+        project_button.clicked.connect(self._browse_kicad_project)
+        project_row.addWidget(project_button)
+        common_form.addRow(_("KiCad project:"), project_row)
+
+        # Schematic sheets — READ-ONLY list of Config.schematic_files plus the
+        # one action that refreshes it (plan Этап 2). Add/Remove and inline
+        # editing were removed along with the Schematics tab: the list is now
+        # derived from the KiCad project hierarchy by the button below.
+        sheets_container = QWidget()
+        sheets_layout = QVBoxLayout(sheets_container)
+        sheets_layout.setContentsMargins(0, 0, 0, 0)
+        self.schematic_files_list = QListWidget()
+        self.schematic_files_list.setMaximumHeight(80)
+        self.schematic_files_list.setSelectionMode(
+            QListWidget.SelectionMode.NoSelection)
+        sheets_layout.addWidget(self.schematic_files_list)
+        self.action_reload_sheets = build_action(
+            self._main_window, ACTION_RELOAD_SHEETS, _("Reload schematic sheets"),
+            "Ctrl+Shift+R", self._reload_schematic_sheets)
+        reload_button = QPushButton(_("Reload schematic sheets"))
+        reload_button.clicked.connect(self._reload_schematic_sheets)
+        sheets_layout.addWidget(reload_button)
+        common_form.addRow(_("Schematic sheets:"), sheets_container)
+
         layout.addLayout(common_form)
 
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs, 1)
 
-        schematics_page = QWidget()
-        schematics_form = QFormLayout(schematics_page)
         via_page = QWidget()
         via_form = QFormLayout(via_page)
-
-        self._text_edits: Dict[str, QLineEdit] = {}
-        for key, label, kind, group in _TEXT_FIELDS:
-            edit = QLineEdit()
-            edit.setPlaceholderText(_("(relative to this YAML)"))
-            row = QHBoxLayout()
-            row.addWidget(edit)
-            browse_button = QPushButton("...")
-            browse_button.setMaximumWidth(30)
-            if kind == "dir":
-                browse_button.clicked.connect(
-                    lambda _checked=False, e=edit, l=label: self._browse_dir(e, l))
-            else:  # "sch"
-                browse_button.clicked.connect(
-                    lambda _checked=False, e=edit, l=label: self._browse_sch(e, l))
-            row.addWidget(browse_button)
-            target_form = common_form if group == "common" else schematics_form
-            target_form.addRow(label, row)
-            self._text_edits[key] = edit
-
-        schematic_files_container = QWidget()
-        sf_layout = QVBoxLayout(schematic_files_container)
-        sf_layout.setContentsMargins(0, 0, 0, 0)
-        self.schematic_files_list = QListWidget()
-        self.schematic_files_list.setMaximumHeight(80)
-        sf_layout.addWidget(self.schematic_files_list)
-        sf_buttons = QHBoxLayout()
-        self.action_add_schematic_file = build_action(
-            self._main_window, ACTION_ADD_SCH, _("Add..."), "Ctrl+Shift+A", self._add_schematic_file)
-        sf_add_button = QPushButton(_("Add..."))
-        sf_add_button.clicked.connect(self._add_schematic_file)
-        self.action_remove_schematic_file = build_action(
-            self._main_window, ACTION_REMOVE_SCH, _("Remove"), "Ctrl+Shift+R", self._remove_schematic_file)
-        sf_remove_button = QPushButton(_("Remove"))
-        sf_remove_button.clicked.connect(self._remove_schematic_file)
-        sf_buttons.addWidget(sf_add_button)
-        sf_buttons.addWidget(sf_remove_button)
-        sf_layout.addLayout(sf_buttons)
-        schematics_form.addRow(_("Schematic files:"), schematic_files_container)
 
         self._float_edits: Dict[str, QLineEdit] = {}
         for key, label in _FLOAT_FIELDS:
@@ -338,9 +338,8 @@ class RootMetadataDock(QWidget):
             via_form.addRow(label, edit)
             self._int_edits[key] = edit
 
-        # Files tab removed 2026-09-11 (plan project_settings_single_source,
-        # Этап 1) — see the module docstring; only Schematics and Via remain.
-        self._tabs.addTab(schematics_page, _("Schematics"))
+        # Files (Этап 1) and Schematics (Этап 2) tabs removed 2026-09-11
+        # (plan project_settings_single_source) — only Via remains.
         self._tabs.addTab(via_page, _("Via"))
 
         # 2026-09-01 (plan project_save_model): the per-dock Save button is
@@ -533,11 +532,10 @@ class RootMetadataDock(QWidget):
 
     def _populate(self, data: dict) -> None:
         self.layer_combo.setCurrentText(data.get("layer", _DEFAULTS["layer"]))
-        for key, _label, _kind, _group in _TEXT_FIELDS:
-            self._text_edits[key].setText(data.get(key) or "")
+        self.kicad_project_edit.setText(
+            self._project_field_text(data.get("root_sheet") or ""))
         self.schematic_files_list.clear()
         self.schematic_files_list.addItems(data.get("schematic_files") or [])
-        self._make_schematic_items_editable()
         for key, _label in _BOOL_FIELDS:
             self._bool_checks[key].setChecked(bool(data.get(key, _DEFAULTS[key])))
         for key, _label in _FLOAT_FIELDS:
@@ -545,62 +543,96 @@ class RootMetadataDock(QWidget):
         for key, _label in _INT_FIELDS:
             self._int_edits[key].setText(str(data.get(key, _DEFAULTS[key])))
 
-    # ── Browse buttons for the path fields ──────────────────────────────
+    # ── KiCad project field + sheet list ────────────────────────────────
 
     def _relative_to_target(self, absolute: str) -> str:
         return Path(os.path.relpath(absolute, self._path.parent)).as_posix()
 
-    def _browse_dir(self, edit: QLineEdit, label: str) -> None:
-        if self._path is None:
-            self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
-            return
-        start = (self._path.parent / edit.text()) if edit.text().strip() else self._path.parent
-        chosen = QFileDialog.getExistingDirectory(self, label, str(start))
-        if not chosen:
-            return
-        edit.setText(self._relative_to_target(chosen))
+    @staticmethod
+    def _project_field_text(root_sheet: str) -> str:
+        """Config.root_sheet (.kicad_sch) -> the value shown in the KiCad
+        project field (.kicad_pro). A root_sheet that does not end in
+        .kicad_sch is shown as-is (best effort — this dock never invents a
+        project name)."""
+        if root_sheet.lower().endswith(_KICAD_ROOT_SUFFIX):
+            return root_sheet[:-len(_KICAD_ROOT_SUFFIX)] + _KICAD_PRO_SUFFIX
+        return root_sheet
 
-    def _browse_sch(self, edit: QLineEdit, label: str) -> None:
+    def _root_sheet_from_project_field(self) -> str:
+        """The KiCad project field (.kicad_pro) -> the Config.root_sheet value
+        to store (.kicad_sch). An empty field yields '' (turned into None by
+        _on_save); a value already ending in .kicad_sch is stored unchanged."""
+        text = self.kicad_project_edit.text().strip()
+        if text.lower().endswith(_KICAD_PRO_SUFFIX):
+            return text[:-len(_KICAD_PRO_SUFFIX)] + _KICAD_ROOT_SUFFIX
+        return text
+
+    def _browse_kicad_project(self) -> None:
+        """Pick a .kicad_pro; root_sheet is DERIVED from it. If the sibling
+        .kicad_sch does not exist, the current value is left untouched
+        (2026-09-11, plan project_settings_single_source, Этап 2: "если такого
+        файла нет — сообщить в логе и не трогать текущее значение")."""
         if self._path is None:
             self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
             return
-        start = (self._path.parent / edit.text()) if edit.text().strip() else self._path.parent
+        current = self.kicad_project_edit.text().strip()
+        start = (self._path.parent / current) if current else self._path.parent
         chosen, _filter = QFileDialog.getOpenFileName(
-            self, label, str(start), "KiCad Schematic (*.kicad_sch)")
+            self, _("KiCad project"), str(start), "KiCad project (*.kicad_pro)")
         if not chosen:
             return
-        edit.setText(self._relative_to_target(chosen))
+        root_sheet_abs = Path(chosen).with_suffix(_KICAD_ROOT_SUFFIX)
+        if not root_sheet_abs.is_file():
+            self._show_message(
+                _("No root sheet {path} next to the picked KiCad project — "
+                  "the current root sheet is left unchanged.")
+                .format(path=root_sheet_abs), _ERROR_STYLE)
+            return
+        self.kicad_project_edit.setText(self._relative_to_target(chosen))
+        self._mark_dirty()
+        self._stage_on_commit()
 
-    # ── Add/Remove for the schematic_files list ─────────────────────────
-
-    def _add_schematic_file(self) -> None:
-        """Multiselect Add... (task 2026-08-30): getOpenFileNames lets the user
-        pick several .kicad_sch at once; each is added with the same relative-
-        path, no-duplicates rule as the old single-file picker."""
+    def _reload_schematic_sheets(self) -> None:
+        """Walk the hierarchy from root_sheet and REPLACE
+        Config.schematic_files with the reachable files (relative to this
+        config), simultaneously CLEARING Config.schematic_dir — see the module
+        docstring for why schematic_dir must not survive (build_sheet_name_map
+        adds both sources and would re-add the unreachable sheets)."""
         if self._path is None:
             self._show_message(_("Open or create a project (root) file first."), _ERROR_STYLE)
             return
-        chosen, _filter = QFileDialog.getOpenFileNames(
-            self, _("Add schematic file(s)"), str(self._path.parent),
-            "KiCad Schematic (*.kicad_sch);;All files (*)")
-        for path in chosen:
-            rel = self._relative_to_target(path)
-            if not self.schematic_files_list.findItems(rel, Qt.MatchFlag.MatchExactly):
-                item = QListWidgetItem(rel)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
-                self.schematic_files_list.addItem(item)
-
-    def _remove_schematic_file(self) -> None:
-        for item in self.schematic_files_list.selectedItems():
-            self.schematic_files_list.takeItem(self.schematic_files_list.row(item))
-
-    def _make_schematic_items_editable(self) -> None:
-        """Inline-editable list items (task 2026-08-30): the user can type/
-        paste a schematic path directly into the list, not only pick one via
-        the Add... dialog."""
-        for i in range(self.schematic_files_list.count()):
-            item = self.schematic_files_list.item(i)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        root_sheet = self._root_sheet_from_project_field()
+        if not root_sheet:
+            self._show_message(_("Pick a KiCad project first."), _ERROR_STYLE)
+            return
+        # Path(...) / absolute rhs discards the left side, so this covers both
+        # a config-relative and an absolute root_sheet.
+        root_abs = self._path.parent / root_sheet
+        if not root_abs.is_file():
+            self._show_message(
+                _("Root sheet {path} not found — the sheet list is left unchanged.")
+                .format(path=root_abs), _ERROR_STYLE)
+            return
+        files = walk_schematic_hierarchy(str(root_abs))
+        relative = [self._relative_to_target(f) for f in files]
+        self.schematic_files_list.clear()
+        self.schematic_files_list.addItems(relative)
+        # schematic_dir: None serializes away for s-expr (a default-valued root
+        # scalar is omitted), so this really clears the key there; for the
+        # YAML/.json formats it writes an explicit null, which every reader
+        # treats as "unset" (build_sheet_name_map checks truthiness).
+        updates: Dict[str, object] = {"schematic_files": relative,
+                                      "schematic_dir": None}
+        try:
+            merge_write(self._path, updates)
+        except OSError as e:
+            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+        self._present_keys |= set(updates)
+        self._dirty = False
+        self._show_message(
+            _("Reloaded {count} schematic sheet(s) into the project config.")
+            .format(count=len(relative)), _SUCCESS_STYLE)
 
     # ── Save ──────────────────────────────────────────────────────────────
 
@@ -626,10 +658,9 @@ class RootMetadataDock(QWidget):
         if layer != _DEFAULTS["layer"] or "layer" in self._present_keys:
             updates["layer"] = layer
 
-        for key, _label, _kind, _group in _TEXT_FIELDS:
-            text = self._text_edits[key].text().strip()
-            if text or key in self._present_keys:
-                updates[key] = text or None
+        root_sheet = self._root_sheet_from_project_field()
+        if root_sheet or "root_sheet" in self._present_keys:
+            updates["root_sheet"] = root_sheet or None
 
         files = [self.schematic_files_list.item(i).text()
                  for i in range(self.schematic_files_list.count())]
@@ -695,9 +726,9 @@ class RootMetadataDock(QWidget):
     def _stage_on_commit(self) -> None:
         """Auto-stage (2026-09-01, plan project_save_model): a field edit's
         commit point (blur/Enter for line edits, a combo pick, a checkbox
-        toggle, a schematic-list change) stages the current root-settings form
-        into the working set. Replaces the old per-dock Save button — only the
-        global File > Save commits to disk."""
+        toggle) stages the current root-settings form into the working set.
+        Replaces the old per-dock Save button — only the global File > Save
+        commits to disk."""
         if self._path is None or not self._dirty:
             return
         self._on_save(quiet=True)
@@ -709,9 +740,8 @@ class RootMetadataDock(QWidget):
         later set_target_file() repopulation clears _dirty BEFORE _populate
         (see set_target_file) so the repopulation signals never stage."""
         self.layer_combo.currentTextChanged.connect(self._stage_on_commit)
-        for edit in self._text_edits.values():
-            edit.textChanged.connect(self._mark_dirty)
-            edit.editingFinished.connect(self._stage_on_commit)
+        self.kicad_project_edit.textChanged.connect(self._mark_dirty)
+        self.kicad_project_edit.editingFinished.connect(self._stage_on_commit)
         for check in self._bool_checks.values():
             check.toggled.connect(self._stage_on_commit)
         for edit in self._float_edits.values():
@@ -720,10 +750,6 @@ class RootMetadataDock(QWidget):
         for edit in self._int_edits.values():
             edit.textChanged.connect(self._mark_dirty)
             edit.editingFinished.connect(self._stage_on_commit)
-        model = self.schematic_files_list.model()
-        model.dataChanged.connect(self._stage_on_commit)
-        model.rowsInserted.connect(self._stage_on_commit)
-        model.rowsRemoved.connect(self._stage_on_commit)
 
     def _confirm_discard_changes(self) -> bool:
         """True to proceed (nothing to lose, or the user confirmed) — the

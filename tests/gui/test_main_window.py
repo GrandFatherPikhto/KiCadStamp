@@ -244,12 +244,16 @@ def test_settings_hotkeys_list_contains_all_dock_actions(real_main_window):
     after registering its own File actions (2026-09-04, plan
     staged_delete_stale_tree_and_save_hotkey Bug B) so the global Save
     (Ctrl+S default) is present and rebindable. The retired
-    root_metadata.save is gone (no misleading second "Save" row)."""
+    root_metadata.save is gone (no misleading second "Save" row). The
+    Add.../Remove schematic-file actions were retired 2026-09-11 with the
+    Schematics tab (plan project_settings_single_source Этап 2) and replaced
+    by root_metadata.reload_schematic_sheets."""
     edits = real_main_window._dock_hub.configurator_dock.hotkey_edits
     assert "root_metadata.open" in edits
     assert "root_metadata.new" in edits
-    assert "root_metadata.add_schematic_file" in edits
-    assert "root_metadata.remove_schematic_file" in edits
+    assert "root_metadata.reload_schematic_sheets" in edits
     assert "project.save" in edits
     assert "project.discard" in edits
     assert "root_metadata.save" not in edits
+    assert "root_metadata.add_schematic_file" not in edits
+    assert "root_metadata.remove_schematic_file" not in edits

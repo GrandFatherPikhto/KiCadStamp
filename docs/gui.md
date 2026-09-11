@@ -1077,11 +1077,21 @@ the Config tree's "Open Root file..." uses). Open/New/Recent moved INTO this dia
 — the File menu now only has **Project...**, Save, Discard, Close, Quit; the `Ctrl+O`/`Ctrl+N`
 hotkeys stay app-wide regardless of the dialog's visibility.
 
-Edits the project's root-config-only scalar keys: Layer/Place components/Skip existing components
-(shown above the tabs, as general project settings), then three tabs — **Files** (Registry path/
-Track registry path/Log file/Operation log dir), **Schematics** (Schematic dir/Schematic files),
-**Via** (the four `via_search_*`/`via_keepout_clearance_mm` fields) — split 2026-08-05 for the same
-"dock too tall to resize" reason as Extract's own tabs above.
+Edits the project's root-config-only scalar keys: Layer/Place components/Skip existing components,
+the **KiCad project** (`*.kicad_pro`) picker and the read-only schematic-sheets list (all shown
+above the tabs, as general project settings), then a single **Via** tab (the four
+`via_search_*`/`via_keepout_clearance_mm` fields).
+
+The **Files** tab (registry_path/track_registry_path/log_file/operation_log_dir) was removed
+2026-09-11: all four have a computed default next to the config file and every consumer creates the
+target on demand, so the tab was redundant. The keys stay valid in the config file — the dock just
+no longer writes them.
+
+The **Schematics** tab was replaced the same day by the KiCad project picker: `root_sheet` is
+derived from the picked `*.kicad_pro` (same directory/basename, extension `.kicad_sch`), and the
+**Reload schematic sheets** button walks that hierarchy and REPLACES `schematic_files` with the
+reachable files (relative to the config), also clearing `schematic_dir`. Nothing is recomputed
+automatically — only the button does it.
 
 Always targets the project's single root file — the one opened via "Open Root file..."/"New Root
 file..."/the Recent dropdown inside this dialog — regardless of which included file is currently

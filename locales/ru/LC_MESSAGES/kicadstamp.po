@@ -3363,6 +3363,38 @@ msgstr "Корневой лист:"
 msgid "Schematic dir:"
 msgstr "Каталог схемы:"
 
+#: gui/docks/root_metadata.py
+msgid "KiCad project"
+msgstr "Проект KiCad"
+
+#: gui/docks/root_metadata.py
+msgid "KiCad project:"
+msgstr "Проект KiCad:"
+
+#: gui/docks/root_metadata.py
+msgid "Schematic sheets:"
+msgstr "Листы схемы:"
+
+#: gui/docks/root_metadata.py
+msgid "Reload schematic sheets"
+msgstr "Перечитать листы схемы"
+
+#: gui/docks/root_metadata.py
+msgid "Pick a KiCad project first."
+msgstr "Сначала выберите проект KiCad."
+
+#: gui/docks/root_metadata.py
+msgid "No root sheet {path} next to the picked KiCad project — the current root sheet is left unchanged."
+msgstr "Рядом с выбранным проектом KiCad нет корневого листа {path} — текущий корневой лист не изменён."
+
+#: gui/docks/root_metadata.py
+msgid "Root sheet {path} not found — the sheet list is left unchanged."
+msgstr "Корневой лист {path} не найден — список листов не изменён."
+
+#: gui/docks/root_metadata.py
+msgid "Reloaded {count} schematic sheet(s) into the project config."
+msgstr "Перечитано листов схемы: {count} — записано в конфиг проекта."
+
 #: gui/docks/root_metadata.py:134
 msgid "Registry path:"
 msgstr "Путь реестра:"
