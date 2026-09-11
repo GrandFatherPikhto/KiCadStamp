@@ -578,6 +578,10 @@ python kicadstamp_cli.py convert-trees --root <config.sexp> [--output <file.sexp
   NAME that had to be suffixed because it collided with an existing ref in the same tree (`A` → `A_2`).
 - `include:` graphs are NOT expanded: each file is converted on its own (a warning line says so), so
   convert every file of a multi-file project.
+- The inner point (`pivot-*`) is lifted OFF a module node onto the tree it references. A module node
+  may reference a `tree_instances:` INSTANCE (not just a `trees:` entry): its inner point belongs to
+  the TEMPLATE, so a default (zero) pivot is dropped and a non-default one is a STOP. A module node
+  whose ref names NEITHER a tree NOR an instance is a STOP too — never the old silent skip.
 - WRITE SAFETY (2026-09-11): the converted content is serialized to a string and re-parsed by the
   NORMAL reader (never `raw_trees`) BEFORE the target is touched, then written atomically (temp file +
   `os.replace`). In-place mode first makes a timestamped `.bak` of the root (a repeated run never

@@ -609,7 +609,8 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `(anchor ...)` at all, with exactly ONE top-level `placement` node (the same shape auto-anchor
   resolution itself requires). `origin`/`ref`/`point` anchors are not parameterized by sheet. Every
   template node is `kind "placement"` (or unset/auto) and must reference an existing `entities:`
-  record, OR `kind "net_trace"` and reference an existing `net_traces:` record by its net.
+  record, `kind "net_trace"` and reference an existing `net_traces:` record by its net, OR `kind
+  "mount"` (v1.5 2026-09-11) and carry a `(anchor (role ...) ...)` — see the mount bullet below.
   (chain/coordinate/clone/module nodes inside a template stay unsupported.)
 - **Auto-anchored templates are supported too (v1.4, 2026-09-08, plan
   tree_instances_auto_root_template_support):** a template with no `(anchor ...)` at all — the
@@ -631,6 +632,22 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   (it's not this template's copper), never silently rewritten. Distinct per-instance nets keep the
   one-record-per-net
   dedup happy for free.
+- **Mount nodes inside a template (v1.5, 2026-09-11, plan
+  tree_instances_and_converter_safety §В.3/§В.4):** a `kind "mount"` node is a point of reference, so
+  it has no Entity copy and its `ref` is NOT suffixed with `__{instance.name}` (a mount ref is a LOCAL
+  name, unique per tree, never resolved against the config — each generated instance is its own tree,
+  so the same mount name there is unambiguous). Its anchor's `sheet` decides whether it looks INSIDE
+  the template or OUT at the board, STRUCTURALLY: equal to the template's own sheet (the role anchor's
+  `sheet`, or the root Entity's for an auto template) → replaced by the instance `sheet`, and ONLY
+  then the declaration's `cluster:` follows it (the same external-search narrowing the role anchor's
+  cluster gets — NOT the composite-guarded per-copy cluster); a DIFFERENT `sheet` is a board-wide
+  reference and is kept VERBATIM (an info line in the Log, never rewritten) — unlike a `net_trace`
+  net, where a foreign sheet is a fatal; a mount anchor with NO `(sheet ...)` at all is a fatal,
+  because the role would be ambiguous across the instances' sheets. A generated instance INHERITS the
+  template's inner point (`pivot-xy`/`pivot-polar`/`pivot-ref`), its own `rotation` and its anchor
+  `shift` unchanged; the template's `pivot-ref` is rewritten to follow the node renames (`placement`
+  → `__{instance}`, `net_trace` → leading-sheet substitution, mount unchanged), and a `pivot-ref`
+  naming no node of the template is a fatal at EXPANSION time.
 - **Per-declaration overrides** (`cluster:` v1.2 2026-09-03, `params:` v1.3 2026-09-07): besides
   `sheet` (always substituted), a declaration may carry OPTIONAL `cluster:` and/or `params:` merged
   into EVERY generated Entity copy — same "override wins, rest inherited" semantics as `sheet`, just

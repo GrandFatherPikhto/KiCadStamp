@@ -32,6 +32,14 @@ Two STAGES, one command (the user does not care which stage moves what):
      be a pure relocation the converter REFUSES (see _move_pivots) and writes
      nothing at all.
 
+A module node's `ref` may ALSO name a `tree_instances:` instance, not a trees:
+entry (2026-09-11, plan_2026_09_11_tree_instances_and_converter_safety §В.2).
+The old lookup was built from trees: only, so such a node's pivot was silently
+left in place and the serializer then refused the result AFTER the file had
+already been truncated (a real profile was destroyed this way — see В.1). The
+instance now resolves to its TEMPLATE: a default (zero) pivot is dropped, a
+non-zero one that differs from the template's is a STOP.
+
 What it does NOT touch: a tree's own (anchor ...), is_auto, the tree's own
 `rotation`, and every non-trees section (those are stage Б3 / later).
 """
@@ -55,7 +63,8 @@ _ANCHOR_KEYS = ("role", "sheet", "cluster", "pad")
 
 def _new_report() -> dict:
     return {"trees_touched": 0, "mounts_created": 0, "nodes_wrapped": 0,
-            "grouped": 0, "renames": [], "trees": {}, "pivots_moved": 0}
+            "grouped": 0, "renames": [], "trees": {}, "pivots_moved": 0,
+            "instance_pivots_dropped": 0}
 
 
 def _is_old_grammar(node: Any) -> bool:
@@ -197,8 +206,10 @@ def convert_trees_dict(data: dict) -> tuple[dict, dict]:
         new_trees.append(new_tree)
     out["trees"] = new_trees
     # Stage Б2 (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.4):
-    # the tree's inner point moved from the module NODE to the TREE.
-    _move_pivots(out["trees"], report)
+    # the tree's inner point moved from the module NODE to the TREE. The
+    # tree_instances: declarations are passed too (Б3.2 §В.2): a module node may
+    # reference a generated instance, which is not a trees: entry.
+    _move_pivots(out["trees"], data.get("tree_instances"), report)
     return out, report
 
 
@@ -248,8 +259,36 @@ def _is_zero_pivot(pivot: dict) -> bool:
     return True
 
 
-def _move_pivots(trees: list, report: dict) -> None:
+def _instance_templates(instances: Any) -> dict[str, str]:
+    """`name -> template` for every `tree_instances:` declaration (Б3.2 §В.2.2).
+
+    A module node may reference a GENERATED INSTANCE, which is not a `trees:`
+    entry — the old lookup was built from `trees:` only, so such a node's pivot
+    was silently left in place and `dict_to_sexp` then refused the result AFTER
+    the target had already been truncated (a real 252 КБ profile was destroyed
+    this way; see В.1). The map lets the converter resolve those refs to the
+    TEMPLATE that owns the inner point."""
+    out: dict[str, str] = {}
+    if not isinstance(instances, list):
+        return out
+    for inst in instances:
+        if not isinstance(inst, dict):
+            continue
+        name = inst.get("name")
+        template = inst.get("template")
+        if isinstance(name, str) and isinstance(template, str):
+            out[name] = template
+    return out
+
+
+def _move_pivots(trees: list, instances: Any, report: dict) -> None:
     """Lift every module node's pivot onto the tree it references (§V.4.1).
+
+    A module node's `ref` names EITHER a `trees:` entry OR a `tree_instances:`
+    instance (Б3.2 §В.2.2); both resolve to the TREE that owns the inner point.
+    For a generated instance the inner point IS its template's: a default
+    (zero) pivot, or one EQUAL to the template's own, is a no-op and is simply
+    dropped from the node; anything else cannot be a pure relocation.
 
     STOPS — raises ValidationError, so convert_config_file writes NOTHING (a
     partial conversion is never allowed, §V.4.2):
@@ -259,9 +298,14 @@ def _move_pivots(trees: list, report: dict) -> None:
       * the tree already carries its own pivot and an embedding disagrees;
       * a NON-ZERO pivot (or a pivot-ref) on a tree that is ALSO a root tree in
         this config: after the move it would shift that tree's STANDALONE
-        placement — the case §V.3 calls out explicitly.
+        placement — the case §V.3 calls out explicitly;
+      * an INSTANCE embedded with a pivot that differs from its template's own
+        (the point belongs to the TEMPLATE, never to one embedding);
+      * a `ref` naming NEITHER a tree NOR an instance — previously a silent
+        `continue`, after which the serializer failed with an unrelated message.
     """
     by_name = {t.get("name"): t for t in trees if isinstance(t, dict)}
+    instance_of = _instance_templates(instances)
     asked: dict[str, list[tuple[dict, dict]]] = {}
     for tree in trees:
         if not isinstance(tree, dict):
@@ -280,9 +324,15 @@ def _move_pivots(trees: list, report: dict) -> None:
 
     problems: list[str] = []
     for ref, entries in sorted(asked.items()):
-        target = by_name.get(ref)
+        is_tree = ref in by_name
+        template_name = ref if is_tree else instance_of.get(ref)
+        target = by_name.get(template_name) if isinstance(template_name, str) else None
         if target is None:
-            continue  # unknown module target: link_trees reports it elsewhere
+            problems.append(_(
+                "module node {ref!r}: references neither a trees: entry nor a "
+                "tree_instances: instance, so its pivot cannot be moved onto a "
+                "tree — check the module ref").format(ref=ref))
+            continue
         variants = {_pivot_descriptor(p) for _n, p in entries}
         if len(variants) > 1:
             problems.append(_(
@@ -290,6 +340,29 @@ def _move_pivots(trees: list, report: dict) -> None:
                 "inner point is one per tree").format(name=ref, count=len(variants)))
             continue
         pivot = entries[0][1]
+        if not is_tree:
+            # Generated instance (Б3.2 §В.2.2, plan §В.2.2): the instance
+            # inherits its TEMPLATE's inner point. A zero pivot is the default
+            # and a pivot equal to the template's own asks for exactly what the
+            # instance already gets — either way dropping it from the node is a
+            # pure no-op. Anything else is a human decision (set it on the
+            # template, or give the instance its own point), never a guess.
+            template_pivot = _node_pivot(target)
+            if _is_zero_pivot(pivot) or (
+                    template_pivot
+                    and _pivot_descriptor(template_pivot) == _pivot_descriptor(pivot)):
+                for node, _pivot in entries:
+                    for key in _PIVOT_KEYS:
+                        node.pop(key, None)
+                report["instance_pivots_dropped"] += 1
+                continue
+            problems.append(_(
+                "module node {ref!r} (instance of tree {template!r}) is embedded "
+                "with a pivot ({pivot}) that differs from the template's own "
+                "inner point — a generated instance inherits its template's "
+                "point, so set it on the TEMPLATE tree instead").format(
+                    ref=ref, template=template_name, pivot=pivot))
+            continue
         existing = _node_pivot(target)
         if existing and _pivot_descriptor(existing) != _pivot_descriptor(pivot):
             problems.append(_(
@@ -330,6 +403,10 @@ def _format_report(report: dict) -> list[str]:
     if report["grouped"]:
         lines.append(_("  grouped {n} node(s) under a shared mount node")
                      .format(n=report["grouped"]))
+    if report.get("instance_pivots_dropped"):
+        lines.append(_("  dropped {n} instance pivot(s) — a generated instance "
+                       "inherits its template's inner point")
+                     .format(n=report["instance_pivots_dropped"]))
     for tree_name, count in sorted(report["trees"].items()):
         lines.append(_("  tree {name!r}: {n} mount node(s)")
                      .format(name=tree_name, n=count))

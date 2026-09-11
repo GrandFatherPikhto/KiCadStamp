@@ -237,19 +237,25 @@ def test_converter_is_idempotent_on_an_already_converted_config():
     assert converted == data
 
 
-def test_converter_leaves_the_tree_anchor_and_pivot_untouched():
-    """pivot-* and a tree's own (anchor ...) are the NEXT stages, not this
-    task (plan §Y.8): the converter must not touch them."""
+def test_converter_stops_on_an_unknown_module_ref_with_a_pivot():
+    """Б3.2 §В.2.2 (2026-09-11): a module node whose ref names NEITHER a
+    trees: entry NOR a tree_instances: instance is now a STOP, never the old
+    silent `continue` that let the serializer fail with an unrelated message
+    AFTER the target had been truncated (task В.1).
+
+    This test USED to pin that silent-continue behaviour (Б1's
+    test_converter_leaves_the_tree_anchor_and_pivot_untouched). Exactly this
+    one unit test was rewritten with Denis's explicit approval on 2026-09-11;
+    the frozen acceptance test above and expected_geometry.json are untouched,
+    and the tree's own (anchor ...) is still covered by the acceptance and
+    idempotency tests."""
     data = {"trees": [{"name": "t", "anchor": {"role": "FPGA"}, "nodes": [
         {"ref": "child_tree", "kind": "module", "pivot_xy": [1, 2]},
         {"ref": "E1", "kind": "placement", "xy": [0, 0],
          "anchor": {"role": "A"}},
     ]}]}
-    converted, _report = convert_trees_dict(data)
-    tree = converted["trees"][0]
-    assert tree["anchor"] == {"role": "FPGA"}
-    assert tree["nodes"][0] == {"ref": "child_tree", "kind": "module",
-                                "pivot_xy": [1, 2]}
+    with pytest.raises(ValidationError, match="references neither a trees"):
+        convert_trees_dict(data)
 
 
 # ── Y.9.3: the drift guard ─────────────────────────────────────────────────

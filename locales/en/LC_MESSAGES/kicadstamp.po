@@ -5798,6 +5798,44 @@ msgstr "Written to: {path}"
 msgid "Backup: {path}"
 msgstr "Backup: {path}"
 
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "  dropped {n} instance pivot(s) — a generated instance inherits its template's inner point"
+msgstr "  dropped {n} instance pivot(s) — a generated instance inherits its template's inner point"
+
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "module node {ref!r} (instance of tree {template!r}) is embedded with a pivot ({pivot}) that differs from the template's own inner point — a generated instance inherits its template's point, so set it on the TEMPLATE tree instead"
+msgstr "module node {ref!r} (instance of tree {template!r}) is embedded with a pivot ({pivot}) that differs from the template's own inner point — a generated instance inherits its template's point, so set it on the TEMPLATE tree instead"
+
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "module node {ref!r}: references neither a trees: entry nor a tree_instances: instance, so its pivot cannot be moved onto a tree — check the module ref"
+msgstr "module node {ref!r}: references neither a trees: entry nor a tree_instances: instance, so its pivot cannot be moved onto a tree — check the module ref"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, not the template's {old!r} — kept verbatim"
+msgstr "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, not the template's {old!r} — kept verbatim"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance {name!r}: template {template!r} pivot_ref {ref!r} names no node of the template tree"
+msgstr "tree_instance {name!r}: template {template!r} pivot_ref {ref!r} names no node of the template tree"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance: template {template!r} mount node {ref!r} has no sheet in its anchor"
+msgstr "tree_instance: template {template!r} mount node {ref!r} has no sheet in its anchor"
+
+#: kicadstamp/config/tree_instances.py
+msgid "add (sheet ...) to this mount node's anchor so it can be parameterized per instance — without a sheet the role is ambiguous across the instances' sheets"
+msgstr "add (sheet ...) to this mount node's anchor so it can be parameterized per instance — without a sheet the role is ambiguous across the instances' sheets"
+
+#: kicadstamp/config/tree_instances.py
+msgid "the tree's inner point (pivot-ref) must name a node of the same tree — check the template's pivot-ref"
+msgstr "the tree's inner point (pivot-ref) must name a node of the same tree — check the template's pivot-ref"
+
 #: kicadstamp/flatten.py:140
 #, python-brace-format
 msgid "flatten: wrote {path} ({files} files consolidated)"

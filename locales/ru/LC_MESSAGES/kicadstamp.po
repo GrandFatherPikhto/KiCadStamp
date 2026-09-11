@@ -5850,6 +5850,44 @@ msgstr "Записано в: {path}"
 msgid "Backup: {path}"
 msgstr "Резервная копия: {path}"
 
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "  dropped {n} instance pivot(s) — a generated instance inherits its template's inner point"
+msgstr "  снято {n} точек подвеса инстансов — сгенерированный инстанс наследует внутреннюю точку шаблона"
+
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "module node {ref!r} (instance of tree {template!r}) is embedded with a pivot ({pivot}) that differs from the template's own inner point — a generated instance inherits its template's point, so set it on the TEMPLATE tree instead"
+msgstr "module-узел {ref!r} (инстанс дерева {template!r}) встроен с точкой подвеса ({pivot}), отличной от собственной внутренней точки шаблона — сгенерированный инстанс наследует точку шаблона, поэтому задайте её на ДЕРЕВЕ-шаблоне"
+
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "module node {ref!r}: references neither a trees: entry nor a tree_instances: instance, so its pivot cannot be moved onto a tree — check the module ref"
+msgstr "module-узел {ref!r}: не ссылается ни на запись trees:, ни на инстанс tree_instances: — точку подвеса некуда перенести; проверьте ref module-узла"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, not the template's {old!r} — kept verbatim"
+msgstr "tree_instance {name!r}: mount-узел {ref!r} привязан к листу {sheet!r}, а не к листу шаблона {old!r} — оставлено без изменений"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance {name!r}: template {template!r} pivot_ref {ref!r} names no node of the template tree"
+msgstr "tree_instance {name!r}: pivot_ref {ref!r} шаблона {template!r} не называет ни одного узла дерева-шаблона"
+
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid "tree_instance: template {template!r} mount node {ref!r} has no sheet in its anchor"
+msgstr "tree_instance: у mount-узла {ref!r} шаблона {template!r} нет sheet в привязке"
+
+#: kicadstamp/config/tree_instances.py
+msgid "add (sheet ...) to this mount node's anchor so it can be parameterized per instance — without a sheet the role is ambiguous across the instances' sheets"
+msgstr "добавьте (sheet ...) в привязку этого mount-узла, чтобы её можно было параметризовать по инстансам — без sheet роль неоднозначна между листами инстансов"
+
+#: kicadstamp/config/tree_instances.py
+msgid "the tree's inner point (pivot-ref) must name a node of the same tree — check the template's pivot-ref"
+msgstr "внутренняя точка дерева (pivot-ref) должна называть узел того же дерева — проверьте pivot-ref шаблона"
+
 #: kicadstamp/flatten.py:140
 #, python-brace-format
 msgid "flatten: wrote {path} ({files} files consolidated)"

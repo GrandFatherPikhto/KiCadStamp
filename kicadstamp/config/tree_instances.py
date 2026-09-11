@@ -106,6 +106,29 @@ stays auto-anchored (deep copy of a template with no 'anchor' key) — exactly
 right, since a generated clone needs the identical self-resolving root-node
 anchor its template has, especially when it too gets embedded as a module.
 
+v1.5 (2026-09-11, plan_2026_09_11_tree_instances_and_converter_safety §В.3/§В.4):
+MOUNT nodes are expandable in a template, and a template's `pivot_ref` follows
+the node renames. (a) A mount node's ref is a LOCAL name, unique per TREE and
+never resolved against the config (trees.py::_validate_mount_refs), so it is
+NOT suffixed with __{instance} — every instance is its own tree and the same
+mount name there is unambiguous (suffixing would only hurt readability and
+make a template pivot_ref pointing at it unresolvable). (б) The mount anchor's
+`sheet` decides "inside/outside" STRUCTURALLY: equal to the template's own
+sheet (old_sheet) -> replaced by the instance sheet, and — ONLY together with
+that — the declaration's `cluster:` (the same external-search narrowing the
+role anchor's cluster gets, deliberately NOT the composite-guarded per-copy
+cluster); a DIFFERENT sheet is a board-wide reference and is kept VERBATIM
+(info-logged, never rewritten) — unlike _substitute_net_sheet, where a foreign
+sheet is a fatal (copper must belong to the template, a reference point need
+not); a MISSING sheet is a fatal, because the role would be ambiguous across
+the instances' sheets (the "all three channels mounted to channel 0" trap).
+(в) A template's pivot_ref names a node of THIS tree, and expansion renames
+nodes (placement -> __{instance}, net_trace -> leading-sheet substitution,
+mount -> unchanged), so _expand_template rewrites pivot_ref through the
+old->new map the SAME walk collects; a name missing from it is a fatal at
+EXPANSION time naming the template (otherwise the generated tree fails to load
+with "pivot-ref names no node", blaming the wrong tree).
+
 The materialized dicts then flow through the SAME _load_entity/_load_tree/
 _load_net_trace path as hand-written entries — duplicate-name checks, rule 2
 (shared seen_refs), the one-record-per-net net_traces dedup, unknown-key
@@ -224,12 +247,98 @@ def _template_root_entity_ref(template: dict) -> str | None:
     return top.get('ref')
 
 
+def _expand_mount_node(node: dict, instance_name: str, sheet: str,
+                       entities_by_name: dict, net_traces_by_net: dict,
+                       generated_entities: list, generated_net_traces: list,
+                       template_name: str, old_sheet: str | None,
+                       cluster: str | None, params: dict[str, str] | None,
+                       anchor_cluster: str | None,
+                       ref_map: dict[str, str]) -> dict:
+    """Expand ONE kind "mount" template node (v1.5, Б3.2 §В.3).
+
+    A mount node places NOTHING itself (it is a point of reference), so there
+    is no Entity copy and no net to rewrite. Three rules:
+
+    (a) its ref is NOT suffixed with __{instance}: a mount ref is a LOCAL name,
+        unique per TREE (`trees.py::_validate_mount_refs`), and every generated
+        instance is its own tree — the same mount name there is unambiguous.
+    (б) the anchor's `sheet` decides whether it looks INSIDE the template or
+        OUT at the board: equal to old_sheet (the template's own sheet) -> the
+        instance's sheet, and ONLY then the declaration's `cluster:`
+        (anchor_cluster); a DIFFERENT sheet is a board-wide reference, kept
+        VERBATIM and info-logged; a MISSING sheet is a fatal (the role would be
+        ambiguous across the instances' sheets — the "all three channels
+        mounted to channel 0" trap).
+    (в) children are expanded by the ordinary recursion — they are placement
+        nodes with Entities, so they get the suffix and the copies as always.
+    """
+    orig_ref = node.get('ref')
+    gen = copy.deepcopy(node)
+    ref_map[orig_ref] = orig_ref          # (a) unchanged — maps to itself
+    anchor = gen.get('anchor')
+    if isinstance(anchor, dict):
+        anchor_sheet = anchor.get('sheet')
+        if not anchor_sheet:
+            raise ValidationError(format_fatal_error(
+                _("tree_instance: template {template!r} mount node {ref!r} has "
+                  "no sheet in its anchor").format(template=template_name,
+                                                   ref=orig_ref),
+                [_("add (sheet ...) to this mount node's anchor so it can be "
+                   "parameterized per instance — without a sheet the role is "
+                   "ambiguous across the instances' sheets")]))
+        if anchor_sheet == old_sheet:
+            anchor['sheet'] = sheet
+            if anchor_cluster is not None:
+                anchor['cluster'] = anchor_cluster
+        else:
+            logger.info(_("tree_instance {name!r}: mount node {ref!r} anchors to "
+                          "sheet {sheet!r}, not the template's {old!r} — kept "
+                          "verbatim").format(name=instance_name, ref=orig_ref,
+                                             sheet=anchor_sheet, old=old_sheet))
+    children = node.get('children') or []
+    if children:
+        gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
+                                        net_traces_by_net, generated_entities,
+                                        generated_net_traces, template_name,
+                                        old_sheet, cluster, params, ref_map,
+                                        anchor_cluster)
+                           for c in children]
+    return gen
+
+
+def _rewrite_pivot_ref(gen: dict, template_name: str, instance_name: str,
+                       ref_map: dict[str, str]) -> None:
+    """Follow the node renames for a template's `pivot_ref` (v1.5, Б3.2 §В.4).
+
+    A template's pivot_ref names a node of the SAME tree; expansion renames
+    nodes (placement -> __{instance}, net_trace -> leading-sheet substitution,
+    mount -> unchanged), so the copied pivot_ref must follow the SAME map the
+    expansion walk collected. A name missing from it is a template bug and is a
+    fatal HERE, naming the template and the instance — otherwise the generated
+    tree fails to load with "pivot-ref names no node of this tree", blaming the
+    generated tree instead of the template."""
+    pivot_ref = gen.get('pivot_ref')
+    if pivot_ref is None:
+        return
+    new_ref = ref_map.get(pivot_ref)
+    if new_ref is None:
+        raise ValidationError(format_fatal_error(
+            _("tree_instance {name!r}: template {template!r} pivot_ref {ref!r} "
+              "names no node of the template tree").format(
+                  name=instance_name, template=template_name, ref=pivot_ref),
+            [_("the tree's inner point (pivot-ref) must name a node of the same "
+               "tree — check the template's pivot-ref")]))
+    gen['pivot_ref'] = new_ref
+
+
 def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_net: dict,
                  generated_entities: list, generated_net_traces: list,
                  template_name: str, old_sheet: str | None,
                  cluster: str | None = None,
-                 params: dict[str, str] | None = None) -> dict:
+                 params: dict[str, str] | None = None,
+                 ref_map: dict[str, str] | None = None,
+                 anchor_cluster: str | None = None) -> dict:
     """Deep-copy one template node dict into the instance shape.
 
     kind=placement (or unset/auto): the node's ref is suffixed with
@@ -260,7 +369,21 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     declaration-level mapping MERGED into the generated Entity copy's OWN
     `params` (per-key override of the template Entity's params — net_template
     {placeholder} substitution values). Applied ONLY in the placement branch;
-    the net_trace branch deliberately ignores it (see the module docstring)."""
+    the net_trace branch deliberately ignores it (see the module docstring).
+
+    kind=mount (v1.5, Б3.2 §В.3): delegated to _expand_mount_node — a mount
+    node places nothing, so it has no Entity copy; its ref is NOT suffixed and
+    its anchor's sheet decides whether it follows the instance.
+
+    ref_map (v1.5, Б3.2 §В.4): old ref -> new ref for every expanded node, so
+    _expand_template can rewrite the tree's pivot_ref through the SAME renames.
+
+    anchor_cluster (v1.5, Б3.2 §В.3.2в): the DECLARATION's own `cluster:`, used
+    ONLY for a mount anchor whose sheet was substituted (the same
+    external-search narrowing the role anchor's cluster gets — deliberately NOT
+    the composite-guarded per-copy `cluster`)."""
+    if ref_map is None:
+        ref_map = {}
     orig_ref = node.get('ref')
     if orig_ref is None:
         raise ValidationError(format_fatal_error(
@@ -269,6 +392,11 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
             [_("every template node needs a ref naming an entities: entry "
                "(placement) or a net_traces: entry by its net (net_trace)")]))
     kind = node.get('kind')
+    if kind == 'mount':
+        return _expand_mount_node(node, instance_name, sheet, entities_by_name,
+                                  net_traces_by_net, generated_entities,
+                                  generated_net_traces, template_name, old_sheet,
+                                  cluster, params, anchor_cluster, ref_map)
     if kind == 'net_trace':
         if not old_sheet:
             raise ValidationError(format_fatal_error(
@@ -291,6 +419,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         new_net = _substitute_net_sheet(orig_ref, old_sheet, sheet,
                                         template_name, orig_ref)
         gen['ref'] = new_net
+        ref_map[orig_ref] = new_net
         gen_nt = copy.deepcopy(record)
         gen_nt['net'] = new_net
         gen_nt['anchor_sheet'] = sheet
@@ -309,7 +438,9 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                                             entities_by_name, net_traces_by_net,
                                             generated_entities,
                                             generated_net_traces,
-                                            template_name, old_sheet)
+                                            template_name, old_sheet,
+                                            ref_map=ref_map,
+                                            anchor_cluster=anchor_cluster)
                                for c in children]
         return gen
 
@@ -332,12 +463,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     new_ref = f"{orig_ref}__{instance_name}"
     gen = copy.deepcopy(node)
     gen['ref'] = new_ref
+    ref_map[orig_ref] = new_ref
     children = node.get('children') or []
     if children:
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_net, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster, params)
+                                        old_sheet, cluster, params, ref_map,
+                                        anchor_cluster)
                            for c in children]
     ent = copy.deepcopy(entity)
     ent['name'] = new_ref
@@ -489,11 +622,18 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
 
     generated_entities: list = []
     generated_net_traces: list = []
+    # v1.5 (Б3.2 §В.4): old node ref -> new node ref, filled by the SAME walk
+    # that expands the nodes; the template's pivot_ref is rewritten through it.
+    # `cluster` (the declaration's RAW value) is passed as anchor_cluster for
+    # mount nodes, while the copies get the composite-guarded
+    # effective_node_cluster — two DIFFERENT concepts (see _expand_mount_node).
+    ref_map: dict[str, str] = {}
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
                                  net_traces_by_net, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
-                                 effective_node_cluster, params)
+                                 effective_node_cluster, params, ref_map, cluster)
                     for n in (template.get('nodes') or [])]
+    _rewrite_pivot_ref(gen, template_name, instance_name, ref_map)
     return gen, generated_entities, generated_net_traces
 
 
