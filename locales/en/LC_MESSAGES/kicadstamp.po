@@ -16074,3 +16074,9 @@ msgstr ""
 
 msgid "Could not refresh the board snapshot: {error}"
 msgstr ""
+
+msgid "Connected — {count} components (as of the last board read)"
+msgstr ""
+
+msgid "Board snapshot is stale: {count} selected component(s) are not in it yet ({refs}) — Refresh rebuilds it; until then their highlight and pending state stay skipped"
+msgstr ""

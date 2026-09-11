@@ -830,7 +830,15 @@ class MainWindow(QMainWindow):
             # refresh_known_roles used to build a second full snapshot here;
             # the fast selection-watch tick used to build one every 400ms).
             snapshot = self.connection.snapshot
-            self.status_label.setText(_("Connected — {count} components").format(count=len(snapshot)))
+            # T.2 (K.2 #4, plan_2026_09_11_stale_snapshot_minor.md): the count is
+            # the size of the snapshot as of its LAST rebuild (this very poll, a
+            # manual Refresh/Reconnect, or connect()) — the automatic tick is a
+            # no-op once connected, so the old wording ("Connected — N
+            # components") promised a "now" it could not deliver. Say what the
+            # number actually is instead of showing a silently lying count.
+            self.status_label.setText(
+                _("Connected — {count} components (as of the last board read)")
+                .format(count=len(snapshot)))
             self._dock_hub.push_snapshot(snapshot, self.connection.board)
             self._dock_hub.push_fieldstool_snapshot(snapshot)
 
@@ -910,6 +918,22 @@ class MainWindow(QMainWindow):
         self._dock_hub.highlight_selection(refs)
         by_ref = {s.ref: s for s in self.connection.snapshot}
         selected = [by_ref[ref] for ref in refs if ref in by_ref]
+        # T.1 (K.2 #3, plan_2026_09_11_stale_snapshot_minor.md): a ref that IS on
+        # the board but NOT in the cached snapshot is dropped from `selected`
+        # here — silently, so selecting a component added/renamed in KiCad after
+        # connecting gets no highlight and no explanation. Rebuilding the
+        # snapshot on this tick is NOT the fix (400ms x IPC — the tick is
+        # deliberately cheap, see the module docstring; it never calls
+        # board.select()); the loss is made VISIBLE instead: one Log line per
+        # CHANGE — the early-exit above keys on (refs, raw selection,
+        # snapshot_version), so an unchanged board logs nothing more.
+        missing = sorted(r for r in refs if r not in by_ref)
+        if missing:
+            logger.warning(
+                _("Board snapshot is stale: {count} selected component(s) are "
+                  "not in it yet ({refs}) — Refresh rebuilds it; until then "
+                  "their highlight and pending state stay skipped").format(
+                    count=len(missing), refs=", ".join(missing[:8])))
         self._dock_hub.set_board_selection(items, selected)
         # Phase 5.1 — the embedded fieldstool's live-selection cross-probe is
         # fed from this single tick too (its own 400ms timer is stopped when

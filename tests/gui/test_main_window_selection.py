@@ -191,3 +191,46 @@ def test_selection_tick_feeds_embedded_fieldstool_targets(real_main_window, monk
     _tick(window, qapp)
 
     assert fs_window._current_targets == ["R1"]
+
+
+def test_selection_tick_reports_refs_missing_from_the_snapshot_once(
+        real_main_window, monkeypatch, qapp, caplog):
+    """T.6 #1/#2 (K.2 #3, plan_2026_09_11_stale_snapshot_minor.md) — a ref that
+    IS selected on the board but absent from the cached snapshot used to be
+    dropped from `selected` silently; the loss is now ONE Log line per change,
+    and an unchanged board logs nothing more (the tick's own early-exit on
+    (refs, raw selection, snapshot_version) is the dedup)."""
+    import logging
+
+    fp = _FakeFootprint("R_NEW")        # selected on the board...
+    window, _board = _connected_window(real_main_window, monkeypatch,
+                                       items=[fp],
+                                       snapshot=[_selected("R_OLD")])
+    _record_set_board_selection(window, monkeypatch)   # ...not in the snapshot
+
+    with caplog.at_level(logging.WARNING):
+        _tick(window, qapp)
+        first = [r.message for r in caplog.records if "stale" in r.message]
+        _tick(window, qapp)             # nothing changed -> the tick early-exits
+        second = [r.message for r in caplog.records if "stale" in r.message]
+
+    assert len(first) == 1              # exactly one line, not one per 400ms tick
+    assert "R_NEW" in first[0]
+    assert len(second) == 1             # the unchanged tick added nothing
+
+
+def test_selection_tick_does_not_report_refs_present_in_the_snapshot(
+        real_main_window, monkeypatch, qapp, caplog):
+    """T.6 #1, the other half — a selection the snapshot DOES know stays silent
+    (no false "stale snapshot" noise on a healthy tick)."""
+    import logging
+
+    fp = _FakeFootprint("R1")
+    window, _board = _connected_window(real_main_window, monkeypatch,
+                                       items=[fp], snapshot=[_selected("R1")])
+    _record_set_board_selection(window, monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        _tick(window, qapp)
+
+    assert [r.message for r in caplog.records if "stale" in r.message] == []

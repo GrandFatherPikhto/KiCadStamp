@@ -52,6 +52,7 @@ via gui/docks/fieldstool_dock.py). The underlying schematic-editing
 library (parsing, splicing, safety guards) stays independent, in
 kicadstamp/ — fieldstool_cli.py uses that directly, without any of this.
 """
+import logging
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -74,6 +75,8 @@ from .schema_model import (SchematicComponent, SchematicInstance,
                            load_schematic_components, load_schematic_instances)
 from .settings import Settings
 from .worker import start_long_op
+
+logger = logging.getLogger(__name__)
 
 # Own state file, separate from gui/gui_state.json (gui/settings.py's
 # default singleton) — reuses the same Settings class (atomic write,
@@ -148,7 +151,7 @@ class MainWindow(QMainWindow):
         pick_button.clicked.connect(self._on_pick_root_sheet)
         root_row.addWidget(pick_button)
         rescan_button = QPushButton(_("Rescan"))
-        rescan_button.clicked.connect(self._rescan)
+        rescan_button.clicked.connect(self._on_rescan)
         root_row.addWidget(rescan_button)
         layout.addLayout(root_row)
 
@@ -254,6 +257,42 @@ class MainWindow(QMainWindow):
         behavior — add root_sheet to that profile to opt in."""
         if path is not None and path != self._root_sheet:
             self._set_root_sheet(path)
+
+    def _on_rescan(self) -> None:
+        """The Rescan BUTTON (T.3, K.2 #7,
+        plan_2026_09_11_stale_snapshot_minor.md): the pending table diffs the
+        schematic against the BOARD, and the board side (self._live_snapshot)
+        is only ever pushed by the main GUI's poll — which is a deliberate
+        NO-OP on its automatic tick once connected. So an explicit Rescan
+        rebuilds the board side FIRST, on the worker thread (never a direct
+        adapter call on the UI thread — that was the Commit H hang), and only
+        then re-reads the schematic: a component added to the board after
+        connecting now shows up in "pending" instead of staying invisible until
+        a manual Refresh."""
+        self._refresh_board_snapshot_then(self._rescan)
+
+    def _refresh_board_snapshot_then(self, on_ready=None) -> None:
+        """Rebuild the shared BoardConnection.snapshot on the worker thread,
+        feed it to set_live_snapshot() (the pending diff's board side), then run
+        `on_ready` on the UI thread. See
+        gui.worker.refresh_snapshot_then: without a live board behind the
+        connection, or while another long op holds the shared socket, it falls
+        back/refuses and `on_ready` still runs, so a click never dead-ends."""
+        from .worker import refresh_snapshot_then
+        connection = self.connection
+
+        def _adopt() -> None:
+            self.set_live_snapshot(
+                list(getattr(connection, "snapshot", None) or []))
+            if on_ready is not None:
+                on_ready()
+
+        def _failed(message: str) -> None:
+            logger.warning("Board snapshot rebuild failed: %s", message)
+            if on_ready is not None:
+                on_ready()
+
+        refresh_snapshot_then(connection, (), _adopt, _failed)
 
     def _rescan(self) -> None:
         """Explicit action, not auto-polled — the schematic only changes
@@ -452,14 +491,24 @@ class MainWindow(QMainWindow):
             adapter.select_items(footprints)
 
     def _on_stage(self) -> None:
-        """"Stage" now writes Role/Cluster straight to the live board over
-        IPC (2026-08-03 redesign, see module docstring) instead of a JSON
-        queue — the board itself IS the pending state; Apply's diff picks
-        this up once the main GUI's next ~2s poll tick refreshes
-        BoardConnection.snapshot (same short lag Clear all/Delete selected
-        already have — not instant, but not worth a forced extra IPC
-        round-trip here just to shave ~2s off a change you're about to
-        Apply anyway)."""
+        """"Stage" writes Role/Cluster straight to the live board over IPC
+        (2026-08-03 redesign, see module docstring) instead of a JSON queue —
+        the board itself IS the pending state.
+
+        T.4 (K.2 #8, plan_2026_09_11_stale_snapshot_minor.md): this docstring
+        used to promise that "Apply's diff picks this up once the main GUI's
+        next ~2s poll tick refreshes BoardConnection.snapshot — same short lag
+        Clear all/Delete selected already have". That was WRONG: once the board
+        is connected the automatic poll tick is a deliberate no-op (see
+        gui/main_window.py's module docstring — `if is_connected and not
+        manual: return`), so BoardConnection.snapshot is rebuilt only by
+        connect(), a manual Refresh/Reconnect, or one of the freshness triggers
+        that rebuild it at the point of use (an explicit Rescan here rebuilds
+        the board side before re-reading the schematic; a Config page switch and
+        a tree dialog rebuild it for the docks' lists). So the real lag is
+        "until whichever of those the user does next" — not ~2s, and not
+        instant. Staging itself deliberately stays one bounded IPC write on the
+        shared socket instead of forcing an extra read here."""
         role = self.role_combo.currentText().strip()
         cluster = self.cluster_combo.currentText().strip()
         if not role and not cluster:

@@ -6,7 +6,9 @@ DOES write a throwaway tmp_path fixture (never anything under the real
 repo) to prove the whole staging -> Apply -> write chain actually
 round-trips, not just that each piece is individually plausible.
 """
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from PyQt6.QtWidgets import QDialog, QListWidget
@@ -16,7 +18,7 @@ from gui.docks.pending import PendingEdit
 from kicadstamp.explore import Selected
 from kicadstamp.schematic_editing import EditReport
 from tests.fieldstool_fixtures import sch_file, symbol_block
-from tests.gui.conftest import _FakeConnection
+from tests.gui.conftest import _FakeConnection, _pump
 
 
 def _write_root(tmp_path, *blocks):
@@ -748,3 +750,60 @@ def test_pending_excludes_a_board_field_that_does_not_exist(
         _selected("R1", "OLD", None, cluster_field_exists=False)])
 
     assert fieldstool_window.pending_dock.table.rowCount() == 0
+
+
+class _RefreshingConnection:
+    """BoardConnection stand-in with a LIVE board: refresh() swaps the frozen
+    snapshot for the next one, counting the rebuilds and recording the thread."""
+
+    def __init__(self, snapshots):
+        self.board = SimpleNamespace(adapter=object(), refresh=lambda: None)
+        self._pending = [list(s) for s in snapshots]
+        self.snapshot = self._pending.pop(0)
+        self.long_op_active = False
+        self.refresh_calls = 0
+        self.refresh_threads = []
+
+    def refresh(self):
+        self.refresh_calls += 1
+        self.refresh_threads.append(threading.current_thread().name)
+        if self._pending:
+            self.snapshot = self._pending.pop(0)
+        return None
+
+
+def test_rescan_button_rebuilds_the_board_side_before_diffing(
+        fieldstool_window, tmp_path, qapp):
+    """T.6 #3 (K.2 #7, plan_2026_09_11_stale_snapshot_minor.md) — the pending
+    table diffs the schematic against the BOARD, and the board side was only
+    ever pushed by the main GUI's poll (a deliberate no-op on its automatic tick
+    once connected). The explicit Rescan rebuilds it FIRST, on the worker
+    thread, so a component that appeared on the board after connecting shows up
+    in "pending" instead of staying invisible until a manual Refresh."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)          # the schematic side
+    connection = _RefreshingConnection([[], [_selected("R1", "NEW", None)]])
+    fieldstool_window.connection = connection
+    assert fieldstool_window.pending_refs == set()   # the board looks empty
+
+    fieldstool_window._on_rescan()
+
+    assert connection.long_op_active                 # the rebuild owns the socket
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert connection.refresh_calls == 1
+    assert connection.refresh_threads[0] != threading.main_thread().name
+    assert fieldstool_window.pending_refs == {"R1"}  # the board side is fresh now
+
+
+def test_rescan_button_without_a_live_board_keeps_the_old_behaviour(
+        fieldstool_window, tmp_path):
+    """Same gate, offline: no refreshable board -> the cached snapshot is used
+    and the schematic re-read still happens (the button never dead-ends)."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="NEW"))
+    fieldstool_window._set_root_sheet(root)
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])
+
+    fieldstool_window._on_rescan()                   # must not raise / hang
+
+    assert fieldstool_window.pending_refs == set()

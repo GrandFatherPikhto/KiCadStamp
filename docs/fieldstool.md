@@ -162,7 +162,10 @@ above:
 
 - **Pick root sheet** — points the tool at a project (same `root_sheet:` concept as the CLI).
   **Rescan** re-parses it (explicit action, not auto-polled — the schematic only changes when
-  someone saves in Eeschema, not every couple of seconds) into `self._components` — one row per
+  someone saves in Eeschema, not every couple of seconds) into `self._components`; it ALSO rebuilds
+  the board side of the diff first (2026-09-11: the automatic poll tick is a no-op once connected,
+  so without that a component added to the board after connecting stayed invisible in Pending
+  changes for good) — one row per
   refdes (a shared multi-instance block expands to one row per member; a multi-unit refdes
   collapses to one row, flagged divergent if its units disagree on Role/Cluster — the schema allows
   this, nothing enforces it stays in sync).
@@ -205,8 +208,11 @@ above:
 
 - **Pending changes** (`gui/docks/pending.py`, tabbed with Log at the main window's bottom) shows
   the current diff: every refdes whose live-board Role/Cluster differs from the schematic's last
-  Rescan, recomputed fresh on every Rescan and every ~2s poll tick — never stored, so it can't go
-  stale relative to the board.
+  Rescan, recomputed fresh whenever either side is refreshed — a Rescan re-reads the schematic AND
+  rebuilds the board snapshot first, and the board side is also pushed by the main GUI's manual
+  Refresh (its automatic ~2s tick is a deliberate no-op once connected, so it is NOT a refresh
+  source — this paragraph used to claim it was) — never stored, so it can't go stale relative to
+  the board.
 - Checks for a running KiCad process — if found, shows an **instruction** dialog ("save your work
   and close KiCad, then Apply again"). This is never automated (see [Why this write pipeline stays
   separate](#why-this-write-pipeline-stays-separate-from-kicadstampguis)).

@@ -14724,3 +14724,9 @@ msgstr "Entity {name!r}: не удалось прочитать живой мо�
 
 msgid "Could not refresh the board snapshot: {error}"
 msgstr "Не удалось перестроить снимок платы: {error}"
+
+msgid "Connected — {count} components (as of the last board read)"
+msgstr "Подключено — {count} компонентов (на момент последнего чтения платы)"
+
+msgid "Board snapshot is stale: {count} selected component(s) are not in it yet ({refs}) — Refresh rebuilds it; until then their highlight and pending state stay skipped"
+msgstr "Снимок платы устарел: {count} выделенных компонент(ов) в нём ещё нет ({refs}) — снимок перестраивается по кнопке Refresh; до этого их подсветка и pending-состояние пропускаются"

@@ -105,7 +105,9 @@ Two data sources, one tree, toggled by the **Not yet applied** checkbox:
   Role/Cluster within the schematic itself) get a ⚠ marker. Clicking a leaf or group here stages that
   target into fieldstool (same as clicking used to inside fieldstool's own, now-retired, internal
   tree) and brings the fieldstool tab to front. Refreshes automatically whenever fieldstool's own
-  Rescan runs, or the schematic-vs-board diff changes (a fresh poll tick, or a Stage/Clear all write).
+  Rescan runs, or the schematic-vs-board diff changes (a rebuilt board snapshot — the main GUI's
+  manual Refresh, or the Rescan itself, which rebuilds it first; the automatic ~2s tick is a no-op
+  once connected — or a Stage/Clear all write).
 
 The grouping choice and the live/schematic toggle are both remembered across restarts. **Filter**
 matches ref/role/cluster in either mode; **regex** switches from substring to a case-insensitive
