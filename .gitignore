@@ -77,6 +77,8 @@ fp-info-cache
 *.zip
 *.7z
 *.tar
+*.tar.bz2
+*.tar.gz
 
 *.json
 # Атомарная запись gui_state.json: временный файл из os.replace (gui/settings.py)
