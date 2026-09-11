@@ -15311,3 +15311,12 @@ msgstr "Прочитано с платы: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm 
 #: gui/docks/points.py
 msgid "Read from the board: {name!r} shift = X={shift_x:+.3f}mm Y={shift_y:+.3f}mm (was X={old_x:+.3f}mm Y={old_y:+.3f}mm); the point resolves to X={x:.3f}mm Y={y:.3f}mm."
 msgstr "Прочитано с платы: {name!r} сдвиг = X={shift_x:+.3f}mm Y={shift_y:+.3f}mm (было X={old_x:+.3f}mm Y={old_y:+.3f}mm); точка теперь разрешается в X={x:.3f}mm Y={y:.3f}mm."
+
+# ── Node form: an honest reason for a missing base (plan_2026_09_12_node_form_mount_parent_base) ──
+#: gui/docks/trees_dock.py
+msgid "Node form: the base of {ref!r} did not resolve on the live board ({error})"
+msgstr "Форма узла: база {ref!r} не разрешилась на живой плате ({error})"
+
+#: gui/docks/trees_dock.py
+msgid "The node's base did not resolve on the live board: {error}. Showing the STORED values in the base's own frame; editing the offset and rotation is disabled until it resolves."
+msgstr "База узла не разрешилась на живой плате: {error}. Показаны СОХРАНЁННЫЕ значения в собственном кадре базы; редактирование смещения и угла отключено, пока она не разрешится."

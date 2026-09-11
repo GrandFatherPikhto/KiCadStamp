@@ -406,6 +406,16 @@ the LIVE CLUSTER of its Entity's cell (the same reader the board overlay uses), 
 node that places it — a cluster moved by hand in KiCad is read where it actually stands; a MIRRORED
 instance is refused with an explicit warning (the trees layer has no mirror storage) and writes nothing.
 
+**UPDATE 2026-09-12 (plan_2026_09_12_node_form_mount_parent_base):** a node whose PARENT is a mount node
+now resolves its base through the SAME mount seam every layout walk uses (`mount_node_base`, fed the tree's
+own `tree_layout_base`) instead of looking the mount's local name up as a config record — its offset and
+rotation fields are editable and shown in the mount's frame again (before this fix EVERY child of every
+mount node reported "No live board connection", with KiCad plainly connected). Two consequences worth
+knowing: the **Position** tab is now shown ONLY for a `kind "mount"` node (that tab holds nothing else, so
+an ordinary node no longer gets an empty tab at all), and a DISABLED offset/rotation now names the real
+cause — the role/ref that did not resolve, also written to the Log — instead of always blaming the
+connection. "No live board connection" is shown only when there really is no board.
+
 Since 2026-09-11 (plan node_form_base_frame_follows_anchor) the frame FOLLOWS the selected anchor.
 Changing the Position tab's base — switching **Relative to parent** <-> **Relative to component**, or
 editing the anchor Role/Sheet/Cluster/Pad — re-resolves the base and re-expresses the DISPLAYED offset

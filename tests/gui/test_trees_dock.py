@@ -4689,6 +4689,430 @@ def test_unchanged_mount_anchor_keeps_the_form_bit_identical(
     assert built.rotation == 90.0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Л.2.1–Л.2.4: a node whose PARENT is a mount node must get the mount's OWN
+# base (plan_2026_09_12_node_form_mount_parent_base.md). Before Л.2.1
+# _resolve_node_base_pose walked the generic "parent is a config record" branch
+# for the mount node too; a mount ref is a LOCAL NAME that never resolves
+# against the config (rule Б1), so the board was searched for a refdes that
+# cannot exist and _base_pose swallowed the fatal — the form then claimed
+# "No live board connection" with KiCad plainly connected (task's Л.1).
+# ═══════════════════════════════════════════════════════════════════════════
+
+# A real config: a mount node anchored to a ROLE from OUTSIDE the tree (the LIVE
+# method — exactly Denis's profile), with one clone child under it.
+MOUNT_PARENT_CFG = {
+    "cells": {"t": {"components": [{"role": "FPGA", "offset_along_mm": 0.0,
+                                    "offset_across_mm": 0.0,
+                                    "angle_deg": 0.0}]}},
+    "clone_placements": [
+        {"name": "CL_CHILD", "cluster": "DAC_BUF", "cell": "t",
+         "xy": [2.0, -1.0]},
+    ],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [
+             {"ref": "M1", "kind": "mount",
+              "anchor": {"role": "DAC_ROLE", "cluster": "DAC_BUF", "pad": "3"},
+              "children": [{"ref": "CL_CHILD", "kind": "clone",
+                            "xy": [2.0, -1.0]}]},
+         ]},
+    ],
+}
+
+# The same shape, but the anchor role IS placed by this very tree (a placement
+# node standing as a SIBLING of the mount — an internal mount may not sit under
+# itself, trees.py's cycle guard) — the INTERNAL method of mount_node_base.
+MOUNT_INTERNAL_CFG = {
+    "cells": {"t": {"components": [{"role": "FPGA", "offset_along_mm": 0.0,
+                                    "offset_across_mm": 0.0,
+                                    "angle_deg": 0.0}]}},
+    "entities": [{"name": "ENT_A", "cell": "t", "cluster": "CL"}],
+    "trees": [
+        {"name": "t1", "anchor": {"origin": True},
+         "nodes": [
+             {"ref": "ENT_A", "kind": "placement", "xy": [10.0, 0.0],
+              "rotation": 0.0},
+             {"ref": "M1", "kind": "mount", "anchor": {"role": "FPGA"},
+              "children": [{"ref": "CL_CHILD", "kind": "clone",
+                            "xy": [2.0, -1.0]}]},
+         ]},
+    ],
+}
+
+
+class _MountBoard(_ClusterAdapter):
+    """_ClusterAdapter plus the pad lookup a mount anchor naming a pad needs
+    (`resolve_anchor_pad_position` -> adapter.get_pad_by_number)."""
+
+    def __init__(self, footprints, pads=None):
+        super().__init__(footprints)
+        self._pads = dict(pads or {})
+
+    def get_pad_by_number(self, fp, number):
+        return (self._pads.get(fp.ref) or {}).get(number)
+
+
+def _mount_parent_setup(main_window, tmp_path, *, mount_xy=(100.0, 50.0),
+                        mount_angle=0.0, pad_dxy=(1.0, 2.0)):
+    """(dock, tree, mount, child, adapter) for MOUNT_PARENT_CFG with a fake
+    board that resolves M1's anchor LIVE: role DAC_ROLE in cluster DAC_BUF,
+    pad 3 placed at mount_xy + pad_dxy."""
+    dock, _root = _dock_with(main_window, tmp_path, MOUNT_PARENT_CFG)
+    tree = dock._current_tree()
+    mount = tree.nodes[0]
+    child = mount.children[0]
+    pad_position = Vector2.from_xy_mm(mount_xy[0] + pad_dxy[0],
+                                      mount_xy[1] + pad_dxy[1])
+    adapter = _MountBoard(
+        [_live_fp("IC1", "DAC_ROLE", "DAC_BUF", mount_xy[0], mount_xy[1],
+                  mount_angle)],
+        pads={"IC1": {"3": SimpleNamespace(position=pad_position)}})
+    return dock, tree, mount, child, adapter
+
+
+def _mount_base_of(dock, tree, mount_node, adapter, sheet_names=None):
+    """(pos, rot) of the mount node's base, computed with the SAME functions the
+    fix must reuse (mount_node_base fed the tree's own tree_layout_base) — the
+    test never copies a literal out of the implementation."""
+    from kicadstamp.tree_position import mount_node_base, tree_layout_base
+    sheet_names = {} if sheet_names is None else sheet_names
+    forest = {t.name: t for t in dock._cfg.trees}
+    tbl_pos, tbl_rot = tree_layout_base(adapter, dock._cfg, tree, sheet_names,
+                                        forest)
+    return mount_node_base(mount_node, tree, tbl_pos, tbl_rot, adapter,
+                           dock._cfg, sheet_names, forest)
+
+
+def _node_form_for(dock, tree, parent_node, *, existing=None, adapter,
+                   sheet_names=None, role_candidates=None,
+                   cluster_candidates=None):
+    """A REAL NodeFormWidget built with the LIVE adapter — unlike _build_dialog,
+    which hardcodes `adapter=object()`, so the base can resolve in _prefill
+    (the whole point of Л.2.1)."""
+    return NodeFormWidget(
+        dock, dock._all_ref_candidates(), dock._used_refs(), "Edit node",
+        cfg=dock._cfg, adapter=adapter,
+        sheet_names={} if sheet_names is None else sheet_names,
+        tree=tree, parent_node=parent_node, existing=existing,
+        all_trees=dock._trees, role_candidates=role_candidates,
+        cluster_candidates=cluster_candidates)
+
+
+def test_child_of_a_mount_parent_resolves_the_base_live(
+        main_window, tmp_path, monkeypatch):
+    """Л.4.1: with a live board the base of a child under a mount node NOW
+    resolves — the offset/rotation fields stay ENABLED and the form says
+    nothing about a missing connection."""
+    _no_modal(monkeypatch)
+    dock, tree, mount, child, adapter = _mount_parent_setup(main_window, tmp_path)
+
+    form = _node_form_for(dock, tree, mount, existing=child, adapter=adapter)
+
+    assert form.offset_widget.isEnabled() is True
+    assert form.rotation_edit.isEnabled() is True
+    assert form.offset_frame_label.text() == ""
+    assert form.offset_frame_label.isVisible() is False
+    assert form._base_rotation_deg() == 0.0
+
+
+def test_child_of_a_mount_parent_shows_the_board_offset_against_the_mount_base(
+        main_window, tmp_path):
+    """Л.4.2 (numbers): the offset the form SHOWS is the stored xy re-expressed
+    in the board frame of the mount's OWN base — compared against
+    mount_node_base fed the tree's tree_layout_base, never a copied literal.
+    The base here is pad 3 of a role standing at (100, 50), so the base is
+    (101, 52) and the child's (2, -1) is shown as-is (base rotation 0)."""
+    from kicadstamp.tree_position import local_offset_to_board_mm
+    dock, tree, mount, child, adapter = _mount_parent_setup(main_window, tmp_path)
+
+    form = _node_form_for(dock, tree, mount, existing=child, adapter=adapter)
+    base_pos, base_rot = _mount_base_of(dock, tree, mount, adapter)
+    assert (base_pos.x, base_pos.y) == (
+        int(101.0 * MM), int(52.0 * MM))                 # pad 3 = (100,50)+(1,2)
+    assert base_rot == 0.0
+
+    bx, by = local_offset_to_board_mm(child.xy, base_rot)
+    fields, err = form.offset_widget.build()
+    assert err is None
+    assert fields["x"] == bx
+    assert fields["y"] == by
+    assert (bx, by) == child.xy                          # base rotation 0
+
+
+def test_child_of_a_mount_parent_with_an_angled_base_rotates_the_shown_offset(
+        main_window, tmp_path):
+    """Л.4.2, rotated variant: the SAME numbers claim with the mount's live
+    angle at 90° — the shown offset is the stored xy rotated into the mount's
+    board frame, i.e. what node_position against the mount base reproduces."""
+    from kicadstamp.tree_position import local_offset_to_board_mm, node_position
+    dock, tree, mount, child, adapter = _mount_parent_setup(
+        main_window, tmp_path, mount_angle=90.0, pad_dxy=(0.0, 0.0))
+
+    form = _node_form_for(dock, tree, mount, existing=child, adapter=adapter)
+    base_pos, base_rot = _mount_base_of(dock, tree, mount, adapter)
+    assert base_rot == 90.0
+
+    bx, by = local_offset_to_board_mm(child.xy, base_rot)
+    fields, err = form.offset_widget.build()
+    assert err is None
+    assert fields["x"] == bx and fields["y"] == by
+
+    # Back through node_position against the SAME base: the child lands where
+    # the shown offset says (the nm storage grid allows ±1 nm).
+    rebuilt = node_position(child, base_pos, base_rot)
+    assert rebuilt.x == pytest.approx(int(round((100.0 + bx) * MM)), abs=2)
+    assert rebuilt.y == pytest.approx(int(round((50.0 + by) * MM)), abs=2)
+
+
+def test_child_of_a_mount_parent_without_an_adapter_keeps_the_old_behaviour(
+        main_window, tmp_path):
+    """Л.4.3: no adapter really IS "no live board connection" — the old text,
+    the raw stored values and the disabled fields (the honest half of Л.2.2)."""
+    dock, tree, mount, child, _adapter = _mount_parent_setup(main_window, tmp_path)
+
+    form = _node_form_for(dock, tree, mount, existing=child, adapter=None)
+
+    assert form.offset_widget.isEnabled() is False
+    assert form.rotation_edit.isEnabled() is False
+    assert "No live board connection" in form.offset_frame_label.text()
+    fields, _err = form.offset_widget.build()
+    assert (fields["x"], fields["y"]) == (2.0, -1.0)     # RAW stored values
+
+
+def test_child_of_a_mount_parent_with_an_unresolvable_anchor_names_the_cause(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Л.4.4: an adapter IS connected but the mount's anchor does not resolve —
+    the fields are disabled, the text names the ROLE that failed (never "no
+    connection"), the same exception goes to the Log, and NOTHING raises or
+    pops a modal."""
+    _no_modal(monkeypatch)
+    dock, tree, mount, child, _adapter = _mount_parent_setup(main_window, tmp_path)
+    empty_board = _MountBoard([])                        # role + cluster gone
+
+    with caplog.at_level(logging.WARNING):
+        form = _node_form_for(dock, tree, mount, existing=child,
+                              adapter=empty_board)
+
+    reason = form.offset_frame_label.text()
+    assert form.offset_widget.isEnabled() is False
+    assert "No live board connection" not in reason
+    assert "DAC_ROLE" in reason                          # names WHAT failed
+    assert "DAC_ROLE" in caplog.text                     # and logs it
+    assert form._base_error                                # cause is kept
+
+
+def test_read_current_position_under_a_mount_parent_returns_a_position(
+        main_window, tmp_path):
+    """Л.4.5 (Л.2.4): "Read current position" for a node under a mount parent
+    used to RAISE; now the shared base resolver returns the mount base, so the
+    read returns numbers whose round-trip through node_position against that
+    SAME base reproduces the child's live position."""
+    from kicadstamp.tree_position import (board_offset_to_local_mm,
+                                          node_position)
+    dock, tree, mount, child, adapter = _mount_parent_setup(main_window, tmp_path)
+    record, _external = trees_dock_mod._resolve_probe_ref(
+        dock._cfg, "CL_CHILD", "clone")
+    child_pos = trees_dock_mod.resolve_base_live_position(
+        adapter, dock._cfg, "CL_CHILD", record, {}, {})
+
+    offset_mm, rotation = trees_dock_mod._resolve_live_offset(
+        dock._cfg, adapter, {}, tree, mount, "CL_CHILD", "clone")
+
+    base_pos, base_rot = _mount_base_of(dock, tree, mount, adapter)
+    expected = board_offset_to_local_mm(
+        ((child_pos.x - base_pos.x) / MM, (child_pos.y - base_pos.y) / MM),
+        base_rot)
+    assert offset_mm == pytest.approx(expected, abs=1e-9)
+
+    rebuilt = node_position(
+        TreeNode(ref="CL_CHILD", kind="clone", xy=offset_mm, polar=None,
+                 rotation=0.0 if rotation is None else rotation, name=None,
+                 group=None),
+        base_pos, base_rot)
+    assert abs(rebuilt.x - child_pos.x) <= 1
+    assert abs(rebuilt.y - child_pos.y) <= 1
+
+
+def test_child_of_an_internal_mount_base_is_computed_from_the_tree(
+        main_window, tmp_path):
+    """Л.4.6: the mount's anchor role is placed by THIS tree — the base comes
+    from the tree's OWN layout (mount_node_base's internal method, no board),
+    and it follows the tree: rotating the tree moves the base with it. Both
+    numbers are compared against mount_node_base directly."""
+    from kicadstamp.tree_position import local_offset_to_board_mm
+    dock, _root = _dock_with(main_window, tmp_path, MOUNT_INTERNAL_CFG)
+    tree = dock._current_tree()
+    mount = tree.nodes[1]
+    child = mount.children[0]
+    board = object()                                     # internal: no live read
+
+    from kicadstamp.tree_position import layout_tree_from_base
+    forest = {t.name: t for t in dock._cfg.trees}
+    form = _node_form_for(dock, tree, mount, existing=child, adapter=board)
+    base_pos, base_rot = _mount_base_of(dock, tree, mount, board)
+    assert (base_pos.x, base_pos.y) == (int(10.0 * MM), 0)   # ENT_A's slot
+    assert base_rot == 0.0
+    fields, _err = form.offset_widget.build()
+    bx, by = local_offset_to_board_mm(child.xy, base_rot)
+    assert (fields["x"], fields["y"]) == (bx, by)
+
+    # The mount's base IS the placing slot's own laid-out position — compared
+    # against the tree's own layout call, never a copied literal.
+    laid = layout_tree_from_base(tree, Vector2.from_xy(0, 0), 0.0, forest,
+                                 adapter=board, cfg=dock._cfg, sheet_names={})
+    assert (base_pos, base_rot) == laid["ENT_A"]
+
+    # The tree turns 90°: its content — and therefore the mount's base — moves
+    # with it (same comparison, the newly laid-out value).
+    tree.rotation = 90.0
+    moved_pos, moved_rot = _mount_base_of(dock, tree, mount, board)
+    moved_laid = layout_tree_from_base(tree, Vector2.from_xy(0, 0), 90.0,
+                                       forest, adapter=board, cfg=dock._cfg,
+                                       sheet_names={})
+    assert (moved_pos, moved_rot) == moved_laid["ENT_A"]
+    assert moved_pos != base_pos                          # it really followed
+
+    moved_form = _node_form_for(dock, tree, mount, existing=child, adapter=board)
+    moved_bx, moved_by = local_offset_to_board_mm(child.xy, moved_rot)
+    moved_fields, _err = moved_form.offset_widget.build()
+    assert (moved_fields["x"], moved_fields["y"]) == (moved_bx, moved_by)
+
+
+def test_ordinary_parent_and_tree_anchor_bases_are_unchanged(
+        main_window, tmp_path):
+    """Л.4.7 (regression): a parent that is NOT a mount node still goes through
+    the record path, and a node with NO parent still gets the tree's own anchor
+    — the new branch must not have shadowed either."""
+    dock, tree, mount, child, adapter = _mount_parent_setup(main_window, tmp_path)
+
+    # no parent -> the tree's own anchor (origin here), no board needed
+    anchor_pose = trees_dock_mod._resolve_node_base_pose(
+        dock._cfg, adapter, {}, tree, None, None)
+    assert (anchor_pose[0].x, anchor_pose[0].y) == (0, 0)
+    assert anchor_pose[1] == 0.0 and anchor_pose[2] is False
+
+    # an ordinary (clone) parent still takes the RECORD path: CL_CHILD resolves
+    # through _resolve_probe_ref and its live pose is the clone's own config
+    # position — a real pose, not the (mount-only) branch added by Л.2.1.
+    plain_parent = TreeNode(ref="CL_CHILD", kind="clone", xy=(2.0, -1.0),
+                            polar=None, rotation=0.0, name=None, group=None)
+    record, _external = trees_dock_mod._resolve_probe_ref(
+        dock._cfg, "CL_CHILD", "clone")
+    expected = trees_dock_mod.read_record_live_pose(
+        adapter, dock._cfg, "CL_CHILD", record, {})
+    parent_pose = trees_dock_mod._resolve_node_base_pose(
+        dock._cfg, adapter, {}, tree, plain_parent, None)
+    assert parent_pose[0].x == expected.position.x
+    assert parent_pose[0].y == expected.position.y
+    assert parent_pose[1] == expected.rotation_deg
+    assert parent_pose[2] is expected.mirror
+
+
+def test_mount_node_itself_still_shows_its_own_picker(main_window, tmp_path):
+    """Л.4.8 (regression, Б1 acceptance): the mount node's OWN form is
+    untouched — the picker is shown and carries its anchor, so the mount node
+    can still be edited exactly as before."""
+    dock, tree, mount, _child, _adapter = _mount_parent_setup(main_window, tmp_path)
+
+    form = _node_form_for(dock, tree, None, existing=mount, adapter=object())
+
+    assert form.kind_combo.currentData() == "mount"
+    assert form.mount_anchor_widget.isHidden() is False
+    assert form.mount_anchor().role == "DAC_ROLE"
+    assert form.tabs.isTabVisible(form._position_tab_index) is True
+
+
+def test_position_tab_is_hidden_for_every_kind_but_mount(main_window, tmp_path):
+    """Л.4.9: the Position tab holds ONLY the mount picker, so for a placement
+    (or any other non-mount kind) its LABEL is gone; for mount it is there with
+    the picker behind it."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    idx = dlg._position_tab_index
+
+    assert dlg.tabs.tabText(idx) == "Position"
+    assert dlg.tabs.isTabVisible(idx) is False            # "auto" to start
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    assert dlg.tabs.isTabVisible(idx) is False
+    assert dlg.mount_anchor_widget.isHidden() is True
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("mount"))
+    assert dlg.tabs.isTabVisible(idx) is True
+    assert dlg.mount_anchor_widget.isHidden() is False
+
+
+def test_kind_switch_shows_and_hides_the_tab_and_the_picker_together(
+        main_window, tmp_path, monkeypatch):
+    """Л.4.10: ONE condition drives both — switching the kind back and forth
+    never leaves the label without its picker (or the reverse), and mount
+    build_node()/mount_anchor() still produce what they did."""
+    _no_modal(monkeypatch)          # a modal here would HANG the suite
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    idx = dlg._position_tab_index
+
+    for kind, visible in (("mount", True), ("placement", False),
+                          ("mount", True), ("clone", False)):
+        dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData(kind))
+        assert dlg.tabs.isTabVisible(idx) is visible
+        assert dlg.mount_anchor_widget.isHidden() is (not visible)
+
+    # build_node() needs a complete offset pair (its own modal otherwise).
+    dlg.offset_widget.x_edit.setText("0")
+    dlg.offset_widget.y_edit.setText("0")
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("mount"))
+    dlg.mount_anchor_widget.anchor_role_edit.setCurrentText("DAC_ROLE")
+    dlg.ref_combo.setCurrentText("M_NEW")
+    built = dlg.build_node()
+    assert built is not None and built.kind == "mount"
+    assert built.anchor is not None and built.anchor.role == "DAC_ROLE"
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("CL_CHILD")
+    cloned = dlg.build_node()
+    assert cloned is not None and cloned.anchor is None
+
+
+def test_mount_picker_lists_are_still_fed_as_before(main_window, tmp_path):
+    """Л.4.11: the picker's Role/Cluster/Sheet lists are populated exactly as
+    before (sheets from the CONFIG's sheet map, J.3 — not the board snapshot)."""
+    dock, tree, mount, _child, _adapter = _mount_parent_setup(main_window, tmp_path)
+
+    form = _node_form_for(dock, tree, None, existing=mount, adapter=object(),
+                          sheet_names={"s1": "Channel_0"},
+                          role_candidates=["DAC_ROLE"], cluster_candidates=["DAC_BUF"])
+
+    widget = form.mount_anchor_widget
+    combo_items = lambda combo: [combo.itemText(i) for i in range(combo.count())]
+    assert "DAC_ROLE" in combo_items(widget.anchor_role_edit)
+    assert "DAC_BUF" in combo_items(widget.anchor_cluster_edit)
+    assert "Channel_0" in combo_items(widget.anchor_sheet_edit)
+
+
+def test_general_stays_current_when_the_position_tab_is_hidden(
+        main_window, tmp_path):
+    """Л.4.12: opening Position and then switching to a non-mount kind hides the
+    label and leaves General current — a hidden tab is never the active one,
+    and the tab set is never rebuilt (count/index stay stable)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    idx = dlg._position_tab_index
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("mount"))
+    dlg.tabs.setCurrentIndex(idx)
+    assert dlg.tabs.currentIndex() == idx                  # user is on Position
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
+    assert dlg.tabs.isTabVisible(idx) is False
+    assert dlg.tabs.currentIndex() == 0
+    assert dlg.tabs.tabText(0) == "General"
+    assert dlg.tabs.count() == 2                           # never collapsed
+
+
 # ── Z.2/Z.3: root row selectable + single selection-following panel ────────
 # plan_2026_09_11_trees_dock_single_panel.md — Z.2 (root selectable) + Z.3
 # (one panel instead of the Anchor|Node tabs).

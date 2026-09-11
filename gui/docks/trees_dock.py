@@ -48,6 +48,7 @@ from kicadstamp.tree_position import (
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
+    mount_node_base,
     rotate_offset_mm,
     tree_layout_base,
     tree_pivot_offset,
@@ -339,9 +340,16 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
       instance, so it has no mirror concept (mirror=False).
     - parent_node is None — the tree's OWN anchor, via
       _anchor_base_live_position (every anchor mode: origin/auto/role/point/ref).
-    - a parent NODE — its live pose via read_record_live_pose: a placement
-      Entity is read from its LIVE CLUSTER, not from the tree that places it
-      (the BASE has the same disease as the child, plan §2.2).
+    - a MOUNT parent node — its OWN base via mount_node_base (plan
+      plan_2026_09_12_node_form_mount_parent_base §Л.2.1), laid from the tree's
+      own base (tree_layout_base) exactly like gui/docks/cascade.py. A mount
+      node's ref is a LOCAL NAME and is never resolved against the config (rule
+      Б1), so the record path below can never find it; mirror=False — the
+      anchor names a COMPONENT, not a cell instance (the same reasoning as the
+      base_anchor branch above).
+    - any other parent NODE — its live pose via read_record_live_pose: a
+      placement Entity is read from its LIVE CLUSTER, not from the tree that
+      places it (the BASE has the same disease as the child, plan §2.2).
 
     Raises ValidationError on any resolution failure — the callers turn it into
     a warning (read) / a raw+disabled form (no connection), never a guess."""
@@ -359,6 +367,26 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
     if parent_node is None:
         parent_pos, parent_deg = _anchor_base_live_position(
             adapter, cfg, tree, sheet_names)
+        return parent_pos, parent_deg, False
+    if parent_node.kind == "mount":
+        # Л.2.1: a mount node's ref is a local NAME (never a config record), so
+        # the generic branch below would look for a refdes that cannot exist.
+        # Its base is mount_node_base — THE single seam every recursive walk
+        # uses — fed from the tree's own layout base (tree_layout_base), the
+        # same pair gui/docks/cascade.py's stage-2 layout calls. mount_node_base
+        # picks INTERNAL vs LIVE structurally, so a mount anchored to a role
+        # this tree places itself needs no board here.
+        #
+        # The forest is derived from cfg.trees: the dock pins
+        # `cfg.trees is self._trees` (trees_dock_cfg_trees_desync), so this is
+        # the dictionary the form's own all_trees would give, without widening
+        # this function's signature (and its monkeypatched test doubles).
+        forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
+        tree_base_pos, tree_base_rot = tree_layout_base(
+            adapter, cfg, tree, sheet_names, forest)
+        parent_pos, parent_deg = mount_node_base(
+            parent_node, tree, tree_base_pos, tree_base_rot, adapter, cfg,
+            sheet_names, forest)
         return parent_pos, parent_deg, False
     parent_record, _is_external = _resolve_probe_ref(
         cfg, parent_node.ref, parent_node.kind)
@@ -2950,6 +2978,10 @@ class NodeFormWidget(QWidget):
         self._base_resolved: bool = False
         # (Vector2 position_nm, float rotation_deg) of the current base, or None.
         self._base_pose_value = None
+        # WHY the base did not resolve, as the exception's own text (Л.2.2) —
+        # the form used to swallow the cause and blame the connection. None
+        # means "not tried yet" or "resolved".
+        self._base_error: Optional[str] = None
         # The pose the form was showing BEFORE the current anchor change,
         # captured once per change burst so the refresh can hold the node still
         # (U.1) without re-reading the old anchor.
@@ -3052,6 +3084,11 @@ class NodeFormWidget(QWidget):
 
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
+        # The Position tab's index, for the ONE show/hide condition in
+        # _on_kind_changed (Л.2.3). The tab is never REMOVED — only hidden — so
+        # the index and tabs.count() stay stable for every caller/test walking
+        # the tabs by index.
+        self._position_tab_index = self.tabs.indexOf(position_widget)
 
         # The button row is NOT part of the form — plan
         # plan_2026_09_04_trees_dock_master_detail.md §1.1: a plain QWidget form
@@ -3192,14 +3229,20 @@ class NodeFormWidget(QWidget):
         the anchor is incomplete ("Relative to component" with no Role yet —
         never a silent fall back to the parent, see build_node's own guard), or
         the base itself cannot be resolved (a role anchor the board does not
-        carry, an Entity no tree places, a point anchor with no live chain).
-        The form then shows the RAW stored values and, in Edit mode, disables
-        the fields (plan §3.4) — never a silent conversion against an assumed
-        0°."""
+        carry, an Entity no tree places, a point anchor with no live chain, a
+        mount anchor whose role is not on the board). The form then shows the
+        RAW stored values and, in Edit mode, disables the fields (plan §3.4) —
+        never a silent conversion against an assumed 0°.
+
+        Л.2.2: a failed resolve KEEPS its cause — `_base_error` carries the
+        exception text into the Log (here) and into the reason under the fields
+        (_no_live_base_reason). Only the CONNECTION case may say "no live board
+        connection"; everything else must name what did not resolve."""
         if self._base_resolved:
             return self._base_pose_value
         self._base_resolved = True
         self._base_pose_value = None
+        self._base_error = None
         if self._adapter is None or self._cfg is None or self._tree is None:
             return None
         try:
@@ -3213,7 +3256,15 @@ class NodeFormWidget(QWidget):
                 self._cfg, self._adapter, self._sheet_names, self._tree,
                 self._parent_node, base_anchor)
             self._base_pose_value = (_pos, rot if rot is not None else 0.0)
-        except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
+        except Exception as e:  # noqa: BLE001 — "no base" is a UI state, not a crash
+            # The exception is a UI STATE, never a crash — but it is also never
+            # SILENT (Л.2.2): the cause goes to the Log and to the text under
+            # the fields, so no failure is ever reported as "not connected".
+            self._base_error = str(e)
+            logger.warning(
+                _("Node form: the base of {ref!r} did not resolve on the live "
+                  "board ({error})").format(
+                      ref=self.ref_combo.currentText().strip() or "?", error=e))
             self._base_pose_value = None
         return self._base_pose_value
 
@@ -3222,6 +3273,34 @@ class NodeFormWidget(QWidget):
         view over the cached _base_pose(): None when there is no live base."""
         pose = self._base_pose()
         return None if pose is None else pose[1]
+
+    def _no_live_base_reason(self) -> str:
+        """WHY the offset/rotation fields are disabled — the honest text under
+        them (Л.2.2).
+
+        The old form blamed the live connection for EVERY failure, so a mount
+        parent, an unresolved role or an Entity no tree places all read as "No
+        live board connection" with KiCad plainly connected. Three cases, in
+        order of specificity:
+
+        * no adapter/cfg/tree — the connection really IS the reason;
+        * the base did not resolve — the exception's own text, which names the
+          role/ref that failed (captured by _base_pose);
+        * the node's OWN anchor is still incomplete (a mount node with an empty
+          Role — build_node refuses to save one) — there is nothing to name
+          yet, so the anchor text is the honest one."""
+        if self._adapter is None or self._cfg is None or self._tree is None:
+            return _("No live board connection — showing the STORED values in "
+                     "the base's own frame; editing the offset and rotation is "
+                     "disabled until KiCad is connected.")
+        if self._base_error:
+            return _("The node's base did not resolve on the live board: "
+                     "{error}. Showing the STORED values in the base's own "
+                     "frame; editing the offset and rotation is disabled until "
+                     "it resolves.").format(error=self._base_error)
+        return _("The selected anchor does not resolve on the live board — "
+                 "showing the STORED values in the anchor's own frame; editing "
+                 "the offset and rotation is disabled until it resolves.")
 
     # ── Anchor change: the displayed frame follows the anchor ─────────────
 
@@ -3263,6 +3342,9 @@ class NodeFormWidget(QWidget):
                 self._base_pose_before_change = self._base_pose_value
             self._base_resolved = False
             self._base_pose_value = None
+            # The OLD failure reason is stale too (Л.2.2) — the next resolve
+            # must record its own, not inherit the previous one.
+            self._base_error = None
 
     def _on_anchor_mode_changed(self) -> None:
         """parent <-> component is a discrete action: invalidate + refresh now."""
@@ -3358,10 +3440,11 @@ class NodeFormWidget(QWidget):
         self._last_anchor_sig = sig
         if new_pose is None:
             self._restore_raw_stored_values()
-            self._set_offset_editable(False, reason=_(
-                "The selected anchor does not resolve on the live board — "
-                "showing the STORED values in the anchor's own frame; editing "
-                "the offset and rotation is disabled until it resolves."))
+            # Л.2.2: the reason names what actually failed (an unresolved mount
+            # parent, role, Entity, ...) — "no connection" is only shown when
+            # there really is none.
+            self._set_offset_editable(
+                False, reason=self._no_live_base_reason())
             return
         if old_pose is not None and old_board_offset is not None:
             old_pos, _old_rot = old_pose
@@ -3429,10 +3512,7 @@ class NodeFormWidget(QWidget):
             self.offset_widget.load()
         self._set_offset_editable(
             online,
-            reason="" if online else _(
-                "No live board connection — showing the STORED values in the "
-                "base's own frame; editing the offset and rotation is disabled "
-                "until KiCad is connected."))
+            reason="" if online else self._no_live_base_reason())
         self.rotation_edit.setText(str(
             local_rotation_to_board_deg(existing.rotation, base_rot)
             if online else existing.rotation))
@@ -3547,6 +3627,17 @@ class NodeFormWidget(QWidget):
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
         # and is REQUIRED there, so it switches itself to "anchor" mode.
         self.mount_anchor_widget.setVisible(is_mount)
+        # Л.2.3: the Position tab holds ONLY that picker, so it is shown exactly
+        # when the picker is — ONE condition in ONE place, so the label can
+        # never drift from its content. A tab with nothing behind it is an
+        # interface defect (the user opens it and gets nothing); the tab is
+        # HIDDEN, never removed, so its index stays stable for every caller and
+        # test that walks the tabs by index.
+        self.tabs.setTabVisible(self._position_tab_index, is_mount)
+        if not is_mount and self.tabs.currentIndex() == self._position_tab_index:
+            # Never leave a hidden tab as the CURRENT one — Qt would otherwise
+            # keep a tab the user cannot see active.
+            self.tabs.setCurrentIndex(0)
         if is_mount and self.mount_anchor_widget.mode != "anchor":
             self.mount_anchor_widget.load(mode="anchor")
         if kind == "module":
