@@ -550,6 +550,9 @@ to the converter — there is no runtime compatibility layer; run
 role belonging to a cell THIS tree places is a FATAL (its position would depend on the previous Apply
 and every redraw would silently drift). The tree's OWN `(anchor (role ...))` is deliberately NOT subject
 to that check — the extract / self-anchor pattern legitimately anchors a tree on its own root component.
+A tree's inner point (`pivot-ref` / `pivot-xy` / `pivot-polar`) may not name a mount node, nor any node
+hanging under one at any depth: such a node's base is pinned to a LIVE component, so it does not follow
+the tree when the tree moves — it is not a handle (fatal at load; `pivot-xy` remains the alternative).
 
 ---
 

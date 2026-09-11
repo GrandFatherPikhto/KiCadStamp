@@ -146,10 +146,13 @@ class Tree:
     # tree's own origin. Moved here from the module NODE (design Р3): described
     # once per tree, so embedding one tree in three places cannot describe its
     # handle three ways.
-    #   pivot_ref: the `ref` of a node OF THIS TREE (a mount node included),
-    #              resolved by laying the tree out from a bare (0,0)/0 base —
-    #              pure geometry, no live board (unless the tree has mount
-    #              nodes, whose bases are live by nature).
+    #   pivot_ref: the `ref` of a node OF THIS TREE, resolved by laying the
+    #              tree out from a bare (0,0)/0 base — pure geometry, no live
+    #              board (unless the tree has mount nodes, whose bases are
+    #              live by nature). NOT a mount node itself, and NOT any node
+    #              hanging under one at any depth: such a node is pinned to a
+    #              live component and does not follow the tree, so it cannot
+    #              be a handle (validated at load — _validate_tree_pivot_ref).
     #   pivot_xy / pivot_polar: a raw coordinate in the tree's OWN frame.
     pivot_xy: tuple[float, float] | None = None
     pivot_polar: tuple[float, float] | None = None   # (radius_mm, angle_deg)
@@ -517,13 +520,46 @@ def _parse_tree_rotation(tree_node, tree_name: str) -> float:
     return float(raw)
 
 
+def _mount_ancestor_of(target: TreeNode, nodes: list[TreeNode]) -> TreeNode | None:
+    """The nearest kind "mount" ancestor of `target` within `nodes`, or None.
+
+    Built from the tree's TOP-LEVEL list by an explicit parent map. TreeNode is
+    a plain (unhashable) dataclass, so relationships are tracked by id(). Walks
+    the WHOLE parent chain, so a mount node at ANY depth counts, not just a
+    direct parent (plan_2026_09_11_pivot_ref_mount_ancestor §P.1.1/§P.1.3)."""
+    parent_of: dict[int, TreeNode] = {}
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        for child in node.children:
+            parent_of[id(child)] = node
+            stack.append(child)
+    current = parent_of.get(id(target))
+    while current is not None:
+        if current.kind == "mount":
+            return current
+        current = parent_of.get(id(current))
+    return None
+
+
 def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
                              pivot_ref: str | None) -> None:
-    """A tree's pivot-ref must name a node OF THIS TREE (a mount node is fine —
-    its base is live, that is a legitimate handle) and must NOT be a kind
-    "external" node: an external node is a bare live refdes with no config
-    record, so hanging the tree's handle on it would cost the WHOLE tree its
-    portability — exactly what the inner point exists to provide (plan §V.1.3)."""
+    """A tree's pivot-ref must name a node OF THIS TREE whose base FOLLOWS the
+    tree — which rules out three shapes:
+
+    * a kind "external" node: a bare live refdes with no config record, so
+      hanging the handle on it would cost the WHOLE tree its portability —
+      exactly what the inner point exists to provide (plan §V.1.3);
+    * a kind "module"/"mount" node itself: neither appears in
+      layout_tree_from_base's returned map (a module node places no record of
+      its own; a mount node's base is LIVE), so tree_pivot_offset could not
+      resolve it;
+    * a node hanging under a mount node at ANY depth: its base is pinned to a
+      LIVE component (mount_node_base), so it does NOT move when the tree moves
+      — physically not a handle (plan_2026_09_11_pivot_ref_mount_ancestor
+      §P.1.3).
+
+    All three are load-time fatals on BOTH paths (s-expr and dict bridge)."""
     if pivot_ref is None:
         return
     by_ref = {n.ref: n for n in _walk_nodes(nodes)}
@@ -535,18 +571,24 @@ def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a "
                  "live refdes is not portable, so it cannot be the tree's inner "
                  "point").format(name=tree_name, ref=pivot_ref))
-    # kind "module" / "mount" are deliberately NOT accepted YET. Both are absent
-    # from layout_tree_from_base's returned map (a module node places no record
-    # of its own; a mount node's base is LIVE), so tree_pivot_offset could not
-    # resolve them — it would raise at apply time instead of here. Rejecting at
-    # LOAD keeps the failure early and explicit. Opening this up needs a real
-    # decision about the FRAME a live mount base is expressed in (plan §V.7.1
-    # test 4 assumed it "just works") — stage Б2.1.
+    # kind "module" / "mount" themselves: absent from layout_tree_from_base's map,
+    # so tree_pivot_offset could not resolve them — it would raise at apply time
+    # instead of here. Rejecting at LOAD keeps the failure early and explicit.
+    # Opening a mount node up needs a real decision about the FRAME its live base
+    # is expressed in.
     if target.kind in ("module", "mount"):
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which "
                  "the layout cannot resolve yet (it places no record of its own) — "
                  "use a record-backed node of this tree as the inner point")
                .format(name=tree_name, ref=pivot_ref, kind=target.kind))
+    mount_ancestor = _mount_ancestor_of(target, nodes)
+    if mount_ancestor is not None:
+        _fatal(_("tree {name!r}: pivot-ref {ref!r} hangs under mount node "
+                 "{mount!r} — a node under a mount node is pinned to that live "
+                 "component's position and does not follow the tree, so it "
+                 "cannot be the tree's inner point (use a node outside the "
+                 "mount subtree, or pivot-xy)")
+               .format(name=tree_name, ref=pivot_ref, mount=mount_ancestor.ref))
 
 
 def _parse_tree_pivot(tree_node, tree_name: str, nodes: list[TreeNode]

@@ -14874,6 +14874,9 @@ msgstr "дерево {name!r}: встроено с НЕНУЛЕВОЙ внутр
 msgid "tree {name!r}: embedded with {count} DIFFERENT pivots — the inner point is one per tree"
 msgstr "дерево {name!r}: встроено с {count} РАЗНЫМИ внутренними точками — внутренняя точка одна на дерево"
 
+msgid "tree {name!r}: pivot-ref {ref!r} hangs under mount node {mount!r} — a node under a mount node is pinned to that live component's position and does not follow the tree, so it cannot be the tree's inner point (use a node outside the mount subtree, or pivot-xy)"
+msgstr "дерево {name!r}: pivot-ref {ref!r} висит под mount-узлом {mount!r} — узел под mount-узлом привязан к позиции живого компонента и не следует за деревом, поэтому он не может быть внутренней точкой дерева (используй узел вне mount-поддерева или pivot-xy)"
+
 msgid "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live refdes is not portable, so it cannot be the tree's inner point"
 msgstr "дерево {name!r}: pivot-ref {ref!r} — узел вида \"external\": живой refdes непереносим, поэтому он не может быть внутренней точкой дерева"
 

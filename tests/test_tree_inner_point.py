@@ -212,3 +212,40 @@ def test_module_ref_cannot_be_the_inner_point(tmp_path):
     with pytest.raises(ValidationError, match="cannot resolve yet"):
         tree_from_dict({"name": "t", "pivot_ref": "m",
                         "nodes": [{"ref": "m", "kind": "module"}]})
+
+
+# ── P.1 (plan_2026_09_11_pivot_ref_mount_ancestor): a mount node's SUBTREE is ─
+# ── barred as a handle, but a branch OUTSIDE it must still resolve LOCALLY. ───
+
+def test_pivot_ref_outside_the_mount_subtree_stays_local(monkeypatch):
+    """P.5.1 item 4 — a tree that HAS mount nodes may still hang its handle on a
+    branch WITHOUT a mount ancestor. `tree_pivot_offset` must then return that
+    node's LOCAL offset, NOT the absolute board position its mount siblings
+    resolve to (plan §P.1.2: the mixed map is exactly the bug being closed).
+    Checked by NUMBER, not by the mere absence of an exception."""
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        position = Vector2.from_xy(300 * MM, 400 * MM)   # deliberately NOT local
+        angle_deg = 90.0
+
+    class _FakeResolver:
+        def __init__(self, *a, **k):
+            pass
+
+        def resolve_anchor_fp(self, *a, **k):
+            return _FakeFp()
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+
+    mount = _node("M1", kind="mount")
+    mount.anchor = TreeAnchor(role="R", anchor_cluster="CL")
+    mount.children = [_node("E1", kind="placement", xy=(1.0, 1.0))]
+    free = _node("P1", xy=(2.0, 3.0), children=[_node("P2", xy=(0.5, 0.0))])
+    tree = _tree(pivot_ref="P2", nodes=[mount, free])
+
+    offset = tree_pivot_offset(tree, {"t": tree}, adapter=object(),
+                               cfg=None, sheet_names={})
+    # LOCAL (2.0, 3.0) + child (0.5, 0.0); a leaked absolute mount base would
+    # have put this near (300+, 400+) mm.
+    assert _mm(offset) == pytest.approx((2.5, 3.0), abs=1e-9)

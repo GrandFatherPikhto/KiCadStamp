@@ -22,9 +22,11 @@ free-text input, no crash).
 import threading
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtWidgets import QDialog, QSplitter
 
 import gui.docks.trees_dock as trees_dock_mod
+from gui.docks.trees_dock import AnchorFormWidget
+from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.trees import Tree
 from tests.gui.conftest import _pump
 
@@ -128,26 +130,46 @@ def test_tree_node_dialog_opens_with_the_refreshed_candidates(
 
 
 def test_embedded_anchor_form_refreshes_its_candidates_in_place(
-        qapp, real_main_window):
-    """S.3.2/T1 — the EMBEDDED tree forms are long-lived pages, so their
-    Role/Cluster suggestion combos are refreshed IN PLACE: the list gains the
-    value added since the connection and an in-progress typed value survives
-    (nothing is rebuilt, so nothing staged is lost)."""
+        qapp, real_main_window, tmp_path):
+    """S.3.2/T1 + P.5.2 (plan_2026_09_11_pivot_ref_mount_ancestor) — the EMBEDDED
+    tree forms are long-lived pages, so their Role/Cluster suggestion combos are
+    refreshed IN PLACE: the list gains the value added since the connection and
+    an in-progress typed value survives (nothing is rebuilt, so nothing staged is
+    lost).
+
+    This test walks the PROD path: a real tree page (a QSplitter holding the tree
+    and its form panel) built by the dock itself, NOT a bare form wrapper stacked
+    into tree_tabs. The old test stacked dock._form_action_row(form) directly as
+    a tab, so it passed against a shape the running app never produces — while
+    refresh_known_lists, which passed the splitter straight to _embedded_form_of,
+    found no form and never called set_candidates (P.3)."""
     hub = real_main_window._dock_hub
     dock = hub.trees_dock
     connection = _LiveConnection([[_row("R1", "OLD_ROLE", "CL1")]])
     real_main_window.connection = connection
-    tree = Tree(name="T", anchor=None, nodes=[])
-    form = dock._build_anchor_form(tree)
-    dock.tree_tabs.addTab(dock._form_action_row(form), "anchor")
-    form.role_edit.setCurrentText("HALF_TYPED")     # the user is mid-edit
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"trees": [
+        {"name": "T", "anchor": {"role": "OLD_ROLE", "cluster": "CL1"}}]}),
+        encoding="utf-8")
+    dock.set_root_file(root)                         # builds the REAL pages
+
+    # The PROD shape: a QSplitter page, not a bare wrapper. The old code passed
+    # this splitter to _embedded_form_of and got None back.
+    page = dock.tree_tabs.widget(0)
+    assert isinstance(page, QSplitter)
+    assert dock._embedded_form_of(page) is None
+
+    form = dock._embedded_form_of(dock._panel_page(dock._active_form_panel()))
+    assert isinstance(form, AnchorFormWidget)        # the anchor form really on screen
+    form.role_edit.setCurrentText("HALF_TYPED")      # the user is mid-edit
     connection.snapshot = [_row("R1", "OLD_ROLE", "CL1"),
                            _row("R2", "NEW_ROLE", "CL2")]
 
     dock.refresh_known_lists()
 
-    assert "NEW_ROLE" in _combo_items(form.role_edit)
+    assert "NEW_ROLE" in _combo_items(form.role_edit)   # P.5.2 item 7
     assert "CL2" in _combo_items(form.cluster_edit)
+    # P.5.2 item 8 — populate, don't restrict: the typed draft survives.
     assert form.role_edit.currentText() == "HALF_TYPED"
 
 

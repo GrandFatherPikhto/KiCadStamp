@@ -603,6 +603,69 @@ def test_tree_pivot_ref_on_an_external_node_is_fatal():
         tree_from_dict(d)
 
 
+def test_tree_pivot_ref_on_a_mount_node_itself_is_fatal():
+    """A mount node places no record of its own, so the layout cannot resolve
+    its position — still rejected at load (regression, P.5.1 item 6)."""
+    d = {"name": "t", "pivot_ref": "M1",
+         "nodes": [{"ref": "M1", "kind": "mount", "anchor": {"role": "R"}}]}
+    with pytest.raises(ValidationError, match="cannot resolve yet"):
+        tree_from_dict(d)
+
+
+# ── P.1 (plan_2026_09_11_pivot_ref_mount_ancestor): a node hanging under a ──
+# ── mount node is NOT a handle — its base is pinned to a LIVE component, so ──
+# ── it does not follow the tree. Rejected at LOAD on BOTH paths. ────────────
+
+_MOUNT_ANCESTOR_TREE = """(kicadstamp-trees
+  (tree
+    (name "t")
+    (anchor (origin))
+    (pivot-ref "E1")
+    (node (ref "M1") (kind mount)
+      (anchor (role "R"))
+      (node (ref "E1") (kind placement) (xy 1 1)))))"""
+
+
+def test_pivot_ref_under_a_mount_node_is_fatal(tmp_path):
+    """pivot-ref on a node whose DIRECT parent is a mount node -> fatal naming
+    the mount node (P.5.1 items 1/5, s-expr path)."""
+    with pytest.raises(ValidationError, match="hangs under mount node 'M1'"):
+        load_trees(_write(tmp_path, _MOUNT_ANCESTOR_TREE))
+
+
+def test_pivot_ref_under_a_mount_node_is_fatal_in_dict_path():
+    """Same fatal through the config-dict bridge (P.5.1 item 5)."""
+    d = {"name": "t", "pivot_ref": "E1",
+         "nodes": [{"ref": "M1", "kind": "mount", "anchor": {"role": "R"},
+                    "children": [{"ref": "E1", "kind": "placement",
+                                  "xy": [1, 1]}]}]}
+    with pytest.raises(ValidationError, match="hangs under mount node 'M1'"):
+        tree_from_dict(d)
+
+
+def test_pivot_ref_deep_under_a_mount_node_is_fatal():
+    """P.5.1 item 2: mount -> node -> node, ref on the GRANDCHILD — still fatal.
+    The check walks the WHOLE parent chain, not just the direct parent."""
+    d = {"name": "t", "pivot_ref": "E2",
+         "nodes": [{"ref": "M1", "kind": "mount", "anchor": {"role": "R"},
+                    "children": [{"ref": "E1", "kind": "placement",
+                                  "children": [{"ref": "E2",
+                                                "kind": "placement"}]}]}]}
+    with pytest.raises(ValidationError, match="hangs under mount node 'M1'"):
+        tree_from_dict(d)
+
+
+def test_pivot_ref_on_a_branch_without_mount_ancestors_is_legal():
+    """P.5.1 item 3: a tree that HAS mount nodes, but whose handle names a node
+    OUTSIDE every mount subtree, loads fine — only the mount subtrees are barred."""
+    d = {"name": "t", "pivot_ref": "P1",
+         "nodes": [{"ref": "M1", "kind": "mount", "anchor": {"role": "R"},
+                    "children": [{"ref": "E1", "kind": "placement"}]},
+                   {"ref": "P1", "kind": "placement", "xy": [2, 3]}]}
+    tree = tree_from_dict(d)
+    assert tree.pivot_ref == "P1"
+
+
 def test_config_dict_tree_with_pivot_passes_known_key_check():
     """_TREE_KNOWN_KEYS must accept the tree-level pivot_*/rotation keys — the
     same class of unknown-key fatal that killed is_reference."""

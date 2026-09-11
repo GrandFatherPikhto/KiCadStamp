@@ -16224,6 +16224,9 @@ msgstr ""
 msgid "tree {name!r}: embedded with {count} DIFFERENT pivots — the inner point is one per tree"
 msgstr ""
 
+msgid "tree {name!r}: pivot-ref {ref!r} hangs under mount node {mount!r} — a node under a mount node is pinned to that live component's position and does not follow the tree, so it cannot be the tree's inner point (use a node outside the mount subtree, or pivot-xy)"
+msgstr ""
+
 msgid "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live refdes is not portable, so it cannot be the tree's inner point"
 msgstr ""
 

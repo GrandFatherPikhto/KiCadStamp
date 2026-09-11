@@ -249,15 +249,17 @@ def tree_pivot_offset(tree: "Tree", forest: "dict[str, Tree] | None" = None, *,
     origin.
 
     pivot_ref: instead of a bare number, names a node's `ref` INSIDE THIS TREE
-    (a mount node included) whose position must land on the outer anchor.
-    Resolved by laying THIS tree out from a bare (0,0)/0deg base
-    (layout_tree_from_base) — composing from a zero base directly YIELDS the
-    local-offset value pivot_xy/pivot_polar already carry, with no separate
-    "subtract the anchor" step needed — and reading that ref's position back.
-    A mount-node ref is legitimate (its base is live). NOTE the grammar NARROWS
-    this to the tree's OWN nodes (plan §V.1.2, validated at load by
+    whose position must land on the outer anchor. Resolved by laying THIS tree
+    out from a bare (0,0)/0deg base (layout_tree_from_base) — composing from a
+    zero base directly YIELDS the local-offset value pivot_xy/pivot_polar
+    already carry, with no separate "subtract the anchor" step needed — and
+    reading that ref's position back. NOTE the grammar NARROWS this to the
+    tree's OWN nodes (plan §V.1.2, validated at load by
     trees.py::_validate_tree_pivot_ref): a ref reachable ONLY through a nested
     module is rejected there, even though the layout below could resolve it.
+    That validator ALSO rejects a mount node and ANY node hanging under one at
+    any depth — their base is LIVE, so they do not follow the tree and are
+    physically not a handle (plan_2026_09_11_pivot_ref_mount_ancestor §P.1/§P.2).
     `forest` is therefore needed only to lay the tree's own nodes out when they
     themselves embed modules; adapter/cfg/sheet_names are needed only if
     something inside the tree actually uses a mount anchor — every OTHER pivot

@@ -1214,14 +1214,23 @@ class TreesDock(QWidget):
         page = self.tree_tabs.currentWidget()
         return page if isinstance(page, QSplitter) else None
 
+    @staticmethod
+    def _form_panel_of_page(widget) -> Optional[QStackedWidget]:
+        """The right-hand form PANEL of ANY page widget — the page-level
+        counterpart of _tree_widget_of_page (splitter -> widget(1)): by
+        construction (§3.1) the page hosts the tree first and ONE form panel
+        second. Returns None for a bare/placeholder page (or a historical bare
+        form wrapper), so every caller goes through the SAME page -> panel
+        unwrap instead of guessing."""
+        if not isinstance(widget, QSplitter):
+            return None
+        right = widget.widget(1)
+        return right if isinstance(right, QStackedWidget) else None
+
     def _active_form_panel(self) -> Optional[QStackedWidget]:
         """The right-hand form PANEL (a one-visible-page QStackedWidget) of the
         current page, or None (the placeholder page / no tree)."""
-        splitter = self._active_page_splitter()
-        if splitter is None:
-            return None
-        right = splitter.widget(1)
-        return right if isinstance(right, QStackedWidget) else None
+        return self._form_panel_of_page(self.tree_tabs.currentWidget())
 
     @staticmethod
     def _panel_page(panel: QStackedWidget) -> Optional[QWidget]:
@@ -1866,7 +1875,16 @@ class TreesDock(QWidget):
         roles = self._live_roles()
         clusters = self._live_clusters()
         for index in range(self.tree_tabs.count()):
-            form = self._embedded_form_of(self.tree_tabs.widget(index))
+            # P.3 (plan_2026_09_11_pivot_ref_mount_ancestor): the tab widget is
+            # the PAGE QSplitter, NOT the form wrapper — reaching the form means
+            # page -> panel -> current page -> embedded form, the same unwrap
+            # _active_form_panel/_panel_page use. Passing the splitter straight
+            # to _embedded_form_of found nothing, so set_candidates never ran
+            # (the lists stayed frozen at connect time).
+            panel = self._form_panel_of_page(self.tree_tabs.widget(index))
+            if panel is None:
+                continue
+            form = self._embedded_form_of(self._panel_page(panel))
             if isinstance(form, (NodeFormWidget, AnchorFormWidget)):
                 form.set_candidates(roles, clusters)
 
