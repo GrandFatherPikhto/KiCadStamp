@@ -281,16 +281,16 @@ def _placed_cfg(*, mount_kwargs=None, sheet=None, cluster=None):
                       entities=[entity], cells={"c": cell})
 
 
-def test_drift_guard_fatals_when_a_mount_anchor_names_a_role_the_tree_places():
-    """A mount node anchored to a role of a cell THIS tree places would make the
-    position depend on the previous Apply -> silent drift. Fatal, not a warning
-    (plan §Y.3)."""
-    with pytest.raises(ValidationError, match="silently drifts"):
-        check_mount_anchor_drift(_placed_cfg())
+def test_drift_guard_accepts_a_mount_anchor_on_a_role_the_tree_places():
+    """REVERSED 2026-09-11 (plan_2026_09_11_internal_mount §Г.4): a mount on a
+    role of a cell THIS tree places is now the legitimate INTERNAL method — the
+    base is computed from the tree's own layout, never read back from the board,
+    so it cannot drift. The guard no longer fatals on this shape."""
+    check_mount_anchor_drift(_placed_cfg())          # must NOT raise
 
 
 def test_drift_guard_allows_a_role_from_outside_the_tree():
-    """A role no cell of this tree owns is a legitimate base."""
+    """A role no cell of this tree owns is a legitimate LIVE base."""
     cell = Cell(name="c", components=[TemplateComponentSlot(role="R")])
     entity = Entity(name="E1", cell="c")
     placed = TreeNode(ref="E1", kind="placement", xy=(0.0, 0.0), polar=None,
@@ -301,27 +301,41 @@ def test_drift_guard_allows_a_role_from_outside_the_tree():
 
 
 def test_drift_guard_honours_the_sheet_narrowing():
-    """A narrower anchor only collides with a placed Entity of the SAME sheet —
-    same role, different sheet is legal."""
+    """A narrower anchor only matches a placed Entity of the SAME sheet: a
+    different sheet is the LIVE (external) method, the same sheet the now-legal
+    INTERNAL one — both accepted."""
     check_mount_anchor_drift(
         _placed_cfg(sheet="Channel_0", mount_kwargs={"anchor_sheet": "Channel_1"}))
-    with pytest.raises(ValidationError, match="silently drifts"):
-        check_mount_anchor_drift(
-            _placed_cfg(sheet="Channel_0",
-                        mount_kwargs={"anchor_sheet": "Channel_0"}))
+    check_mount_anchor_drift(
+        _placed_cfg(sheet="Channel_0",
+                    mount_kwargs={"anchor_sheet": "Channel_0"}))
 
 
 def test_drift_guard_honours_the_cluster_narrowing():
-    """An anchor narrowed to a DIFFERENT cluster is legal; an anchor naming the
-    placed Entity's own cluster (or leaving the field UNSET, which matches any)
-    is the drift hazard."""
+    """A cluster on a DIFFERENT placed Entity is external; the same cluster (or
+    an UNSET field, matching any) is internal — all legal now that the internal
+    method has a defined base."""
     check_mount_anchor_drift(
         _placed_cfg(cluster="A", mount_kwargs={"anchor_cluster": "B"}))
-    with pytest.raises(ValidationError, match="silently drifts"):
-        check_mount_anchor_drift(
-            _placed_cfg(cluster="A", mount_kwargs={"anchor_cluster": "A"}))
-    with pytest.raises(ValidationError, match="silently drifts"):
-        check_mount_anchor_drift(_placed_cfg(cluster="A"))
+    check_mount_anchor_drift(
+        _placed_cfg(cluster="A", mount_kwargs={"anchor_cluster": "A"}))
+    check_mount_anchor_drift(_placed_cfg(cluster="A"))
+
+
+def test_drift_guard_fatals_on_ambiguity_not_on_the_internal_shape():
+    """With TWO nodes placing cells that carry the role and no sheet/cluster to
+    narrow them, the base is ambiguous — a fatal listing the candidates (this is
+    the redirected strictness §Г.2)."""
+    cell = Cell(name="c", components=[TemplateComponentSlot(role="R")])
+    entities = [Entity(name="E1", cell="c"), Entity(name="E2", cell="c")]
+    placed_a = TreeNode(ref="E1", kind="placement", xy=(0.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None, children=[])
+    placed_b = TreeNode(ref="E2", kind="placement", xy=(1.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None, children=[])
+    cfg = _drift_cfg(tree_nodes=[placed_a, placed_b, _mount("m1", "R")],
+                     entities=entities, cells={"c": cell})
+    with pytest.raises(ValidationError, match="more than one cell"):
+        check_mount_anchor_drift(cfg)
 
 
 def test_drift_guard_deliberately_ignores_the_tree_own_role_anchor():
@@ -343,10 +357,10 @@ def test_drift_guard_deliberately_ignores_the_tree_own_role_anchor():
     check_mount_anchor_drift(cfg)          # must NOT raise
 
 
-def test_drift_guard_is_enforced_by_load_config(tmp_path):
-    """The guard runs at LOAD time (config/loader.py), so a drifted config never
-    reaches Apply — and this also proves the mount grammar round-trips through
-    load_config."""
+def test_the_internal_mount_shape_is_accepted_by_load_config(tmp_path):
+    """The guard runs at LOAD time (config/loader.py). Since the internal shape
+    is now legal, such a config LOADS — and this proves the mount grammar still
+    round-trips through load_config."""
     text = dict_to_sexp({
         "cells": {"c": {"components": [{"role": "R", "offset_along_mm": 0.0,
                                         "offset_across_mm": 0.0}]}},
@@ -358,8 +372,8 @@ def test_drift_guard_is_enforced_by_load_config(tmp_path):
     })
     path = tmp_path / "cfg.sexp"
     path.write_text(text, encoding="utf-8")
-    with pytest.raises(ValidationError, match="silently drifts"):
-        load_config(str(path))
+    cfg, _ctx = load_config(str(path))          # must not raise
+    assert cfg.trees and cfg.trees[0].nodes[1].kind == "mount"
 
 
 # ── Y.9.4: the mount node's display tag ────────────────────────────────────

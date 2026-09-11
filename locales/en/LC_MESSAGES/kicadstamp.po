@@ -16372,3 +16372,21 @@ msgstr ""
 
 msgid "tree {name!r}: anchor shift must be exactly two numbers"
 msgstr ""
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r}, which this tree places in more than one cell ({candidates}) — narrow the anchor with (sheet ...)/(cluster ...), or anchor to a role from outside the tree"
+msgstr ""
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r} placed by an EMBEDDED tree {child!r} — an internal mount across a module embedding is not supported yet; anchor it to a role of a cell this tree places directly, or to a role from outside the tree"
+msgstr ""
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r} placed by node {node_ref!r}, which sits under this very mount node — the base would depend on itself (cycle); move the mount node above the placing node, or anchor to a role from outside the tree"
+msgstr ""
+
+msgid "tree {tree!r}: mount node {ref!r} is part of a cycle — its base depends on itself through the nodes it anchors"
+msgstr ""
+
+msgid "node {ref!r}: mount node needs a live board connection — its anchor role {role!r} is not placed by this tree"
+msgstr ""
+
+msgid "node {ref!r}: mount node's anchor names pad {pad!r} — reading a pad's shape needs a live board connection"
+msgstr ""

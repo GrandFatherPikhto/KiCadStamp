@@ -435,14 +435,20 @@ def resolve_entity_live_position(adapter: "KiCadBoardAdapter", cfg: "Config",
     target_tree, node_path = matches[0]
     base_pos, base_rot = _anchor_base(adapter, cfg, target_tree, sheet_names,
                                       forest=forest, visited=chain)
+    # The plain Tree + its effective base: the INTERNAL mount method poses the
+    # placing node from the TREE base (not from the running parent frame), so
+    # both must be threaded through the path composition (plan_2026_09_11_
+    # internal_mount §Г.5).
+    plain_tree = _plain_tree(cfg, target_tree.name)
     pos, rot = base_pos, base_rot
     for ln in node_path:
         # Same mount base substitution as _walk: an intermediate MOUNT node on
-        # the path breaks to the live component its anchor names, and the
+        # the path breaks to its anchor's position (internal or live), and the
         # composition continues from it — keeps the live Entity read consistent
         # with materialization (plan §Y.1.4).
         if ln.node.kind == "mount":
-            pos, rot = mount_node_base(ln.node, adapter, cfg, sheet_names)
+            pos, rot = mount_node_base(ln.node, plain_tree, base_pos, base_rot,
+                                       adapter, cfg, sheet_names)
         pos = node_position(ln.node, pos, rot)
         rot = rot + ln.node.rotation
     return pos, rot
@@ -475,7 +481,9 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
 
 def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[ClonePlacement],
           position_overrides: dict | None = None, *,
-          adapter=None, cfg=None, sheet_names=None) -> None:
+          adapter=None, cfg=None, sheet_names=None,
+          plain_tree=None, tree_base_pos: Vector2 | None = None,
+          tree_base_rot: float = 0.0) -> None:
     """Depth-first over LinkedNode children. A node's absolute position =
     node_position(node, parent_pos, parent_rot) (parent + offset rotated into
     the parent's frame); its own rotation feeds its children's frame as
@@ -496,15 +504,18 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
     that scenario; a full apply passes no overrides at all."""
     for ln in linked_nodes:
         node = ln.node
-        # Mount node: its base is the LIVE component its anchor names, not the
-        # parent's — a PER-NODE base substitution (siblings keep the parent
+        # Mount node: its base is its anchor's position (internal or live), not
+        # the parent's — a PER-NODE base substitution (siblings keep the parent
         # frame; children inherit the mount node's abs frame below, exactly as
         # _walk has always done). The mount node places no record itself.
         # adapter/cfg/sheet_names are threaded from materialize_entity_placements
-        # only for this case.
+        # for the live case; plain_tree/tree_base_* for the internal one (its
+        # base is posed from the TREE base, not the running parent frame).
         base_pos, base_rot = parent_pos, parent_rot
         if node.kind == "mount":
-            base_pos, base_rot = mount_node_base(node, adapter, cfg, sheet_names)
+            base_pos, base_rot = mount_node_base(
+                node, plain_tree, tree_base_pos, tree_base_rot,
+                adapter, cfg, sheet_names)
         pos = node_position(node, base_pos, base_rot)
         rot = base_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \
@@ -522,7 +533,9 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
             else:
                 out.append(_to_clone(ln.record.obj, pos, rot))
         _walk(ln.children, pos, rot, out, position_overrides,
-              adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+              adapter=adapter, cfg=cfg, sheet_names=sheet_names,
+              plain_tree=plain_tree, tree_base_pos=tree_base_pos,
+              tree_base_rot=tree_base_rot)
 
 
 def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
@@ -577,7 +590,9 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
             tree_clones: list[ClonePlacement] = []
             _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones,
                   position_overrides=position_overrides,
-                  adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+                  adapter=adapter, cfg=cfg, sheet_names=sheet_names,
+                  plain_tree=_plain_tree(cfg, tree.name),
+                  tree_base_pos=anchor_pos, tree_base_rot=anchor_rot)
         except _EntityAnchorError:
             # A ref anchor resolving to an Entity that is not placed / placed
             # twice / in a cycle is a CONFIG bug — fatal for the whole run,

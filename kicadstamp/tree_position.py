@@ -32,10 +32,11 @@ import dataclasses
 import logging
 
 from .anchor_graph import Record, build_records
-from .cell_frame import rotate_ydown_mm
+from .cell_frame import CellFrame, rotate_ydown_mm
 from .exceptions import ValidationError, format_fatal_error
+from .geometry.cell_anchor import cell_mount_offset
 from .i18n import _
-from .domain.geometry import Vector2
+from .domain.geometry import BoardLayer, Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from .link_trees import (
@@ -58,7 +59,12 @@ from .placement.services.coordinate_position_calculator import (
     resolve_target_position,
 )
 from .placement.services.point_resolver import resolve_point_chain
-from .trees import Tree, TreeAnchor, TreeNode
+from .trees import (
+    Tree,
+    TreeAnchor,
+    TreeNode,
+    resolve_internal_mount_match,
+)
 from .utils.units import MM
 
 _ORIGIN = Vector2.from_xy(0, 0)
@@ -116,30 +122,66 @@ def node_position(node: TreeNode, parent_position: Vector2,
     return Vector2.from_xy(parent_position.x + offset.x, parent_position.y + offset.y)
 
 
-def mount_node_base(node: TreeNode, adapter, cfg, sheet_names,
+def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
+                    tree_base_rot: float, adapter, cfg, sheet_names,
+                    forest: "dict[str, Tree] | None" = None,
+                    visited: frozenset = frozenset()
                     ) -> tuple[Vector2, float]:
-    """Absolute (pos, rot) of a kind "mount" node's LIVE (role) anchor — the
-    point the node's whole subtree hangs from (plan_2026_09_11_tree_mount_nodes
-    §Y.1.4). The single source of truth for the mount base substitution in
-    EVERY recursive tree walk (entity_placement._walk and its node-path walk,
-    layout_tree_from_base, scheme_list_apply) so materialization (Apply) and the
-    live/curated path can never drift. Only the role shape is possible here (the
-    parser fatals on any other). A resolve failure (role not found / ambiguous
-    on the live board) is a plain ValidationError — the same per-tree tolerance
-    a tree-level role anchor gets (design_2026_09_03_tree_node_component_anchor_
-    and_editing §1.2; the per-tree policy is unchanged)."""
+    """Absolute (pos, rot) of a kind "mount" node's base — the point the node's
+    whole subtree hangs from. TWO methods, chosen STRUCTURALLY from the config
+    (plan_2026_09_11_internal_mount §Г.1/§Г.2), never from a key in the file:
+
+      * INTERNAL — the anchor role belongs to a cell THIS tree places: the base
+        is computed from the tree's OWN layout (base -> node path -> pose ->
+        cell slot), so it can NEVER depend on the result of a previous Apply
+        (the drift the guard used to refuse). Needs no live board unless the
+        mount also names a pad (§Г.7);
+      * LIVE — the role is outside the tree: the historical behaviour, the
+        component's LIVE position/rotation; there the base genuinely lives
+        outside the tree.
+
+    THE single seam for the mount-base substitution in EVERY recursive tree walk
+    (entity_placement._walk and its node-path walk, layout_tree_from_base,
+    scheme_list_apply) so materialization (Apply) and the live/curated path can
+    never drift. `tree` is the plain Tree whose nodes are being laid and
+    `tree_base_pos`/`tree_base_rot` the EFFECTIVE base its content is laid from
+    (the same (pos, rot) the walk starts its top level from) — the internal
+    method needs both to pose the placing node; a caller with no plain Tree (a
+    pure module-embedding helper) passes tree=None, which disables the internal
+    method. `visited` holds the ids of the mount nodes already on the current
+    resolution chain: a mount whose base transitively depends on itself is a
+    clear cycle fatal, never infinite recursion (§Г.3.1).
+
+    Only the role shape is possible here (the parser fatals on any other). A
+    resolve failure (role not found / ambiguous on the live board) is a plain
+    ValidationError — the same per-tree tolerance a tree-level role anchor gets
+    (design_2026_09_03 §1.2; unchanged)."""
     anchor = node.anchor
     if anchor is None:
         raise ValidationError(_(
             "node {ref!r}: mount node has no anchor").format(ref=node.ref))
+    if id(node) in visited:
+        raise ValidationError(format_fatal_error(
+            _("tree {tree!r}: mount node {ref!r} is part of a cycle — its base "
+              "depends on itself through the nodes it anchors")
+            .format(tree=tree.name if tree is not None else "?", ref=node.ref),
+            []))
+    chain = visited | {id(node)}
+    match = (resolve_internal_mount_match(cfg, tree, node)
+             if tree is not None else None)
+    if match is not None:
+        return _internal_mount_base(
+            node, anchor, match, tree, tree_base_pos, tree_base_rot,
+            adapter, cfg, sheet_names, chain)
+    # ── LIVE method: the role is outside the tree, its base really lives there ──
     if adapter is None:
-        # A mount node's anchor is LIVE-only — there is no static fallback, so a
-        # pure (adapter-less) caller that reaches one gets a clear error, never a
-        # raw resolver crash or a silent wrong position (plan Y.1.4; the pure
-        # module-embedding callers never see a mount node in practice).
+        # There is no static fallback for an external base, so a pure
+        # (adapter-less) caller that reaches one gets a clear error, never a raw
+        # resolver crash or a silent wrong position (plan Y.1.4).
         raise ValidationError(_(
-            "node {ref!r}: mount node needs a live board connection"
-            ).format(ref=node.ref))
+            "node {ref!r}: mount node needs a live board connection — its anchor "
+            "role {role!r} is not placed by this tree").format(
+                ref=node.ref, role=anchor.role))
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     fp = resolver.resolve_anchor_fp(
         None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
@@ -149,6 +191,91 @@ def mount_node_base(node: TreeNode, adapter, cfg, sheet_names,
     if anchor.anchor_pad:
         pos = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, anchor.role)
     return pos, rot
+
+
+def _node_path_pose(tree: Tree, path: list[TreeNode], base_pos: Vector2,
+                    base_rot: float, adapter, cfg, sheet_names,
+                    chain: frozenset) -> tuple[Vector2, float]:
+    """Absolute (pos, rot) of a node reached along `path` from the tree's own
+    base — the SAME composition every walk uses (node_position + rotation
+    accumulation). A mount node on the path substitutes its own base with the
+    SAME tree base and chain, so an internal mount inside a resolved path is
+    handled one level deeper and a cycle is caught. Deliberately NOT a full-tree
+    layout: only the path to the wanted node is posed, so unrelated mount nodes
+    elsewhere in the tree are never touched (their bases are not needed) — a
+    full layout would re-enter the very mount node being resolved."""
+    pos, rot = base_pos, base_rot
+    for n in path:
+        if n.kind == "mount":
+            pos, rot = mount_node_base(n, tree, base_pos, base_rot, adapter, cfg,
+                                       sheet_names, None, chain)
+        pos = node_position(n, pos, rot)
+        rot = rot + n.rotation
+    return pos, rot
+
+
+def _footprint_relative_mirror(fp, cell, fallback: bool) -> bool:
+    """Whether the live footprint `fp` is on the OPPOSITE side of the cell's
+    reference layer — i.e. the pad's local offset must be X-flipped before being
+    un-rotated (the same rule `resolve_pad_anchor_offset` uses). `fallback` is
+    used when the board object carries no usable layer (a duck-typed test
+    double): then the placement's OWN config mirror decides."""
+    layer = getattr(fp, "layer", None)
+    if not isinstance(layer, BoardLayer):
+        return fallback
+    return (layer == BoardLayer.BL_B_Cu) != (getattr(cell, "layer", "F.Cu") == "B.Cu")
+
+
+def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,
+                         match, tree: Tree, tree_base_pos: Vector2,
+                         tree_base_rot: float, adapter, cfg, sheet_names,
+                         chain: frozenset) -> tuple[Vector2, float]:
+    """The INTERNAL mount base (plan §Г.3): the slot's world pose computed from
+    the tree's OWN layout + the cell's own stored geometry, then — when a pad is
+    named — the pad's footprint-frame offset re-applied onto that COMPUTED slot.
+    Reads no live position/rotation of the placing component, only the pad's
+    SHAPE (a footprint property, §Г.3.3). The angle handed to the subtree is the
+    SLOT's world angle, not the live footprint's, so a tree rotation reaches the
+    mount's children."""
+    entity = match.entity
+    mirror = bool(getattr(entity, "mirror", False))
+    pos, rot = _node_path_pose(tree, match.path, tree_base_pos, tree_base_rot,
+                               adapter, cfg, sheet_names, chain)
+    frame = CellFrame(placement_origin=pos, rotation_deg=rot, mirror=mirror,
+                      mount=cell_mount_offset(match.cell))
+    slot = match.slot
+    wx_mm, wy_mm = frame.point_to_world_mm(slot.offset_along_mm or 0.0,
+                                           slot.offset_across_mm or 0.0)
+    slot_pos = Vector2.from_xy(int(round(wx_mm * MM)), int(round(wy_mm * MM)))
+    # The slot's WORLD angle — the component's angle at materialization
+    # (clone_geometry.comp_angle): slot.angle_deg + rotation, or (180 - phi) when
+    # the placement is mirrored.
+    slot_angle = ((180.0 - (slot.angle_deg + rot)) % 360.0
+                  if mirror else (slot.angle_deg + rot))
+    if not anchor.anchor_pad:
+        return slot_pos, slot_angle
+    if adapter is None:
+        raise ValidationError(_(
+            "node {ref!r}: mount node's anchor names pad {pad!r} — reading a "
+            "pad's shape needs a live board connection").format(
+                ref=node.ref, pad=anchor.anchor_pad))
+    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    fp = resolver.resolve_anchor_fp(
+        None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
+        label=anchor.role)
+    pad_abs = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, anchor.role)
+    relative_mirror = _footprint_relative_mirror(fp, match.cell, mirror)
+    delta_x_mm = (pad_abs.x - fp.position.x) / MM
+    delta_y_mm = (pad_abs.y - fp.position.y) / MM
+    if relative_mirror:
+        delta_x_mm = -delta_x_mm
+    # The pad offset in the footprint's OWN unrotated frame ...
+    local = rotate_local_offset(delta_x_mm, delta_y_mm, -fp.angle_deg)
+    # ... re-applied onto the COMPUTED slot pose (never the live component's).
+    delta = rotate_local_offset(local.x / MM, local.y / MM, slot_angle)
+    if relative_mirror:
+        delta = Vector2.from_xy(-delta.x, delta.y)
+    return Vector2.from_xy(slot_pos.x + delta.x, slot_pos.y + delta.y), slot_angle
 
 
 def child_local_offset(child_pos: Vector2, parent_pos: Vector2,
@@ -374,31 +501,39 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     trees embedded by module nodes get the conversion here.
 
     A kind "mount" node (plan_2026_09_11_tree_mount_nodes §Y.1) hangs from its
-    OWN (role) anchor's LIVE position instead of its parent frame; its children
-    are then laid from the mount node's absolute frame by the ordinary
-    recursion (the ONE base rule: a node's base is its parent). This needs the
-    live board, so adapter/cfg/sheet_names are OPTIONAL: the live callers
-    (cascade.py's curated forest redraw, which already has an adapter) pass them
-    in; the pure geometry/module-embedding callers leave them None (a mount node
-    reached with no adapter is a hard ValidationError, never a silent wrong
-    position). Mount nodes place no record and are NOT in the returned map."""
+    OWN (role) anchor's position instead of its parent frame; its children are
+    then laid from the mount node's absolute frame by the ordinary recursion
+    (the ONE base rule: a node's base is its parent). Since
+    plan_2026_09_11_internal_mount the base may be INTERNAL (the role belongs to
+    a cell THIS tree places — computed from this very layout base and the node
+    path, no board needed) or LIVE (a role outside the tree — needs the board);
+    mount_node_base picks between them structurally. `lay` therefore carries the
+    current tree and its OWN base alongside the running parent frame: a mount
+    node's internal method poses its placing node from the TREE base, not from
+    the mount's parent frame. adapter/cfg/sheet_names stay OPTIONAL: a mount
+    whose base still needs the board (a live role, or an internal one with a
+    pad) is a ValidationError when they are absent, never a silent wrong
+    position. Mount nodes place no record and are NOT in the returned map."""
     out: dict[str, tuple[Vector2, float]] = {}
     forest = dict(forest or {})
     stack: list[str] = []
 
-    def lay(nodes: list[TreeNode], pos: Vector2, rot: float) -> None:
+    def lay(nodes: list[TreeNode], pos: Vector2, rot: float, cur_tree: Tree,
+            tbl_pos: Vector2, tbl_rot: float) -> None:
         for n in nodes:
-            # Mount node: its base is the LIVE component its anchor names, not
-            # the parent frame. Siblings keep the parent frame; the mount node's
-            # children inherit ITS absolute frame through the ordinary recursion
-            # below (the one base rule). A mount node itself places nothing.
+            # Mount node: its base is its anchor's position (internal or live),
+            # not the parent frame. Siblings keep the parent frame; the mount
+            # node's children inherit ITS absolute frame through the ordinary
+            # recursion below (the one base rule). It places nothing itself.
             base_pos, base_rot = pos, rot
             if n.kind == "mount":
-                base_pos, base_rot = mount_node_base(n, adapter, cfg, sheet_names)
+                base_pos, base_rot = mount_node_base(
+                    n, cur_tree, tbl_pos, tbl_rot, adapter, cfg, sheet_names,
+                    forest)
             abs_pos = node_position(n, base_pos, base_rot)
             abs_rot = base_rot + n.rotation
             if n.kind == "module":
-                lay(n.children, abs_pos, abs_rot)          # stage 1
+                lay(n.children, abs_pos, abs_rot, cur_tree, tbl_pos, tbl_rot)
                 child = forest.get(n.ref)                   # stage 2
                 if child is None or child.name in stack:
                     continue
@@ -406,14 +541,14 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                     child, abs_pos, abs_rot, forest,
                     adapter=adapter, cfg=cfg, sheet_names=sheet_names)
                 stack.append(child.name)
-                lay(child.nodes, eff_pos, eff_rot)
+                lay(child.nodes, eff_pos, eff_rot, child, eff_pos, eff_rot)
                 stack.pop()
                 continue
             if n.kind != "mount":
                 out[n.ref] = (abs_pos, abs_rot)
-            lay(n.children, abs_pos, abs_rot)
+            lay(n.children, abs_pos, abs_rot, cur_tree, tbl_pos, tbl_rot)
 
-    lay(tree.nodes, base_pos, base_rot_deg)
+    lay(tree.nodes, base_pos, base_rot_deg, tree, base_pos, base_rot_deg)
     return out
 
 

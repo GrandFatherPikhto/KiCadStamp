@@ -15022,3 +15022,21 @@ msgstr "mount-узел {ref!r}: anchor поддерживает только (ro
 
 msgid "tree {name!r}: anchor shift must be exactly two numbers"
 msgstr "tree {name!r}: сдвиг якоря должен быть ровно двумя числами"
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r}, which this tree places in more than one cell ({candidates}) — narrow the anchor with (sheet ...)/(cluster ...), or anchor to a role from outside the tree"
+msgstr "tree {tree!r}: mount-узел {ref!r} привязан к роли {role!r}, которую это дерево размещает более чем в одной ячейке ({candidates}) — сузьте привязку через (sheet ...)/(cluster ...) или привяжитесь к роли вне дерева"
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r} placed by an EMBEDDED tree {child!r} — an internal mount across a module embedding is not supported yet; anchor it to a role of a cell this tree places directly, or to a role from outside the tree"
+msgstr "tree {tree!r}: mount-узел {ref!r} привязан к роли {role!r}, размещаемой ВСТРОЕННЫМ деревом {child!r} — внутренний mount через встраивание модуля пока не поддерживается; привяжите его к роли ячейки, которую это дерево размещает напрямую, или к роли вне дерева"
+
+msgid "tree {tree!r}: mount node {ref!r} is anchored to role {role!r} placed by node {node_ref!r}, which sits under this very mount node — the base would depend on itself (cycle); move the mount node above the placing node, or anchor to a role from outside the tree"
+msgstr "tree {tree!r}: mount-узел {ref!r} привязан к роли {role!r}, размещаемой узлом {node_ref!r}, который находится под этим самым mount-узлом — база зависела бы от себя (цикл); перенесите mount-узел выше размещающего узла или привяжитесь к роли вне дерева"
+
+msgid "tree {tree!r}: mount node {ref!r} is part of a cycle — its base depends on itself through the nodes it anchors"
+msgstr "tree {tree!r}: mount-узел {ref!r} является частью цикла — его база зависит от себя через узлы, которые он привязывает"
+
+msgid "node {ref!r}: mount node needs a live board connection — its anchor role {role!r} is not placed by this tree"
+msgstr "node {ref!r}: mount-узлу нужно живое подключение к плате — его роль привязки {role!r} не размещается этим деревом"
+
+msgid "node {ref!r}: mount node's anchor names pad {pad!r} — reading a pad's shape needs a live board connection"
+msgstr "node {ref!r}: привязка mount-узла называет пад {pad!r} — чтение формы пада требует живого подключения к плате"

@@ -367,84 +367,185 @@ def _find_tree(cfg, name: str):
     return None
 
 
-def _tree_placed_roles(cfg, tree, seen_trees: frozenset = frozenset()
-                       ) -> list[tuple[str, str | None, str | None]]:
-    """Every (role, sheet, cluster) this tree places: for each kind "placement"
-    / legacy "clone" node, the roles of its Entity's cell narrowed by the
-    Entity's own sheet/cluster; a kind "module" node contributes the CONTENT of
-    the tree it embeds (recursively, cycle-guarded). This is the set the drift
-    guard below compares live bases against."""
-    out: list[tuple[str, str | None, str | None]] = []
+@dataclass
+class RolePlacementMatch:
+    """ONE node of a tree that places a cell carrying a queried role — the
+    return element of `find_role_placement_matches`, shared by the mount drift
+    guard and the internal-mount resolver (plan_2026_09_11_internal_mount §Г.2)
+    so the two can never disagree about WHERE a role lives.
+
+    tree   — the tree that DIRECTLY contains `node` (== the queried tree, unless
+             the role comes from a tree embedded through a module node);
+    node   — the kind "placement"/"clone" node placing the cell;
+    path   — the node chain from `tree`'s top level down to `node` (inclusive);
+    entity — the cfg.entities record `node.ref` resolves to;
+    cell   — cfg.cells[entity.cell];
+    slot   — the TemplateComponentSlot carrying the queried role."""
+    tree: "Tree"
+    node: TreeNode
+    path: list[TreeNode]
+    entity: object
+    cell: object
+    slot: object
+
+
+def find_role_placement_matches(cfg, tree: "Tree", role: str, *,
+                                sheet: str | None = None,
+                                cluster: str | None = None,
+                                _seen: frozenset = frozenset()
+                                ) -> list[RolePlacementMatch]:
+    """Every node of `tree` (module content included, recursively) that places a
+    cell carrying `role`, optionally narrowed to the placing Entity's own
+    `sheet`/`cluster` (None = any). THE single predicate behind both the mount
+    drift guard and the internal-mount resolver (plan_2026_09_11_internal_mount
+    §Г.2): the guard asks "does this role live inside the tree?", the resolver
+    asks "which node poses the frame the role's pad is measured in?".
+
+    Module content is searched the way the removed `_tree_placed_roles` did (a
+    role placed by an embedded tree counts) — a match whose `.tree` is NOT the
+    queried `tree` is that embedded case. Multiple matches are legal HERE; the
+    caller decides (guard and resolver both treat 2+ as an ambiguity fatal)."""
+    out: list[RolePlacementMatch] = []
     cells = getattr(cfg, "cells", {}) or {}
-    for node in _walk_nodes(tree.nodes):
-        if node.kind == "module":
-            if node.ref in seen_trees:
+
+    def walk(nodes: list[TreeNode], path: list[TreeNode]) -> None:
+        for n in nodes:
+            node_path = path + [n]
+            if n.kind == "module":
+                if n.ref not in _seen:
+                    nested = _find_tree(cfg, n.ref)
+                    if nested is not None:
+                        out.extend(find_role_placement_matches(
+                            cfg, nested, role, sheet=sheet, cluster=cluster,
+                            _seen=_seen | {tree.name}))
+                # A module node's OWN children are ordinary nodes of THIS tree.
+                walk(n.children, node_path)
                 continue
-            nested = _find_tree(cfg, node.ref)
-            if nested is None:
-                continue
-            out.extend(_tree_placed_roles(cfg, nested, seen_trees | {tree.name}))
-            continue
-        if node.kind not in ("placement", "clone"):
-            continue
-        entity = _find_entity(cfg, node.ref)
-        if entity is None:
-            continue
-        cell = cells.get(entity.cell)
-        if cell is None:
-            continue
-        sheet = getattr(entity, "sheet", None)
-        cluster = getattr(entity, "cluster", None)
-        for slot in cell.components:
-            out.append((slot.role, sheet, cluster))
+            if n.kind in ("placement", "clone"):
+                entity = _find_entity(cfg, n.ref)
+                if entity is None:
+                    continue
+                cell = cells.get(entity.cell)
+                if cell is None:
+                    continue
+                if sheet is not None and sheet != getattr(entity, "sheet", None):
+                    continue
+                if cluster is not None and cluster != getattr(entity, "cluster", None):
+                    continue
+                for slot in cell.components:
+                    if slot.role == role:
+                        out.append(RolePlacementMatch(
+                            tree=tree, node=n, path=node_path, entity=entity,
+                            cell=cell, slot=slot))
+            walk(n.children, node_path)
+
+    walk(tree.nodes, [])
     return out
 
 
-def _check_anchor_drift(tree_name: str, what: str, anchor: TreeAnchor,
-                        placed: list[tuple[str, str | None, str | None]]) -> None:
-    """Fatal when a live base names a role THIS tree places — the position would
-    then depend on the result of the previous Apply and every Redraw would
-    silently drift (plan §Y.3). A narrower anchor (sheet/cluster set) only
-    collides with a placed Entity of the same sheet/cluster; an unset field
-    matches any."""
-    for role, sheet, cluster in placed:
-        if role != anchor.role:
-            continue
-        if anchor.anchor_sheet is not None and anchor.anchor_sheet != sheet:
-            continue
-        if anchor.anchor_cluster is not None and anchor.anchor_cluster != cluster:
-            continue
-        _fatal(_("tree {tree!r}: {what} is anchored to role {role!r}, which this "
-                 "tree places itself — the base must be OUTSIDE the tree, "
-                 "otherwise every redraw silently drifts")
-               .format(tree=tree_name, what=what, role=anchor.role))
+def _is_under(target: TreeNode, ancestor: TreeNode, nodes: list[TreeNode]) -> bool:
+    """True when `target` IS `ancestor` or hangs anywhere under it (identity
+    comparison; TreeNode is an unhashable dataclass, so id() is used). The
+    mount-drift guard's static cycle test: a mount node whose role is placed by
+    a node inside its own subtree would depend on its own base."""
+    parent_of: dict[int, TreeNode] = {}
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        for child in node.children:
+            parent_of[id(child)] = node
+            stack.append(child)
+    current: TreeNode | None = target
+    while current is not None:
+        if current is ancestor:
+            return True
+        current = parent_of.get(id(current))
+    return False
+
+
+def _candidate_label(match: RolePlacementMatch) -> str:
+    return f"{match.tree.name}/{match.node.ref}"
+
+
+def resolve_internal_mount_match(cfg, tree: "Tree", node: TreeNode
+                                 ) -> RolePlacementMatch | None:
+    """The ONE place a mount node's anchor is classified (plan_2026_09_11_
+    internal_mount §Г.2/§Г.4), shared by the load-time guard and the resolver so
+    they can never disagree:
+
+      - None — the role is OUTSIDE this tree: the LIVE method applies, always
+        legal (the component really does live outside the tree);
+      - a single RolePlacementMatch — the role belongs to a cell THIS tree
+        places: the INTERNAL method computes the base from the tree's own
+        layout, so it can never depend on a previous Apply.
+
+    Raises the genuinely unresolvable cases — the SAME fatals the guard used to
+    raise, redirected:
+
+      * ambiguity — 2+ nodes place cells carrying the role and the anchor's
+        (sheet ...)/(cluster ...) do not narrow it to one;
+      * module crossing — the only internal match sits in a tree EMBEDDED
+        through a module node: the resolver poses the placing node along its
+        node path within THIS tree, so that pose has no defined value yet;
+      * a statically visible cycle — the placing node sits under the mount node
+        itself, so the base would depend on its own result."""
+    anchor = node.anchor
+    if anchor is None:
+        return None
+    matches = find_role_placement_matches(
+        cfg, tree, anchor.role, sheet=anchor.anchor_sheet,
+        cluster=anchor.anchor_cluster)
+    if not matches:
+        return None
+    if len(matches) > 1:
+        _fatal(_(
+            "tree {tree!r}: mount node {ref!r} is anchored to role "
+            "{role!r}, which this tree places in more than one cell "
+            "({candidates}) — narrow the anchor with (sheet ...)/"
+            "(cluster ...), or anchor to a role from outside the tree")
+            .format(tree=tree.name, ref=node.ref, role=anchor.role,
+                    candidates=", ".join(_candidate_label(m) for m in matches)))
+    match = matches[0]
+    if match.tree is not tree:
+        _fatal(_(
+            "tree {tree!r}: mount node {ref!r} is anchored to role "
+            "{role!r} placed by an EMBEDDED tree {child!r} — an internal "
+            "mount across a module embedding is not supported yet; anchor "
+            "it to a role of a cell this tree places directly, or to a "
+            "role from outside the tree")
+            .format(tree=tree.name, ref=node.ref, role=anchor.role,
+                    child=match.tree.name))
+    if _is_under(match.node, node, tree.nodes):
+        _fatal(_(
+            "tree {tree!r}: mount node {ref!r} is anchored to role "
+            "{role!r} placed by node {node_ref!r}, which sits under this "
+            "very mount node — the base would depend on itself (cycle); "
+            "move the mount node above the placing node, or anchor to a "
+            "role from outside the tree")
+            .format(tree=tree.name, ref=node.ref, role=anchor.role,
+                    node_ref=match.node.ref))
+    return match
 
 
 def check_mount_anchor_drift(cfg) -> None:
-    """Load-time FATAL guard (plan §Y.3; design 2026-09-11 §3.11 / §7.2): a
-    MOUNT node's anchor must never resolve to a component belonging to a cell
-    THIS tree places, or the node's position would depend on the result of the
-    previous Apply and every Redraw would silently drift. Pure config check, no
-    board needed (the placed set comes from cfg.entities + cfg.cells). A silent
-    drift is worse than a refusal, so this is a fatal, not a warning (Denis
-    2026-09-11).
+    """Load-time guard for mount-node anchors (plan_2026_09_11_internal_mount
+    §Г.4; design 2026-09-11 §3.11 / §7.2 — REDIRECTED 2026-09-11).
 
-    Deliberately NOT applied to the tree's OWN (role ...) anchor — an empirical
-    finding on 2026-09-11: the extract / self-anchor pattern anchors a tree on
-    the very component its own root cell is built around (e.g. `dac_buf_tpl`
-    anchored on role `DAC_BUF`, which its placed cell also contains). That
-    component is the tree's REFERENCE, not something the tree moves, so a fatal
-    there rejected two real configs. Only the mount-node case was specified in
-    the plan (Y.3) and only that one is enforced."""
+    A mount node anchored to a role of a cell THIS tree places is NO LONGER a
+    fatal: that shape is the legitimate INTERNAL method (§Г.1) — the base is
+    computed from the tree's OWN layout, not read back from the board, so it
+    cannot drift. Every mount node whose anchor is internal is validated
+    (ambiguity / module crossing / cycle) by `resolve_internal_mount_match`; a
+    role from OUTSIDE the tree stays the LIVE method and is always legal.
+
+    Deliberately NOT applied to the tree's OWN (role ...) anchor (the empirical
+    `dac_buf_tpl` exception documented before 2026-09-11 — that component is the
+    tree's REFERENCE, not something the tree moves). Pure config check, no board
+    needed."""
     for tree in getattr(cfg, "trees", []) or []:
-        placed = _tree_placed_roles(cfg, tree)
-        if not placed:
-            continue
         for node in _walk_nodes(tree.nodes):
-            if node.kind == "mount" and node.anchor is not None:
-                _check_anchor_drift(
-                    tree.name, _("mount node {ref!r}").format(ref=node.ref),
-                    node.anchor, placed)
+            if node.kind == "mount":
+                resolve_internal_mount_match(cfg, tree, node)
 
 
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:

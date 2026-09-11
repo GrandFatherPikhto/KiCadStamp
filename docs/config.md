@@ -552,22 +552,39 @@ several different parents; a duplicate inside ONE parent, an unknown/self refere
 ignored — its content is laid out from the module's pivot-inverted marker (pure geometry, applied as a
 non-persistent position override by the forest-wide redraw).
 
-**Mount nodes (2026-09-11, plan_2026_09_11_tree_mount_nodes).** A node may have `kind "mount"`: it is a
+**Mount nodes (2026-09-11, plan_2026_09_11_tree_mount_nodes; the two resolution methods added
+2026-09-11, plan_2026_09_11_internal_mount).** A node may have `kind "mount"`: it is a
 POINT OF REFERENCE — it carries its own `(anchor (role ...) [(sheet ...) (cluster ...) (pad ...)])` and
-places NOTHING itself; its CHILDREN are laid from that live component's position/rotation. This replaces
+places NOTHING itself; its CHILDREN are laid from that anchor's base. This replaces
 the REMOVED per-node `own_anchor` grammar (a nested `(anchor ...)` on a positioned node), so the base
 rule is now uniform: **a node's base is its parent**, and what the tree DRAWS matches what it COMPUTES.
 A mount node's `ref` is a NAME (like a module's tree name): never resolved against the config, exempt
 from the one-ref-per-file rule, unique within its tree and not colliding with a positioned node's ref
 there (both fatal at load). A config still written in the old grammar is REJECTED at load with a pointer
 to the converter — there is no runtime compatibility layer; run
-`kicadstamp convert-trees --root <file>` (see `docs/commands.md`). At load, a mount node anchored to a
-role belonging to a cell THIS tree places is a FATAL (its position would depend on the previous Apply
-and every redraw would silently drift). The tree's OWN `(anchor (role ...))` is deliberately NOT subject
-to that check — the extract / self-anchor pattern legitimately anchors a tree on its own root component.
-A tree's inner point (`pivot-ref` / `pivot-xy` / `pivot-polar`) may not name a mount node, nor any node
-hanging under one at any depth: such a node's base is pinned to a LIVE component, so it does not follow
-the tree when the tree moves — it is not a handle (fatal at load; `pivot-xy` remains the alternative).
+`kicadstamp convert-trees --root <file>` (see `docs/commands.md`).
+
+The base is resolved by ONE of TWO STRUCTURAL methods, chosen from the config with no key in the file:
+
+* **internal** — the anchor's role belongs to a cell THIS tree places. The base is computed from the
+  tree's OWN layout (tree base → node path → the placing node's pose → the cell's slot, plus the named
+  pad's footprint-frame offset), so it NEVER depends on a previous Apply: moving or rotating the tree
+  carries the mount's children with it from the first redraw. This is the PIF-block pattern — a power
+  filter placed from a pad of the very IC the same tree places. It needs no board at all unless the
+  anchor also names a `pad` (a pad's SHAPE is a footprint property, read live);
+* **live** — the role is outside the tree (a connector, or an IC placed by another tree/sheet): the
+  component's current position/rotation is read from the board, the only correct answer there.
+
+The tree's OWN `(anchor (role ...))` is deliberately NOT classified this way — the extract / self-anchor
+pattern legitimately anchors a tree on its own root component, which is the tree's REFERENCE, not
+something it moves. What the load guard still refuses: an ambiguous internal anchor (2+ nodes place
+cells carrying the role and no `sheet`/`cluster` narrows it to one), a statically visible cycle (the
+placing node sits under the mount node itself), and an internal match reachable only through an embedded
+tree (a module node — the internal pose is defined along THIS tree's own node path, not across an
+embedding). A tree's inner point (`pivot-ref` / `pivot-xy` / `pivot-polar`) may not name a mount node,
+nor any node hanging under one at any depth: such a node's base is pinned to a LIVE component, so it
+does not follow the tree when the tree moves — it is not a handle (fatal at load; `pivot-xy` remains the
+alternative).
 
 ---
 

@@ -47,7 +47,7 @@ from .constants import ANGLE_TOLERANCE_DEG, DEFAULT_BATCH_SIZE, POSITION_TOLERAN
 from .domain.geometry import Angle, BoardLayer, Vector2
 from .exceptions import ValidationError, format_fatal_error
 from .link_trees import link_trees
-from .placement.entity_placement import _anchor_base
+from .placement.entity_placement import _anchor_base, _plain_tree
 from .tree_position import (
     child_absolute_position,
     mount_node_base,
@@ -393,20 +393,27 @@ def collect_scheme_list_nodes(adapter, cfg: Config, sheet_names: dict | None = N
                            .format(tree=tree.name, error=exc))
             continue
         _collect_scheme_nodes(tree.nodes, anchor_pos, anchor_rot, out,
-                              adapter, cfg, sheet_names)
+                              adapter, cfg, sheet_names,
+                              plain_tree=_plain_tree(cfg, tree.name),
+                              tree_base_pos=anchor_pos, tree_base_rot=anchor_rot)
     return out
 
 
 def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
-                          out: list[SchemeListNode], adapter, cfg, sheet_names) -> None:
+                          out: list[SchemeListNode], adapter, cfg, sheet_names,
+                          *, plain_tree=None, tree_base_pos: Vector2 | None = None,
+                          tree_base_rot: float = 0.0) -> None:
     for ln in linked_nodes:
         node = ln.node
-        # Mount node: its children's base is the LIVE component its anchor
-        # names (plan §Y.1.4) — the same substitution every other tree walk
-        # applies, so Apply and the live read can never drift.
+        # Mount node: its children's base is its anchor's position (internal or
+        # live, plan §Y.1.4 / plan_2026_09_11_internal_mount) — the same
+        # substitution every other tree walk applies, so Apply and the live read
+        # can never drift. plain_tree/tree_base_* feed the internal method.
         base_pos, base_rot = pos, rot
         if node.kind == "mount":
-            base_pos, base_rot = mount_node_base(node, adapter, cfg, sheet_names)
+            base_pos, base_rot = mount_node_base(
+                node, plain_tree, tree_base_pos, tree_base_rot,
+                adapter, cfg, sheet_names)
         node_pos = node_position(node, base_pos, base_rot)
         node_rot = base_rot + node.rotation
         if node.kind == "placement" and ln.record is not None \
@@ -418,7 +425,9 @@ def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
                     out.append(SchemeListNode(entity=ent, scheme_list=rec,
                                               position=node_pos, rotation_deg=node_rot))
         _collect_scheme_nodes(ln.children, node_pos, node_rot, out,
-                              adapter, cfg, sheet_names)
+                              adapter, cfg, sheet_names,
+                              plain_tree=plain_tree, tree_base_pos=tree_base_pos,
+                              tree_base_rot=tree_base_rot)
 
 
 def plan_all_scheme_lists(adapter, cfg: Config, sheet_names: dict | None = None,
