@@ -133,8 +133,9 @@ def peek_log_file(config_path: str) -> str | None:
     Routed through :func:`kicadstamp.utils.file_cache.cached_file_read` so the
     GUI startup doesn't re-parse the root YAML a second time: DockHub's
     _on_root_file_changed_for_logging calls this right after RootMetadataDock's
-    set_target_file() already parsed the same bytes through yaml_io.load_data()
-    (same bug class as the 2026-08-21 yaml_io fix).
+    set_target_file() already parsed the same bytes through config_io.load_data()
+    (same bug class as the 2026-08-21 fix in gui/config_io.py, named
+    gui/yaml_io.py back then).
     """
     try:
         data = cached_file_read(Path(config_path), _read_root_yaml)

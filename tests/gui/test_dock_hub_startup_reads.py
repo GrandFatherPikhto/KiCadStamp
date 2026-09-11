@@ -28,13 +28,13 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 # Every module with its own `cached_file_read` import binding (each consumer
 # imports it directly at module level, so each needs its own counter wrapper —
 # patching file_cache.cached_file_read itself would not affect these bindings).
-# gui.yaml_io joined this set on 2026-08-21 (plan_2026_08_21_startup_graph_level_
+# gui.config_io joined this set on 2026-08-21 (plan_2026_08_21_startup_graph_level_
 # cache.md's "actual bottleneck" finding): it was the one raw reader the
 # 2026-08-15 cache missed, so RootMetadataDock re-parsed the root config outside
 # the cache. Now that it goes through cached_file_read too, it must be counted
 # like every other reader or the root file's single parse is invisible here.
 _CACHE_CONSUMER_MODULES = (
-    "gui.yaml_io",
+    "gui.config_io",
     "kicadstamp.config.includes",
     "kicadstamp.config.loader",
     "kicadstamp.config_writer",

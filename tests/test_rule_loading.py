@@ -126,7 +126,7 @@ def test_spoke_partial_polar_is_fatal():
 # Old profiles still carrying the legacy `rules:` section key must load
 # unchanged: normalize_section_aliases() maps it to `chains:` in every raw
 # reader (config/includes.py::_load_config_file, config_writer._read_data,
-# gui/yaml_io.load_data, tools/sexp_config_convert._read_dict), and the sexp
+# gui/config_io.load_data, tools/sexp_config_convert._read_dict), and the sexp
 # parser maps `(rules ...)` -> `(chains ...)` at parse time.
 
 def test_alias_legacy_rules_key_loads_as_chains(tmp_path):

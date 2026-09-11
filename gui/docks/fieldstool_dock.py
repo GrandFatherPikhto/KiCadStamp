@@ -43,7 +43,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from kicadstamp.utils.paths import resolve_config_relative_path
 
-from .. import yaml_io
+from .. import config_io
 from ..fieldstool_window import MainWindow as FieldsToolMainWindow
 from .pending import PendingChangesDock
 
@@ -119,6 +119,6 @@ class FieldsToolDock(QObject):
         pipeline, since that would run whole-project validation just to read
         one scalar. Resolved relative to the root file itself, same
         convention as every other path field there."""
-        root_sheet = (yaml_io.load_data(path) or {}).get("root_sheet") if path else None
+        root_sheet = (config_io.load_data(path) or {}).get("root_sheet") if path else None
         resolved = Path(resolve_config_relative_path(path.parent, root_sheet)) if root_sheet else None
         self.window.set_project_root_sheet(resolved)

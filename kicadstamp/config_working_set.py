@@ -5,7 +5,7 @@ ConfigWorkingSet — in-memory staged overlay of the config graph
 
 "Полный staging": every GUI dock edit lands in the working set instead of on
 disk. Every reader that goes through cached_file_read() (config/includes
-._load_config_file, config_writer._read_data, gui/yaml_io.load_data — the
+._load_config_file, config_writer._read_data, gui/config_io.load_data — the
 single raw-read chokepoint) sees the staged content for a dirty file, so the
 config tree, the name collectors, load_config and Redraw/Apply all reflect
 the working state immediately ("сработало"), while the final files stay

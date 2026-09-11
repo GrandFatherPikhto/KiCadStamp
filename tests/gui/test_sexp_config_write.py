@@ -16,7 +16,7 @@ from gui.docks._common import (
 )
 from kicadstamp.config.sexp_format import dict_to_sexp
 
-import gui.yaml_io as yaml_io_mod
+import gui.config_io as config_io_mod
 
 
 def _write(tmp_path, name, text) -> Path:
@@ -142,28 +142,28 @@ def test_merge_write_sexp_raises_os_error_on_invalid_top_level(tmp_path):
         merge_write(path, {"cell": {"x": 1}})
 
 
-# ── gui/yaml_io.load_data (read-only browse path) ─────────────────────────
+# ── gui/config_io.load_data (read-only browse path) ───────────────────────
 
-def test_yaml_io_load_data_sexp(tmp_path):
+def test_config_io_load_data_sexp(tmp_path):
     path = _write(tmp_path, "cfg.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "cells": {"a": {"layer": "B.Cu"}},
     }))
-    data = yaml_io_mod.load_data(path)
+    data = config_io_mod.load_data(path)
     assert data["layer"] == "B.Cu"
     assert data["cells"]["a"]["layer"] == "B.Cu"
 
 
-def test_yaml_io_load_data_sexp_malformed_returns_empty(tmp_path):
+def test_config_io_load_data_sexp_malformed_returns_empty(tmp_path):
     path = _write(tmp_path, "broken.sexp", "(kicadstamp-config\n")
-    assert yaml_io_mod.load_data(path) == {}
-    assert yaml_io_mod.load_data(None) == {}
-    assert yaml_io_mod.load_data(tmp_path / "missing.sexp") == {}
+    assert config_io_mod.load_data(path) == {}
+    assert config_io_mod.load_data(None) == {}
+    assert config_io_mod.load_data(tmp_path / "missing.sexp") == {}
 
 
-def test_yaml_io_existing_keys_sexp(tmp_path):
+def test_config_io_existing_keys_sexp(tmp_path):
     path = _write(tmp_path, "cfg.sexp", dict_to_sexp({
         "cells": {"a": {}, "b": {}},
     }))
-    assert yaml_io_mod.existing_keys(path) == {"cells"}
-    assert yaml_io_mod.existing_keys(path, "cells") == {"a", "b"}
+    assert config_io_mod.existing_keys(path) == {"cells"}
+    assert config_io_mod.existing_keys(path, "cells") == {"a", "b"}

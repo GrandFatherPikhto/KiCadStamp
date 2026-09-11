@@ -105,7 +105,7 @@ from kicadstamp.config.models import Config
 from kicadstamp.i18n import _
 from kicadstamp.schematic_discovery import walk_schematic_hierarchy
 
-from .. import settings, yaml_io
+from .. import settings, config_io
 from ..hotkeys import build_action
 from kicadstamp.config_working_set import WORKING_SET
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -525,7 +525,7 @@ class RootMetadataDock(QWidget):
             self._populate({})
         else:
             self.target_label.setText(display_path(path))
-            data = yaml_io.load_data(path)
+            data = config_io.load_data(path)
             self._present_keys = set(data.keys())
             self._populate(data)
         self._dirty = False

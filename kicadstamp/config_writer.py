@@ -7,7 +7,7 @@ core. gui/docks/_common.py is now a thin facade re-exporting them, so every
 existing importer keeps working unchanged.
 
 The read here deliberately does NOT swallow exceptions (unlike
-gui/yaml_io.load_data, which is for read-only browsing) — these helpers are
+gui/config_io.load_data, which is for read-only browsing) — these helpers are
 on the docks' WRITE path, where a broken file must surface as an OSError the
 caller turns into an on-screen error message.
 """
@@ -60,7 +60,7 @@ def _read_data(path: Path) -> dict:
     doesn't exist yet). Raises OSError on read/parse errors instead of
     returning {} — the merge-write helpers are on the docks' write path,
     where a broken file must surface to the user, not be silently treated
-    as empty (unlike gui/yaml_io.load_data). FIXED (2026-08-04): a malformed
+    as empty (unlike gui/config_io.load_data). FIXED (2026-08-04): a malformed
     file used to raise the raw yaml.YAMLError/json.JSONDecodeError instead
     — neither is an OSError, so every caller's `except OSError` (e.g.
     PlacerDock._do_save's, written against exactly this docstring's
@@ -644,7 +644,7 @@ INCLUDABLE_KEYS = frozenset(
 
 def _load_data_tolerant(path: Path) -> dict:
     """Tolerant read for non_includable_keys() below — mirrors
-    gui/yaml_io.load_data (missing/malformed/unsupported file -> {}), but
+    gui/config_io.load_data (missing/malformed/unsupported file -> {}), but
     lives in core because kicadstamp must never import from gui/. Like
     _read_data, only .sexp/.json are read (2026-08-28, core_yaml_removal); a
     .yaml/.yml or any other extension is simply not a supported config format

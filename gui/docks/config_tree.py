@@ -129,7 +129,7 @@ from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
-from .. import settings, yaml_io
+from .. import settings, config_io
 from ._common import (add_include, disable_include, display_path,
                       highlight_stylesheet_for, non_includable_keys,
                       SplitterSizeKeeper, upsert_list_entry)
@@ -1742,7 +1742,7 @@ class ConfigTreeDock(QWidget):
                 target_path.write_text("{}\n", encoding="utf-8")
 
         overwrite = False
-        if yaml_io.load_data(target_path):
+        if config_io.load_data(target_path):
             box = QMessageBox(self)
             box.setWindowTitle(_("Export"))
             box.setText(_("{name} already has content — merge the exported entries into it, "

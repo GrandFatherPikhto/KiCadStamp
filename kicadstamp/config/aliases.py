@@ -13,7 +13,7 @@ every raw-dict reader so the whole pipeline only ever sees `chains:`:
 
 - config/includes.py::_load_config_file (load_config + walk_include_tree)
 - config_writer.py::_read_data (GUI dock write paths)
-- gui/yaml_io.py::load_data (read-only browsing)
+- gui/config_io.py::load_data (read-only browsing)
 
 Fatal (never a silent merge) when a file carries BOTH the legacy key and the
 canonical one — that is ambiguous, same reasoning as the --only identity
