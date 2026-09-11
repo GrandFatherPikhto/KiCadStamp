@@ -10372,60 +10372,60 @@ msgstr ""
 "id сохранён в {file} — чтобы удалить, просто запустите:\n"
 "  python -m kicadstamp.diagnostics.test_create_one_via --remove"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:77
+#: kicadstamp/diagnostics/transform_template.py:77
 #, python-brace-format
 msgid "Element not found: {spec}"
 msgstr "Элемент не найден: {spec}"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:131
+#: kicadstamp/diagnostics/transform_template.py:131
 msgid "Transform a spoke template (rotation, mirror, origin shift)"
 msgstr "Трансформация шаблона спицы (поворот, зеркало, перенос начала)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:133
-msgid "Input YAML/JSON template file"
-msgstr "Входной YAML/JSON-файл шаблона"
+#: kicadstamp/diagnostics/transform_template.py:133
+msgid "Input template file (.sexp)"
+msgstr "Входной файл шаблона (.sexp)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:134
+#: kicadstamp/diagnostics/transform_template.py:134
 msgid "Output file"
 msgstr "Выходной файл"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:135
+#: kicadstamp/diagnostics/transform_template.py:135
 msgid "Rotate counter‑clockwise by angle (degrees)"
 msgstr "Поворот против часовой стрелки на угол (градусы)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:136
+#: kicadstamp/diagnostics/transform_template.py:136
 msgid "Mirror along X axis"
 msgstr "Зеркалирование по оси X"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:137
+#: kicadstamp/diagnostics/transform_template.py:137
 msgid "Mirror along Y axis"
 msgstr "Зеркалирование по оси Y"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:138
+#: kicadstamp/diagnostics/transform_template.py:138
 msgid "Shift origin to via at index N"
 msgstr "Перенести начало на via с индексом N"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:139
+#: kicadstamp/diagnostics/transform_template.py:139
 msgid "Shift origin to via with given net"
 msgstr "Перенести начало на via с указанной цепью"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:140
+#: kicadstamp/diagnostics/transform_template.py:140
 msgid "Shift origin to component at index N"
 msgstr "Перенести начало на компонент с индексом N"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:141
+#: kicadstamp/diagnostics/transform_template.py:141
 msgid "Shift origin to component with given role"
 msgstr "Перенести начало на компонент с указанной ролью"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:142
+#: kicadstamp/diagnostics/transform_template.py:142
 msgid "Explicit origin X offset in mm"
 msgstr "Явное смещение начала по X, мм"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:143
+#: kicadstamp/diagnostics/transform_template.py:143
 msgid "Explicit origin Y offset in mm"
 msgstr "Явное смещение начала по Y, мм"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:177
+#: kicadstamp/diagnostics/transform_template.py:177
 #, python-brace-format
 msgid "Saved: {path}"
 msgstr "Сохранён: {path}"

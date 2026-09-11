@@ -27,7 +27,7 @@ kicadstamp/diagnostics/
 ├── get_selected_component.py      # Детальная информация о выделенных компонентах [LIVE]
 ├── get_selection.py               # Список выделенных объектов [LIVE]
 ├── test_create_one_via.py         # Создание одной via [LIVE+WRITE]
-├── test_custom_fields.py          # Проверка чтения поля Role [LIVE]
+├── transform_template.py          # Перенос начала шаблона, затем поворот/зеркало [FILES]
 ├── test_flip_one_cap.py           # Проверка флипа одного компонента [LIVE+WRITE]
 ├── test_move_one_cap.py           # Проверка перемещения одного компонента [LIVE+WRITE]
 ├── test_pad_mirror_convention.py  # Проверка конвенции зеркалирования пада [LIVE]
@@ -238,27 +238,34 @@ python -m kicadstamp.diagnostics.test_create_one_via --remove <uuid>
 
 ---
 
-### `test_custom_fields.py`
+### `transform_template.py`
 
-**Назначение:**  
-Проверяет чтение пользовательского поля компонента через IPC. Выводит все тексты и поля (`Field`) компонента, а затем ищет поле с заданным именем (по умолчанию `Role`). Это критично для проверки работы ролей.
+**Назначение:**
+Преобразует файл шаблона спицы: сначала переносит начало координат на указанный элемент (via или компонент шаблона), затем поворачивает и/или зеркалирует весь шаблон относительно нового начала.
 
 **Использование:**
 ```bash
-python -m kicadstamp.diagnostics.test_custom_fields C5 --field Role
+python -m kicadstamp.diagnostics.transform_template \
+    -i template.sexp -o transformed.sexp --rotate 90 --set-origin-by-component-role R1
 ```
 
 **Параметры:**
-- `--field` – имя поля для поиска (по умолчанию `Role`).
-- `--timeout-ms` – таймаут IPC.
-- `--verbose` – подробный вывод.
+- `-i/--input` – входной файл шаблона (s-expr).
+- `-o/--output` – выходной файл.
+- `--rotate` – поворот против часовой стрелки на N градусов (по умолчанию 0).
+- `--mirror-x` / `--mirror-y` – зеркалирование по оси X / Y.
+- `--set-origin-by-via-index N` / `--set-origin-by-via-net NET` – перенос начала на via.
+- `--set-origin-by-component-index N` / `--set-origin-by-component-role ROLE` – перенос начала на компонент.
+- `--origin-x` / `--origin-y` – явные смещения начала в мм (когда элемент начала не задан).
 
-**Вывод:**  
-- Список всех полей и текстов компонента.
-- Значение запрошенного поля (или сообщение, что оно не найдено).
+**Вывод:**
+Преобразованный шаблон, записанный в `-o` как s-expr-файл с секцией `templates:`.
 
-**Зависимости:**  
-`kicadstamp.kicad.adapter` (использует `get_field_value`).
+**Зависимости:**
+`kicadstamp.config.sexp_format` (`sexp_to_dict`/`dict_to_sexp`); читает и пишет только локальные файлы, без IPC.
+
+**См. также:**
+Чтение полей компонента (включая `Role`) с живой платы делает `get_selected_component.py` — он печатает refdes, номинал, футпринт, позицию, угол, пады, цепи и поле `Role`.
 
 ---
 

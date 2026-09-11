@@ -31,7 +31,7 @@ kicadstamp/diagnostics/
 ├── get_selected_component.py      # Detailed info on selected components [LIVE]
 ├── get_selection.py               # List of selected objects [LIVE]
 ├── test_create_one_via.py         # Creates a single via [LIVE+WRITE]
-├── test_custom_fields.py          # Verifies reading the Role field [LIVE]
+├── transform_template.py          # Shifts a template origin, then rotates/mirrors [FILES]
 ├── test_flip_one_cap.py           # Verifies flipping a single component [LIVE+WRITE]
 ├── test_move_one_cap.py           # Verifies moving a single component [LIVE+WRITE]
 ├── test_pad_mirror_convention.py  # Verifies the pad-mirroring convention [LIVE]
@@ -249,29 +249,38 @@ python -m kicadstamp.diagnostics.test_create_one_via --remove <uuid>
 
 ---
 
-### `test_custom_fields.py`
+### `transform_template.py`
 
 **Purpose:**
-Verifies reading a component's custom field via IPC. Prints all texts and fields (`Field`) of the
-component, then looks for a field with a given name (default `Role`). Critical for verifying that roles
-work correctly.
+Transforms a spoke template file: first shifts the origin to a specified element (a via or a component
+of the template), then rotates and/or mirrors the whole template around that new origin.
 
 **Usage:**
 ```bash
-python -m kicadstamp.diagnostics.test_custom_fields C5 --field Role
+python -m kicadstamp.diagnostics.transform_template \
+    -i template.sexp -o transformed.sexp --rotate 90 --set-origin-by-component-role R1
 ```
 
 **Parameters:**
-- `--field` – name of the field to look for (default `Role`).
-- `--timeout-ms` – IPC timeout.
-- `--verbose` – verbose output.
+- `-i/--input` – the template file to read (s-expr).
+- `-o/--output` – the file to write.
+- `--rotate` – rotate counter-clockwise by N degrees (default 0).
+- `--mirror-x` / `--mirror-y` – mirror along the X / Y axis.
+- `--set-origin-by-via-index N` / `--set-origin-by-via-net NET` – shift the origin to a via.
+- `--set-origin-by-component-index N` / `--set-origin-by-component-role ROLE` – shift the origin to a
+  component.
+- `--origin-x` / `--origin-y` – explicit origin offsets in mm (used when no origin element is given).
 
 **Output:**
-- A list of all of the component's fields and texts.
-- The value of the requested field (or a message that it wasn't found).
+The transformed template written to `-o` as an s-expr file with a `templates:` section.
 
 **Dependencies:**
-`kicadstamp.kicad.adapter` (uses `get_field_value`).
+`kicadstamp.config.sexp_format` (`sexp_to_dict`/`dict_to_sexp`); reads and writes local files only, no IPC.
+
+**See also:**
+Reading a component's fields (including `Role`) from the live board is what `get_selected_component.py`
+does — it prints the refdes, value, footprint, position, angle, pads, nets and the `Role` field of the
+current selection.
 
 ---
 

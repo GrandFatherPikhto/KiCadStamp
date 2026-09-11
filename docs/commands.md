@@ -778,12 +778,6 @@ python tools/convert_placements.py profiles/3ch-awg-tia-v103/3ch-awg-tia.sexp
 
 These commands execute diagnostic scripts located in `kicadstamp/diagnostics/`. They help test IPC, geometry, field reading, flipping, etc.
 
-### Check reading of the `Role` custom field
-
-```bash
-python -m kicadstamp.diagnostics.test_custom_fields C5 --field Role --verbose
-```
-
 ### Test moving a single component
 
 ```bash
@@ -820,7 +814,7 @@ python -m kicadstamp.diagnostics.diagnose_first_write_crash --until 8   # read-o
 python -m kicadstamp.diagnostics.diagnose_first_write_crash             # full test, may crash KiCad
 ```
 
-### Display information about selected components
+### Display information about selected components (including the `Role` field)
 
 ```bash
 python -m kicadstamp.diagnostics.get_selected_component

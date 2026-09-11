@@ -881,12 +881,6 @@ python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.s
 
 Эти команды вызывают диагностические скрипты из папки `kicadstamp/diagnostics/`. Они помогают проверить работу IPC, геометрию, чтение полей, флип и т.д.
 
-### Проверка чтения пользовательского поля `Role`
-
-```bash
-python -m kicadstamp.diagnostics.test_custom_fields C5 --field Role --verbose
-```
-
 ### Тест перемещения одного компонента
 
 ```bash
@@ -923,7 +917,7 @@ python -m kicadstamp.diagnostics.diagnose_first_write_crash --until 8   # тол
 python -m kicadstamp.diagnostics.diagnose_first_write_crash             # полный тест, может уронить KiCad
 ```
 
-### Вывод информации о выделенных компонентах
+### Вывод информации о выделенных компонентах (включая поле `Role`)
 
 ```bash
 python -m kicadstamp.diagnostics.get_selected_component

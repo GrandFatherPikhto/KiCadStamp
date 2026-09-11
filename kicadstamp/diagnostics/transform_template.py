@@ -130,7 +130,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=_("Transform a spoke template (rotation, mirror, origin shift)")
     )
-    parser.add_argument('-i', '--input', required=True, help=_("Input YAML/JSON template file"))
+    parser.add_argument('-i', '--input', required=True, help=_("Input template file (.sexp)"))
     parser.add_argument('-o', '--output', required=True, help=_("Output file"))
     parser.add_argument('--rotate', type=float, default=0.0, help=_("Rotate counter‑clockwise by angle (degrees)"))
     parser.add_argument('--mirror-x', action='store_true', help=_("Mirror along X axis"))

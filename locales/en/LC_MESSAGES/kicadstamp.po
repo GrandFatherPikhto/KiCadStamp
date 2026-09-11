@@ -10375,60 +10375,60 @@ msgstr ""
 "id saved to {file} — to delete it, just run:\n"
 "  python -m kicadstamp.diagnostics.test_create_one_via --remove"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:77
+#: kicadstamp/diagnostics/transform_template.py:77
 #, python-brace-format
 msgid "Element not found: {spec}"
 msgstr "Element not found: {spec}"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:131
+#: kicadstamp/diagnostics/transform_template.py:131
 msgid "Transform a spoke template (rotation, mirror, origin shift)"
 msgstr "Transform a spoke template (rotation, mirror, origin shift)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:133
-msgid "Input YAML/JSON template file"
-msgstr "Input YAML/JSON template file"
+#: kicadstamp/diagnostics/transform_template.py:133
+msgid "Input template file (.sexp)"
+msgstr "Input template file (.sexp)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:134
+#: kicadstamp/diagnostics/transform_template.py:134
 msgid "Output file"
 msgstr "Output file"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:135
+#: kicadstamp/diagnostics/transform_template.py:135
 msgid "Rotate counter‑clockwise by angle (degrees)"
 msgstr "Rotate counter‑clockwise by angle (degrees)"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:136
+#: kicadstamp/diagnostics/transform_template.py:136
 msgid "Mirror along X axis"
 msgstr "Mirror along X axis"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:137
+#: kicadstamp/diagnostics/transform_template.py:137
 msgid "Mirror along Y axis"
 msgstr "Mirror along Y axis"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:138
+#: kicadstamp/diagnostics/transform_template.py:138
 msgid "Shift origin to via at index N"
 msgstr "Shift origin to via at index N"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:139
+#: kicadstamp/diagnostics/transform_template.py:139
 msgid "Shift origin to via with given net"
 msgstr "Shift origin to via with given net"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:140
+#: kicadstamp/diagnostics/transform_template.py:140
 msgid "Shift origin to component at index N"
 msgstr "Shift origin to component at index N"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:141
+#: kicadstamp/diagnostics/transform_template.py:141
 msgid "Shift origin to component with given role"
 msgstr "Shift origin to component with given role"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:142
+#: kicadstamp/diagnostics/transform_template.py:142
 msgid "Explicit origin X offset in mm"
 msgstr "Explicit origin X offset in mm"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:143
+#: kicadstamp/diagnostics/transform_template.py:143
 msgid "Explicit origin Y offset in mm"
 msgstr "Explicit origin Y offset in mm"
 
-#: kicadstamp/diagnostics/test_custom_fields.py:177
+#: kicadstamp/diagnostics/transform_template.py:177
 #, python-brace-format
 msgid "Saved: {path}"
 msgstr "Saved: {path}"
