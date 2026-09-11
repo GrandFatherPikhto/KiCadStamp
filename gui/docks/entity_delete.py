@@ -38,39 +38,19 @@ same walk over an in-memory copy (no write) to build the confirmation
 dialog's report; delete_entry() runs it for real.
 """
 import copy
-import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+# backup_file is RE-EXPORTED (2026-09-11, task В.1.3 of
+# plan_2026_09_11_tree_instances_and_converter_safety): the single
+# implementation moved to kicadstamp/utils/safe_write.py, so the CLI-side
+# writers (the tree converter, flatten) do not have to reach into gui/ for it.
+# Every existing `from gui.docks.entity_delete import backup_file` keeps working
+# unchanged.
+from kicadstamp.utils.safe_write import backup_file
+
 from ._common import read_data, write_data
 from .rename import CASCADE_FIELD, DICT_SECTIONS, collect_graph_files, entry_effective_name
-
-
-# Monotonic per-process counter appended to the timestamp — datetime.now()'s
-# microsecond resolution can COLLIDE when two backups are created within the
-# same microsecond (found live 2026-08-13 via the flaky
-# test_backup_file_two_calls_produce_two_distinct_files): a colliding name
-# would silently OVERWRITE the first backup instead of giving it its own
-# recovery point, the very failure this timestamp scheme exists to prevent.
-_backup_seq = 0
-
-
-def backup_file(path: Path) -> Path:
-    """Timestamped copy of `path` next to itself, e.g.
-    'cells.yaml.bak.20260805_161500_123456' — never overwrites an earlier
-    backup, see module docstring. Microsecond resolution (not just
-    seconds) — a cascade delete can back up several files within the same
-    second, and each must still get its own recovery point. A monotonic
-    counter suffix guarantees uniqueness even when two calls land within
-    the same microsecond. Returns the backup's path (used in the caller's
-    summary message)."""
-    global _backup_seq
-    _backup_seq += 1
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    backup_path = path.with_name(f"{path.name}.bak.{stamp}.{_backup_seq}")
-    shutil.copy2(path, backup_path)
-    return backup_path
 
 
 def _entry_identity(section: str, entry: Dict[str, Any]) -> Any:

@@ -5792,6 +5792,12 @@ msgstr "Would write to: {path}"
 msgid "Written to: {path}"
 msgstr "Written to: {path}"
 
+#: kicadstamp/flatten.py
+#: kicadstamp/tree_mount_convert.py
+#, python-brace-format
+msgid "Backup: {path}"
+msgstr "Backup: {path}"
+
 #: kicadstamp/flatten.py:140
 #, python-brace-format
 msgid "flatten: wrote {path} ({files} files consolidated)"

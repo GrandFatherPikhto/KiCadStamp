@@ -23,7 +23,11 @@ resolves here has no collisions left to re-handle by construction.
 
 Never deletes anything: the old subsystem files stay exactly where they were
 (removing them after verifying the merge is a deliberate manual step), and
---output to a different path never touches the root file.
+--output to a different path never touches the root file. An IN-PLACE overwrite
+(no --output) writes a timestamped .bak of the root first and then replaces it
+atomically (task В.1.3, plan_2026_09_11_tree_instances_and_converter_safety);
+the old `open(root, "w")` truncated the root before the merged content was even
+serialized, so a serialization error could leave a 0-byte config.
 """
 import logging
 from pathlib import Path
@@ -36,9 +40,10 @@ from kicadstamp.config.includes import (
     resolve_includes,
     walk_include_tree,
 )
-from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
+from kicadstamp.utils.safe_write import backup_file, write_text_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +136,22 @@ def flatten_config(root: str, output: Optional[str] = None,
     # The old YAML "# flattened by ..." memo header is dropped: the s-expr
     # grammar has no comment syntax, and the report lines below already carry
     # the same provenance info to the user.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding="utf-8") as f:
-        f.write(dict_to_sexp(out))
+    #
+    # DATA-SAFE write (task В.1.3, plan_2026_09_11_tree_instances_and_converter_
+    # safety §В.1.2), same order as the tree converter: serialize to a string
+    # and self-verify with the NORMAL reader BEFORE touching the target, back up
+    # an in-place target, then write atomically. The old
+    # `with open(target, "w")` around dict_to_sexp truncated first, so a
+    # serialization error left a 0-byte root.
+    new_text = dict_to_sexp(out)
+    sexp_to_dict(new_text)
+    backup_path = backup_file(target) if not output else None
+    write_text_atomic(target, new_text)
     invalidate_path(target)
 
     report.append(_("Written to: {path}").format(path=target))
+    if backup_path is not None:
+        report.append(_("Backup: {path}").format(path=backup_path))
     logger.info(_("flatten: wrote {path} ({files} files consolidated)")
                 .format(path=target, files=file_count))
     return report

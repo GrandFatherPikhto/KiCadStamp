@@ -524,6 +524,10 @@ python kicadstamp_cli.py flatten --root <config.sexp> [--output <file.sexp>] [--
   construction — `flatten` works on top of an already-resolved config.
 - The output file gets a `# flattened by kicadstamp flatten on <date> from
   N file(s)` comment at the top as a memo.
+- WRITE SAFETY (2026-09-11): the merged content is serialized and re-parsed by the normal reader
+  BEFORE the target is touched, then written atomically (a temp file in the same directory +
+  `os.replace`). In-place mode first makes a timestamped `.bak` of the root (a repeated run never
+  overwrites an earlier backup). A serialization refusal writes NOTHING and leaves the root intact.
 
 ### Examples
 
@@ -574,6 +578,12 @@ python kicadstamp_cli.py convert-trees --root <config.sexp> [--output <file.sexp
   NAME that had to be suffixed because it collided with an existing ref in the same tree (`A` → `A_2`).
 - `include:` graphs are NOT expanded: each file is converted on its own (a warning line says so), so
   convert every file of a multi-file project.
+- WRITE SAFETY (2026-09-11): the converted content is serialized to a string and re-parsed by the
+  NORMAL reader (never `raw_trees`) BEFORE the target is touched, then written atomically (temp file +
+  `os.replace`). In-place mode first makes a timestamped `.bak` of the root (a repeated run never
+  overwrites an earlier backup); `--output` needs none (the root is not modified). If anything refuses
+  — a leftover `pivot-*` on a node, an unknown module ref, a disagreement the converter must not guess
+  — NOTHING is written and the source stays byte-for-byte intact.
 - The converter's conversion of a real profile is pinned by
   `tests/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
   — layout and every materialized cell component must stay bit-identical.

@@ -45,6 +45,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import invalidate_path
+from kicadstamp.utils.safe_write import backup_file, write_text_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -347,9 +348,19 @@ def convert_config_file(root: str, output: Optional[str] = None,
     """Convert the trees: section of the config at `root`.
 
     `output` — where to write the converted s-expr; None overwrites `root` in
-    place (the old content is the user's responsibility — the CLI documents
-    that a backup is worth making), an explicit path writes a NEW file and
-    leaves the root untouched. `dry_run` returns the report without writing.
+    place (a timestamped `.bak` of the old content is made first, task В.1),
+    an explicit path writes a NEW file and leaves the root untouched (no
+    backup needed — the original is not modified). `dry_run` returns the
+    report without writing.
+
+    Writing is DATA-SAFE (task В.1, plan §В.1.2): the converted dict is
+    serialized to a STRING and re-parsed with the NORMAL reader BEFORE the
+    target is touched, then written via a temp file + os.replace. The old
+    `with open(target, "w")` truncated the target FIRST, so a serialization
+    error left a 0-byte config (leftover pivot_xy on a node made dict_to_sexp
+    refuse only AFTER the truncation — found live on a real profile, in-place
+    mode, reproduced twice). Any failure now leaves the target byte-for-byte
+    intact.
     """
     root_path = Path(root).resolve()
     # Read RAW (raw_trees=True): the removed own_anchor grammar must be visible
@@ -371,10 +382,24 @@ def convert_config_file(root: str, output: Optional[str] = None,
         report_lines.append(_("Would write to: {path}").format(path=target))
         return report_lines
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding="utf-8") as f:
-        f.write(dict_to_sexp(converted))
+    # §В.1.2 steps 1-2: serialize to a string and self-verify with the NORMAL
+    # reader (never raw_trees=True) BEFORE the target is opened for writing. A
+    # converter output the standard loader refuses must fail HERE, leaving the
+    # user's file untouched.
+    new_text = dict_to_sexp(converted)
+    sexp_to_dict(new_text)
+
+    # §В.1.2 step 3: in-place overwrite snapshots the old content first
+    # (timestamped, never clobbers an earlier backup). With --output the root
+    # is not modified, so no backup is made.
+    backup_path = backup_file(target) if not output else None
+
+    # §В.1.2 step 4: atomic replace — a temp file in the SAME directory, then
+    # os.replace, so a crash/full disk can never leave a half-written config.
+    write_text_atomic(target, new_text)
     invalidate_path(target)
     report_lines.append(_("Written to: {path}").format(path=target))
+    if backup_path is not None:
+        report_lines.append(_("Backup: {path}").format(path=backup_path))
     logger.info(_("convert-trees: wrote {path}").format(path=target))
     return report_lines
