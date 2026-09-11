@@ -1,340 +1,346 @@
-# KiCadStamp v1.8.0
+# KiCadStamp v2.0.0
 
-**KiCadStamp** is a command‑line **PCB cloning and layout automation** tool for **KiCad 10**, designed as an advanced script‑based alternative to the traditional **KiCad Replicate Layout** plugin. It enables automated **block replication**, component placement, and routing of complex multi‑channel designs using **templates**, **roles**, and the IPC API.
+**KiCadStamp** automates component placement and block cloning on **KiCad 10** printed circuit boards.
+It connects to a running KiCad over the IPC API and makes repeatable what otherwise has to be done by
+hand hundreds of times: placing components, dropping vias, laying tracks and moving whole functional
+blocks from one place to another.
 
-- Moving components (capacitors, resistors, ferrites, crystals, etc.) to specified positions.
-- Creating vias and **tracks** attached to the spoke as a whole or to individual components.
-- **Cloning** repetitive functional blocks (PI‑filters, DAC channels, power supplies) at different board locations.
-- Automatic component selection by **roles** and **nets** – no explicit refdes needed.
-- Idempotency: repeated runs never duplicate already‑correctly‑placed items.
-- Undo of the last operation.
-- Extracting templates from the current selection with net parametrisation and custom origin selection.
-- Snapshotting hierarchical channels via a file‑based cloner (`clone-extract`).
+It is an **advanced alternative to the KiCad Replicate Layout plugin**, aimed at complex multi-channel
+boards, hierarchical schematics and the reuse of finished routing: replicating board sections, copying
+channels, cloning pi filters and power rails, and carrying routing across identical blocks.
 
----
+It ships a graphical interface (PyQt6), a command line, and an MCP server for use from Claude Code.
 
-## Key Features
-
-**An advanced, script‑driven alternative to the classic KiCad Replicate Layout plugin**, built for multi‑channel projects and automated design reuse via the KiCad IPC API.
-
-- **Template‑based approach** – geometry is defined once in local coordinates and reused with arbitrary rotation/translation.
-- **Automatic component selection** – roles (`LIGHT`, `HEAVY`, `PI_FILTER_C1`, etc.) replace refdes; components are picked from a pool by net and the `Role` field in the schematic.
-- **ClonePlacement** – supports two modes:
-  - **by selection** – for one‑off instances (e.g., a single MCU);
-  - **by nets** – for repeated blocks, with net name parametrisation via placeholders and `params`. Ambiguity is resolved by physical proximity to the anchor (useful for power filters on common rails). You can also use explicit `refs` as a last resort.
-- **Generalised vias and tracks** – all elements (vias, tracks, components) are defined in local coordinates and transformed uniformly (translation, rotation, mirroring).
-- **Placement registry** – stores UUIDs of created vias and tracks, ensuring idempotency and automatic cleanup of obsolete entries. Reconciliation is now performed against real elements on the board (via `adapter.get_vias()`/`adapter.get_tracks()`), not only the JSON record, avoiding desynchronisation.
-- **Pre‑validation** – checks config before any board modification:
-  - existence of templates, pads, and anchor components;
-  - component pool sufficiency by roles;
-  - uniqueness of clone names and physical anchors (`anchor_ref`, `anchor_role`);
-  - correctness of resolved via nets against real board nets;
-  - validity of `layer`/`mirror` combinations (mirroring only when layer changes);
-  - at most one selection‑based `clone_placement` per run (KiCad allows only one active selection).
-- **Diagnostics** – scripts for debugging IPC, geometry, and field reading.
-- **File‑based cloner** (`clone-extract`) – parses `.net` and `.kicad_pcb` without IPC, builds a twin map of channels for hierarchical projects.
-- **Tracks in templates** – templates can include straight track segments (polylines are supported as a sequence of segments). Track collisions are not automatically checked (rely on KiCad DRC).
-- **External template files** – templates can be stored separately as JSON or YAML (wrapped in a `cells:` key) and listed under `include:` in the main config, keeping the main file clean and diff‑friendly.
-- **Splitting a profile into subsystem files** – `include:` at the root of a profile merges in one or more other YAML files (each carrying any mix of `extract_profiles`/`clone_placements`/`chains`/`cells`), recursively, with a per‑entry `enabled: false` on the include itself to switch a whole subsystem file off without touching every item inside it (see [docs/config.md](docs/config.md) for merge semantics and duplicate/cycle handling).
-- **Entity/Placement model** (2026-08-30) – an `entities:` record is everything about a thing except where it stands (cell/nets/identity — no position fields at all); "where it stands" lives ONLY in a `trees:` node (`kind "placement"`, `ref` = entity name). A converter (`tools/convert_placements.py`) migrates legacy `clone_placements:` profiles to this model (see [docs/config.md](docs/config.md) and [docs/placement.md](docs/placement.md)).
-- **Import from another profile** (2026-08-31) – copy Cell/Entity/Chain record(s) from another profile's `.sexp`/`.json` into the current one **by value** (an independent copy — later edits in the source never affect it, unlike `include:`). The GUI's **Edit → Import from profile...** picks a source file, lists its Cells/Entities/Chains, and copies the ticked record(s) plus their combined dependency closure in one atomic pass (a composite Cell's nested cells, a Chain's spoke cells and its `anchor_point` points). A name collision anywhere in the target's include: graph is refused with a clear message before anything is written; electrical fields (`nets:`/`params:`/`net_overrides:`/`sheet:`) are copied verbatim for the user to re-tune against the current board.
-- **Scripting API** – `kicadstamp.explore.Board` for ad‑hoc read‑only querying (`board.select(role=..., cluster=..., sheet=..., net=...)`), and `kicadstamp.author` for building `ClonePlacement`/`Chain` in real Python instead of hand‑writing repetitive YAML, either applied directly or dumped back to an `include:`‑ready YAML file (see [docs/python.md](docs/python.md)).
+The core idea is that **components are chosen by role, not by refdes**. A block is described once in
+local coordinates and bound to the board through roles and nets, so re-annotating the schematic breaks
+nothing.
 
 ---
 
-## Installation and Dependencies
+## What it does
+
+- **Cells** — a block's geometry in local coordinates: components, vias, tracks. A cell can be rotated,
+  shifted, mirrored and applied anywhere on the board.
+- **Role-based lookup** — instead of `C12`/`R7` you write roles (`PI_FILTER_C1`, `HEAVY`), and the actual
+  instances come from a pool keyed by the schematic's `Role` field and by net.
+- **Placement trees (`trees:`)** — where each instance actually sits. A tree node references an entity and
+  carries the position; the entity itself has no position at all.
+- **Section cloning** — by selection (a one-off instance) or by nets (a block repeated many times, with
+  net names parametrised).
+- **Extraction from the board** — select a block in KiCad, read it into a cell, then apply it anywhere.
+- **Placement registry** — remembers the UUIDs of created vias and tracks and reconciles against the live
+  board, so a repeat run updates instead of duplicating and cleans up what went stale.
+- **Up-front validation** — the whole config is checked before the first board edit: cells, pads and
+  anchors exist, pools hold enough components, names are unique, nets resolve.
+- **Undo** of the last operation.
+- **Schematic-side work** — bulk setting and renaming of `Role`/`Cluster` fields directly in `.kicad_sch`
+  (fieldstool), without IPC and with KiCad closed.
+- **File-based cloner** — parses `.net` and `.kicad_pcb` without IPC and builds a twin map of channels for
+  hierarchical projects.
+
+DRC is deliberately out of scope: track collisions are KiCad's own job.
+
+---
+
+## Installation
 
 ### Requirements
-- Python 3.8 or later.
-- KiCad 10.0.4 or later (with IPC API enabled).
-- The **kipy** library (Python wrapper for KiCad IPC).
 
-### Installation
+- **Python 3.10** or newer.
+- **KiCad 10.0.4** or newer with the IPC API enabled (*Preferences → Plugins → Enable IPC API server*).
+- For the GUI, a working Qt stack (installed along with the dependencies).
+
+### Install
+
 ```bash
-pip install kipy pyyaml sexpdata
+git clone <repo>
+cd KiCadStamp
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e .
 ```
-(For diagnostics, `psutil` may be required.)
 
-### Setting up Roles in the Schematic (Eeschema)
+Dependencies are installed automatically and version-pinned. The ones that carry the runtime:
+`kicad-python==0.7.1` (the KiCad IPC wrapper, imported as `kipy`), `PyQt6==6.11.0`, `sexpdata==1.0.2`,
+`pynng==0.9.0`, `protobuf==5.29.6`.
+
+Optional extras:
+
+```bash
+pip install -e ".[dev]"           # pytest, babel, pyflakes
+pip install -e ".[diagnostics]"   # numpy, scipy, psutil, rich, watchdog
+pip install -e ".[mcp]"           # mcp — only needed for the MCP server
+```
+
+### Entry points
+
+Installing gives you three commands:
+
+| Command | What it starts |
+|---|---|
+| `kicadstamp` | the command-line interface |
+| `kicadstamp-gui` | the graphical interface |
+| `kicadstamp-mcp` | the MCP server (stdio) |
+
+Running from a source checkout without installing, the equivalent scripts live in the repository root:
+`kicadstamp_cli.py`, `kicadstamp_gui.py`, `fieldstool_cli.py`.
+
+---
+
+## Quick start
+
+### 1. Setting up roles in the schematic (Eeschema)
+
+A component takes part in placement only if it carries a custom `Role` field:
+
 1. Open the symbol in Eeschema.
-2. Add a field named **Role** with a value matching the role in the template (e.g., `LIGHT`, `HEAVY`).
-3. Run **Update PCB from Schematic** to propagate the field to the board.
-4. Verify readability with:
+2. Add a field named **Role** whose value matches the role in the cell (for example `LIGHT`, `HEAVY`).
+3. Run **Update PCB from Schematic** so the field reaches the board.
+4. Check that the field is readable: select the component in KiCad and run
    ```bash
-   python -m kicadstamp.diagnostics.test_custom_field C5 --field Role
+   python -m kicadstamp.diagnostics.get_selected_component
    ```
+   The script prints refdes, value, footprint, position, angle, pads, nets and the `Role` field.
+
+You do not have to set roles on dozens of components by hand — that is what fieldstool is for (a tab in
+the GUI, or `fieldstool_cli.py`); see [docs/fieldstool.md](./docs/fieldstool.md).
+
+### 2. Running
+
+```bash
+kicadstamp-gui                          # graphical interface
+kicadstamp apply --config profiles/my/config.sexp --dry-run
+```
+
+`--dry-run` prints the plan without touching the board. That is the right first run against a config you
+do not know yet.
 
 ---
 
-## Key Concepts
+## Key concepts
 
-### Why "Spoke"?
-In electronics, decoupling/support components (capacitors, pi‑filters) often radiate outward from an
-IC's pins, like spokes on a wheel. KiCadStamp automates building this kind of "spoke" topology, letting
-you **stamp** it out by chain and role wherever it's needed:
-- **Template (`SpokeTemplate`)** – the geometry of one spoke (a capacitor + via + track, or a whole filter block).
-- **Spoke (`ManualSpoke`)** – a chain that takes a spoke template and attaches it to a specific pad.
-- **Cloning (`ClonePlacement`)** – the next level: takes a template – one spoke or a whole bundle of them
-  (e.g. a channel) – and stamps it as an independent unit anywhere on the board, not just on an IC pad.
+A short glossary. The details live in [docs/config.md](./docs/config.md) and
+[docs/placement.md](./docs/placement.md).
 
-That maps onto the tool's two names: **Spoke** is the domain shape (the radiating placement pattern),
-**Stamp** is the action – the tool that replicates it by chain.
+**Role** — a component field in the schematic. A role says *what the component does* in the block, not
+what it is called.
 
-### Template (SpokeTemplate)
-A template describes the **local geometry** of one "spoke" – a set of components, vias, and tracks relative to a local origin (0,0) in the `along/across` coordinate system. It contains:
-- **`vias`** – vias at the spoke level (usually the power net).
-- **`components`** – a list of slots, each with a `role`, local coordinates, angle, and a list of vias (usually to GND).
-- **`tracks`** – straight track segments (layer, width, net).
+**Cluster** — a second component field grouping the instances of one block. Role plus cluster identify a
+component without relying on its refdes.
 
-All coordinates are defined **once** at `rotation_deg=0`; when applied, the template is rotated as a whole.
+**Cell** — a block described in local coordinates: components by role, vias, tracks. A cell has **no board
+position of its own** — it is a template.
 
-#### Template layer (`layer`)
-Each template has an absolute layer (`F.Cu` or `B.Cu`), automatically set during extraction (`extract`). Components on a different layer get an explicit `layer` in their slot.
+**Cell anchor** — the point of the cell that lands on the board (`anchor_xy`/`anchor_role`/`anchor_pad`).
+It is expressed in the cell's own frame and resolved to live coordinates when applied.
 
-#### Net parametrisation during extraction
-With the `--net-template` option, you can replace literal net names with patterns containing placeholders (e.g., `DAC1_DB1 → DAC{channel}_DB1`) at extraction time. This eliminates manual YAML editing.
+**Entity** — everything about a thing except where it stands: which cell, its electrics, its identity. An
+entity has no position fields at all.
 
-### Spoke (ManualSpoke)
-Attaches a template to a specific IC pin:
-- `pad` – pad number of the target component.
-- `shift_x_mm`, `shift_y_mm` – flat shift from the pad centre to the template origin.
-- `rotation_deg` – rotation of the entire template.
+**Tree (`trees:`)** — where it stands. A tree node references an entity and carries coordinates; nodes
+nest, and a child's coordinates are measured from its parent.
 
-**Important:** In new config versions, each chain (`chains`) must have its own `anchor_ref`. The global `target_ref` has been removed.
+**ManualSpoke** — a via with a track from a component pad, written by hand inside a chain (`chains:`).
 
-### Roles and Component Pool
-Instead of refdes, **roles** are used in the config. For each net (`chain.net`), a pool of components is built, where each component:
-- Has a `Role` field with the required value.
-- Has at least one pad connected to that net.
+**ClonePlacement** — the historical way to place a clone (by selection or by nets). Still supported, but
+new profiles should prefer the Entity + Tree model; `tools/convert_placements.py` migrates the old ones.
 
-Components are sorted in natural numeric order (`C5` < `C10`) and consumed in the order of spokes.
+**Scheme List** — a snapshot of a set of board components that can be re-read and re-placed as a whole.
 
-### Cloning (ClonePlacement)
-Allows applying a template at an arbitrary point on the board, without tying to IC pads. Supports:
-- **Selection mode** – reads roles from the current selection in the PCB editor. You can either omit `nets`/`params` or explicitly set `by_selection: true`. Only one such clone can be processed per run (due to KiCad's single‑selection limitation).
-- **Net mode** – for each role, a net is specified (via `nets` or `net_template` with placeholders resolved by `params` and `net_overrides`). If multiple candidates are electrically indistinguishable, the tool can pick the one closest to the anchor (if the distance margin is sufficient). This is useful for power filters on a common rail.
-- **Anchor by role** (`anchor_role`) – an alternative to `anchor_ref`: instead of a refdes, you can specify the `Role` field of the anchor component. This survives re‑annotation. You can further narrow the search with `anchor_sheet` (local net prefix) or `anchor_pad`.
-- **Explicit refs** (`refs`) – a last‑resort override when candidates are indistinguishable by nets, selection, or proximity.
-
-### Placement Registry (PlacementRegistry + TrackRegistry)
-Separate registries for vias and tracks (JSON files in `registry/` and `tracks/` subfolders next to
-the config, one file per config: `<stem>.registry.json` / `<stem>.tracks.registry.json`). On subsequent runs:
-- already correctly placed items are skipped;
-- those that changed position/parameters are deleted and recreated;
-- obsolete entries (keys not present in the new plan) are removed (prune).
-
-**Important:** Reconciliation now checks against real elements on the board (`adapter.get_vias()`/`adapter.get_tracks()`), not only the JSON record, preventing desynchronisation due to manual deletions or crashes between registry write and board commit.
-
-### Net Resolution (`net_resolution`)
-For cloned templates, net names go through a three‑step resolution:
-1. **Literal** – if no placeholders.
-2. **Placeholder** – substitution from `params` (e.g., `{channel}` → `2`).
-3. **net_overrides** – final override of the resolved name (for hierarchical paths).
-
-During extraction, the reverse operation (`--net-template`) is available, turning literals into patterns.
-
-The **alias‑free path is the primary one**: a via/track whose net maps
-unambiguously to one selected Role is written as `net_from_role` (optionally with
-`net_from_role_pad`) at extract time and resolved **live** at apply time from that
-Role's real pad — `net_from_role`/`net_from_role_pad` are tried BEFORE
-`net_template_map`/manual aliases, so a net that already classifies by Role needs
-no alias at all. The GUI surfaces this: ExtractDock shows an "Auto-role" column
-per net (nets that resolve by Role get a disabled Alias field), and PlacerDock
-auto-fills a placement's `nets:` from the live board for the chosen Cluster
-(only blank roles are ever filled) and hides the Params section when the Cell has
-no `{placeholder}` anywhere. Manual entry (aliases/`params:`) remains only for
-genuinely ambiguous (fallback) nets. The legacy
-`net_template_role`/`params:`+`net:'{PLACEHOLDER}'` path is kept for backward
-compatibility, but is no longer the recommended way for new cells.
+**Registry** — a journal of created vias and tracks with their UUIDs. It is what makes a repeat run
+idempotent: it updates rather than duplicates.
 
 ---
 
-## Configuration File Format (YAML)
+## Configuration format
 
-Full field-by-field reference for every section (`cells`/`chains`/`clone_placements`/
-`thermal_via_arrays`/`points`/`include`/`extract_profiles`) with real, currently-loading examples now
-lives in its own page: [docs/config.md](docs/config.md).
+The config is an **s-expression** (`.sexp`), like KiCad's own formats. A file with any other extension is
+rejected with a fatal error. (`.json` is still read as well — it backs the `scheme_lists.json` side file the
+GUI creates on its own the first time a Scheme List is recorded.)
+
+A profile can be split across several files: `include:` at the root pulls in other `.sexp`/`.json` files
+recursively, and each may carry any combination of sections. The `flatten` command folds such a graph back
+into one self-contained file.
+
+The full reference, with examples taken from a live profile, is [docs/config.md](./docs/config.md).
 
 ---
 
-## CLI Commands
+## CLI commands
 
-All commands are run via `kicadstamp_cli.py`. If the subcommand is omitted, `apply` is assumed.
+| Command | Purpose |
+|---|---|
+| `apply` | apply the placement described by a config to the open board |
+| `undo` | undo the last operation |
+| `extract` | extract a cell from the current board selection |
+| `extract-net` | capture one net's copper (tracks + vias) as a `net_traces:` record |
+| `clone-extract` | snapshot a channel to `.sexp` (file-based cloner, no IPC) |
+| `clone-plan` | generate a ready `clone_placements:` block for a channel clone |
+| `channel-copy` | copy a whole channel's placement from one channel to another via a twin map |
+| `flatten` | merge an `include:` graph into one self-contained file |
+| `convert-trees` | rewrite `trees:` from the removed `own_anchor` grammar to mount nodes |
 
-### `apply` – apply placement
+Every flag is documented in [docs/commands.md](./docs/commands.md).
 
-```bash
-python kicadstamp_cli.py apply config.yaml [options]
-```
-
-Options:
-- `--dry-run` – only show the plan, do not apply changes.
-- `--timeout-ms` – IPC timeout in ms (default 20000).
-- `--batch-size` – batch size for commits (default 10).
-- `--verbose` – verbose output (DEBUG).
-- `--log-file` – save logs to a file.
-- `--no-collision-check` – disable collision checking.
-- `--collision-margin` – margin in mm (default 0.2).
-- `--only NAME` – process only the `chains`/`clone_placements`/`thermal_via_arrays` with this name (repeatable); everything else is skipped entirely. `name:` is mandatory on every such entry.
-
-### `extract` – extract template from selection (enhanced)
+Example:
 
 ```bash
-python kicadstamp_cli.py extract --name template_name --output config.yaml [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET]
-```
-
-New options:
-- `--param KEY=VALUE` – parameter for `--net-template` verification (e.g., `channel=1`), not written to template.
-- `--net-template LITERAL=PATTERN` – replace a real net with a pattern containing placeholders (e.g., `DAC1_DB1=DAC{channel}_DB1`). Can be repeated.
-- `--origin-by-via-net NET` – set origin to the position of a via on the specified net (instead of bbox). Fatal if the net is missing or ambiguous.
-- `--origin-by-component-role ROLE` – set origin to the position of a component with the specified role. Fatal if several selected components share the role and none is singled out (ambiguous).
-- `--origin-by-component-cluster CLUSTER` – refine `--origin-by-component-role`: narrow the same-role candidates to this Cluster (segment-prefix match). Fatal if several candidates remain even after narrowing.
-- `--origin-by-component-sheet SHEET` – refine `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet names — the standalone command has no config; prefer `--origin-by-component-cluster`).
-
-**Important:** The `--output` extension determines format: `.json` → JSON, otherwise YAML. The file is written wrapped under a `cells:` key, ready to be listed directly under `include:`.
-
-### `undo` – undo the last operation
-
-```bash
-python kicadstamp_cli.py undo [--verbose] [--log-file]
-```
-
-### `clone-extract` – snapshot a channel (file‑based cloner)
-
-```bash
-python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb --channel Channel_0 --output snapshot.sexp [--verbose]
+kicadstamp apply --config profiles/my/config.sexp --dry-run   # plan only
+kicadstamp apply --config profiles/my/config.sexp             # apply
+kicadstamp undo --verbose                                     # roll back
 ```
 
 ---
 
-## Usage Examples
+## Graphical interface
 
-### 1. Standard run
 ```bash
-python kicadstamp_cli.py 10CL006YE144C8G.yaml
+kicadstamp-gui [--timeout-ms 20000] [--verbose]
 ```
 
-### 2. Dry run
+This is the main way to work with a project. On the left, three trees — **Components** (board and
+schematic components), **Config** (the config's structure) and **Trees** (placement trees); on the right,
+a context panel that follows the selected node; along the bottom, the log.
+
+Edits are not written to disk as you make them: they accumulate in a working set, and **File → Save**
+commits them all at once.
+
+See [docs/gui.md](./docs/gui.md) for the details and [docs/hotkeys.md](./docs/hotkeys.md) for the
+keyboard shortcuts.
+
+---
+
+## MCP server
+
 ```bash
-python kicadstamp_cli.py config.yaml --dry-run
+pip install -e ".[mcp]"
+kicadstamp-mcp
 ```
 
-### 3. Process a single clone (selection mode)
-```bash
-python kicadstamp_cli.py config.yaml --only pi_filter_vccio
-```
+An MCP server over stdio: Claude Code and other MCP clients can see the live board and act on it — read
+the board identity, footprints with their roles and clusters, the current selection and the board's nets;
+apply a config through the same validated pipeline as `apply`; and, when explicitly enabled, move items
+directly.
 
-### 4. Extract a template with parametrisation and origin by via
-Select the elements on the board, then:
-```bash
-python kicadstamp_cli.py extract --name my_filter --output my_filter.json --net-template "DAC1_DB1=DAC{channel}_DB1" --param channel=1 --origin-by-via-net "/Channel_0/DAC/+3V3_CLKVDD" --verbose
-```
+See [docs/mcp.md](./docs/mcp.md).
 
-### 5. Undo
-```bash
-python kicadstamp_cli.py undo --verbose
+---
+
+## Project layout
+
+```
+KiCadStamp/
+├── kicadstamp/            # core: config, planning, execution, IPC
+│   ├── config/            # config loading and model, the include: graph
+│   ├── domain/            # board DTOs (Footprint, Track, Via, Pad, Net, Zone)
+│   ├── kicad/             # the KiCad IPC adapter and the IBoardAdapter interface
+│   ├── placement/         # planner, executors, services
+│   ├── geometry/          # geometry: layout, keepout, cloning
+│   ├── cloner/            # file-based cloner (.net/.kicad_pcb, no IPC)
+│   ├── diagnostics/       # diagnostic scripts
+│   ├── cell_*.py          # cells: frame, geometry, placement copying
+│   ├── trees.py, link_trees.py, tree_position.py     # placement trees
+│   ├── net_*.py           # net resolution, matching and traces
+│   ├── schematic_*.py     # .kicad_sch handling (fieldstool)
+│   ├── config_working_set.py  # the staged-edit model
+│   └── registry.py        # via and track registry
+├── gui/                   # PyQt6 GUI: docks, trees, editors, board overlay
+├── mcp_server/            # MCP server (stdio)
+├── docs/                  # documentation, bilingual (en + _ru)
+├── tests/                 # tests
+├── tools/                 # utilities and profile converters
+├── locales/               # gettext translation catalogues
+├── diagnostics/           # throwaway probes and reproductions
+└── packaging/             # distribution builds
 ```
 
 ---
 
-## Diagnostics and Known Issues
+## Diagnostics and known issues
 
-### KiCad Bug #24966 (crash on first write via IPC)
-When the Schematic Editor is open, the session's first `begin_commit()`/`push_commit()` transaction (even a
-no-op one) can crash KiCad (null pointer in `API_HANDLER_EDITOR::checkForBusy`).
+### KiCad crash on the first IPC write (#24966 / #25322)
 
-**Symptoms:** KiCad silently closes, client gets `ConnectionError: Error receiving reply from KiCad: Timed out`.
+With the schematic editor open, the **first transaction of a session**
+(`begin_commit()`/`push_commit()`, even an empty one) can crash KiCad — a null pointer in
+`API_HANDLER_EDITOR::checkForBusy`.
 
-**Workaround:** close the schematic editor before running `apply`. The tool includes a warning and retries,
-but the crash remains a KiCad defect. In practice it's specifically the *session's first* write that's
-vulnerable — if the first `apply` run is done with only the PCB Editor open, opening the Schematic Editor
-afterwards is usually safe. Full write-up, a related bug (#24970), and the full crash-hunting toolkit —
-see [docs/crash_hunting.md](./docs/crash_hunting.md).
+**Symptoms:** KiCad closes silently and the client gets
+`ConnectionError: Error receiving reply from KiCad: Timed out`.
+
+**Workaround:** close the schematic editor before the first write. The code carries a warning
+(`check_write_crash_risk`) and retries with a delay, but the crash is still possible — it is a KiCad
+defect. It is specifically the *first write of a session* that is exposed: if the first `apply` runs with
+only the PCB Editor open, opening the Schematic Editor afterwards is usually safe.
+
+`#25322` is the same family seen from the schematic side. The full write-up and the crash-hunting toolkit
+are in [docs/crash_hunting.md](./docs/crash_hunting.md).
 
 ### Diagnostic scripts
-`kicadstamp/diagnostics/` includes:
-- `diagnose_first_write_crash.py` – reproduces the crash ladder, see [docs/diagnose_first_write_crash.md](./docs/diagnose_first_write_crash.md).
-- `test_custom_fields.py` – checks `Role` field reading.
-- `test_move_one_cap.py`, `test_flip_one_cap.py`, `test_create_one_via.py`, `test_pad_mirror_convention.py`, `get_selected_component.py`, `get_pad_bbox.py`, `diagnostic_keepout.py`.
+
+In `kicadstamp/diagnostics/`:
+
+- `diagnose_first_write_crash.py` — a read/write ladder for pinning the crash down, see
+  [docs/diagnose_first_write_crash.md](./docs/diagnose_first_write_crash.md);
+- `test_move_one_cap.py`, `test_flip_one_cap.py`, `test_create_one_via.py` — minimal operation tests;
+- `test_pad_mirror_convention.py` — an empirical check of how pads mirror on flip;
+- `get_selected_component.py` — details of the selected components, including the `Role` field;
+- `get_pad_bbox.py`, `diagnostic_keepout.py` — helpers.
+
+An overview is in [docs/diagnostics.md](./docs/diagnostics.md).
 
 ---
 
-## Project Structure (brief)
+## 📚 Technical documentation
 
-```
-kicadstamp/
-├── __init__.py
-├── kicadstamp_cli.py          # CLI entry point
-├── apply_pipeline.py          # cmd_apply and ApplyPipeline class
-├── cli_extract.py             # cmd_extract command logic
-├── logging_setup.py           # Logging configuration
-├── runtime_context.py         # RuntimeContext dataclass
-├── sheet_names.py             # Sheet UUID → name resolution
-├── i18n.py                    # gettext internationalisation
-├── author.py                  # Scripting: dump/apply helpers (explore/author)
-├── explore.py                 # Board query helpers
-├── config/                    # Configuration package (loader.py, models.py, includes.py)
-├── constants.py               # Global constants (ROLE_FIELD_NAME, tolerances, etc.)
-├── exceptions.py              # Exception hierarchy
-├── validation.py              # Pre‑checks (nets, uniqueness, selection mode, layer/mirror)
-├── registry.py                # Via and track registries (reconcile with live elements)
-├── net_resolution.py          # Net resolution with placeholders for ClonePlacement
-├── template_extraction.py     # Extract with parametrisation and custom origin
-├── undo.py                    # Undo last placement operation
-├── geometry/                  # Spoke_layout, keepout, thermal_grid, pad_projection, clone_geometry
-├── kicad/                     # KiCad IPC adapter and IBoardAdapter interface
-├── placement/                 # Planner, executors, services
-│   ├── services/              # component_pool, clone_role_resolver, position_tracker, component_resolver, etc.
-├── cloner/                    # File‑based cloner (extract, netlist, pcb, models, sexp)
-├── diagnostics/               # Diagnostic scripts
-├── utils/                     # Utilities
-│   └── units.py               # MM = 1_000_000 constant
-└── tests/                     # Unit and integration tests
-```
-
----
-
-## 📚 Technical Documentation
-
-Detailed documentation is in the `docs/` folder:
+Every page is bilingual: `docs/<topic>.md` is English, `docs/<topic>_ru.md` is Russian.
 
 - [Project architecture](./docs/architect.md)
 - [CLI commands](./docs/commands.md)
+- [`.sexp` configuration reference](./docs/config.md)
+- [PyQt6 GUI](./docs/gui.md)
+- [Keyboard shortcuts](./docs/hotkeys.md)
+- [MCP server](./docs/mcp.md)
+- [Planning and execution](./docs/placement.md)
 - [Geometry utilities](./docs/geometry.md)
+- [Rotating and transforming cells](./docs/rotate_template.md)
 - [KiCad adapter](./docs/kicad.md)
 - [Using kipy](./docs/kipy.md)
-- [MCP server](./docs/mcp.md)
-- [Placement planning and execution](./docs/placement.md)
-- [YAML configuration reference](./docs/config.md)
 - [Coding placement in Python: explore/author](./docs/python.md)
-- [PyQt6 GUI](./docs/gui.md)
-- [fieldstool: bulk Role/Cluster set/rename in .kicad_sch](./docs/fieldstool.md)
-- [Tests](./docs/tests.md)
-- [Top‑level modules](./docs/uplevel_modules.md)
-- [File‑based cloner](./docs/cloner.md)
+- [fieldstool: Role/Cluster in `.kicad_sch`](./docs/fieldstool.md)
+- [File-based cloner](./docs/cloner.md)
 - [Diagnostics](./docs/diagnostics.md)
-- [KiCad crash hunting toolkit (#24966 / #24970)](./docs/crash_hunting.md)
+- [Hunting KiCad crashes](./docs/crash_hunting.md)
 - [`diagnose_first_write_crash.py` reference](./docs/diagnose_first_write_crash.md)
-- [Internationalization (i18n) — gettext/Babel](./docs/i18n.md)
-- [Template rotation and transformation](./docs/rotate_template.md)
+- [Top-level modules](./docs/uplevel_modules.md)
 - [Module dependency diagram](./docs/diagram.md)
+- [Internationalisation (i18n) — gettext/Babel](./docs/i18n.md)
+- [Tests](./docs/tests.md)
 
 ---
 
 ## Versioning
 
-Single source of truth: `__version__` in [`kicadstamp/__init__.py`](./kicadstamp/__init__.py) — this README's
-header and `kicadstamp_cli.py --version`/`-V` both read it, not a separate literal. Versioned by
-session/stage, not by commit: MINOR bumps once per notable block of work (e.g. one architecture‑refactor
-session, regardless of how many commits it took), PATCH for point fixes made between stages, MAJOR
-reserved for actual breaking changes to the CLI or YAML config format.
+The single source of truth is `__version__` in [`kicadstamp/_version.py`](./kicadstamp/_version.py): this
+README's heading and the `--version`/`-V` flag of every entry point read the version from there instead of
+keeping a literal of their own.
+
+We count by stages, not by commits: **MINOR** goes up by one per noticeable block of work (one refactoring
+session is one step, however many commits it contains), **PATCH** covers point fixes between stages, and
+**MAJOR** is reserved for genuine breaking changes to the CLI or to the config format (`.sexp`/`.json`).
+
+**2.0.0** — `.sexp` became the config format (2026-08-28) and placement moved to the Entity + Tree model.
+
+---
+
+## Keywords
+
+KiCad, KiCad 10, KiCad IPC API, kipy, PCB automation, replicate layout, board section replication,
+channel cloning, copy placement, multi-channel PCB, hierarchical schematics, repeated blocks,
+component placement, vias, via stitching, thermal vias, template-based routing, Role/Cluster,
+placement generation, Python, PyQt6, MCP, Claude Code.
 
 ---
 
 ## License
 
 This project is distributed under the **MIT** license. See the `LICENSE` file for details.
-
----
-
-**KiCadStamp** is not just a utility – it's a modern alternative to manual block copying in KiCad.
