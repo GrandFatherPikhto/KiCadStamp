@@ -377,6 +377,126 @@ class TestTreeInstanceWriter:
         assert p.read_bytes() == before
 
 
+class TestUpsertPreservesUndeclaredFields:
+    """И.7.1 (plan_2026_09_12_tree_instance_own_place §И.1): the Instances
+    dialog used to REBUILD every declaration from a hard-coded
+    {name, sheet, cluster} literal, so any field it does not know was erased by
+    one OK — measured live with `params:` (the v1.3 axis that feeds
+    net_template's {placeholder}s). The writer now writes the edited row OVER
+    its declaration. These tests MEASURE the declaration before and after."""
+
+    @staticmethod
+    def _read(p) -> list:
+        from kicadstamp.config.sexp_format import sexp_to_dict
+        return list(sexp_to_dict(p.read_text(encoding="utf-8"))
+                    .get("tree_instances") or [])
+
+    def _file(self, tmp_path, instances) -> Path:
+        return _write(tmp_path, "preserve.sexp", _template_data(instances))
+
+    def test_params_axis_survives_an_unchanged_round_trip(self, tmp_path):
+        """The live defect, measured: BEFORE has params, the dialog's own row
+        (name+sheet+cluster) touches nothing, AFTER still has params — and the
+        write is recognised as a no-op."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "cluster": "GRP",
+            "params": {"channel_sheet": "Channel_1"}}])
+        before = self._read(p)
+        assert before == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "cluster": "GRP",
+            "params": {"channel_sheet": "Channel_1"}}]
+
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1", "cluster": "GRP"}])
+
+        after = self._read(p)
+        assert changed is False
+        assert after == before
+        assert after[0]["params"] == {"channel_sheet": "Channel_1"}
+
+    def test_params_axis_survives_a_sheet_edit(self, tmp_path):
+        """An edit of a field the dialog DOES own keeps the untouched axis."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}}])
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_2"}])
+        assert changed is True
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_2", "params": {"channel_sheet": "Channel_1"}}]
+
+    def test_unknown_field_survives_the_write(self, tmp_path):
+        """A field NEITHER the dialog NOR the writer knows at all survives.
+
+        Measured on a .json root file: the s-expr reader validates keys against
+        the TreeInstance record (an unknown key is a legit load-time fatal
+        there), while the read-merge-write helper itself must be
+        format-agnostic — the overlay rule is about declaration DICTS, not
+        about the schema."""
+        import json
+        from kicadstamp.config_writer import upsert_tree_instances
+        data = _template_data([])
+        data["tree_instances"] = [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "future_axis": {"whatever": 1}}]
+        p = tmp_path / "preserve.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_2"}])
+
+        assert changed is True
+        after = json.loads(p.read_text(encoding="utf-8"))["tree_instances"]
+        assert after == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_2", "future_axis": {"whatever": 1}}]
+
+    def test_deleting_one_row_keeps_the_other_intact(self, tmp_path):
+        """Deletion is still deletion — and the survivor keeps its own
+        undeclared fields."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [
+            {"template": "dac_buf_tpl", "name": "keep_me",
+             "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}},
+            {"template": "dac_buf_tpl", "name": "drop_me",
+             "sheet": "Channel_2"},
+        ])
+        changed = upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "keep_me", "sheet": "Channel_1"}])
+        assert changed is True
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "keep_me",
+            "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}}]
+
+    def test_empty_row_list_still_drops_the_section(self, tmp_path):
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}}])
+        assert upsert_tree_instances(p, "dac_buf_tpl", []) is True
+        assert self._read(p) == []
+
+    def test_clearing_a_cluster_still_removes_the_key(self, tmp_path):
+        """The editable-field contract is unchanged: a row WITHOUT cluster (the
+        dialog's blank cell) clears the declaration's cluster — the overlay
+        must not "preserve" it just because the key is absent from the row."""
+        from kicadstamp.config_writer import upsert_tree_instances
+        p = self._file(tmp_path, [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "cluster": "GRP",
+            "params": {"channel_sheet": "Channel_1"}}])
+        assert upsert_tree_instances(p, "dac_buf_tpl", [
+            {"name": "ch1_dac_buf", "sheet": "Channel_1"}]) is True
+        assert self._read(p) == [{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "params": {"channel_sheet": "Channel_1"}}]
+
+
 def _net_trace_template_data(instances, anchor_sheet="Channel_0",
                              net="/Channel_0/DAC/+3V3_AVDD",
                              include_record=True, template_anchor=None) -> dict:

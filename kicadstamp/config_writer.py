@@ -476,6 +476,15 @@ def append_tree_child_node(path: Path, tree_name: str,
     return True
 
 
+# Fields Tools -> "Instances..." OWNS and may therefore CLEAR: the dialog's
+# row REPLACES each of them (a field absent from a row means "not set" — the
+# dialog's own blank-Cluster contract, see its rows()), while every OTHER key
+# of an existing declaration survives a write verbatim (2026-09-12,
+# plan_2026_09_12_tree_instance_own_place §И.1). A future editable axis
+# (anchor/rotation) is declared HERE, in one place, and nowhere else.
+_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster",)
+
+
 def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
     """Replace every tree_instances: entry instantiating `template` with
     `rows` (each a {name, sheet, cluster?} dict — cluster OPTIONAL, 2026-09-03,
@@ -490,15 +499,64 @@ def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
     (config/tree_instances.py::expand_tree_instances), never here. A blank/
     missing `cluster` in a row is omitted from the persisted dict entirely
     (the key is NOT written as null/"") so declarations that don't need the
-    cluster axis stay clean on disk."""
+    cluster axis stay clean on disk.
+
+    WRITE OVER, NOT INSTEAD (2026-09-12, plan_2026_09_12_tree_instance_own_place
+    §И.1): a row whose (template, name) matches an EXISTING declaration is
+    written ON TOP of that declaration — every field the row does not mention
+    survives verbatim — instead of being rebuilt from a hand-written literal.
+
+    The old literal shape was a silent DATA LOSS: any field outside the
+    hard-coded {name, sheet, cluster} set was gone after one Tools ->
+    "Instances..." OK (found live with `params:` — the v1.3 axis feeding the
+    {placeholder} substitution in net_template, erased unnoticed). Naming the
+    dialog's own fields one by one would have to be repeated for every future
+    axis (`anchor`/`rotation` are next), so the rule is structural: the ROW
+    describes the editable fields, the DECLARATION keeps everything else.
+
+    A key of the row whose value is None/"" means "not set" and REMOVES that
+    key from the persisted declaration; a key the row does not carry at all
+    leaves the declaration's value alone, EXCEPT for the fields named in
+    _INSTANCE_DIALOG_EDITABLE_KEYS — those the dialog OWNS, so their absence
+    from a row is the same "not set" (its blank-Cluster contract is exactly
+    this). A row naming a declaration that does not exist yet is created fresh
+    from the row, exactly as before."""
     existing = copy.deepcopy(_read_data(path))
     before_list = list(existing.get("tree_instances") or [])
+    # Index THIS template's existing declarations by name so each row can be
+    # overlaid on its own declaration; setdefault keeps the first declaration
+    # when a name is (invalidly) duplicated.
+    prev_by_name: Dict[str, Dict[str, Any]] = {}
+    for entry in before_list:
+        if isinstance(entry, dict) and entry.get("template") == template:
+            name = entry.get("name")
+            if isinstance(name, str):
+                prev_by_name.setdefault(name, entry)
     kept = [e for e in before_list
             if not (isinstance(e, dict) and e.get("template") == template)]
-    new_items = kept + [
-        {"template": template, "name": r["name"], "sheet": r["sheet"],
-         **({"cluster": r["cluster"]} if r.get("cluster") else {})}
-        for r in rows]
+    new_items = list(kept)
+    for r in rows:
+        merged = dict(prev_by_name.get(r["name"]) or {})
+        merged["template"] = template
+        for key, value in r.items():
+            if key == "template":
+                continue
+            if value is None or value == "":
+                # Blank value -> the key is not written at all (never as
+                # null/""), so a declaration that does not use an axis stays
+                # clean on disk. Required fields are validated by the caller.
+                merged.pop(key, None)
+            else:
+                merged[key] = value
+        # A field the dialog OWNS but whose row does not carry it is "not set"
+        # — the dialog's own contract for a blank Cluster cell (rows() omits
+        # the key rather than sending ""). Without this, clearing a cluster
+        # would silently keep the old one. Every field OUTSIDE this set is not
+        # the dialog's business and survives verbatim.
+        for key in _INSTANCE_DIALOG_EDITABLE_KEYS:
+            if key not in r:
+                merged.pop(key, None)
+        new_items.append(merged)
     if new_items == before_list:
         return False
     if new_items:
