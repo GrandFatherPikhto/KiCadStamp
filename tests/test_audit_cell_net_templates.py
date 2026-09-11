@@ -23,10 +23,6 @@ from kicadstamp.diagnostics.audit_cell_net_templates import (
     main,
 )
 
-REAL_PROFILE = (Path(__file__).resolve().parents[1]
-                / "profiles" / "3ch-awg-tia-v103" / "config.sexp")
-
-
 def _write(path: Path, data: dict) -> Path:
     path.write_text(dict_to_sexp(data), encoding="utf-8")
     return path
@@ -277,35 +273,57 @@ class TestMain:
 
 
 # --------------------------------------------------------------------------
-# real profile (offline — load_config needs no live KiCad)
+# the original live-bug shape (Task W: a committed fixture, no local file)
 # --------------------------------------------------------------------------
 
-@pytest.mark.skipif(not REAL_PROFILE.exists(),
-                    reason="real 3ch-awg-tia-v103 profile not present")
 class TestRealProfile:
-    def test_pif_avdd_hardcoded_roles_flagged(self):
-        """The live case that started this plan: pif_avdd is reused across
-        several channel sheets while roles C_OUT_BULK/C_OUT_BYPASS are
-        hardcoded to '/Channel_0/DAC/+3V3_AVDD' — they must be in the audit
-        output, sheet-locked to Channel_0.
+    """Regression guard for the original live bug (2026-09-07): pif_avdd
+    reused across sheets while C_OUT_BULK/C_OUT_BYPASS are hardcoded to
+    '/Channel_0/DAC/+3V3_AVDD'. Was pinned to the author's personal,
+    gitignored profile file — which can be empty/absent/renamed on any machine
+    at any time (Task W, 2026-09-11: it went to zero cells mid-session while it
+    was being restructured, and this module ERRORed instead of skipping). The
+    synthetic case below is identical in shape to the live bug this audit was
+    written for and needs no local file at all."""
 
-        The sheet list is asserted as a SUPERSET, not an exact list: this test
-        reads the developer's live (gitignored) profile, which keeps growing —
-        it was pinned to exactly [Channel_0, Channel_1] and broke the moment a
-        third channel instance was added, which is not what this test is for.
-        What matters is that the reuse spans more than the locked sheet."""
-        cfg, _ctx = load_config(str(REAL_PROFILE))
+    def test_pif_avdd_hardcoded_roles_flagged(self, tmp_path):
+        path = _write(tmp_path / "cfg.sexp", _cells_and_entities(
+            {"pif_avdd": [
+                {"role": "C_OUT_BULK",
+                 "net_template": "/Channel_0/DAC/+3V3_AVDD"},
+                {"role": "C_OUT_BYPASS",
+                 "net_template": "/Channel_0/DAC/+3V3_AVDD"},
+            ]},
+            [
+                {"name": "e0", "cell": "pif_avdd", "sheet": "Channel_0",
+                 "cluster": "PIF_AVDD"},
+                {"name": "e1", "cell": "pif_avdd", "sheet": "Channel_1",
+                 "cluster": "DAC_BUF"},
+            ]))
+        cfg, _ctx = load_config(str(path))
         findings = find_hardcoded_net_templates(cfg)
         pif = {f.role: f for f in findings if f.cell == "pif_avdd"}
         assert set(pif) == {"C_OUT_BULK", "C_OUT_BYPASS"}
         for role, f in pif.items():
             assert f.net_template == "/Channel_0/DAC/+3V3_AVDD"
             assert f.locked_sheet == "Channel_0"
-            assert {"Channel_0", "Channel_1"} <= set(f.sheets)
-            assert f.locked_sheet in f.sheets
+            assert f.sheets == ["Channel_0", "Channel_1"]
 
-    def test_render_of_real_profile_contains_pif_avdd(self):
-        cfg, _ctx = load_config(str(REAL_PROFILE))
+    def test_render_of_real_profile_contains_pif_avdd(self, tmp_path):
+        path = _write(tmp_path / "cfg.sexp", _cells_and_entities(
+            {"pif_avdd": [
+                {"role": "C_OUT_BULK",
+                 "net_template": "/Channel_0/DAC/+3V3_AVDD"},
+                {"role": "C_OUT_BYPASS",
+                 "net_template": "/Channel_0/DAC/+3V3_AVDD"},
+            ]},
+            [
+                {"name": "e0", "cell": "pif_avdd", "sheet": "Channel_0",
+                 "cluster": "PIF_AVDD"},
+                {"name": "e1", "cell": "pif_avdd", "sheet": "Channel_1",
+                 "cluster": "DAC_BUF"},
+            ]))
+        cfg, _ctx = load_config(str(path))
         report = format_findings(find_hardcoded_net_templates(cfg))
         assert "Cell 'pif_avdd'" in report
         assert "role 'C_OUT_BULK': net_template hardcoded to " \
