@@ -37,6 +37,8 @@ nothing.
   (fieldstool), without IPC and with KiCad closed.
 - **File-based cloner** — parses `.net` and `.kicad_pcb` without IPC and builds a twin map of channels for
   hierarchical projects.
+- **Python API** — placement can be built as code instead of config: board queries through
+  `kicadstamp.explore`, placement construction through `kicadstamp.author`.
 
 DRC is deliberately out of scope: track collisions are KiCad's own job.
 
@@ -134,8 +136,8 @@ position of its own** — it is a template.
 **Cell anchor** — the point of the cell that lands on the board (`anchor_xy`/`anchor_role`/`anchor_pad`).
 It is expressed in the cell's own frame and resolved to live coordinates when applied.
 
-**Entity** — everything about a thing except where it stands: which cell, its electrics, its identity. An
-entity has no position fields at all.
+**Entity** — everything about an entity except where it sits: which cell, its electrics, its identity.
+An entity has no position fields at all.
 
 **Tree (`trees:`)** — where it stands. A tree node references an entity and carries coordinates; nodes
 nest, and a child's coordinates are measured from its parent.
@@ -211,6 +213,31 @@ keyboard shortcuts.
 
 ---
 
+## Python API
+
+Placement does not have to be written as config — it can be **written as code**, through two optional
+libraries layered over the same pipeline, with no format of their own and no way around validation.
+
+`kicadstamp.explore` reads the board: `Board.select(role=..., cluster=..., sheet=..., net=...)` answers
+"which components carry `Role=AD_DAC`", "what net is this pad on", "which sheet instance is this
+footprint under" — instead of a throwaway script every time.
+
+`kicadstamp.author` builds placement: `ClonePlacement` and `Chain` are plain dataclasses, so a loop with
+real Python variables replaces copy-paste and placeholder substitution. The result is either applied
+straight away through `apply_config()` or saved to a file pulled in with `include:`.
+
+```python
+from kicadstamp.explore import Board
+
+board = Board.connect(config_path="profiles/my/config.sexp")
+for fp in board.select(role="AD_DAC"):
+    print(fp.ref, fp.cluster, fp.sheet)
+```
+
+The full reference, walked through a real script, is [docs/python.md](./docs/python.md).
+
+---
+
 ## MCP server
 
 ```bash
@@ -259,22 +286,24 @@ KiCadStamp/
 
 ## Diagnostics and known issues
 
-### KiCad crash on the first IPC write (#24966 / #25322)
+### KiCad crash on the first IPC write (#24966 / #25322) — fixed in 10.0.7
 
 With the schematic editor open, the **first transaction of a session**
-(`begin_commit()`/`push_commit()`, even an empty one) can crash KiCad — a null pointer in
-`API_HANDLER_EDITOR::checkForBusy`.
-
-**Symptoms:** KiCad closes silently and the client gets
+(`begin_commit()`/`push_commit()`, even an empty one) could crash KiCad — a null pointer in
+`API_HANDLER_EDITOR::checkForBusy`. From the client side KiCad closed silently and you got
 `ConnectionError: Error receiving reply from KiCad: Timed out`.
 
-**Workaround:** close the schematic editor before the first write. The code carries a warning
-(`check_write_crash_risk`) and retries with a delay, but the crash is still possible — it is a KiCad
-defect. It is specifically the *first write of a session* that is exposed: if the first `apply` runs with
-only the PCB Editor open, opening the Schematic Editor afterwards is usually safe.
+**Fixed upstream** on 2026-09-07 (Jon Evans, commit
+[`bdcb1509`](https://gitlab.com/kicad/code/kicad/-/commit/bdcb150903658e2c8f91b8862f87d950b35c0d1f)),
+milestone **10.0.7**. Both tickets are closed.
 
-`#25322` is the same family seen from the schematic side. The full write-up and the crash-hunting toolkit
-are in [docs/crash_hunting.md](./docs/crash_hunting.md).
+**On 10.0.6 and older** the workaround still applies: close the schematic editor before the first write.
+The warning (`check_write_crash_risk`) and the delayed retries stay in the code — they are harmless and
+simply never fire on a fixed build. It was specifically the *first write of a session* that was exposed:
+if the first `apply` ran with only the PCB Editor open, opening the Schematic Editor afterwards was
+usually safe.
+
+The full write-up and the crash-hunting toolkit are in [docs/crash_hunting.md](./docs/crash_hunting.md).
 
 ### Diagnostic scripts
 
