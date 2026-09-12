@@ -128,6 +128,40 @@ def test_reread_node_flow_refuses_while_the_poll_tick_owns_the_socket(
         "the refused reread must not touch the token it does not own"
 
 
+def test_reread_node_flow_starts_no_worker_while_the_poll_tick_owns_the_socket(
+        main_window, tmp_path, monkeypatch):
+    """The token check must also stop start_long_op ITSELF, not just the read.
+
+    This is the half its sibling above cannot see. That test asserts the read
+    seam was never entered -- which stays true even with the guard removed,
+    because the read moved onto a worker and so never runs on the UI thread
+    either way. What the guard actually prevents is STARTING a second operation
+    on top of a token somebody else already holds: start_long_op does not
+    refuse a raised token, and the foreign operation's completion then clears
+    OUR token in the middle of the read.
+
+    Measured 2026-09-12 (mutation run with socket_busy forced to False): the
+    suite reached "QThread: Destroyed while thread '' is still running" and the
+    process dumped core, while every other refusal test stayed green. Hence
+    this test, which fails the moment the guard goes."""
+    _board(main_window, object())
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+
+    started = []
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *args, **kwargs: started.append(args) or object())
+    main_window.connection.long_op_active = True
+
+    dock._reread_node_flow(tree, node)
+
+    assert started == [], \
+        "a worker was started on a socket the poll tick already owned"
+    assert dock._active_op is None, \
+        "the refused reread must leave no operation behind"
+
+
 def test_reread_node_flow_reads_on_a_worker_under_the_token(
         main_window, tmp_path, monkeypatch, qapp):
     """ILLNESS 2 — the read itself runs on a worker: the token is raised
