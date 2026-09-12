@@ -135,7 +135,7 @@ Modules that work with coordinates, independent of KiCad:
 - Supports **choosing origin** not by bbox but by a specific via or component (`--origin-by-via-net`, `--origin-by-component-role`).
 - Automatically determines the template layer and sets explicit layers for elements lying on other layers.
 
-### 4.8. Template Transformation (`utils/transform_template.py`)
+### 4.8. Template Transformation (`kicadstamp/diagnostics/transform_template.py`)
 
 - A separate script for post‑processing existing templates (s-expr, `.sexp`). Allows **rotation**, **mirroring** (X or Y), and **origin shift** to a specified via (by index or net) or component (by index or role), or explicit offset.
 - Order: first origin shift (if any), then rotation and mirroring – ensuring the target element ends up at (0,0) after all transformations.

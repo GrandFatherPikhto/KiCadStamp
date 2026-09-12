@@ -603,14 +603,14 @@ python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.s
 
 ## Utility scripts (`tools/`)
 
-### `transform_template.py` – template transformation utility (optional)
+### Template transformation (`kicadstamp.diagnostics.transform_template`, optional)
 
 A separate script for post‑processing existing templates (s-expr, `.sexp`). It allows rotating, mirroring, and shifting the origin without re‑extracting from the board.
 
 #### Syntax
 
 ```bash
-python tools/transform_template.py -i <input_file> -o <output_file> [options]
+python -m kicadstamp.diagnostics.transform_template -i <input_file> -o <output_file> [options]
 ```
 
 #### Options
@@ -637,19 +637,19 @@ python tools/transform_template.py -i <input_file> -o <output_file> [options]
 #### Rotate 180° and shift origin to the via with net "GND"
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
 ```
 
 #### Mirror along X and shift origin to the component with role "FB"
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
 ```
 
 #### Explicit origin shift
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ### `generate_10cl006.py` – config generator for 10CL006YE144C8G
@@ -843,7 +843,7 @@ python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.sexp
 5. **If KiCad crashes** on the first run – close the schematic editor or make an interactive edit in PCB before launching (workaround for issue #24966).
 6. **For hierarchical projects** – use `clone-extract` before writing ClonePlacement to get exact net names and twin refdes.
 7. **Store templates separately** – list the external file under `include:` (wrapped in a `cells:` key) to keep geometry out of the main file.
-8. **Transform templates** with `transform_template.py` instead of manual coordinate recalculation.
+8. **Transform templates** with the `kicadstamp.diagnostics.transform_template` module instead of manual coordinate recalculation.
 
 ---
 
@@ -914,7 +914,7 @@ python kicadstamp_cli.py apply config_with_include.sexp --only fpga_filter_1v2_v
 ### Transform a template
 
 ```bash
-python tools/transform_template.py -i templates/pi_filter_4.json -o templates/pi_filter_4_rotated.json --rotate 180 --set-origin-by-via-net '+3V3_VCCIO'
+python -m kicadstamp.diagnostics.transform_template -i templates/pi_filter_4.json -o templates/pi_filter_4_rotated.json --rotate 180 --set-origin-by-via-net '+3V3_VCCIO'
 ```
 
 ### Test KiCad for crashes

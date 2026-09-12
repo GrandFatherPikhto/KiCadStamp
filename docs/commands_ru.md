@@ -547,14 +547,14 @@ python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
 
 ## Скрипты-утилиты (`tools/`)
 
-### `transform_template.py` – трансформация шаблонов (опционально)
+### Трансформация шаблонов (`kicadstamp.diagnostics.transform_template`, опционально)
 
 Отдельный скрипт для постобработки уже существующих шаблонов (s-expr, `.sexp`). Позволяет поворачивать, зеркалировать и переносить начало координат без повторного извлечения с платы.
 
 #### Синтаксис
 
 ```bash
-python tools/transform_template.py -i <входной_файл> -o <выходной_файл> [опции]
+python -m kicadstamp.diagnostics.transform_template -i <входной_файл> -o <выходной_файл> [опции]
 ```
 
 #### Опции
@@ -581,19 +581,19 @@ python tools/transform_template.py -i <входной_файл> -o <выходн
 #### Поворот на 180° и перенос начала на via с цепью
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_rotated.sexp --rotate 180 --set-origin-by-via-net "GND"
 ```
 
 #### Зеркалирование по X и перенос начала на компонент с ролью
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_mirrored.sexp --mirror-x --set-origin-by-component-role FB
 ```
 
 #### Явный сдвиг начала координат
 
 ```bash
-python tools/transform_template.py -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
+python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
 ### `generate_10cl006.py` – генератор конфигов для 10CL006YE144C8G
@@ -946,7 +946,7 @@ python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.sexp
 5. **Если KiCad падает** при первом запуске, закройте редактор схем или сделайте интерактивную правку в PCB перед запуском (обход issue #24966).
 6. **Для изучения иерархических проектов** перед написанием `ClonePlacement` используйте `clone-extract` – это даст вам точные имена цепей и refdes близнецов.
 7. **Храните шаблоны отдельно** – перечислите внешний файл в `include:` (обернув его в ключ `cells:`), чтобы избежать загромождения файла геометрией.
-8. **Трансформируйте шаблоны** с помощью `transform_template.py` вместо ручного пересчёта координат.
+8. **Трансформируйте шаблоны** с помощью модуля `kicadstamp.diagnostics.transform_template` вместо ручного пересчёта координат.
 
 ---
 
@@ -1019,7 +1019,7 @@ python kicadstamp_cli.py apply config_with_include.sexp --only fpga_filter_1v2_v
 ### Трансформация шаблона
 
 ```bash
-python tools/transform_template.py -i templates/pi_filter_4.json -o templates/pi_filter_4_rotated.json --rotate 180 --set-origin-by-via-net '+3V3_VCCIO'
+python -m kicadstamp.diagnostics.transform_template -i templates/pi_filter_4.json -o templates/pi_filter_4_rotated.json --rotate 180 --set-origin-by-via-net '+3V3_VCCIO'
 ```
 
 ### Тестирование KiCad на краши
