@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from typing import Iterable
 
 from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (QAbstractScrollArea, QApplication, QFrame,
                              QScrollArea, QSizePolicy, QWidget)
 
@@ -130,3 +131,38 @@ def wrap_in_scroll_area(widget: QWidget) -> QWidget:
                        QSizePolicy.Policy.Ignored)
     area.setWidget(widget)
     return area
+
+
+def _primary_screen():
+    """QGuiApplication.primaryScreen(), behind a name of its own so the
+    no-screen branch of resize_dialog_within_screen() is testable without
+    faking a QScreen (monkeypatched in tests/gui/test_ui_utils.py)."""
+    return QGuiApplication.primaryScreen()
+
+
+def resize_dialog_within_screen(dialog: QWidget, width: int, height: int,
+                                screen=None) -> None:
+    """Resize a dialog to its DESIRED (width, height), capped by the screen it
+    will appear on — the same "the frame may get smaller, the content may not"
+    rule the scroll wrap above applies.
+
+    Four dialogs asked for a fixed height (Cell 720x600, Project 560x620,
+    Tools 520x560, Settings 780x540 — 2026-09-12). 620 px plus the window frame
+    and the task bar does not fit a laptop screen at 125 % scaling, and the
+    dialog then hangs off the bottom of the display with no way to reach its
+    buttons. The desired size stays the DESIRED size; only the part that cannot
+    fit is given up.
+
+    Screen lookup is deliberately forgiving, because both failure modes are
+    real: `dialog.screen()` returns None until the widget is shown (and this
+    runs in __init__), and `primaryScreen()` returns None in a headless run.
+    With no screen — the GUI test suite runs under QT_QPA_PLATFORM=offscreen
+    with a real 800x800 screen, but a bare QApplication may have none — the
+    resize simply happens unclamped. `screen` is injectable so tests do not
+    have to fake a QScreen."""
+    screen = screen or dialog.screen() or _primary_screen()
+    if screen is None:
+        dialog.resize(width, height)
+        return
+    available = screen.availableGeometry()
+    dialog.resize(min(width, available.width()), min(height, available.height()))

@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import resize_dialog_within_screen
 from .configurator import ConfiguratorDock
 
 
@@ -59,8 +60,10 @@ class SettingsDialog(QDialog):
 
         # Sensible default — the browser's own sizeHint sizes for the largest
         # page (the Hotkeys list), but a fresh dialog benefits from a roomier
-        # start.
-        self.resize(780, 540)
+        # start. Screen-capped since 2026-09-12
+        # (plan_2026_09_12_no_widget_squeezing.md Э4): a modal dialog taller
+        # than the screen puts its own OK/Apply/Cancel row out of reach.
+        resize_dialog_within_screen(self, 780, 540)
 
     def open_modal(self) -> None:
         """Re-seed the widgets from the persisted state (a previous Cancel or

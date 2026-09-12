@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import resize_dialog_within_screen
 from .cell_editor import CellDock
 
 
@@ -43,5 +44,8 @@ class CellDialog(QDialog):
         layout.addWidget(cell_dock)
         # Sensible default — CellDock is a four-tab (Components/Vias/Tracks/
         # Nested) table editor, so a fresh dialog starts roomier than the
-        # Points/Chain dialogs' 520x560.
-        self.resize(720, 600)
+        # Points/Chain dialogs' 520x560. Capped by the screen: 600 px plus the
+        # window frame does not fit a laptop display at 125 % scaling, and a
+        # dialog taller than the screen puts its own buttons out of reach
+        # (2026-09-12, plan_2026_09_12_no_widget_squeezing.md).
+        resize_dialog_within_screen(self, 720, 600)

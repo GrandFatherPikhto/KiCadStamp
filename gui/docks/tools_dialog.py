@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import resize_dialog_within_screen
 from .tools import ToolsDock
 
 
@@ -39,4 +40,6 @@ class ToolsDialog(QDialog):
         layout.addWidget(tools_dock)
         # Sensible default — the dock's own sizeHint sizes for the form's
         # current state, but a fresh dialog benefits from a roomier start.
-        self.resize(520, 560)
+        # Screen-capped since 2026-09-12 (plan_2026_09_12_no_widget_squeezing.md
+        # Э4).
+        resize_dialog_within_screen(self, 520, 560)

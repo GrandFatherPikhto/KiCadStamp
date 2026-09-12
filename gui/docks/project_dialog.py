@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import resize_dialog_within_screen
 from .root_metadata import RootMetadataDock
 
 
@@ -42,4 +43,7 @@ class ProjectDialog(QDialog):
         layout.addWidget(root_metadata_dock)
         # Sensible default — the dock's own sizeHint sizes for the form's
         # current state, but a fresh dialog benefits from a roomier start.
-        self.resize(560, 620)
+        # Screen-capped since 2026-09-12 (plan_2026_09_12_no_widget_squeezing.md
+        # Э4): 620 px plus the window frame does not fit a laptop display at
+        # 125 % scaling.
+        resize_dialog_within_screen(self, 560, 620)
