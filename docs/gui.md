@@ -873,9 +873,15 @@ A modal dialog has three
 tabs: **Clusters** (the FULLY-selected clusters, checkboxes on by default, with a live ΔX/ΔY offset
 preview once an anchor is chosen), **Anchor** (a root-cluster combo that prefills Sheet/Cluster/Role
 from the cluster's own Entity — the "existing cluster anchor" — or explicit Sheet/Cluster/Role/Pad
-narrowing into a `TreeAnchor`), and **Tracks and vias between clusters** (inter-cluster nets — the
-selected copper whose net touches 2+ clusters — with per-net checkboxes and a "select all /
-deselect all" master). On OK each checked cluster becomes a top-level `kind="placement"` node with
+narrowing into a `TreeAnchor`), and **Tracks and vias between clusters** (inter-node copper — the
+selected copper BETWEEN PADS whose pads belong to 2+ of the checked clusters — with one row per UNIT
+of copper and a "select all / deselect all" master; each row is labelled with the net and the nodes it
+connects, so two bridges of one net are two visibly different rows). The rule is STRICT and geometric
+(2026-09-12, plan `plan_2026_09_12_internode_copper_core`; design §4): no net-name exception (a GND
+bridge between two nodes IS offered) and no "ubiquitous rail" threshold — a piece of copper is judged
+by the pads it actually reaches, and a ZONE is never part of it (a pour connects by overlap, not by
+routing, so it would fuse every cluster into one unit). On OK each checked cluster becomes a top-level
+`kind="placement"` node with
 `ref` = its Entity's name and, when the anchor's live rotation is resolved, `xy` = the offset in the
 anchor's LOCAL frame and `rotation` = the Entity's own angle relative to the anchor — (live mount
 angle − baked mount angle) − anchor angle (autopositioning, like "Reread current position": the tree
@@ -885,8 +891,11 @@ read live at apply). That live Entity position is measured at the cell's **MOUNT
 tree node and the materializer put on the target position (`cell_mount_offset`: `anchor_xy`, else the
 `anchor_role` component's centre, else the stored (0,0)), read through the same live-cluster frame the
 per-node "Read current position" uses (2026-09-11, plan_2026_09_11_entity_live_position_mount_point) —
-never at a component that merely happens to sit at the cell's stored (0,0). The checked inter-cluster
-nets are captured as `net_traces:` records alongside. The new tree
+never at a component that merely happens to sit at the cell's stored (0,0). The checked UNITS are
+captured as `net_traces:` records alongside (a `name` identity, its `pads`, and a `(role, pad)`
+reference per element — the same capture the re-read uses, so a created and a re-read tree hold the
+same copper), and each becomes a top-level `kind="net_trace"` node whose `ref` IS the record's
+identity. The new tree
 is written into the root config's `trees:` section through the same `config_writer` chokepoint
 (backup + round-trip `link_trees` check); TreesDock and the Config tree refresh immediately. Rows
 whose cluster has no Entity or a missing cell are marked and block OK; an empty/duplicate tree name
@@ -910,6 +919,23 @@ tree (hand-made, or from an older extract before this rule — e.g. `conn_pm5v_p
 CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock with a neutral background +
 tooltip ("this node duplicates the tree's own anchor — safe to delete"), so it is visible without
 waiting for the redraw drift on the live board.
+
+**Tools → Trees → Reread inter-node copper** (2026-09-12, plan
+`plan_2026_09_12_internode_copper_core`) re-reads the CURRENT tree's copper between pads from the live
+board — for the very case the old flow could not handle at all: the copper was captured ONCE, when the
+tree was built, and re-reading it meant rebuilding the tree and losing the placement. It matches fresh
+copper to the stored `net_traces:` records by their **pad set** (never by geometry — that is what is
+being refreshed), ADDS the units it finds that have no record yet (new top-level `kind="net_trace"`
+nodes, `ref` = the new record's identity) and refreshes the geometry of the ones it does. It NEVER
+deletes: a record whose copper is no longer on the board is reported in the Log and its node is marked
+"no copper" in the tree (a session mark, computed on the fly, nothing written to the config) — removing
+it stays a human decision, because "the copper is gone" cannot be told apart from "I pulled it out for a
+minute". There is NO dialog at all: the outcome is a list in the Log, the edits land in the working set
+immediately and **File → Save** persists them (the tree section and the touched records each into the
+file that already owns them, so an included `net_traces:` section never migrates into the root). The
+board read runs on a worker, and the AREA is the current board SELECTION when there is one, else the
+WHOLE board — the tree already knows its nodes, clusters and pads, so no selection is needed for the
+common case.
 
 The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat

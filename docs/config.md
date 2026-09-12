@@ -654,7 +654,16 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   generated instance tree stays self-anchored itself (a deep copy). A `(self (ref "..."))` ref is
   rewritten through the SAME rename map as `pivot-ref` — a ref naming no template node is a fatal AT
   EXPANSION, naming the template.
-- **net_trace nodes inside a template (v1.1):** a `kind "net_trace"` node's `ref` is a real board NET
+- **net_trace nodes inside a template (v1.1; TWO PATHS since 2026-09-12):** a `kind "net_trace"` node's
+  `ref` is the referenced record's IDENTITY — a NAMED record's `name`, or (legacy) the net:
+
+  - a NAMED record (its copper is `(role, pad)`-based) rewrites NOTHING by sheet: the copy's `name` and
+    the node's `ref` become `<name>__{instance}` exactly like a placement node, and the INSTANCE's own
+    components decide the nets — which is what the references are for (plan
+    `plan_2026_09_12_internode_copper_core`, design §15);
+  - a LEGACY record (no `name:`, literal net paths) keeps the historical behaviour below.
+
+  For a LEGACY record: its `ref` is a real board NET
   (e.g. `/Channel_0/DAC/+3V3_AVDD`) that must stay a valid net name for the planner/KiCad — so it is
   NOT suffixed with `__{instance.name}` like a placement ref. Instead the net's LEADING SHEET SEGMENT
   is replaced with the instance `sheet` (`/Channel_1/DAC/+3V3_AVDD`), independently on the record's
@@ -1002,26 +1011,41 @@ that happens on a tree node's Redraw.
 
 ---
 
-## `net_traces:` — one net's copper, following one anchor pad
+## `net_traces:` — one piece of copper between pads
 
 The answer to "I hand-routed the FPGA↔DAC bus and don't want to re-route it
-every time I move the FPGA": captures ALL of one net's live copper (tracks +
-vias) as LOCAL offsets from an anchor pad, then re-resolves it LIVE on every
+every time I move the FPGA": captures one piece of live copper (tracks + vias)
+as LOCAL offsets from an anchor pad, then re-resolves it LIVE on every
 `apply`/Redraw from the anchor's *current* position — move the anchor in KiCad,
-run `apply --only=<net>`, and the whole net trace follows it (old copper is
-deleted by the registry, new one created at the new position). One record =
-ONE net (no net lists inside a record — lists live in only one place in this
-project, the spokes).
+run `apply --only=<name>`, and the copper follows it (old copper is deleted by
+the registry, new one created at the new position).
+
+**A RECORD IS ONE UNIT OF COPPER — the copper BETWEEN TWO OR MORE PADS — not a
+net** (2026-09-12, plan `plan_2026_09_12_internode_copper_core`). The capture
+walks the tracks/vias and STOPS AT EVERY PAD, so a unit is bounded by pads by
+construction: two bridges of the same net between different pad pairs are two
+records, and copper that belongs to a single cluster never becomes a record.
+Each record carries
+
+* **`name`** — its identity, unique across `net_traces:`, the string `--only`
+  takes and a tree's `kind "net_trace"` node references. Optional on a LEGACY
+  record (written before 2026-09-12), where the net is the effective identity;
+* **`pads`** — the set of pads the unit connects (`"ROLE.pad"` strings), i.e.
+  what the unit IS. A re-read matches fresh copper to stored records by THIS
+  SET, never by geometry, because the geometry is exactly what a re-read
+  refreshes; a changed pad set is a different bridge and gets a new record.
 
 ```sexp
 ; e.g. net_traces.sexp, included into the config
 (net_traces
   (net_trace
-    (net "DAC_DB0")         ; the net's name — also the --only identity
-    (anchor_role "FPGA")    ; anchor footprint by Role (whole-board search)
+    (name "spi_clk__fpga__ch0_dac")  ; IDENTITY (unique) — written at capture
+    (net "SPI_CLK")         ; the network this copper belongs to (an attribute)
+    (pads "DAC_BUF.5" "FPGA.22")     ; the unit's identity: what it connects
+    (anchor_role "DAC_BUF") ; anchor footprint by Role (whole-board search)
     ; (anchor_sheet ...)    ; optional — narrow the Role search by sheet
     ; (anchor_cluster ...)  ; optional — narrow by Cluster (prefix match)
-    ; (anchor_pad "42")     ; optional — anchor on this pad's centre, not the fp centre
+    ; (anchor_pad "5")      ; optional — anchor on this pad's centre, not the fp centre
     (tracks
       (track
         (start_along_mm 1.0)
@@ -1029,22 +1053,28 @@ project, the spokes).
         (end_along_mm 3.0)
         (end_across_mm 4.0)
         (width_mm 0.2)
-        (net "DAC_DB0")
+        ; a REFERENCE to a role's real pad — resolved live at apply
+        (net_from_role "DAC_BUF")
+        (net_from_role_pad "5")
         (layer "F.Cu")))
     (vias
       (via
         (offset_along_mm 5.0)
         (offset_across_mm 6.0)
-        (net "DAC_DB0")
+        (net_from_role "FPGA")   ; or a literal (net "SPI_CLK")
+        (net_from_role_pad "22")
         (drill_mm 0.3)
         (diameter_mm 0.6)))))
     ; (retired true)   ; "does not exist on the board right now" (registry protection dropped)
     ; (skip true)      ; "skip just this run" (registry protection kept)
 ```
 
-- **`net`** (required) — the network name. Unique per record (fatal at load if
-  two records share a net). Local hierarchical nets keep their full
-  `/Channel_0/...` form.
+- **`net`** (required) — the network this copper belongs to. It is an
+  ATTRIBUTE, not the key any more: two records on one net are legal and mean
+  two different bridges of that net. Local hierarchical nets keep their full
+  `/Channel_0/...` form. What must be unique is `name:` (or, on a legacy
+  record, the net, which then doubles as the identity) — two records resolving
+  to the same identity are a load-time fatal.
 - **`anchor_role`** (required) — the Role field of the anchor footprint,
   resolved over the WHOLE live board (never the mouse selection) at BOTH
   extract time (origin) and apply time (anchor) — the same
@@ -1054,8 +1084,13 @@ project, the spokes).
   pad's centre.
 - **`tracks`/`vias`** — the copper as local (along/across) offsets from the
   anchor point, the exact `TemplateTrack`/`TemplateVia` shape `cells:` use.
-  The net is ALWAYS written explicitly on each element (there is no enclosing
-  Chain to inherit a net from).
+  Each element names its net EITHER literally (`net`) OR by REFERENCE —
+  `net_from_role` / `net_from_role_pad`, the same pair a Cell's via/track
+  carries, resolved live at apply (mutually exclusive with `net`). The
+  reference is what makes a record survive CLONING and cross-sheet copper
+  (channel → FPGA): the instance's own components decide the instance's nets,
+  so nothing is rewritten by name. A record captured by the tree flows below
+  uses references; the older `extract-net` path writes literal nets.
 - **`anchor_rotation_deg`** (machine-written, optional) — the anchor footprint's
   OWN rotation at capture time. On apply the copper is placed with the delta
   between the anchor's *current* live rotation and this captured value
@@ -1066,12 +1101,29 @@ project, the spokes).
 - **`retired`/`skip`** — the same convention as every other section.
 - **`comment`** — optional free-form note shown in the GUI (a plain schema
   field, not a `;` comment in the file).
-- **`--only=<net>`** selects exactly one record for a Redraw; the registry
+- **`--only=<name>`** selects exactly one record for a Redraw; `--only=<net>`
+  is still accepted and selects EVERY record drawn on that net (a habitual
+  command keeps working now that several records may share a net). The registry
   gives idempotency (a repeat run with an unmoved anchor creates 0 new items).
 
 Extraction is a CLI command, not the mouse-selection `extract`:
 `kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA [--anchor-pad 42]
 --output <config.sexp>` appends/replaces the record under `net_traces:`.
+
+**The tree flows write these records too**, and they use the strict rule:
+
+* **Tools → Trees → Extract tree…** offers the selected copper BETWEEN PADS
+  (the dialog's third tab lists one row per unit, labelled with the net and the
+  nodes it connects) and captures the checked ones on OK;
+* **Tools → Trees → Reread inter-node copper** re-reads them at any later time
+  from the live board. It ADDS new units and refreshes the geometry of the ones
+  it finds (matched by `pads`); it NEVER deletes — a record whose copper is no
+  longer on the board is reported in the Log and marked "no copper" in the tree,
+  so removing it stays a human decision (the copper may simply be pulled out for
+  a moment);
+* **ZONES ARE NOT READ.** Only tracks and vias count as copper: a zone connects
+  by overlap, so a GND pour would fuse every cluster into one "unit" and the
+  classification above would fall apart. A pour never appears in a capture.
 
 **Design note (see `techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md`):**
 deliberately NOT a `Cell`+`ClonePlacement` pair — a net trace is single-instance
