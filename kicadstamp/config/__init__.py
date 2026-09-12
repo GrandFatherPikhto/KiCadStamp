@@ -28,6 +28,7 @@ from .models import (
     coordinate_placement_effective_name,
     clone_placement_effective_name,
     net_trace_effective_name,
+    net_trace_pad_signature,
     entity_effective_name,
     scheme_list_effective_name,
 )
@@ -143,4 +144,5 @@ __all__ = [
     "coordinate_placement_effective_name",
     "clone_placement_effective_name",
     "net_trace_effective_name",
+    "net_trace_pad_signature",
 ]

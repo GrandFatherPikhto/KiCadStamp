@@ -1820,6 +1820,13 @@ class DockHub:
         self._focus_trees_dock()
         self.trees_dock._on_redraw_selected()
 
+    def reread_internode_copper(self) -> None:
+        """Tools → Trees → "Reread inter-node copper" (plan_2026_09_12_internode_
+        copper_core Э4): re-read the CURRENT tree's copper between pads from the
+        live board — a background worker, no dialog, the report in the Log."""
+        self._focus_trees_dock()
+        self.trees_dock._on_reread_internode_copper()
+
     def redraw_whole_tree(self) -> None:
         """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
         the CURRENT tree (background worker)."""

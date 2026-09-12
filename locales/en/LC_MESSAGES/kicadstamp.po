@@ -16749,3 +16749,137 @@ msgstr "Remove from include:"
 #, python-brace-format
 msgid "inter-node copper: one unit of copper (pads {pads}) carries several nets at once: {nets} — the unit is defined by geometry; check the routing"
 msgstr "inter-node copper: one unit of copper (pads {pads}) carries several nets at once: {nets} — the unit is defined by geometry; check the routing"
+
+# ── Inter-node copper re-read (plan_2026_09_12_internode_copper_core, Э4) ──
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "Tree {name!r}: inter-node copper re-read."
+msgstr "Tree {name!r}: inter-node copper re-read."
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "  added:      {names}"
+msgstr "  added:      {names}"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "  updated:    {names}"
+msgstr "  updated:    {names}"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / {new_vias})"
+msgstr "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / {new_vias})"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"  not found:  {name} — the copper is no longer on the board, the record is "
+"kept"
+msgstr ""
+"  not found:  {name} — the copper is no longer on the board, the record is "
+"kept"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "  unchanged:  {count}"
+msgstr "  unchanged:  {count}"
+
+#: kicadstamp/internode_capture.py
+msgid ""
+"zones are not read (see the Z1 work): only tracks and vias count as copper, "
+"so a pour never appears in the capture"
+msgstr ""
+"zones are not read (see the Z1 work): only tracks and vias count as copper, "
+"so a pour never appears in the capture"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
+msgstr ""
+"tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"skipped a piece of copper between pads {pads}: it carries no net name on the "
+"board"
+msgstr ""
+"skipped a piece of copper between pads {pads}: it carries no net name on the "
+"board"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"skipped a piece of copper between pads {pads}: the pad {pad} has no Role "
+"field on the board, so the record could not be anchored"
+msgstr ""
+"skipped a piece of copper between pads {pads}: the pad {pad} has no Role "
+"field on the board, so the record could not be anchored"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"record {ref!r}: its anchor could not be resolved live ({err}) — left "
+"untouched"
+msgstr ""
+"record {ref!r}: its anchor could not be resolved live ({err}) — left "
+"untouched"
+
+#: kicadstamp/config/entries.py
+#, python-brace-format
+msgid "net_traces entry (net {net!r}) has a malformed pads: list"
+msgstr "net_traces entry (net {net!r}) has a malformed pads: list"
+
+#: kicadstamp/config/entries.py
+msgid ""
+"pads: is this copper's identity — a non-empty list of non-empty 'ROLE.pad' "
+"strings (e.g. pads: [DAC_BUF.5, FPGA.22]); omit the key entirely on a legacy "
+"record"
+msgstr ""
+"pads: is this copper's identity — a non-empty list of non-empty 'ROLE.pad' "
+"strings (e.g. pads: [DAC_BUF.5, FPGA.22]); omit the key entirely on a legacy "
+"record"
+
+#: gui/docks/trees_dock.py
+msgid "no copper"
+msgstr "no copper"
+
+#: gui/docks/trees_dock.py
+msgid ""
+"The last re-read of the inter-node copper found no copper for this record on "
+"the board. The record is KEPT — remove it by hand if you meant to."
+msgstr ""
+"The last re-read of the inter-node copper found no copper for this record on "
+"the board. The record is KEPT — remove it by hand if you meant to."
+
+#: gui/docks/trees_dock.py
+msgid "No project loaded — open a root config first."
+msgstr "No project loaded — open a root config first."
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Reread inter-node copper failed: {error}"
+msgstr "Reread inter-node copper failed: {error}"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid ""
+"Inter-node copper re-read: {added} added, {updated} updated, {missing} not "
+"found ({narrowed})."
+msgstr ""
+"Inter-node copper re-read: {added} added, {updated} updated, {missing} not "
+"found ({narrowed})."
+
+#: gui/docks/trees_dock.py
+msgid "selection"
+msgstr "selection"
+
+#: gui/docks/trees_dock.py
+msgid "whole board"
+msgstr "whole board"
+
+#: gui/main_window.py
+msgid "Reread inter-node copper"
+msgstr "Reread inter-node copper"

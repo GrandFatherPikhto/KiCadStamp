@@ -633,6 +633,15 @@ class NetTrace:
     # never renamed by a re-read — a re-read refreshes the geometry, and
     # renaming would break every tree node referencing this record.
     name: str | None = None
+    # The unit's PAD SIGNATURE — the set of pads this piece of copper connects,
+    # as sorted "ROLE.pad" strings (2026-09-12, plan_2026_09_12_internode_copper_
+    # core Э4; design §11/§16). It IS the unit's identity for a re-read: the
+    # fresh unit and the stored record are matched by this SET, never by
+    # geometry (the geometry is exactly what the re-read refreshes), so a
+    # changed pad set is a different bridge and gets a new record. None on a
+    # legacy record (nothing ever stored it) — such a record can only be
+    # matched by its net, see config/internode_capture.py.
+    pads: list[str] | None = None
     anchor_sheet: str | None = None
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
@@ -643,6 +652,14 @@ class NetTrace:
     skip: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+
+
+def net_trace_pad_signature(nt: "NetTrace") -> frozenset[str]:
+    """The ONE place the unit identity of a net trace is read: the SET of pads
+    it connects ("ROLE.pad" strings, sorted as stored). An empty frozenset means
+    a LEGACY record — nothing was stored at capture time, so a re-read can only
+    fall back to matching by net (plan Э4; see kicadstamp/internode_capture.py)."""
+    return frozenset(nt.pads or ())
 
 
 def net_trace_effective_name(nt: "NetTrace") -> str:

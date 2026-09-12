@@ -30,6 +30,7 @@ from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
@@ -301,7 +302,12 @@ def collect_tree_refs(tree: "Tree") -> list[str]:
 def _tree_net_trace_nets(tree: "Tree") -> set[str]:
     """Every net referenced by the tree's kind="net_trace" nodes (phase D/E,
     2026-09-01) — the net_traces: records that belong to this tree's captured
-    inter-cluster copper (used by the delete-tree cascade to find orphans)."""
+    inter-cluster copper (used by the delete-tree cascade to find orphans).
+
+    Since 2026-09-12 a node's ref is the record's IDENTITY (name:, else a legacy
+    record's net:) — the same string net_trace_effective_name() returns and
+    link_trees resolves the node through, so the cascade's net-based comparison
+    below is kept in step by the caller (see _on_delete_tree)."""
     nets: set[str] = set()
 
     def walk(nodes: list) -> None:
@@ -312,6 +318,57 @@ def _tree_net_trace_nets(tree: "Tree") -> set[str]:
 
     walk(tree.nodes)
     return nets
+
+
+# "Stale" marker (plan_2026_09_12_internode_copper_core Э4, design §6): a
+# net_trace node whose record the LAST re-read did not find on the board. It is
+# computed on the fly from that re-read and never stored in the config — the
+# record itself is untouched, exactly like the node form's "the base did not
+# resolve" state.
+_STALE_NET_TRACE_BG = QColor("#e2d6ea")
+_STALE_NET_TRACE_TAG = _("no copper")
+_STALE_NET_TRACE_TOOLTIP = _(
+    "The last re-read of the inter-node copper found no copper for this record "
+    "on the board. The record is KEPT — remove it by hand if you meant to.")
+
+
+def run_internode_reread_worker(payload: dict) -> dict:
+    """start_long_op worker entry point for Tools → Trees → "Reread inter-node
+    copper". Plain data in, plain data out; every live-board read (the adapter,
+    the selection, the copper) happens HERE, never on the UI thread.
+
+    The AREA is decided here as well (design §5): a NON-EMPTY board selection
+    narrows the read to its own items, an empty one means the WHOLE board —
+    the tree already knows its nodes, clusters and pads, so asking the user to
+    select them again with the mouse would be work the config can do itself.
+    """
+    from kicadstamp.internode_capture import (
+        apply_reread_plan,
+        plan_internode_reread,
+    )
+
+    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    adapter.refresh_board()
+    selected = list(adapter.get_selected_items() or [])
+    if selected:
+        footprints = [i for i in selected if isinstance(i, Footprint)]
+        items = [i for i in selected if isinstance(i, (Track, Via))]
+    else:
+        footprints = list(adapter.get_footprints())
+        items = list(adapter.get_tracks()) + list(adapter.get_vias())
+
+    cfg = payload["cfg"]
+    tree = payload["tree"]
+    plan = plan_internode_reread(
+        adapter, cfg, tree, area_items=items, area_footprints=footprints,
+        sheet_names=payload.get("sheet_names") or {})
+    return {
+        "plan": plan,
+        "cfg": apply_reread_plan(cfg, plan),
+        "tree": tree,
+        "added": [c.identity for c in plan.added],
+        "narrowed_to_selection": bool(selected),
+    }
 
 
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
@@ -637,6 +694,10 @@ class TreesDock(QWidget):
         # Phase E (2026-09-01): net_traces: records orphaned by a deleted tree's
         # net_trace nodes — removed from the working set on the next stage.
         self._orphan_net_nets: set[str] = set()
+        # Э4 (2026-09-12): identities of the current tree's net_trace records the
+        # LAST re-read did not find on the board — rendered as a "stale" mark,
+        # never written to the config (design §6).
+        self._stale_net_traces: set[str] = set()
         # ref -> QTreeWidgetItem, rebuilt on every render — needed for the
         # checkbox selection (Phase 4) and for the move "not into own
         # descendant" guard (Phase 2).
@@ -1377,11 +1438,12 @@ class TreesDock(QWidget):
         return dup
 
     @staticmethod
-    def _node_item_text(node: TreeNode, *, is_handle: bool = False) -> str:
-        """One row's text: the ref, plus the short kind tag (_KIND_TAGS) and, for
-        the tree's own suspension node, the handle tag — the SAME single-column
-        tag idiom, so no second column is added (plan §W.6). Shared by the
-        initial render and _refresh_tree_marks."""
+    def _node_item_text(node: TreeNode, *, is_handle: bool = False,
+                        stale: bool = False) -> str:
+        """One row's text: the ref, plus the short kind tag (_KIND_TAGS), the
+        tree's own suspension handle tag and the "stale" mark — the SAME
+        single-column tag idiom, so no second column is added (plan §W.6).
+        Shared by the initial render and _refresh_tree_marks."""
         text = node.ref
         if node.kind is not None:
             tag = _KIND_TAGS.get(node.kind)
@@ -1389,26 +1451,37 @@ class TreesDock(QWidget):
                 text = f"{text} ({tag})"
         if is_handle:
             text = f"{text} ({_PIVOT_HANDLE_TAG})"
+        if stale:
+            text = f"{text} ({_STALE_NET_TRACE_TAG})"
         return text
 
     @staticmethod
     def _apply_node_marks(item: QTreeWidgetItem, node: TreeNode, *,
                           is_handle: bool, dup_refs: Optional[set],
-                          dup_tooltip: Optional[str]) -> None:
+                          dup_tooltip: Optional[str],
+                          stale: bool = False) -> None:
         """Set the informational accent + tooltip of ONE row. The suspension
-        handle always WINS over the duplicate-anchor accent (a handle is never
-        'just a redundant duplicate'). Shared by the initial render and the
-        in-place _refresh_tree_marks, so the two can never disagree.
+        handle always WINS over every other accent (a handle is never 'just a
+        redundant duplicate'), and the stale mark wins over the duplicate-anchor
+        accent (a record with no copper on the board matters more than a
+        duplicate anchor). Shared by the initial render and the in-place
+        _refresh_tree_marks, so the two can never disagree.
 
         A top-level placement node duplicating its tree's own EXPLICIT (role
         ...) anchor (plan_2026_09_05_tree_root_rotation_drift §2) gets the amber
         accent + tooltip: informational, not an error — the node is safe to
-        delete (the anchor resolves independently of the node list)."""
+        delete (the anchor resolves independently of the node list). A stale
+        net_trace row (plan_2026_09_12_internode_copper_core Э4) is informational
+        in exactly the same way: the record is kept, deleting it is a human
+        decision."""
         item.setBackground(0, QBrush())
         item.setToolTip(0, "")
         if is_handle:
             item.setBackground(0, QBrush(_PIVOT_HANDLE_BG))
             item.setToolTip(0, _PIVOT_HANDLE_TOOLTIP)
+        elif stale:
+            item.setBackground(0, QBrush(_STALE_NET_TRACE_BG))
+            item.setToolTip(0, _STALE_NET_TRACE_TOOLTIP)
         elif dup_refs and node.ref in dup_refs and dup_tooltip:
             item.setBackground(0, QBrush(_ANCHOR_DUPLICATE_BG))
             item.setToolTip(0, dup_tooltip)
@@ -1420,9 +1493,12 @@ class TreesDock(QWidget):
                      pivot_ref: Optional[str] = None) -> None:
         item = QTreeWidgetItem(parent_item)
         is_handle = pivot_ref is not None and node.ref == pivot_ref
-        item.setText(0, self._node_item_text(node, is_handle=is_handle))
+        stale = self._is_stale_net_trace(node)
+        item.setText(0, self._node_item_text(node, is_handle=is_handle,
+                                             stale=stale))
         self._apply_node_marks(item, node, is_handle=is_handle,
-                               dup_refs=dup_refs, dup_tooltip=dup_tooltip)
+                               dup_refs=dup_refs, dup_tooltip=dup_tooltip,
+                               stale=stale)
         # Keep the TreeNode itself on the item — needed by the static preview
         # and structural editing.
         item.setData(0, Qt.ItemDataRole.UserRole, node)
@@ -1457,9 +1533,21 @@ class TreesDock(QWidget):
             if item is None:
                 continue
             is_handle = tree.pivot_ref is not None and node.ref == tree.pivot_ref
-            item.setText(0, self._node_item_text(node, is_handle=is_handle))
+            stale = self._is_stale_net_trace(node)
+            item.setText(0, self._node_item_text(node, is_handle=is_handle,
+                                                 stale=stale))
             self._apply_node_marks(item, node, is_handle=is_handle,
-                                   dup_refs=dup_refs, dup_tooltip=dup_tooltip)
+                                   dup_refs=dup_refs, dup_tooltip=dup_tooltip,
+                                   stale=stale)
+
+    def _is_stale_net_trace(self, node: TreeNode) -> bool:
+        """True when this row is a net_trace node whose record the LAST re-read
+        did not find on the board (plan Э4, design §6). Pure presentation: the
+        state lives in self._stale_net_traces (this session only), never in the
+        config — the record itself is untouched, the same way the node form
+        reports "the base did not resolve" without storing anything."""
+        return (node.kind == "net_trace" and bool(node.ref)
+                and node.ref in self._stale_net_traces)
 
     # ── Static preview (Phase 1, §5) ─────────────────────────────────────
 
@@ -1915,11 +2003,15 @@ class TreesDock(QWidget):
         data["trees"] = [tree_to_dict(t) for t in self._trees
                          if t.name not in self._instances]
         # Phase E cascade: remove the net_traces orphaned by a deleted tree's
-        # net_trace nodes (see _on_delete_tree).
+        # net_trace nodes (see _on_delete_tree). The comparison is by IDENTITY
+        # (name:, else net:) — the same string a node's ref holds since
+        # 2026-09-12 (plan_2026_09_12_internode_copper_core Э2/Э4); matching a
+        # NAMED record by its net would delete an unrelated bridge of that net.
         if self._orphan_net_nets:
             data["net_traces"] = [
                 e for e in data.get("net_traces", [])
-                if not (isinstance(e, dict) and e.get("net") in self._orphan_net_nets)]
+                if not (isinstance(e, dict)
+                        and (e.get("name") or e.get("net")) in self._orphan_net_nets)]
         write_data(self._root_path, data)
 
     def _mark_dirty(self) -> None:
@@ -2498,6 +2590,108 @@ class TreesDock(QWidget):
             node.rotation = rotation
         self._mark_dirty()
         self._rebuild_tabs()
+
+    # ── Inter-node copper: re-read (plan_2026_09_12_internode_copper_core Э4) ──
+
+    def _on_reread_internode_copper(self) -> None:
+        """Tools → Trees → "Reread inter-node copper": re-read the CURRENT
+        tree's copper between pads from the LIVE board and refresh its
+        `net_traces:` records (design §6).
+
+        Zero dialogs, by decision: the outcome is a LIST IN THE LOG, the edits
+        land in the working set immediately (File > Save persists them), and
+        NOTHING is ever removed — a record whose copper is gone stays and is
+        merely marked in the tree. The live read happens on the worker; the AREA
+        (the board selection when there is one, else the whole board) is decided
+        there too, because reading the selection is itself a board call."""
+        tree = self._current_tree()
+        if tree is None:
+            return
+        if self._warn_read_only_instance(tree):
+            return
+        if self._cfg is None or self._ctx is None:
+            show_message(_("No project loaded — open a root config first."),
+                         _ERROR_STYLE, logger)
+            return
+        if self._main_window.connection is None:
+            show_message(_("No live board connection — connect KiCad first."),
+                         _ERROR_STYLE, logger)
+            return
+        payload = {
+            "cfg": self._cfg,
+            "tree": tree,
+            "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (),
+            run_internode_reread_worker,
+            self._finish_reread_internode_copper,
+            self._on_reread_worker_failed, payload)
+
+    def _on_reread_worker_failed(self, message: str) -> None:
+        self._active_op = None
+        show_message(_("Reread inter-node copper failed: {error}")
+                     .format(error=message), _ERROR_STYLE, logger)
+
+    def _finish_reread_internode_copper(self, result: dict) -> None:
+        """The re-read's result, on the UI thread: adopt the fresh records, add
+        the tree nodes for the NEW ones, remember what was NOT found (the stale
+        mark), stage both sections and report — in the Log, never a modal."""
+        from kicadstamp.internode_capture import reread_report_lines
+
+        self._active_op = None
+        tree = result["tree"]
+        plan = result["plan"]
+        if self._cfg is not None:
+            self._cfg = result["cfg"]
+        for identity in result["added"]:
+            # A net_trace node carries NO xy: its record stores the copper as
+            # local offsets from its OWN anchor (the same node shape the extract
+            # dialog builds), so the node is purely the reference.
+            tree.nodes.append(TreeNode(ref=identity, kind="net_trace", xy=None,
+                                       polar=None, rotation=0.0, name=None,
+                                       group=None, children=[]))
+        self._stale_net_traces = set(plan.missing)
+        self._stage_net_traces(plan.records)
+        for line in reread_report_lines(tree.name, plan):
+            logger.info(line)
+        self._show_status(_(
+            "Inter-node copper re-read: {added} added, {updated} updated, "
+            "{missing} not found ({narrowed}).").format(
+                added=len(plan.added), updated=len(plan.updated),
+                missing=len(plan.missing),
+                narrowed=(_("selection") if result.get("narrowed_to_selection")
+                          else _("whole board"))))
+        self._mark_dirty()
+        self._rebuild_tabs()
+
+    def _stage_net_traces(self, records: list) -> None:
+        """Stage ONLY the records a re-read touched — each into the file that
+        already owns it (net_traces: can live in an include), a new one into the
+        root. The whole section is deliberately NOT rewritten: that would MOVE
+        included records into the root file and a duplicate identity across the
+        include graph is a load-time fatal."""
+        if self._root_path is None or not records:
+            return
+        from kicadstamp.config import net_trace_effective_name
+        from kicadstamp.net_trace_extract import net_trace_to_dict
+
+        from .rename import find_list_entry_file
+        for nt in records:
+            entry = net_trace_to_dict(nt)
+            identity = net_trace_effective_name(nt)
+            target = find_list_entry_file(self._root_path, "net_traces", entry) \
+                or self._root_path
+            data = read_data(target)
+            entries = data.setdefault("net_traces", [])
+            for i, existing in enumerate(entries):
+                if isinstance(existing, dict) \
+                        and (existing.get("name") or existing.get("net")) == identity:
+                    entries[i] = entry
+                    break
+            else:
+                entries.append(entry)
+            write_data(target, data)
 
     @staticmethod
     def _contains_node(candidate: TreeNode, target: TreeNode) -> bool:

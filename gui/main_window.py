@@ -299,6 +299,13 @@ class MainWindow(QMainWindow):
         self.anchor_position_action.triggered.connect(
             lambda: self._dock_hub.anchor_position())
         self.trees_menu.addAction(self.anchor_position_action)
+        # "Reread inter-node copper" (2026-09-12, plan_2026_09_12_internode_
+        # copper_core Э4): re-read the tree's copper between pads from the live
+        # board — no dialog, the outcome lands in the Log and the working set.
+        self.reread_internode_action = QAction(_("Reread inter-node copper"), self)
+        self.reread_internode_action.triggered.connect(
+            lambda: self._dock_hub.reread_internode_copper())
+        self.trees_menu.addAction(self.reread_internode_action)
         self.trees_menu.addSeparator()
         # Redraw (relocated from the TreesDock toolbar, 2026-09-03):
         # "Redraw selected" = the current tree's CHECKED nodes; "Redraw whole

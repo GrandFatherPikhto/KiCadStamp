@@ -656,8 +656,9 @@ def _load_chain(chain_data: dict[str, Any]) -> Chain:
 
 
 _NET_TRACE_KNOWN_KEYS = {
-    'net', 'name', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
-    'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip', 'comment',
+    'net', 'name', 'pads', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
+    'anchor_pad', 'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip',
+    'comment',
 }
 
 
@@ -722,6 +723,23 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     if anchor_rotation_deg is not None:
         anchor_rotation_deg = float(anchor_rotation_deg)
 
+    # pads — the unit's PAD SIGNATURE (plan Э4; design §11/§16): "ROLE.pad"
+    # strings, the set this piece of copper connects. Absent on a legacy record
+    # (the re-read then falls back to matching by net). Validated as non-empty
+    # strings: a malformed entry would silently never match anything.
+    raw_pads = data.get('pads')
+    pads: list[str] | None = None
+    if raw_pads is not None:
+        if (not isinstance(raw_pads, list) or not raw_pads
+                or not all(isinstance(p, str) and p.strip() for p in raw_pads)):
+            raise ValidationError(format_fatal_error(
+                _("net_traces entry (net {net!r}) has a malformed pads: list")
+                .format(net=net),
+                [_("pads: is this copper's identity — a non-empty list of "
+                   "non-empty 'ROLE.pad' strings (e.g. pads: [DAC_BUF.5, "
+                   "FPGA.22]); omit the key entirely on a legacy record")]))
+        pads = list(raw_pads)
+
     tracks = [_load_template_track(t) for t in data.get('tracks', [])]
     vias = [_load_template_via(v) for v in data.get('vias', [])]
 
@@ -746,6 +764,7 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         net=net,
         anchor_role=anchor_role,
         name=name,
+        pads=pads,
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_pad=str(anchor_pad) if anchor_pad is not None else None,

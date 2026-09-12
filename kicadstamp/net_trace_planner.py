@@ -245,8 +245,16 @@ def adopt_net_trace_copper(adapter, via_registry, track_registry,
     track_registry._save_entries(track_registry.entries)
 
 
+# The live anchor reader, exposed for the capture/re-read path
+# (kicadstamp/internode_capture.py): a re-read must measure the fresh copper
+# against the SAME anchor the apply path will use, or the record it writes
+# would not round-trip.
+resolve_live_anchor = _resolve_anchor
+
+
 __all__ = [
     "net_trace_anchor_id",
     "plan_net_traces",
     "adopt_net_trace_copper",
+    "resolve_live_anchor",
 ]

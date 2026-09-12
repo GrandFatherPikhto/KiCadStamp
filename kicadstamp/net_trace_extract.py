@@ -180,29 +180,52 @@ def extract_net_trace(
     )
 
 
+def _add_net_fields(d: dict[str, Any], item) -> None:
+    """One copper item's net, in the representation it actually carries: EITHER
+    the literal `net:` OR the (role, pad) reference `net_from_role` /
+    `net_from_role_pad` (mutually exclusive — the loader enforces it, see
+    config/entries.py's _load_template_track/_load_template_via).
+
+    The reference pair used to be dropped here (fixed 2026-09-12,
+    plan_2026_09_12_internode_copper_core Э4): the loader has supported
+    (role, pad) on a net_traces item since Э3, but a record captured that way
+    would have serialized with references-less copper — a silent, unloadable
+    loss of exactly what the design (15) stores instead of a net name."""
+    role = getattr(item, "net_from_role", None)
+    if role is not None:
+        d["net_from_role"] = role
+        pad = getattr(item, "net_from_role_pad", None)
+        if pad is not None:
+            d["net_from_role_pad"] = pad
+    elif item.net is not None:
+        d["net"] = item.net
+
+
 def _template_track_dict(t) -> dict[str, Any]:
     """Clean YAML dict for one TemplateTrack — only the fields the round-trip
     needs (no all-None net_from_role/net_from_role_pad noise from asdict)."""
-    return {
+    d: dict[str, Any] = {
         "start_along_mm": t.start_along_mm,
         "start_across_mm": t.start_across_mm,
         "end_along_mm": t.end_along_mm,
         "end_across_mm": t.end_across_mm,
         "width_mm": t.width_mm,
-        "net": t.net,
-        "layer": t.layer,
     }
+    _add_net_fields(d, t)
+    d["layer"] = t.layer
+    return d
 
 
 def _template_via_dict(v) -> dict[str, Any]:
     """Clean YAML dict for one TemplateVia (same reasoning as above)."""
-    return {
+    d: dict[str, Any] = {
         "offset_along_mm": v.offset_along_mm,
         "offset_across_mm": v.offset_across_mm,
-        "net": v.net,
-        "drill_mm": v.drill_mm,
-        "diameter_mm": v.diameter_mm,
     }
+    _add_net_fields(d, v)
+    d["drill_mm"] = v.drill_mm
+    d["diameter_mm"] = v.diameter_mm
+    return d
 
 
 def net_trace_to_dict(nt: NetTrace) -> dict[str, Any]:
@@ -219,6 +242,8 @@ def net_trace_to_dict(nt: NetTrace) -> dict[str, Any]:
     }
     if nt.name is not None:
         d["name"] = nt.name
+    if nt.pads is not None:
+        d["pads"] = list(nt.pads)
     for key in ("anchor_sheet", "anchor_cluster", "anchor_pad",
                 "anchor_rotation_deg"):
         value = getattr(nt, key)

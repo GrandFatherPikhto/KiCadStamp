@@ -99,11 +99,19 @@ class CopperUnit:
     T-branch off the middle of a segment is one physical piece of copper and
     stays one unit, design §16). pads is the sorted tuple of the pads the unit
     is moored to; it is the unit's identity for matching and for name
-    generation."""
+    generation.
+
+    track_pads/via_pads are aligned 1:1 with tracks/vias and carry the pads THAT
+    ITEM touches (possibly none: a mid-chain via, or a track whose ends are a
+    joint rather than a pad). This is the "ready answer" the capture path uses
+    for its (role, pad) references (plan §Э3: the capture already knows which
+    pads the unit is moored to, so it must not re-derive them geometrically)."""
 
     tracks: list[Track] = field(default_factory=list)
     vias: list[Via] = field(default_factory=list)
     pads: tuple[PadRef, ...] = ()
+    track_pads: list[tuple[PadRef, ...]] = field(default_factory=list)
+    via_pads: list[tuple[PadRef, ...]] = field(default_factory=list)
 
     @property
     def net_names(self) -> set[str]:
@@ -248,6 +256,9 @@ def find_copper_units(
     # ── Moor every copper item to every pad box it touches. Mooring labels the
     # unit, it never unions two units (see above).
     unit_pads: dict[tuple[str, int], set[PadRef]] = {}
+    # Per-ITEM mooring (the ready answer the capture path uses for its
+    # (role, pad) references — see CopperUnit.track_pads/via_pads).
+    item_pads: dict[tuple[str, int], set[PadRef]] = {}
     for index, box in enumerate(pad_boxes):
         if box is None:
             continue
@@ -255,30 +266,40 @@ def find_copper_units(
         for i, t in enumerate(tracks):
             if _point_in_box(t.start, box) or _point_in_box(t.end, box):
                 unit_pads.setdefault(find(("t", i)), set()).add(ref)
+                item_pads.setdefault(("t", i), set()).add(ref)
         for j, v in enumerate(vias):
             if _point_in_box(v.position, box):
                 unit_pads.setdefault(find(("v", j)), set()).add(ref)
+                item_pads.setdefault(("v", j), set()).add(ref)
 
     # ── Assemble, preserving the raw_items order of the first copper item.
     order: list[tuple[str, int]] = []
     by_root: dict[tuple[str, int], CopperUnit] = {}
+    track_indices: dict[tuple[str, int], list[int]] = {}
+    via_indices: dict[tuple[str, int], list[int]] = {}
     for i, t in enumerate(tracks):
         root = find(("t", i))
         if root not in by_root:
             by_root[root] = CopperUnit()
             order.append(root)
         by_root[root].tracks.append(t)
+        track_indices.setdefault(root, []).append(i)
     for j, v in enumerate(vias):
         root = find(("v", j))
         if root not in by_root:
             by_root[root] = CopperUnit()
             order.append(root)
         by_root[root].vias.append(v)
+        via_indices.setdefault(root, []).append(j)
 
     units: list[CopperUnit] = []
     for root in order:
         unit = by_root[root]
         unit.pads = tuple(sorted(unit_pads.get(root, ())))
+        unit.track_pads = [tuple(sorted(item_pads.get(("t", i), ())))
+                           for i in track_indices.get(root, [])]
+        unit.via_pads = [tuple(sorted(item_pads.get(("v", j), ())))
+                         for j in via_indices.get(root, [])]
         units.append(unit)
 
     warnings: list[str] = []
