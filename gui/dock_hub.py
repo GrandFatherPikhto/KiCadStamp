@@ -1104,11 +1104,23 @@ class DockHub:
         connection = self.main_window.connection
 
         def _distribute() -> None:
+            # on_ready FIRST, the cross-dock list distribution AFTER it
+            # (2026-09-12, plan_2026_09_12_combo_refresh_deadlock.md §Э5): the
+            # tree dock's on_ready opens a DIALOG, and it needs nothing from the
+            # other docks — its candidates come from the config graph and
+            # connection.snapshot directly (_all_ref_candidates/_used_refs,
+            # TreesDock._prompt_node). Distributing first put all eight docks'
+            # combo repopulations on the path of a button press in the tree: the
+            # live "Add node" freeze was caught inside NetTraceDock's role combo,
+            # a dock the user never touched, hanging on the same non-recursive
+            # signal mutex as the repopulation (see set_combo_items/_wire_field_
+            # changed). The lists are still distributed on this same worker-
+            # completion turn, just after the dialog returns.
+            if on_ready is not None:
+                on_ready()
             self.push_known_lists(
                 list(getattr(connection, "snapshot", None) or []),
                 getattr(connection, "board", None))
-            if on_ready is not None:
-                on_ready()
 
         def _failed(message: str) -> None:
             # A failed rebuild means the live board is gone (BoardConnection.

@@ -173,6 +173,49 @@ def test_embedded_anchor_form_refreshes_its_candidates_in_place(
     assert form.role_edit.currentText() == "HALF_TYPED"
 
 
+def test_tree_dialog_opens_before_the_cross_dock_distribution(
+        qapp, real_main_window, monkeypatch):
+    """Э5 (plan_2026_09_12_combo_refresh_deadlock.md) — the tree dialog takes
+    its candidates from the rebuilt SNAPSHOT (`_live_roles`/`_live_clusters`)
+    and from the config graph, never from the neighbouring docks' combos, so
+    the eight-dock distribution must not sit between the user's click and the
+    dialog. Before this, "Add node" ran every dock's combo repopulation first —
+    the caught freeze hung inside NetTraceDock's role combo, a dock unrelated
+    to adding a node."""
+    hub = real_main_window._dock_hub
+    dock = hub.trees_dock
+    connection = _LiveConnection([[_row("R1", "OLD_ROLE", "CL1")],
+                                  [_row("R1", "OLD_ROLE", "CL1"),
+                                   _row("R2", "NEW_ROLE", "CL2")]])
+    real_main_window.connection = connection
+    tree = Tree(name="T", anchor=None, nodes=[])
+    dock._trees = [tree]
+
+    timeline = []
+    captured = {}
+
+    class _FakeNodeDialog:
+        def __init__(self, *args, **kwargs):
+            timeline.append("dialog_opened")
+            captured.update(kwargs)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected     # cancel — nothing is staged
+
+    monkeypatch.setattr(trees_dock_mod, "_NodeDialog", _FakeNodeDialog)
+    monkeypatch.setattr(hub, "push_known_lists",
+                        lambda *a, **k: timeline.append("push_known_lists"))
+
+    dock._add_node_flow(tree)
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert timeline == ["dialog_opened", "push_known_lists"]
+    # The dialog's candidates are the FRESH snapshot values, i.e. they do not
+    # depend on the (now later) dock distribution.
+    assert "NEW_ROLE" in captured["role_candidates"]
+    assert "CL2" in captured["cluster_candidates"]
+
+
 def test_offline_trigger_keeps_the_previous_behaviour(
         qapp, real_main_window, monkeypatch):
     """S.4 #4 — without a live board there is nothing to rebuild: the trigger
