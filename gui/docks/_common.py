@@ -94,11 +94,21 @@ def set_combo_items(combo: QComboBox, items: List[str]) -> None:
     blocking selection signals around the repopulation (blockSignals) —
     so an in-progress typed value survives a refresh instead of being
     wiped, the same reason the tree/bulk-edit docks guard against
-    resetting user input."""
+    resetting user input.
+
+    EARLY EXIT on an unchanged list: the ~2s poll re-pushes the same
+    roles/clusters (and the same cells/points/sheets) essentially every tick,
+    so tearing the model down and rebuilding it was pure work. Comparison is by
+    ORDER and content, as lists: combo order is meaningful and callers pass
+    already-sorted lists. Returning early cannot lose typed text — nothing was
+    rewritten, so there is nothing to restore."""
+    new_items = list(items)
+    if [combo.itemText(i) for i in range(combo.count())] == new_items:
+        return
     current_text = combo.currentText()
     combo.blockSignals(True)
     combo.clear()
-    combo.addItems(items)
+    combo.addItems(new_items)
     combo.setCurrentText(current_text)
     combo.blockSignals(False)
 
