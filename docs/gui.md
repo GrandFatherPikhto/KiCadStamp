@@ -937,6 +937,28 @@ board read runs on a worker, and the AREA is the current board SELECTION when th
 WHOLE board — the tree already knows its nodes, clusters and pads, so no selection is needed for the
 common case.
 
+**Tools → Trees → Whose copper is this?** (2026-09-12, plan
+`plan_2026_09_12_select_copper_by_record`) answers the reverse question: which `net_traces:` records own
+the copper you have SELECTED on the live board. It is READ-ONLY — it reads your selection and never
+changes it (answering a question by destroying the question would be wrong) — runs on a worker, and
+reports in the Log, never a dialog. The search has two tiers, and the Log names the one that identified
+each piece: **by registry** first (the registry stores the uuid of every piece KiCadStamp placed, so the
+answer is exact and needs no anchor), then **by geometry** (the same `track_matches`/`via_matches`
+predicates `apply` uses) for hand-drawn copper the registry has not adopted yet — "by geometry" therefore
+means "apply has not seen this copper yet". Copper belonging to no `net_traces:` record is reported
+separately: that is a USEFUL answer, not an error — it means the copper is free to capture. Copper owned
+by another mechanism (a rule/cell) is named as such, and a registry identity with no record in the config
+is surfaced rather than invented. When an identified record is a tree node, that NODE is selected in the
+Trees dock (the copper selection is left alone). If nothing is selected, the Log says so and nothing else
+happens.
+
+The other direction — highlight a record's copper — is the contextual **Select copper on board** on a
+`kind="net_trace"` node, and the NetTraceDock's **Select on board** button (see the Net traces section):
+READ-ONLY (selection is editor UI state, not a board edit). It reports how many of the record's expected
+pieces were found, which tier found them, how many are missing, the reason when the anchor does not
+resolve, and an explicit note that the previous selection was replaced — "not found" is a normal answer
+with its reason, not an error.
+
 The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat
 Entity (+ its Cell generated from the cluster's own selection when it doesn't exist yet) — with NO
@@ -1458,7 +1480,12 @@ net_trace_dock.md`). Added 2026-08-21.
 - **Save** — edits the controllable fields (net/anchor/retired/skip) of an already-saved record and
  PRESERVES its machine-written geometry (a Save must never silently erase `tracks:`/`vias:`).
 - **Redraw** — `apply --only=<net>` for the loaded record (same `ApplyPipeline` mechanism RuleDock's
- Redraw uses), so a moved anchor re-places the captured copper live.
+  Redraw uses), so a moved anchor re-places the captured copper live.
+- **Select on board** — highlights the loaded record's live copper on the board (READ-ONLY: selection is
+  editor UI state, not a board edit). It acts on the record the Config tree last OPENED (its identity),
+  falling back to the form's net only when it is unique; Extract clears that remembered identity, because
+  a fresh record is unnamed. The outcome goes to the Log: how many pieces of the expected ones were
+  selected, the tier that found them, and a note that the previous selection was replaced.
 - Clicking a `net_traces:` leaf in the Config tree loads that record into the form.
 
 ## Scheme Lists
