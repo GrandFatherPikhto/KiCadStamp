@@ -30,7 +30,7 @@ from typing import Any
 from .domain.board import Track, Via
 from .domain.geometry import BoardLayer
 
-from .config import NetTrace
+from .config import NetTrace, net_trace_effective_name
 from .config.sexp_format import dict_to_sexp, sexp_to_dict
 from .exceptions import (
     ValidationError,
@@ -207,11 +207,18 @@ def _template_via_dict(v) -> dict[str, Any]:
 
 def net_trace_to_dict(nt: NetTrace) -> dict[str, Any]:
     """NetTrace -> plain dict for YAML/JSON, omitting None/False fields (the
-    same compact output style every other section uses)."""
+    same compact output style every other section uses).
+
+    name: is written ONLY when the record actually has one (2026-09-12,
+    plan_2026_09_12_internode_copper_core Э2): a legacy record therefore
+    serializes byte-identically to before — no name: key appears out of
+    nowhere, which is what keeps existing profiles untouched on disk."""
     d: dict[str, Any] = {
         "net": nt.net,
         "anchor_role": nt.anchor_role,
     }
+    if nt.name is not None:
+        d["name"] = nt.name
     for key in ("anchor_sheet", "anchor_cluster", "anchor_pad",
                 "anchor_rotation_deg"):
         value = getattr(nt, key)
@@ -263,8 +270,14 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     """Upsert-write one NetTrace under a `net_traces:` list key in `output`
     (JSON or s-expr by file suffix), preserving everything else in the file —
     the same merge/upsert principle as extract_template: an existing entry
-    with the same net is REPLACED in place, others are appended. Returns the
-    written entry dict.
+    with the same IDENTITY is REPLACED in place, others are appended. Returns
+    the written entry dict.
+
+    The identity is net_trace_effective_name(nt) — name: when the record has
+    one, else net: (2026-09-12, plan_2026_09_12_internode_copper_core Э2;
+    design §11). For a legacy nameless record this is exactly the old
+    "replace the entry with the same net" behaviour; for a named record it
+    replaces THAT record and leaves the other bridges of the same net alone.
 
     Reads/writes go through config_writer's read_data/write_data (2026-09-01,
     plan project_save_model): previously this function opened the file
@@ -289,19 +302,22 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
 
     net_traces = existing.setdefault('net_traces', [])
     entry = net_trace_to_dict(nt)
+    target = net_trace_effective_name(nt)
     replaced = False
     for i, e in enumerate(net_traces):
-        if isinstance(e, dict) and e.get('net') == nt.net:
+        # Raw-dict mirror of net_trace_effective_name(): name: when present,
+        # else net:.
+        if isinstance(e, dict) and (e.get('name') or e.get('net')) == target:
             net_traces[i] = entry
             replaced = True
             break
     if not replaced:
         net_traces.append(entry)
         logger.info(_("Net trace {net!r} appended to net_traces: in {output}")
-                    .format(net=nt.net, output=output_path))
+                    .format(net=target, output=output_path))
     else:
         logger.info(_("Net trace {net!r} replaced in net_traces: of {output}")
-                    .format(net=nt.net, output=output_path))
+                    .format(net=target, output=output_path))
 
     write_data(output_path, existing)
     return entry

@@ -574,11 +574,22 @@ class NetTrace:
     techdocs/handoff/deepseek/plan_2026_08_21_net_traces.md §0 for the full
     reasoning).
 
-    net — the network name. This is the SAVE/--only identity (net_trace_
-    effective_name) AND, being unique per record, the registry's
+    name — the record's IDENTITY (2026-09-12, plan_2026_09_12_internode_copper_
+    core Э2; design §11): unique across the whole net_traces list, it is the
+    SAVE/--only identity (net_trace_effective_name) AND the registry's
     template_name (see net_trace_anchor_id in kicadstamp/net_trace_planner.py).
-    One net_traces: record per net — fatal at load if two records share a net
-    (see config/loader.py).
+    OPTIONAL for backward compatibility and for the legacy extract-net flow: a
+    record without name: has net: as its effective name, and since today there
+    is exactly ONE record per net, the old identity is reproduced exactly —
+    uniqueness, --only and the registry key are unchanged, and no existing
+    profile changes on disk until it is re-read.
+
+    net — the NETWORK name: the attribute (which net this copper belongs to),
+    no longer the key. Because the identity moved to name:, TWO RECORDS ON ONE
+    NET ARE NOW LEGAL — they are two separate bridges of the same net (two
+    different pieces of copper between different pad pairs). Two records with
+    the same name: (or two nameless records on the same net, whose effective
+    names coincide) stay FATAL at load — see config/loader.py.
 
     anchor_role — REQUIRED. Resolves the anchor footprint over the WHOLE live
     board (never the mouse selection) at BOTH extract time (origin) and apply
@@ -617,6 +628,11 @@ class NetTrace:
     """
     net: str
     anchor_role: str
+    # Identity (see the docstring above): optional, defaults to net: for a
+    # legacy record. Generated once at capture (<net>__<node A>__<node B>) and
+    # never renamed by a re-read — a re-read refreshes the geometry, and
+    # renaming would break every tree node referencing this record.
+    name: str | None = None
     anchor_sheet: str | None = None
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
@@ -631,10 +647,16 @@ class NetTrace:
 
 def net_trace_effective_name(nt: "NetTrace") -> str:
     """Single point for reading the --only/SAVE identity of a NetTrace — the
-    net itself (guaranteed present on any NetTrace, and unique per record by
-    a load-time check, so it is a safe, low-typing-cost identity for --only,
-    exactly like Rule's net-derived default name)."""
-    return nt.net
+    explicit name when set, otherwise the net (2026-09-12, plan_2026_09_12_
+    internode_copper_core Э2; design §11).
+
+    THE ONE SEAM of the identity move: apply_pipeline, anchor_graph, rename and
+    the registry key all read the identity through here, so `name or net`
+    gives backward compatibility for free — a legacy record has no name, its
+    effective name is its net, and today there is exactly one record per net,
+    which reproduces the old identity exactly (same uniqueness, same --only,
+    same registry key), exactly like Rule's net-derived default name."""
+    return nt.name or nt.net
 
 
 @dataclass

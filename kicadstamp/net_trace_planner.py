@@ -36,7 +36,7 @@ import logging
 
 from .domain.geometry import BoardLayer
 
-from .config import NetTrace
+from .config import NetTrace, net_trace_effective_name
 from .exceptions import ValidationError, format_fatal_error
 from .geometry.spoke_layout import local_to_absolute
 from .placement.commands import ViaCommand, TrackCommand
@@ -49,12 +49,19 @@ logger = logging.getLogger(__name__)
 
 
 def net_trace_anchor_id(nt: NetTrace) -> str:
-    """Registry anchor_id for one net trace — `net:<net>`. The net is unique
-    per record (load-time check) and stable, so it is a safe registry anchor
-    id; it is also the registry-key protection prefix shared with
-    apply_pipeline's _compute_all_anchor_ids (see registry.py reconcile's
-    protected-prefix list)."""
-    return f"net:{nt.net}"
+    """Registry anchor_id for one net trace — `net:<identity>`, where the
+    identity is net_trace_effective_name(nt): the record's own name:, or its
+    net: on a legacy record without one (2026-09-12, plan_2026_09_12_internode_
+    copper_core Э2; design §11). Unique per record (load-time check) and
+    stable, so it is a safe registry anchor id; it is also the registry-key
+    protection prefix shared with apply_pipeline's _compute_all_anchor_ids
+    (see registry.py reconcile's protected-prefix list).
+
+    The `net:` PREFIX is deliberately KEPT as it is (design §11): it is the
+    registry's protection marker for this section, and renaming it to `trace:`
+    would force a registry migration on both machines for pure cosmetics. On a
+    legacy record the whole key is byte-identical to before."""
+    return f"net:{net_trace_effective_name(nt)}"
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:

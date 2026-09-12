@@ -55,9 +55,11 @@ logger = logging.getLogger(__name__)
 
 def _net_trace_identity(entry: Dict[str, Any]) -> Any:
     """upsert_list_entry's key_fn — mirrors net_trace_effective_name() at the
-    raw-dict level: the net itself is the record's --only identity (one record
-    per net, enforced at load)."""
-    return entry.get("net")
+    raw-dict level: name: when the record has one, else net: (2026-09-12,
+    plan_2026_09_12_internode_copper_core Э2). Two records on one net are now
+    legal — they are two bridges of that net — so keying by net: would make
+    the second one overwrite the first."""
+    return entry.get("name") or entry.get("net")
 
 
 class NetTraceDock(QWidget):

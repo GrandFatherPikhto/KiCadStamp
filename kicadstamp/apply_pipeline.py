@@ -196,8 +196,15 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     matched_coords = [cp for cp in cfg.coordinate_placements
                       if not cp.retired
                       and coordinate_placement_effective_name(cp) in requested]
+    # net_traces: the identity is name: (2026-09-12, plan_2026_09_12_internode_
+    # copper_core Э2; design §11), but a NET name keeps selecting every record
+    # drawn on that net — for backward compatibility: a user's habitual
+    # `--only <net>` must keep working now that several records may share one
+    # net (each bridge of the net has its own name:).
     matched_nets = [nt for nt in cfg.net_traces
-                    if not nt.retired and net_trace_effective_name(nt) in requested]
+                    if not nt.retired
+                    and (net_trace_effective_name(nt) in requested
+                         or nt.net in requested)]
 
     # entities: — recognized by name here (so --only E1 does not fatal), but
     # deliberately NOT cut out of cfg.entities: materialization in
@@ -210,6 +217,9 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                    | {thermal_via_array_effective_name(t) for t in matched_tvas}
                    | {coordinate_placement_effective_name(cp) for cp in matched_coords}
                    | {net_trace_effective_name(nt) for nt in matched_nets}
+                   # a net name is a legal --only spelling for net_traces (see
+                   # above) — count it as found, the match itself is the record
+                   | {nt.net for nt in matched_nets}
                    | {entity_effective_name(e) for e in cfg.entities if not e.retired})
     missing = requested - found_names
     if missing:
@@ -220,6 +230,9 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
                if not cp.retired}
             | {net_trace_effective_name(nt) for nt in cfg.net_traces if not nt.retired}
+            # net_traces net names are valid --only spellings too (see above),
+            # so they must be suggested when a name is not found
+            | {nt.net for nt in cfg.net_traces if not nt.retired}
             | {entity_effective_name(e) for e in cfg.entities if not e.retired}
         )
         lines = []

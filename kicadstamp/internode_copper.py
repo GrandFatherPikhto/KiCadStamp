@@ -45,6 +45,7 @@ Qt-free and testable directly.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping
@@ -61,6 +62,7 @@ __all__ = [
     "PadRef",
     "classify_unit",
     "find_copper_units",
+    "generate_trace_name",
     "net_conflicts",
 ]
 
@@ -299,6 +301,46 @@ def net_conflicts(unit: CopperUnit) -> list[str]:
         "routing").format(
             pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads) or "-",
             nets=", ".join(sorted(names)))]
+
+
+_TRACE_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _trace_name_token(value: str) -> str:
+    """One component of a generated trace name: the LEAF of a hierarchical
+    path, lowercased, with every run of unsafe characters collapsed into a
+    single underscore. The path itself is dropped — the leaf is what names the
+    record ('/FPGA/SPI_CLK' -> 'spi_clk', exactly as in the design's example
+    `spi_clk__fpga__ch0_dac`)."""
+    token = _TRACE_NAME_UNSAFE.sub("_", value.rsplit("/", 1)[-1]).strip("_")
+    return token.lower() or "unnamed"
+
+
+def generate_trace_name(net: str, node_labels: Iterable[str],
+                        existing_names: Iterable[str] = ()) -> str:
+    """The name of a captured inter-node copper record — `<net>__<node A>__
+    <node B>` (design §11, plan Э2).
+
+    * the net contributes its leaf (`/FPGA/SPI_CLK` -> `spi_clk`), the tree
+      nodes contribute their own labels, sanitized the same way;
+    * the node labels are SORTED ALPHABETICALLY before joining, so the name
+      does not depend on the order the units were traversed in — the same
+      copper yields the same name on every capture;
+    * a collision with `existing_names` gets the suffix `_2`, `_3`, ...
+
+    The caller generates this ONCE, at the first capture, and stores it: a
+    re-read refreshes the geometry of an existing record and never renames it,
+    or every tree node referencing the record would break on each read."""
+    tokens = [_trace_name_token(net)]
+    tokens += sorted({_trace_name_token(label) for label in node_labels})
+    base = "__".join(tokens)
+    taken = set(existing_names)
+    if base not in taken:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in taken:
+        suffix += 1
+    return f"{base}_{suffix}"
 
 
 def classify_unit(unit: CopperUnit, node_by_ref: Mapping[str, Any]) -> CopperVerdict:

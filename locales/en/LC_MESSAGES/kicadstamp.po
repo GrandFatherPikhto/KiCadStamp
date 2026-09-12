@@ -8049,13 +8049,27 @@ msgstr "net_traces entry without net"
 
 #: kicadstamp/config/entries.py:665
 msgid ""
-"every net_traces entry must have net: <NET NAME> — the net name is the "
-"record's --only identity and must be unique across the whole net_traces "
-"list; one record per net"
+"every net_traces entry must have net: <NET NAME> — the network this copper "
+"belongs to. The record's --only identity is name: (defaulting to net: on a "
+"legacy record without one)"
 msgstr ""
-"every net_traces entry must have net: <NET NAME> — the net name is the "
-"record's --only identity and must be unique across the whole net_traces "
-"list; one record per net"
+"every net_traces entry must have net: <NET NAME> — the network this copper "
+"belongs to. The record's --only identity is name: (defaulting to net: on a "
+"legacy record without one)"
+
+# ── net_traces identity: name: replaces net: (plan_2026_09_12_internode_copper_core, Э2) ──
+#: kicadstamp/config/entries.py
+#, python-brace-format
+msgid "net_traces entry (net {net!r}) has an empty name"
+msgstr "net_traces entry (net {net!r}) has an empty name"
+
+#: kicadstamp/config/entries.py
+msgid ""
+"name: is the record's --only identity; leave it out entirely to fall back "
+"to net:, or give a non-empty string"
+msgstr ""
+"name: is the record's --only identity; leave it out entirely to fall back "
+"to net:, or give a non-empty string"
 
 #: kicadstamp/config/entries.py:671
 #, python-brace-format
@@ -8856,11 +8870,15 @@ msgstr ""
 
 #: kicadstamp/config/loader.py:201
 msgid ""
-"every net_traces entry needs a unique net: — one record per net; "
-"--only=<net> cannot tell same-netted entries apart otherwise"
+"every net_traces entry needs a unique name: — two bridges of one net are "
+"legal, but they must carry different name: values (name: is the record's "
+"--only identity, and it falls back to net: when absent); --only cannot tell "
+"same-named entries apart otherwise"
 msgstr ""
-"every net_traces entry needs a unique net: — one record per net; "
-"--only=<net> cannot tell same-netted entries apart otherwise"
+"every net_traces entry needs a unique name: — two bridges of one net are "
+"legal, but they must carry different name: values (name: is the record's "
+"--only identity, and it falls back to net: when absent); --only cannot tell "
+"same-named entries apart otherwise"
 
 #: kicadstamp/config/loader.py:213
 msgid "deprecated fields 'templates_file'/'template_files'"

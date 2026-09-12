@@ -328,7 +328,12 @@ def test_load_config_net_traces_missing_anchor_role_fatal(tmp_path):
         load_config(str(cfg_path))
 
 
-def test_load_config_net_traces_duplicate_net_fatal(tmp_path):
+def test_load_config_net_traces_duplicate_name_fatal(tmp_path):
+    """Renamed 2026-09-12 (plan_2026_09_12_internode_copper_core Э2): the
+    IDENTITY moved from net: to name:, so a nameless record's effective name
+    IS its net and two of them still collide — the fatal is the same, only its
+    message now names the identity correctly (name:). Two records on one net
+    are legal as soon as they carry explicit, different name: values."""
     from kicadstamp.config import load_config
     cfg_path = tmp_path / "board.sexp"
     cfg_path.write_text(dict_to_sexp({
@@ -337,7 +342,7 @@ def test_load_config_net_traces_duplicate_net_fatal(tmp_path):
             {"net": "DAC_DB0", "anchor_role": "FPGA"},
         ],
     }), encoding="utf-8")
-    with pytest.raises(ValidationError, match="unique net"):
+    with pytest.raises(ValidationError, match="unique name"):
         load_config(str(cfg_path))
 
 

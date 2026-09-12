@@ -193,15 +193,19 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         _load_net_trace(nt_data) for nt_data in data.get('net_traces', [])
     ]
 
-    # net_traces: one record per net by design (see NetTrace docstring in
-    # config/models.py) — two records on the same net would silently collide
-    # under --only=<net> (both would match), and there is no "second instance"
-    # concept for a net trace to justify reusing one net name, so it is fatal
-    # at load, same duplicate-name discipline as the other list sections.
+    # net_traces: the identity is name: (2026-09-12, plan_2026_09_12_internode_
+    # copper_core Э2; design §11) — the net is an attribute now, so several
+    # records on ONE net are legal (they are several bridges of that net). Two
+    # records on the same NAME still collide under --only, so the same
+    # duplicate-name discipline as the other list sections applies — read
+    # through net_trace_effective_name, so a legacy record without name: is
+    # checked by its net (the old behaviour, unchanged).
     _check_duplicate_names(
         net_traces, net_trace_effective_name, "net_traces",
-        _("every net_traces entry needs a unique net: — one record per net; "
-          "--only=<net> cannot tell same-netted entries apart otherwise"))
+        _("every net_traces entry needs a unique name: — two bridges of one net "
+          "are legal, but they must carry different name: values (name: is the "
+          "record's --only identity, and it falls back to net: when absent); "
+          "--only cannot tell same-named entries apart otherwise"))
 
     # scheme_lists: — recorded live-board snapshots (design_2026_09_05_scheme_
     # list.md, plan P1). A list section like thermal_via_arrays/clone_

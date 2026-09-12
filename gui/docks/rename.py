@@ -64,9 +64,11 @@ LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "chains", "net_traces
 # absent (config/models.py's chain_effective_name()) — the only section with
 # a fallback identifying field. Public (2026-08-05): gui/docks/entity_delete.py
 # needs the same "name or net" identity to match a chains: entry for removal.
-# net_traces: entries always carry net: and it IS their --only identity
-# (config/models.py's net_trace_effective_name()) — same "single field
-# fallback" shape as chains (2026-08-21, plan net_trace_dock).
+# net_traces: same "single field fallback" shape (2026-08-21, plan
+# net_trace_dock) — since 2026-09-12 the identity is name: with net: as the
+# fallback (config/models.py's net_trace_effective_name(), plan_2026_09_12_
+# internode_copper_core Э2), and entry_effective_name() below already reads
+# name: FIRST, so no code change is needed here — only the fallback target.
 FALLBACK_KEY = {"chains": "net", "net_traces": "net"}
 
 

@@ -656,7 +656,7 @@ def _load_chain(chain_data: dict[str, Any]) -> Chain:
 
 
 _NET_TRACE_KNOWN_KEYS = {
-    'net', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
+    'net', 'name', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
     'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip', 'comment',
 }
 
@@ -666,8 +666,18 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     NetTrace's docstring in config/models.py). Extracted 2026-08-21 as a
     standalone per-entry validator (same shape as _load_rule/_load_clone_
     placement) so the GUI could later validate a single entry before writing;
-    the list-level duplicate-net check stays in load_config() — it needs the
+    the list-level duplicate-NAME check stays in load_config() — it needs the
     WHOLE net_traces list, not one entry.
+
+    name — OPTIONAL identity (2026-09-12, plan_2026_09_12_internode_copper_core
+    Э2; design §11). Absent on every legacy record, where the net is the
+    effective name (net_trace_effective_name). Must be a non-empty string when
+    present: a nameless-but-present key would collapse two records onto the
+    empty identity.
+
+    net — REQUIRED: the record's network, an attribute now (not the key), so
+    several records on one net are legal — they are several bridges of that
+    net. Still required because the record must know WHICH net it draws.
 
     anchor_role — REQUIRED (the NetTrace record always resolves its anchor by
     Role field, matching the plan: no anchor_ref/anchor_point variant).
@@ -680,9 +690,17 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     if not net:
         raise ValidationError(format_fatal_error(
             _("net_traces entry without net"),
-            [_("every net_traces entry must have net: <NET NAME> — the net "
-               "name is the record's --only identity and must be unique across "
-               "the whole net_traces list; one record per net")]))
+            [_("every net_traces entry must have net: <NET NAME> — the network "
+               "this copper belongs to. The record's --only identity is name: "
+               "(defaulting to net: on a legacy record without one)")]))
+    name = data.get('name')
+    if name is not None:
+        if not isinstance(name, str) or not name.strip():
+            raise ValidationError(format_fatal_error(
+                _("net_traces entry (net {net!r}) has an empty name").format(net=net),
+                [_("name: is the record's --only identity; leave it out "
+                   "entirely to fall back to net:, or give a non-empty string")]))
+        name = name.strip()
     anchor_role = data.get('anchor_role')
     if not anchor_role:
         raise ValidationError(format_fatal_error(
@@ -727,6 +745,7 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     return NetTrace(
         net=net,
         anchor_role=anchor_role,
+        name=name,
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
