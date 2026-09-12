@@ -98,6 +98,7 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
+from ..board_layers import ALL_COPPER_LAYERS, filter_tracks_by_layers
 from ..worker import start_long_op
 from ..cell_edit_context import (
     remembered_cell_edit_context,
@@ -1538,6 +1539,13 @@ class CellDock(QWidget):
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
             "cell_layer": self.layer_combo.currentData() or "F.Cu",
+            # Э5 (plan_2026_09_12_cell_layer_dialog): the layer set is decided
+            # HERE, on the UI thread — the worker never decides. ALL_COPPER_LAYERS
+            # is today's answer (read everything, exactly the old behaviour) and
+            # it is deliberately a value that needs NO board read: the fast path
+            # must stay fast (P.3.1). Э3 replaces it with the remembered set, and
+            # the dialog path with what the user checked.
+            "layers": ALL_COPPER_LAYERS,
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
@@ -1561,6 +1569,16 @@ class CellDock(QWidget):
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
             tracks = [i for i in items if isinstance(i, Track)]
+            # Э5: the filter stands HERE — after the selection is split into
+            # footprints/vias/tracks, BEFORE build_refresh_plan matches anything.
+            # Copper on a layer that is not read must never reach the matcher:
+            # there it is "copper the cell does not describe" and Refresh would
+            # ADD it as a new record instead of leaving it alone. For Refresh,
+            # "not read" and "deleted" are one action — the layer keeps no live
+            # pair, and remove_missing drops its records (Э5, design Р12).
+            # Vias are layer-less and components stand on a side, not a layer:
+            # only TRACKS are filtered (P.2).
+            tracks = filter_tracks_by_layers(tracks, payload.get("layers"))
             # N: the nested placements name OTHER cells, so their definitions
             # (and the project's sheet map, used by the role-narrowing cascade)
             # come from the root config. Loaded ONLY when there is something to
@@ -1748,6 +1766,10 @@ class CellDock(QWidget):
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
             "cell_layer": self.layer_combo.currentData() or "F.Cu",
+            # Э5: same decided-on-the-UI-thread layer set as the refresh path
+            # (see _on_refresh_geometry). For Import a checked-off layer simply
+            # means "not added" — nothing is ever removed here.
+            "layers": ALL_COPPER_LAYERS,
         }
         self._active_op = start_long_op(
             connection, (self.import_vias_tracks_button,),
@@ -1768,6 +1790,10 @@ class CellDock(QWidget):
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
             tracks = [i for i in items if isinstance(i, Track)]
+            # Э5: the same filter as _run_refresh_geometry, in the same place —
+            # a track on an unchecked layer is invisible here too, so it is never
+            # imported (for Import the consequence is only "not added").
+            tracks = filter_tracks_by_layers(tracks, payload.get("layers"))
             plan = build_import_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,

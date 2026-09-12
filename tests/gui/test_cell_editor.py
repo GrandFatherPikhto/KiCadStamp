@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import gui.docks.cell_editor as cell_editor_mod
+from gui.board_layers import ALL_COPPER_LAYERS
 from gui.docks.cell_editor import CellDock
 from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import load_template_via
@@ -1645,3 +1646,168 @@ def test_finish_refresh_prints_the_nested_report_lines(main_window, tmp_path,
                         "mirror=false -> xy (1.0, 2.0) rot 0.0° mirror=false"])})
 
     assert any("nested 'n1'" in m for m in messages)
+
+
+# ── Э5: the per-read layer filter (plan_2026_09_12_cell_layer_dialog) ────────
+#
+# The layer set is decided on the UI thread and travels in the payload; the
+# worker keeps only the tracks on it (gui/board_layers.filter_tracks_by_layers),
+# so copper on an unchecked layer is INVISIBLE to the matcher instead of looking
+# like copper the cell does not describe. For Refresh that also means its
+# records are removed (remove_missing) — "not read" and "deleted" are one
+# action; for Import it only means "not added".
+
+def _dto_track_on(layer, net, x1_mm, y1_mm, x2_mm, y2_mm):
+    """A live Track on a CHOSEN layer — _import_dto_track is F.Cu-only."""
+    return Track(uuid=f"t-{net}-{layer.name}", net_name=net,
+                 start=Vector2.from_xy_mm(x1_mm, y1_mm),
+                 end=Vector2.from_xy_mm(x2_mm, y2_mm),
+                 width_mm=0.25, layer=layer)
+
+
+def _cell_with_two_layer_tracks():
+    """_loaded_cell_data() plus TWO track records of the same net and shape, one
+    per outer layer: the F.Cu one carries no `layer` key (it IS the cell's own
+    layer), the B.Cu one names its layer explicitly — exactly what extract
+    writes, so the two differ ONLY by layer and the filter can be told apart."""
+    data = _loaded_cell_data()
+    data["cells"]["t"]["tracks"] = [
+        {"start_along_mm": 0.0, "start_across_mm": 4.0,
+         "end_along_mm": 1.0, "end_across_mm": 4.0,
+         "width_mm": 0.25, "net": "GND"},
+        {"start_along_mm": 0.0, "start_across_mm": 6.0,
+         "end_along_mm": 1.0, "end_across_mm": 6.0,
+         "width_mm": 0.25, "net": "GND", "layer": "B.Cu"},
+    ]
+    return data
+
+
+def _two_layer_board(board_cls, extra_items=()):
+    """ORIG/CAP exactly at their recorded offsets (a clean frame), the GND via's
+    live counterpart, and one live track per outer layer at each record's
+    position — the F.Cu one moved 0.2mm across so its update is observable."""
+    return board_cls(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.0, 10.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _dto_track_on(BoardLayer.BL_F_Cu, "GND", 10.0, 14.2, 11.0, 14.2),
+         _dto_track_on(BoardLayer.BL_B_Cu, "GND", 10.0, 16.0, 11.0, 16.0),
+         *extra_items],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+
+def test_refresh_with_all_layers_keeps_the_old_behaviour(main_window, tmp_path):
+    """ALL_COPPER_LAYERS — and a payload with no `layers` key at all, which is
+    what every pre-existing caller passes — reads the whole selection: the live
+    B.Cu copper the cell does not describe is still READ, so it becomes a new
+    record exactly as before the filter existed."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _RefreshBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.0, 10.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _dto_track_on(BoardLayer.BL_B_Cu, "NEW_NET", 10.0, 14.0, 11.0, 14.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+    base = {"board": board, "components": list(dock._components),
+            "vias": list(dock._vias), "tracks": list(dock._tracks),
+            "cell_layer": "F.Cu"}
+
+    results = [dock._run_refresh_geometry(dict(base)),
+               dock._run_refresh_geometry({**base, "layers": ALL_COPPER_LAYERS})]
+
+    for result in results:
+        assert "error" not in result
+        plan = result["plan"]
+        assert [(r["net"], r.get("layer")) for r in plan.new_track_records] == [
+            ("NEW_NET", "B.Cu")]
+        assert plan.removed_track_records == []
+
+
+def test_refresh_unchecked_layer_is_not_read_at_all(main_window, tmp_path):
+    """Э7.1: the same selection with B.Cu unchecked — the B.Cu copper stops
+    existing for the read (no phantom 'the cell does not describe it' record),
+    while the layer-less vias are untouched by the filter (P.2/Э7.7)."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _RefreshBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.0, 10.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _refresh_dto_via("NEW_VIA", 12.0, 13.0),
+         _dto_track_on(BoardLayer.BL_B_Cu, "NEW_NET", 10.0, 14.0, 11.0, 14.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+    result = dock._run_refresh_geometry(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks),
+         "cell_layer": "F.Cu", "layers": {"F.Cu"}})
+
+    assert "error" not in result
+    plan = result["plan"]
+    assert plan.new_track_records == []
+    assert plan.removed_track_records == []
+    assert [r["net"] for r in plan.new_via_records] == ["NEW_VIA"]
+
+
+def test_refresh_removes_the_records_of_an_unchecked_layer(main_window, tmp_path,
+                                                           monkeypatch):
+    """Э7.2: a layer that is not read gives its records no live pair, so
+    remove_missing drops them — and each one is named in the Log with a '- '
+    line (the H.2.4 report), which is what keeps a week-old unchecked box from
+    looking like silent damage."""
+    dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
+    dock.load_entry("t")
+    f_rec, b_rec = dock._tracks
+    board = _two_layer_board(_RefreshBoard)
+
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    result = dock._run_refresh_geometry(
+        {"board": board, "components": list(dock._components),
+         "vias": list(dock._vias), "tracks": list(dock._tracks),
+         "cell_layer": "F.Cu", "layers": {"F.Cu"}})
+    assert "error" not in result
+    plan = result["plan"]
+
+    assert [rec for rec, _geo in plan.track_updates] == [f_rec]
+    assert plan.removed_track_records == [b_rec]
+    assert plan.new_track_records == []
+
+    dock._finish_refresh_geometry(result)
+
+    assert dock._tracks == [f_rec]
+    assert any(m.startswith("- ") and "B.Cu" in m for m in messages)
+    assert "1 record(s) removed" in messages[-1]
+
+
+def test_import_with_an_unchecked_layer_never_adds_that_layer(main_window, tmp_path):
+    """Э7.1 for the additive path: for Import a checked-off layer is simply 'not
+    added' — both layers live in the selection give two new records, F.Cu alone
+    gives one."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _ImportBoard(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.0, 10.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _dto_track_on(BoardLayer.BL_F_Cu, "NEW_NET", 10.0, 14.0, 11.0, 14.0),
+         _dto_track_on(BoardLayer.BL_B_Cu, "NEW_NET", 10.0, 16.0, 11.0, 16.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+    base = {"board": board, "components": list(dock._components),
+            "vias": list(dock._vias), "tracks": list(dock._tracks),
+            "cell_layer": "F.Cu"}
+
+    all_layers = dock._run_import_vias_tracks(
+        {**base, "layers": ALL_COPPER_LAYERS})
+    f_cu_only = dock._run_import_vias_tracks({**base, "layers": {"F.Cu"}})
+
+    assert "error" not in all_layers and "error" not in f_cu_only
+    assert [(r["net"], r.get("layer"))
+            for r in all_layers["plan"].new_track_records] == [
+        ("NEW_NET", None), ("NEW_NET", "B.Cu")]
+    assert [(r["net"], r.get("layer"))
+            for r in f_cu_only["plan"].new_track_records] == [
+        ("NEW_NET", None)]

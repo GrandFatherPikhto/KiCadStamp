@@ -37,6 +37,10 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.clone_geometry import apply_clone_geometry
+# The per-read layer filter (Э5 of plan_2026_09_12_cell_layer_dialog) is applied
+# by the CALLER — the dock workers call it right after splitting the selection —
+# so the matcher-level behaviour is asserted with the real helper, not a stand-in.
+from gui.board_layers import filter_tracks_by_layers
 
 
 # ── Synthetic DTO / adapter helpers ─────────────────────────────────────────
@@ -1632,3 +1636,53 @@ def test_role_only_nested_placement_reads_its_position():
     dx, dy = rotate_ydown_mm(new_geo["xy"][0], new_geo["xy"][1], 90.0)
     assert (dx, dy) == pytest.approx((solo.position.x / 1e6 - 100.0,
                                       solo.position.y / 1e6 - 200.0), abs=1e-3)
+
+
+# ── Э5: the layer filter turns "extra copper" into "not part of this read" ──
+# plan_2026_09_12_cell_layer_dialog.md, Э7.8. The filter stands BEFORE the
+# matcher; these two runs are the same scenario, differing only in which layers
+# the read was allowed to see.
+
+def test_layer_filter_removes_the_extra_copper_fatal_of_an_unread_layer():
+    """Э7.8: a live track on a layer the cell does not describe is 'extra copper
+    in selection' — a collected fatal. The SAME track, once the layer set the
+    caller decided does not include its layer, never reaches the matcher: no
+    fatal, and no record either (it was not read, it was not added)."""
+    components = [{"role": "ORIG"}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    live_b_cu = Track(uuid="t-b-cu", net_name="GND",
+                      start=Vector2.from_xy_mm(1.0, 1.0),
+                      end=Vector2.from_xy_mm(2.0, 1.0),
+                      width_mm=0.25, layer=BoardLayer.BL_B_Cu)
+
+    with pytest.raises(ValidationError, match="extra copper in selection"):
+        build_refresh_plan(components, [], [], footprints, [], [live_b_cu],
+                           adapter, cell_layer="F.Cu")
+
+    plan = build_refresh_plan(
+        components, [], [], footprints, [],
+        filter_tracks_by_layers([live_b_cu], {"F.Cu"}),
+        adapter, cell_layer="F.Cu")
+
+    assert plan.track_updates == []
+    assert plan.removed_track_records == []
+    assert plan.new_track_records == []
+
+
+def test_layer_filter_keeps_the_fatal_for_a_layer_that_was_read():
+    """The other half of Э7.8: filtering is per layer, not a general amnesty —
+    the very same track stays fatal when its layer IS read."""
+    components = [{"role": "ORIG"}]
+    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    live_b_cu = Track(uuid="t-b-cu", net_name="GND",
+                      start=Vector2.from_xy_mm(1.0, 1.0),
+                      end=Vector2.from_xy_mm(2.0, 1.0),
+                      width_mm=0.25, layer=BoardLayer.BL_B_Cu)
+
+    assert filter_tracks_by_layers([live_b_cu], {"B.Cu"}) == [live_b_cu]
+    with pytest.raises(ValidationError, match="extra copper in selection"):
+        build_refresh_plan(components, [], [], footprints, [],
+                           filter_tracks_by_layers([live_b_cu], {"B.Cu"}),
+                           adapter, cell_layer="F.Cu")

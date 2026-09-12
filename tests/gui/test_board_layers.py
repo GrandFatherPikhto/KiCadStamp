@@ -12,13 +12,19 @@ get_copper_layer_count(). An implementation that confuses the two fails here.
 No KiCad and no Qt: the board is a duck-typed fake, like tests/gui/
 test_board_overlay.py's.
 """
+from types import SimpleNamespace
+
 from kipy.board_types import BoardLayer
 
 from gui.board_layers import (
+    ALL_COPPER_LAYERS,
     CopperLayer,
     copper_layer_order,
     enabled_copper_layers,
+    filter_tracks_by_layers,
+    live_copper_name,
 )
+from kicadstamp.domain.geometry import BoardLayer as DomainLayer
 
 F = BoardLayer.BL_F_Cu
 IN1 = BoardLayer.BL_In1_Cu
@@ -155,3 +161,76 @@ class TestCopperLayerOrder:
     def test_empty_and_copper_free_inputs(self):
         assert copper_layer_order([]) == []
         assert copper_layer_order(list(NON_COPPER)) == []
+
+
+class TestLiveCopperName:
+    """A live Track carries a DOMAIN layer (kicadstamp.domain.geometry), whose
+    numbering is NOT the board's (F.Cu is 0 there, 3 on the board) — the
+    canonical NAME is what the filter compares, so both worlds can meet."""
+
+    def test_domain_copper_layers_have_their_canonical_names(self):
+        assert live_copper_name(DomainLayer.BL_F_Cu) == "F.Cu"
+        assert live_copper_name(DomainLayer.BL_In1_Cu) == "In1.Cu"
+        assert live_copper_name(DomainLayer.BL_In30_Cu) == "In30.Cu"
+        assert live_copper_name(DomainLayer.BL_B_Cu) == "B.Cu"
+
+    def test_a_board_value_is_not_a_domain_layer(self):
+        """The board's F.Cu value is 3 — a number the DOMAIN enum does not name.
+        Mixing the two worlds must yield NO name (never a guessed 'In3.Cu')."""
+        assert live_copper_name(BoardLayer.BL_F_Cu) is None
+        assert live_copper_name(None) is None
+
+
+class TestFilterTracksByLayers:
+    """Э5: the layer set is decided on the UI thread and the workers keep only
+    the tracks on it — the filter, not the matcher, is what makes an unchecked
+    layer's copper invisible."""
+
+    @staticmethod
+    def _track(layer):
+        return SimpleNamespace(layer=layer)
+
+    def test_all_layers_keeps_every_track_untouched(self):
+        tracks = [self._track(DomainLayer.BL_F_Cu),
+                  self._track(DomainLayer.BL_B_Cu)]
+        assert filter_tracks_by_layers(tracks, ALL_COPPER_LAYERS) == tracks
+
+    def test_none_is_the_all_layers_answer_and_not_an_empty_read(self):
+        """The sentinel is what the fast path passes (P.3.1: no board read), so
+        it must mean 'everything', never 'nothing'."""
+        one = [self._track(DomainLayer.BL_F_Cu)]
+        assert len(filter_tracks_by_layers(one, None)) == 1
+
+    def test_only_the_selected_layers_are_visible(self):
+        f_cu = self._track(DomainLayer.BL_F_Cu)
+        b_cu = self._track(DomainLayer.BL_B_Cu)
+        assert filter_tracks_by_layers([f_cu, b_cu], {"F.Cu"}) == [f_cu]
+        assert filter_tracks_by_layers([f_cu, b_cu], {"F.Cu", "B.Cu"}) == [
+            f_cu, b_cu]
+
+    def test_inner_layers_are_matched_by_their_own_name(self):
+        in1 = self._track(DomainLayer.BL_In1_Cu)
+        in2 = self._track(DomainLayer.BL_In2_Cu)
+        assert filter_tracks_by_layers([in1, in2], {"In2.Cu"}) == [in2]
+        assert filter_tracks_by_layers([in1, in2], {"In3.Cu"}) == []
+
+    def test_an_empty_selection_reads_no_track_at_all(self):
+        tracks = [self._track(DomainLayer.BL_F_Cu),
+                  self._track(DomainLayer.BL_B_Cu)]
+        assert filter_tracks_by_layers(tracks, set()) == []
+
+    def test_original_order_is_preserved(self):
+        """Matching pairs records to live items in selection order — the filter
+        must not reshuffle what it keeps."""
+        first = self._track(DomainLayer.BL_B_Cu)
+        second = self._track(DomainLayer.BL_F_Cu)
+        third = self._track(DomainLayer.BL_B_Cu)
+        assert filter_tracks_by_layers(
+            [first, second, third], {"B.Cu"}) == [first, third]
+
+    def test_a_layer_we_cannot_name_is_never_kept(self):
+        """Defensive: an item whose layer is not a domain copper layer matches
+        no checked name, so it can never join a read by accident."""
+        alien = self._track(3)
+        assert filter_tracks_by_layers([alien], {"F.Cu"}) == []
+        assert filter_tracks_by_layers([alien], {"In3.Cu"}) == []
