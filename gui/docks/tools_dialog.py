@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout
 
 from kicadstamp.i18n import _
 
-from ..ui_utils import resize_dialog_within_screen
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from .tools import ToolsDock
 
 
@@ -42,4 +42,9 @@ class ToolsDialog(QDialog):
         # current state, but a fresh dialog benefits from a roomier start.
         # Screen-capped since 2026-09-12 (plan_2026_09_12_no_widget_squeezing.md
         # Э4).
-        resize_dialog_within_screen(self, 520, 560)
+        # Э3 (plan_2026_09_12_node_dialog_usability): the size the user left the
+        # dialog at last time wins over this default — and still goes through
+        # the same screen cap. This dialog is non-modal and long-lived (the
+        # window X only hides it), so the size is stored on every hide.
+        restore_dialog_size(self, 520, 560)
+        persist_dialog_size(self)

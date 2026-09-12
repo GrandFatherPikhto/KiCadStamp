@@ -108,6 +108,20 @@ plus the window frame and the task bar does not fit a laptop display at 125 %
 scaling). With no screen at all (headless runs) it degrades to a plain
 `resize()`.
 
+Since 2026-09-12 (`plan_2026_09_12_node_dialog_usability` §Э3) the dialogs also
+REMEMBER the size they were left at: `gui/ui_utils.restore_dialog_size()` (called
+once where the size is decided, with the old constant as its fallback) reads
+`gui_state.json["dialog_size:<ClassName>"]` — the class name, never the
+translated title — and `gui/ui_utils.persist_dialog_size()` stores it on every
+hide/close. Hiding is the one path every dialog has (`accept()`/`reject()` and the
+window X both hide; a non-modal dialog closed with the X never emits
+`finished()`), hence the event filter rather than a signal. The restored size goes
+through the SAME screen cap as a constant — a size saved on a big monitor cannot
+hang off a laptop. Only the SIZE is remembered; a position on another monitor
+layout would put the window off-screen. Covers Cell/Project/Tools/Settings/
+InstantiateCell/TreeInstances/ExtractCluster/TreeFromSelection dialogs and the
+node dialog.
+
 Guard: `tests/gui/test_no_widget_height_squeezing.py` — an ast tripwire over
 `gui/**/*.py` for height calls on field-looking receivers, plus a behavioural
 test that squeezes the real central widget to 120 px and requires every visible
@@ -510,6 +524,28 @@ The generic cascade "Redraw dependents" for an arbitrary node is intentionally N
 §9.2): tree redraws stay selected / whole-tree / forest only. The ADD dialogs (Add / Add child / Add
 sibling / Add node) keep their modal OK/Cancel — there is no node to apply/redraw before it exists,
 and a brand-new tree may not have a tab yet.
+
+Since 2026-09-12 (`plan_2026_09_12_node_dialog_usability`):
+
+- **OK validates before it closes.** The node dialog's OK runs `build_node()`
+  first and accepts only when it built a node — a refused Ref/offset leaves the
+  window OPEN with everything typed, so one edit is enough to retry (before,
+  OK was wired straight to `accept()` and validation ran after `exec()`, when the
+  input was already gone). Cancel/Close stays the unconditional reject, exactly
+  like the edit mode's Close.
+- **X/Y start at 0** in ADD mode (an empty xy field is an error, and "the node
+  sits on its base" is the common case); EDIT mode keeps the node's own values,
+  and the polar pair is untouched.
+- **Parent:** on the EDIT form re-hangs the node under another **mount** node of
+  the same tree (or back to the top level). The offset is re-expressed through
+  the new parent's base at the moment the combo changes, so the node does NOT
+  move physically — the binding changed, not the place. When the new parent's
+  base cannot be resolved on the live board nothing is recalculated: the Log says
+  so and the move needs an explicit confirmation. A node is never offered its own
+  subtree (no cycles), and a node that IS the tree's `pivot-ref` is offered no
+  mount parent at all — a node under a mount ancestor has a LIVE base and cannot
+  be the inner point (`_validate_tree_pivot_ref` would refuse the config at the
+  next load).
 
 Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
 state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree

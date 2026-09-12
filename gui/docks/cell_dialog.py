@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout
 
 from kicadstamp.i18n import _
 
-from ..ui_utils import resize_dialog_within_screen
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from .cell_editor import CellDock
 
 
@@ -48,4 +48,8 @@ class CellDialog(QDialog):
         # window frame does not fit a laptop display at 125 % scaling, and a
         # dialog taller than the screen puts its own buttons out of reach
         # (2026-09-12, plan_2026_09_12_no_widget_squeezing.md).
-        resize_dialog_within_screen(self, 720, 600)
+        # Э3 (plan_2026_09_12_node_dialog_usability): the size the user left the
+        # dialog at last time wins over this default — and still goes through
+        # the same screen cap.
+        restore_dialog_size(self, 720, 600)
+        persist_dialog_size(self)

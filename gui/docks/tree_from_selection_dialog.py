@@ -34,6 +34,7 @@ from kicadstamp.i18n import _
 from kicadstamp.trees import TreeAnchor
 from kicadstamp.utils.units import MM
 
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from ._common import configure_searchable, set_combo_items
 from .reead import ReReadCluster
 from .tree_from_selection import InterClusterNet
@@ -86,6 +87,11 @@ class TreeFromSelectionDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(_("Extract tree"))
         self.setObjectName("tree_from_selection_dialog")
+        # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
+        # launches. No default constant here (Qt's own size until the user
+        # resizes it once).
+        restore_dialog_size(self)
+        persist_dialog_size(self)
         self._clusters = list(clusters)
         self._inter_nets = list(inter_nets)
         self._existing_names = set(existing_names)

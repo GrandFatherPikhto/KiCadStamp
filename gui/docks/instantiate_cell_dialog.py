@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from ._anchor_origin import AnchorOriginWidget
 from ._common import configure_searchable, set_combo_items
 from .tree_from_selection import (
@@ -87,6 +88,11 @@ class InstantiateCellDialog(QDialog):
         self._cfg = cfg
         self.setWindowTitle(_("Instantiate from Cell"))
         self.setMinimumWidth(500)
+        # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
+        # launches. No default constant here (Qt's own size until the user
+        # resizes it once), and the width floor above still applies.
+        restore_dialog_size(self)
+        persist_dialog_size(self)
 
         self._cells = list(cells or [])
         self._sheets = list(sheets or [])

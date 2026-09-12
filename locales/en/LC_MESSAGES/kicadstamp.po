@@ -16670,3 +16670,24 @@ msgstr ""
 #: gui/docks/trees_dock.py
 msgid "The node's base did not resolve on the live board: {error}. Showing the STORED values in the base's own frame; editing the offset and rotation is disabled until it resolves."
 msgstr ""
+
+# ── Node form: the Parent combo re-hangs a node (plan_2026_09_12_node_dialog_usability) ──
+#: gui/docks/trees_dock.py
+msgid "Parent:"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Parent"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "{ref} (current parent)"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Node {ref!r}: the base of the new parent did not resolve on the live board — the offset can NOT be recalculated."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Re-hang {ref!r} WITHOUT recalculating its offset? It keeps the stored coordinates, which now mean a different place."
+msgstr ""

@@ -35,6 +35,8 @@ from kicadstamp.config_writer import upsert_tree_instances
 from kicadstamp.i18n import _
 from kicadstamp.trees import anchor_from_dict, anchor_to_dict
 
+from ..ui_utils import persist_dialog_size, restore_dialog_size
+
 # Column indices (one place, so the header list and every reader agree).
 _COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR = range(5)
 
@@ -126,6 +128,11 @@ class TreeInstancesDialog(QDialog):
         self._cfg = cfg
         self.setWindowTitle(_("Tree instances"))
         self.setMinimumWidth(620)
+        # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
+        # launches. No default constant here (Qt's own size until the user
+        # resizes it once), and the width floor above still applies.
+        restore_dialog_size(self)
+        persist_dialog_size(self)
 
         instance_names = {ti.name for ti in cfg.tree_instances}
         # A generated instance can't be a template (its geometry is derived

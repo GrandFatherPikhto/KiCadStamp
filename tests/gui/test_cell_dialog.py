@@ -6,6 +6,7 @@ DetailDock. The dialog itself is intentionally dumb: all cell logic lives in
 CellDock (covered by test_cell_editor.py); DockHub owns both the widget and
 the dialog and wires the routes (covered by test_phase3_wiring.py)."""
 
+from gui import settings
 from gui.docks.cell_dialog import CellDialog
 from gui.docks.cell_editor import CellDock
 
@@ -48,3 +49,21 @@ def test_closing_the_dialog_hides_not_destroys(main_window):
     assert dialog.isHidden()
     # The dock instance is still alive, still parented to the dialog.
     assert dialog.cell_dock is dock
+
+
+def test_dialog_size_is_remembered_and_restored(main_window):
+    """Э3 (plan_2026_09_12_node_dialog_usability): the dialog's size is stored
+    in gui/gui_state.json (NOT in the .sexp config) when it is hidden, keyed by
+    the class name, and the NEXT instance opens at that size — capped by the
+    screen like any other desired size."""
+    dock = CellDock(main_window)
+    first = CellDialog(dock, main_window)
+    first.resize(640, 480)
+    first.show()
+    expected = [first.width(), first.height()]
+    assert settings.state.get("dialog_size:CellDialog") is None   # nothing yet
+    first.hide()
+    assert settings.state.get("dialog_size:CellDialog") == expected
+
+    second = CellDialog(dock, main_window)
+    assert [second.width(), second.height()] == expected

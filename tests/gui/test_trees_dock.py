@@ -24,6 +24,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode, tree_from_dict
+from kicadstamp.utils.units import MM
 
 import gui.docks.trees_dock as trees_dock_mod
 from gui import settings
@@ -1752,7 +1753,10 @@ def test_node_dialog_read_position_logs_error_when_no_live_connection(
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
-    assert dlg.offset_widget.x_edit.text() == ""
+    # Э4 (plan_2026_09_12_node_dialog_usability): an ADD-mode form now starts
+    # with X/Y = "0" — what this asserts is that the failed read wrote NOTHING,
+    # so the Add-mode default is still there, untouched.
+    assert dlg.offset_widget.x_edit.text() == "0"
     assert dlg.rotation_edit.text() == ""
 
 
@@ -1928,6 +1932,45 @@ def test_anchor_base_live_ref_anchor_still_resolves(monkeypatch):
     pos, rot = tp_mod._anchor_base_live_position(object(), object(), tree, {})
     assert pos is ref_pos
     assert rot == 30.0
+
+
+def test_add_mode_prefills_x_and_y_with_zero(main_window, tmp_path):
+    """Э4 (plan_2026_09_12_node_dialog_usability): an ADD-mode form starts with
+    X/Y = "0", so "the node sits exactly on its base" needs no typing — an empty
+    xy field is an error in build() — and that default SAVES as (0, 0)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Add node", cfg=dock._cfg, adapter=None, sheet_names={},
+                      tree=tree, parent_node=None)
+    assert dlg.offset_widget.x_edit.text() == "0"
+    assert dlg.offset_widget.y_edit.text() == "0"
+    # The polar pair is deliberately NOT pre-filled (only Cartesian).
+    assert dlg.offset_widget.radius_edit.text() == ""
+    assert dlg.offset_widget.angle_edit.text() == ""
+
+    dlg.ref_combo.setCurrentText("at_origin")
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    node = dlg.build_node()
+    assert node is not None
+    assert node.xy == (0.0, 0.0)
+    assert node.polar is None
+
+
+def test_edit_mode_keeps_the_node_offset_and_is_never_zeroed(main_window, tmp_path):
+    """Э4: EDIT mode must NOT be pre-filled with zeros — its fields come from the
+    node (the raw stored values when no live base is available), so a
+    rename-and-save can never move the node to its parent's origin."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    existing = TreeNode(ref="R_KEEP", kind="external", xy=(4.5, -2.25),
+                        polar=None, rotation=30.0, name=None,
+                        group=None, children=[])
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Edit node", cfg=dock._cfg, adapter=None, sheet_names={},
+                      tree=tree, parent_node=None, existing=existing)
+    assert dlg.offset_widget.x_edit.text() == "4.5"
+    assert dlg.offset_widget.y_edit.text() == "-2.25"
 
 
 def test_prompt_node_returns_none_when_build_node_failed(main_window, tmp_path, monkeypatch):
@@ -2295,8 +2338,10 @@ def test_node_dialog_read_position_unplaced_entity_parent_warns(
 
     assert warnings
     assert any("not placed in any tree" in str(w[2]) for w in warnings)
-    assert dlg.offset_widget.x_edit.text() == ""
-    assert dlg.offset_widget.y_edit.text() == ""
+    # Э4 (plan_2026_09_12_node_dialog_usability): the ADD-mode default ("0") is
+    # still in place — the failed read wrote nothing to the fields.
+    assert dlg.offset_widget.x_edit.text() == "0"
+    assert dlg.offset_widget.y_edit.text() == "0"
     assert dlg.rotation_edit.text() == ""
 
 
@@ -6083,3 +6128,234 @@ def test_renaming_a_tree_drops_the_old_names_circles(
     assert not markers_mod.owner.has_key(_tree_anchor_key("t1"))
     assert not markers_mod.owner.has_key(_tree_base_key("t1"))
     assert _tree_circles(adapter) == []
+
+
+# ── Э1: the Parent combo re-hangs a node ────────────────────────────────────
+# (plan_2026_09_12_node_dialog_usability §Э1)
+
+def _rehang_tree(*, moved_top_level=True):
+    """The shape Э1 is about: two mount nodes (the "pads" a node may belong to)
+    and one record node whose parent is about to change. Returns
+    (tree, mount_a, mount_b, moved)."""
+    mount_a = TreeNode(ref="mnt_a", kind="mount", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[],
+                       anchor=TreeAnchor(role="IC1"))
+    mount_b = TreeNode(ref="mnt_b", kind="mount", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[],
+                       anchor=TreeAnchor(role="IC2"))
+    moved = TreeNode(ref="R_MOVED", kind="external", xy=(12.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    if moved_top_level:
+        nodes = [mount_a, mount_b, moved]
+    else:
+        mount_a.children.append(moved)
+        nodes = [mount_a, mount_b]
+    tree = Tree(name="rehang", anchor=TreeAnchor(ref="U3", is_external=True),
+                nodes=nodes)
+    return tree, mount_a, mount_b, moved
+
+
+def _rehang_form(dock, tree, moved, parent_node):
+    """A NodeFormWidget (EDIT mode) wired exactly like _build_node_form wires
+    it, so the Parent combo is exercised the way the dock builds it."""
+    return NodeFormWidget(
+        dock, dock._all_ref_candidates(), dock._used_refs(), "Edit node",
+        cfg=dock._cfg, adapter=object(), sheet_names={}, tree=tree,
+        parent_node=parent_node, existing=moved,
+        parent_candidates=dock._node_parent_candidates(tree, moved))
+
+
+def _stub_bases(monkeypatch, td_mod, base_for):
+    """Replace the live base resolver with a parent -> mm-map, so the test needs
+    no board: `base_for(parent_node)` is a (x_mm, y_mm) pair."""
+    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+        x_mm, y_mm = base_for(parent_node)
+        return Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)), 0.0, False
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose", _fake_base)
+
+
+def test_parent_combo_rehangs_and_keeps_the_physical_position(
+        main_window, tmp_path, monkeypatch):
+    """Э1 (plan §Э1.3, option 1): switching the Parent combo re-hangs the node
+    AND re-expresses the offset through the new parent's base, so the node does
+    NOT move physically — the user changed the binding, not the place."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+    _stub_bases(monkeypatch, td_mod,
+                lambda parent: (30.0, 0.0) if parent is mount_b else (10.0, 0.0))
+
+    form = _rehang_form(dock, tree, moved, None)
+    assert form.parent_combo is not None
+    assert form.parent_combo.currentText() == "(top level)"
+    # The STORED offset, shown in the board frame of the current base (10, 0).
+    assert form.offset_widget.x_edit.text() == "12.0"
+
+    form.parent_combo.setCurrentIndex(form._parent_index_of(mount_b))
+
+    # Held still: absolute X = 10 + 12 = 22 = 30 + (-8).
+    assert float(form.offset_widget.x_edit.text()) == pytest.approx(-8.0)
+    assert form.offset_widget.y_edit.text() == "0.0"
+
+    assert form.apply() is True
+
+    assert moved.xy == pytest.approx((-8.0, 0.0))
+    assert moved in mount_b.children and moved not in tree.nodes
+    assert 30.0 + moved.xy[0] == pytest.approx(10.0 + 12.0)
+    assert dock._dirty is True
+
+
+def test_parent_candidates_are_top_level_plus_mount_nodes(
+        main_window, tmp_path):
+    """Э1.2: the rows are "(top level)" + every MOUNT node of this tree, by ref —
+    an ordinary node is not a re-hang target (it is simply the parent a node was
+    created under)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+    tree.nodes.append(TreeNode(ref="PLAIN", kind="external", xy=(0.0, 0.0),
+                              polar=None, rotation=0.0, name=None,
+                              group=None, children=[]))
+
+    candidates = dock._node_parent_candidates(tree, moved)
+
+    assert candidates[0] == ("(top level)", None)
+    assert [parent for _label, parent in candidates] == [None, mount_a, mount_b]
+    assert [label for label, _parent in candidates] == [
+        "(top level)", "mnt_a", "mnt_b"]
+
+
+def test_parent_candidates_list_the_current_non_mount_parent(
+        main_window, tmp_path):
+    """The node's CURRENT parent is always a row, even when it is not a mount
+    node: without it the combo would claim the node hangs at the top level and
+    the next Apply would really move it there."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree, mount_a, mount_b, moved = _rehang_tree(moved_top_level=False)
+    # The node's parent is an ordinary (non-mount) node: the only shape in which
+    # the "current parent" row is needed at all.
+    mount_a.children.clear()
+    plain = TreeNode(ref="PLAIN", kind="external", xy=(0.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[moved])
+    tree.nodes.append(plain)
+
+    candidates = dock._node_parent_candidates(tree, moved)
+
+    assert [parent for _label, parent in candidates] == [
+        None, mount_a, mount_b, plain]
+    assert candidates[-1][0] == "PLAIN (current parent)"
+
+
+def test_parent_candidates_never_offer_the_node_or_its_descendants(
+        main_window, tmp_path):
+    """Э1.5: a node cannot become its own ancestor — neither itself nor a mount
+    node of its own subtree is offered."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree, mount_a, mount_b, moved = _rehang_tree(moved_top_level=False)
+    inner_mount = TreeNode(ref="mnt_inner", kind="mount", xy=None, polar=None,
+                           rotation=0.0, name=None, group=None, children=[],
+                           anchor=TreeAnchor(role="IC3"))
+    mount_a.children.append(inner_mount)
+
+    refs = [parent.ref for _label, parent in
+            dock._node_parent_candidates(tree, mount_a) if parent is not None]
+
+    assert "mnt_a" not in refs          # itself
+    assert "mnt_inner" not in refs      # its own descendant
+    assert refs == ["mnt_b"]            # the only legal re-hang target
+
+
+def test_reparent_node_refuses_to_build_a_cycle(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Э1.5, the structural half: even called directly, a re-hang into the
+    node's own subtree is refused (the tree is left untouched)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _rehang_tree(moved_top_level=False)
+
+    caplog.clear()
+    dock._reparent_node(tree, mount_a, moved)
+
+    assert mount_a in tree.nodes and mount_a not in moved.children
+    assert any("Refusing to re-hang" in r.message for r in caplog.records)
+
+
+def test_pivot_ref_node_is_not_offered_any_mount_parent(
+        main_window, tmp_path):
+    """Э1.4 (today's shape of the rule): a node hanging under a mount ancestor
+    can never be the tree's inner point — its base is LIVE and does not follow
+    the tree — so _validate_tree_pivot_ref would refuse the config at the next
+    load. When the node IS the tree's pivot-ref, no mount row may be offered."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+    tree.pivot_ref = moved.ref
+
+    candidates = dock._node_parent_candidates(tree, moved)
+
+    assert candidates == [("(top level)", None)]
+
+
+def test_rehang_without_a_resolvable_base_asks_before_moving(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Э1.3, option 2: the offset can only be held still against a RESOLVABLE
+    base. When the new parent's base does not resolve, nothing is recalculated —
+    the Log says so and the user is asked explicitly; "No" leaves the tree
+    exactly as it was, "Yes" re-hangs with the stored coordinates kept."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+
+    def _unresolvable(*args, **kwargs):
+        raise ValidationError("the mount anchor's component is not on the board")
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose", _unresolvable)
+
+    answers = []
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: answers.pop(0))
+
+    form = _rehang_form(dock, tree, moved, None)
+    form.parent_combo.setCurrentIndex(form._parent_index_of(mount_b))
+    # The fields fall back to the RAW stored values (nothing was re-expressed).
+    assert form.offset_widget.x_edit.text() == "12.0"
+
+    caplog.clear()
+    answers.append(QMessageBox.StandardButton.No)
+    assert form.apply() is False
+    assert moved in tree.nodes and moved not in mount_b.children
+    assert any("can NOT be recalculated" in r.message for r in caplog.records)
+
+    answers.append(QMessageBox.StandardButton.Yes)
+    assert form.apply() is True
+    assert moved in mount_b.children and moved not in tree.nodes
+    assert moved.xy == (12.0, 0.0)     # deliberately NOT recalculated
+
+
+def test_add_mode_has_no_parent_combo(main_window, tmp_path):
+    """Э1: which parent a NEW node gets is the context-menu action that opened
+    the dialog (Add node / Add child / Add sibling) — there is nothing to
+    re-hang in Add mode, so no combo is built."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Add node", cfg=dock._cfg, adapter=None, sheet_names={},
+                      tree=tree, parent_node=None)
+    assert dlg.parent_combo is None
+
+
+def test_edit_form_offers_the_parent_combo_with_the_current_parent_selected(
+        main_window, tmp_path):
+    """The master-detail EDIT form (what the dock really builds) carries the
+    combo, and it starts on the node's CURRENT parent — never on "(top level)"
+    by accident."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]                       # a top-level node
+    form = dock._build_node_form(tree, node)
+    assert form.parent_combo is not None
+    assert form.parent_combo.currentText() == "(top level)"
+    assert form._selected_parent_node() is None
+
+    child = tree.nodes[0].children[0]          # a real child node
+    child_form = dock._build_node_form(tree, child)
+    assert child_form._selected_parent_node() is tree.nodes[0]

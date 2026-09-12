@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel,
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from ._anchor_origin import AnchorOriginWidget
 from .reead import ReReadCluster
 from .tree_from_selection import resolve_cluster_entity
@@ -53,6 +54,11 @@ class ExtractClusterDialog(QDialog):
         self.setWindowTitle(_("Extract cluster"))
         self.setObjectName("extract_cluster_dialog")
         self.setMinimumWidth(440)
+        # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
+        # launches. No default constant here (Qt's own size until the user
+        # resizes it once), and the width floor above still applies.
+        restore_dialog_size(self)
+        persist_dialog_size(self)
         self._clusters = list(clusters)
         self._cfg = cfg
         # The current selection's footprints — needed to populate the manual

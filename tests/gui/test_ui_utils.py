@@ -9,8 +9,9 @@ from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import (QDialog, QFrame, QPlainTextEdit, QPushButton,
                              QScrollArea, QSizePolicy, QWidget)
 
-from gui import ui_utils
-from gui.ui_utils import (MinHeightScrollArea, busy, resize_dialog_within_screen,
+from gui import settings, ui_utils
+from gui.ui_utils import (MinHeightScrollArea, busy, persist_dialog_size,
+                          resize_dialog_within_screen, restore_dialog_size,
                           wrap_in_scroll_area)
 
 
@@ -131,3 +132,78 @@ def test_resize_dialog_without_a_screen_just_resizes(qapp, monkeypatch):
     dialog = _Dialog(None)
     resize_dialog_within_screen(dialog, 520, 560)
     assert (dialog.width(), dialog.height()) == (520, 560)
+
+
+# ── remembered dialog sizes (Э3, 2026-09-12) ────────────────────────────────
+
+def test_dialog_size_key_is_the_class_name(qapp):
+    """The key is the CLASS name, never the (translated, changing) title."""
+    dialog = _Dialog(None)
+    assert ui_utils.dialog_size_key(dialog) == "dialog_size:_Dialog"
+    assert ui_utils.dialog_size_key(dialog, "Other") == "dialog_size:Other"
+
+
+def test_persist_dialog_size_stores_the_size_on_hide(qapp):
+    """The stored size is the one the dialog was LEFT at — its size when it is
+    hidden (the one close path every dialog has, modal or not)."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    assert settings.state.get("dialog_size:_Dialog") is None  # nothing yet
+
+    dialog.resize(640, 480)
+    dialog.show()
+    expected = [dialog.width(), dialog.height()]
+    dialog.hide()
+    assert settings.state.get("dialog_size:_Dialog") == expected
+
+
+def test_restore_dialog_size_prefers_the_remembered_size(qapp):
+    settings.state.set("dialog_size:_Dialog", [700, 500])
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    restore_dialog_size(dialog, 720, 600)
+    assert (dialog.width(), dialog.height()) == (700, 500)
+
+
+def test_restore_dialog_size_uses_the_default_without_a_remembered_one(qapp):
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    restore_dialog_size(dialog, 720, 600)
+    assert (dialog.width(), dialog.height()) == (720, 600)
+
+
+def test_restore_dialog_size_without_default_or_remembered_leaves_qt_alone(qapp):
+    """A dialog with no size constant keeps Qt's own size — restoring must not
+    invent one."""
+    dialog = _Dialog(None)
+    dialog.resize(333, 222)
+    restore_dialog_size(dialog)
+    assert (dialog.width(), dialog.height()) == (333, 222)
+
+
+def test_restore_dialog_size_is_capped_by_the_screen(qapp, monkeypatch):
+    """Э3.2: 780x900 saved on a big monitor must not hang off a laptop screen.
+    The remembered size goes through the SAME cap a constant does, and the cap
+    stays reachable through the _primary_screen seam."""
+    monkeypatch.setattr(ui_utils, "_primary_screen",
+                        lambda: _FakeScreen(1024, 600))
+    settings.state.set("dialog_size:_Dialog", [780, 900])
+    dialog = _Dialog(None)      # dialog.screen() is None -> the seam is used
+    restore_dialog_size(dialog, 720, 600)
+    assert (dialog.width(), dialog.height()) == (780, 600)
+
+
+def test_restore_dialog_size_ignores_a_corrupt_remembered_value(qapp):
+    """A hand-edited/corrupt gui_state.json must never keep a dialog from
+    opening — a bad size is simply "nothing remembered"."""
+    settings.state.set("dialog_size:_Dialog", ["x", None])
+    dialog = _Dialog(None)
+    dialog.resize(333, 222)
+    restore_dialog_size(dialog)
+    assert (dialog.width(), dialog.height()) == (333, 222)
+
+
+def test_restore_dialog_size_rejects_a_nonpositive_remembered_value(qapp):
+    settings.state.set("dialog_size:_Dialog", [0, 0])
+    dialog = _Dialog(None)
+    dialog.resize(333, 222)
+    restore_dialog_size(dialog)
+    assert (dialog.width(), dialog.height()) == (333, 222)

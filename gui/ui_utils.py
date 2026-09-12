@@ -10,15 +10,19 @@ just the docks.
 Since 2026-09-12 it also owns the ONE scroll wrap (wrap_in_scroll_area /
 MinHeightScrollArea) that makes a squeezable container safe: the Config dock's
 right pages and the Trees dock's form panels both go through it, so the pairing
-that keeps form fields at their own height cannot drift between them.
+that keeps form fields at their own height cannot drift between them — and the
+pair of helpers (restore_dialog_size / persist_dialog_size) that remembers a
+dialog's size between launches.
 """
 from contextlib import contextmanager
-from typing import Iterable
+from typing import Iterable, Optional
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (QAbstractScrollArea, QApplication, QFrame,
                              QScrollArea, QSizePolicy, QWidget)
+
+from . import settings
 
 
 @contextmanager
@@ -166,3 +170,98 @@ def resize_dialog_within_screen(dialog: QWidget, width: int, height: int,
         return
     available = screen.availableGeometry()
     dialog.resize(min(width, available.width()), min(height, available.height()))
+
+
+# ── Remembered dialog sizes (Э3, 2026-09-12) ────────────────────────────────
+#
+# How big each dialog was is INTERFACE state of one person on one machine, so it
+# belongs in gui/gui_state.json (gui/settings.py, the same one-file state store
+# MainWindow keeps its own geometry and dock layout in) and NOT in the .sexp
+# config: the config is synced between machines and read by eye, and window
+# geometry in it is noise (plan_2026_09_12_node_dialog_usability §Э3.1).
+#
+# One key per dialog CLASS — the class name, never the window title: a title is
+# translated and can change, the class name is stable.
+
+_DIALOG_SIZE_KEY_PREFIX = "dialog_size:"
+
+
+def dialog_size_key(dialog: QWidget, key: Optional[str] = None) -> str:
+    """The gui_state.json key a dialog's size is remembered under — its class
+    name unless the caller passes an explicit `key` (which only a class with
+    several independently-sized instances would need)."""
+    return _DIALOG_SIZE_KEY_PREFIX + (key or type(dialog).__name__)
+
+
+def restore_dialog_size(dialog: QWidget, width: Optional[int] = None,
+                        height: Optional[int] = None, *,
+                        key: Optional[str] = None, screen=None) -> None:
+    """Show `dialog` at the size it was left at last time, falling back to the
+    DESIRED (width, height) when there is nothing remembered — and cap whatever
+    comes out by the screen, through the SAME resize_dialog_within_screen() a
+    hard-coded constant goes through: a 780x900 window saved on a big monitor
+    must not hang off a laptop screen (plan §Э3.2; the remembered size is a
+    wish, the screen wins).
+
+    Both halves are optional. With no remembered entry and no `width`/`height`
+    the dialog is left at Qt's own size — a dialog that never had a fixed
+    constant stays exactly as it was.
+
+    POSITION is deliberately never restored: on another monitor layout a saved
+    position puts the window off the visible area, and the size alone does not
+    have that failure mode (plan §Э3.2).
+
+    Call once, where the dialog's size is decided (its __init__); the other half
+    of the pair is persist_dialog_size()."""
+    saved = settings.state.get(dialog_size_key(dialog, key))
+    if isinstance(saved, (list, tuple)) and len(saved) == 2:
+        width, height = saved[0], saved[1]
+    if width is None or height is None:
+        return
+    try:
+        width, height = int(width), int(height)
+    except (TypeError, ValueError):
+        # A hand-edited/corrupt gui_state.json must never keep a dialog from
+        # opening — a bad size is simply "nothing remembered".
+        return
+    if width <= 0 or height <= 0:
+        return
+    resize_dialog_within_screen(dialog, width, height, screen=screen)
+
+
+class _DialogSizeSaver(QObject):
+    """Event filter that stores a dialog's size whenever it is HIDDEN.
+
+    Hide is the one close path EVERY dialog has: accept()/reject() hide the
+    window, and a non-modal dialog closed with the window X (or hidden by its
+    owner, e.g. ToolsDialog after a successful edit) is hidden without ever
+    emitting QDialog.finished(). Filtering Hide/Close therefore covers both
+    shapes with one mechanism instead of a signal the non-modal ones never
+    emit.
+
+    Parented to the dialog, and kept on it as `_dialog_size_saver`, so the
+    filter lives exactly as long as the dialog does."""
+
+    def __init__(self, dialog: QWidget, key: str):
+        super().__init__(dialog)
+        self._dialog = dialog
+        self._key = key
+        dialog.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
+            self.save()
+        # Never swallow the event — this filter only observes.
+        return False
+
+    def save(self) -> None:
+        settings.state.set(self._key,
+                           [self._dialog.width(), self._dialog.height()])
+
+
+def persist_dialog_size(dialog: QWidget, *, key: Optional[str] = None) -> None:
+    """Remember `dialog`'s size for its NEXT launch — the counterpart of
+    restore_dialog_size(), which is called with the same key. Call once, right
+    where the dialog is built; every later hide/close updates the stored size."""
+    dialog._dialog_size_saver = _DialogSizeSaver(
+        dialog, dialog_size_key(dialog, key))

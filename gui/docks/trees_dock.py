@@ -68,7 +68,8 @@ from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers, settings
-from ..ui_utils import wrap_in_scroll_area
+from ..ui_utils import (persist_dialog_size, restore_dialog_size,
+                        wrap_in_scroll_area)
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
@@ -1527,7 +1528,8 @@ class TreesDock(QWidget):
 
     def _build_node_form(self, tree: Tree, node: TreeNode) -> "NodeFormWidget":
         """A NodeFormWidget (EDIT mode, existing=node) for the master-detail
-        Node tab — same candidate wiring as _prompt_node's Edit branch."""
+        Node tab — same candidate wiring as _prompt_node's Edit branch, plus the
+        Parent combo's rows (Э1, plan_2026_09_12_node_dialog_usability)."""
         return NodeFormWidget(
             self, self._all_ref_candidates(), self._used_refs(), _("Edit node"),
             cfg=self._cfg, adapter=self._live_adapter(),
@@ -1536,7 +1538,8 @@ class TreesDock(QWidget):
             module_candidates=self._module_tree_candidates(tree),
             all_trees=self._trees,
             role_candidates=self._live_roles(),
-            cluster_candidates=self._live_clusters())
+            cluster_candidates=self._live_clusters(),
+            parent_candidates=self._node_parent_candidates(tree, node))
 
     @staticmethod
     def _embedded_form_of(page: Optional[QWidget]) -> Optional[QWidget]:
@@ -2220,6 +2223,12 @@ class TreesDock(QWidget):
             # §3.1 — the plan NAME is historical, the mechanism is "mount" now).
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
+            # Э1 (plan_2026_09_12_node_dialog_usability): the Parent combo's
+            # rows — EDIT mode only. A new node's parent is decided by the
+            # context-menu action that opened this dialog (Add node / Add child
+            # / Add sibling), so Add mode has nothing to re-hang.
+            parent_candidates=(self._node_parent_candidates(tree, existing)
+                               if existing is not None else None),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
@@ -2489,6 +2498,95 @@ class TreesDock(QWidget):
             out.append((node.ref, node))
         for child in node.children:
             self._collect_move_candidates(child, forbidden, out)
+
+    # ── Node form's Parent combo (Э1, plan_2026_09_12_node_dialog_usability) ──
+
+    def _node_parent_candidates(self, tree: Tree, node: TreeNode
+                                ) -> list[tuple[str, Optional[TreeNode]]]:
+        """The (label, parent) rows of the node form's Parent combo: "(top
+        level)", every MOUNT node of this tree (by ref — a mount node is the
+        re-hang target the plan asks for) and the node's CURRENT parent when it
+        is none of those.
+
+        Both structural rules are enforced by CONSTRUCTION — a row the combo
+        never offers cannot be picked:
+
+        * the node itself and its whole subtree are excluded (a node cannot
+          become its own ancestor);
+        * when the node is the tree's `pivot_ref`, NO mount node is offered: a
+          node under a mount ancestor has a LIVE base (mount_node_base), does
+          not follow the tree, and `_validate_tree_pivot_ref` would refuse the
+          config at the next load (plan_2026_09_11_pivot_ref_mount_ancestor
+          §P.1.3 — the SAME predicate, `_pivot_ref_rejection`, is consulted
+          here, never a second copy of the rule).
+
+        The current parent is listed even when it is not a mount node, or the
+        combo would lie about where the node hangs today and the next Apply
+        would silently move it."""
+        forbidden = self._collect_subtree(node)
+        barred_mounts = tree.pivot_ref is not None and tree.pivot_ref == node.ref
+        candidates: list[TreeNode] = []
+        for top in tree.nodes:
+            self._collect_parent_candidates(top, forbidden, barred_mounts, candidates)
+        out: list[tuple[str, Optional[TreeNode]]] = [(_("(top level)"), None)]
+        out.extend((candidate.ref, candidate) for candidate in candidates)
+        current = self._find_parent(tree, node)
+        if (current is not None and not self._in_list(current, candidates)
+                and not self._in_list(current, forbidden)):
+            out.append((_("{ref} (current parent)").format(ref=current.ref), current))
+        return out
+
+    @classmethod
+    def _collect_parent_candidates(cls, node: TreeNode, forbidden: list[TreeNode],
+                                   barred_mounts: bool, out: list[TreeNode]) -> None:
+        """Pre-order collect of the MOUNT nodes of a tree that may serve as a
+        parent — see _node_parent_candidates for the two rules `forbidden` and
+        `barred_mounts` carry."""
+        if (node.kind == "mount" and not barred_mounts
+                and not cls._in_list(node, forbidden)):
+            out.append(node)
+        for child in node.children:
+            cls._collect_parent_candidates(child, forbidden, barred_mounts, out)
+
+    def _reparent_node(self, tree: Tree, node: TreeNode,
+                       new_parent: Optional[TreeNode]) -> None:
+        """Move `node` (with its whole subtree) under `new_parent` (None = the
+        top level) in `tree` — the STRUCTURAL half of the Node form's Parent
+        combo (Э1); the offset that keeps the node physically still belongs to
+        the form, which has already re-expressed it through the new parent's
+        base.
+
+        Removal is by IDENTITY: TreeNode is a dataclass with value equality, so
+        list.remove() could drop a different-but-equal sibling (every other
+        structural mutator has the same latent trap; this one does not).
+
+        The rebuild is DEFERRED by one event-loop turn: this runs from inside
+        the embedded form's apply(), and rebuilding the page here would destroy
+        that very form mid-call (the panel's content is replaced wholesale).
+        One turn later the apply has returned and the form is no longer
+        `_touched`, so the rebuild is silent — no discard warning."""
+        if new_parent is not None and self._contains_node(node, new_parent):
+            # A programming error, not a user path: the combo never offers the
+            # node's own subtree. Refuse structurally rather than corrupt the
+            # tree into a cycle.
+            logger.warning(
+                "Refusing to re-hang %r under its own descendant %r",
+                node.ref, new_parent.ref)
+            return
+        old_parent = self._find_parent(tree, node)
+        if old_parent is new_parent:
+            return
+        siblings = tree.nodes if old_parent is None else old_parent.children
+        for index, candidate in enumerate(siblings):
+            if candidate is node:
+                del siblings[index]
+                break
+        if new_parent is None:
+            tree.nodes.append(node)
+        else:
+            new_parent.children.append(node)
+        self._mark_dirty()
+        QTimer.singleShot(0, self._rebuild_tabs)
 
     def _on_create_tree(self) -> None:
         """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the anchor
@@ -2962,7 +3060,8 @@ class NodeFormWidget(QWidget):
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
-                 role_candidates=None, cluster_candidates=None):
+                 role_candidates=None, cluster_candidates=None,
+                 parent_candidates=None):
         super().__init__(parent)
         # `title` is accepted for signature compatibility with the former
         # QDialog (its caller set the window title); a plain QWidget form has
@@ -2984,6 +3083,11 @@ class NodeFormWidget(QWidget):
 
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
+        # Э1 (plan_2026_09_12_node_dialog_usability): (label, TreeNode | None)
+        # rows the Parent combo offers — collected by the DOCK
+        # (_node_parent_candidates), the only place that knows the tree
+        # structure and the pivot-ref rule. Empty in ADD mode.
+        self._parent_candidates = list(parent_candidates or [])
 
         # Board-frame form state (plan_2026_09_11 §3): the base pose the
         # displayed offset/rotation are expressed against, resolved LIVE
@@ -3036,6 +3140,29 @@ class NodeFormWidget(QWidget):
         # ref would be fatal at link_trees ("0 or 2+ matches").
         self.ref_combo.currentIndexChanged.connect(self._on_ref_selected)
         form.addRow(_("Ref:"), self.ref_combo)
+
+        # ── Parent combo (Э1, plan_2026_09_12_node_dialog_usability) ────────
+        # Re-hang an EXISTING node under another parent. The rows come from the
+        # dock (this tree's mount nodes + the node's current parent + "(top
+        # level)"); an ADD-mode form has none — which parent a NEW node gets is
+        # decided by the context-menu action that opened this dialog, and there
+        # is nothing to re-hang yet.
+        self.parent_combo: Optional[QComboBox] = None
+        if existing is not None and self._parent_candidates:
+            self.parent_combo = QComboBox()
+            for _label, _candidate in self._parent_candidates:
+                self.parent_combo.addItem(_label, _candidate)
+            index = self._parent_index_of(self._parent_node)
+            if index < 0:
+                # The caller's list did not carry the node's CURRENT parent:
+                # add it, or the combo would claim the node hangs at the top
+                # level and the next Apply would really move it there.
+                self.parent_combo.addItem(
+                    _("{ref} (current parent)").format(ref=self._parent_node.ref),
+                    self._parent_node)
+                index = self.parent_combo.count() - 1
+            self.parent_combo.setCurrentIndex(index)
+            form.addRow(_("Parent:"), self.parent_combo)
 
         # offset block — xy/polar only, reused from the shared widget (design §3).
         # The value is shown in the BOARD frame (x right, y down); the config
@@ -3130,6 +3257,17 @@ class NodeFormWidget(QWidget):
                                       # repopulated; external clears its items)
         else:
             self._on_kind_changed()
+            # Э4 (plan_2026_09_12_node_dialog_usability): ADD mode starts the
+            # Cartesian offset at the parent's own origin — "the node sits
+            # exactly on its base" is the common case, and an EMPTY xy field is
+            # an ERROR (build() -> "X is required."), so expressing it used to
+            # cost two hand-typed zeros. Three things stay untouched: EDIT mode
+            # (the node's own values, loaded by _prefill above), the POLAR pair
+            # (radius/angle stay blank — only the Cartesian fields are
+            # pre-filled) and PlacerDock's for_highlight placeholder, which is
+            # build()'s own (0, 0) substitution, in another consumer entirely.
+            self.offset_widget.x_edit.setText("0")
+            self.offset_widget.y_edit.setText("0")
         self._update_read_button_state()
         # design §9.4: after _prefill/_on_kind_changed populated the fields the
         # form is clean — _touched reflects only USER edits since the last
@@ -3148,6 +3286,15 @@ class NodeFormWidget(QWidget):
             _edit.textChanged.connect(self._mark_touched)
         for _origin in (self.offset_widget, self.mount_anchor_widget):
             _origin.fieldChanged.connect(self._mark_touched)
+        # Э1 (plan_2026_09_12_node_dialog_usability): the Parent combo is a
+        # FRAME change exactly like the mount anchor — a discrete action, so it
+        # invalidates the cached base and re-expresses the displayed offset at
+        # once (the same U.1 machinery that holds a node still when its base
+        # changes). Wired HERE, after the prefill, so no signal fires while the
+        # form is still being built.
+        if self.parent_combo is not None:
+            self.parent_combo.currentIndexChanged.connect(self._mark_touched)
+            self.parent_combo.currentIndexChanged.connect(self._on_anchor_mode_changed)
 
         # Anchor change -> the frame the offset/rotation are expressed against
         # changes too (plan_2026_09_11_node_form_base_frame_follows_anchor).
@@ -3203,17 +3350,87 @@ class NodeFormWidget(QWidget):
             anchor_pad=fields.get("pad"),
         )
 
+    def _parent_index_of(self, node: Optional[TreeNode]) -> int:
+        """The combo row that means `node`, or -1 when the list does not carry
+        it. Identity, never equality: two nodes of one tree may hold equal field
+        values, and the "(top level)" row's data is None."""
+        if self.parent_combo is None:
+            return -1
+        for index in range(self.parent_combo.count()):
+            if self.parent_combo.itemData(index) is node:
+                return index
+        return -1
+
+    def _selected_parent_node(self) -> Optional[TreeNode]:
+        """The parent the form is working against RIGHT NOW: the Parent combo's
+        choice when there is one, else the parent the caller opened the form
+        with (ADD mode, or a tree with no mount nodes at all).
+
+        Everything that resolves a base goes through this — the offset frame,
+        the "Read current position" button and the frame a save is converted
+        against (_base_pose/build_node) — so the numbers on screen and the
+        numbers stored can never disagree about which parent they belong to."""
+        if self.parent_combo is None:
+            return self._parent_node
+        return self.parent_combo.currentData()
+
+    def _apply_parent_change(self) -> bool:
+        """Э1 (plan_2026_09_12_node_dialog_usability): re-hang the edited node
+        when the Parent combo points at a different parent. Returns False to
+        abort the whole Apply (nothing is written).
+
+        The offset is NOT recalculated here: the moment the combo changed,
+        _refresh_for_new_anchor() re-expressed the DISPLAYED board offset
+        through the new parent's base (board offset = old offset + old base -
+        new base) and build_node() has just converted that back into the new
+        parent's LOCAL frame. The physical position therefore does not change —
+        this method only moves the node in the STRUCTURE.
+
+        The one case that cannot be held still is an UNRESOLVABLE new base (no
+        live board, component not found): nothing was re-expressed, the fields
+        show the RAW stored values, and re-hanging really would move the node.
+        That is said in the Log and confirmed with the user explicitly, never
+        done silently (plan §Э1.3, option 2)."""
+        if self.parent_combo is None or self._dock is None or self._tree is None:
+            return True
+        chosen = self._selected_parent_node()
+        if chosen is self._parent_node:
+            return True
+        if self._base_pose() is None:
+            show_message(
+                _("Node {ref!r}: the base of the new parent did not resolve on "
+                  "the live board — the offset can NOT be recalculated.").format(
+                      ref=self._existing.ref),
+                _ERROR_STYLE, logger)
+            answer = QMessageBox.question(
+                self, _("Parent"),
+                _("Re-hang {ref!r} WITHOUT recalculating its offset? It keeps "
+                  "the stored coordinates, which now mean a different place."
+                  ).format(ref=self._existing.ref))
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self._dock._reparent_node(self._tree, self._existing, chosen)
+        # From here on the form edits the node in its NEW parent's frame.
+        self._parent_node = chosen
+        return True
+
     def apply(self) -> bool:
         """Phase B Apply (plan §1.3): validate the form and write the fields
         onto the EDITED node in place — explicit, does NOT close anything (the
         caller owns the button row; edits are explicit actions and the config
         still reaches disk only through the caller's Save). Returns True when
-        applied. Resets _touched (design §9.4) on success."""
+        applied. Resets _touched (design §9.4) on success.
+
+        Э1 (plan_2026_09_12_node_dialog_usability): a changed Parent combo
+        re-hangs the node as part of the same Apply — see _apply_parent_change,
+        which runs first and may refuse the whole operation."""
         if self._existing is None:
             return False
         built = self.build_node()
         if built is None:
             return False  # build_node already warned
+        if not self._apply_parent_change():
+            return False
         _copy_node_onto(self._existing, built)
         if self._dock is not None:
             self._dock._mark_dirty()
@@ -3270,7 +3487,7 @@ class NodeFormWidget(QWidget):
                 base_anchor = None
             _pos, rot, _mirror = _resolve_node_base_pose(
                 self._cfg, self._adapter, self._sheet_names, self._tree,
-                self._parent_node, base_anchor)
+                self._selected_parent_node(), base_anchor)
             self._base_pose_value = (_pos, rot if rot is not None else 0.0)
         except Exception as e:  # noqa: BLE001 — "no base" is a UI state, not a crash
             # The exception is a UI STATE, never a crash — but it is also never
@@ -3332,6 +3549,11 @@ class NodeFormWidget(QWidget):
         checks)."""
         w = self.mount_anchor_widget
         return (
+            # Э1: the Parent combo is part of the frame — switching it must look
+            # like a real change to _refresh_for_new_anchor (and a second fire
+            # with the same index stays the no-op it is).
+            (self.parent_combo.currentIndex()
+             if self.parent_combo is not None else None),
             w.mode,
             (w.anchor_role_edit.currentText().strip()
              if w.anchor_role_edit is not None else ""),
@@ -3587,7 +3809,7 @@ class NodeFormWidget(QWidget):
         try:
             offset_mm, rotation = _resolve_live_offset(
                 self._cfg, self._adapter, self._sheet_names,
-                self._tree, self._parent_node, ref, kind,
+                self._tree, self._selected_parent_node(), ref, kind,
                 base_anchor=base_anchor)
         except ValidationError as e:
             QMessageBox.warning(self, _("Read current position"), str(e))
@@ -3801,7 +4023,8 @@ class _NodeDialog(QDialog):
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
-                 role_candidates=None, cluster_candidates=None):
+                 role_candidates=None, cluster_candidates=None,
+                 parent_candidates=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         # The FORM is built with the original `parent` (the TreesDock, not this
@@ -3812,7 +4035,9 @@ class _NodeDialog(QDialog):
             sheet_names=sheet_names, tree=tree, parent_node=parent_node,
             existing=existing, module_candidates=module_candidates,
             all_trees=all_trees, role_candidates=role_candidates,
-            cluster_candidates=cluster_candidates)
+            cluster_candidates=cluster_candidates,
+            # Э1: the Parent combo's rows (dock-computed; Edit mode only).
+            parent_candidates=parent_candidates)
         layout = QVBoxLayout(self)
         layout.addWidget(self._form)
         buttons = QHBoxLayout()
@@ -3845,6 +4070,11 @@ class _NodeDialog(QDialog):
         # owns a redraw button — the wrapper does, so the wiring lives here).
         self._form.kind_combo.currentIndexChanged.connect(self._update_redraw_state)
         self._update_redraw_state()
+        # Э3 (plan_2026_09_12_node_dialog_usability): the node dialog's size is
+        # remembered between launches, keyed by the class name. No default
+        # constant here — Qt's own size until the user resizes it once.
+        restore_dialog_size(self)
+        persist_dialog_size(self)
 
     @property
     def _adapter(self):

@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
 from kicadstamp.i18n import _
 
-from ..ui_utils import resize_dialog_within_screen
+from ..ui_utils import persist_dialog_size, restore_dialog_size
 from .configurator import ConfiguratorDock
 
 
@@ -63,7 +63,11 @@ class SettingsDialog(QDialog):
         # start. Screen-capped since 2026-09-12
         # (plan_2026_09_12_no_widget_squeezing.md Э4): a modal dialog taller
         # than the screen puts its own OK/Apply/Cancel row out of reach.
-        resize_dialog_within_screen(self, 780, 540)
+        # Э3 (plan_2026_09_12_node_dialog_usability): the size the user left the
+        # dialog at last time wins over this default — and still goes through
+        # the same screen cap.
+        restore_dialog_size(self, 780, 540)
+        persist_dialog_size(self)
 
     def open_modal(self) -> None:
         """Re-seed the widgets from the persisted state (a previous Cancel or
