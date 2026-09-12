@@ -46,6 +46,7 @@ from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .net_resolution import resolve_net_from_role
 from .registry import make_registry_key, track_matches, via_matches
 from .tree_position import relative_rotation_deg
+from .utils.layers import layer_from_str_strict
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -68,20 +69,23 @@ def net_trace_anchor_id(nt: NetTrace) -> str:
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:
-    """'F.Cu'/'B.Cu' -> BoardLayer.
+    """'F.Cu'/'In1.Cu'..'In30.Cu'/'B.Cu' -> BoardLayer (STRICT parse).
 
-    Defensive only: a net-trace track with layer None/other is already a
-    LOAD-TIME fatal (see _load_net_trace in config/entries.py — a net trace
-    has no cell to inherit a layer from, so a missing layer must never
-    silently default to F.Cu and route copper onto the wrong side). Reaching
-    this branch means a directly-constructed NetTrace bypassed the loader."""
-    if layer not in ('F.Cu', 'B.Cu'):
+    2026-09-12 (plan_2026_09_12_strict_copper_layers.md Э2): a net trace's
+    track layer is COPPER, so every layer of the stack is legal and an unknown
+    NAME is a fatal — never a silent F.Cu. A MISSING layer stays a LOAD-TIME
+    fatal too (see _load_net_trace in config/entries.py: a net trace has no cell
+    to inherit a layer from, so defaulting to F.Cu would route copper onto the
+    wrong side). Reaching this branch means a directly-constructed NetTrace
+    bypassed the loader."""
+    try:
+        return layer_from_str_strict(layer)
+    except ValueError:
         raise ValidationError(format_fatal_error(
-            _("net_traces track has invalid layer {layer!r}").format(layer=layer),
-            [_("net_traces tracks need an absolute layer: 'F.Cu' or 'B.Cu' — "
-               "extract-net always writes one; there is no cell to inherit "
-               "from")]))
-    return BoardLayer.BL_B_Cu if layer == "B.Cu" else BoardLayer.BL_F_Cu
+            _("net_traces track has invalid copper layer {layer!r}").format(layer=layer),
+            [_("net_traces tracks need an absolute copper layer ('F.Cu', "
+               "'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; "
+               "there is no cell to inherit from")])) from None
 
 
 def _resolve_anchor(adapter, nt: NetTrace, sheet_names: dict[str, str]):

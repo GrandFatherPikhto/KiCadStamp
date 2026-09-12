@@ -298,3 +298,56 @@ def test_spoke_pad_anchor_mount_resolved_live():
     assert placed[0].dest.y / MM == pytest.approx(201.295, abs=1e-6)
     assert (placed[0].dest.x / MM, placed[0].dest.y / MM) != pytest.approx(
         (100.0, 200.0), abs=1e-9)
+
+
+def _run_tracks(cell, cfg_layer="F.Cu"):
+    """Same rig as _run above, but returns the spoke's TRACK commands."""
+    anchor_fp = _make_fp("IC1")
+    comp_fp = _make_fp("C1", role="R1", nets=["NET1"])
+    anchor_pad = _make_pad("1", "NET1")
+    adapter = _adapter_for(anchor_fp, comp_fp, anchor_pad)
+
+    rule = Rule(net="NET1", anchor_ref="IC1", spokes=[ManualSpoke(pad="1", cell="tpl")])
+    cfg = Config(layer=cfg_layer, cells={"tpl": cell}, chains=[rule])
+
+    calc = ManualPositionCalculator(adapter, cfg)
+    _placed, _vias, tracks = calc.compute_raw_positions([rule])
+    return tracks
+
+
+def _track_cell(track_layer):
+    return Cell(
+        name="tpl", layer="F.Cu",
+        components=[TemplateComponentSlot(role="R1", offset_along_mm=0.0,
+                                          offset_across_mm=0.0, angle_deg=0.0)],
+        tracks=[TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
+                              end_along_mm=1.0, end_across_mm=0.0,
+                              width_mm=0.25, net="NET1", layer=track_layer)],
+    )
+
+
+class TestSpokeTrackCopperLayer:
+    """plan_2026_09_12_strict_copper_layers.md Э4.1/Э4.2 (ManualSpoke path).
+
+    A spoke track's `layer:` is COPPER, so an inner layer must reach the
+    TrackCommand as-is. Before Э2 the calculator's binary ternary
+    (`BL_B_Cu if track.layer == 'B.Cu' else BL_F_Cu`) turned In1.Cu into F.Cu
+    with no error, no warning and no trace.
+    """
+
+    def test_inner_layer_track_reaches_the_track_command(self):
+        tracks = _run_tracks(_track_cell("In1.Cu"))
+        assert len(tracks) == 1
+        assert tracks[0].layer is BoardLayer.BL_In1_Cu
+
+    def test_front_and_back_unchanged(self):
+        """P.2.1 — F/B behaviour stays byte-for-byte what it was."""
+        assert _run_tracks(_track_cell("F.Cu"))[0].layer is BoardLayer.BL_F_Cu
+        assert _run_tracks(_track_cell("B.Cu"))[0].layer is BoardLayer.BL_B_Cu
+
+    def test_unknown_layer_name_is_not_silently_f_cu(self):
+        """Э4.2 — an unknown copper NAME must raise, never become F.Cu. The
+        loader already rejects it (config/entries.py), so this is the
+        write-path invariant guard for a dataclass built in memory."""
+        with pytest.raises(ValueError):
+            _run_tracks(_track_cell("Top.Cu"))

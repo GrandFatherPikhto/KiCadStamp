@@ -6236,16 +6236,23 @@ msgstr "Трассировка сети {net!r} добавлена в net_traces
 msgid "Net trace {net!r} replaced in net_traces: of {output}"
 msgstr "Трассировка сети {net!r} заменена в net_traces: файла {output}"
 
-#: kicadstamp/net_trace_planner.py:65
+#: kicadstamp/net_trace_planner.py:89
 #, python-brace-format
-msgid "net_traces track has invalid layer {layer!r}"
-msgstr "дорожка net_traces имеет недопустимый слой {layer!r}"
+msgid "net_traces track has invalid copper layer {layer!r}"
+msgstr "дорожка net_traces имеет недопустимый медный слой {layer!r}"
 
-#: kicadstamp/net_trace_planner.py:66
-msgid ""
-"net_traces tracks need an absolute layer: 'F.Cu' or 'B.Cu' — extract-net "
-"always writes one; there is no cell to inherit from"
-msgstr ""
+#: kicadstamp/net_trace_planner.py:90
+msgid "net_traces tracks need an absolute copper layer ('F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; there is no cell to inherit from"
+msgstr "дорожкам net_traces нужен абсолютный медный слой ('F.Cu', 'In1.Cu'..'In30.Cu' или 'B.Cu') — extract-net всегда его пишет; ячейки, от которой можно унаследовать слой, здесь нет"
+
+#: kicadstamp/scheme_list_apply.py:150
+#, python-brace-format
+msgid "scheme_lists track has invalid copper layer {layer!r}"
+msgstr "у дорожки scheme_lists недопустимый медный слой {layer!r}"
+
+#: kicadstamp/scheme_list_apply.py:151
+msgid "a recorded track layer is a literal copper layer name: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
+msgstr "слой записанной дорожки — это буквальное имя медного слоя: 'F.Cu', 'In1.Cu'..'In30.Cu' или 'B.Cu'"
 
 #: kicadstamp/net_trace_planner.py:75
 #, python-brace-format

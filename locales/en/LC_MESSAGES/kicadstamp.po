@@ -6198,18 +6198,23 @@ msgstr "Net trace {net!r} appended to net_traces: in {output}"
 msgid "Net trace {net!r} replaced in net_traces: of {output}"
 msgstr "Net trace {net!r} replaced in net_traces: of {output}"
 
-#: kicadstamp/net_trace_planner.py:65
+#: kicadstamp/net_trace_planner.py:89
 #, python-brace-format
-msgid "net_traces track has invalid layer {layer!r}"
-msgstr "net_traces track has invalid layer {layer!r}"
+msgid "net_traces track has invalid copper layer {layer!r}"
+msgstr "net_traces track has invalid copper layer {layer!r}"
 
-#: kicadstamp/net_trace_planner.py:66
-msgid ""
-"net_traces tracks need an absolute layer: 'F.Cu' or 'B.Cu' — extract-net "
-"always writes one; there is no cell to inherit from"
-msgstr ""
-"net_traces tracks need an absolute layer: 'F.Cu' or 'B.Cu' — extract-net "
-"always writes one; there is no cell to inherit from"
+#: kicadstamp/net_trace_planner.py:90
+msgid "net_traces tracks need an absolute copper layer ('F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; there is no cell to inherit from"
+msgstr "net_traces tracks need an absolute copper layer ('F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; there is no cell to inherit from"
+
+#: kicadstamp/scheme_list_apply.py:150
+#, python-brace-format
+msgid "scheme_lists track has invalid copper layer {layer!r}"
+msgstr "scheme_lists track has invalid copper layer {layer!r}"
+
+#: kicadstamp/scheme_list_apply.py:151
+msgid "a recorded track layer is a literal copper layer name: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
+msgstr "a recorded track layer is a literal copper layer name: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
 
 #: kicadstamp/net_trace_planner.py:75
 #, python-brace-format

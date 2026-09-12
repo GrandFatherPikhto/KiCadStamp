@@ -21,7 +21,7 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.config import Config, NetTrace, TemplateTrack, TemplateVia
-from kicadstamp.exceptions import PlacerError
+from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.net_trace_planner import plan_net_traces, net_trace_anchor_id, adopt_net_trace_copper
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
 from kicadstamp.apply_pipeline import (apply_only_filter, apply_cluster_filter,
@@ -407,3 +407,46 @@ def test_rotation_apply_track_rotates_as_one_whole():
     rotated_delta = (local_to_absolute(Vector2.from_xy(0, 0), 3, 4, rot)
                      - local_to_absolute(Vector2.from_xy(0, 0), 1, 2, rot))
     assert end - start == rotated_delta
+
+
+def _net_trace_with_layer(layer: str) -> NetTrace:
+    """The same record as _net_trace(), with the track's copper layer
+    parameterised (net trace tracks carry an ABSOLUTE layer — a net trace has
+    no cell to inherit one from)."""
+    return NetTrace(
+        net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
+        tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
+                              end_along_mm=3, end_across_mm=4, width_mm=0.2,
+                              net="DAC_DB0", layer=layer)],
+        vias=[TemplateVia(offset_along_mm=5, offset_across_mm=6, net="DAC_DB0",
+                          drill_mm=0.3, diameter_mm=0.6)],
+    )
+
+
+class TestNetTraceTrackCopperLayer:
+    """plan_2026_09_12_strict_copper_layers.md Э4.1/Э4.2 (net_traces path).
+
+    A net trace's track layer is COPPER, so an inner layer must reach the
+    TrackCommand as-is. Note the shape of the defect here is the REFUSING one,
+    not the silent collapse: `_layer_to_board` already fatals on anything that
+    is not F.Cu/B.Cu (the loader does too), so In1.Cu was simply impossible on
+    this path.
+    """
+
+    def test_inner_layer_track_reaches_the_track_command(self):
+        _vias, tracks = plan_net_traces(_adapter(52, 52),
+                                        [_net_trace_with_layer("In1.Cu")])
+        assert len(tracks) == 1
+        assert tracks[0].layer is BoardLayer.BL_In1_Cu
+
+    def test_front_and_back_unchanged(self):
+        _v, front = plan_net_traces(_adapter(52, 52), [_net_trace_with_layer("F.Cu")])
+        _v, back = plan_net_traces(_adapter(52, 52), [_net_trace_with_layer("B.Cu")])
+        assert front[0].layer is BoardLayer.BL_F_Cu
+        assert back[0].layer is BoardLayer.BL_B_Cu
+
+    def test_unknown_layer_name_is_a_fatal_not_f_cu(self):
+        """Э4.2 — a hand-built NetTrace that bypassed the loader must still be
+        refused, never silently rerouted onto F.Cu."""
+        with pytest.raises(ValidationError):
+            plan_net_traces(_adapter(52, 52), [_net_trace_with_layer("Top.Cu")])

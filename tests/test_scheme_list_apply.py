@@ -253,6 +253,25 @@ class TestOntoSibling:
         # inner-layer literal survives on the twin
         assert plan.tracks[0].layer == BoardLayer.BL_In1_Cu
 
+    def test_unknown_track_layer_name_is_not_silently_f_cu(self):
+        """plan_2026_09_12_strict_copper_layers.md Э4.2 (scheme_lists path).
+
+        A scheme_lists track layer is a free STRING (deliberately not the F/B
+        enum — see SchemeListTrackRecord), so a hand-edited record can name
+        anything. On the WRITE path an unknown name must be a fatal: the old
+        tolerant `layer_from_str` fallback quietly made it F.Cu."""
+        adapter = FakeAdapter(_twin_board())
+        rec = _rec(
+            source_sheet="Channel_0",
+            components=[_comp("R1s", 0, 0, 45.0)],
+            tracks=[SchemeListTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
+                                          end_along_mm=10.0, end_across_mm=0.0,
+                                          width_mm=0.25, layer="Top.Cu", net=GND0)],
+        )
+        with pytest.raises(ValidationError):
+            plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+                             rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
+
     def test_twin_node_rotation_turns_region_around_pivot(self):
         """Onto a sibling the node rotation turns the region the same rigid way
         (node_rot 90 -> (10,0) maps to (0,-10), angles +90)."""

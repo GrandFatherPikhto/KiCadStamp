@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 from unittest.mock import MagicMock
 
-from kicadstamp.config import Config, ClonePlacement, Cell, TemplateComponentSlot
+from kicadstamp.config import (Config, ClonePlacement, Cell, TemplateComponentSlot,
+                               TemplateTrack)
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2, BoardLayer
 from kicadstamp.domain.board import Footprint
@@ -349,3 +350,44 @@ class TestPadAnchorDeclarativeMount:
         assert mount.y / MM == pytest.approx(197.0, abs=1e-6)
         assert by_ref["C-CAP"].x / MM == pytest.approx(102.0, abs=1e-6)
         assert by_ref["C-CAP"].y / MM == pytest.approx(197.0, abs=1e-6)
+
+
+class TestCloneTrackCopperLayer:
+    """plan_2026_09_12_strict_copper_layers.md Э4.1/Э4.2 (clone path).
+
+    A clone's track layer is COPPER: an inner layer must survive into the
+    TrackCommand. Before Э2 the same binary ternary as the ManualSpoke path
+    collapsed In1.Cu into F.Cu.
+    """
+
+    def _cell(self, track_layer):
+        return Cell(
+            name="single", layer="F.Cu",
+            components=[TemplateComponentSlot(role="R1")],
+            tracks=[TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
+                                  end_along_mm=1.0, end_across_mm=0.0,
+                                  width_mm=0.25, net="NET1", layer=track_layer)],
+        )
+
+    def _run(self, track_layer):
+        cell = self._cell(track_layer)
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
+                               nets={"R1": "NET1"})
+        calc = ClonePositionCalculator(
+            adapter, Config(layer="F.Cu", cells={cell.name: cell}))
+        _placed, _vias, tracks = calc.compute_raw_positions([clone])
+        return tracks
+
+    def test_inner_layer_track_reaches_the_track_command(self):
+        tracks = self._run("In1.Cu")
+        assert len(tracks) == 1
+        assert tracks[0].layer is BoardLayer.BL_In1_Cu
+
+    def test_front_and_back_unchanged(self):
+        assert self._run("F.Cu")[0].layer is BoardLayer.BL_F_Cu
+        assert self._run("B.Cu")[0].layer is BoardLayer.BL_B_Cu
+
+    def test_unknown_layer_name_is_not_silently_f_cu(self):
+        with pytest.raises(ValueError):
+            self._run("Top.Cu")

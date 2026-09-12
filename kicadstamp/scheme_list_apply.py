@@ -53,7 +53,7 @@ from .tree_position import (
     mount_node_base,
     node_position,
 )
-from .utils.layers import layer_from_str
+from .utils.layers import layer_from_str_strict
 from .utils.units import MM
 from .cloner.models import TwinMap
 from .channel_copy import build_channel_groups, sheet_name_of_fp
@@ -138,7 +138,23 @@ def _fatal_problems(problems: list[str]) -> None:
 
 
 def _layer_board(layer_str: str | None) -> BoardLayer:
-    return layer_from_str(layer_str) if layer_str else BoardLayer.BL_F_Cu
+    """A scheme_lists track layer -> BoardLayer, parsed STRICTLY.
+
+    2026-09-12 (plan_2026_09_12_strict_copper_layers.md Э2): the record stores
+    the LITERAL copper layer name (any layer of the stack — see
+    SchemeListTrackRecord), so the write path must not lean on the tolerant
+    parser's substring fallback: an unknown name is a fatal, not a silent F.Cu.
+    `None` keeps its documented "no layer recorded" meaning and stays F.Cu,
+    byte-for-byte as before."""
+    if not layer_str:
+        return BoardLayer.BL_F_Cu
+    try:
+        return layer_from_str_strict(layer_str)
+    except ValueError:
+        raise ValidationError(format_fatal_error(
+            _("scheme_lists track has invalid copper layer {layer!r}").format(layer=layer_str),
+            [_("a recorded track layer is a literal copper layer name: 'F.Cu', "
+               "'In1.Cu'..'In30.Cu' or 'B.Cu'")])) from None
 
 
 # ── twin resolution (onto sibling) ──────────────────────────────────────────

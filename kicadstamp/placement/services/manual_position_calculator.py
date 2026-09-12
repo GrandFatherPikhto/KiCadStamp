@@ -11,6 +11,7 @@ from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
 from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
+from ...utils.layers import layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
 from .component_resolver import (
@@ -346,7 +347,11 @@ class ManualPositionCalculator:
                 # see spoke_layout._resolve_track). Only spoke‑level: TemplateComponentSlot
                 # carries vias, not tracks.
                 for track_index, track in enumerate(layout.tracks):
-                    track_layer = BoardLayer.BL_B_Cu if track.layer == 'B.Cu' else BoardLayer.BL_F_Cu
+                    # COPPER (2026-09-12, plan_2026_09_12_strict_copper_layers.md
+                    # Э2): strict parse — same fix as the clone path. Component
+                    # slots below stay binary ON PURPOSE: they name the mounting
+                    # side, where an inner layer cannot exist (design P.1).
+                    track_layer = layer_from_str_strict(track.layer)
                     tracks_result.append(TrackCommand(
                         start=track.start, end=track.end, width_mm=track.width_mm,
                         net_name=track.net, layer=track_layer, owner_ref=anchor_ref_resolved,

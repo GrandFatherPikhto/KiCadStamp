@@ -36,6 +36,7 @@ from ...geometry.clone_geometry import (
 )
 from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
+from ...utils.layers import layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import (
     resolve_roles_by_selection,
@@ -405,7 +406,11 @@ class ClonePositionCalculator:
                                  y=via.position.y/1e6, net=via.net))
 
         for track_index, track in enumerate(layout.tracks):
-            track_layer = BoardLayer.BL_B_Cu if track.layer == 'B.Cu' else BoardLayer.BL_F_Cu
+            # COPPER (2026-09-12, plan_2026_09_12_strict_copper_layers.md Э2):
+            # strict parse — a track on an inner layer stays on that layer, and
+            # an unknown name raises instead of silently becoming F.Cu. The
+            # binary ternary this replaces was that exact silent collapse.
+            track_layer = layer_from_str_strict(track.layer)
             tracks_result.append(TrackCommand(
                 start=track.start, end=track.end, width_mm=track.width_mm,
                 net_name=track.net, layer=track_layer, owner_ref=placement_label,
