@@ -17002,3 +17002,38 @@ msgstr "Reread inter-node copper"
 #, python-brace-format
 msgid "{net} [{nodes}]"
 msgstr "{net} [{nodes}]"
+
+# ── Busy indicator in the status bar (plan_2026_09_12_busy_indicator, Э1) ──
+# Unlike the ● dirty label next to it, this one NAMES the running operation:
+# the word is passed at the start_long_op call site (busy_text=...), and an
+# operation that does not name itself gets the generic wording below.
+#: gui/main_window.py
+msgid "Working with the board…"
+msgstr "Working with the board…"
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "Working with the board: {what}"
+msgstr "Working with the board: {what}"
+
+# ── Operation names for the busy indicator (plan_2026_09_12_busy_indicator, Э2) ──
+# Passed as busy_text=... at the start_long_op call site so the status bar says
+# WHICH board operation is running ("Working with the board: placing"). An
+# operation that passes nothing gets the generic wording above instead.
+#: gui/dock_hub.py
+#: gui/docks/scheme_list.py
+#: gui/docks/trees_dock.py
+msgid "reading the board"
+msgstr "reading the board"
+
+#: gui/docks/chain.py
+#: gui/docks/net_trace.py
+#: gui/docks/placer.py
+#: gui/docks/thermal_via.py
+#: gui/docks/trees_dock.py
+msgid "placing"
+msgstr "placing"
+
+#: gui/docks/trees_dock.py
+msgid "re-reading copper"
+msgstr "re-reading copper"

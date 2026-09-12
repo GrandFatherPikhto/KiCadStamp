@@ -15656,3 +15656,38 @@ msgstr "Перечитать межузловую медь"
 #, python-brace-format
 msgid "{net} [{nodes}]"
 msgstr "{net} [{nodes}]"
+
+# ── Индикатор занятости в статус-баре (plan_2026_09_12_busy_indicator, Э1) ──
+# В отличие от соседней метки ● (несохранённые правки), эта НАЗЫВАЕТ операцию:
+# слово передаётся на месте вызова start_long_op (busy_text=...), а операция
+# без своего слова получает общую формулировку ниже.
+#: gui/main_window.py
+msgid "Working with the board…"
+msgstr "Работа с платой…"
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "Working with the board: {what}"
+msgstr "Работа с платой: {what}"
+
+# ── Названия операций для индикатора занятости (plan_2026_09_12_busy_indicator, Э2) ──
+# Передаются как busy_text=... на месте вызова start_long_op, чтобы в статус-баре
+# было видно, КАКАЯ работа с платой идёт («Работа с платой: расстановка»).
+# Операция без своего слова получает общую формулировку выше.
+#: gui/dock_hub.py
+#: gui/docks/scheme_list.py
+#: gui/docks/trees_dock.py
+msgid "reading the board"
+msgstr "чтение платы"
+
+#: gui/docks/chain.py
+#: gui/docks/net_trace.py
+#: gui/docks/placer.py
+#: gui/docks/thermal_via.py
+#: gui/docks/trees_dock.py
+msgid "placing"
+msgstr "расстановка"
+
+#: gui/docks/trees_dock.py
+msgid "re-reading copper"
+msgstr "перечитывание меди"

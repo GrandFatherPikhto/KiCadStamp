@@ -308,3 +308,198 @@ def test_long_op_unexpected_exception_still_logs_the_stack(qapp, caplog):
 
     assert errors == ["kaboom"]
     assert any(r.exc_info and r.levelno >= logging.ERROR for r in caplog.records)
+
+
+# ── Busy indicator: the hook (Э1, plan_2026_09_12_busy_indicator) ────────────
+# The reporter is the seam between LongOpController and the status bar. These
+# tests pin both ends of its contract: reported when the operation starts,
+# cleared when it finishes (through _release, the single tail of the success AND
+# the failure path), and NEVER reported by the background poll — P.1 of the
+# plan: hanging the indicator on connection.long_op_active instead would make it
+# blink several times a second on an idle GUI.
+
+
+def _install_recording_reporter(calls):
+    """Install a recording reporter and return a restore callback — the hook is
+    a module global, so anything that sets it must put it back."""
+    worker_mod.set_busy_reporter(calls.append)
+    return lambda: worker_mod.set_busy_reporter(None)
+
+
+def test_busy_reporter_reports_the_operation_and_clears_on_success(qapp):
+    """_acquire reports the operation's word BEFORE the worker thread starts
+    (so the label is up for the op's whole life) and _release clears it after."""
+    connection = SimpleNamespace(long_op_active=False)
+    calls = []
+    restore = _install_recording_reporter(calls)
+    try:
+        controller = start_long_op(connection, (), lambda: "done",
+                                   lambda _r: None, lambda _m: None,
+                                   busy_text="PLACEHOLDER")
+        thread = controller._thread  # capture before any pump (see module docstring)
+        # The report is part of start()'s synchronous UI-thread part.
+        assert calls == ["PLACEHOLDER"]
+        _pump(qapp, lambda: not connection.long_op_active)
+        assert thread.wait(2000), "worker thread did not finish"
+    finally:
+        restore()
+
+    assert calls == ["PLACEHOLDER", None]
+
+
+def _boom():
+    raise ValueError("kaboom")
+
+
+def test_busy_reporter_clears_on_failure_too(qapp):
+    """A failing operation must clear the indicator as well — otherwise the
+    label would lie forever after the first error."""
+    connection = SimpleNamespace(long_op_active=False)
+    errors = []
+    calls = []
+    restore = _install_recording_reporter(calls)
+    try:
+        controller = start_long_op(connection, (), _boom, errors.append,
+                                   errors.append, busy_text="PLACEHOLDER")
+        thread = controller._thread
+        assert calls == ["PLACEHOLDER"]
+        _pump(qapp, lambda: errors)
+        assert thread.wait(2000), "worker thread did not finish"
+    finally:
+        restore()
+
+    assert errors == ["kaboom"]
+    assert connection.long_op_active is False
+    assert calls == ["PLACEHOLDER", None]
+
+
+def test_busy_reporter_gets_the_generic_text_when_the_op_is_unnamed(qapp):
+    """Without busy_text the reporter is told "busy, no name" — the sentinel the
+    GUI turns into its own generic wording — never None, which means finished."""
+    connection = SimpleNamespace(long_op_active=False)
+    calls = []
+    restore = _install_recording_reporter(calls)
+    try:
+        controller = start_long_op(connection, (), lambda: "done",
+                                   lambda _r: None, lambda _m: None)
+        thread = controller._thread
+        assert calls == [worker_mod.GENERIC_BUSY_TEXT]
+        assert worker_mod.GENERIC_BUSY_TEXT is not None
+        _pump(qapp, lambda: not connection.long_op_active)
+        assert thread.wait(2000), "worker thread did not finish"
+    finally:
+        restore()
+
+    assert calls == [worker_mod.GENERIC_BUSY_TEXT, None]
+
+
+def test_previously_disabled_guard_widget_stays_disabled(qapp):
+    """_release restores each guard widget's PRIOR state — a widget that was
+    already off (e.g. Redraw with nothing checked) must not be switched on by
+    finishing an operation."""
+    connection = SimpleNamespace(long_op_active=False)
+    already_off = _Button()
+    already_off.setEnabled(False)
+    was_on = _Button()
+    calls = []
+    restore = _install_recording_reporter(calls)
+    try:
+        controller = start_long_op(connection, (already_off, was_on),
+                                   lambda: "done", lambda _r: None,
+                                   lambda _m: None)
+        thread = controller._thread
+        assert not already_off.isEnabled() and not was_on.isEnabled()
+        _pump(qapp, lambda: not connection.long_op_active)
+        assert thread.wait(2000), "worker thread did not finish"
+    finally:
+        restore()
+
+    assert not already_off.isEnabled(), "an already-disabled widget was re-enabled"
+    assert was_on.isEnabled()
+    assert calls[-1] is None
+
+
+def test_wait_cursor_goes_up_with_the_op_and_comes_back_down(qapp):
+    """Э1: the wait cursor is pushed in _acquire and popped in _release. Qt
+    restores override cursors by CALL COUNT, so an unbalanced pair would leak a
+    permanent hourglass into the rest of the session (and one spare restore()
+    would pop a cursor somebody else pushed) — hence both halves here."""
+    from PyQt6.QtWidgets import QApplication
+
+    assert QApplication.overrideCursor() is None, \
+        "a previous test leaked an override cursor"
+    connection = SimpleNamespace(long_op_active=False)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_op():
+        entered.set()
+        assert release.wait(5.0)
+        return "done"
+
+    controller = start_long_op(connection, (), slow_op, lambda _r: None,
+                               lambda _m: None)
+    thread = controller._thread
+    assert entered.wait(5.0), "worker never started"
+    assert QApplication.overrideCursor() is not None, \
+        "no wait cursor was set while the operation ran"
+
+    release.set()
+    _pump(qapp, lambda: not connection.long_op_active)
+    assert thread.wait(2000), "worker thread did not finish"
+
+    assert QApplication.overrideCursor() is None, "the wait cursor leaked"
+
+
+def test_selection_poll_tick_never_touches_the_busy_reporter(real_main_window, qapp):
+    """KEY test against the P.1 trap. The ~400ms selection tick is dispatched
+    through PollWorkerHandle.submit, which raises connection.long_op_active
+    exactly like a real operation does (asserted below) — so an indicator hung
+    on that FLAG would report here. The reporter must stay silent: the poll is
+    not something the user started. On code where the indicator sits on
+    long_op_active this test fails."""
+    window = real_main_window
+    window._timer.stop()
+    window._selection_timer.stop()
+    window.connection.board = SimpleNamespace(
+        adapter=SimpleNamespace(get_selected_items=lambda: []))
+
+    calls = []
+    worker_mod.set_busy_reporter(calls.append)
+    try:
+        window._poll_board_selection()
+        # The tick really did take the shared-socket token — otherwise this test
+        # would pass for the wrong reason.
+        assert window.connection.long_op_active is True
+        _pump(qapp, lambda: not window.connection.long_op_active)
+    finally:
+        worker_mod.set_busy_reporter(window._set_busy)
+
+    assert calls == []
+
+
+def test_real_window_busy_label_follows_a_long_op(real_main_window, qapp):
+    """End to end: the hook MainWindow installs at construction is the one a
+    long operation reaches — the label is up while the op runs and empty again
+    once it finishes."""
+    window = real_main_window
+    connection = SimpleNamespace(long_op_active=False)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_op():
+        entered.set()
+        assert release.wait(5.0)
+        return "done"
+
+    controller = start_long_op(connection, (), slow_op, lambda _r: None,
+                               lambda _m: None, busy_text="PLACEHOLDER")
+    thread = controller._thread
+    assert entered.wait(5.0), "worker never started"
+    assert "PLACEHOLDER" in window.busy_label.text()
+
+    release.set()
+    _pump(qapp, lambda: not connection.long_op_active)
+    assert thread.wait(2000), "worker thread did not finish"
+
+    assert window.busy_label.text() == ""

@@ -96,7 +96,7 @@ from .app_icon import build_app_icon
 from .docks.profile_import import run_import_dialog
 from .hotkeys import build_action
 from .kicad_processes_dialog import KicadProcessesDialog
-from .worker import PollWorkerHandle
+from .worker import GENERIC_BUSY_TEXT, PollWorkerHandle, set_busy_reporter
 
 # Stable QAction ids for the global project save model (2026-09-01, plan
 # project_save_model) — the same registry the Settings tab's hotkey list uses.
@@ -147,6 +147,18 @@ class MainWindow(QMainWindow):
         # DockHub._update_dirty_indicator on every stage/clear.
         self.dirty_label = QLabel("")
         self.statusBar().addPermanentWidget(self.dirty_label)
+
+        # Busy indicator (2026-09-12, plan_2026_09_12_busy_indicator Э1) — a
+        # permanent status-bar label naming the operation the user started
+        # ("Working with the board: placing"), empty when nothing runs. Same
+        # shape as dirty_label above: one long-lived widget, written from one
+        # place (_set_busy). The writer is gui/worker's busy-reporter hook, so
+        # ONLY LongOpController operations reach it — the automatic poll ticks
+        # go through PollWorkerHandle, which deliberately has no reporter (see
+        # the hook's own comment in gui/worker.py).
+        self.busy_label = QLabel("")
+        self.statusBar().addPermanentWidget(self.busy_label)
+        set_busy_reporter(self._set_busy)
 
         # Always on top / Tray icon checkboxes moved to the Settings tab
         # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
@@ -771,6 +783,24 @@ class MainWindow(QMainWindow):
         self._dock_hub.reload_project_from_disk()
         self._update_dirty_indicator()
         self.status_label.setText(_("Unsaved config changes discarded"))
+
+    def _set_busy(self, what: Optional[str]) -> None:
+        """Busy reporter installed via gui.worker.set_busy_reporter — called on
+        the UI thread when a long operation starts (`what` is a short,
+        already-translated word naming it, or GENERIC_BUSY_TEXT when the
+        operation did not name itself) and with None when it finishes.
+
+        Deliberately shows the OPERATION, not just a spinner: knowing WHICH
+        board read is running is what the user cannot see otherwise. A hung
+        operation (KiCad not answering) keeps the label up — that is the truth
+        and there is nothing to time out here."""
+        if what is None:
+            self.busy_label.setText("")
+        elif what == GENERIC_BUSY_TEXT:
+            self.busy_label.setText(_("Working with the board…"))
+        else:
+            self.busy_label.setText(
+                _("Working with the board: {what}").format(what=what))
 
     def _update_dirty_indicator(self) -> None:
         """Reflect the working set's dirty state: a ● in the status bar and a ●

@@ -14,6 +14,7 @@ from PyQt6.QtCore import QByteArray
 
 from gui import settings
 from gui.main_window import _DOCK_STATE_VERSION
+from gui.worker import GENERIC_BUSY_TEXT
 from kicadstamp.config_working_set import WORKING_SET
 
 
@@ -257,3 +258,42 @@ def test_settings_hotkeys_list_contains_all_dock_actions(real_main_window):
     assert "root_metadata.save" not in edits
     assert "root_metadata.add_schematic_file" not in edits
     assert "root_metadata.remove_schematic_file" not in edits
+
+
+# ── Busy indicator in the status bar (Э1, plan_2026_09_12_busy_indicator) ────
+
+
+def test_busy_label_shows_the_operation_and_clears(real_main_window):
+    """The busy label names the operation while one runs (the word comes from
+    the start_long_op call site), falls back to its own generic wording when the
+    operation did not name itself, and is empty when nothing runs. Same
+    permanent-widget shape as the ● dirty label next to it."""
+    window = real_main_window
+    assert window.busy_label.text() == ""
+
+    window._set_busy("PLACEHOLDER")
+    assert "PLACEHOLDER" in window.busy_label.text()
+
+    # The sentinel the worker sends for an unnamed operation must not be shown
+    # as an operation name.
+    window._set_busy(GENERIC_BUSY_TEXT)
+    assert window.busy_label.text()
+    assert "PLACEHOLDER" not in window.busy_label.text()
+
+    window._set_busy(None)
+    assert window.busy_label.text() == ""
+
+
+def test_busy_label_is_a_permanent_status_bar_widget(real_main_window):
+    """It sits on the RIGHT (permanent) side next to the buttons — the same
+    place the ● dirty label lives — so a temporary showMessage() on the left
+    (the connection status) can neither overwrite nor hide it."""
+    window = real_main_window
+    window._set_busy("PLACEHOLDER")
+
+    window.statusBar().showMessage("A temporary status message")
+    assert "PLACEHOLDER" in window.busy_label.text()
+    window.statusBar().clearMessage()
+
+    window._set_busy(None)
+    assert window.busy_label.text() == ""

@@ -13,6 +13,13 @@ one active socket) but freezes the window for the duration. Moving the op to
 a worker thread would let the polling timers keep firing concurrently, so a
 worker alone is not enough — the shared socket must be serialized.
 
+Busy indicator (Э1, plan_2026_09_12_busy_indicator): every operation the USER
+started is now visible on screen. LongOpController reports through the
+module-level set_busy_reporter hook (see its block below) — the seam is
+LongOpController alone, never connection.long_op_active, because the ~400ms
+selection-poll tick raises that flag too and an indicator keyed on it would
+blink on an idle GUI.
+
 Serialization model:
   * The shared BoardConnection carries a plain `long_op_active` flag.
   * LongOpController.start() sets it on the UI thread BEFORE the worker
@@ -44,9 +51,61 @@ premature C++ destruction of a still-running QThread.
 import logging
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import QApplication
 
 logger = logging.getLogger(__name__)
+
+# ── Busy indicator (Э1, plan_2026_09_12_busy_indicator) ──────────────────────
+#
+# A long operation the user started (Extract/Redraw/re-read/refresh/…) must be
+# visible while it runs — until 2026-09-12 nothing on screen changed during one
+# and the trigger button kept looking live. The report travels over this
+# module-level hook instead of a reference to MainWindow: worker.py must not
+# start knowing about the window, and a test replaces the hook in one line.
+#
+# What it is deliberately NOT hung on: connection.long_op_active. That flag is
+# ALSO raised by the ~400ms selection-poll tick (PollWorkerHandle.submit), so an
+# indicator keyed on it would blink several times a second on an idle GUI (P.1
+# of the plan). The background poll stays invisible and that is correct — the
+# user did not start it.
+#
+# Reporter contract (always called on the UI thread):
+#   reporter(text) — an operation STARTED; `text` is a short, ALREADY
+#                    TRANSLATED word naming it, or GENERIC_BUSY_TEXT when the
+#                    operation did not name itself (then the reporter uses its
+#                    own generic wording);
+#   reporter(None) — the operation FINISHED, on success and on error alike
+#                    (_release is the single tail of both paths).
+GENERIC_BUSY_TEXT = ""
+
+_busy_reporter: Optional[Callable[[Optional[str]], None]] = None
+
+
+def set_busy_reporter(reporter: Optional[Callable[[Optional[str]], None]]) -> None:
+    """Install (or, with None, remove) THE busy reporter — MainWindow calls this
+    once at construction, with its own ``_set_busy``.
+
+    Held by plain reference: the module slot is single and the only long-lived
+    window installs it, so the next window that installs one simply replaces it
+    (the GUI test suite builds many MainWindows in one process). A reporter that
+    raises is logged and swallowed by :func:`_notify_busy`, so a window torn
+    down mid-operation can never fail the operation itself."""
+    global _busy_reporter
+    _busy_reporter = reporter
+
+
+def _notify_busy(text: Optional[str]) -> None:
+    """Hand the current busy state to the registered reporter (a no-op when none
+    is installed). Never raises: the indicator is cosmetic and must not be able
+    to fail a board operation."""
+    reporter = _busy_reporter
+    if reporter is None:
+        return
+    try:
+        reporter(text)
+    except Exception:  # noqa: BLE001 — a broken indicator must never break an op
+        logger.exception("Busy reporter failed")
 
 
 class _LongOpWorker(QObject):
@@ -100,7 +159,12 @@ class LongOpController(QObject):
     long_op_active = True) and disables the guard widgets BEFORE the thread
     starts; the completion handlers run back on the UI thread (queued
     connections, since the worker lives in a different thread) and release
-    the socket exactly once."""
+    the socket exactly once.
+
+    It is also the ONE place that reports "the user's operation is running" to
+    the GUI (see the busy-indicator block above): ``busy_text`` is a short,
+    already-translated word naming the operation, or None for the generic
+    wording, and the wait cursor is pushed/popped in the same bracket."""
 
     finished = pyqtSignal(object)
     failed = pyqtSignal(str)
@@ -110,14 +174,20 @@ class LongOpController(QObject):
     # docstring/module-level _ACTIVE_CONTROLLERS for why this matters.
     thread_stopped = pyqtSignal()
 
-    def __init__(self, connection: Any, widgets: Iterable[Any], parent=None):
+    def __init__(self, connection: Any, widgets: Iterable[Any], parent=None,
+                 busy_text: Optional[str] = None):
         super().__init__(parent)
         self._connection = connection
         self._widgets: List[Any] = list(widgets)
+        self._busy_text = busy_text
         self._thread: Optional[QThread] = None
         self._worker: Optional[_LongOpWorker] = None
         self._released = False
         self._prior_enabled: Dict[Any, bool] = {}
+        # True while THIS op pushed the application-wide override cursor — Qt
+        # restores override cursors by call count, so the pop is made
+        # conditional on the matching push rather than on QApplication existing.
+        self._cursor_set = False
 
     def start(self, fn: Callable[..., Any], *args) -> None:
         self._acquire()
@@ -140,6 +210,9 @@ class LongOpController(QObject):
         for w in self._widgets:
             self._prior_enabled[w] = w.isEnabled()
             w.setEnabled(False)
+        self._set_wait_cursor(True)
+        _notify_busy(GENERIC_BUSY_TEXT if self._busy_text is None
+                     else self._busy_text)
 
     def _release(self) -> None:
         if self._released:
@@ -149,8 +222,27 @@ class LongOpController(QObject):
             self._connection.long_op_active = False
         for w, enabled in self._prior_enabled.items():
             w.setEnabled(enabled)
+        self._set_wait_cursor(False)
+        _notify_busy(None)
         if self._thread is not None:
             self._thread.quit()
+
+    def _set_wait_cursor(self, wait: bool) -> None:
+        """Push/pop the application-wide wait cursor for the duration of the
+        op (same two calls gui/ui_utils.busy uses for its synchronous
+        operations). The UI thread stays free while the op runs on the worker,
+        so the cursor is what the user sees immediately; a bare unit test with
+        no QApplication simply skips it."""
+        app = QApplication.instance()
+        if app is None:
+            return
+        if wait:
+            if not self._cursor_set:
+                app.setOverrideCursor(Qt.CursorShape.WaitCursor)
+                self._cursor_set = True
+        elif self._cursor_set:
+            app.restoreOverrideCursor()
+            self._cursor_set = False
 
     @pyqtSlot(object)
     def _on_worker_succeeded(self, result: Any) -> None:
@@ -184,13 +276,19 @@ class LongOpController(QObject):
 _ACTIVE_CONTROLLERS: set = set()
 
 
-def start_long_op(connection, widgets, fn, on_success, on_error, *args):
+def start_long_op(connection, widgets, fn, on_success, on_error, *args,
+                  busy_text: Optional[str] = None):
     """Convenience factory: builds a LongOpController, wires its finished/
     failed signals to on_success/on_error (both called on the UI thread),
     starts the op, and returns the controller (callers may keep their own
     reference too, e.g. to inspect state, but do not need to for correctness
-    — see _ACTIVE_CONTROLLERS above)."""
-    controller = LongOpController(connection, widgets)
+    — see _ACTIVE_CONTROLLERS above).
+
+    ``busy_text`` (keyword-only, so the optional parameter breaks no existing
+    call and cannot collide with ``*args``) is the short, already-translated
+    word the status-bar indicator shows while this op runs — e.g.
+    ``_("placing")``. Omit it for the generic wording."""
+    controller = LongOpController(connection, widgets, busy_text=busy_text)
     controller.finished.connect(on_success)
     controller.failed.connect(on_error)
     _ACTIVE_CONTROLLERS.add(controller)
@@ -236,7 +334,8 @@ def _refresh_snapshot_worker(connection: Any) -> Dict[str, Any]:
 
 def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
                           on_ready: Callable[[], Any],
-                          on_error: Callable[[str], Any]) -> Any:
+                          on_error: Callable[[str], Any], *,
+                          busy_text: Optional[str] = None) -> Any:
     """Rebuild the board snapshot on a worker thread, then continue on the UI
     thread — "freshness at the point of use".
 
@@ -276,7 +375,8 @@ def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
                        "holds the shared kipy socket")
         return None
     return start_long_op(connection, widgets, _refresh_snapshot_worker,
-                         lambda _result: on_ready(), on_error, connection)
+                         lambda _result: on_ready(), on_error, connection,
+                         busy_text=busy_text)
 
 
 class PollTask:
