@@ -217,8 +217,16 @@ plan_2026_09_12_combo_refresh_deadlock.md). The same fix constrains any combo re
 its INTERNAL line edit — `blockSignals` on an editable combo never covered the QLineEdit inside it,
 and Qt's own record insertion (`insertItems` → `rowsInserted` → `setCurrentIndex` → that line edit's
 `textChanged`) leaked a Python slot call out of a refresh, which re-entered Qt on a non-recursive
-signal mutex and froze the whole GUI. Never subscribe a widget to a combo's internal line edit —
-subscribe to `currentTextChanged` instead. This
+signal mutex and froze the whole GUI. That does NOT mean "never touch a combo's internal line edit":
+`currentTextChanged`/`currentIndexChanged` never fire for text typed by hand that is not in the item
+list, so the internal line edit's `editingFinished` is the ONLY signal that reaches a dock's
+autostage for a hand-typed role/cluster (measured 2026-09-12: 0 `currentIndexChanged` emissions for
+free-typed text, `diagnostics/probe_combo_line_edit_signals.py`). The rule is about WHICH signal, not
+whether: on a combo's internal line edit connect only user-driven signals (`editingFinished`,
+`returnPressed`); never connect `textChanged`, which Qt also emits while it rebuilds the model. Both
+halves live in code as `own_line_edits()` (any signal, `textChanged` included) and
+`combo_line_edits()` (user-driven only) in `gui/docks/_common.py`, with a guard test that fails if a
+raw `findChildren(QLineEdit)` scan appears anywhere else in `gui/`. This
 covers "one Cluster for a whole group" (Role left empty), "a narrowed subgroup, one Role" (Cluster
 left empty), or both at once — authoring Role/Cluster no longer requires the offline
 fieldstool/.kicad_sch round-trip.

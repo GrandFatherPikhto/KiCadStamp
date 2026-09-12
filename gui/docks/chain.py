@@ -85,9 +85,9 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from .live_position import read_anchor_live
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, parse_float_field,
-                      set_combo_items, set_mode_pair_enabled, show_message,
-                      upsert_list_entry)
+                      combo_line_edits, configure_searchable, display_path,
+                      own_line_edits, parse_float_field, set_combo_items,
+                      set_mode_pair_enabled, show_message, upsert_list_entry)
 from .rename import (collect_all_cell_names, collect_all_chain_nets,
                      collect_all_point_names, collect_all_sheet_names,
                      collect_chains_by_net, find_list_entry_file)
@@ -326,7 +326,12 @@ class ChainDock(QWidget):
         self.comment_edit.editingFinished.connect(self._autostage)
         self.retired_checkbox.toggled.connect(self._autostage)
         self.skip_checkbox.toggled.connect(self._autostage)
-        for w in self.origin_widget.findChildren(QLineEdit):
+        for w in own_line_edits(self.origin_widget):
+            w.editingFinished.connect(self._autostage)
+        # Load-bearing: currentIndexChanged does NOT fire for free-typed text,
+        # so this is the only signal that reaches _autostage for a hand-typed
+        # role/cluster. editingFinished only — see combo_line_edits.
+        for w in combo_line_edits(self.origin_widget):
             w.editingFinished.connect(self._autostage)
         for w in self.origin_widget.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)

@@ -141,10 +141,11 @@ from .live_position import (LiveRead, read_anchor_live,
                             read_clone_origin_live, read_coordinate_live)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, KeyValueTableEditor,
-                      configure_searchable, display_path, merge_write,
-                      parse_float_field, read_data, set_combo_items,
-                      set_mode_pair_enabled, show_message, upsert_clone_placement,
-                      upsert_entity, upsert_entity_placement, upsert_list_entry)
+                      combo_line_edits, configure_searchable, display_path,
+                      merge_write, own_line_edits, parse_float_field, read_data,
+                      set_combo_items, set_mode_pair_enabled, show_message,
+                      upsert_clone_placement, upsert_entity, upsert_entity_placement,
+                      upsert_list_entry)
 # _KeyValueTableEditor moved to _common.KeyValueTableEditor (2026-08-30,
 # ToolsDock shares it) — keep the old private name for existing call sites
 # and tests (placer_mod._KeyValueTableEditor).
@@ -976,11 +977,19 @@ class PlacerDock(QWidget):
         self.rotation_edit.editingFinished.connect(self._autostage)
         self.layer_combo.currentIndexChanged.connect(self._autostage)
         self.mirror_checkbox.toggled.connect(self._autostage)
-        for w in self.origin_widget.findChildren(QLineEdit):
+        for w in own_line_edits(self.origin_widget):
+            w.editingFinished.connect(self._autostage)
+        # Load-bearing: currentIndexChanged does NOT fire for free-typed text,
+        # so the internal line edit's editingFinished is the only signal that
+        # reaches _autostage for a hand-typed role/cluster (both scans below).
+        # editingFinished only — see combo_line_edits.
+        for w in combo_line_edits(self.origin_widget):
             w.editingFinished.connect(self._autostage)
         for w in self.origin_widget.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)
-        for w in self.coordinate_form.findChildren(QLineEdit):
+        for w in own_line_edits(self.coordinate_form):
+            w.editingFinished.connect(self._autostage)
+        for w in combo_line_edits(self.coordinate_form):
             w.editingFinished.connect(self._autostage)
         for w in self.coordinate_form.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)

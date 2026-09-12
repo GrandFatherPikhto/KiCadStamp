@@ -142,8 +142,8 @@ from .. import board_overlay, overlay_markers
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      WARN_STYLE as _WARN_STYLE, display_path, merge_write,
-                      show_message)
+                      WARN_STYLE as _WARN_STYLE, combo_line_edits, display_path,
+                      merge_write, own_line_edits, show_message)
 from .rename import collect_all_sheet_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
@@ -282,7 +282,12 @@ class PointsDock(QWidget):
         # auto-stages the current Point into the working set; File > Save
         # commits it to disk. _loading guards programmatic form population.
         self._loading = False
-        for w in self.findChildren(QLineEdit):
+        for w in own_line_edits(self):
+            w.editingFinished.connect(self._autostage)
+        # Load-bearing: currentIndexChanged does NOT fire for free-typed text,
+        # so this is the only signal that reaches _autostage for a hand-typed
+        # role/cluster. editingFinished only — see combo_line_edits.
+        for w in combo_line_edits(self):
             w.editingFinished.connect(self._autostage)
         for w in self.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)

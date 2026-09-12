@@ -45,8 +45,9 @@ from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
-                      configure_searchable, display_path, read_data,
-                      set_combo_items, show_message, upsert_list_entry)
+                      combo_line_edits, configure_searchable, display_path,
+                      own_line_edits, read_data, set_combo_items, show_message,
+                      upsert_list_entry)
 from .rename import collect_all_sheet_names, find_list_entry_file
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,12 @@ class NetTraceDock(QWidget):
         # the record's controllable fields into the working set; File > Save
         # commits to disk. _loading guards programmatic form population.
         self._loading = False
-        for w in self.findChildren(QLineEdit):
+        for w in own_line_edits(self):
+            w.editingFinished.connect(self._autostage)
+        # Load-bearing: currentIndexChanged does NOT fire for free-typed text,
+        # so this is the only signal that reaches _autostage for a hand-typed
+        # role/cluster. editingFinished only — see combo_line_edits.
+        for w in combo_line_edits(self):
             w.editingFinished.connect(self._autostage)
         for w in self.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._autostage)
