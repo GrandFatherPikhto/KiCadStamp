@@ -443,7 +443,7 @@ Functions:
 
 - **Tracks** – only supported in `ClonePlacement`. When extracting a template (`extract`), tracks are automatically included (if selected). When cloning, they are created together with components and vias.
 
-- **Layer placement** – each component may have its own layer (per‑placement); for `ManualSpoke`, the global `layer` from the config is used. When mirroring (`mirror`), layers are inverted.
+- **Layer placement** – each component may have its own layer (per‑placement); for `ManualSpoke`, the global `layer` from the config is used. When mirroring (`mirror`), only the outer pair is inverted (`F.Cu` ↔ `B.Cu`); copper on an **inner** layer keeps its own layer (it is a plane of the board, not a side of the construction).
 
 - **Anchor by role** – instead of `anchor_ref`, you can use `anchor_role` (the `Role` field of the anchor component). This survives re‑annotation. You can further narrow the search with `anchor_sheet` (local net prefix) or `anchor_pad`.
 

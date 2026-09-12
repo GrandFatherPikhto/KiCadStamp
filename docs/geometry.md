@@ -90,7 +90,7 @@ Analogous to `spoke_layout.py`, but for `ClonePlacement` (cloned placements). Di
 - `origin` can be absolute `(origin_x_mm, origin_y_mm)` or a shift from an anchor (if `anchor_ref` or `anchor_role` is set).
 - `net` of each via and track is resolved via `net_resolution.resolve_net()` using `params` and `net_overrides` – there is no default `rule_net`. If `net` is missing, a fatal error is raised.
 - Supports binding to an anchor component/pad via `anchor_ref`/`anchor_role` and `anchor_pad`.
-- Supports **mirroring** (`mirror=True`) – the whole construction is reflected along the X axis, layers are inverted, and component angles are recalculated as `180°−φ`.
+- Supports **mirroring** (`mirror=True`) – the whole construction is reflected along the X axis and component angles are recalculated as `180°−φ`; only the outer pair of copper layers swaps (`F.Cu` ↔ `B.Cu`), while copper on an **inner** layer keeps its own layer (`utils/layers.mirror_layer` — an inner layer is a plane of the BOARD, not a side of the construction).
 - **Supports tracks** – they are transformed in the same way as vias and components, inheriting the layer from the template (if not explicitly set).
 
 **Key Classes and Functions:**
@@ -193,7 +193,7 @@ for track in layout.tracks:
 
 # With mirroring (flips the whole construction to the opposite side)
 layout_mirrored = apply_clone_geometry(clone, template, role_to_ref, mirror=True)
-# Component angles are recalculated as 180°−φ, layers are inverted
+# Component angles are recalculated as 180°−φ; F.Cu/B.Cu swap, inner copper keeps its layer
 ```
 
 ---

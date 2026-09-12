@@ -172,8 +172,12 @@ nesting other cells), or both at once.
   layer whenever it differs from the cell's own `layer:`, and placement puts it back on exactly
   that layer. The parse is strict: an unknown layer name is a fatal, never a silent fallback to
   `F.Cu`. Only a component's layer stays binary — a footprint stands on `F.Cu` or `B.Cu`, and
-  there is no inner side. Mirroring copper that sits on an **inner** layer is not supported:
-  see [docs/commands.md](commands.md) (`channel-copy --mirror`).
+  there is no inner side. Mirroring swaps the OUTER pair only — `F.Cu` <-> `B.Cu`; copper on an
+  **inner** layer KEEPS its own layer. An inner layer carries the BOARD's purpose (on a 4-layer
+  stack `In1`/`In2` are the ground and power planes), and a mirrored construction moves to the
+  other side of the SAME board — the planes must not come along. The same single rule covers
+  `channel-copy --mirror` ([docs/commands.md](commands.md)), and the layers that stayed are named
+  in the Log.
 - `layer:` at the cell's own top level — the layer it was extracted on; components/tracks without
   their own `layer:` inherit it.
 - `anchor_xy:` / `anchor_role:` (`+anchor_pad:`) — the cell's MOUNT POINT and its identity (reworked

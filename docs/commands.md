@@ -445,7 +445,7 @@ python kicadstamp_cli.py channel-copy --src <channel> --dst <channel> [--dst <ch
 | `--target-dst X,Y` | Explicit destination anchor point (when the pivot twin is not placed yet). |
 | `--src-point X,Y` / `--dst-point X,Y` | Points mode — no component involved. |
 | `--angle DEG` | Rotation of the whole construction (degrees). |
-| `--mirror` | Mirror the whole construction (all layers inverted). |
+| `--mirror` | Mirror the whole construction (`F.Cu` <-> `B.Cu` swap; copper on an inner layer keeps its layer). |
 | `--include-global` | Also copy foreign (global-net) copper inside the source bbox. |
 | `--dry-run` | Only print the plan, do not write to the board. |
 | `--no-collision-check` | Disable collision checking. |
@@ -464,13 +464,13 @@ With `--mirror` the point is X-mirrored about the vertical axis through
 `anchor_src` and the angle becomes `(180° − (rot + angle)) mod 360°` — the mirror
 convention used throughout the tool. Order of operations (documented, they do not
 commute): **rotate first, then mirror**. F.Cu and B.Cu are swapped for every
-copied element. Copper on an **inner** layer (`In1.Cu`…) cannot be swapped: the
-counterpart of an inner layer follows from the board's copper stack (how many
-layers, and in what order), which a channel copy never reads. `--mirror`
-therefore refuses such a layer with a fatal naming the layer and the channels —
-a silent wrong-side copy would look like a successful one, while a silent skip
-would assemble the construction mirrored-wrong. A footprint's own layer is
-always F/B (there is no inner side), so the pair is complete for it.
+copied element. Copper on an **inner** layer (`In1.Cu`…) KEEPS its own layer: an
+inner layer carries the BOARD's purpose (on a 4-layer stack `In1`/`In2` are the
+ground and power planes), and the copy moves to the other side of the SAME
+board — so its planes must not come along. The rule is one and the same function
+as `ClonePlacement.mirror`'s (`utils/layers.mirror_layer`), and the layers that
+stayed are named in the Log. A footprint's own layer is always F/B (there is no
+inner side).
 Vias/tracks/net mapping: local nets `/Channel_0/...` become `/Channel_1/...`
 (via `TwinMap.twin_net`); global nets pass through unchanged.
 
