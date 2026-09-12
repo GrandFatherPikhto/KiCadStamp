@@ -2567,7 +2567,21 @@ class TreesDock(QWidget):
         _validate_tree_pivot_ref, reason "mount-ancestor"). Both rules are
         enforced by CONSTRUCTION through the shared _pivot_ref_mount_parent —
         the same single expression of the pivot-ref rule the form's combo uses,
-        never a second copy of it."""
+        never a second copy of it.
+
+        The offset is recalculated so the node does NOT physically move — the
+        form's own arithmetic, on the TreeNode itself (_reparented_offset).
+        The structural half belongs to _reparent_node alone: it owns the ONE
+        removal path (by identity, never list.remove) and the ONE rebuild
+        trigger. This flow has neither, and it rebuilds IMMEDIATELY
+        (defer_rebuild=False): there is no embedded form to destroy here — the
+        one-turn deferral exists only because the form's combo calls
+        _reparent_node from inside its own apply() (Л.4).
+
+        When the new base does not resolve there is nothing to hold the node
+        still with: the Log says so and the user is asked, in the form's own
+        words, whether to re-hang WITHOUT recalculating; a "No" leaves the tree
+        and the node exactly as they were."""
         forbidden = self._collect_subtree(node)
         candidates: list[tuple[str, Optional[TreeNode]]] = [(_("(top level)"), None)]
         for top in tree.nodes:
@@ -2592,17 +2606,59 @@ class TreesDock(QWidget):
                 "pivot-ref and a node under a mount node does not follow the "
                 "tree", node.ref, pinned.ref, node.ref)
             return
-        parent = self._find_parent(tree, node)
-        if parent is None:
-            tree.nodes.remove(node)
-        else:
-            parent.children.remove(node)
-        if new_parent is None:
-            tree.nodes.append(node)
-        else:
-            new_parent.children.append(node)
-        self._mark_dirty()
-        self._rebuild_tabs()
+        old_parent = self._find_parent(tree, node)
+        if old_parent is new_parent:
+            # Picking the parent the node already has is not a re-hang — the
+            # form's combo treats it the same way (its _apply_parent_change
+            # returns early): no board read, no dirty flag, no rebuild.
+            return
+        proceed, shift = self._rehang_offset_or_ask(tree, node, old_parent,
+                                                    new_parent)
+        if not proceed:
+            return       # the user refused a re-hang that cannot be held still
+        previous = (node.xy, node.polar, node.rotation)
+        if shift is not None:
+            # Written BEFORE the structural move so the (immediate) rebuild
+            # renders the node in its new frame; rolled back below if the
+            # structural half refuses — its guards are programming-error covers
+            # (the candidate list never offers such a parent), and a refused
+            # move must leave the node byte-for-byte as it was.
+            node.xy, node.polar, node.rotation = shift
+        if not self._reparent_node(tree, node, new_parent, defer_rebuild=False):
+            node.xy, node.polar, node.rotation = previous
+
+    def _rehang_offset_or_ask(self, tree: Tree, node: TreeNode,
+                              old_parent: Optional[TreeNode],
+                              new_parent: Optional[TreeNode]):
+        """(proceed, shift) for re-hanging `node` onto `new_parent`: `shift` is
+        the (xy, polar, rotation) that keeps the node physically still, or None
+        when its stored numbers have to stay as they are (a mount node's frame
+        is its own anchor, a node with no stored offset, or the user choosing to
+        keep them).
+
+        proceed is False ONLY when the offset cannot be held still — the new
+        parent's base does not resolve (no live board, a component that is not
+        on it) — and the user then answers "No" to the question. The Log line
+        and the question are the node form's own (_apply_parent_change, §Э1.3
+        option 2), word for word, so both re-hang paths refuse in exactly the
+        same terms and neither can re-hang silently."""
+        try:
+            return True, _reparented_offset(
+                self._cfg, self._live_adapter(),
+                self._ctx.sheet_names if self._ctx is not None else {},
+                tree, node, old_parent, new_parent)
+        except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
+            show_message(
+                _("Node {ref!r}: the base of the new parent did not resolve on "
+                  "the live board — the offset can NOT be recalculated.").format(
+                      ref=node.ref),
+                _ERROR_STYLE, logger)
+            answer = QMessageBox.question(
+                self, _("Move to…"),
+                _("Re-hang {ref!r} WITHOUT recalculating its offset? It keeps "
+                  "the stored coordinates, which now mean a different place."
+                  ).format(ref=node.ref))
+            return (answer == QMessageBox.StandardButton.Yes), None
 
     @staticmethod
     def _in_list(node: Optional[TreeNode], nodes: list[TreeNode]) -> bool:
@@ -2676,22 +2732,25 @@ class TreesDock(QWidget):
             cls._collect_parent_candidates(child, forbidden, barred_mounts, out)
 
     def _reparent_node(self, tree: Tree, node: TreeNode,
-                       new_parent: Optional[TreeNode]) -> bool:
+                       new_parent: Optional[TreeNode], *,
+                       defer_rebuild: bool = True) -> bool:
         """Move `node` (with its whole subtree) under `new_parent` (None = the
-        top level) in `tree` — the STRUCTURAL half of the Node form's Parent
-        combo (Э1); the offset that keeps the node physically still belongs to
-        the form, which has already re-expressed it through the new parent's
-        base.
+        top level) in `tree` — the ONE structural re-hang, shared by the Node
+        form's Parent combo and the context menu's "Move to…". The offset that
+        keeps the node physically still is NOT computed here: the form has
+        already re-expressed it through the new parent's base, and the menu
+        writes _reparented_offset's answer onto the node before calling this.
 
         Removal is by IDENTITY: TreeNode is a dataclass with value equality, so
-        list.remove() could drop a different-but-equal sibling (every other
-        structural mutator has the same latent trap; this one does not).
+        list.remove() could drop a different-but-equal sibling.
 
-        The rebuild is DEFERRED by one event-loop turn: this runs from inside
-        the embedded form's apply(), and rebuilding the page here would destroy
-        that very form mid-call (the panel's content is replaced wholesale).
-        One turn later the apply has returned and the form is no longer
-        `_touched`, so the rebuild is silent — no discard warning.
+        The rebuild is DEFERRED by one event-loop turn by DEFAULT, because the
+        form calls this from inside its own apply(): rebuilding the page here
+        would destroy that very form mid-call (the panel's content is replaced
+        wholesale). One turn later the apply has returned and the form is no
+        longer `_touched`, so the rebuild is silent — no discard warning. The
+        menu path passes defer_rebuild=False: it runs from a context menu with
+        no embedded form to destroy, so it rebuilds immediately (Л.4).
 
         Both structural invariants are re-checked here, whoever the caller is
         (the combo enforces them by construction, so a violation means a
@@ -2731,7 +2790,10 @@ class TreesDock(QWidget):
         else:
             new_parent.children.append(node)
         self._mark_dirty()
-        QTimer.singleShot(0, self._rebuild_tabs)
+        if defer_rebuild:
+            QTimer.singleShot(0, self._rebuild_tabs)
+        else:
+            self._rebuild_tabs()
         return True
 
     def _on_create_tree(self) -> None:

@@ -6532,3 +6532,144 @@ def test_reparented_offset_propagates_an_unresolved_base(monkeypatch):
     with pytest.raises(ValidationError, match="not on the board"):
         trees_dock_mod._reparented_offset(
             object(), object(), {}, object(), _offset_node(), None, object())
+
+
+# ── Э3: "Move to…" re-hangs through _reparent_node with the offset kept ─────
+# (plan_2026_09_12_move_to_recalculates_offset §Э3)
+
+def _move_to_stub(monkeypatch, label: str):
+    """Run _move_node_flow's picker for `label` without a window (and fail
+    loudly if the row is not offered — that is usually the rule under test)."""
+    def _get_item(*args, **kwargs):
+        labels = list(args[3] if len(args) > 3 else kwargs.get("items"))
+        assert label in labels, (label, labels)
+        return (label, True)
+    monkeypatch.setattr(QInputDialog, "getItem", _get_item)
+
+
+def test_move_to_recalculates_the_offset_after_the_re_hang(
+        main_window, tmp_path, monkeypatch):
+    """Э3: "Move to…" used to keep the stored numbers while the frame under them
+    changed, so the node really jumped on the board. It now writes
+    _reparented_offset's answer: 10 + 12 = 22 = 30 + (-8), the node did not move.
+
+    On the pre-Э3 code the node keeps xy == (12, 0) — 20 mm away."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+    _pose_stub(monkeypatch, lambda parent: (30.0, 0.0, 0.0)
+               if parent is mount_b else (10.0, 0.0, 0.0))
+    _move_to_stub(monkeypatch, "mnt_b")
+
+    dock._move_node_flow(tree, moved)
+
+    assert moved in mount_b.children and moved not in tree.nodes
+    assert moved.xy == (-8.0, 0.0)
+    assert 30.0 + moved.xy[0] == pytest.approx(10.0 + 12.0)   # did not move
+    assert dock._dirty is True
+
+
+def test_move_to_without_a_resolvable_base_asks_before_moving(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Э3: the menu refuses in the form's own words when the new base does not
+    resolve. "No" leaves the tree AND the node exactly as they were; "Yes"
+    re-hangs keeping the stored numbers — a silent re-hang has no branch left."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _rehang_tree()
+
+    def _unresolvable(*args, **kwargs):
+        raise ValidationError("the mount anchor's component is not on the board")
+    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _unresolvable)
+    _move_to_stub(monkeypatch, "mnt_b")
+    answers: list = []
+    monkeypatch.setattr(trees_dock_mod.QMessageBox, "question",
+                        lambda *a, **k: answers.pop(0))
+
+    caplog.clear()
+    answers.append(QMessageBox.StandardButton.No)
+    dock._move_node_flow(tree, moved)
+    assert moved in tree.nodes and moved not in mount_b.children
+    assert moved.xy == (12.0, 0.0)
+    assert any("can NOT be recalculated" in r.message for r in caplog.records)
+
+    caplog.clear()
+    answers.append(QMessageBox.StandardButton.Yes)
+    dock._move_node_flow(tree, moved)
+    assert moved in mount_b.children and moved not in tree.nodes
+    assert moved.xy == (12.0, 0.0)     # deliberately NOT recalculated
+
+
+def test_move_to_rebuilds_immediately_and_never_defers(
+        main_window, tmp_path, monkeypatch):
+    """Л.4: the one-turn deferral exists ONLY because the form's combo calls
+    _reparent_node from inside its own apply(). The menu has no form to destroy,
+    so it must keep rebuilding immediately — one trigger, QTimer never used."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    rebuilt: list = []
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: rebuilt.append(True))
+    deferred: list = []
+    monkeypatch.setattr(trees_dock_mod.QTimer, "singleShot",
+                        lambda *a, **k: deferred.append(a))
+    tree, mount_a, mount_b, moved = _rehang_tree()
+    _pose_stub(monkeypatch, lambda parent: (0.0, 0.0, 0.0))
+    _move_to_stub(monkeypatch, "mnt_b")
+
+    dock._move_node_flow(tree, moved)
+
+    assert rebuilt == [True] and deferred == []
+    assert moved in mount_b.children
+
+
+def test_move_to_keeps_a_mount_node_in_its_own_frame(
+        main_window, tmp_path, monkeypatch):
+    """Л.1 end-to-end: a MOUNT node's offset is expressed against its OWN anchor,
+    NOT against its parent, so the re-hang must not recalculate it — recalculating
+    would introduce an error where there was none. It still travels structurally."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, _moved = _rehang_tree()
+    mount_a.xy = (2.0, 0.0)
+    _pose_stub(monkeypatch, lambda parent: (10.0, 0.0, 0.0))
+    _move_to_stub(monkeypatch, "mnt_b")
+
+    dock._move_node_flow(tree, mount_a)
+
+    assert mount_a in mount_b.children and mount_a not in tree.nodes
+    assert mount_a.xy == (2.0, 0.0)          # "nothing to change"
+
+
+def test_move_to_removes_by_identity_not_by_value_equality(
+        main_window, tmp_path, monkeypatch):
+    """Э3 / P.1.3: the old flow removed with list.remove(node), which drops the
+    FIRST EQUAL sibling. TreeNode is a plain dataclass, so two nodes with
+    identical fields compare equal: the wrong one left the list and ended up in
+    TWO places at once (the intended one was appended to the new parent anyway).
+    The removal is _reparent_node's now, and it matches on `is`.
+
+    Equal siblings need equal refs, which a real config cannot hold (the loader
+    bars a ref from appearing in two nodes) — the shape is built directly here
+    to pin the removal MECHANISM, exactly like the cycle guard is pinned."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    first = TreeNode(ref="P1", kind="point", xy=(1.0, 1.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    second = TreeNode(ref="P1", kind="point", xy=(1.0, 1.0), polar=None,
+                      rotation=0.0, name=None, group=None, children=[])
+    assert first == second                   # the trap itself
+    parent = TreeNode(ref="PARENT", kind="placement", xy=(0.0, 0.0),
+                      polar=None, rotation=0.0, name=None, group=None,
+                      children=[first, second])
+    other = TreeNode(ref="OTHER", kind="placement", xy=(0.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True),
+                nodes=[parent, other])
+    _pose_stub(monkeypatch, lambda parent_node: (0.0, 0.0, 0.0))
+    _move_to_stub(monkeypatch, "OTHER")
+
+    dock._move_node_flow(tree, second)
+
+    assert dock._in_list(second, other.children)
+    assert dock._in_list(first, parent.children)
+    assert not dock._in_list(first, other.children)
+    assert len(parent.children) == 1         # only the MOVED one left
