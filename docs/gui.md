@@ -555,6 +555,25 @@ Since 2026-09-12 (`plan_2026_09_12_node_dialog_usability`):
   be the inner point (`_validate_tree_pivot_ref` would refuse the config at the
   next load).
 
+Since 2026-09-12 (`plan_2026_09_12_move_to_recalculates_offset`):
+
+- **Re-hanging a node keeps it where it is — through EITHER path.** The context menu's
+  **Move to…** and the EDIT form's **Parent** combo (mount nodes only, see above) now run the
+  SAME recalculation: the stored `xy`/`polar` are re-expressed in the new parent's base frame and
+  the stored `rotation` follows that base's angle, so the node does NOT move on the board — the
+  config can no longer change a node's place just because its binding changed. A polar node stays
+  polar (only its numbers change), and the node's whole SUBTREE travels with it untouched: the
+  children are stored relative to the node that moved, whose pose is unchanged.
+- **An unresolvable base asks instead of moving.** When the new parent's base cannot be resolved
+  on the live board (no connection, a component that is not there), nothing can be held still, so
+  both paths say so in the Log and ask for an explicit confirmation ("Re-hang … WITHOUT
+  recalculating its offset?"); answering **No** leaves the tree and the node exactly as they were.
+  No path re-hangs silently any more.
+- **Move to… never offers a config-killing parent.** Re-hanging the tree's `pivot-ref` node under
+  a `mount` node — or under anything hanging from one — is not offered at all: such a node does
+  not follow the tree, and the loader rejects the config at the next load
+  (`_validate_tree_pivot_ref`).
+
 Since 2026-09-03 (plan tree_ui_state_persistence) the ACTIVE tab and the per-tree expanded/collapsed
 state are remembered too: a rebuild no longer resets you to the first tab or collapses every tree
 back — whichever tree tab was active and which nodes were expanded are restored by name/ref, and the
