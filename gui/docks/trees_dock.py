@@ -73,7 +73,7 @@ from kicadstamp.utils.units import MM
 from .. import board_overlay, overlay_markers, settings
 from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
-from ..worker import start_long_op
+from ..worker import socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
@@ -407,6 +407,33 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
         return {"available": False, "reason": str(exc)}
     return {"available": True, "x": pos.x, "y": pos.y, "rotation": rot,
             "ref": tree.anchor.ref}
+
+
+def run_node_reread_worker(payload: dict) -> dict:
+    """start_long_op worker entry point for a NODE's "Reread current position"
+    (the tree node's context menu). Plain data in, plain data out — no widget is
+    touched anywhere in here (Э1, plan_2026_09_12_ui_thread_board_reads).
+
+    Until 2026-09-12 the read ran synchronously on the UI thread: the window
+    could freeze for the whole resolution (parent base + cluster reads) with
+    nothing on screen saying so, and the SHARED adapter was used with no
+    `long_op_active` token at all — exactly the interleaving the ~400ms
+    selection-poll tick produces.
+
+    NEVER raises for a refusal: a ValidationError (or any other failure) comes
+    back as {"ok": False, "error": <text>} so the UI half can show the very
+    modal warning it always showed, with the node left untouched. The dock's
+    OWN live adapter travels in the payload instead of a second one being built
+    here — it is the adapter this read always used, and start_long_op holds the
+    shared socket for the whole call."""
+    try:
+        offset_mm, rotation = _resolve_live_offset(
+            payload["cfg"], payload["adapter"], payload["sheet_names"],
+            payload["tree"], payload["parent_node"], payload["ref"],
+            payload["kind"], base_anchor=payload["base_anchor"])
+    except Exception as exc:  # noqa: BLE001 — a refusal is a normal result here
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "xy": (offset_mm[0], offset_mm[1]), "rotation": rotation}
 
 
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
@@ -2615,7 +2642,17 @@ class TreesDock(QWidget):
         button uses, no dialog), overwriting in place. No confirmation — same
         precedent as "Delete node" (undo is "don't Save"). On resolution
         failure the node is left untouched and the underlying message is shown
-        as a warning."""
+        as a warning.
+
+        Э1 (plan_2026_09_12_ui_thread_board_reads): the read itself runs on the
+        WORKER (`run_node_reread_worker`) under start_long_op — this half only
+        collects the payload and, in `_finish_reread_node_flow`, writes the
+        node. Until 2026-09-12 the whole read was synchronous on the UI thread:
+        the window froze for the resolution AND the shared adapter was used with
+        no `long_op_active` token, i.e. a second REQ transaction could land in
+        the ~400ms selection tick's in-flight one. No guard widget, deliberately:
+        the trigger is a context-menu action, which has no button of its own to
+        grey out (the same call the marker-cleanup entries make)."""
         adapter = self._live_adapter()
         if adapter is None:
             # Connection state, not user input — a Log line, never a modal
@@ -2625,24 +2662,57 @@ class TreesDock(QWidget):
                 _("No live board connection — connect KiCad first."),
                 _ERROR_STYLE, logger)
             return
-        try:
-            offset_mm, rotation = _resolve_live_offset(
-                self._cfg, adapter,
-                self._ctx.sheet_names if self._ctx is not None else {},
-                tree, self._find_parent(tree, node), node.ref, node.kind,
-                # A MOUNT node's xy/polar are defined relative to its OWN
-                # anchor, not the parent — reread against the same base the
-                # node is authored against (plan_2026_09_11_tree_mount_nodes).
-                base_anchor=node.anchor if node.kind == "mount" else None)
-        except ValidationError as e:
-            QMessageBox.warning(self, _("Reread current position"), str(e))
+        if socket_busy(self._main_window.connection):
+            # The ~400ms selection tick (or a long op) owns the shared kipy REQ
+            # socket right now: the read is REFUSED instead of being interleaved
+            # with its in-flight transaction ("Error receiving reply from KiCad:
+            # Operation canceled"). A second click, once the socket is free,
+            # does the job.
             return
-        node.xy = (offset_mm[0], offset_mm[1])
+        payload = {
+            # The dock's OWN adapter — the one this read always used, held by
+            # start_long_op's token for the whole worker call.
+            "adapter": adapter,
+            "cfg": self._cfg,
+            "tree": tree,
+            "parent_node": self._find_parent(tree, node),
+            "ref": node.ref,
+            "kind": node.kind,
+            # A MOUNT node's xy/polar are defined relative to its OWN anchor,
+            # not the parent — reread against the same base the node is
+            # authored against (plan_2026_09_11_tree_mount_nodes).
+            "base_anchor": node.anchor if node.kind == "mount" else None,
+            # A COPY: no live mapping crosses the thread boundary.
+            "sheet_names": dict(self._ctx.sheet_names
+                                if self._ctx is not None else {}),
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (), run_node_reread_worker,
+            lambda result: self._finish_reread_node_flow(result, node),
+            self._on_reread_node_flow_failed, payload,
+            busy_text=_("reading the board"))
+
+    def _finish_reread_node_flow(self, result: dict, node: TreeNode) -> None:
+        """The worker's result, on the UI thread — the ONLY half that touches a
+        widget (Э1). A refusal shows the very same modal warning the synchronous
+        read showed, with the node left untouched (Э4.3)."""
+        self._active_op = None
+        if not result.get("ok"):
+            QMessageBox.warning(self, _("Reread current position"),
+                                result["error"])
+            return
+        node.xy = result["xy"]
         node.polar = None
-        if rotation is not None:
-            node.rotation = rotation
+        if result["rotation"] is not None:
+            node.rotation = result["rotation"]
         self._mark_dirty()
         self._rebuild_tabs()
+
+    def _on_reread_node_flow_failed(self, message: str) -> None:
+        """start_long_op's failure path — reached only by something the worker
+        could not turn into a refusal itself. Same modal, no new wording."""
+        self._active_op = None
+        QMessageBox.warning(self, _("Reread current position"), message)
 
     # ── Inter-node copper: re-read (plan_2026_09_12_internode_copper_core Э4) ──
 
@@ -3241,10 +3311,18 @@ class TreesDock(QWidget):
 
     def _anchor_base_mm(self, tree: Tree) -> Optional[tuple[float, float]]:
         """Live base (mm) of the tree's own anchor, or None when it cannot be
-        resolved (not connected / anchor unresolvable) — needed only for the
-        "from selection" placement mode (node xy = group center - anchor base)."""
+        resolved (not connected / anchor unresolvable / another owner holds the
+        shared socket) — needed only for the "from selection" placement mode
+        (node xy = group center - anchor base).
+
+        Э1 (plan_2026_09_12_ui_thread_board_reads): the base is a LIVE read
+        through the SHARED adapter, so it is refused while the ~400ms selection
+        tick owns that socket; None is the existing "cannot resolve the tree
+        anchor live" answer the Instantiate flow already reports."""
         adapter = self._live_adapter()
         if adapter is None or self._cfg is None:
+            return None
+        if socket_busy(self._main_window.connection):
             return None
         try:
             sheet_names = self._ctx.sheet_names if self._ctx else {}
@@ -3497,7 +3575,19 @@ class TreesDock(QWidget):
         that the redraw registers matching existing copper as owned (always-on
         adoption) — and hint to run once WITHOUT moving first. Returns True to
         proceed; silent True (no dialog) on steady-state runs, headless/GUI
-        tests and disconnected adapters (see confirm_first_run_adoption)."""
+        tests and disconnected adapters (see confirm_first_run_adoption).
+
+        Э1 (plan_2026_09_12_ui_thread_board_reads): the probe reads the WHOLE
+        board's copper (get_tracks()+get_vias()) through the SHARED adapter, so
+        while the ~400ms selection tick owns that socket it is SKIPPED and the
+        redraw proceeds silently — the same answer the existing "the heads-up
+        could not be made" branch gives (the adoption itself is always-on in
+        the pipeline; this dialog is informational). It stays SYNCHRONOUS on
+        purpose: its two callers branch on the answer BEFORE start_long_op
+        starts the redraw worker, so returning it from a worker would move the
+        dialog into the middle of the operation."""
+        if socket_busy(getattr(self._main_window, "connection", None)):
+            return True
         config_path = str(self._root_path) if self._root_path else ""
         return confirm_first_run_adoption(self, config_path,
                                           adapter=self._live_adapter())
@@ -4409,6 +4499,15 @@ class NodeFormWidget(QWidget):
         self._last_anchor_sig = self._anchor_signature()
         self._base_pose_before_change = None
 
+    def _live_connection(self):
+        """The live connection, reached through the owning dock — None for a
+        standalone form (a headless test form), the same reach-out
+        AnchorFormWidget._marker_connection does. Read-only: the form never owns
+        the connection, it only checks whether another owner holds the shared
+        kipy REQ socket before it reads the board."""
+        dock = self._dock
+        return getattr(getattr(dock, "_main_window", None), "connection", None)
+
     def _update_read_button_state(self) -> None:
         """Button enabled only once BOTH a ref and an explicit kind are set —
         a live position read needs the record's section to resolve against."""
@@ -4421,7 +4520,16 @@ class NodeFormWidget(QWidget):
         relative to the parent base and fill offset + rotation. Any resolution
         failure (no live connection, ref not on the board, ambiguous, broken
         tree state) is shown as a warning — never a silent partial write, never
-        an uncaught exception in a GUI callback."""
+        an uncaught exception in a GUI callback.
+
+        Э1 (plan_2026_09_12_ui_thread_board_reads): the read goes to the SHARED
+        adapter, so while the ~400ms selection tick (or a long op) owns that
+        socket the click is REFUSED — nothing is sent, and the fields keep
+        their values, instead of interleaving a second REQ transaction into the
+        tick's in-flight one ("Error receiving reply from KiCad: Operation
+        canceled"). The plan's minimum for a form inside a modal dialog is
+        exactly this token check: the flow stays synchronous and the next click,
+        once the socket is free, does the read."""
         self.read_status_label.setText("")
         ref = self.ref_combo.currentText().strip()
         kind = self.kind_combo.currentData()
@@ -4436,6 +4544,8 @@ class NodeFormWidget(QWidget):
             show_message(
                 _("No live board connection — connect KiCad first."),
                 _ERROR_STYLE, logger)
+            return
+        if socket_busy(self._live_connection()):
             return
         if self._cfg is None or self._tree is None:
             QMessageBox.warning(
@@ -5463,11 +5573,28 @@ class AnchorFormWidget(QWidget):
     def _on_settings_base_refresh(self, *_args) -> None:
         if self._loading_settings:
             return
+        if socket_busy(self._live_connection()):
+            # A poll tick owns the shared socket this very instant: re-arm the
+            # (single-shot) debounce instead of rendering the false "the anchor
+            # does not resolve" state — the display keeps the base it already
+            # shows and is re-expressed as soon as the socket is free again
+            # (Э1, plan_2026_09_12_ui_thread_board_reads).
+            self._settings_base_timer.start()
+            return
         self._reload_settings_display()
 
     def _conversion_base_deg(self) -> Optional[tuple]:
         """(eff_rot_deg, anchor_rot_deg) for the ANCHOR COLUMN'S CURRENT values,
-        or None when the anchor does not resolve (§W.4.2).
+        or None when the anchor does not resolve (§W.4.2) — or when another
+        owner holds the shared kipy REQ socket (Э1, plan_2026_09_12_ui_thread_
+        board_reads): the base is a LIVE adapter call, and while the ~400ms
+        selection tick is in flight it must not be made. None is the form's own
+        "no live base" answer, which EVERY caller here already handles safely
+        (raw values shown and disabled, conversions refused — the 9887468 trap
+        is never silently re-interpreted); the board-frame display re-arms its
+        debounce so that state cannot stick (see _on_settings_base_refresh).
+        A worker is not expressible: build_settings/build_anchor are synchronous
+        (value, error) APIs whose callers need the base in the same turn.
 
         eff_rot == anchor_rot + tree.rotation is exactly the tree content frame
         orientation tree_effective_base yields; anchor_rot is what the tree's own
@@ -5478,6 +5605,11 @@ class AnchorFormWidget(QWidget):
         offline to 0 deg, so an offline rename+save round-trips. Only a real
         resolution failure disables the fields."""
         if self._cfg is None or self._tree is None:
+            return None
+        if socket_busy(self._live_connection()):
+            # Another owner holds the shared kipy REQ socket (see the docstring
+            # above and _on_settings_base_refresh, which keeps this state from
+            # sticking).
             return None
         # The IDENTITY part only — the shift is a translation and cannot change
         # the anchor's angle, and build_anchor() would need THIS base to convert
@@ -5872,11 +6004,16 @@ class AnchorFormWidget(QWidget):
             _("Hide tree markers") if self._tree_markers_shown()
             else _("Show tree markers"))
 
-    def _marker_connection(self):
+    def _live_connection(self):
         """The live connection, reached through the owning dock — None for a
         standalone form (the create-tree dialog, or a headless test form)."""
         dock = self._dock
         return getattr(getattr(dock, "_main_window", None), "connection", None)
+
+    def _marker_connection(self):
+        """The live connection the overlay-marker toggle runs against — the
+        SAME reach-out the base-orientation read uses (_live_connection)."""
+        return self._live_connection()
 
     def _marker_adapter(self):
         """The LIVE board adapter at the moment the button is pressed (not the

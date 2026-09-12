@@ -108,6 +108,24 @@ def _notify_busy(text: Optional[str]) -> None:
         logger.exception("Busy reporter failed")
 
 
+def socket_busy(connection: Any) -> bool:
+    """True while another owner holds the shared kipy REQ socket.
+
+    The ~400ms selection-poll tick raises `connection.long_op_active` for its
+    own in-flight request (PollWorkerHandle.submit) and every start_long_op
+    operation raises it for the whole run, so a read that goes straight to the
+    SHARED adapter must refuse while this is True instead of interleaving two
+    REQ transactions on one socket — the live symptom being "Error receiving
+    reply from KiCad: Operation canceled".
+
+    A missing connection is NOT busy: the callers check for an absent board on
+    their own path (and say so in the Log). The one-line guard
+    role_cluster_tree.py's node click and fieldstool_window._push_selection_to_
+    board already carry; this is only its single definition for the reads
+    plan_2026_09_12_ui_thread_board_reads weeds out."""
+    return bool(getattr(connection, "long_op_active", False))
+
+
 class _LongOpWorker(QObject):
     """Runs fn(*args) on the worker thread and reports the outcome via
     signals. succeeded() carries the return value; failed() carries a

@@ -36,6 +36,13 @@ from gui.docks.trees_dock import (
     _NodeDialog,
 )
 
+# _pump: "Reread current position" now resolves the node on a worker under
+# start_long_op (plan_2026_09_12_ui_thread_board_reads Э1), so the tests below
+# drive the event loop until the operation's token is released before they
+# assert on the node — see conftest._pump's own docstring for why the guard is
+# `not long_op_active` and not "the side effect is already visible".
+from tests.gui.conftest import _pump
+
 # The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
 # as the root-config dict shape (tree_to_dict output) — two trees, nested
 # nodes, xy and polar offsets, a ref anchor and an origin anchor.
@@ -1762,9 +1769,10 @@ def test_node_dialog_read_position_logs_error_when_no_live_connection(
 
 
 def test_reread_node_flow_overwrites_xy_rotation_and_marks_dirty(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, qapp):
     """"Reread current position" overwrites an existing node's xy/rotation in
-    place and marks the dock dirty (no confirmation)."""
+    place and marks the dock dirty (no confirmation). The resolution runs on a
+    worker now, so the event loop is pumped until its token is released."""
     import gui.docks.trees_dock as td_mod
     main_window.connection.board = _FakeBoard()
     dock, _root = _dock_with(main_window, tmp_path)
@@ -1775,6 +1783,7 @@ def test_reread_node_flow_overwrites_xy_rotation_and_marks_dirty(
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: ((1.0, 2.0), 45.0))
     dock._reread_node_flow(tree, node)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert node.xy == (1.0, 2.0)
     assert node.polar is None
@@ -1783,9 +1792,10 @@ def test_reread_node_flow_overwrites_xy_rotation_and_marks_dirty(
 
 
 def test_reread_node_flow_resolution_failure_leaves_node_untouched(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, qapp):
     """Error path (a ref that can't currently be resolved live) leaves the
-    node's old values intact — no partial write — and does not mark dirty."""
+    node's old values intact — no partial write — and does not mark dirty (the
+    warning is shown by the worker's UI half, hence the pump)."""
     import gui.docks.trees_dock as td_mod
     main_window.connection.board = _FakeBoard()
     dock, _root = _dock_with(main_window, tmp_path)
@@ -1803,6 +1813,7 @@ def test_reread_node_flow_resolution_failure_leaves_node_untouched(
     monkeypatch.setattr(td_mod, "_resolve_live_offset", _boom)
 
     dock._reread_node_flow(tree, node)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert (node.xy, node.polar, node.rotation) == before
     assert dock._dirty is False
@@ -2260,7 +2271,7 @@ def test_read_position_clone_anchor_point_resolves_on_demand(
 
 
 def test_reread_node_flow_clone_anchor_point_anchor_resolves_on_demand(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, qapp):
     """Bug #6 gate (GUI): the tree's own ref-anchor resolving to a
     clone+anchor_point record is live-resolvable on Reread too — the node is
     rewritten from the point-anchored parent (CL_AP = Origin(10,20)+shift(1,2)
@@ -2278,6 +2289,7 @@ def test_reread_node_flow_clone_anchor_point_anchor_resolves_on_demand(
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     dock._reread_node_flow(tree, node)  # must not raise
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert not warnings
     assert node.xy == (-6.0, -17.0)
@@ -4049,7 +4061,7 @@ def test_read_offset_is_what_the_node_would_store_and_node_position_returns_it(
 
 @pytest.mark.parametrize("base_rot", [0.0, 90.0, 180.0, 270.0])
 def test_reread_is_idempotent_with_a_rotated_base(
-        base_rot, main_window, tmp_path, monkeypatch):
+        base_rot, main_window, tmp_path, monkeypatch, qapp):
     """§4.2: two consecutive reads of an UNMOVED board leave node.xy/
     node.rotation bit-identical. Before the fix a base-90 node gained +90 on
     the second press (the read returned the world delta)."""
@@ -4075,6 +4087,7 @@ def test_reread_is_idempotent_with_a_rotated_base(
                         lambda *a, **k: live_child_deg)
 
     dock._reread_node_flow(tree, node)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
     first = (node.xy, node.polar, node.rotation)
     assert first[1] is None
     assert first[2] == 40.0
@@ -4086,6 +4099,7 @@ def test_reread_is_idempotent_with_a_rotated_base(
 
     # the actual bug: a SECOND press must not move the node any further.
     dock._reread_node_flow(tree, node)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
     assert (node.xy, node.polar, node.rotation) == first
 
 
@@ -4153,7 +4167,7 @@ def test_mirrored_live_instance_is_refused(main_window, tmp_path):
 
 
 def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, qapp):
     """§2.3: "Reread current position" on a mirrored instance shows the honest
     warning and writes NOTHING."""
     import gui.docks.trees_dock as td_mod
@@ -4174,6 +4188,7 @@ def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
                         lambda *a, **k: warnings.append(a) or None)
 
     dock._reread_node_flow(tree, node)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert warnings
     assert "MIRRORED" in str(warnings[0][2])

@@ -58,8 +58,9 @@ closed dock can be brought back without restarting).
 
 **While a board operation runs, the status bar says so — and says which one.** Every operation the
 USER starts (Extract/Redraw, a scheme-list Record/Re-source/Reread, the inter-node copper re-read,
-"Whose copper is this?", the live anchor-position read behind Tools → Trees → Anchor position, the
-snapshot rebuild in front of an Extract dialog, …) shows a short word in the status bar for its whole
+a node's *Reread current position* from the node context menu, "Whose copper is this?", the live
+anchor-position read behind Tools → Trees → Anchor position, the snapshot rebuild in front of an
+Extract dialog, …) shows a short word in the status bar for its whole
 duration:
 
     Working with the board: placing
@@ -81,9 +82,22 @@ a menu-only flow (Anchor position, Redraw selected/whole tree, Full redraw, the 
 Record and Re-source) — that widget is handed to `start_long_op` as well, so it is greyed out for the
 duration
 and a second click on the same entry is refused instead of starting a second board read on the one
-shared kipy socket. Flows started by a context-menu action built on the fly, by a page switch or by a
-root switch have nothing stable to disable and pass an empty list — each such call site carries a
-one-line comment saying why.
+shared kipy socket. Flows started by a context-menu action built on the fly (the node's *Reread
+current position*), by a page switch or by a root switch have nothing stable to disable and pass an
+empty list — each such call site carries a one-line comment saying why.
+
+**A read with no operation of its own is REFUSED while the one socket is taken** (2026-09-12, plan
+`plan_2026_09_12_ui_thread_board_reads`): the ~400 ms selection poll raises `long_op_active` for its
+own in-flight REQ transaction, and a read that went straight to the shared adapter during that window
+is exactly what produces `Error receiving reply from KiCad: Operation canceled`. `gui.worker.
+socket_busy(connection)` is the single check every such read now carries — the Placer's **Select on
+board**, the node form's **Read current position**, the node context menu's **Reread current
+position**, the anchor form's board-frame base read, the Instantiate-from-selection tree-anchor read
+and the first-run copper heads-up in front of a redraw. A refused action does nothing at all (nothing
+is written, nothing is highlighted, the fields keep their values) and is simply repeated: the tick
+holds the socket for milliseconds. The same plan moved the one flow whose read could genuinely take
+seconds — the node's **Reread current position** — onto a worker under `start_long_op`, so it no
+longer freezes the window either.
 
 ## Widget height and scrolling (2026-09-12)
 
@@ -406,7 +420,11 @@ default), **Anchor position**, **Redraw selected** / **Redraw whole tree**, **Fu
 and modules)…** and **Instances…**. The dock keeps the tabs, the checkbox subtree selection and the
 read-only status row (anchor live position + unsaved-changes ●). Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
-/ Move to…); the tree ROOT row's menu keeps **Add node** and a **Set anchor…** shortcut that selects
+/ Move to…); **Reread current position** re-resolves the node against the LIVE board and rewrites its
+`xy`/rotation in place, with no confirmation (not saving is the undo) — since 2026-09-12 that read runs
+on a worker (the status bar names it, the window stays responsive) and it is refused rather than
+interleaved while another owner holds the one shared kipy socket. The tree ROOT row's menu keeps
+**Add node** and a **Set anchor…** shortcut that selects
 that root row. Since 2026-09-04 (plan plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab
 is a **master-detail** splitter: the node list on the LEFT, ONE form panel on the RIGHT. **UPDATED
 2026-09-11 (plan_2026_09_11_trees_dock_single_panel.md):** that panel used to be a FIXED two-tab widget
@@ -1274,7 +1292,10 @@ the tabs — they act on the whole placement, not one tab.
 - **Select on board** (2026-08-25) — resolves the current form's placement to its live board items
   (its components plus every via/track the registry records under this placement's anchor) and
   highlights exactly those in pcbnew — a visual check of what this placement really owns, without
-  moving anything. Nothing found (not placed yet) is a short Log message, never a crash.
+  moving anything. Nothing found (not placed yet) is a short Log message, never a crash. The read
+  walks the SHARED board adapter, so the click is refused outright while another owner holds the one
+  kipy REQ socket (the ~400 ms selection poll, or a long operation) — see "While a board operation
+  runs" at the top of this page.
 Not covered by the GUI yet (still reachable by hand-editing the saved config): `by_selection` mode.
 `anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a
 searchable combo sourced from the project's schematic files (see
