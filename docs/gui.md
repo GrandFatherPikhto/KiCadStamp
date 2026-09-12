@@ -54,6 +54,67 @@ The window has a **menu bar** with two top-level menus built by FUNCTION, not pe
 [docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one checkable entry per top-level dock, so a
 closed dock can be brought back without restarting).
 
+## Widget height and scrolling (2026-09-12)
+
+**A field's height is not cosmetics.** Qt computes the height of a `QComboBox`,
+`QLineEdit` or `QSpinBox` from the current font, the screen DPI and the platform
+style — the number you see on your own machine is not the number your users see.
+Pinned to a constant it looks perfect for the author and is broken for everyone
+else (clipped text, a half-visible cursor).
+
+The rules:
+
+- **Forbidden**: `setFixedHeight`/`setMaximumHeight` on an input field; a height
+  or vertical padding for one through `setStyleSheet`; a vertical
+  `Fixed`/`Maximum` size policy used to make a field smaller.
+- **Allowed**, and used: height limits on widgets that scroll their own content
+  — `QListWidget` (`gui/docks/entity_page.py:100`), `QPlainTextEdit`
+  (`gui/docks/log_panel.py:169`), `QTableWidget` (`gui/docks/pending.py:241`) —
+  and the declared maximums on the summary lists in
+  `gui/fieldstool_window.py:651`/`:774` and `gui/docks/root_metadata.py:309`.
+- **The main rule**: `setMinimumHeight(1)` on a container is legal only when a
+  `QScrollArea` sits between it and the form's fields — or when the widget
+  itself is a `QAbstractScrollArea` that scrolls its own content. Without the
+  scroll area Qt stops clipping the container and starts shrinking its children
+  proportionally, fields included. Measured on the real Trees dock
+  (`diagnostics/probe_trees_dock_form_squeeze.py`; the container is the widget
+  pinned to a minimum height of 1, as `gui/dock_hub.py:166` does):
+
+  | container height | first combo, no wrap | fields that lost height |
+  |---|---|---|
+  | 800 px | 25 px | 0 of 8 |
+  | 500 px | 25 px | 5 of 8 |
+  | 320 px | 15 px | 8 of 8 |
+  | 200 px | 0 px | 8 of 8 |
+  | 120 px | 0 px | 8 of 8 |
+
+  With the wrap (Config right pages and Trees form panels): 25 px and 0 of 8 at
+  every height — the content scrolls instead of the widgets shrinking.
+- `1`, never `0`: Qt treats an explicit `0` as "unset" and falls back to the
+  layout's own `minimumSizeHint` (`gui/docks/log_panel.py:157`).
+- **When the content does not fit: scroll the content, never squeeze the
+  widgets.**
+
+One implementation, `gui/ui_utils.wrap_in_scroll_area()` (with its
+`MinHeightScrollArea`: `setWidgetResizable(True)`, minimum height 1, `NoFrame`,
+as-needed bars, vertical `Ignored` + horizontal `Preferred`), is used by the
+Config right pages (`ConfigTreeDock._wrap_right_page`) and by the Trees dock's
+form panels.
+
+A dialog's DESIRED height stays the desired height, but it may not exceed the
+screen: `gui/ui_utils.resize_dialog_within_screen()`, used by the four fixed-size
+dialogs (Cell 720x600, Project 560x620, Tools 520x560, Settings 780x540 — 620 px
+plus the window frame and the task bar does not fit a laptop display at 125 %
+scaling). With no screen at all (headless runs) it degrades to a plain
+`resize()`.
+
+Guard: `tests/gui/test_no_widget_height_squeezing.py` — an ast tripwire over
+`gui/**/*.py` for height calls on field-looking receivers, plus a behavioural
+test that squeezes the real central widget to 120 px and requires every visible
+field to keep its height. Probes, kept: `diagnostics/probe_min_height_squeeze.py`
+(the synthetic mechanism) and `diagnostics/probe_trees_dock_form_squeeze.py`
+(the real Trees dock, before/after tables).
+
 ## Save model (staging, 2026-09-01)
 
 Every config edit in the GUI lands in an in-memory **working set** first
