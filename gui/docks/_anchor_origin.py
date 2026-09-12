@@ -283,11 +283,30 @@ class AnchorOriginWidget(QWidget):
         self._wire_field_changed()
 
     def _wire_field_changed(self) -> None:
-        """Connect every internal QLineEdit/QComboBox to fieldChanged. Runs
-        after the whole widget is built so no handler fires mid-construction;
-        programmatic loads emit too, which is fine — the embedding form resets
-        its _touched flag after it prefills."""
+        """Connect the widget's own QLineEdit/QComboBox controls to
+        fieldChanged. Runs after the whole widget is built so no handler fires
+        mid-construction; programmatic loads emit too, which is fine for THESE
+        fields — the embedding form resets its _touched flag after it prefills.
+
+        A combo's INTERNAL line edit is deliberately skipped: it is not one of
+        our fields, and `combo.currentTextChanged` (the loop below) already
+        reports the same user event. Subscribing to it as well was a second
+        subscription to one event — and the harmful one: that line edit emits
+        textChanged from INSIDE Qt's own record insertion
+        (insertItems -> rowsInserted -> setCurrentIndex -> internalSetText), so
+        our Python slot ran while the signal mutex was already held, re-entered
+        Qt through PyQt's proxy and deadlocked the GUI on a non-recursive mutex
+        (2026-09-12, plan_2026_09_12_combo_refresh_deadlock.md). The GUI's own
+        searchable combos are editable, hence `findChildren` used to pick them
+        up here.
+
+        The widget's genuine own line edits (coordinates, ref, pad, shift) have
+        a plain widget/container parent, so they stay wired — only an edit whose
+        parent IS a QComboBox is dropped, which is exactly Qt's own
+        combo-line-edit case."""
         for edit in self.findChildren(QLineEdit):
+            if isinstance(edit.parent(), QComboBox):
+                continue
             edit.textChanged.connect(self._emit_field_changed)
         for combo in self.findChildren(QComboBox):
             combo.currentTextChanged.connect(self._emit_field_changed)
