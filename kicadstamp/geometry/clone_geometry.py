@@ -21,6 +21,7 @@ from ..config import (ClonePlacement, Cell, TemplateVia, TemplateTrack,
                       TemplateComponentSlot, clone_placement_effective_name)
 from ..exceptions import ValidationError, format_fatal_error
 from ..net_resolution import resolve_net
+from ..utils.layers import mirror_layer
 from ..utils.units import MM
 from .cell_anchor import cell_mount_offset
 from .spoke_layout import (
@@ -120,7 +121,14 @@ def _resolve_clone_track(origin: Vector2, track: TemplateTrack, rotation_deg: fl
     if mirror:
         start = _mirror_x(origin, start)
         end = _mirror_x(origin, end)
-        layer = 'F.Cu' if layer == 'B.Cu' else 'B.Cu'
+        # COPPER (2026-09-12, plan_2026_09_12_mirror_keeps_inner_layers.md Э2,
+        # design Р16): a mirror swaps F.Cu <-> B.Cu only — copper on an inner
+        # layer KEEPS its layer. The binary ternary this replaces read "if it is
+        # not B.Cu it is F.Cu-style else B.Cu", i.e. ANY layer other than B.Cu
+        # became B.Cu, so an In1.Cu track silently landed on the bottom layer.
+        # The rule itself lives in utils.layers.mirror_layer — the SAME function
+        # channel-copy calls (Р15).
+        layer = mirror_layer(layer)
     return ResolvedTrack(
         start=start,
         end=end,

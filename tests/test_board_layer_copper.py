@@ -14,9 +14,11 @@ from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.domain.board import layer_from_kipy, layer_to_kipy
 from kicadstamp.utils.layers import (
     COPPER_LAYER_STRINGS,
+    inner_copper_layers,
     layer_from_str,
     layer_from_str_strict,
     layer_to_str,
+    mirror_layer,
 )
 
 # The project's real stack (P0.1, done_2026_09_05_scheme_list_p1.md).
@@ -137,3 +139,50 @@ class TestStrictLayerParse:
             layer_from_str_strict("some B.Cu suffix")
         with pytest.raises(ValueError):
             layer_from_str_strict("totally-unknown")
+
+
+class TestMirrorLayer:
+    """Э1/Э5.6 of plan_2026_09_12_mirror_keeps_inner_layers.md — the ONE mirror
+    rule (design Р15/Р16) that BOTH mechanisms call (the clone path and
+    channel-copy): mirroring swaps F.Cu <-> B.Cu and nothing else.
+
+    An inner layer carries the BOARD's purpose (a ground/power plane on
+    3CH-AWG-TIA-v103), and a mirror moves a local construction to the other side
+    of the SAME board — so In1 stays In1. The rejected alternative (stackup
+    position p -> N+1-p, i.e. In1 <-> In2 on a 4-layer board) describes turning
+    the whole board over, and would silently move a ground connection onto a
+    power plane."""
+
+    def test_the_outer_pair_swaps(self):
+        assert mirror_layer("F.Cu") == "B.Cu"
+        assert mirror_layer("B.Cu") == "F.Cu"
+
+    @pytest.mark.parametrize("name", [f"In{i}.Cu" for i in range(1, 31)])
+    def test_every_inner_layer_keeps_itself(self, name):
+        assert mirror_layer(name) == name
+
+    def test_unknown_name_raises_instead_of_becoming_an_outer_layer(self):
+        """Strictness on the WRITE path: the ternary this replaces turned
+        anything that was not 'B.Cu' into 'B.Cu'."""
+        with pytest.raises(ValueError):
+            mirror_layer("Top.Cu")
+        with pytest.raises(ValueError):
+            mirror_layer(" In1.Cu ")   # no whitespace tolerance here either
+
+
+class TestInnerCopperLayers:
+    """The helper behind the Э4 Log line: which inner layers a mirror left
+    alone — deduplicated and in STACK order (never enum order: B.Cu is 32, not
+    the fourth copper layer)."""
+
+    def test_dedupes_and_keeps_stack_order(self):
+        assert inner_copper_layers(
+            ["In2.Cu", "In1.Cu", "In2.Cu", "F.Cu", "B.Cu"]) == ["In1.Cu", "In2.Cu"]
+
+    def test_empty_for_outer_layers_only(self):
+        assert inner_copper_layers(["F.Cu", "B.Cu"]) == []
+        assert inner_copper_layers([]) == []
+
+    def test_unknown_name_raises(self):
+        with pytest.raises(ValueError):
+            inner_copper_layers(["In1.Cu", "nope"])

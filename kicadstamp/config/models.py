@@ -328,7 +328,9 @@ class TemplateTrack:
     net_from_role: str | None = None
     net_from_role_pad: str | None = None
     # Layer — same pattern as TemplateComponentSlot.layer: None = inherit from
-    # cell layer, when mirroring it is inverted by the same rule.
+    # the cell layer (ANY copper layer, 'In1.Cu' included). Under a mirror only
+    # the outer pair swaps (F.Cu <-> B.Cu); copper on an inner layer keeps its
+    # own layer — utils.layers.mirror_layer (design Р15/Р16).
     layer: str | None = None
 
 
@@ -1105,7 +1107,8 @@ class ClonePlacement:
     anchor_point: str | None = None
     # Placement layer — FACT: None = cell layer (place verbatim).
     # mirror — OPERATION, always manual: flip the whole construction
-    # (geometry mirrored, angles 180°−φ, all layers inverted).
+    # (geometry mirrored, angles 180°−φ, F.Cu <-> B.Cu swapped; copper on an
+    # INNER layer keeps its layer — it carries the board's purpose, Р16).
     # Contradiction between the two is fatal at load: mirror without layer change
     # or layer change without mirror is physically meaningless.
     layer: str | None = None

@@ -4846,12 +4846,17 @@ msgstr ""
 
 #: kicadstamp/channel_copy.py:437
 #, python-brace-format
-msgid "cannot mirror the inner copper layer {layer} ({where})"
-msgstr "cannot mirror the inner copper layer {layer} ({where})"
+msgid "cannot mirror {layer} ({where}): not a copper layer"
+msgstr "cannot mirror {layer} ({where}): not a copper layer"
 
-#: kicadstamp/channel_copy.py:455
-msgid "channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of an inner layer depends on the board's copper stack (how many layers, and in what order), which a channel copy never reads. Copy without mirror, or move this layer by hand"
-msgstr "channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of an inner layer depends on the board's copper stack (how many layers, and in what order), which a channel copy never reads. Copy without mirror, or move this layer by hand"
+#: kicadstamp/channel_copy.py:441
+msgid "mirroring swaps F.Cu and B.Cu and leaves inner copper layers alone — anything that is not a copper layer at all has no mirrored counterpart to be placed on"
+msgstr "mirroring swaps F.Cu and B.Cu and leaves inner copper layers alone — anything that is not a copper layer at all has no mirrored counterpart to be placed on"
+
+#: kicadstamp/channel_copy.py:678 kicadstamp/placement/services/clone_position_calculator.py:401
+#, python-brace-format
+msgid "copper on inner layer(s) {layers} stays on its own layer when mirrored ({where}) — a mirror swaps F.Cu and B.Cu only"
+msgstr "copper on inner layer(s) {layers} stays on its own layer when mirrored ({where}) — a mirror swaps F.Cu and B.Cu only"
 
 #: kicadstamp/channel_copy.py:568
 #, python-brace-format
@@ -5660,9 +5665,9 @@ msgstr "Points mode: destination anchor point"
 msgid "Rotation of the whole construction (degrees)"
 msgstr "Rotation of the whole construction (degrees)"
 
-#: kicadstamp/cli_main.py:305
-msgid "Mirror the whole construction (all layers inverted)"
-msgstr "Mirror the whole construction (all layers inverted)"
+#: kicadstamp/cli_main.py:309
+msgid "Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers keep their layer)"
+msgstr "Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers keep their layer)"
 
 #: kicadstamp/cli_main.py:307
 msgid "Also copy foreign (global-net) copper inside the source bbox"

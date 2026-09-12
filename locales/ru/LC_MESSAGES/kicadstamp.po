@@ -4897,12 +4897,17 @@ msgstr ""
 
 #: kicadstamp/channel_copy.py:437
 #, python-brace-format
-msgid "cannot mirror the inner copper layer {layer} ({where})"
-msgstr "нельзя зеркалировать внутренний медный слой {layer} ({where})"
+msgid "cannot mirror {layer} ({where}): not a copper layer"
+msgstr "нельзя зеркалировать {layer} ({where}): это не медный слой"
 
-#: kicadstamp/channel_copy.py:455
-msgid "channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of an inner layer depends on the board's copper stack (how many layers, and in what order), which a channel copy never reads. Copy without mirror, or move this layer by hand"
-msgstr "зеркалирование channel-copy меняет местами только F.Cu и B.Cu: пара для внутреннего слоя зависит от медного стека платы (сколько слоёв и в каком порядке), а копирование канала его не читает. Скопируйте без mirror или перенесите этот слой вручную"
+#: kicadstamp/channel_copy.py:441
+msgid "mirroring swaps F.Cu and B.Cu and leaves inner copper layers alone — anything that is not a copper layer at all has no mirrored counterpart to be placed on"
+msgstr "зеркалирование меняет местами F.Cu и B.Cu, а внутренние медные слои оставляет как есть — у того, что вообще не является медным слоем, нет зеркальной пары, на которую его можно положить"
+
+#: kicadstamp/channel_copy.py:678 kicadstamp/placement/services/clone_position_calculator.py:401
+#, python-brace-format
+msgid "copper on inner layer(s) {layers} stays on its own layer when mirrored ({where}) — a mirror swaps F.Cu and B.Cu only"
+msgstr "медь на внутренних слоях {layers} осталась на своём слое при зеркалировании ({where}) — зеркало меняет местами только F.Cu и B.Cu"
 
 #: kicadstamp/channel_copy.py:568
 #, python-brace-format
@@ -5710,9 +5715,9 @@ msgstr "Режим точек: точка якоря назначения"
 msgid "Rotation of the whole construction (degrees)"
 msgstr "Поворот всей конструкции (градусы)"
 
-#: kicadstamp/cli_main.py:305
-msgid "Mirror the whole construction (all layers inverted)"
-msgstr "Отразить всю конструкцию (все слои инвертируются)"
+#: kicadstamp/cli_main.py:309
+msgid "Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers keep their layer)"
+msgstr "Отразить всю конструкцию (F.Cu <-> B.Cu меняются местами; внутренние медные слои остаются на своих)"
 
 #: kicadstamp/cli_main.py:307
 msgid "Also copy foreign (global-net) copper inside the source bbox"

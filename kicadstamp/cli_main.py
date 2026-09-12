@@ -306,7 +306,7 @@ def main() -> int:
     channel_copy_parser.add_argument("--angle", type=float, default=0.0,
                                      help=_("Rotation of the whole construction (degrees)"))
     channel_copy_parser.add_argument("--mirror", action="store_true",
-                                     help=_("Mirror the whole construction (all layers inverted)"))
+                                     help=_("Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers keep their layer)"))
     channel_copy_parser.add_argument("--include-global", action="store_true",
                                      help=_("Also copy foreign (global-net) copper inside the source bbox"))
     channel_copy_parser.add_argument("--dry-run", action="store_true",

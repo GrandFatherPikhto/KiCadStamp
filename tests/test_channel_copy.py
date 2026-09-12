@@ -14,6 +14,7 @@ Covers (unified plan, Stage 4):
   - Task 4.3: double run on one dst produces NO duplicates.
 """
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -213,19 +214,35 @@ class TestTransformMath:
         assert transform_layer(BoardLayer.BL_F_Cu, trm, where="t") == BoardLayer.BL_B_Cu
         assert transform_layer(BoardLayer.BL_B_Cu, trm, where="t") == BoardLayer.BL_F_Cu
 
-    def test_mirror_inner_layer_is_a_fatal(self):
-        """Э3 (plan_2026_09_12_strict_copper_layers.md): mirroring COPPER on an
-        inner layer is a fatal, never BL_F_Cu. The F<->B pair is complete for a
-        footprint and for an outer-layer track, but the counterpart of In1
-        follows from the board's copper stack (how many layers, in what order),
-        which a channel copy never reads. Before Э3 this silently returned
-        BL_F_Cu, i.e. the construction was copied onto the wrong layer and the
-        copy looked fine."""
+    def test_mirror_inner_layer_keeps_its_layer(self):
+        """Э5.5 of plan_2026_09_12_mirror_keeps_inner_layers.md, design Р16.
+
+        REVERSES yesterday's decision (commit 3470063 made this a fatal): the
+        counterpart of In1 was said to follow from the board's copper stack,
+        which a channel copy never reads — but NO counterpart is needed. A mirror
+        moves a local construction to the other side of the SAME board, while an
+        inner layer carries the BOARD's purpose (a ground/power plane), so the
+        layer keeps itself. `mirror_layer` is the ONE rule the clone path calls
+        too (Р15).
+
+        This is not a weakening: the fatal was one day old and guarded a
+        behaviour that is now simply correct; what it aimed at (a silent F.Cu /
+        B.Cu collapse of inner copper) is still impossible — an inner layer is
+        neither collapsed nor swapped."""
+        trm = _transform(mirror=True)
+        assert transform_layer(BoardLayer.BL_In1_Cu, trm, where="t") is BoardLayer.BL_In1_Cu
+        assert transform_layer(BoardLayer.BL_In30_Cu, trm, where="t") is BoardLayer.BL_In30_Cu
+
+    def test_mirror_of_a_non_copper_layer_is_still_a_fatal(self):
+        """`where` keeps its job: the fatal is now reserved for a value that is
+        not a copper layer at all (nothing but copper reaches the call sites
+        today, so this is the defensive branch) — and it must name the element
+        the call site handed down."""
         trm = _transform(mirror=True)
         with pytest.raises(ValidationError) as exc:
-            transform_layer(BoardLayer.BL_In1_Cu, trm,
-                            where="track of channel copy Channel_0 -> Channel_1")
-        assert "In1.Cu" in str(exc.value)
+            transform_layer("F.SilkS", trm, where="footprint DAC1 in channel copy Channel_0 -> Channel_1")
+        assert "not a copper layer" in str(exc.value)
+        assert "footprint DAC1" in str(exc.value)
 
 
 # ── Task 4.1: twin map / channel resolution ──────────────────────────────────
@@ -514,17 +531,48 @@ class TestMirror:
         assert plan.vias  # via is through-hole: layer is irrelevant but present
         assert plan.tracks[0].layer == BoardLayer.BL_B_Cu
 
-    def test_plan_mirror_inner_layer_track_is_a_fatal_naming_the_channel(self):
-        """Same rule at the plan level, and the fatal must say WHICH layer and
-        WHICH channel copy: ChannelTransform itself carries no channel names, so
-        the call site has to hand that label down (the `where` parameter)."""
+    def test_plan_mirror_inner_layer_track_keeps_its_layer(self):
+        """Same rule at the plan level: the track is still planned (it is not
+        refused any more) and it goes to In1.Cu — the channel copy's own copper
+        is placed on the plane it was on, so no connection silently changes
+        plan."""
         track = _track(10, 10, 11, 11, "/Channel_0/DAC/GND",
                        layer=BoardLayer.BL_In1_Cu)
-        with pytest.raises(ValidationError) as exc:
+        _, plan = _plan_for(_channel_fps(), tracks=[track], mirror=True)
+        assert len(plan.tracks) == 1
+        assert plan.tracks[0].layer is BoardLayer.BL_In1_Cu
+        # ...while the geometry IS mirrored (the construction changed side).
+        assert plan.tracks[0].start.x != track.start.x
+
+    def test_plan_logs_the_inner_layer_that_stayed(self, caplog):
+        """Э4: the fact is non-obvious, so it is stated in the Log — one line
+        naming the layer(s) and the channel copy."""
+        track = _track(10, 10, 11, 11, "/Channel_0/DAC/GND",
+                       layer=BoardLayer.BL_In1_Cu)
+        with caplog.at_level(logging.INFO):
             _plan_for(_channel_fps(), tracks=[track], mirror=True)
-        text = str(exc.value)
-        assert "In1.Cu" in text
-        assert "Channel_1" in text
+        lines = [r.getMessage() for r in caplog.records]
+        assert any("In1.Cu" in ln and "stays on its own layer" in ln
+                   and "Channel_0 -> Channel_1" in ln for ln in lines), lines
+
+    def test_plan_logs_nothing_when_no_inner_copper_is_copied(self, caplog):
+        """...and stays quiet when the construction has no inner-layer copper:
+        a line about nothing is noise."""
+        track = _track(10, 10, 11, 11, "/Channel_0/DAC/GND",
+                       layer=BoardLayer.BL_F_Cu)
+        with caplog.at_level(logging.INFO):
+            _plan_for(_channel_fps(), tracks=[track], mirror=True)
+        assert not [r for r in caplog.records
+                    if "stays on its own layer" in r.getMessage()]
+
+    def test_plan_logs_nothing_without_a_mirror(self, caplog):
+        """An unmirrored copy touches no layer at all, inner ones included."""
+        track = _track(10, 10, 11, 11, "/Channel_0/DAC/GND",
+                       layer=BoardLayer.BL_In1_Cu)
+        with caplog.at_level(logging.INFO):
+            _plan_for(_channel_fps(), tracks=[track], mirror=False)
+        assert not [r for r in caplog.records
+                    if "stays on its own layer" in r.getMessage()]
 
 
 # ── Task 2.8 / 4.2: execution through BatchExecutor (no registry) ────────────

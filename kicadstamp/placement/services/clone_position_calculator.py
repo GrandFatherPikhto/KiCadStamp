@@ -36,7 +36,7 @@ from ...geometry.clone_geometry import (
 )
 from ...net_resolution import resolve_net_from_role
 from ...registry import make_registry_key
-from ...utils.layers import layer_from_str_strict
+from ...utils.layers import inner_copper_layers, layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import (
     resolve_roles_by_selection,
@@ -390,6 +390,18 @@ class ClonePositionCalculator:
         logger.info(_("  [{name}] cell {tpl!r} on {layer}{mirror_suffix}")
                     .format(name=placement_label, tpl=cell.name, layer=cell.layer,
                             mirror_suffix=_(" -> mirrored as a whole") if mirror else _(" -> as written")))
+        # Э4 (design §3.5b, plan_2026_09_12_mirror_keeps_inner_layers.md): the
+        # mirror swaps F.Cu <-> B.Cu only, so copper on an inner layer stays
+        # where it is — correct, but non-obvious, and one Log line per mirrored
+        # level is cheaper to read than hunting for the layer on the board.
+        if mirror:
+            kept = inner_copper_layers(t.layer for t in layout.tracks)
+            if kept:
+                # The SAME msgid as channel_copy's own line for the same fact
+                # (Р15) — one text, one catalog entry, two mechanisms.
+                logger.info(
+                    _("copper on inner layer(s) {layers} stays on its own layer when mirrored ({where}) — a mirror swaps F.Cu and B.Cu only")
+                    .format(layers=", ".join(kept), where=placement_label))
 
         components_result: list[PlacedComponentInfo] = []
         vias_result: list[ViaCommand] = []
@@ -423,9 +435,11 @@ class ClonePositionCalculator:
                                  net=track.net, layer=track.layer))
 
         for comp_layout in layout.components:
-            # Slot layer: its own absolute or inherited from the cell;
-            # mirror inverts ALL layers — the construction is flipped as a
-            # physical object.
+            # Slot layer: its own absolute or inherited from the cell; a mirror
+            # flips the SIDE, and a component only has two of those (a footprint
+            # stands on F or B — there is no inner side, design §3.1). This is
+            # deliberately NOT the copper rule: copper on an inner layer keeps
+            # its layer under a mirror (Р16, utils.layers.mirror_layer).
             slot_layer = comp_layout.slot_layer or cell.layer
             if mirror:
                 slot_layer = 'F.Cu' if slot_layer == 'B.Cu' else 'B.Cu'

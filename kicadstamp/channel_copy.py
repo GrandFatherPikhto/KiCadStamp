@@ -60,7 +60,8 @@ from .i18n import _
 from .placement.commands import MoveCommand, ViaCommand, TrackCommand
 from .placement.executor import BatchExecutor
 from .registry import track_matches
-from .utils.layers import layer_to_str
+from .utils.layers import (inner_copper_layers, layer_from_str_strict,
+                           layer_to_str, mirror_layer)
 from .utils.units import MM
 
 logger = logging.getLogger(__name__)
@@ -442,37 +443,33 @@ def transform_layer(layer: BoardLayer, tr: ChannelTransform, *, where: str) -> B
     that pair is complete for a FOOTPRINT (a footprint stands on a side of the
     board; there is no inner side) and for copper on an outer layer.
 
-    An INNER layer cannot be completed here: its counterpart follows from the
-    board's copper stack (how many layers, and in what order), which a channel
-    copy never reads. So it is a FATAL -- not a silent skip and not a placement
-    on the wrong layer. A silent skip is the worst of the three: the copy looks
-    successful while the construction is assembled mirrored-wrong.
+    An INNER layer KEEPS its own layer. 2026-09-12 (design Р15/Р16 of
+    plan_2026_09_12_mirror_keeps_inner_layers.md): for one day this was a fatal
+    ("its counterpart follows from the board's copper stack"), but NO counterpart
+    is needed -- a mirror moves a local construction to the other side of the
+    SAME board, while an inner layer carries the BOARD's purpose (a ground/power
+    plane). Carrying In1 to In2 would silently move a ground connection onto a
+    power plane, which is the class of damage this whole line of work removes.
+    The rule is `utils.layers.mirror_layer` -- the SAME function the clone path
+    calls (Р15: one physical question, one answer, in both mechanisms).
 
-    2026-09-12: the mirror rule itself (mirror inverts the side) is unchanged
-    and is stated here on its own -- it used to be justified by a pointer to
-    ClonePlacement.mirror, a mechanism that is being removed (design Р5/Р9), so
-    the pointer would soon have had nothing to point at.
-
-    `where` labels the offending element in the fatal: ChannelTransform carries
-    no channel names, so the call sites hand down the channels they know (same
-    pattern as _check_copper_layer_value(value, where))."""
+    `where` labels the offending element in the fatal for a value that is not a
+    copper layer at all (defensive: nothing but copper reaches the call sites
+    today). ChannelTransform carries no channel names, so the call sites hand
+    down the channels they know (same pattern as
+    _check_copper_layer_value(value, where))."""
     if not tr.mirror:
         return layer
-    if layer == BoardLayer.BL_F_Cu:
-        return BoardLayer.BL_B_Cu
-    if layer == BoardLayer.BL_B_Cu:
-        return BoardLayer.BL_F_Cu
     try:
         name = layer_to_str(layer)
     except ValueError:  # not a copper layer at all -- still name what arrived
-        name = repr(layer)
-    raise ValidationError(format_fatal_error(
-        _("cannot mirror the inner copper layer {layer} ({where})").format(
-            layer=name, where=where),
-        [_("channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of "
-           "an inner layer depends on the board's copper stack (how many layers, "
-           "and in what order), which a channel copy never reads. Copy without "
-           "mirror, or move this layer by hand")]))
+        raise ValidationError(format_fatal_error(
+            _("cannot mirror {layer} ({where}): not a copper layer").format(
+                layer=repr(layer), where=where),
+            [_("mirroring swaps F.Cu and B.Cu and leaves inner copper layers "
+               "alone — anything that is not a copper layer at all has no "
+               "mirrored counterpart to be placed on")])) from None
+    return layer_from_str_strict(mirror_layer(name))
 
 
 def _point_close(a: Vector2, b: Vector2) -> bool:
@@ -667,6 +664,21 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
                              "Rerun with --include-global to copy it too.")
                            .format(segs=report.segments, vias=report.vias,
                                    nets=", ".join(sorted(report.nets)) or "-"))
+
+    # Э4 (design §3.5b, plan_2026_09_12_mirror_keeps_inner_layers.md): a mirror
+    # never carries copper across to another inner layer, so a construction that
+    # HAS inner-layer copper is worth one honest Log line — the behaviour is
+    # correct but non-obvious. One line per plan, after both the channel's own
+    # tracks and the foreign ones have been planned (their layers all end up in
+    # plan.tracks). A via is through-hole and has no layer to speak of.
+    if transform.mirror:
+        kept = inner_copper_layers(layer_to_str(t.layer) for t in plan.tracks)
+        if kept:
+            # The SAME msgid as the clone path's line for the same fact (Р15).
+            logger.info(
+                _("copper on inner layer(s) {layers} stays on its own layer when mirrored ({where}) — a mirror swaps F.Cu and B.Cu only")
+                .format(layers=", ".join(kept),
+                        where=f"{src_channel} -> {dst_channel}"))
 
     # Phase 3 step 3.2: verify the Role<->Net correspondence via net_matching
     # (Kuhn + SCC) — SCC ambiguity is DIAGNOSTIC, never a stop.

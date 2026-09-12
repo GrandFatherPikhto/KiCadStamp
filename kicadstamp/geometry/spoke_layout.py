@@ -124,7 +124,7 @@ class ResolvedTrack:
     end: Vector2
     width_mm: float
     net: str
-    layer: str  # 'F.Cu' | 'B.Cu', absolute — already resolved (own or cell layer, with mirror considered)
+    layer: str  # 'F.Cu' | 'In1.Cu'..'In30.Cu' | 'B.Cu', absolute — already resolved (own or cell layer, with mirror considered: outer pair swapped, inner kept)
 
 
 def _resolve_track(origin: Vector2, track: TemplateTrack, rotation_deg: float,

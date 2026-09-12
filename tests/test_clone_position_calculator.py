@@ -19,6 +19,7 @@ These tests drive ClonePositionCalculator.compute_raw_positions end to end
 (the path _resolve_anchor -> _resolve_one_level -> resolve_roles_by_nets ->
 apply_clone_geometry) on a fake live board.
 """
+import logging
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -27,7 +28,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from kicadstamp.config import (Config, ClonePlacement, Cell, TemplateComponentSlot,
-                               TemplateTrack)
+                               TemplateTrack, TemplateVia)
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2, BoardLayer
 from kicadstamp.domain.board import Footprint
@@ -369,11 +370,11 @@ class TestCloneTrackCopperLayer:
                                   width_mm=0.25, net="NET1", layer=track_layer)],
         )
 
-    def _run(self, track_layer):
+    def _run(self, track_layer, mirror=False):
         cell = self._cell(track_layer)
         adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
         clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
-                               nets={"R1": "NET1"})
+                               nets={"R1": "NET1"}, mirror=mirror)
         calc = ClonePositionCalculator(
             adapter, Config(layer="F.Cu", cells={cell.name: cell}))
         _placed, _vias, tracks = calc.compute_raw_positions([clone])
@@ -391,3 +392,122 @@ class TestCloneTrackCopperLayer:
     def test_unknown_layer_name_is_not_silently_f_cu(self):
         with pytest.raises(ValueError):
             self._run("Top.Cu")
+
+    def test_inner_layer_track_survives_a_mirror(self):
+        """Э5.1 (plan_2026_09_12_mirror_keeps_inner_layers.md, design Р16): a
+        mirror swaps F.Cu and B.Cu ONLY — copper on an inner layer KEEPS its
+        layer, while the geometry is still mirrored. An inner layer carries the
+        BOARD's purpose (on 3CH-AWG-TIA-v103 In1.In2 are the ground/power
+        planes), and a local construction moved to the other side of the SAME
+        board must not drag a plane along with it.
+
+        Before Э2 this could not pass: clone_geometry.py:123 read
+        `'F.Cu' if layer == 'B.Cu' else 'B.Cu'`, i.e. ANYTHING that was not
+        B.Cu became B.Cu — an In1.Cu track silently landed on the bottom layer,
+        and the copy looked successful."""
+        plain = self._run("In1.Cu")[0]
+        mirrored = self._run("In1.Cu", mirror=True)[0]
+        assert mirrored.layer is BoardLayer.BL_In1_Cu
+        # ...and the geometry IS mirrored: both endpoints reflect about the SAME
+        # vertical axis (their x sum is constant) and y is untouched.
+        assert mirrored.start.y == plain.start.y
+        assert mirrored.end.y == plain.end.y
+        assert mirrored.start.x + plain.start.x == mirrored.end.x + plain.end.x
+        assert mirrored.end.x - mirrored.start.x == -(plain.end.x - plain.start.x)
+
+    def test_front_and_back_tracks_still_swap_under_a_mirror(self):
+        """Э5.2: the outer pair keeps behaving byte for byte as before — a mirror
+        really does move the construction to the other SIDE of the board."""
+        assert self._run("F.Cu", mirror=True)[0].layer is BoardLayer.BL_B_Cu
+        assert self._run("B.Cu", mirror=True)[0].layer is BoardLayer.BL_F_Cu
+
+
+class TestMirrorKeepsInnerLayers:
+    """Э5.3/Э5.4 (plan_2026_09_12_mirror_keeps_inner_layers.md): what a mirror
+    still changes, what it must not, and the Э4 Log line that says so.
+
+    A via is through-hole (no layer of its own), a COMPONENT stands on a SIDE
+    (there is no inner side — design §3.1), and both keep behaving exactly as
+    before; only COPPER on an inner layer changed its rule (Р16)."""
+
+    def _cell(self, layer="F.Cu", **kwargs):
+        return Cell(name="mirror_src", layer=layer,
+                    components=[TemplateComponentSlot(role="R1", angle_deg=45.0)],
+                    **kwargs)
+
+    def _run(self, cell, mirror):
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
+                               nets={"R1": "NET1"}, mirror=mirror)
+        calc = ClonePositionCalculator(
+            adapter, Config(layer="F.Cu", cells={cell.name: cell}))
+        return calc.compute_raw_positions([clone])
+
+    @staticmethod
+    def _track(layer):
+        return TemplateTrack(start_along_mm=0.0, start_across_mm=0.0,
+                             end_along_mm=1.0, end_across_mm=0.0,
+                             width_mm=0.25, net="NET1", layer=layer)
+
+    def test_via_under_a_mirror_moves_only_coordinates(self):
+        cell = self._cell(vias=[
+            TemplateVia(offset_along_mm=2.0, offset_across_mm=1.0, net="NET1",
+                        drill_mm=0.3, diameter_mm=0.6),
+            TemplateVia(offset_along_mm=-3.0, offset_across_mm=4.0, net="NET1",
+                        drill_mm=0.5, diameter_mm=0.9),
+        ])
+        _pc, plain, _pt = self._run(cell, mirror=False)
+        _mc, mirrored, _mt = self._run(cell, mirror=True)
+        assert len(mirrored) == 2
+        for m, p in zip(mirrored, plain):
+            assert (m.drill_mm, m.diameter_mm, m.net_name) == (
+                p.drill_mm, p.diameter_mm, p.net_name)
+            assert m.position.y == p.position.y
+        # Both vias reflect about the SAME vertical axis (their x sums match),
+        # and neither has a layer to change in the first place.
+        assert (mirrored[0].position.x + plain[0].position.x
+                == mirrored[1].position.x + plain[1].position.x)
+
+    def test_component_under_a_mirror_flips_side_and_angle(self):
+        cell = self._cell()
+        plain, _v, _t = self._run(cell, mirror=False)
+        mirrored, _v2, _t2 = self._run(cell, mirror=True)
+        assert plain[0].layer is BoardLayer.BL_F_Cu
+        assert mirrored[0].layer is BoardLayer.BL_B_Cu
+        assert mirrored[0].angle_deg == pytest.approx(135.0)   # (180 - 45) % 360
+        assert mirrored[0].dest.y == plain[0].dest.y
+
+    def test_component_on_the_back_side_comes_to_the_front(self):
+        """The component pair is genuinely binary — a cell extracted on B.Cu
+        mirrors its parts to F.Cu, unchanged by this plan."""
+        cell = self._cell(layer="B.Cu")
+        plain, _v, _t = self._run(cell, mirror=False)
+        mirrored, _v2, _t2 = self._run(cell, mirror=True)
+        assert plain[0].layer is BoardLayer.BL_B_Cu
+        assert mirrored[0].layer is BoardLayer.BL_F_Cu
+
+    def test_mirror_logs_the_inner_layer_that_stayed(self, caplog):
+        """Э4: the behaviour is right but non-obvious — one Log line per mirrored
+        level names the layer and the placement it belongs to."""
+        cell = self._cell(tracks=[self._track("In1.Cu")])
+        with caplog.at_level(logging.INFO):
+            self._run(cell, mirror=True)
+        lines = [r.getMessage() for r in caplog.records]
+        assert any("In1.Cu" in ln and "stays on its own layer" in ln
+                   and "abs1" in ln for ln in lines), lines
+
+    def test_mirror_logs_nothing_when_only_outer_copper_is_mirrored(self, caplog):
+        cell = self._cell(tracks=[self._track("F.Cu")])
+        with caplog.at_level(logging.INFO):
+            self._run(cell, mirror=True)
+        assert not [r for r in caplog.records
+                    if "stays on its own layer" in r.getMessage()]
+
+    def test_no_mirror_no_line_even_with_inner_copper(self, caplog):
+        """Without a mirror no layer is touched at all, so the line would be a
+        lie by implication."""
+        cell = self._cell(tracks=[self._track("In1.Cu")])
+        with caplog.at_level(logging.INFO):
+            self._run(cell, mirror=False)
+        assert not [r for r in caplog.records
+                    if "stays on its own layer" in r.getMessage()]
