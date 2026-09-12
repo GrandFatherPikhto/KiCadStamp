@@ -2002,6 +2002,15 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert hub._selection_footprints == ["sel"]
     assert placer_selected == [(["raw"], ["sel"])]
 
+    # Cell editor (2026-09-12, plan_2026_09_12_cell_layer_dialog Э3): the layer
+    # dialog derives "empty in the selection" from the RAW items it is fed here —
+    # the dock never asks the board itself on the UI thread (P.3.4).
+    cells_selected = []
+    monkeypatch.setattr(hub.cells_dock, "set_board_selection",
+                        lambda items, sel: cells_selected.append((items, sel)))
+    hub.set_board_selection(["raw"], ["sel"])
+    assert cells_selected == [(["raw"], ["sel"])]
+
     # open_fieldstool (2026-09-05 master-detail; task T since 2026-09-10) brings
     # the Components TAB to the front — the three widgets are pages of the
     # central QTabWidget now, so there is no dock to show()/raise_().

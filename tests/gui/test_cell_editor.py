@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import gui.docks.cell_editor as cell_editor_mod
-from gui.board_layers import ALL_COPPER_LAYERS
+from gui.board_layers import ALL_COPPER_LAYERS, remember_read_layers
 from gui.docks.cell_editor import CellDock
 from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import load_template_via
@@ -1811,3 +1811,115 @@ def test_import_with_an_unchecked_layer_never_adds_that_layer(main_window, tmp_p
     assert [(r["net"], r.get("layer"))
             for r in f_cu_only["plan"].new_track_records] == [
         ("NEW_NET", None)]
+
+
+# ── Э3: the remembered set and the dialog wiring ─────────────────────────────
+# plan_2026_09_12_cell_layer_dialog. The dialog and its two-phase opening have
+# their own tests (tests/gui/test_cell_layers.py) — what is asserted here is the
+# DOCK's two seams: the fast path takes the remembered set, and the dialog path
+# hands the opener the selection it was fed.
+
+def _capture_payloads(monkeypatch):
+    """Record the payload of every read the dock starts.
+
+    Returns None like the refused-op path does: the dock keeps the controller in
+    `_active_op` and bails out of a second start while it is set, and these tests
+    deliberately start the same read twice."""
+    payloads = []
+
+    def _start(connection, widgets, fn, on_success, on_error, *args, **kwargs):
+        payloads.append(args[0] if args else None)
+        return None
+
+    monkeypatch.setattr(cell_editor_mod, "start_long_op", _start)
+    return payloads
+
+
+def test_the_fast_path_runs_with_the_remembered_layer_set(main_window, tmp_path,
+                                                          monkeypatch):
+    """P.3.1: one click, no dialog, and NO board read for the set itself — the
+    payload carries what the dialog last remembered (None = nothing remembered
+    yet = every layer, i.e. the old behaviour)."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _RefreshBoard([])
+    payloads = _capture_payloads(monkeypatch)
+
+    dock._on_refresh_geometry()
+    assert payloads[-1]["layers"] is None
+
+    remember_read_layers(["F.Cu"])
+    dock._on_refresh_geometry()
+    assert payloads[-1]["layers"] == ["F.Cu"]
+
+    # The import path reads the same remembered set.
+    dock._on_import_vias_tracks()
+    assert payloads[-1]["layers"] == ["F.Cu"]
+
+
+def test_the_refresh_dialog_path_is_fed_the_distributed_selection(
+        main_window, tmp_path, monkeypatch):
+    """P.3.4: the opener gets the items the ~400 ms tick distributed — the dock
+    never calls get_selected_items() on the UI thread — and the dialog's answer
+    becomes the payload of the read it continues into."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _RefreshBoard([])
+    track = _dto_track_on(BoardLayer.BL_F_Cu, "GND", 1.0, 1.0, 2.0, 1.0)
+    dock.set_board_selection([track], [])
+    calls = {}
+
+    def _open(parent, connection, adapter, items, on_ok, widgets=(), on_error=None):
+        calls.update(parent=parent, items=list(items), on_ok=on_ok,
+                     widgets=tuple(widgets))
+        return "controller"
+
+    monkeypatch.setattr(cell_editor_mod, "open_cell_layers_dialog", _open)
+    payloads = _capture_payloads(monkeypatch)
+
+    dock._on_refresh_geometry_with_layers()
+
+    assert calls["parent"] is dock
+    assert calls["items"] == [track]
+    assert calls["widgets"] == (dock.refresh_geometry_button,
+                                dock.import_vias_tracks_button)
+
+    calls["on_ok"](["B.Cu"])
+    assert payloads[-1]["layers"] == ["B.Cu"]
+
+
+def test_the_import_dialog_path_continues_into_the_import_read(
+        main_window, tmp_path, monkeypatch):
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _ImportBoard([])
+    calls = {}
+
+    def _open(parent, connection, adapter, items, on_ok, widgets=(), on_error=None):
+        calls["on_ok"] = on_ok
+        return "controller"
+
+    monkeypatch.setattr(cell_editor_mod, "open_cell_layers_dialog", _open)
+    payloads = _capture_payloads(monkeypatch)
+
+    dock._on_import_vias_tracks_with_layers()
+    calls["on_ok"](["F.Cu"])
+
+    assert payloads[-1]["layers"] == ["F.Cu"]
+
+
+def test_the_dialog_path_without_a_board_starts_nothing(main_window, tmp_path,
+                                                        monkeypatch):
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+    started = []
+    monkeypatch.setattr(cell_editor_mod, "open_cell_layers_dialog",
+                        lambda *args, **kwargs: started.append(args))
+
+    dock._on_refresh_geometry_with_layers()
+
+    assert started == []
+    assert messages and messages[-1] == "Connect to KiCad first."

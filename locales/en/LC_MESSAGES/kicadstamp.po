@@ -17072,3 +17072,32 @@ msgstr "placing"
 #: gui/docks/trees_dock.py
 msgid "re-reading copper"
 msgstr "re-reading copper"
+
+#: gui/docks/cell_layers.py
+msgid "Layers to read"
+msgstr ""
+
+#: gui/docks/cell_layers.py
+msgid "A layer you uncheck is not read at all — for Refresh that also removes its records from this cell."
+msgstr ""
+
+#: gui/docks/cell_layers.py
+msgid "empty in the selection"
+msgstr ""
+
+#: gui/docks/cell_layers.py
+msgid "hidden on the board"
+msgstr ""
+
+#: gui/docks/cell_layers.py
+msgid "Read"
+msgstr ""
+
+#: gui/docks/cell_layers.py
+msgid "reading layers"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Could not read the board's copper layers: {error}"
+msgstr ""

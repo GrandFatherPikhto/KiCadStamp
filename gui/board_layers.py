@@ -32,6 +32,13 @@ tracks whose layer is in it (`filter_tracks_by_layers`). Copper that is not read
 must never reach the matcher, where it would look like copper the cell does not
 describe; filtering after the matcher would be too late.
 
+The set has a THIRD use — the remembered CHOICE (Э3): the dialog offers this list
+with checkboxes, and what the user confirms is stored in gui_state.json
+(`remembered_read_layers` / `remember_read_layers`) as the starting point of the
+next read. Only the choice is stored, never the list itself: the list is derived
+from the live board every time, so it cannot go stale, and no `Cell` grows a
+layer field.
+
 TWO LAYER WORLDS meet here, and the canonical NAME is the bridge between them:
 
   * `enabled_copper_layers(board)` speaks the BOARD's values (kipy: F.Cu=3 ..
@@ -48,16 +55,25 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 from kipy.board_types import BoardLayer
 
-from kicadstamp.domain.board import layer_from_kipy
+from kicadstamp.domain.board import Track, layer_from_kipy
 from kicadstamp.utils.layers import layer_to_str
+
+from . import settings
 
 __all__ = [
     "ALL_COPPER_LAYERS",
     "CopperLayer",
+    "LayerChoice",
+    "READ_LAYERS_KEY",
     "copper_layer_order",
     "enabled_copper_layers",
     "filter_tracks_by_layers",
+    "layer_choices",
+    "layers_to_remember",
     "live_copper_name",
+    "remember_read_layers",
+    "remembered_read_layers",
+    "selection_layer_names",
 ]
 
 # The "every layer" value of the layer set (see filter_tracks_by_layers). None is
@@ -139,6 +155,106 @@ def live_copper_name(layer) -> Optional[str]:
         return layer_to_str(layer)
     except (ValueError, KeyError, TypeError):
         return None
+
+
+# ── Э3: the remembered choice and the dialog's rule order ────────────────────
+#
+# Stored in gui_state.json — GUI STATE, not project config and not a profile's
+# `settings:`: the choice is a per-machine convenience (on the second machine it
+# is its own, accepted deliberately), and it must never travel with the project.
+# settings.state merges per key, so no other dock's state can clobber it.
+READ_LAYERS_KEY = "cell_read_layers"
+
+
+class LayerChoice(NamedTuple):
+    """One row of the layer dialog.
+
+    copper         — the live layer it stands for (name, user name, hidden flag);
+    checked        — the state the dialog OPENS with, after Э3's rules;
+    empty          — no copper on this layer in the current selection;
+    auto_unchecked — unchecked BY THE RULE rather than by the user (remembered as
+                     checked, empty right now). Only `layers_to_remember` cares,
+                     and it is what keeps an auto-uncheck out of the memory.
+    """
+    copper: CopperLayer
+    checked: bool
+    empty: bool
+    auto_unchecked: bool
+
+
+def remembered_read_layers() -> Optional[list[str]]:
+    """The layer set the user last confirmed in the dialog — canonical copper
+    names, or None when nothing was ever remembered (the first run: everything
+    starts checked). A stored value of an unexpected shape is treated as
+    "nothing remembered" rather than crashing a read."""
+    raw = settings.state.get(READ_LAYERS_KEY)
+    if not isinstance(raw, (list, tuple)):
+        return None
+    return [str(name) for name in raw]
+
+
+def remember_read_layers(names: Iterable[str]) -> None:
+    """Store the user's MANUAL choice (see `layers_to_remember`) — never the
+    automatic unchecking of layers that merely happened to be empty."""
+    settings.state.set(READ_LAYERS_KEY, sorted(set(names)))
+
+
+def selection_layer_names(items) -> set[str]:
+    """The canonical copper names that carry copper IN THIS SELECTION.
+
+    Tracks only: vias are layer-less and components stand on a side of the board
+    (P.2). `items` is the live selection as the ~400 ms poll tick already
+    distributes it, so the dialog never asks the board itself (P.3.4)."""
+    names = set()
+    for item in items or ():
+        if isinstance(item, Track):
+            name = live_copper_name(item.layer)
+            if name:
+                names.add(name)
+    return names
+
+
+def layer_choices(copper_layers, remembered, present_names) -> list[LayerChoice]:
+    """The dialog's opening state — Э3's rule order, in one place:
+
+      1. the STARTING point is the remembered set (`None` = nothing remembered
+         yet = every layer checked);
+      2. over it, layers EMPTY in the current selection are unchecked and marked
+         `empty` — and that auto-uncheck is flagged (`auto_unchecked`) so it can
+         be kept OUT of the memory (see `layers_to_remember`).
+
+    A layer the user unchecked MANUALLY and which also happens to be empty right
+    now is NOT flagged: the user's own "no" is the stronger reason and must
+    survive in the memory."""
+    remembered_names = None if remembered is None else set(remembered)
+    rows = []
+    for copper in copper_layers:
+        empty = copper.copper_name not in present_names
+        remembered_checked = (remembered_names is None
+                              or copper.copper_name in remembered_names)
+        rows.append(LayerChoice(
+            copper=copper,
+            checked=remembered_checked and not empty,
+            empty=empty,
+            auto_unchecked=remembered_checked and empty))
+    return rows
+
+
+def layers_to_remember(choices, checked_names, touched_names) -> list[str]:
+    """What OK may persist: the user's OWN choice only.
+
+    `checked_names` is the dialog's FINAL state and `touched_names` the boxes the
+    user actually toggled; both come from the widget, never from the opening
+    rules. Storing the auto-unchecking would let one narrow selection silently
+    erase the choice — the layer came off because nothing happened to be on it
+    that time, and the next read would start with it off although the board has
+    copper there. So an auto-unchecked layer is kept in the memory UNLESS the
+    user touched its box (checking it on and off again is a decision too)."""
+    checked = set(checked_names or ())
+    touched = set(touched_names or ())
+    return [row.copper.copper_name for row in choices
+            if row.copper.copper_name in checked
+            or (row.auto_unchecked and row.copper.copper_name not in touched)]
 
 
 def filter_tracks_by_layers(tracks, layers) -> list:

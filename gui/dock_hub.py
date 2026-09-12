@@ -1186,6 +1186,11 @@ class DockHub:
         # Place page's opt-in "from selection" hint reads the current selection
         # center — fed by the same polled snapshot tick as Placer's auto-fill.
         self.scheme_list_place_dock.set_board_selection(items, selected)
+        # Cell editor (2026-09-12, plan_2026_09_12_cell_layer_dialog Э3): the
+        # layer dialog marks a layer "empty in the selection" from THIS tick —
+        # the raw items, so the dock never reads the board itself on the UI
+        # thread (P.3.4 of that plan).
+        self.cells_dock.set_board_selection(items, selected)
         # Scheme List record Reread (5c.4): a "By selection"-record's scope is
         # the CURRENT board selection at click time — the record dock needs the
         # same selection tick.

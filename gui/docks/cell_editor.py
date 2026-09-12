@@ -98,7 +98,7 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
-from ..board_layers import ALL_COPPER_LAYERS, filter_tracks_by_layers
+from ..board_layers import filter_tracks_by_layers, remembered_read_layers
 from ..worker import start_long_op
 from ..cell_edit_context import (
     remembered_cell_edit_context,
@@ -107,6 +107,7 @@ from ..cell_edit_context import (
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
+from .cell_layers import open_cell_layers_dialog
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
 
@@ -332,6 +333,12 @@ class CellDock(QWidget):
         # controller outlives its QThread (same pattern as every board-touching
         # dock: PointsDock/NetTraceDock/RoleClusterTreeDock keep _active_op).
         self._active_op: Optional[Any] = None
+        # The last live selection the ~400 ms tick distributed
+        # (DockHub.set_board_selection). The layer dialog derives "which layers
+        # carry copper in the selection" from HERE — a synchronous
+        # get_selected_items() on the UI thread is exactly the in-flight-REQ
+        # corruption plan_2026_09_12_ui_board_reads removed (Э3, P.3.4).
+        self._selection_items: List[Any] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -738,6 +745,13 @@ class CellDock(QWidget):
         self._path = path
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
+
+    def set_board_selection(self, items, selected) -> None:
+        """The live selection tick (DockHub.set_board_selection fan-out) — the
+        dock needs no more than this: the layer dialog marks a layer "empty in
+        the selection" from the SAME items the ~400 ms tick already distributed,
+        so it never asks the board itself (Э3/P.3.4)."""
+        self._selection_items = list(items or ())
 
     def refresh_known_roles(self, snapshot) -> None:
         """Same "populate from the live board" pattern as PlacerDock's own
@@ -1501,10 +1515,20 @@ class CellDock(QWidget):
         return None
 
     def _on_refresh_geometry(self) -> None:
-        """Button/context action: read the CURRENT board selection and refresh
-        the loaded cell's geometry to match it. Board IPC (selection read +
-        net_from_role resolution) runs on the worker thread via start_long_op;
-        the preview dialog + Apply stay on the UI thread."""
+        """Button/context action — the FAST path (Э4): the same read, with the
+        REMEMBERED layer set and no dialog. Deliberately NOTHING is read from the
+        board for the set itself (P.3.1) — one click, no extra IPC round trip."""
+        self._read_refresh_from_selection(remembered_read_layers())
+
+    def _read_refresh_from_selection(self, layers) -> None:
+        """The refresh read, with the layer set already decided on this (the UI)
+        thread: ALL_COPPER_LAYERS or a collection of canonical copper names. The
+        worker only filters by it (Э5). `_on_refresh_geometry` is the fast path
+        over this, `_on_refresh_geometry_with_layers` the dialog path.
+
+        Board IPC (selection read + net_from_role resolution) runs on the worker
+        thread via start_long_op; the preview dialog + Apply stay on the UI
+        thread."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
@@ -1539,18 +1563,48 @@ class CellDock(QWidget):
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
             "cell_layer": self.layer_combo.currentData() or "F.Cu",
-            # Э5 (plan_2026_09_12_cell_layer_dialog): the layer set is decided
-            # HERE, on the UI thread — the worker never decides. ALL_COPPER_LAYERS
-            # is today's answer (read everything, exactly the old behaviour) and
-            # it is deliberately a value that needs NO board read: the fast path
-            # must stay fast (P.3.1). Э3 replaces it with the remembered set, and
-            # the dialog path with what the user checked.
-            "layers": ALL_COPPER_LAYERS,
+            # Э5 (plan_2026_09_12_cell_layer_dialog): the layer set was decided
+            # HERE, on the UI thread — the worker never decides. `layers` is the
+            # argument of _read_refresh_from_selection: the remembered set on the
+            # fast path, the dialog's answer on the other one.
+            "layers": layers,
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
             self._run_refresh_geometry, self._finish_refresh_geometry,
             self._on_refresh_op_failed, payload)
+
+    def _on_refresh_geometry_with_layers(self) -> None:
+        """The DIALOG path of the same read (Э3/Э4): the board's copper layers are
+        read on a WORKER (P.3.2 phase 1), the dialog opens on this thread with the
+        finished list, and only OK starts the read itself."""
+        self._open_layers_dialog(self._read_refresh_from_selection)
+
+    def _open_layers_dialog(self, run_read) -> None:
+        """Phases 1+2 of the dialog path, for BOTH reads. The guard widgets are
+        the dock's two read buttons: while phase 1 runs they are disabled (so the
+        action cannot be started twice), and the dialog itself is modal, so the
+        second phase cannot be started from under it either."""
+        connection = getattr(self._main_window, "connection", None)
+        board = getattr(connection, "board", None) if connection is not None else None
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        open_cell_layers_dialog(
+            self, connection, adapter, self._selection_items, run_read,
+            widgets=(self.refresh_geometry_button, self.import_vias_tracks_button),
+            on_error=self._on_layers_read_failed)
+
+    def _on_layers_read_failed(self, message: str) -> None:
+        """Phase 1 could not read the board (KiCad busy/closed): a Log line,
+        never a modal — the rule every board-state failure follows here."""
+        self._show_message(
+            _("Could not read the board's copper layers: {error}").format(
+                error=message),
+            _ERROR_STYLE)
 
     def _run_refresh_geometry(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: selection read + plan build — never touches a widget.
@@ -1732,11 +1786,18 @@ class CellDock(QWidget):
     #    fpga_oscill_missing_copper_and_cell_import §B.3) ─────────────────
 
     def _on_import_vias_tracks(self) -> None:
-        """Button/context action: read the CURRENT board selection and import
-        the live via/track copper it describes that the loaded cell's current
-        records don't (backfill). Board IPC (selection read + net_from_role
-        resolution) runs on the worker thread via start_long_op; the preview
-        dialog + Apply stay on the UI thread."""
+        """Button/context action — the FAST path (Э4): the same read with the
+        REMEMBERED layer set and no dialog (P.3.1)."""
+        self._read_import_from_selection(remembered_read_layers())
+
+    def _read_import_from_selection(self, layers) -> None:
+        """The import read, with the layer set already decided on this thread.
+        A track on a layer outside `layers` is invisible to the plan, so it is
+        simply never imported (Э5).
+
+        Board IPC (selection read + net_from_role resolution) runs on the worker
+        thread via start_long_op; the preview dialog + Apply stay on the UI
+        thread."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
@@ -1766,15 +1827,20 @@ class CellDock(QWidget):
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
             "cell_layer": self.layer_combo.currentData() or "F.Cu",
-            # Э5: same decided-on-the-UI-thread layer set as the refresh path
-            # (see _on_refresh_geometry). For Import a checked-off layer simply
+            # Э5: the same decided-on-the-UI-thread set as the refresh path (see
+            # _read_refresh_from_selection). For Import a checked-off layer simply
             # means "not added" — nothing is ever removed here.
-            "layers": ALL_COPPER_LAYERS,
+            "layers": layers,
         }
         self._active_op = start_long_op(
             connection, (self.import_vias_tracks_button,),
             self._run_import_vias_tracks, self._finish_import_vias_tracks,
             self._on_import_op_failed, payload)
+
+    def _on_import_vias_tracks_with_layers(self) -> None:
+        """The DIALOG path of the import read — the same dialog and the same two
+        phases as the refresh one (Э3/Э4)."""
+        self._open_layers_dialog(self._read_import_from_selection)
 
     def _run_import_vias_tracks(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: selection read + plan build — never touches a widget.

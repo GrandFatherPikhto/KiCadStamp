@@ -15732,3 +15732,32 @@ msgstr "расстановка"
 #: gui/docks/trees_dock.py
 msgid "re-reading copper"
 msgstr "перечитывание меди"
+
+#: gui/docks/cell_layers.py
+msgid "Layers to read"
+msgstr "Слои для чтения"
+
+#: gui/docks/cell_layers.py
+msgid "A layer you uncheck is not read at all — for Refresh that also removes its records from this cell."
+msgstr "Снятый слой не читается вообще — для Refresh это ещё и удаляет его записи из этой ячейки."
+
+#: gui/docks/cell_layers.py
+msgid "empty in the selection"
+msgstr "пусто в выделении"
+
+#: gui/docks/cell_layers.py
+msgid "hidden on the board"
+msgstr "скрыт на плате"
+
+#: gui/docks/cell_layers.py
+msgid "Read"
+msgstr "Читать"
+
+#: gui/docks/cell_layers.py
+msgid "reading layers"
+msgstr "чтение слоёв"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "Could not read the board's copper layers: {error}"
+msgstr "Не удалось прочитать медные слои платы: {error}"

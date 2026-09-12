@@ -16,15 +16,24 @@ from types import SimpleNamespace
 
 from kipy.board_types import BoardLayer
 
+from gui import settings
 from gui.board_layers import (
     ALL_COPPER_LAYERS,
+    READ_LAYERS_KEY,
     CopperLayer,
     copper_layer_order,
     enabled_copper_layers,
     filter_tracks_by_layers,
+    layer_choices,
+    layers_to_remember,
     live_copper_name,
+    remember_read_layers,
+    remembered_read_layers,
+    selection_layer_names,
 )
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer as DomainLayer
+from kicadstamp.domain.geometry import Vector2
 
 F = BoardLayer.BL_F_Cu
 IN1 = BoardLayer.BL_In1_Cu
@@ -234,3 +243,131 @@ class TestFilterTracksByLayers:
         alien = self._track(3)
         assert filter_tracks_by_layers([alien], {"F.Cu"}) == []
         assert filter_tracks_by_layers([alien], {"In3.Cu"}) == []
+
+
+# ── Э3: the remembered choice (gui_state.json) ──────────────────────────────
+# Each test runs against a THROWAWAY gui_state.json (tests/gui/conftest.py's
+# autouse isolated_settings), so nothing here touches the developer's own file.
+
+class TestRememberedReadLayers:
+    def test_nothing_remembered_yet_is_none(self):
+        """None means "the first run" — every layer starts checked; it is NOT an
+        empty selection (that would read nothing at all)."""
+        assert remembered_read_layers() is None
+
+    def test_round_trip_sorted(self):
+        remember_read_layers({"B.Cu", "F.Cu"})
+        assert remembered_read_layers() == ["B.Cu", "F.Cu"]
+        remember_read_layers(["In1.Cu"])
+        assert remembered_read_layers() == ["In1.Cu"]
+
+    def test_a_foreign_value_reads_as_nothing_remembered(self):
+        settings.state.set(READ_LAYERS_KEY, {"not": "a list"})
+        assert remembered_read_layers() is None
+
+
+def _selection_track(layer):
+    return Track(uuid=f"t-{layer}", net_name="GND",
+                 start=Vector2.from_xy_mm(0.0, 0.0),
+                 end=Vector2.from_xy_mm(1.0, 0.0),
+                 width_mm=0.25, layer=layer)
+
+
+class TestSelectionLayerNames:
+    """Which layers carry copper in the selection — read from the DISTRIBUTED
+    items (the ~400ms tick), never from a fresh board call (P.3.4)."""
+
+    def test_only_track_layers_count(self):
+        items = [_selection_track(DomainLayer.BL_B_Cu),
+                 _selection_track(DomainLayer.BL_F_Cu),
+                 _selection_track(DomainLayer.BL_F_Cu)]
+        assert selection_layer_names(items) == {"F.Cu", "B.Cu"}
+
+    def test_a_via_is_layerless(self):
+        via = Via(uuid="v1", position=Vector2.from_xy_mm(1.0, 1.0),
+                  net_name="GND", drill_mm=0.3, diameter_mm=0.6)
+        assert selection_layer_names([via]) == set()
+
+    def test_a_component_stands_on_a_side_not_on_a_layer(self):
+        """A footprint's own layer must not be mistaken for copper on it."""
+        fp = Footprint(ref="R1", uuid="u1", position=Vector2.from_xy_mm(0.0, 0.0),
+                       angle_deg=0.0, layer=DomainLayer.BL_B_Cu)
+        assert selection_layer_names([fp]) == set()
+
+    def test_empty_or_absent_selection(self):
+        assert selection_layer_names([]) == set()
+        assert selection_layer_names(None) == set()
+
+
+def _copper_rows(names, hidden=()):
+    """CopperLayer rows the way Э1 hands them over (stack order, 1-based
+    positions); the layer VALUE is irrelevant here — every rule works on names."""
+    return [CopperLayer(layer=index + 3, copper_name=name, display_name=name,
+                        position=index + 1, visible=name not in hidden)
+            for index, name in enumerate(names)]
+
+
+FOUR = ("F.Cu", "In1.Cu", "In2.Cu", "B.Cu")
+
+
+class TestLayerChoices:
+    """Э3's rule order: the remembered set is the starting point, and only then
+    are the layers empty in the current selection taken off."""
+
+    def test_first_run_starts_with_every_layer_checked(self):
+        rows = layer_choices(_copper_rows(FOUR), None, set(FOUR))
+        assert [row.checked for row in rows] == [True, True, True, True]
+        assert [row.empty for row in rows] == [False] * 4
+        assert [row.auto_unchecked for row in rows] == [False] * 4
+
+    def test_the_remembered_set_is_the_starting_point(self):
+        rows = layer_choices(_copper_rows(FOUR), ["F.Cu", "B.Cu"], set(FOUR))
+        assert [row.checked for row in rows] == [True, False, False, True]
+        # ... and a manual "off" is not an auto-uncheck.
+        assert [row.auto_unchecked for row in rows] == [False] * 4
+
+    def test_layers_empty_in_the_selection_come_off_and_are_flagged(self):
+        rows = layer_choices(_copper_rows(FOUR), None, {"F.Cu", "In2.Cu"})
+        assert [(row.copper.copper_name, row.checked, row.empty,
+                 row.auto_unchecked) for row in rows] == [
+            ("F.Cu", True, False, False),
+            ("In1.Cu", False, True, True),
+            ("In2.Cu", True, False, False),
+            ("B.Cu", False, True, True),
+        ]
+
+    def test_a_manual_uncheck_is_the_stronger_reason(self):
+        """Remembered off AND empty right now: flagged as empty but NOT as an
+        auto-uncheck, because the user's own "no" must survive either way."""
+        rows = layer_choices(_copper_rows(FOUR), ["F.Cu"], {"F.Cu"})
+        in1 = rows[1]
+        assert (in1.checked, in1.empty, in1.auto_unchecked) == (False, True, False)
+
+    def test_a_remembered_name_that_is_not_on_this_board_is_ignored(self):
+        rows = layer_choices(_copper_rows(("F.Cu", "B.Cu")),
+                             ["F.Cu", "In7.Cu"], {"F.Cu", "B.Cu"})
+        assert [row.checked for row in rows] == [True, False]
+
+
+class TestLayersToRemember:
+    """The guarantee Э3 spells out: an auto-uncheck must never reach the memory,
+    or one narrow selection would silently erase the user's choice."""
+
+    def test_an_auto_unchecked_layer_is_not_lost(self):
+        rows = layer_choices(_copper_rows(("F.Cu", "In1.Cu")), None, {"F.Cu"})
+        # In1.Cu came off by itself; the user pressed Read without touching it.
+        assert layers_to_remember(rows, ["F.Cu"], set()) == ["F.Cu", "In1.Cu"]
+
+    def test_a_touched_auto_unchecked_layer_stays_off(self):
+        rows = layer_choices(_copper_rows(("F.Cu", "In1.Cu")), None, {"F.Cu"})
+        assert layers_to_remember(rows, ["F.Cu"], {"In1.Cu"}) == ["F.Cu"]
+
+    def test_a_layer_the_user_put_back_is_remembered(self):
+        rows = layer_choices(_copper_rows(("F.Cu", "In1.Cu")), None, {"F.Cu"})
+        assert layers_to_remember(rows, ["F.Cu", "In1.Cu"], {"In1.Cu"}) == [
+            "F.Cu", "In1.Cu"]
+
+    def test_a_manual_uncheck_is_remembered(self):
+        rows = layer_choices(_copper_rows(("F.Cu", "B.Cu")), None,
+                             {"F.Cu", "B.Cu"})
+        assert layers_to_remember(rows, ["F.Cu"], {"B.Cu"}) == ["F.Cu"]
