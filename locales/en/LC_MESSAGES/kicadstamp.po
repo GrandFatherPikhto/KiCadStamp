@@ -16714,3 +16714,9 @@ msgstr "Create empty file"
 #: gui/include_recovery.py
 msgid "Remove from include:"
 msgstr "Remove from include:"
+
+# ── Inter-node copper core (plan_2026_09_12_internode_copper_core, Э1) ──
+#: kicadstamp/internode_copper.py
+#, python-brace-format
+msgid "inter-node copper: one unit of copper (pads {pads}) carries several nets at once: {nets} — the unit is defined by geometry; check the routing"
+msgstr "inter-node copper: one unit of copper (pads {pads}) carries several nets at once: {nets} — the unit is defined by geometry; check the routing"
