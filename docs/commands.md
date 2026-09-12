@@ -813,6 +813,12 @@ python -m kicadstamp.diagnostics.test_create_one_via --remove
 
 ### Test for KiCad crash on first write (issue #24966)
 
+> **Status: fixed upstream.** #24966 was closed 2026-09-07 (milestone 10.0.7, commit
+> `bdcb1509`); #25322 turned out to be the same crash, was marked its duplicate and closed
+> with it. **On KiCad older than 10.0.7 the workaround still applies** — make the session's
+> first write with the Schematic Editor closed, and open it afterwards. Full history:
+> `techdocs/bugreport/kicad_ipc_crash_reports.md`.
+
 Full reference (parameters, hypotheses, output, dependencies) moved to a standalone document:
 [docs/diagnose_first_write_crash.md](diagnose_first_write_crash.md).
 
@@ -847,7 +853,7 @@ python -m kicadstamp.diagnostics.diagnostic_keepout 10CL006YE144C8G.sexp
 2. **Check your configuration** with `--dry-run` to verify positions, vias, and tracks.
 3. **For debugging** – enable `--verbose` and log to a file.
 4. **When handling multiple clones in selection mode** – use `--only <name>` to process them one at a time.
-5. **If KiCad crashes** on the first run – close the schematic editor or make an interactive edit in PCB before launching (workaround for issue #24966).
+5. **If KiCad crashes** on the first run – close the schematic editor or make an interactive edit in PCB before launching. This is issue #24966, **fixed in KiCad 10.0.7**; on earlier builds the workaround is still needed.
 6. **For hierarchical projects** – use `clone-extract` before writing ClonePlacement to get exact net names and twin refdes.
 7. **Store templates separately** – list the external file under `include:` (wrapped in a `cells:` key) to keep geometry out of the main file.
 8. **Transform templates** with the `kicadstamp.diagnostics.transform_template` module instead of manual coordinate recalculation.
@@ -874,8 +880,8 @@ python kicadstamp_cli.py clone-extract --help
 | `ComponentNotFoundError` | The specified `anchor_ref` is not found on the board. | Check the refdes in your config. |
 | `ValidationError: not enough components for roles` | Not enough components with the `Role` field for the given net. | Add the `Role` field to the required components in the schematic and run Update PCB. |
 | `ValidationError: resolved via net not found` | Typo in `params` or `net_overrides`. | Verify net names in the config against the schematic. |
-| `ConnectionError` during write | KiCad crashed (known issue #24966) or is stuck. | Close the schematic editor or make an interactive edit in PCB, then restart. |
-| `KiCad crash on first launch` | Schematic editor open and no interactive edits made. | Workaround: close the schematic or move a component in PCB and save. |
+| `ConnectionError` during write | KiCad crashed (issue #24966, fixed in 10.0.7 — still reachable on older builds) or is stuck. | Close the schematic editor or make an interactive edit in PCB, then restart. |
+| `KiCad crash on first launch` | Schematic editor open and no interactive edits made (KiCad older than 10.0.7). | Workaround: close the schematic or move a component in PCB and save. Upgrading to 10.0.7 removes the need. |
 | `Cannot find via/track` during undo | The object was manually deleted. | Undo skips missing objects and continues. |
 
 ---
