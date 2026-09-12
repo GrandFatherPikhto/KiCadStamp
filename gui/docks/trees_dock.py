@@ -63,7 +63,8 @@ from kicadstamp.placement.services.component_resolver import (
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
-                              _walk_nodes, tree_pivot_ref_candidates,
+                              _mount_ancestor_of, _walk_nodes,
+                              tree_pivot_ref_candidates,
                               tree_self_ref_candidates, tree_to_dict)
 from kicadstamp.utils.units import MM
 
@@ -395,6 +396,33 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
     pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,
                                  sheet_names)
     return pose.position, pose.rotation_deg, pose.mirror
+
+
+def _pivot_ref_mount_parent(tree: Tree, node: TreeNode,
+                            candidate: Optional[TreeNode]) -> Optional[TreeNode]:
+    """The mount node that WOULD pin `node`'s base to a live component if `node`
+    were re-hung under `candidate` — None when that re-hang is legal.
+
+    THE single expression of `kicadstamp.trees._pivot_ref_rejection`'s third
+    branch ("mount-ancestor") for a HYPOTHETICAL parent
+    (plan_2026_09_12_move_to_recalculates_offset §Э1). A re-hang under
+    `candidate` gives `node` exactly candidate's ancestor chain plus `candidate`
+    itself, so the load-time validator (_validate_tree_pivot_ref) would kill the
+    config at the next load precisely when that chain holds a mount node: a node
+    under a mount node is pinned to a LIVE component's position and does not
+    follow the tree, so it can never be the tree's inner point. The walker
+    itself (_mount_ancestor_of) is CONSULTED from kicadstamp.trees — the very
+    one the loader and the pivot-ref picker use — never re-implemented here.
+
+    Only a tree's OWN pivot-ref can be pinned this way; for any other node the
+    question does not arise, and the answer is None without a single walk."""
+    if tree.pivot_ref is None or tree.pivot_ref != node.ref:
+        return None
+    if candidate is None:
+        return None                     # top level: the tree's own anchor
+    if candidate.kind == "mount":
+        return candidate
+    return _mount_ancestor_of(candidate, tree.nodes)
 
 
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
@@ -2451,11 +2479,20 @@ class TreesDock(QWidget):
     def _move_node_flow(self, tree: Tree, node: TreeNode) -> None:
         """FORK-C: a parent-picker dialog, no drag&drop. The candidate list
         excludes the node itself and its own descendants (a structural
-        invariant — you cannot move a node into its own subtree)."""
+        invariant — you cannot move a node into its own subtree) and, when the
+        node IS the tree's pivot-ref, every mount node with its whole subtree:
+        a re-hang there pins the node's base to a LIVE component and the LOADER
+        would refuse the config at the next load (kicadstamp.trees
+        _validate_tree_pivot_ref, reason "mount-ancestor"). Both rules are
+        enforced by CONSTRUCTION through the shared _pivot_ref_mount_parent —
+        the same single expression of the pivot-ref rule the form's combo uses,
+        never a second copy of it."""
         forbidden = self._collect_subtree(node)
         candidates: list[tuple[str, Optional[TreeNode]]] = [(_("(top level)"), None)]
         for top in tree.nodes:
             self._collect_move_candidates(top, forbidden, candidates)
+        candidates = [row for row in candidates
+                      if _pivot_ref_mount_parent(tree, node, row[1]) is None]
 
         labels = [label for label, _t in candidates]
         choice, ok = QInputDialog.getItem(
@@ -2465,6 +2502,15 @@ class TreesDock(QWidget):
         new_parent = candidates[labels.index(choice)][1]
         if new_parent is node or self._in_list(new_parent, forbidden):
             return  # structural invariant — the dialog never offered it
+        pinned = _pivot_ref_mount_parent(tree, node, new_parent)
+        if pinned is not None:
+            # Never offered above, so reaching this means the dialog was
+            # bypassed: refuse instead of writing a tree the loader will kill.
+            logger.warning(
+                "Refusing to move %r under mount node %r: %r is the tree's "
+                "pivot-ref and a node under a mount node does not follow the "
+                "tree", node.ref, pinned.ref, node.ref)
+            return
         parent = self._find_parent(tree, node)
         if parent is None:
             tree.nodes.remove(node)
@@ -2549,7 +2595,7 @@ class TreesDock(QWidget):
             cls._collect_parent_candidates(child, forbidden, barred_mounts, out)
 
     def _reparent_node(self, tree: Tree, node: TreeNode,
-                       new_parent: Optional[TreeNode]) -> None:
+                       new_parent: Optional[TreeNode]) -> bool:
         """Move `node` (with its whole subtree) under `new_parent` (None = the
         top level) in `tree` — the STRUCTURAL half of the Node form's Parent
         combo (Э1); the offset that keeps the node physically still belongs to
@@ -2564,7 +2610,16 @@ class TreesDock(QWidget):
         the embedded form's apply(), and rebuilding the page here would destroy
         that very form mid-call (the panel's content is replaced wholesale).
         One turn later the apply has returned and the form is no longer
-        `_touched`, so the rebuild is silent — no discard warning."""
+        `_touched`, so the rebuild is silent — no discard warning.
+
+        Both structural invariants are re-checked here, whoever the caller is
+        (the combo enforces them by construction, so a violation means a
+        programming error): the node's own subtree (a cycle) and, for the
+        tree's pivot-ref, any parent that would pin its base to a LIVE
+        component (the loader's own `_pivot_ref_rejection` rule, times a
+        hypothetical parent). Returns True when the tree really changed, False
+        when the call was refused or was a structural no-op — the caller must
+        not touch the node's stored coordinates on False."""
         if new_parent is not None and self._contains_node(node, new_parent):
             # A programming error, not a user path: the combo never offers the
             # node's own subtree. Refuse structurally rather than corrupt the
@@ -2572,10 +2627,19 @@ class TreesDock(QWidget):
             logger.warning(
                 "Refusing to re-hang %r under its own descendant %r",
                 node.ref, new_parent.ref)
-            return
+            return False
+        pinned = _pivot_ref_mount_parent(tree, node, new_parent)
+        if pinned is not None:
+            # Same discipline: writing this tree would make the NEXT config
+            # load a fatal ("mount-ancestor"), silently until then.
+            logger.warning(
+                "Refusing to re-hang %r under mount node %r: %r is the tree's "
+                "pivot-ref and a node under a mount node does not follow the "
+                "tree", node.ref, pinned.ref, node.ref)
+            return False
         old_parent = self._find_parent(tree, node)
         if old_parent is new_parent:
-            return
+            return False
         siblings = tree.nodes if old_parent is None else old_parent.children
         for index, candidate in enumerate(siblings):
             if candidate is node:
@@ -2587,6 +2651,7 @@ class TreesDock(QWidget):
             new_parent.children.append(node)
         self._mark_dirty()
         QTimer.singleShot(0, self._rebuild_tabs)
+        return True
 
     def _on_create_tree(self) -> None:
         """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the anchor

@@ -23,7 +23,8 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode, tree_from_dict
+from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, tree_from_dict,
+                              tree_to_dict)
 from kicadstamp.utils.units import MM
 
 import gui.docks.trees_dock as trees_dock_mod
@@ -6293,6 +6294,55 @@ def test_pivot_ref_node_is_not_offered_any_mount_parent(
     candidates = dock._node_parent_candidates(tree, moved)
 
     assert candidates == [("(top level)", None)]
+
+
+def test_move_to_never_offers_a_mount_parent_to_the_pivot_ref_node(
+        main_window, tmp_path, monkeypatch):
+    """Э1 of plan_2026_09_12_move_to_recalculates_offset: "Move to…" offered
+    EVERY node outside the subtree — mount nodes included. Re-hanging a tree's
+    pivot-ref under a mount node is a LOAD-TIME FATAL (kicadstamp.trees
+    _validate_tree_pivot_ref, reason "mount-ancestor"): the menu thus wrote a
+    config the very next load would kill, and said nothing.
+
+    The rows are now built through the same _pivot_ref_mount_parent the form's
+    combo uses. On the pre-fix code the mount row IS offered and the node
+    really moves under it — every assertion below fails."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    mount = TreeNode(ref="mnt", kind="mount", xy=None, polar=None, rotation=0.0,
+                     name=None, group=None, children=[],
+                     anchor=TreeAnchor(role="IC1"))
+    moved = TreeNode(ref="R_MOVED", kind="placement", xy=(12.0, 0.0),
+                     polar=None, rotation=0.0, name=None, group=None,
+                     children=[])
+    tree = Tree(name="rehang", anchor=TreeAnchor(is_origin=True),
+                nodes=[mount, moved], pivot_ref=moved.ref)
+
+    offered: list[str] = []
+
+    def _get_item(*args, **kwargs):
+        labels = list(args[3] if len(args) > 3 else kwargs.get("items"))
+        offered.extend(labels)
+        # The user picks the mount row when it is there at all — that is the
+        # pick that used to produce the fatal.
+        pick = "mnt" if "mnt" in labels else labels[0]
+        return (pick, True)
+
+    monkeypatch.setattr(QInputDialog, "getItem", _get_item)
+    dock._move_node_flow(tree, moved)
+
+    assert offered == ["(top level)"]              # no mount row at all
+    assert moved in tree.nodes and moved not in mount.children
+    # The tree that SURVIVES is loadable (the pre-fix one was not) ...
+    assert tree_from_dict(tree_to_dict(tree)).pivot_ref == "R_MOVED"
+    # ... and the shape the menu used to write really is the fatal we claim.
+    with pytest.raises(ValidationError, match="hangs under mount node 'mnt'"):
+        tree_from_dict({"name": "t", "pivot_ref": "R_MOVED",
+                        "nodes": [{"ref": "mnt", "kind": "mount",
+                                   "anchor": {"role": "IC1"},
+                                   "children": [{"ref": "R_MOVED",
+                                                 "kind": "placement",
+                                                 "xy": [12, 0]}]}]})
 
 
 def test_rehang_without_a_resolvable_base_asks_before_moving(
