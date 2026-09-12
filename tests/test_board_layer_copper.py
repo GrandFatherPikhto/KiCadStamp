@@ -15,6 +15,7 @@ from kicadstamp.domain.board import layer_from_kipy, layer_to_kipy
 from kicadstamp.utils.layers import (
     COPPER_LAYER_STRINGS,
     layer_from_str,
+    layer_from_str_strict,
     layer_to_str,
 )
 
@@ -94,3 +95,45 @@ class TestKipyCopperMapping:
         from kipy.board_types import BoardLayer as KipyBoardLayer
         edge_cuts = KipyBoardLayer.Value("BL_Edge_Cuts")
         assert layer_from_kipy(edge_cuts) is BoardLayer.BL_F_Cu
+
+
+class TestStrictLayerParse:
+    """plan_2026_09_12_strict_copper_layers.md Э1.a / Э4.4.
+
+    Two parsers, two jobs: `layer_from_str` stays TOLERANT (legacy undo-log and
+    old-config reads, where the historical substring fallback is load-bearing),
+    `layer_from_str_strict` is the WRITE-path parser — an exact copper name, or
+    ValueError. Tolerance on the write path is the same silent F.Cu defect
+    under a different name.
+    """
+
+    @pytest.mark.parametrize("name", COPPER_LAYER_STRINGS)
+    def test_strict_accepts_every_copper_name(self, name):
+        assert layer_from_str_strict(name) is layer_from_str(name)
+
+    def test_strict_rejects_unknown_names(self):
+        for text in ("totally-unknown", "some B.Cu suffix", "", "F_Cu",
+                     "In0.Cu", "In31.Cu"):
+            with pytest.raises(ValueError):
+                layer_from_str_strict(text)
+
+    def test_strict_does_not_strip_whitespace(self):
+        """Strict means EXACT: '  In1.Cu ' is not a copper name. A silent strip
+        here would be the same tolerance under a new name; a caller that owns a
+        hand-edited file normalises it itself."""
+        with pytest.raises(ValueError):
+            layer_from_str_strict(" In1.Cu ")
+
+    def test_tolerant_keeps_its_historical_fallback(self):
+        """Э4.4 guard — the tolerant parser must NOT follow the strict one.
+        Legacy undo logs hold 'F.Cu'/'B.Cu'-like strings and its callers rely on
+        the documented fallback (exact name, else substring 'B.Cu' -> B.Cu,
+        otherwise F.Cu). Anyone "unifying" the two parsers breaks this test."""
+        assert layer_from_str("  In1.Cu ") is BoardLayer.BL_In1_Cu
+        assert layer_from_str("some B.Cu suffix") is BoardLayer.BL_B_Cu
+        assert layer_from_str("totally-unknown") is BoardLayer.BL_F_Cu
+        # ...while the strict parser refuses all the tolerant-only inputs:
+        with pytest.raises(ValueError):
+            layer_from_str_strict("some B.Cu suffix")
+        with pytest.raises(ValueError):
+            layer_from_str_strict("totally-unknown")

@@ -7695,6 +7695,15 @@ msgstr "invalid layer={value!r} {where}"
 msgid "layer must be absolute: 'F.Cu' or 'B.Cu'"
 msgstr "layer must be absolute: 'F.Cu' or 'B.Cu'"
 
+#: kicadstamp/config/entries.py:126
+#, python-brace-format
+msgid "invalid copper layer={value!r} {where}"
+msgstr "invalid copper layer={value!r} {where}"
+
+#: kicadstamp/config/entries.py:129
+msgid "a track's layer must be a copper layer of the stack: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
+msgstr "a track's layer must be a copper layer of the stack: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
+
 #: kicadstamp/config/entries.py:128
 msgid "component slot without a role"
 msgstr "component slot without a role"
@@ -8207,16 +8216,8 @@ msgid "net_traces track (net {net!r}, index {idx}) has no layer"
 msgstr "net_traces track (net {net!r}, index {idx}) has no layer"
 
 #: kicadstamp/config/entries.py:697
-msgid ""
-"extract-net always writes layer: F.Cu or B.Cu explicitly — a net trace "
-"has no cell to inherit a layer from (unlike cells: where layer: null "
-"means 'inherit'). If hand-editing, add layer: F.Cu or layer: B.Cu to this"
-" track"
-msgstr ""
-"extract-net always writes layer: F.Cu or B.Cu explicitly — a net trace "
-"has no cell to inherit a layer from (unlike cells: where layer: null "
-"means 'inherit'). If hand-editing, add layer: F.Cu or layer: B.Cu to this"
-" track"
+msgid "extract-net always writes the track's real copper layer explicitly — a net trace has no cell to inherit a layer from (unlike cells: where layer: null means 'inherit'). If hand-editing, add layer: F.Cu, In1.Cu..In30.Cu or B.Cu to this track"
+msgstr "extract-net always writes the track's real copper layer explicitly — a net trace has no cell to inherit a layer from (unlike cells: where layer: null means 'inherit'). If hand-editing, add layer: F.Cu, In1.Cu..In30.Cu or B.Cu to this track"
 
 #: kicadstamp/config/entries.py:763
 msgid "entity without name"

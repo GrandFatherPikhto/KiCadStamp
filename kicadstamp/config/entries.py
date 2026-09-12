@@ -97,7 +97,11 @@ def _load_template_track(data: dict[str, Any]) -> TemplateTrack:
              .format(pad=net_from_role_pad)]
         ))
     layer = data.get('layer')
-    _check_layer_value(layer, _("on track"))
+    # COPPER, not a mounting side: a track may sit on ANY layer of the stack.
+    # `extract` already writes the real name here (template_extraction.py), so
+    # the old binary check rejected the extractor's own output (2026-09-12,
+    # plan_2026_09_12_strict_copper_layers.md Э1.b).
+    _check_copper_layer_value(layer, _("on track"))
     return TemplateTrack(
         start_along_mm=data.get('start_along_mm', 0.0),
         start_across_mm=data.get('start_across_mm', 0.0),
@@ -112,11 +116,40 @@ def _load_template_track(data: dict[str, Any]) -> TemplateTrack:
 
 
 def _check_layer_value(value, where: str):
+    """Mounting SIDE check — deliberately binary (design §3.1): a footprint
+    stands on F.Cu or B.Cu, there is no inner side. Keep it that way."""
     if value is not None and value not in ('F.Cu', 'B.Cu'):
         raise ValidationError(format_fatal_error(
             _("invalid layer={value!r} {where}").format(value=value, where=where),
             [_("layer must be absolute: 'F.Cu' or 'B.Cu'")]
         ))
+
+
+def _check_copper_layer_value(value, where: str):
+    """COPPER check — the whole stack: 'F.Cu', 'In1.Cu'..'In30.Cu', 'B.Cu'.
+
+    Separate from `_check_layer_value` on purpose (plan Э1.b): copper and side
+    are different things, and one shared helper would loosen every side check
+    the moment somebody widened it for a track. Called ONLY from
+    `_load_template_track` — the single loader behind both `cells:` tracks and
+    `net_traces:` tracks. `tests/test_strict_copper_layers.py` guards the split.
+    """
+    if value is None:
+        return
+    # Imported HERE, not at module level: `utils.layers` pulls `kicadstamp.domain`,
+    # whose __init__ imports the kipy-backed board mappers — that would put kipy
+    # back on the CLI import path (guarded by tests/test_cli_lazy_imports.py).
+    # Same lazy-import discipline as internode_capture._layer_str.
+    from ..utils.layers import layer_from_str_strict
+
+    try:
+        layer_from_str_strict(value)
+    except ValueError:
+        raise ValidationError(format_fatal_error(
+            _("invalid copper layer={value!r} {where}").format(value=value, where=where),
+            [_("a track's layer must be a copper layer of the stack: 'F.Cu', "
+               "'In1.Cu'..'In30.Cu' or 'B.Cu'")]
+        )) from None
 
 
 def _load_template_component_slot(data: dict[str, Any]) -> TemplateComponentSlot:
@@ -750,15 +783,21 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     # 2026-08-21: net_trace_planner._layer_to_board used to default None ->
     # F.Cu). extract-net always writes the real layer explicitly; a hand-edited
     # record without layer: is a config error, not something to guess.
+    #
+    # 2026-09-12 (Э1.b): what is REQUIRED is an explicit layer, not an F/B one —
+    # the value describes copper, so every layer of the stack is legal and only
+    # a MISSING one is fatal here. An unknown NAME is already rejected by
+    # _check_copper_layer_value inside _load_template_track above.
     for i, t in enumerate(tracks):
-        if t.layer not in ('F.Cu', 'B.Cu'):
+        if t.layer is None:
             raise ValidationError(format_fatal_error(
                 _("net_traces track (net {net!r}, index {idx}) has no layer").format(
                     net=net, idx=i),
-                [_("extract-net always writes layer: F.Cu or B.Cu explicitly — a "
-                   "net trace has no cell to inherit a layer from (unlike cells: "
-                   "where layer: null means 'inherit'). If hand-editing, add "
-                   "layer: F.Cu or layer: B.Cu to this track")]))
+                [_("extract-net always writes the track's real copper layer "
+                   "explicitly — a net trace has no cell to inherit a layer from "
+                   "(unlike cells: where layer: null means 'inherit'). If "
+                   "hand-editing, add layer: F.Cu, In1.Cu..In30.Cu or B.Cu to "
+                   "this track")]))
 
     return NetTrace(
         net=net,
