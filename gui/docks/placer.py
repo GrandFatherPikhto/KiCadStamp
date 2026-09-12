@@ -134,7 +134,7 @@ from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.utils.units import MM
 
 from ..ui_utils import busy
-from ..worker import start_long_op
+from ..worker import socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._cell_identity import CellIdentityWidget
 from .live_position import (LiveRead, read_anchor_live,
@@ -1891,9 +1891,11 @@ class PlacerDock(QWidget):
 
     def _action_buttons(self) -> tuple:
         """Every action button in the bottom row — disabled while any long op
-        (Redraw) or the synchronous Save runs, so no two board-touching
-        actions can overlap (same "one socket in flight" discipline as
-        connection.long_op_active)."""
+        (Redraw) or the synchronous Save runs, so no two board-touching actions
+        OF THIS DOCK can overlap. This is the docks' own button discipline, NOT
+        the shared-socket one: `busy()` greys these two buttons and sets the
+        wait cursor, it does not stop the ~400ms polling tick. The socket
+        discipline is the `socket_busy` check each reading handler carries."""
         return (self.redraw_button, self.select_button)
 
     def _on_select_on_board(self) -> None:
@@ -1901,9 +1903,19 @@ class PlacerDock(QWidget):
         (ClonePlacement or CoordinatePlacement) to its live board items via
         board_items_resolver.resolve_clone_board_items() and highlight them in
         pcbnew through adapter.select_items(). Read-only: never moves/tags/
-        writes. Short synchronous board reads only (same discipline as
-        refresh_known_roles), wrapped in busy() so no two board-touching
-        actions overlap.
+        writes. Short synchronous board reads, wrapped in busy() so no two
+        board-touching actions of THIS dock overlap.
+
+        Э2 (plan_2026_09_12_ui_thread_board_reads): the resolver reads the
+        SHARED board adapter, so the click is REFUSED outright while another
+        owner holds that socket — the ~400ms selection-poll tick, or a long op.
+        Until 2026-09-12 the docstring here claimed "same discipline as
+        refresh_known_roles" while `long_op_active` was checked NOWHERE in this
+        file: the resolver, its adapter reads and select_items all ran on the UI
+        thread, straight into the tick's in-flight REQ transaction ("Error
+        receiving reply from KiCad: Operation canceled"). A genuine short read
+        like this needs the token check, not a worker: it is one or two
+        requests, and the plan's minimum for it is exactly this guard.
 
         Фаза F: the origin coordinates are NOT required here. The resolver uses
         the placement's identity only (cell/roles + cluster/name/sheet + the
@@ -1912,6 +1924,8 @@ class PlacerDock(QWidget):
         of failing with "X is required." on a form whose Origin tab was never
         filled. Save/Redraw keep the full strictness (_build_entry_dict's
         default)."""
+        if socket_busy(getattr(self._main_window, "connection", None)):
+            return
         with busy(self._action_buttons()):
             board = self._main_window.connection.board
             if board is None or getattr(board, "adapter", None) is None:

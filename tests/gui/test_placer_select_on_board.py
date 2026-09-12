@@ -205,6 +205,68 @@ def test_highlight_anchor_mode_without_identity_still_fails(
     assert any("Ref or Role" in r.message for r in caplog.records)
 
 
+# ── Э2 (plan_2026_09_12_ui_thread_board_reads) — the shared-socket token ───
+
+class _RecordingAdapter:
+    """Stands in for the SHARED board adapter: records the one write this path
+    is allowed to make (select_items) so a refused run can be told from a real
+    one."""
+
+    def __init__(self):
+        self.selected: list = []
+
+    def select_items(self, items):
+        self.selected.append(list(items))
+
+
+def _spy_resolver_items(monkeypatch, items):
+    """The resolver is this action's board READ — the Э4.1 probe records every
+    time it is entered and returns `items` so the write below is really reached
+    on the un-refused path."""
+    seen = []
+
+    def _fake(adapter, cfg, ctx, placement, **kwargs):
+        seen.append(placement)
+        return list(items)
+
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.resolve_clone_board_items",
+        _fake)
+    return seen
+
+
+def test_select_on_board_refuses_while_the_poll_tick_owns_the_socket(
+        main_window, tmp_path, monkeypatch):
+    """Э2/Э4.1 — `_on_select_on_board` resolves through the SHARED board
+    adapter, so while the ~400 ms selection-poll tick holds that socket the
+    click must reach neither the resolver nor select_items. The docstring used
+    to claim this discipline ("same discipline as refresh_known_roles") while
+    `long_op_active` was never checked anywhere in the file.
+
+    Pre-fix this fails: the resolver ran on the UI thread with no token check."""
+    dock, _ = _make_cell_dock(main_window, tmp_path)
+    adapter = _RecordingAdapter()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    seen = _spy_resolver_items(monkeypatch, [object()])
+
+    main_window.connection.long_op_active = True
+    dock._on_select_on_board()
+
+    assert seen == [], \
+        "the highlight read the board while the poll tick owned the socket"
+    assert adapter.selected == [], "the board was written to while a tick was in flight"
+    assert main_window.connection.long_op_active is True, \
+        "the refused click must not touch the token it does not own"
+
+    # The guard is a guard, not a broken path: with the socket free the SAME
+    # click reaches the resolver and highlights what it returned.
+    main_window.connection.long_op_active = False
+    dock._on_select_on_board()
+
+    assert len(seen) == 1
+    assert len(adapter.selected) == 1
+
+
 # ── §F.4 — the stale-mode message ─────────────────────────────────────────
 
 def test_origin_mode_hint_when_anchor_filled_but_mode_is_xy(
