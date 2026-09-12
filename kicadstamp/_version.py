@@ -5,4 +5,4 @@ Kept in its own module (not __init__.py) so setuptools can read it via
 ``[tool.setuptools.dynamic] version = {attr = "kicadstamp._version.__version__"}``
 without importing kicadstamp (which would trigger i18n side effects).
 """
-__version__ = "2.0.0"
+__version__ = "2.1.0"

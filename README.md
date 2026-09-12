@@ -1,4 +1,4 @@
-# KiCadStamp v2.0.0
+# KiCadStamp v2.1.0
 
 **KiCadStamp** automates component placement and block cloning on **KiCad 10** printed circuit boards.
 It connects to a running KiCad over the IPC API and makes repeatable what otherwise has to be done by
@@ -357,6 +357,14 @@ keeping a literal of their own.
 We count by stages, not by commits: **MINOR** goes up by one per noticeable block of work (one refactoring
 session is one step, however many commits it contains), **PATCH** covers point fixes between stages, and
 **MAJOR** is reserved for genuine breaking changes to the CLI or to the config format (`.sexp`/`.json`).
+
+**2.1.0** — inter-node copper read into the tree, and the full copper stack (2026-09-12): the
+"copper between pads" unit is read from the board into a flat `net_traces:` list and can be selected
+on the board (and back — "whose copper is this?"); a cell's and a net trace's copper may sit on ANY
+copper layer (`F.Cu`, `In1.Cu`…`In30.Cu`, `B.Cu`) and is placed back on that layer, with strict
+name parsing; mirroring swaps `F.Cu`/`B.Cu` only, and copper on an inner layer keeps its own layer.
+The format **widened**: older configs still load, but a config this version writes with
+`layer: In1.Cu` on a track will **not** load on 2.0.x — hence MINOR, not PATCH.
 
 **2.0.0** — `.sexp` became the config format (2026-08-28) and placement moved to the Entity + Tree model.
 
