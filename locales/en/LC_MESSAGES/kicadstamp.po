@@ -6305,6 +6305,43 @@ msgstr "Selected {found} copper piece(s) for {name!r} on the board."
 msgid "tier unknown"
 msgstr "tier unknown"
 
+msgid " (tree node)"
+msgstr " (tree node)"
+
+msgid "Nothing is selected on the board — select copper first."
+msgstr "Nothing is selected on the board — select copper first."
+
+#, python-brace-format
+msgid "Selected copper: {total} piece(s)."
+msgstr "Selected copper: {total} piece(s)."
+
+#, python-brace-format
+msgid "  {name}: {count} piece(s){marker}"
+msgstr "  {name}: {count} piece(s){marker}"
+
+#, python-brace-format
+msgid "  {name}: the registry knows this copper, but the config has no such record"
+msgstr "  {name}: the registry knows this copper, but the config has no such record"
+
+#, python-brace-format
+msgid "  {count} piece(s) belong to another mechanism (not a net_traces record)"
+msgstr "  {count} piece(s) belong to another mechanism (not a net_traces record)"
+
+#, python-brace-format
+msgid "  {count} piece(s) belong to no net_traces record — this copper can be captured"
+msgstr "  {count} piece(s) belong to no net_traces record — this copper can be captured"
+
+#, python-brace-format
+msgid "record {name!r}: its anchor could not be resolved live ({error}) — its geometry was not compared"
+msgstr "record {name!r}: its anchor could not be resolved live ({error}) — its geometry was not compared"
+
+msgid "Whose copper is this?"
+msgstr "Whose copper is this?"
+
+#, python-brace-format
+msgid "Whose copper is this? failed: {error}"
+msgstr "Whose copper is this? failed: {error}"
+
 #: kicadstamp/net_trace_planner.py:137
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"

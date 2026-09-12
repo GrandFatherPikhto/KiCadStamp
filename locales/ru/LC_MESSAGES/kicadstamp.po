@@ -6341,6 +6341,43 @@ msgstr "На плате выделено {found} кусков меди для {n
 msgid "tier unknown"
 msgstr "ярус неизвестен"
 
+msgid " (tree node)"
+msgstr " (узел дерева)"
+
+msgid "Nothing is selected on the board — select copper first."
+msgstr "На плате ничего не выделено — сначала выделите медь."
+
+#, python-brace-format
+msgid "Selected copper: {total} piece(s)."
+msgstr "Выделенная медь: {total} кусков."
+
+#, python-brace-format
+msgid "  {name}: {count} piece(s){marker}"
+msgstr "  {name}: {count} кусков{marker}"
+
+#, python-brace-format
+msgid "  {name}: the registry knows this copper, but the config has no such record"
+msgstr "  {name}: реестр знает эту медь, но в конфиге такой записи нет"
+
+#, python-brace-format
+msgid "  {count} piece(s) belong to another mechanism (not a net_traces record)"
+msgstr "  {count} кусков принадлежат другому механизму (не записи net_traces)"
+
+#, python-brace-format
+msgid "  {count} piece(s) belong to no net_traces record — this copper can be captured"
+msgstr "  {count} кусков не принадлежат ни одной записи net_traces — эту медь можно захватить"
+
+#, python-brace-format
+msgid "record {name!r}: its anchor could not be resolved live ({error}) — its geometry was not compared"
+msgstr "запись {name!r}: якорь не разрешился на живой плате ({error}) — её геометрия не сравнивалась"
+
+msgid "Whose copper is this?"
+msgstr "Чья эта медь?"
+
+#, python-brace-format
+msgid "Whose copper is this? failed: {error}"
+msgstr "«Чья эта медь?» не сработало: {error}"
+
 #: kicadstamp/net_trace_planner.py:137
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"

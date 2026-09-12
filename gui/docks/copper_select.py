@@ -17,6 +17,7 @@ routine `apply` adopts copper through, so "select" can never point at different
 copper than a redraw manages (the "one mechanism" contract).
 """
 import logging
+from dataclasses import dataclass, field
 
 from kicadstamp.i18n import _
 
@@ -158,3 +159,171 @@ def select_copper_report_lines(report: dict) -> list[str]:
                    "({count} item(s) before)").format(
                        count=report.get("previous_selection", 0)))
     return lines
+
+
+# ── Copper -> record: "whose copper is this?" (Э3, design §12.2) ─────────────
+
+@dataclass
+class IdentifyResult:
+    """Which `net_traces:` records the board SELECTION belongs to.
+
+    `identified` maps a record identity to how many selected pieces it owns.
+    `unidentified` is the number of selected pieces that belong to NO record —
+    a USEFUL answer, not an error: it means that copper is free to capture.
+    `owned_elsewhere` counts pieces owned by a non-net_traces registry key
+    (a rule/cell) — they are somebody's, just not a net_traces record's.
+    `unknown_records` are registry identities with no matching record in the
+    config (a stale registry entry). `reasons` carries per-record planning
+    failures (an unresolvable anchor means geometry cannot be compared)."""
+    total: int = 0
+    identified: dict[str, int] = field(default_factory=dict)
+    unidentified: int = 0
+    owned_elsewhere: int = 0
+    unknown_records: list[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+
+
+def _registry_key_identity(key: str):
+    """The `net_traces:` record identity inside a registry key, or None when
+    the key belongs to another mechanism. Keys are
+    `anchor_id|template_name|role|index` and a net trace's anchor_id is
+    `net:<identity>` (net_trace_anchor_id)."""
+    anchor_id = key.split("|", 1)[0]
+    if anchor_id.startswith("net:"):
+        return anchor_id[len("net:"):]
+    return None
+
+
+def _uuid_identity_map(entries: dict) -> dict[str, str]:
+    """uuid -> record identity for every net-trace registry entry. TIER 1 of
+    Э3: the registry is an exact, uuid-based answer — no geometry involved."""
+    out: dict[str, str] = {}
+    for key, entry in entries.items():
+        identity = _registry_key_identity(key)
+        if identity is not None:
+            out.setdefault(entry.uuid, identity)
+    return out
+
+
+def identify_selected_copper(adapter, cfg, selected, *, via_registry,
+                             track_registry, sheet_names=None) -> IdentifyResult:
+    """READ-ONLY: which `net_traces:` records own the selected board copper?
+
+    Strict tier order (plan Э3, design §12.2):
+      1. the registries, by uuid — exact, and needs no anchor;
+      2. geometry, through the SAME match_net_trace_pieces the apply path and
+         find_live_copper use, for copper no registry knows.
+    Writes nothing."""
+    from kicadstamp.config import net_trace_effective_name
+    from kicadstamp.domain.board import Track, Via
+    from kicadstamp.net_trace_planner import (
+        TIER_GEOMETRY, TRACK, VIA, Expectation, match_net_trace_pieces,
+        plan_net_traces,
+    )
+
+    tracks = [i for i in selected if isinstance(i, Track)]
+    vias = [i for i in selected if isinstance(i, Via)]
+    result = IdentifyResult(total=len(tracks) + len(vias))
+    records = {net_trace_effective_name(nt): nt
+               for nt in (getattr(cfg, "net_traces", None) or [])}
+
+    via_map = _uuid_identity_map(via_registry.entries)
+    track_map = _uuid_identity_map(track_registry.entries)
+    owned_vias = {e.uuid for e in via_registry.entries.values()}
+    owned_tracks = {e.uuid for e in track_registry.entries.values()}
+
+    remaining_uuids: set[str] = set()
+    for v in vias:
+        identity = via_map.get(v.uuid)
+        if identity is not None:
+            result.identified[identity] = result.identified.get(identity, 0) + 1
+            if identity not in records:
+                result.unknown_records.append(identity)
+        elif v.uuid in owned_vias:
+            result.owned_elsewhere += 1
+        else:
+            remaining_uuids.add(v.uuid)
+    for t in tracks:
+        identity = track_map.get(t.uuid)
+        if identity is not None:
+            result.identified[identity] = result.identified.get(identity, 0) + 1
+            if identity not in records:
+                result.unknown_records.append(identity)
+        elif t.uuid in owned_tracks:
+            result.owned_elsewhere += 1
+        else:
+            remaining_uuids.add(t.uuid)
+
+    if remaining_uuids:
+        expectations: list[Expectation] = []
+        for identity, nt in records.items():
+            if nt.retired or nt.skip:
+                continue  # apply does not place it; tier 1 already covered it
+            try:
+                planned_vias, planned_tracks = plan_net_traces(
+                    adapter, [nt], sheet_names=dict(sheet_names or {}))
+            except Exception as e:  # noqa: BLE001 — one bad anchor must not kill the rest
+                result.reasons.append(_(
+                    "record {name!r}: its anchor could not be resolved live "
+                    "({error}) — its geometry was not compared").format(
+                        name=identity, error=e))
+                continue
+            for i, cmd in enumerate(planned_vias):
+                expectations.append(Expectation(VIA, i, cmd.registry_key, cmd))
+            for i, cmd in enumerate(planned_tracks):
+                expectations.append(Expectation(TRACK, i, cmd.registry_key, cmd))
+        if expectations:
+            matched = match_net_trace_pieces(
+                adapter, expectations, via_registry=via_registry,
+                track_registry=track_registry)
+            for piece in matched:
+                if (piece.tier != TIER_GEOMETRY or piece.live is None
+                        or piece.live.uuid not in remaining_uuids):
+                    continue
+                identity = piece.expectation.registry_key.split("|", 2)[1]
+                result.identified[identity] = result.identified.get(identity, 0) + 1
+                remaining_uuids.discard(piece.live.uuid)
+
+    result.unidentified = len(remaining_uuids)
+    return result
+
+
+def identify_copper_report_lines(result: IdentifyResult,
+                                 tree_node_identities=frozenset()) -> list[str]:
+    """The reverse lookup's answer as LOG LINES (never a dialog). "No record"
+    is a useful answer: that copper is free to capture. An identified record
+    that is a tree node is marked."""
+    if result.total == 0:
+        return [_("Nothing is selected on the board — select copper first.")]
+    lines = [_("Selected copper: {total} piece(s).").format(total=result.total)]
+    for identity in sorted(result.identified):
+        marker = (_(" (tree node)") if identity in tree_node_identities else "")
+        lines.append(_("  {name}: {count} piece(s){marker}").format(
+            name=identity, count=result.identified[identity], marker=marker))
+    for identity in sorted(set(result.unknown_records)):
+        lines.append(_(
+            "  {name}: the registry knows this copper, but the config has no "
+            "such record").format(name=identity))
+    if result.owned_elsewhere:
+        lines.append(_(
+            "  {count} piece(s) belong to another mechanism (not a net_traces "
+            "record)").format(count=result.owned_elsewhere))
+    if result.unidentified:
+        lines.append(_(
+            "  {count} piece(s) belong to no net_traces record — this copper "
+            "can be captured").format(count=result.unidentified))
+    lines.extend("  " + reason for reason in result.reasons)
+    return lines
+
+
+def run_identify_copper_worker(payload: dict) -> IdentifyResult:
+    """start_long_op worker entry point for "Whose copper is this?" (Э3).
+    Plain data in, plain data out; the selection read and every board call
+    happen HERE, on the worker. READ-ONLY: nothing is selected or written."""
+    adapter = _live_adapter()
+    selected = list(adapter.get_selected_items() or [])
+    via_registry, track_registry = _readonly_registries(adapter, payload["config_path"])
+    return identify_selected_copper(
+        adapter, payload["cfg"], selected,
+        via_registry=via_registry, track_registry=track_registry,
+        sheet_names=payload.get("sheet_names") or {})

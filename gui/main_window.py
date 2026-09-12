@@ -306,6 +306,13 @@ class MainWindow(QMainWindow):
         self.reread_internode_action.triggered.connect(
             lambda: self._dock_hub.reread_internode_copper())
         self.trees_menu.addAction(self.reread_internode_action)
+        # "Whose copper is this?" (2026-09-12, plan select_copper_by_record Э3):
+        # map the board SELECTION back to the net_traces records that own it —
+        # read-only, the answer in the Log, an identified tree node highlighted.
+        self.identify_copper_action = QAction(_("Whose copper is this?"), self)
+        self.identify_copper_action.triggered.connect(
+            lambda: self._dock_hub.identify_selected_copper())
+        self.trees_menu.addAction(self.identify_copper_action)
         self.trees_menu.addSeparator()
         # Redraw (relocated from the TreesDock toolbar, 2026-09-03):
         # "Redraw selected" = the current tree's CHECKED nodes; "Redraw whole

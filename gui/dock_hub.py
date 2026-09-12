@@ -1827,6 +1827,13 @@ class DockHub:
         self._focus_trees_dock()
         self.trees_dock._on_reread_internode_copper()
 
+    def identify_selected_copper(self) -> None:
+        """Tools → Trees → "Whose copper is this?" (plan_2026_09_12_select_copper_
+        by_record Э3): map the live board SELECTION back to the net_traces records
+        that own it — a background worker, the answer in the Log, read-only."""
+        self._focus_trees_dock()
+        self.trees_dock._on_identify_selected_copper()
+
     def redraw_whole_tree(self) -> None:
         """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
         the CURRENT tree (background worker)."""

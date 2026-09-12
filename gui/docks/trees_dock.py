@@ -76,7 +76,9 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
-from .copper_select import (resolve_record, run_select_record_copper_worker,
+from .copper_select import (identify_copper_report_lines, resolve_record,
+                            run_identify_copper_worker,
+                            run_select_record_copper_worker,
                             select_copper_report_lines)
 from ._common import (ERROR_STYLE as _ERROR_STYLE,
                       WARN_STYLE as _WARN_STYLE,
@@ -2721,6 +2723,72 @@ class TreesDock(QWidget):
             logger.info(line)
         self._show_status(_("Selected {found} copper piece(s) for {name!r}.").format(
             found=result.get("found", 0), name=result.get("identity", "")))
+
+    # ── Copper -> record: "Whose copper is this?" (plan Э3) ─────────────────
+
+    def _on_identify_selected_copper(self) -> None:
+        """Tools → Trees → "Whose copper is this?": map the board SELECTION back
+        to the net_traces records that own it (design §12.2).
+
+        READ-ONLY, and it does NOT change the selection: the user just chose it,
+        and answering a question by destroying the question would be wrong. An
+        identified record that is a tree node gets its NODE highlighted instead.
+        The board read runs on the worker; the answer lands in the Log."""
+        if self._cfg is None or self._root_path is None:
+            show_message(_("No project loaded — open a root config first."),
+                         _ERROR_STYLE, logger)
+            return
+        if self._main_window.connection is None:
+            show_message(_("No live board connection — connect KiCad first."),
+                         _ERROR_STYLE, logger)
+            return
+        payload = {
+            "cfg": self._cfg,
+            "config_path": str(self._root_path),
+            "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
+                            if self._ctx is not None else {}),
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (),
+            run_identify_copper_worker,
+            self._finish_identify_selected_copper,
+            self._on_identify_copper_failed, payload)
+
+    def _on_identify_copper_failed(self, message: str) -> None:
+        self._active_op = None
+        show_message(_("Whose copper is this? failed: {error}")
+                     .format(error=message), _ERROR_STYLE, logger)
+
+    def _finish_identify_selected_copper(self, result) -> None:
+        self._active_op = None
+        node_identities: set[str] = set()
+        for tree in self._trees:
+            node_identities.update(_tree_net_trace_nets(tree))
+        for line in identify_copper_report_lines(result, node_identities):
+            logger.info(line)
+        self._highlight_identified_node(result)
+
+    def _highlight_identified_node(self, result) -> None:
+        """Select the tree NODE of the first identified record that is one —
+        never the copper (see _on_identify_selected_copper)."""
+        for identity in sorted(getattr(result, "identified", {}) or {}):
+            tree, _node = self._tree_of_ref(identity)
+            if tree is None:
+                continue
+            self._switch_to_tree(tree.name)
+            tree_widget = self._tree_widget_for(tree) or self._current_tree_widget()
+            item = self._node_items.get(identity)
+            if tree_widget is not None and item is not None:
+                tree_widget.setCurrentItem(item)
+            return
+
+    def _tree_of_ref(self, ref: str):
+        """(tree, node) whose kind="net_trace" node references `ref`."""
+        for tree in self._trees:
+            for node in _walk_nodes(tree.nodes):
+                if node.kind == "net_trace" and node.ref == ref:
+                    return tree, node
+        return None, None
 
     def _stage_net_traces(self, records: list) -> None:
         """Stage ONLY the records a re-read touched — each into the file that
