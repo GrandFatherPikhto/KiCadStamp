@@ -98,19 +98,38 @@ def set_combo_items(combo: QComboBox, items: List[str]) -> None:
 
     EARLY EXIT on an unchanged list: the ~2s poll re-pushes the same
     roles/clusters (and the same cells/points/sheets) essentially every tick,
-    so tearing the model down and rebuilding it was pure work. Comparison is by
-    ORDER and content, as lists: combo order is meaningful and callers pass
-    already-sorted lists. Returning early cannot lose typed text — nothing was
-    rewritten, so there is nothing to restore."""
+    so tearing the model down and rebuilding it was pure work — and, worse,
+    the trigger of the 2026-09-12 GUI freeze (plan_2026_09_12_combo_refresh_
+    deadlock.md). Comparison is by ORDER and content, as lists: combo order is
+    meaningful and callers pass already-sorted lists. Returning early cannot
+    lose typed text — nothing was rewritten, so there is nothing to restore.
+
+    WHY blockSignals ON THE COMBO ALONE IS NOT ENOUGH: an editable combo owns
+    an internal QLineEdit, and Qt's own record insertion goes through it
+    (insertItems -> rowsInserted -> setCurrentIndex -> internalSetText ->
+    QLineEdit::textChanged) — a DIFFERENT QObject that the combo's own
+    blockSignals never covered. That leaked a textChanged emission out of the
+    refresh; with a Python slot on the receiving end, PyQt's proxy re-entered
+    Qt (QObject::sender() on a non-recursive signal mutex) and the GUI hung
+    forever. So silence the line edit too, and restore each object's PREVIOUS
+    block state rather than blindly clearing it — the caller may legitimately
+    hold the combo blocked."""
     new_items = list(items)
     if [combo.itemText(i) for i in range(combo.count())] == new_items:
         return
     current_text = combo.currentText()
-    combo.blockSignals(True)
-    combo.clear()
-    combo.addItems(new_items)
-    combo.setCurrentText(current_text)
-    combo.blockSignals(False)
+    line_edit = combo.lineEdit()  # None for a non-editable combo
+    previous_combo_block = combo.blockSignals(True)
+    previous_edit_block = (line_edit.blockSignals(True)
+                           if line_edit is not None else None)
+    try:
+        combo.clear()
+        combo.addItems(new_items)
+        combo.setCurrentText(current_text)
+    finally:
+        if line_edit is not None:
+            line_edit.blockSignals(previous_edit_block)
+        combo.blockSignals(previous_combo_block)
 
 
 def configure_searchable(combo: QComboBox) -> None:
