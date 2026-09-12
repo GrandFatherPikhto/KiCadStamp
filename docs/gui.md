@@ -195,7 +195,16 @@ dialog candidates) are re-read from a board snapshot REBUILT on the worker threa
 plan_2026_09_11_stale_snapshot_role_lists.md) — instead of freezing at connect time (the automatic
 poll tick is a no-op once connected); the components TREE rows themselves and the status-bar counter
 still update only on the manual Refresh. A live KiCad connection is what feeds them; offline they are
-simply empty and every combo stays a free-text picker. This
+simply empty and every combo stays a free-text picker. Since 2026-09-12 that distribution is also
+ORDERED so a list refresh can never sit on the path of an unrelated click: `on_ready` (the Tree node
+dialog) runs FIRST and the eight docks are repopulated after it (2026-09-12,
+plan_2026_09_12_combo_refresh_deadlock.md). The same fix constrains any combo repopulation:
+`set_combo_items` exits early when the list did not change, and silences not only the combo but also
+its INTERNAL line edit — `blockSignals` on an editable combo never covered the QLineEdit inside it,
+and Qt's own record insertion (`insertItems` → `rowsInserted` → `setCurrentIndex` → that line edit's
+`textChanged`) leaked a Python slot call out of a refresh, which re-entered Qt on a non-recursive
+signal mutex and froze the whole GUI. Never subscribe a widget to a combo's internal line edit —
+subscribe to `currentTextChanged` instead. This
 covers "one Cluster for a whole group" (Role left empty), "a narrowed subgroup, one Role" (Cluster
 left empty), or both at once — authoring Role/Cluster no longer requires the offline
 fieldstool/.kicad_sch round-trip.
