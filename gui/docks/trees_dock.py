@@ -375,6 +375,40 @@ def run_internode_reread_worker(payload: dict) -> dict:
     }
 
 
+def run_anchor_live_position_worker(payload: dict) -> dict:
+    """start_long_op worker entry point for Tools → Trees → "Anchor position"
+    (§5.1, plan_2026_08_29_fork1_rigid_redraw_override.md). Plain data in,
+    plain data out — no widget access anywhere in here (Э1,
+    plan_2026_09_12_anchor_position_on_worker): the read builds its OWN live
+    adapter, refreshes the board and resolves the tree's anchor pose through
+    _anchor_base_live_position (every anchor mode), handing the UI thread the
+    numbers plus the anchor's ref for the label format.
+
+    Running inside start_long_op is the whole point of the move: the shared
+    kipy REQ socket gets exactly one in-flight owner for the read
+    (`connection.long_op_active` locks the ~400ms polling ticks out) instead of
+    the SECOND socket this call used to open from the UI thread — and the
+    window no longer freezes for up to the adapter timeout.
+
+    NEVER raises (Э2): the indicator must not be able to crash the dock, so a
+    failed IPC read or an unresolvable anchor comes back as
+    {"available": False, "reason": ...} with one Log warning — the same
+    "unavailable" the synchronous read used to show, only decided off the UI
+    thread."""
+    tree = payload["tree"]
+    try:
+        adapter = KiCadBoardAdapter(timeout_ms=20000)
+        adapter.refresh_board()
+        pos, rot = _anchor_base_live_position(
+            adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
+    except Exception as exc:  # noqa: BLE001 — a read-only indicator, never crash
+        logger.warning(_("anchor live position unavailable: {error}")
+                       .format(error=exc))
+        return {"available": False, "reason": str(exc)}
+    return {"available": True, "x": pos.x, "y": pos.y, "rotation": rot,
+            "ref": tree.anchor.ref}
+
+
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
     """Same resolution rules as a real tree node — reused via link_trees's own
     private index builders (already partially imported here), not
@@ -3553,15 +3587,30 @@ class TreesDock(QWidget):
             self._on_redraw_failed, payload,
             busy_text=_("placing"))
 
-    def _refresh_anchor_live_position(self) -> None:
+    def _refresh_anchor_live_position(self, trigger=None) -> None:
         """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY
         indicator of the current tree anchor's live absolute position/rotation,
         via _anchor_base_live_position — which supports EVERY anchor mode
         (origin/auto/role/point/ref; 2026-09-02: role/point/auto used to show
         "unavailable" because a ref-less anchor read was never implemented
-        here). Not cached: reads the board on demand (button/on-open). An
-        origin anchor is trivially (0,0)/0°; a live KiCad IPC failure just
-        shows "unavailable" — the indicator never crashes the dock."""
+        here). Not cached: reads the board on demand (menu entry / on-open).
+
+        Э1 (plan_2026_09_12_anchor_position_on_worker): the read itself runs on
+        the WORKER (`run_anchor_live_position_worker`) under start_long_op —
+        this half only decides the payload and, in `_finish_…`, writes the
+        label. Until 2026-09-12 the whole thing was synchronous on the UI
+        thread, which froze the window for up to the adapter timeout AND took a
+        SECOND kipy socket without the `long_op_active` token the polling tick
+        is serialized by.
+
+        `trigger` is the Tools-menu QAction that started it; it is greyed out
+        for the operation's duration (Э2, plan_2026_09_12_busy_indicator).
+
+        The two answers that need no board stay SYNCHRONOUS (Э3): no tree
+        clears the label, and an origin anchor is trivially (0,0)/0° — spinning
+        up a worker for a constant would only flash the busy indicator for
+        nothing. A live KiCad IPC failure just shows "unavailable" — the
+        indicator never crashes the dock (Э2)."""
         tree = self._current_tree()
         if tree is None:
             self.anchor_pos_label.setText("")
@@ -3569,28 +3618,55 @@ class TreesDock(QWidget):
         if tree.anchor.is_origin:
             self.anchor_pos_label.setText(_("anchor (origin): (0, 0) mm @ 0°"))
             return
-        try:
-            adapter = KiCadBoardAdapter(timeout_ms=20000)
-            adapter.refresh_board()
-            sheet_names = self._ctx.sheet_names if self._ctx else {}
-            pos, rot = _anchor_base_live_position(
-                adapter, self._cfg, tree, sheet_names)
-        except Exception as exc:  # noqa: BLE001 — read-only indicator, never crash
-            logger.warning(_("anchor live position unavailable: {error}")
-                           .format(error=exc))
+        payload = {
+            "cfg": self._cfg,
+            "tree": tree,
+            "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
+        }
+        # Э2 (plan_2026_09_12_busy_indicator): the menu QAction is disabled
+        # while the read runs, so the same entry cannot put a SECOND board read
+        # on the shared kipy REQ socket.
+        widgets = [trigger] if trigger is not None else []
+        self._active_op = start_long_op(
+            self._main_window.connection, widgets,
+            run_anchor_live_position_worker,
+            self._finish_anchor_live_position,
+            self._on_anchor_live_position_failed, payload,
+            busy_text=_("reading the board"))
+
+    def _finish_anchor_live_position(self, result: dict) -> None:
+        """The worker's result, on the UI thread — the ONLY half that touches a
+        widget (Э1). A successful read is formatted exactly as the synchronous
+        one was (the ref-named line for a ref anchor, the mode-generic line
+        otherwise); an unavailable read shows the very same text it used to
+        (Э2)."""
+        self._active_op = None
+        if not result.get("available"):
             self.anchor_pos_label.setText(_("anchor: live position unavailable"))
             return
+        rot = result["rotation"]
         rot_s = f"{rot:.1f}" if rot is not None else "—"
-        if tree.anchor.ref:
+        if result.get("ref"):
             self.anchor_pos_label.setText(
                 _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°")
-                .format(ref=tree.anchor.ref, x=pos.x / MM, y=pos.y / MM,
-                        rot=rot_s))
+                .format(ref=result["ref"], x=result["x"] / MM,
+                        y=result["y"] / MM, rot=rot_s))
         else:
             # auto/role/point anchor — no ref to name, a mode-generic readout.
             self.anchor_pos_label.setText(
                 _("anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°")
-                .format(x=pos.x / MM, y=pos.y / MM, rot=rot_s))
+                .format(x=result["x"] / MM, y=result["y"] / MM, rot=rot_s))
+
+    def _on_anchor_live_position_failed(self, message: str) -> None:
+        """start_long_op's failure path. The worker already converts an IPC
+        failure into a normal "unavailable" result, so reaching here means
+        something unexpected — the indicator's contract is the same on both
+        paths (Э2): one Log warning, "unavailable" in the label, the dock
+        alive."""
+        self._active_op = None
+        logger.warning(_("anchor live position unavailable: {error}")
+                       .format(error=message))
+        self.anchor_pos_label.setText(_("anchor: live position unavailable"))
 
     def _finish_redraw(self, result) -> None:
         results, warnings = result

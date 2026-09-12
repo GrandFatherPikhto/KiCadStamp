@@ -58,8 +58,9 @@ closed dock can be brought back without restarting).
 
 **While a board operation runs, the status bar says so — and says which one.** Every operation the
 USER starts (Extract/Redraw, a scheme-list Record/Re-source/Reread, the inter-node copper re-read,
-"Whose copper is this?", the snapshot rebuild in front of an Extract dialog, …) shows a short word in
-the status bar for its whole duration:
+"Whose copper is this?", the live anchor-position read behind Tools → Trees → Anchor position, the
+snapshot rebuild in front of an Extract dialog, …) shows a short word in the status bar for its whole
+duration:
 
     Working with the board: placing
 
@@ -76,8 +77,9 @@ The indicator is driven by `LongOpController` alone — through the module-level
 idle board. The background poll stays invisible on purpose — the user did not start it.
 
 Where the operation has a widget of its own — a dock button, or the Tools-menu `QAction` that started
-a menu-only flow (Redraw selected/whole tree, Full redraw, the two copper reads, Record and
-Re-source) — that widget is handed to `start_long_op` as well, so it is greyed out for the duration
+a menu-only flow (Anchor position, Redraw selected/whole tree, Full redraw, the two copper reads,
+Record and Re-source) — that widget is handed to `start_long_op` as well, so it is greyed out for the
+duration
 and a second click on the same entry is refused instead of starting a second board read on the one
 shared kipy socket. Flows started by a context-menu action built on the fly, by a page switch or by a
 root switch have nothing stable to disable and pass an empty list — each such call site carries a
@@ -644,7 +646,10 @@ the board already carries copper, KiCadStamp asks "adopt existing copper into th
 move relocates it instead of leaving leftovers. Recommended flow: run one redraw WITHOUT moving
 first. **Anchor position** (Tools → Trees) refreshes the read-only indicator of the
 current tree anchor's live absolute position/rotation on the board, shown in the dock's status row
-(origin anchor: trivially (0,0)/0°; requires a live KiCad connection; "unavailable" otherwise).
+(origin anchor: trivially (0,0)/0°; requires a live KiCad connection; "unavailable" otherwise). The
+board read runs on a background worker — the menu entry is greyed out and the status bar shows the
+operation while it holds the shared KiCad connection, so the window never freezes; only the two
+answers that need no board (no tree, an origin anchor) are given immediately.
 
 **Redraw selected is a rigid group** (2026-08-29, plan_2026_08_29_tree_live_rigid_redraw.md): a node
 the tree owns (no inline anchor) is placed at its LIVE-captured offset from its parent, re-projected

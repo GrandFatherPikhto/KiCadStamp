@@ -1853,9 +1853,14 @@ class DockHub:
 
     def anchor_position(self) -> None:
         """Tools → Trees → Anchor position: refresh the dock's read-only live
-        anchor-position readout for the CURRENT tree."""
+        anchor-position readout for the CURRENT tree (background worker —
+        plan_2026_09_12_anchor_position_on_worker Э1). The menu QAction is the
+        operation's guard widget (Э2, plan_2026_09_12_busy_indicator): greyed
+        out while the read holds the shared kipy socket, so the same entry
+        cannot start a second read."""
         self._focus_trees_dock()
-        self.trees_dock._refresh_anchor_live_position()
+        self.trees_dock._refresh_anchor_live_position(
+            self._menu_trigger_action("anchor_position_action"))
 
     def redraw_selected(self) -> None:
         """Tools → Trees → Redraw selected: curated redraw of the CURRENT
