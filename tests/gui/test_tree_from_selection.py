@@ -1055,156 +1055,59 @@ def test_tree_anchor_from_cluster_entity_falls_back_to_first_slot():
     assert anchor.role == "A"
 
 
-# ── inter-cluster net detection ───────────────────────────────────────────
+# ── inter-node copper detection — the STRICT rule (plan Э5, 2026-09-12) ───
+#
+# The old heuristic tests were REWRITTEN here, not "adjusted", because the rule
+# itself changed (design §4: a strict geometric rule, not a threshold):
+#   * test_detect_inter_cluster_nets_connects_two_clusters
+#     -> test_detect_offers_a_unit_between_two_clusters (rows are UNITS now)
+#   * test_detect_inter_cluster_nets_excludes_single_cluster_and_rule_nets
+#     -> split: the single-cluster half is
+#        test_detect_ignores_copper_inside_one_cluster; the rule-net half is
+#        GONE as a rule (see the GND test below)
+#   * test_detect_inter_cluster_nets_gnd_excluded_even_without_rule_nets
+#     -> INVERTED into test_detect_offers_a_gnd_bridge_between_two_nodes: GND
+#        is no longer an exception, geometry is the whole rule
+#   * test_detect_inter_cluster_nets_rail_on_3_clusters_excluded and
+#     test_detect_inter_cluster_nets_max_cluster_coverage_configurable
+#     -> GONE: DEFAULT_MAX_CLUSTER_COVERAGE no longer exists; a net on 3+
+#        clusters is judged by the copper, and one piece of copper reaching
+#        three nodes IS a bridge (test_detect_offers_one_unit_spanning_three_nodes)
+#   * test_detect_inter_cluster_nets_real_2cluster_link_kept_with_3rd_cluster
+#     -> kept in spirit (a net also present on a third cluster is still offered
+#        when THIS unit only reaches two nodes)
+#   * test_detect_inter_cluster_nets_empty_without_cross_cluster_copper /
+#     _requires_selected_copper / test_detect_connectivity_* (5)
+#     -> folded into the geometry tests: the name-based fallback path is gone,
+#        geometry is the only path.
 
-def _tr(net, width=0.25):
-    return Track(uuid=f"t-{net}", start=Vector2.from_xy(0, 0),
-                 end=Vector2.from_xy(1, 1), net_name=net, width_mm=width,
-                 layer=None)
-
-
-def _via(net, diameter=0.6):
-    return Via(uuid=f"v-{net}", position=Vector2.from_xy(0, 0), net_name=net,
-               drill_mm=0.3, diameter_mm=diameter)
-
-
-def test_detect_inter_cluster_nets_connects_two_clusters():
-    """Nets on footprints of 2+ clusters become capture candidates with the
-    selected track/via counts."""
-    clusters = _clusters()
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED", "2": "AVDD"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"}),
-    ]
-    raw = [_tr("SHARED"), _tr("SHARED"), _via("SHARED"), _tr("AVDD")]
-    nets = detect_inter_cluster_nets(raw, clusters, snapshot)
-    assert nets == [InterClusterNet(net="SHARED", track_count=2, via_count=1)]
-
-
-def test_detect_inter_cluster_nets_excludes_single_cluster_and_rule_nets():
-    """A net only on ONE cluster's footprints, and a rule net (GND), are not
-    offered for capture."""
-    clusters = _clusters()
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "AVDD", "2": "GND"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "GND"}),
-    ]
-    raw = [_tr("AVDD"), _tr("GND")]
-    nets = detect_inter_cluster_nets(raw, clusters, snapshot, rule_nets=["GND"])
-    assert nets == []
+def _track_mm(x1, y1, x2, y2, net="N"):
+    return Track(uuid=f"t-{x1}-{y1}-{x2}-{y2}",
+                 start=Vector2.from_xy_mm(x1, y1), end=Vector2.from_xy_mm(x2, y2),
+                 net_name=net, width_mm=0.25, layer=None)
 
 
-def test_detect_inter_cluster_nets_empty_without_cross_cluster_copper():
-    """No selected copper touches 2+ clusters -> empty list (the tab offers
-    no capture)."""
-    clusters = _clusters()
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "AVDD"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "CLKVDD"}),
-    ]
-    raw = [_tr("AVDD"), _tr("CLKVDD")]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []
+def _via_mm(x, y, net="N"):
+    return Via(uuid=f"v-{x}-{y}", position=Vector2.from_xy_mm(x, y),
+               net_name=net, drill_mm=0.3, diameter_mm=0.6)
 
 
-def test_detect_inter_cluster_nets_requires_selected_copper():
-    """An inter-cluster net with NO selected tracks/vias is not offered (only
-    selected copper can be captured)."""
-    clusters = _clusters()
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"}),
-    ]
-    assert detect_inter_cluster_nets([], clusters, snapshot) == []
-
-
-def test_detect_inter_cluster_nets_gnd_excluded_even_without_rule_nets():
-    """Regression (2026-09-01, live 3CH-AWG-TIA): a shared GND must NOT be
-    offered even when NO Rule/Chain registers it — RULE_NETS={"GND"} is
-    subtracted by default, the same always-excluded set the Cells/Extract dock
-    uses (net_resolution.RULE_NETS)."""
-    clusters = _clusters()
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "GND", "2": "AVDD"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "GND"}),
-    ]
-    raw = [_tr("GND"), _via("GND")]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []
-
-
-def test_detect_inter_cluster_nets_rail_on_3_clusters_excluded():
-    """A net on pads of MORE than 2 selected Clusters is a ubiquitous rail
-    (+3V3), not a point-to-point link — not offered (coverage=3 > 2). Live
-    finding: +3V3 sat on 3 of 6 selected Clusters and leaked."""
-    clusters = _clusters() + [
-        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
-                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
-    ]
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "+3V3"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "+3V3"}),
-        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "+3V3"}),
-    ]
-    raw = [_tr("+3V3")]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []
-
-
-def test_detect_inter_cluster_nets_real_2cluster_link_kept_with_3rd_cluster():
-    """The coverage rule must NOT drop a real point-to-point link: SHARED sits
-    on exactly 2 of 3 selected Clusters -> still offered (coverage=2 <= 2)."""
-    clusters = _clusters() + [
-        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
-                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
-    ]
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED", "2": "AVDD"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"}),
-        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "DVDD"}),
-    ]
-    raw = [_tr("SHARED")]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot) == [
-        InterClusterNet(net="SHARED", track_count=1, via_count=0)]
-
-
-def test_detect_inter_cluster_nets_max_cluster_coverage_configurable():
-    """max_cluster_coverage raises the rail threshold: a net on exactly 3
-    Clusters is excluded at the default (2) but offered at 3."""
-    clusters = _clusters() + [
-        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1", entity_name="CH1_PIF_DVDD",
-                      cell="dac_pif_dvdd", profile_key=None, refs=["C3"]),
-    ]
-    snapshot = [
-        _sel("R1", "PIF_AVDD", "Channel_1", {"1": "+3V3"}),
-        _sel("R2", "PIF_CLKVDD", "Channel_1", {"1": "+3V3"}),
-        _sel("C3", "PIF_DVDD", "Channel_1", {"1": "+3V3"}),
-    ]
-    raw = [_tr("+3V3")]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot) == []          # coverage 3 > 2
-    assert detect_inter_cluster_nets(
-        raw, clusters, snapshot, max_cluster_coverage=3) == [
-            InterClusterNet(net="+3V3", track_count=1, via_count=0)]
-
-
-# ── Phase C: connectivity-based detection (2026-09-01) ────────────────────
-
-def _pad_at(x_mm, y_mm, net="N"):
+def _pad_mm(x_mm, y_mm, number="1", net="N"):
     from types import SimpleNamespace
-    from kicadstamp.domain.geometry import Vector2
-    p = SimpleNamespace()
-    p.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
-    p.net_name = net
-    return p
+    return SimpleNamespace(number=number, net_name=net,
+                           position=Vector2.from_xy_mm(x_mm, y_mm))
 
 
-def _connectivity_adapter(pads_by_ref):
-    """A mock adapter: get_footprint_pads returns the pads (with .position) for
-    a ref, get_bounding_boxes returns a small centered box per pad — enough for
-    _connected_cluster_labels' union-find closure."""
+def _detect_adapter(pads_by_ref, roles_by_ref):
+    """A floor adapter for the STRICT rule: pads (position/number) per ref, the
+    Role custom field, and a small bounding box per pad."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
-    from kicadstamp.domain.geometry import Vector2
 
     adapter = MagicMock()
     adapter.get_footprint_pads.side_effect = lambda fp: pads_by_ref.get(fp.ref, [])
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: roles_by_ref.get(fp.ref) if name == "Role" else None)
 
     def _boxes(items):
         out = []
@@ -1221,76 +1124,147 @@ def _connectivity_adapter(pads_by_ref):
     return adapter
 
 
-def test_detect_connectivity_offers_net_reaching_two_clusters():
-    """A net whose SELECTED track runs between cluster A's pad and cluster B's
-    pad is offered when the adapter (connectivity) is passed."""
-    clusters = [
-        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
-                      profile_key=None, refs=["R1"]),
-        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
-                      profile_key=None, refs=["R2"]),
-    ]
-    snapshot = [
-        _sel("R1", "A", "Ch", {"1": "SHARED"}),
-        _sel("R2", "B", "Ch", {"1": "SHARED"}),
-    ]
-    track = Track(uuid="t", start=Vector2.from_xy(int(10 * MM), int(10 * MM)),
-                  end=Vector2.from_xy(int(20 * MM), int(20 * MM)),
-                  net_name="SHARED", width_mm=0.25, layer=None)
-    raw = [_fp("R1"), _fp("R2"), track]
-    adapter = _connectivity_adapter({
-        "R1": [_pad_at(10, 10)],
-        "R2": [_pad_at(20, 20)],
-    })
-    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == [
-        InterClusterNet(net="SHARED", track_count=1, via_count=0)]
+def _two_cluster_board():
+    """R1 (PIF_AVDD) pad at (10,10), R2 (PIF_CLKVDD) pad at (20,10)."""
+    pads = {"R1": [_pad_mm(10, 10)], "R2": [_pad_mm(20, 10)]}
+    roles = {"R1": "DAC", "R2": "DAC_BUF"}
+    return _detect_adapter(pads, roles), pads, roles
 
 
-def test_detect_connectivity_drops_stitching_via_not_touching_pads():
-    """A net with only a floating stitching via (no cluster pad) is offered by
-    the name-based detector but dropped by the connectivity filter."""
-    clusters = [
-        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
-                      profile_key=None, refs=["R1"]),
-        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
-                      profile_key=None, refs=["R2"]),
-    ]
-    snapshot = [
-        _sel("R1", "A", "Ch", {"1": "SHARED"}),
-        _sel("R2", "B", "Ch", {"1": "SHARED"}),
-    ]
-    via = Via(uuid="v", position=Vector2.from_xy(int(100 * MM), int(100 * MM)),
-              net_name="SHARED", drill_mm=0.3, diameter_mm=0.6)
-    raw = [_fp("R1"), _fp("R2"), via]
-    adapter = _connectivity_adapter({
-        "R1": [_pad_at(10, 10)],
-        "R2": [_pad_at(20, 20)],
-    })
-    assert [n.net for n in detect_inter_cluster_nets(raw, clusters, snapshot)] == ["SHARED"]
-    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == []
+def test_detect_offers_a_unit_between_two_clusters():
+    """The copper between two selected clusters is ONE row, carrying the unit's
+    pad signature (the record identity) and the nodes it connects."""
+    adapter, _pads, _roles = _two_cluster_board()
+    raw = [_fp("R1"), _fp("R2"), _track_mm(10, 10, 20, 10, net="SHARED")]
+    rows = detect_inter_cluster_nets(raw, _clusters(), adapter=adapter)
+    assert len(rows) == 1
+    assert rows[0].net == "SHARED"
+    assert rows[0].track_count == 1 and rows[0].via_count == 0
+    assert rows[0].pads == ("DAC.1", "DAC_BUF.1")
+    assert rows[0].nodes == ("PIF_AVDD", "PIF_CLKVDD")
+    assert "SHARED" in rows[0].label and "PIF_AVDD" in rows[0].label
+    assert rows[0].unit is not None
 
 
-def test_detect_connectivity_drops_net_touching_single_cluster():
-    """A net whose selected copper reaches ONLY cluster A's pad is dropped."""
-    clusters = [
-        ReReadCluster(cluster="A", sheet="Ch", entity_name=None, cell="a",
-                      profile_key=None, refs=["R1"]),
-        ReReadCluster(cluster="B", sheet="Ch", entity_name=None, cell="b",
-                      profile_key=None, refs=["R2"]),
+def test_detect_ignores_copper_inside_one_cluster():
+    """Copper whose pads all belong to ONE selected cluster is cell copper: not
+    a capture candidate (the same verdict the re-read computes)."""
+    adapter = _detect_adapter({"R1": [_pad_mm(10, 10), _pad_mm(12, 10)]},
+                              {"R1": "DAC"})
+    raw = [_fp("R1"), _track_mm(10, 10, 12, 10, net="AVDD")]
+    assert detect_inter_cluster_nets(raw, _clusters(), adapter=adapter) == []
+
+
+def test_detect_ignores_copper_reaching_a_foreign_component():
+    """A unit moored to a pad OUTSIDE the tree's nodes is somebody else's
+    connection — never offered, whatever its net is."""
+    adapter = _detect_adapter(
+        {"R1": [_pad_mm(10, 10)], "R9": [_pad_mm(20, 10)]},
+        {"R1": "DAC", "R9": "OTHER"})
+    raw = [_fp("R1"), _fp("R9"), _track_mm(10, 10, 20, 10, net="SHARED")]
+    assert detect_inter_cluster_nets(raw, _clusters(), adapter=adapter) == []
+
+
+def test_detect_offers_a_gnd_bridge_between_two_nodes():
+    """INVERTED (was test_detect_inter_cluster_nets_gnd_excluded_even_without_
+    rule_nets): GND is NOT an exception any more. A GND TRACK between two nodes
+    is real inter-node copper and is offered; only a pour (a zone, absent from
+    the connectivity graph) could look like "all the GND at once"."""
+    adapter, _pads, _roles = _two_cluster_board()
+    raw = [_fp("R1"), _fp("R2"), _track_mm(10, 10, 20, 10, net="GND")]
+    rows = detect_inter_cluster_nets(raw, _clusters(), adapter=adapter)
+    assert [r.net for r in rows] == ["GND"]
+
+
+def test_detect_offers_one_unit_spanning_three_nodes():
+    """REPLACES the coverage-threshold pair: one piece of copper that reaches
+    three nodes (a T-branch off any pad) is a real bridge and is offered — the
+    old `coverage > 2 = rail` heuristic silently threw it away."""
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1",
+                      entity_name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                      profile_key=None, refs=["C3"]),
     ]
-    snapshot = [
-        _sel("R1", "A", "Ch", {"1": "SHARED", "2": "AVDD"}),
-        _sel("R2", "B", "Ch", {"1": "SHARED"}),
+    adapter = _detect_adapter(
+        {"R1": [_pad_mm(10, 0)], "R2": [_pad_mm(20, 0)],
+         "C3": [_pad_mm(15, 10)]},
+        {"R1": "DAC", "R2": "DAC_BUF", "C3": "CAP"})
+    raw = [_fp("R1"), _fp("R2"), _fp("C3"),
+           _track_mm(10, 0, 15, 0, net="+3V3"),
+           _track_mm(15, 0, 20, 0, net="+3V3"),
+           _track_mm(15, 0, 15, 10, net="+3V3")]
+    rows = detect_inter_cluster_nets(raw, clusters, adapter=adapter)
+    assert len(rows) == 1
+    assert rows[0].nodes == ("PIF_AVDD", "PIF_CLKVDD", "PIF_DVDD")
+    assert rows[0].track_count == 3
+
+
+def test_detect_offers_two_bridges_of_one_net_as_two_rows():
+    """A ROW IS A UNIT (plan Э5): two independent bridges of one net are two
+    rows with different pad signatures — they will be two records."""
+    adapter = _detect_adapter(
+        {"R1": [_pad_mm(10, 10, number="1"), _pad_mm(10, 20, number="2")],
+         "R2": [_pad_mm(20, 10, number="1"), _pad_mm(20, 20, number="2")]},
+        {"R1": "DAC", "R2": "DAC_BUF"})
+    raw = [_fp("R1"), _fp("R2"),
+           _track_mm(10, 10, 20, 10, net="SHARED"),
+           _track_mm(10, 20, 20, 20, net="SHARED")]
+    rows = detect_inter_cluster_nets(raw, _clusters(), adapter=adapter)
+    assert len(rows) == 2
+    assert {r.pads for r in rows} == {("DAC.1", "DAC_BUF.1"),
+                                      ("DAC.2", "DAC_BUF.2")}
+
+
+def test_detect_stops_at_a_pad():
+    """The pad-terminator rule is visible here too: two tracks meeting exactly
+    on one pad are TWO units, so the tab offers both rows (each its own
+    record) — merging them through the pad would fuse the whole net back into
+    one component and the strict rule would die."""
+    adapter = _detect_adapter(
+        {"R1": [_pad_mm(10, 10)], "R2": [_pad_mm(20, 10)],
+         "C3": [_pad_mm(30, 10)]},
+        {"R1": "DAC", "R2": "DAC_BUF", "C3": "CAP"})
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1",
+                      entity_name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                      profile_key=None, refs=["C3"]),
     ]
-    track = Track(uuid="t", start=Vector2.from_xy(int(10 * MM), int(10 * MM)),
-                  end=Vector2.from_xy(int(12 * MM), int(12 * MM)),
-                  net_name="SHARED", width_mm=0.25, layer=None)  # only near A's pad
-    raw = [_fp("R1"), _fp("R2"), track]
-    adapter = _connectivity_adapter({
-        "R1": [_pad_at(10, 10)],
-        "R2": [_pad_at(20, 20)],
-    })
-    assert detect_inter_cluster_nets(raw, clusters, snapshot, adapter=adapter) == []
+    raw = [_fp("R1"), _fp("R2"), _fp("C3"),
+           _track_mm(10, 10, 20, 10, net="N"),
+           _track_mm(20, 10, 30, 10, net="N")]
+    rows = detect_inter_cluster_nets(raw, clusters, adapter=adapter)
+    assert len(rows) == 2                       # one unit per track
+    assert {r.pads for r in rows} == {("DAC.1", "DAC_BUF.1"),
+                                      ("CAP.1", "DAC_BUF.1")}
+
+
+def test_detect_offers_a_unit_reaching_two_nodes_while_a_third_has_the_net():
+    """A net ALSO present on a third cluster does not disqualify the unit: the
+    rule looks at THIS copper, not at the net's name coverage."""
+    adapter = _detect_adapter(
+        {"R1": [_pad_mm(10, 10)], "R2": [_pad_mm(20, 10)],
+         "C3": [_pad_mm(30, 30)]},
+        {"R1": "DAC", "R2": "DAC_BUF", "C3": "CAP"})
+    clusters = _clusters() + [
+        ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1",
+                      entity_name="CH1_PIF_DVDD", cell="dac_pif_dvdd",
+                      profile_key=None, refs=["C3"]),
+    ]
+    raw = [_fp("R1"), _fp("R2"), _fp("C3"),
+           _track_mm(10, 10, 20, 10, net="SHARED")]
+    rows = detect_inter_cluster_nets(raw, clusters, adapter=adapter)
+    assert [r.net for r in rows] == ["SHARED"]
+
+
+def test_detect_offers_nothing_without_a_live_adapter():
+    """The rule is geometric, so a limited adapter is refused loudly instead of
+    silently degrading to a name-based guess."""
+    import pytest as _pytest
+    from unittest.mock import MagicMock as _MagicMock
+    with _pytest.raises(ValueError):
+        detect_inter_cluster_nets(
+            [_fp("R1"), _track_mm(0, 0, 1, 0, net="N")], _clusters(),
+            adapter=_MagicMock(spec=[]))
 
 
 # ── Phase D: net_trace tree nodes (2026-09-01) ────────────────────────────

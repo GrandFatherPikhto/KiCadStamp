@@ -14,11 +14,15 @@ from kicadstamp.config import Config, Entity, NetTrace, TemplateTrack, TemplateV
 from kicadstamp.domain.board import BoardLayer, Footprint, Track, Via
 from kicadstamp.internode_capture import (
     apply_reread_plan,
+    capture_units,
     plan_internode_reread,
     reread_report_lines,
     tree_net_trace_identities,
 )
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+
+from gui.docks.reead import ReReadCluster
+from gui.docks.tree_from_selection import detect_inter_cluster_nets
 
 
 # ── board double ──────────────────────────────────────────────────────────
@@ -331,6 +335,41 @@ def test_report_lines_show_the_before_and_after_counts():
                                  area_items=items, area_footprints=fps)
     text = "\n".join(reread_report_lines("fpga", plan))
     assert "updated:    n__a__b (was 1 tracks / 0 via, now 1 / 0)" in text
+
+
+# ── Э5: the dialog's capture and the re-read are ONE mechanism ────────────
+
+def test_created_and_reread_copper_are_identical():
+    """THE cross-cutting contract of Э5 (the design's "one mechanism"): the
+    copper a tree CREATES — through the very path the "Extract tree" dialog
+    uses, detect_inter_cluster_nets + capture_units — and the copper a RE-READ
+    finds must be the SAME. Otherwise a created and a re-read tree would carry
+    different material and nobody would notice until it hurt (the same disease
+    the "Move to…" fix cured). Here the re-read of the same board finds the
+    created record UNCHANGED: no addition, no update, no new node."""
+    board, fps, items = _area()
+    clusters = [ReReadCluster(cluster="A", sheet="Ch", entity_name=None,
+                              cell="a", profile_key=None, refs=["R1"]),
+                ReReadCluster(cluster="B", sheet="Ch", entity_name=None,
+                              cell="b", profile_key=None, refs=["R2"])]
+    rows = detect_inter_cluster_nets(items + fps, clusters, adapter=board)
+    assert len(rows) == 1
+
+    captures, warnings = capture_units(
+        board, [rows[0].unit], area_footprints=fps,
+        node_by_ref={"R1": "A", "R2": "B"}, existing_names=[])
+    assert warnings == [] and len(captures) == 1
+    created = captures[0]
+
+    # what the dialog would have built: the two cluster nodes + a net_trace
+    # node whose ref IS the created record's identity
+    tree = _tree(net_trace_refs=(created.identity,))
+    plan = plan_internode_reread(board, _cfg([created.record]), tree,
+                                 area_items=items, area_footprints=fps)
+    assert plan.added == [] and plan.updated == [] and plan.missing == []
+    assert plan.unchanged == [created.identity]
+    assert created.record.pads == ["A.1", "B.1"]
+    assert created.record.name == "n__a__b"
 
 
 def test_zones_are_reported_as_not_read():

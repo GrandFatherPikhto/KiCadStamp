@@ -770,9 +770,17 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     sel1 = _selected_tree("R1", "PIF_AVDD", "Channel_1", {"1": "SHARED"})
     sel2 = _selected_tree("R2", "PIF_CLKVDD", "Channel_1", {"1": "SHARED"})
     # Replace the live BoardConnection with a fake (snapshot is a read-only
-    # property on the real one — this flow only reads it).
+    # property on the real one — this flow only reads it). The adapter answers
+    # the pad geometry the STRICT inter-node rule classifies with (plan Э5): no
+    # footprints/pads in this selection, so the one degenerate track is not
+    # moored to anything and offers no unit — the capture itself is stubbed
+    # below, this test owns the WRITE path.
+    live_adapter = SimpleNamespace(
+        get_footprint_pads=lambda fp: [],
+        get_bounding_boxes=lambda items: [],
+        get_field_value=lambda fp, name: None)
     real_main_window.connection = SimpleNamespace(
-        board=SimpleNamespace(adapter=object()),
+        board=SimpleNamespace(adapter=live_adapter),
         snapshot=[sel1, sel2], long_op_active=False)
     # Phase F: the selection-watch state lives in DockHub, not ExtractDock.
     hub._selection_footprints = [sel1, sel2]
@@ -792,9 +800,11 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
         def selected_clusters(self):
             return self._clusters
 
-        def selected_nets(self):
+        def selected_units(self):
             from gui.docks.tree_from_selection import InterClusterNet
             return [InterClusterNet(net="SHARED", track_count=1, via_count=0)]
+
+        selected_nets = selected_units
 
         def tree_name(self):
             return "power_tree"
@@ -813,12 +823,21 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     monkeypatch.setattr(
         tfs_mod, "resolve_role_anchor_base_mm",
         lambda adapter, cfg, anchor, sheet_names, label=None: (5.0, 10.0, 0.0))
-    # Net capture: return a real NetTrace so write_net_trace persists it.
-    def _fake_extract_net_trace(adapter, *, net, anchor_role, **kwargs):
-        return NetTrace(net=net, anchor_role=anchor_role)
+    # Capture (plan Э5): the hub now goes through internode_capture.capture_units
+    # — stub it exactly like the old per-net extract_net_trace stub, so this
+    # WIRING test keeps testing the write/link path, not the capture internals
+    # (tests/test_internode_capture.py owns those).
+    from kicadstamp.internode_capture import CapturedTrace
+    import kicadstamp.internode_capture as internode_capture_mod
 
-    monkeypatch.setattr(net_trace_extract_mod, "extract_net_trace",
-                        _fake_extract_net_trace)
+    def _fake_capture(adapter, units, **kwargs):
+        return ([CapturedTrace(
+            record=NetTrace(net="SHARED", anchor_role="DAC",
+                            name="shared__pif_avdd__pif_clkvdd"),
+            identity="shared__pif_avdd__pif_clkvdd",
+            signature=frozenset(), track_count=1, via_count=0)], [])
+
+    monkeypatch.setattr(internode_capture_mod, "capture_units", _fake_capture)
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
                         lambda *a, **k: None)
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
@@ -846,8 +865,10 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     # carries an explicit (anchor (self (ref ...))) and every node stays
     # TOP-LEVEL.
     assert tree["anchor"] == {"self": {"ref": "CH1_PIF_AVDD"}}
-    assert [n["ref"] for n in tree["nodes"]] == ["CH1_PIF_AVDD",
-                                                 "CH1_PIF_CLKVDD", "SHARED"]
+    # Phase Э5: the net_trace node's ref is the RECORD'S IDENTITY (the
+    # generated name), not the net — the record and the node are one identity.
+    assert [n["ref"] for n in tree["nodes"]] == [
+        "CH1_PIF_AVDD", "CH1_PIF_CLKVDD", "shared__pif_avdd__pif_clkvdd"]
     assert [n["kind"] for n in tree["nodes"]] == ["placement", "placement",
                                                   "net_trace"]
     # The self subject is the origin of its own frame.
@@ -859,7 +880,9 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
     assert "children" not in tree["nodes"][0]
     assert "children" not in tree["nodes"][1]
     nets = data.get("net_traces") or []
-    assert any(n["net"] == "SHARED" for n in nets)
+    assert [n.get("name") or n.get("net") for n in nets] == \
+        ["shared__pif_avdd__pif_clkvdd"]
+    assert nets[0]["net"] == "SHARED"
 
     # Backup + round-trip link_trees did not crash; TreesDock shows the tab.
     assert list(tmp_path.glob("root.sexp.bak*")), "backup file must exist"
@@ -1190,8 +1213,10 @@ def test_extract_tree_remembers_new_cells_context(real_main_window,
         def selected_clusters(self):
             return self._clusters
 
-        def selected_nets(self):
+        def selected_units(self):
             return []
+
+        selected_nets = selected_units
 
         def tree_name(self):
             return "power_tree"

@@ -332,7 +332,9 @@ class TreeFromSelectionDialog(QDialog):
             self._net_table.setItem(row, 0, QTableWidgetItem(""))
             self._net_table.setCellWidget(row, 0, cb)
             self._net_checkboxes.append(cb)
-            self._net_table.setItem(row, 1, QTableWidgetItem(_single_line(n.net)))
+            # A ROW IS A UNIT (plan Э5): the net plus the nodes it connects, so
+            # two independent bridges of one net are two visibly different rows.
+            self._net_table.setItem(row, 1, QTableWidgetItem(_single_line(n.label)))
             self._net_table.setItem(row, 2, QTableWidgetItem(str(n.track_count)))
             self._net_table.setItem(row, 3, QTableWidgetItem(str(n.via_count)))
         layout.addWidget(self._net_table)
@@ -394,10 +396,15 @@ class TreeFromSelectionDialog(QDialog):
         """The clusters the user left checked, in dialog order."""
         return [c for c, cb in zip(self._clusters, self._checkboxes) if cb.isChecked()]
 
-    def selected_nets(self) -> list[InterClusterNet]:
-        """The inter-cluster nets the user left checked, in dialog order."""
+    def selected_units(self) -> list[InterClusterNet]:
+        """The inter-node UNITS the user left checked, in dialog order (plan
+        Э5: a row is a unit of copper, not a net — two bridges of one net can
+        both be here)."""
         return [n for n, cb in zip(self._inter_nets, self._net_checkboxes)
                 if cb.isChecked()]
+
+    # Backward-compatible alias: the rows used to be nets.
+    selected_nets = selected_units
 
     def tree_name(self) -> str:
         return self.tree_name_edit.text().strip()

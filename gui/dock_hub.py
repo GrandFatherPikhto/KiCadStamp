@@ -1956,11 +1956,11 @@ class DockHub:
         )
         from .docks.tree_from_selection_dialog import TreeFromSelectionDialog
 
+        # Plan Э5: the STRICT geometric rule (no rule-net exclusion, no coverage
+        # threshold) — the same classification the re-read uses, so a created
+        # and a re-read tree carry the same copper.
         inter_nets = detect_inter_cluster_nets(
-            self._selection_raw_items, clusters,
-            list(connection.snapshot or []),
-            [r.net for r in cfg.rules],
-            adapter=adapter)
+            self._selection_raw_items, clusters, adapter=adapter)
 
         # Per-row "no cell" errors (block OK in the dialog) + per-row "existing
         # cluster anchor" prefills + the live Entity positions for the offset
@@ -2046,7 +2046,24 @@ class DockHub:
         from .docks.tree_from_selection import build_tree_from_clusters
         # entity_positions already holds only the positions that resolved live
         # (failed reads are omitted -> that node is saved without xy).
-        checked_nets = dialog.selected_nets()
+        checked_nets = dialog.selected_units()
+        # Plan Э5: capture the checked inter-node UNITS as records BEFORE the
+        # tree is built — a net_trace node's ref IS the record's identity
+        # (name:, else a legacy record's net:), and the name is generated here.
+        # The SAME builder the re-read uses (internode_capture.capture_units),
+        # so a created and a re-read tree carry the same copper.
+        from kicadstamp.internode_capture import capture_units
+        node_by_ref = {ref: (c.cluster or c.sheet or "?")
+                       for c in selected for ref in c.refs}
+        captures, capture_warnings = capture_units(
+            adapter, [n.unit for n in checked_nets if n.unit is not None],
+            area_footprints=self._selection_footprints,
+            node_by_ref=node_by_ref,
+            sheet_names=sheet_names,
+            existing_names=[nt.name or nt.net for nt in cfg.net_traces])
+        for warning in capture_warnings:
+            logging.warning("Extract tree: %s", warning)
+        node_refs = [cap.identity for cap in captures]
         # Phase E (2026-09-01): entering an existing tree's name = RE-EXTRACT —
         # the tree is rebuilt from the current selection and replaces the old one.
         existing_tree = next((t for t in cfg.trees if t.name == tree_name), None)
@@ -2054,7 +2071,7 @@ class DockHub:
             selected, tree_name, anchor, cfg.entities, cfg,
             entity_positions=entity_positions, anchor_base=anchor_base,
             anchor_rot_deg=anchor_rot_deg,
-            net_nodes=[n.net for n in checked_nets],
+            net_nodes=node_refs,
             allow_existing=existing_tree is not None)
         if tree is None:
             QMessageBox.warning(self.main_window, _("Extract tree"),
@@ -2067,10 +2084,9 @@ class DockHub:
         from kicadstamp.config import Entity, NetTrace, load_tree
         from kicadstamp.config_writer import read_data, write_data
         from kicadstamp.link_trees import link_trees
-        from kicadstamp.net_trace_extract import extract_net_trace, net_trace_to_dict
+        from kicadstamp.net_trace_extract import net_trace_to_dict
         from kicadstamp.trees import tree_to_dict
         from .docks.entity_delete import backup_file
-        from kicadstamp.domain.board import Track, Via
         try:
             backup_file(root_path)
             data = read_data(root_path)
@@ -2092,40 +2108,23 @@ class DockHub:
                 new_entities.append(Entity(
                     name=ent["name"], cell=ent["cell"],
                     cluster=ent.get("cluster"), sheet=ent.get("sheet")))
-            # Phase B+C+D: capture the checked inter-cluster nets as net_traces:
+            # Phase B+C+D (plan Э5): write the captured units as net_traces:
             # records BEFORE the tree write, so the tree's net_trace nodes
-            # resolve against cfg.net_traces at link_trees time.
-            selected_raw = self._selection_raw_items
+            # resolve against cfg.net_traces at link_trees time. Upsert by
+            # IDENTITY (name:, else a legacy record's net:) — matching a named
+            # record by its net would overwrite an unrelated bridge of it.
             net_traces_data = data.setdefault("net_traces", [])
             new_net_traces: list[NetTrace] = []
-            for net in checked_nets:
-                try:
-                    # Phase B: capture ONLY the SELECTED copper of the net — the
-                    # record must match the third-tab #tracks/#vias.
-                    net_items = [i for i in selected_raw
-                                 if isinstance(i, (Track, Via)) and i.net_name == net.net]
-                    nt = extract_net_trace(
-                        adapter, net=net.net,
-                        anchor_role=anchor.role,
-                        anchor_sheet=anchor.anchor_sheet,
-                        anchor_cluster=anchor.anchor_cluster,
-                        anchor_pad=anchor.anchor_pad,
-                        sheet_names=sheet_names,
-                        items=net_items)
-                    # upsert by net (same semantics as write_net_trace)
-                    entry = net_trace_to_dict(nt)
-                    replaced = False
-                    for i, e in enumerate(net_traces_data):
-                        if isinstance(e, dict) and e.get("net") == nt.net:
-                            net_traces_data[i] = entry
-                            replaced = True
-                            break
-                    if not replaced:
-                        net_traces_data.append(entry)
-                    new_net_traces.append(nt)
-                except Exception as e:  # noqa: BLE001 — one bad net must not drop the tree
-                    logging.warning("Extract tree: net %r not captured: %s",
-                                    net.net, e)
+            for cap in captures:
+                entry = net_trace_to_dict(cap.record)
+                for i, e in enumerate(net_traces_data):
+                    if isinstance(e, dict) \
+                            and (e.get("name") or e.get("net")) == cap.identity:
+                        net_traces_data[i] = entry
+                        break
+                else:
+                    net_traces_data.append(entry)
+                new_net_traces.append(cap.record)
             # Phase E: an existing tree with this name is REPLACED (re-extract),
             # not duplicated.
             kept_trees = [t for t in cfg.trees if t.name != tree_name]

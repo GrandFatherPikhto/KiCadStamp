@@ -73,6 +73,8 @@ __all__ = [
     "CapturedTrace",
     "RereadPlan",
     "apply_reread_plan",
+    "capture_unit",
+    "capture_units",
     "plan_internode_reread",
     "reread_report_lines",
     "tree_net_trace_identities",
@@ -300,6 +302,109 @@ def _anchor_context(adapter, unit: CopperUnit, components: dict[str, _Component]
             round(comp.fp.angle_deg, 4))
 
 
+def capture_unit(adapter, unit: CopperUnit, *,
+                 components: dict[str, _Component],
+                 node_by_ref: dict[str, str],
+                 sheet_names: dict[str, str],
+                 existing: NetTrace | None = None,
+                 existing_names: Iterable[str] = (),
+                 allow_legacy: bool = True,
+                 ) -> tuple[NetTrace | None, str | None]:
+    """(record, skip_reason) for ONE inter-node unit — THE single place a unit
+    becomes a `net_traces:` record, shared by the dialog's capture (plan §Э5)
+    and by the re-read (plan §Э4), so the two can never produce different
+    copper (the whole point of Э5's "one mechanism").
+
+    `existing` — the record this unit was matched to, when there is one: its
+    IDENTITY is kept (a re-read refreshes geometry, it never renames) and so is
+    its representation — a NAMED record gets (role, pad) references, a LEGACY
+    one stays on literal nets. `node_by_ref` maps a component to the tree node
+    it belongs to (its Cluster tag), which names the record and labels the
+    report; a component outside it makes the unit FOREIGN and it is never
+    passed in here (the classification is the caller's)."""
+    net = unit.net_name
+    if net is None:
+        return None, _(
+            "skipped a piece of copper between pads {pads}: it carries no net "
+            "name on the board").format(
+                pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads))
+
+    signature = frozenset(_pad_label(p, components) for p in unit.pads)
+    named = existing is None or bool(existing.name)
+
+    if existing is None:
+        context = _anchor_context(adapter, unit, components)
+        if context is None:
+            if not allow_legacy:
+                return None, None
+            return None, _(
+                "skipped a piece of copper between pads {pads}: the pad {pad} "
+                "has no Role field on the board, so the record could not be "
+                "anchored").format(
+                    pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
+                    pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}")
+        role, sheet, cluster, pad, point, rotation = context
+        labels = [node_by_ref.get(p.ref) or _pad_label(p, components)
+                  for p in unit.pads]
+        name = generate_trace_name(net, labels, existing_names)
+    else:
+        try:
+            anchor_fp, point = resolve_live_anchor(adapter, existing, sheet_names)
+        except Exception as e:  # noqa: BLE001 — reported, never fatal here
+            return None, _(
+                "record {ref!r}: its anchor could not be resolved live ({err}) "
+                "— left untouched").format(
+                    ref=net_trace_effective_name(existing), err=e)
+        role, sheet, cluster = existing.anchor_role, existing.anchor_sheet, \
+            existing.anchor_cluster
+        pad = existing.anchor_pad
+        rotation = round(anchor_fp.angle_deg, 4)
+        name = existing.name
+
+    tracks, vias = _items_from_unit(adapter, unit, components, point, net,
+                                    named=named)
+    record = NetTrace(net=net, anchor_role=role, name=name,
+                      anchor_sheet=sheet, anchor_cluster=cluster,
+                      anchor_pad=pad, anchor_rotation_deg=rotation,
+                      pads=sorted(signature), tracks=tracks, vias=vias)
+    if existing is not None:
+        record = dataclasses.replace(record, retired=existing.retired,
+                                     skip=existing.skip, comment=existing.comment)
+    return record, None
+
+
+def capture_units(adapter, units: Iterable[CopperUnit], *,
+                  area_footprints: Iterable[Any],
+                  node_by_ref: dict[str, str],
+                  sheet_names: dict[str, str] | None = None,
+                  existing_names: Iterable[str] = (),
+                  ) -> tuple[list[CapturedTrace], list[str]]:
+    """Capture a batch of ALREADY-CLASSIFIED inter-node units as NEW records —
+    the dialog's half of capture_unit (a tree being built has nothing to match
+    against yet). Returns (captures, warnings)."""
+    _sn = dict(sheet_names or {})
+    components = _area_components(adapter, area_footprints, _sn)
+    names = list(existing_names)
+    out: list[CapturedTrace] = []
+    warnings: list[str] = []
+    for unit in units:
+        record, warning = capture_unit(adapter, unit, components=components,
+                                       node_by_ref=node_by_ref,
+                                       sheet_names=_sn,
+                                       existing_names=names)
+        if warning:
+            warnings.append(warning)
+        if record is None:
+            continue
+        identity = net_trace_effective_name(record)
+        names.append(identity)
+        out.append(CapturedTrace(
+            record=record, identity=identity,
+            signature=frozenset(record.pads or ()),
+            track_count=len(record.tracks), via_count=len(record.vias)))
+    return out, warnings
+
+
 # ── the plan ───────────────────────────────────────────────────────────────
 
 def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
@@ -369,70 +474,37 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     for unit in units:
         if classify_unit(unit, node_by_ref) is not CopperVerdict.INTERNODE:
             continue
-        net = unit.net_name
-        if net is None:
-            plan.warnings.append(_(
-                "skipped a piece of copper between pads {pads}: it carries no "
-                "net name on the board").format(
-                    pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads)))
-            continue
         signature = frozenset(_pad_label(p, components) for p in unit.pads)
         old = by_signature.pop(signature, None)
         if old is None:
-            old = legacy_by_net.pop(net, None)
+            old = legacy_by_net.pop(unit.net_name, None)
+
+        # ONE builder, shared with the dialog's capture (capture_unit) — the
+        # re-read and the "Extract tree" dialog must produce the SAME copper.
+        record, warning = capture_unit(
+            adapter, unit, components=components, node_by_ref=node_by_ref,
+            sheet_names=_sn, existing=old, existing_names=existing_names)
+        if warning:
+            plan.warnings.append(warning)
+        if record is None:
+            continue
+        identity = net_trace_effective_name(record)
+        fresh = CapturedTrace(record=record, identity=identity,
+                              signature=signature,
+                              track_count=len(record.tracks),
+                              via_count=len(record.vias))
 
         if old is None:
-            context = _anchor_context(adapter, unit, components)
-            if context is None:
-                plan.warnings.append(_(
-                    "skipped a piece of copper between pads {pads}: the pad "
-                    "{pad} has no Role field on the board, so the record could "
-                    "not be anchored").format(
-                        pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
-                        pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}"))
-                continue
-            role, sheet, cluster, pad, point, rotation = context
-            # The generated name uses the TREE NODE labels of the pads'
-            # components (the design's `spi_clk__fpga__ch0_dac`), not the
-            # "ROLE.pad" identity labels — a name a human reads.
-            labels = [node_by_ref.get(p.ref) or _pad_label(p, components)
-                      for p in unit.pads]
-            name = generate_trace_name(net, labels, existing_names)
-            tracks, vias = _items_from_unit(adapter, unit, components, point,
-                                            net, named=True)
-            record = NetTrace(net=net, anchor_role=role, name=name,
-                              anchor_sheet=sheet, anchor_cluster=cluster,
-                              anchor_pad=pad, anchor_rotation_deg=rotation,
-                              pads=sorted(signature), tracks=tracks, vias=vias)
-            existing_names.append(name)
-            plan.added.append(CapturedTrace(
-                record=record, identity=name, signature=signature,
-                track_count=len(tracks), via_count=len(vias)))
+            existing_names.append(identity)
+            plan.added.append(fresh)
             continue
 
         taken.add(id(old))
-        ident = net_trace_effective_name(old)
-        named = bool(old.name)
-        try:
-            anchor_fp, point = resolve_live_anchor(adapter, old, _sn)
-        except Exception as e:  # noqa: BLE001 — one broken record must not stop the rest
-            plan.warnings.append(_(
-                "record {ref!r}: its anchor could not be resolved live ({err}) "
-                "— left untouched").format(ref=ident, err=e))
-            continue
-        tracks, vias = _items_from_unit(adapter, unit, components, point, net,
-                                        named=named)
-        fresh = dataclasses.replace(
-            old, net=net, pads=sorted(signature),
-            anchor_rotation_deg=round(anchor_fp.angle_deg, 4),
-            tracks=tracks, vias=vias)
-        if _same_geometry(old, fresh):
-            plan.unchanged.append(ident)
+        if _same_geometry(old, record):
+            plan.unchanged.append(identity)
         else:
-            plan.updated.append((CapturedTrace(
-                record=fresh, identity=ident, signature=signature,
-                track_count=len(tracks), via_count=len(vias)),
-                (len(old.tracks), len(old.vias), len(tracks), len(vias))))
+            plan.updated.append((fresh, (len(old.tracks), len(old.vias),
+                                         len(record.tracks), len(record.vias))))
 
     for nt in tree_records:
         if id(nt) not in taken:

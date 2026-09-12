@@ -16883,3 +16883,9 @@ msgstr "whole board"
 #: gui/main_window.py
 msgid "Reread inter-node copper"
 msgstr "Reread inter-node copper"
+
+# ── Extract tree dialog: a row is a UNIT (plan_2026_09_12_internode_copper_core, Э5) ──
+#: gui/docks/tree_from_selection.py
+#, python-brace-format
+msgid "{net} [{nodes}]"
+msgstr "{net} [{nodes}]"

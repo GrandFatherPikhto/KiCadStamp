@@ -35,7 +35,7 @@ Testable without Qt.
 """
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,6 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
 
 from .live_position import entity_mount_fallback_reason
-from kicadstamp.net_resolution import RULE_NETS
 from kicadstamp.placement.anchor_identity import (
     entity_anchor_identity,
     entity_is_self_anchor,
@@ -63,18 +62,39 @@ from .reead import ReReadCluster
 
 @dataclass
 class InterClusterNet:
-    """One net whose selected copper connects 2+ fully-selected Clusters —
-    a `net_traces:` capture candidate (the dialog's third tab)."""
+    """ONE inter-node unit of the selected copper — a `net_traces:` capture
+    candidate in the dialog's third tab.
+
+    CHANGED 2026-09-12 (plan_2026_09_12_internode_copper_core Э5; design §4):
+    a ROW IS A UNIT OF COPPER, NOT A NET. Two independent bridges of one net are
+    two rows (they become two records), and the row carries what the capture
+    needs and what tells the two apart: the unit's pad signature (`pads`, the
+    record's identity) and the tree nodes it connects (`nodes`). The old
+    heuristics — the RULE_NETS exclusion and the max-cluster-coverage threshold
+    — are GONE: the strict rule is geometric, so a GND bridge between two nodes
+    IS inter-node copper while a GND pour (a zone, not in this graph) never is.
+    """
     net: str
     track_count: int = 0
     via_count: int = 0
+    # "ROLE.pad" strings, sorted — the unit's identity (the stored record's pads)
+    pads: tuple[str, ...] = ()
+    # the tree-node (Cluster) labels the unit connects, sorted
+    nodes: tuple[str, ...] = ()
+    # The CopperUnit itself (internode_copper.CopperUnit) — carried through so
+    # the capture path re-uses the very copper this row was built from instead
+    # of re-deriving it. compare=False: it is an implementation detail, the
+    # row's identity is (net, pads, nodes).
+    unit: Any = field(default=None, compare=False, repr=False)
 
-
-# A point-to-point inter-cluster link spans exactly 2 selected Clusters; a net
-# on pads of MORE than this many is a ubiquitous rail (+3V3, GND...) — not a
-# capture candidate for the third tab. 2026-09-01 review, live-verified on
-# 3CH-AWG-TIA: GND on 6 Clusters, +3V3 on 3, real links on exactly 2.
-DEFAULT_MAX_CLUSTER_COVERAGE = 2
+    @property
+    def label(self) -> str:
+        """The row's text in the dialog's Net column: the net plus the nodes it
+        connects, so two units of one net are visibly different rows."""
+        if self.nodes:
+            return _("{net} [{nodes}]").format(net=self.net,
+                                               nodes=" ↔ ".join(self.nodes))
+        return self.net
 
 
 # ── Anchor construction ───────────────────────────────────────────────────
@@ -611,12 +631,13 @@ def _cluster_placement_node(c: ReReadCluster, entities, cfg,
                     children=children or [])
 
 
-def _net_trace_node(net: str) -> TreeNode:
-    """One checked inter-cluster net -> its kind="net_trace" TreeNode (ref =
-    the net name, resolved to a net_traces: record by link_trees). No xy — a
-    net trace is stored as local offsets from its own anchor; live-position at
-    apply. Phase D (2026-09-01)."""
-    return TreeNode(ref=net, kind="net_trace", xy=None, polar=None,
+def _net_trace_node(identity: str) -> TreeNode:
+    """One checked inter-node unit -> its kind="net_trace" TreeNode (ref = the
+    RECORD'S IDENTITY — the generated name:, or a legacy record's net: — which
+    link_trees resolves to a net_traces: record). No xy — a net trace is stored
+    as local offsets from its own anchor; live-position at apply. Phase D
+    (2026-09-01); the ref became the identity in Э5 (plan 2026-09-12)."""
+    return TreeNode(ref=identity, kind="net_trace", xy=None, polar=None,
                     rotation=0.0, name=None, group=None, children=[])
 
 
@@ -738,190 +759,71 @@ def build_tree_from_clusters(
                 nodes=[root_node, *nodes]), messages
 
 
-# ── Inter-cluster copper detection ────────────────────────────────────────
 
-def _cluster_nets(clusters: Iterable[ReReadCluster],
-                  snapshot: Iterable[Any]) -> list[set[str]]:
-    """One set of net names per cluster (aligned by index with `clusters`) —
-    the union of every pad net on the cluster's footprints (from the
-    snapshot's Selected.nets dicts, the same Board.select source the rest of
-    the GUI uses)."""
-    by_ref = {s.ref: s for s in snapshot}
-    out: list[set[str]] = []
-    for c in clusters:
-        nets: set[str] = set()
-        for ref in c.refs:
-            s = by_ref.get(ref)
-            if s is not None:
-                nets_data = getattr(s, "nets", {}) or {}
-                nets.update(nets_data.values())
-        out.append(nets)
-    return out
-
-
-def _connected_cluster_labels(adapter, clusters: Iterable[ReReadCluster],
-                              raw_items: Iterable[Any], net: str) -> set[int]:
-    """Cluster indices whose pads the net's SELECTED copper reaches — via a
-    connected-component closure over the net's selected tracks/vias anchored at
-    the clusters' pads (the same union-find pattern as template_selection's
-    _filter_tracks_and_vias_within_selection, but per-cluster-LABELLED so we
-    know WHICH clusters a component touches). Phase C (2026-09-01) — the "по
-    выделенному" strengthener: a net is inter-cluster only when its selected
-    copper genuinely reaches pads of 2+ clusters, not merely shares a name."""
-    # Local import: template_selection pulls placement.services.role_narrowing;
-    # a module-level import would widen tree_from_selection's load graph for no
-    # benefit (the import itself is acyclic — verified 2026-09-01).
-    from kicadstamp.template_selection import _inflated_boxes, _point_in_box, _points_match
-
-    tracks = [t for t in raw_items if isinstance(t, Track) and t.net_name == net]
-    vias = [v for v in raw_items if isinstance(v, Via) and v.net_name == net]
-    if not tracks and not vias:
-        return set()
-
-    # Inflated pad boxes per cluster (the same anchors the extractor roots its
-    # connectivity closure at).
-    pad_boxes: list[list] = []
-    for c in clusters:
-        refs = set(c.refs)
-        pads = []
-        for fp in raw_items:
-            if isinstance(fp, Footprint) and fp.ref in refs:
-                pads.extend(adapter.get_footprint_pads(fp))
-        pad_boxes.append(_inflated_boxes(adapter, pads))
-
-    parent: dict = {}
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    for i in range(len(tracks)):
-        parent[("t", i)] = ("t", i)
-    for i in range(len(vias)):
-        parent[("v", i)] = ("v", i)
-    for k in range(len(clusters)):
-        parent[("c", k)] = ("c", k)
-
-    def _touches(k, i, is_track):
-        boxes = pad_boxes[k]
-        if not boxes:
-            return False
-        if is_track:
-            t = tracks[i]
-            return any(_point_in_box(t.start, b) or _point_in_box(t.end, b) for b in boxes)
-        v = vias[i]
-        return any(_point_in_box(v.position, b) for b in boxes)
-
-    # Anchor each track/via to every cluster whose pad box it touches.
-    for k in range(len(clusters)):
-        for i in range(len(tracks)):
-            if _touches(k, i, True):
-                union(("t", i), ("c", k))
-        for i in range(len(vias)):
-            if _touches(k, i, False):
-                union(("v", i), ("c", k))
-    # Track-to-track / track-to-via joints (copper chains across clusters).
-    for i, t in enumerate(tracks):
-        for j, v in enumerate(vias):
-            if _points_match(t.start, v.position) or _points_match(t.end, v.position):
-                union(("t", i), ("v", j))
-    for i, t in enumerate(tracks):
-        for j in range(i + 1, len(tracks)):
-            o = tracks[j]
-            if (_points_match(t.start, o.start) or _points_match(t.start, o.end)
-                    or _points_match(t.end, o.start) or _points_match(t.end, o.end)):
-                union(("t", i), ("t", j))
-
-    labels: set[int] = set()
-    for k in range(len(clusters)):
-        croot = find(("c", k))
-        if any(find(("t", i)) == croot for i in range(len(tracks))) or \
-           any(find(("v", i)) == croot for i in range(len(vias))):
-            labels.add(k)
-    return labels
-
+# ── Inter-cluster copper detection (the STRICT rule, plan Э5) ─────────────
 
 def detect_inter_cluster_nets(raw_items: Iterable[Any],
                               clusters: Iterable[ReReadCluster],
-                              snapshot: Iterable[Any],
-                              rule_nets: Iterable[str] = (),
-                              max_cluster_coverage: int = DEFAULT_MAX_CLUSTER_COVERAGE,
-                              adapter=None,
+                              *, adapter,
                               ) -> list[InterClusterNet]:
-    """Nets of the raw SELECTED copper that connect 2+ fully-selected Clusters
-    (i.e. do not belong to one cluster-cell alone) — the `net_traces:` capture
-    candidates shown in the dialog's third tab.
+    """The selected copper's INTER-NODE UNITS — one row per unit of copper
+    between pads (plan_2026_09_12_internode_copper_core Э5; design §4).
 
-    A net is inter-cluster when its name appears on the footprints of at
-    least two clusters (from the snapshot's Selected.nets). Excluded:
+    THE SAME STRICT RULE THE RE-READ USES, and deliberately so: the dialog that
+    creates a tree and the action that re-reads it must produce the SAME copper,
+    or a created and a re-read tree would contain different material and the
+    difference would go unnoticed until it hurt (the design's "one mechanism"
+    argument, the same disease the morning's "Move to…" fix cured).
 
-      - rule nets — rule_nets (a power net a Rule/Chain already plans) AND the
-        default RULE_NETS (kicadstamp.net_resolution.RULE_NETS, {"GND"}), the
-        same always-excluded set the Cells/Extract dock uses — so a global GND
-        is never offered even when no Chain registers it (2026-09-01 review,
-        live 3CH-AWG-TIA: GND leaked with 32 tracks / 25 vias);
-      - ubiquitous rails — a net that sits on pads of MORE than
-        `max_cluster_coverage` of the SELECTED clusters. A point-to-point
-        inter-cluster link spans exactly 2 clusters; a global rail (+3V3, GND)
-        spans most/all of them (live: GND on 6, +3V3 on 3, real links on
-        exactly 2). Configurable, default 2 — i.e. coverage > 2 is a rail.
+    A unit is offered when ALL its pads belong to 2+ of the SELECTED clusters
+    (the nodes this tree is being built from) and it has copper — the geometric
+    classification of internode_copper.classify_unit, evaluated against the
+    selection. Gone with it: the RULE_NETS exclusion and the
+    DEFAULT_MAX_CLUSTER_COVERAGE threshold. They were a defence against
+    cluster copper, and the geometry now provides that defence by construction —
+    so a GND BRIDGE between two nodes is offered (it is real inter-node copper),
+    while a GND pour is not (a zone is not part of this graph at all) and a GND
+    stub inside one cluster is not either (one node = cluster copper).
 
-    Only nets that ALSO have selected tracks/vias in `raw_items` are offered —
-    a net with no selected copper is nothing to capture, so the tab stays
-    empty (the dialog then has no nets tab content).
+    `adapter` is REQUIRED: the rule is geometric, so without pad geometry there
+    is nothing to classify (internode_copper.find_copper_units refuses a limited
+    adapter loudly instead of silently degrading)."""
+    from kicadstamp.internode_copper import (
+        CopperVerdict,
+        classify_unit,
+        find_copper_units,
+    )
+    from kicadstamp.constants import ROLE_FIELD_NAME
 
-    adapter — OPTIONAL (phase C): when given, the name-based candidates are
-    additionally filtered by CONNECTIVITY — only nets whose selected copper
-    actually reaches pads of 2+ clusters (via _connected_cluster_labels) are
-    offered, so a net that merely shares a name (or a stitching via that touches
-    no cluster pad) is dropped. None (default) keeps the pure name-based
-    detection (used by tests and callers without a board adapter)."""
-    cluster_nets = _cluster_nets(clusters, snapshot)
-    # coverage[net] = how many SELECTED Clusters carry the net on a pad —
-    # the signal that separates a point-to-point link (2) from a ubiquitous
-    # rail (+3V3, GND — 3+).
-    coverage: dict[str, int] = {}
-    for nets in cluster_nets:
-        for net in nets:
-            coverage[net] = coverage.get(net, 0) + 1
+    items = list(raw_items)
+    footprints = [i for i in items if isinstance(i, Footprint)]
+    node_by_ref: dict[str, str] = {}
+    for c in clusters:
+        label = c.cluster or c.sheet or "?"
+        for ref in c.refs:
+            node_by_ref[ref] = label
 
-    inter: set[str] = set()
-    for i in range(len(cluster_nets)):
-        for j in range(i + 1, len(cluster_nets)):
-            inter.update(cluster_nets[i] & cluster_nets[j])
-    inter -= set(rule_nets)
-    inter -= RULE_NETS  # default rule nets — GND is always a rule net
-    inter = {n for n in inter if coverage.get(n, 0) <= max_cluster_coverage}
-    # Phase C connectivity filter — only when the adapter actually provides the
-    # geometry the union-find closure needs (a limited/`object()` adapter in
-    # tests falls back to the pure name-based detection).
-    if adapter is not None and hasattr(adapter, "get_bounding_boxes") \
-            and hasattr(adapter, "get_footprint_pads"):
-        raw = list(raw_items)
-        inter = {n for n in inter
-                 if len(_connected_cluster_labels(adapter, clusters, raw, n)) >= 2}
-    if not inter:
-        return []
+    units, warnings = find_copper_units(adapter, items, footprints=footprints)
+    for warning in warnings:
+        logger.warning(warning)
 
-    counts: dict[str, list[int]] = {}
-    for item in raw_items:
-        if isinstance(item, Track):
-            net = item.net_name
-            if net and net in inter:
-                counts.setdefault(net, [0, 0])[0] += 1
-        elif isinstance(item, Via):
-            net = item.net_name
-            if net and net in inter:
-                counts.setdefault(net, [0, 0])[1] += 1
-    return [InterClusterNet(net=net, track_count=c[0], via_count=c[1])
-            for net, c in sorted(counts.items())]
+    roles = {fp.ref: (adapter.get_field_value(fp, ROLE_FIELD_NAME) or fp.ref)
+             for fp in footprints}
+    rows: list[InterClusterNet] = []
+    for unit in units:
+        if classify_unit(unit, node_by_ref) is not CopperVerdict.INTERNODE:
+            continue
+        if unit.net_name is None:
+            continue
+        rows.append(InterClusterNet(
+            net=unit.net_name,
+            track_count=len(unit.tracks),
+            via_count=len(unit.vias),
+            pads=tuple(sorted(f"{roles.get(p.ref, p.ref)}.{p.pad}"
+                              for p in unit.pads)),
+            nodes=tuple(sorted({node_by_ref[p.ref] for p in unit.pads})),
+            unit=unit))
+    return sorted(rows, key=lambda r: (r.net, r.pads))
 
 
 # ── Live-position bridges (Qt-free, but need a live board adapter) ────────
