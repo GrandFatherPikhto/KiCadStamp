@@ -1,0 +1,157 @@
+# tests/gui/test_board_layers.py
+"""Э1 and Э7.5 (corrected 2026-09-12) of plan_2026_09_12_cell_layer_dialog.md:
+the live board's copper layers, in physical stackup order.
+
+Asserting the ORDER alone proves nothing — the measured values (F.Cu=3, In1.Cu=4,
+In2.Cu=5, B.Cu=34) are ascending in stackup order, so a plain sort by value
+agrees with the correct implementation and no test could tell the two apart.
+The trap Э7.5 pins down is POSITION: on a four-layer board B.Cu is at stack
+position 4, not at layer value 34, and the number of positions equals
+get_copper_layer_count(). An implementation that confuses the two fails here.
+
+No KiCad and no Qt: the board is a duck-typed fake, like tests/gui/
+test_board_overlay.py's.
+"""
+from kipy.board_types import BoardLayer
+
+from gui.board_layers import (
+    CopperLayer,
+    copper_layer_order,
+    enabled_copper_layers,
+)
+
+F = BoardLayer.BL_F_Cu
+IN1 = BoardLayer.BL_In1_Cu
+IN2 = BoardLayer.BL_In2_Cu
+B = BoardLayer.BL_B_Cu
+SILK = BoardLayer.BL_F_SilkS
+EDGE = BoardLayer.BL_Edge_Cuts
+USER = BoardLayer.BL_Dwgs_User
+
+# Enabled layers that are NOT copper: nothing to read, nothing to offer.
+NON_COPPER = (SILK, EDGE, USER)
+
+_NAMES = {F: "F.Cu", IN1: "In1.Cu", IN2: "In2.Cu", B: "B.Cu",
+          SILK: "F.Silkscreen", EDGE: "Edge.Cuts", USER: "User.Drawings"}
+# value -> member name ('BL_In10_Cu'), for the layers the map above leaves out
+_LAYER_NAMES = {value: name for name, value in BoardLayer.items()}
+
+FOUR_LAYER = (F, IN1, IN2, B)
+
+
+def _derived_name(layer) -> str:
+    """KiCad's own name for a layer no test renamed: an inner layer is
+    'InN.Cu' (the member-name layout, NOT an arithmetic trick on the value —
+    the module under test is the one that must not do arithmetic on values)."""
+    member = _LAYER_NAMES.get(layer, "")
+    if member.startswith("BL_In") and member.endswith("_Cu"):
+        return f"In{member[5:-3]}.Cu"
+    return member or str(layer)
+
+
+class _FakeBoard:
+    """Duck-typed live board: enabled layers, their names, their visibility."""
+
+    def __init__(self, enabled, visible=None, names=None, copper_count=4):
+        self.enabled = list(enabled)
+        self.visible = list(enabled if visible is None else visible)
+        self.names = dict(names or {})
+        self.copper_count = copper_count
+
+    def get_enabled_layers(self):
+        return list(self.enabled)
+
+    def get_visible_layers(self):
+        return list(self.visible)
+
+    def get_layer_name(self, layer):
+        if layer in self.names:
+            return self.names[layer]
+        return _NAMES.get(layer) or _derived_name(layer)
+
+    def get_copper_layer_count(self):
+        return self.copper_count
+
+
+class TestEnabledCopperLayers:
+    def test_stackup_order_and_positions(self):
+        """Enabled order is arbitrary (that is how the board reports it) and the
+        non-copper layers are interleaved — the answer is F, In1..InK, B."""
+        board = _FakeBoard(enabled=[B, IN2, SILK, F, IN1, EDGE])
+        rows = enabled_copper_layers(board)
+        assert all(isinstance(row, CopperLayer) for row in rows)
+        assert [row.copper_name for row in rows] == [
+            "F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
+        assert [row.position for row in rows] == [1, 2, 3, 4]
+
+    def test_position_is_a_place_not_a_layer_value(self):
+        """Э7.5: B.Cu carries the layer value 34 on a FOUR-layer board — its
+        place in the stack is 4. This is the assertion a value-as-position
+        implementation fails."""
+        board = _FakeBoard(enabled=list(FOUR_LAYER))
+        rows = enabled_copper_layers(board)
+        back = rows[-1]
+        assert back.copper_name == "B.Cu"
+        assert back.layer == B
+        assert back.position == 4
+        assert back.position != back.layer
+        # No row reports its own layer value as a position, on any layer.
+        assert [row.position for row in rows] != [row.layer for row in rows]
+
+    def test_row_count_matches_board_copper_layer_count(self):
+        four = _FakeBoard(enabled=list(FOUR_LAYER) + [SILK, EDGE],
+                          copper_count=4)
+        assert len(enabled_copper_layers(four)) == four.get_copper_layer_count()
+
+        six = _FakeBoard(enabled=[B, BoardLayer.BL_In4_Cu, F,
+                                  BoardLayer.BL_In3_Cu, IN1, IN2],
+                         copper_count=6)
+        rows = enabled_copper_layers(six)
+        assert [row.copper_name for row in rows] == [
+            "F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"]
+        assert len(rows) == six.get_copper_layer_count()
+
+    def test_display_name_is_the_live_user_name(self):
+        """Denis renamed a layer: the UI must show HIS name, while the cell's
+        record vocabulary stays canonical — both travel on the same row."""
+        board = _FakeBoard(enabled=list(FOUR_LAYER), names={IN1: "GND"})
+        inner = enabled_copper_layers(board)[1]
+        assert inner.display_name == "GND"
+        assert inner.copper_name == "In1.Cu"
+
+    def test_hidden_copper_layer_is_reported_not_dropped(self):
+        """A hidden copper layer still comes back (visible=False) — Э2 only
+        WARNS about it; the read is never silently narrowed."""
+        board = _FakeBoard(enabled=[F, IN1, IN2, B, SILK],
+                           visible=[F, IN2, B, SILK])
+        rows = enabled_copper_layers(board)
+        assert [(row.copper_name, row.visible) for row in rows] == [
+            ("F.Cu", True), ("In1.Cu", False), ("In2.Cu", True), ("B.Cu", True)]
+
+    def test_hidden_non_copper_layer_does_not_appear(self):
+        board = _FakeBoard(enabled=[F, IN1, IN2, B, SILK],
+                           visible=[F, IN1, IN2, B])
+        assert [row.copper_name for row in enabled_copper_layers(board)] == [
+            "F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
+
+    def test_non_copper_layers_never_appear(self):
+        board = _FakeBoard(enabled=[SILK, F, EDGE, IN1, USER, IN2, B])
+        rows = enabled_copper_layers(board)
+        assert [row.layer for row in rows] == list(FOUR_LAYER)
+
+    def test_inner_layers_ordered_numerically_not_lexically(self):
+        """In10 sorts before In2 as a string — the stack order is numeric."""
+        board = _FakeBoard(enabled=[BoardLayer.BL_In10_Cu, F, IN2, IN1, B],
+                           copper_count=4)
+        assert [row.copper_name for row in enabled_copper_layers(board)] == [
+            "F.Cu", "In1.Cu", "In2.Cu", "In10.Cu", "B.Cu"]
+
+
+class TestCopperLayerOrder:
+    def test_reduces_to_copper_in_stack_order(self):
+        assert copper_layer_order([IN2, EDGE, B, IN1, SILK, F]) == [
+            F, IN1, IN2, B]
+
+    def test_empty_and_copper_free_inputs(self):
+        assert copper_layer_order([]) == []
+        assert copper_layer_order(list(NON_COPPER)) == []
