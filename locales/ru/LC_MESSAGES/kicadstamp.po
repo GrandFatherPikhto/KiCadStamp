@@ -15341,3 +15341,26 @@ msgstr "Узел {ref!r}: база нового родителя не разре
 #: gui/docks/trees_dock.py
 msgid "Re-hang {ref!r} WITHOUT recalculating its offset? It keeps the stored coordinates, which now mean a different place."
 msgstr "Перевесить {ref!r} БЕЗ пересчёта смещения? Останутся сохранённые координаты, которые теперь означают другое место."
+
+# ── Missing-include recovery (plan_2026_09_12_three_old_tails, Э1.2) ──
+#: gui/include_recovery.py
+msgid "Missing include file"
+msgstr "Отсутствует файл include"
+
+#: gui/include_recovery.py
+#, python-brace-format
+msgid "The profile includes a file that does not exist: {name}"
+msgstr "Профиль включает файл, которого нет: {name}"
+
+#: gui/include_recovery.py
+#, python-brace-format
+msgid "Expected at {path} (referenced from {source})"
+msgstr "Ожидался здесь: {path} (ссылка из {source})"
+
+#: gui/include_recovery.py
+msgid "Create empty file"
+msgstr "Создать пустой файл"
+
+#: gui/include_recovery.py
+msgid "Remove from include:"
+msgstr "Убрать из include:"

@@ -107,6 +107,7 @@ from kicadstamp.schematic_discovery import walk_schematic_hierarchy
 
 from .. import settings, config_io
 from ..hotkeys import build_action
+from ..include_recovery import walk_with_recovery
 from kicadstamp.config_working_set import WORKING_SET
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       display_path, merge_write, show_message)
@@ -458,6 +459,13 @@ class RootMetadataDock(QWidget):
             self._remember_recent(path)
         try:
             self.set_target_file(path)
+            if path is not None:
+                # Offer the missing-include repair BEFORE broadcasting
+                # root_changed: DockHub clears the working set on that signal
+                # and every dock then re-reads the graph from disk, so the graph
+                # must already be loadable when they are notified. The walk is
+                # graph-cached, so the refresh below reuses it.
+                walk_with_recovery(self, path)
             self.refresh_working_file_choices()
         except Exception:  # noqa: BLE001 — a broken root must never crash the GUI
             logger.exception("GUI: could not load root config %s — root stays "

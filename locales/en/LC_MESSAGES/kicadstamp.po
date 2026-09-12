@@ -16691,3 +16691,26 @@ msgstr ""
 #: gui/docks/trees_dock.py
 msgid "Re-hang {ref!r} WITHOUT recalculating its offset? It keeps the stored coordinates, which now mean a different place."
 msgstr ""
+
+# ── Missing-include recovery (plan_2026_09_12_three_old_tails, Э1.2) ──
+#: gui/include_recovery.py
+msgid "Missing include file"
+msgstr "Missing include file"
+
+#: gui/include_recovery.py
+#, python-brace-format
+msgid "The profile includes a file that does not exist: {name}"
+msgstr "The profile includes a file that does not exist: {name}"
+
+#: gui/include_recovery.py
+#, python-brace-format
+msgid "Expected at {path} (referenced from {source})"
+msgstr "Expected at {path} (referenced from {source})"
+
+#: gui/include_recovery.py
+msgid "Create empty file"
+msgstr "Create empty file"
+
+#: gui/include_recovery.py
+msgid "Remove from include:"
+msgstr "Remove from include:"
