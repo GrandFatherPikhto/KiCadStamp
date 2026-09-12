@@ -54,6 +54,35 @@ The window has a **menu bar** with two top-level menus built by FUNCTION, not pe
 [docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one checkable entry per top-level dock, so a
 closed dock can be brought back without restarting).
 
+## Busy indicator (2026-09-12)
+
+**While a board operation runs, the status bar says so — and says which one.** Every operation the
+USER starts (Extract/Redraw, a scheme-list Record/Re-source/Reread, the inter-node copper re-read,
+"Whose copper is this?", the snapshot rebuild in front of an Extract dialog, …) shows a short word in
+the status bar for its whole duration:
+
+    Working with the board: placing
+
+The word comes from the `start_long_op` call site (`busy_text=...`, already translated); an operation
+that does not name itself shows the generic *Working with the board…* instead. The label is cleared
+the moment the operation finishes — **on success and on error alike** — and the application-wide wait
+cursor is set for the same interval. A hung operation (KiCad not answering) keeps the label up on
+purpose: that is the truth, and there is nothing to time out here.
+
+The indicator is driven by `LongOpController` alone — through the module-level
+`gui.worker.set_busy_reporter` hook that `MainWindow` installs once (`_set_busy`) — and **never** by
+`connection.long_op_active`: the fast ~400 ms selection poll raises that flag too
+(`PollWorkerHandle.submit`), so an indicator keyed on it would blink several times a second on an
+idle board. The background poll stays invisible on purpose — the user did not start it.
+
+Where the operation has a widget of its own — a dock button, or the Tools-menu `QAction` that started
+a menu-only flow (Redraw selected/whole tree, Full redraw, the two copper reads, Record and
+Re-source) — that widget is handed to `start_long_op` as well, so it is greyed out for the duration
+and a second click on the same entry is refused instead of starting a second board read on the one
+shared kipy socket. Flows started by a context-menu action built on the fly, by a page switch or by a
+root switch have nothing stable to disable and pass an empty list — each such call site carries a
+one-line comment saying why.
+
 ## Widget height and scrolling (2026-09-12)
 
 **A field's height is not cosmetics.** Qt computes the height of a `QComboBox`,
