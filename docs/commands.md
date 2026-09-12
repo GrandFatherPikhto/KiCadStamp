@@ -461,9 +461,16 @@ rot' = (rot + angle) mod 360°
 ```
 
 With `--mirror` the point is X-mirrored about the vertical axis through
-`anchor_src` and the angle becomes `(180° − (rot + angle)) mod 360°` — the same
-convention as `ClonePlacement.mirror`. Order of operations (documented, they do
-not commute): **rotate first, then mirror**. All layers are inverted (F.Cu↔B.Cu).
+`anchor_src` and the angle becomes `(180° − (rot + angle)) mod 360°` — the mirror
+convention used throughout the tool. Order of operations (documented, they do not
+commute): **rotate first, then mirror**. F.Cu and B.Cu are swapped for every
+copied element. Copper on an **inner** layer (`In1.Cu`…) cannot be swapped: the
+counterpart of an inner layer follows from the board's copper stack (how many
+layers, and in what order), which a channel copy never reads. `--mirror`
+therefore refuses such a layer with a fatal naming the layer and the channels —
+a silent wrong-side copy would look like a successful one, while a silent skip
+would assemble the construction mirrored-wrong. A footprint's own layer is
+always F/B (there is no inner side), so the pair is complete for it.
 Vias/tracks/net mapping: local nets `/Channel_0/...` become `/Channel_1/...`
 (via `TwinMap.twin_net`); global nets pass through unchanged.
 

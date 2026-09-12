@@ -4895,6 +4895,30 @@ msgstr ""
 "присутствует ли канал назначения на плате? Если близнец ещё не размещён, "
 "укажите --target-dst X,Y явно"
 
+#: kicadstamp/channel_copy.py:437
+#, python-brace-format
+msgid "cannot mirror the inner copper layer {layer} ({where})"
+msgstr "нельзя зеркалировать внутренний медный слой {layer} ({where})"
+
+#: kicadstamp/channel_copy.py:455
+msgid "channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of an inner layer depends on the board's copper stack (how many layers, and in what order), which a channel copy never reads. Copy without mirror, or move this layer by hand"
+msgstr "зеркалирование channel-copy меняет местами только F.Cu и B.Cu: пара для внутреннего слоя зависит от медного стека платы (сколько слоёв и в каком порядке), а копирование канала его не читает. Скопируйте без mirror или перенесите этот слой вручную"
+
+#: kicadstamp/channel_copy.py:568
+#, python-brace-format
+msgid "footprint {ref} in channel copy {src} -> {dst}"
+msgstr "футпринт {ref} при копировании канала {src} -> {dst}"
+
+#: kicadstamp/channel_copy.py:614
+#, python-brace-format
+msgid "track of channel copy {src} -> {dst}"
+msgstr "дорожка при копировании канала {src} -> {dst}"
+
+#: kicadstamp/channel_copy.py:720
+#, python-brace-format
+msgid "foreign track in channel copy to {dst}"
+msgstr "внешняя дорожка при копировании канала в {dst}"
+
 #: kicadstamp/channel_copy.py:531
 #, python-brace-format
 msgid "  {ref}: already at the target position, skipped"

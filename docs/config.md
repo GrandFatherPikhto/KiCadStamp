@@ -167,6 +167,13 @@ nesting other cells), or both at once.
 - `tracks:` — straight segments only (no arcs); a polyline is just several consecutive `tracks:`
   entries sharing an endpoint. Collisions with existing copper are **not** checked by this tool —
   KiCad's own DRC is the source of truth for that, by design (see [docs/geometry.md](geometry.md)).
+- **Copper layers.** A cell's copper may sit on ANY copper layer of the stack — `F.Cu`,
+  `In1.Cu`…`In30.Cu`, `B.Cu` — and it is carried over as-is: `extract` writes a track's real
+  layer whenever it differs from the cell's own `layer:`, and placement puts it back on exactly
+  that layer. The parse is strict: an unknown layer name is a fatal, never a silent fallback to
+  `F.Cu`. Only a component's layer stays binary — a footprint stands on `F.Cu` or `B.Cu`, and
+  there is no inner side. Mirroring copper that sits on an **inner** layer is not supported:
+  see [docs/commands.md](commands.md) (`channel-copy --mirror`).
 - `layer:` at the cell's own top level — the layer it was extracted on; components/tracks without
   their own `layer:` inherit it.
 - `anchor_xy:` / `anchor_role:` (`+anchor_pad:`) — the cell's MOUNT POINT and its identity (reworked

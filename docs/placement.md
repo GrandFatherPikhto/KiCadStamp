@@ -263,7 +263,9 @@ The `executor/` directory is split into several modules for readability and test
 
 #### `executor/base.py`
 Common utilities:
-- `layer_to_str(layer)` – converts a `BoardLayer` to `"F.Cu"` or `"B.Cu"`.
+- `layer_to_str(layer)` – converts a `BoardLayer` to its KiCad copper-layer name: `"F.Cu"`,
+  `"In1.Cu"`…`"In30.Cu"`, `"B.Cu"` (the full stack since 2026-09-06); it raises for a member
+  that is not a copper layer.
 
 #### `executor/operation_logger.py`
 Responsible for writing JSON operation logs for `undo`.

@@ -60,6 +60,7 @@ from .i18n import _
 from .placement.commands import MoveCommand, ViaCommand, TrackCommand
 from .placement.executor import BatchExecutor
 from .registry import track_matches
+from .utils.layers import layer_to_str
 from .utils.units import MM
 
 logger = logging.getLogger(__name__)
@@ -434,13 +435,44 @@ def transform_angle(angle_deg: float, tr: ChannelTransform) -> float:
     return (180.0 - phi) % 360.0 if tr.mirror else phi % 360.0
 
 
-def transform_layer(layer: BoardLayer, tr: ChannelTransform) -> BoardLayer:
-    """With --mirror the layer of every copied element is inverted (F.Cu<->B.Cu)
-    — the same physical rule as ClonePlacement.mirror ("mirror without layer
-    change is physically meaningless"). Without mirror the layer passes through."""
+def transform_layer(layer: BoardLayer, tr: ChannelTransform, *, where: str) -> BoardLayer:
+    """Layer of a copied element under `tr`.
+
+    Without mirror the layer passes through. With mirror F.Cu and B.Cu swap --
+    that pair is complete for a FOOTPRINT (a footprint stands on a side of the
+    board; there is no inner side) and for copper on an outer layer.
+
+    An INNER layer cannot be completed here: its counterpart follows from the
+    board's copper stack (how many layers, and in what order), which a channel
+    copy never reads. So it is a FATAL -- not a silent skip and not a placement
+    on the wrong layer. A silent skip is the worst of the three: the copy looks
+    successful while the construction is assembled mirrored-wrong.
+
+    2026-09-12: the mirror rule itself (mirror inverts the side) is unchanged
+    and is stated here on its own -- it used to be justified by a pointer to
+    ClonePlacement.mirror, a mechanism that is being removed (design Р5/Р9), so
+    the pointer would soon have had nothing to point at.
+
+    `where` labels the offending element in the fatal: ChannelTransform carries
+    no channel names, so the call sites hand down the channels they know (same
+    pattern as _check_copper_layer_value(value, where))."""
     if not tr.mirror:
         return layer
-    return BoardLayer.BL_B_Cu if layer == BoardLayer.BL_F_Cu else BoardLayer.BL_F_Cu
+    if layer == BoardLayer.BL_F_Cu:
+        return BoardLayer.BL_B_Cu
+    if layer == BoardLayer.BL_B_Cu:
+        return BoardLayer.BL_F_Cu
+    try:
+        name = layer_to_str(layer)
+    except ValueError:  # not a copper layer at all -- still name what arrived
+        name = repr(layer)
+    raise ValidationError(format_fatal_error(
+        _("cannot mirror the inner copper layer {layer} ({where})").format(
+            layer=name, where=where),
+        [_("channel-copy mirroring swaps F.Cu and B.Cu only: the counterpart of "
+           "an inner layer depends on the board's copper stack (how many layers, "
+           "and in what order), which a channel copy never reads. Copy without "
+           "mirror, or move this layer by hand")]))
 
 
 def _point_close(a: Vector2, b: Vector2) -> bool:
@@ -546,7 +578,10 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
             continue
         new_pos = transform_point(fp.position, transform)
         new_angle = transform_angle(fp.angle_deg, transform)
-        new_layer = transform_layer(fp.layer, transform)
+        new_layer = transform_layer(
+            fp.layer, transform,
+            where=_("footprint {ref} in channel copy {src} -> {dst}").format(
+                ref=dst_ref, src=src_channel, dst=dst_channel))
         dst_fp = fp_by_ref.get(dst_ref)
         if dst_fp is not None and _fp_matches_position(dst_fp, new_pos, new_angle, new_layer):
             logger.debug(_("  {ref}: already at the target position, skipped").format(ref=dst_ref))
@@ -592,7 +627,10 @@ def plan_channel_copy(adapter, *, src_uuid: str, dst_uuid: str,
         new_start = transform_point(t.start, transform)
         new_end = transform_point(t.end, transform)
         new_net = _twin_net(net, src_channel, dst_channel)
-        new_layer = transform_layer(t.layer, transform)
+        new_layer = transform_layer(
+            t.layer, transform,
+            where=_("track of channel copy {src} -> {dst}").format(
+                src=src_channel, dst=dst_channel))
         cmd = TrackCommand(start=new_start, end=new_end,
                            width_mm=t.width_mm, net_name=new_net,
                            layer=new_layer, owner_ref=dst_channel,
@@ -694,7 +732,10 @@ def _plan_foreign(all_fps, live_vias, live_tracks, src_prefix: str,
         if include_global:
             new_start = transform_point(t.start, transform)
             new_end = transform_point(t.end, transform)
-            new_layer = transform_layer(t.layer, transform)
+            new_layer = transform_layer(
+                t.layer, transform,
+                where=_("foreign track in channel copy to {dst}").format(
+                    dst=dst_channel))
             cmd = TrackCommand(start=new_start, end=new_end,
                                width_mm=t.width_mm, net_name=net,
                                layer=new_layer, owner_ref=dst_channel)

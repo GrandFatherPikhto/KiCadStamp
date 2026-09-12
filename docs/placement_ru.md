@@ -269,7 +269,9 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 
 #### `executor/base.py`
 Содержит общие утилиты:
-- `layer_to_str(layer)` – преобразует `BoardLayer` в строку `"F.Cu"` или `"B.Cu"`.
+- `layer_to_str(layer)` – преобразует `BoardLayer` в имя медного слоя KiCad: `"F.Cu"`,
+  `"In1.Cu"`…`"In30.Cu"`, `"B.Cu"` (весь стек с 2026-09-06); для члена, который не является
+  медным слоем, бросает исключение.
 
 #### `executor/operation_logger.py`
 Отвечает за запись JSON-логов операций для `undo`.

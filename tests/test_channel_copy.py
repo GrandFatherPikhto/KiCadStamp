@@ -204,12 +204,28 @@ class TestTransformMath:
         assert transform_angle(30.0, tr2) == pytest.approx(60.0)  # 180-(30+90)
 
     def test_mirror_layer_inverts(self):
+        # `where` is the label the call sites hand down for the fatal text; it
+        # is irrelevant when the layer can be paired (which is the point here).
         tr = _transform()
-        assert transform_layer(BoardLayer.BL_F_Cu, tr) == BoardLayer.BL_F_Cu
-        assert transform_layer(BoardLayer.BL_B_Cu, tr) == BoardLayer.BL_B_Cu
+        assert transform_layer(BoardLayer.BL_F_Cu, tr, where="t") == BoardLayer.BL_F_Cu
+        assert transform_layer(BoardLayer.BL_B_Cu, tr, where="t") == BoardLayer.BL_B_Cu
         trm = _transform(mirror=True)
-        assert transform_layer(BoardLayer.BL_F_Cu, trm) == BoardLayer.BL_B_Cu
-        assert transform_layer(BoardLayer.BL_B_Cu, trm) == BoardLayer.BL_F_Cu
+        assert transform_layer(BoardLayer.BL_F_Cu, trm, where="t") == BoardLayer.BL_B_Cu
+        assert transform_layer(BoardLayer.BL_B_Cu, trm, where="t") == BoardLayer.BL_F_Cu
+
+    def test_mirror_inner_layer_is_a_fatal(self):
+        """Э3 (plan_2026_09_12_strict_copper_layers.md): mirroring COPPER on an
+        inner layer is a fatal, never BL_F_Cu. The F<->B pair is complete for a
+        footprint and for an outer-layer track, but the counterpart of In1
+        follows from the board's copper stack (how many layers, in what order),
+        which a channel copy never reads. Before Э3 this silently returned
+        BL_F_Cu, i.e. the construction was copied onto the wrong layer and the
+        copy looked fine."""
+        trm = _transform(mirror=True)
+        with pytest.raises(ValidationError) as exc:
+            transform_layer(BoardLayer.BL_In1_Cu, trm,
+                            where="track of channel copy Channel_0 -> Channel_1")
+        assert "In1.Cu" in str(exc.value)
 
 
 # ── Task 4.1: twin map / channel resolution ──────────────────────────────────
@@ -497,6 +513,18 @@ class TestMirror:
             assert m.layer == BoardLayer.BL_B_Cu  # source was F.Cu
         assert plan.vias  # via is through-hole: layer is irrelevant but present
         assert plan.tracks[0].layer == BoardLayer.BL_B_Cu
+
+    def test_plan_mirror_inner_layer_track_is_a_fatal_naming_the_channel(self):
+        """Same rule at the plan level, and the fatal must say WHICH layer and
+        WHICH channel copy: ChannelTransform itself carries no channel names, so
+        the call site has to hand that label down (the `where` parameter)."""
+        track = _track(10, 10, 11, 11, "/Channel_0/DAC/GND",
+                       layer=BoardLayer.BL_In1_Cu)
+        with pytest.raises(ValidationError) as exc:
+            _plan_for(_channel_fps(), tracks=[track], mirror=True)
+        text = str(exc.value)
+        assert "In1.Cu" in text
+        assert "Channel_1" in text
 
 
 # ── Task 2.8 / 4.2: execution through BatchExecutor (no registry) ────────────
