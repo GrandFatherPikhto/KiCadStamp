@@ -98,7 +98,11 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
-from ..board_layers import filter_tracks_by_layers, remembered_read_layers
+from ..board_layers import (
+    filter_tracks_by_layers,
+    layer_report,
+    remembered_read_layers,
+)
 from ..worker import start_long_op
 from ..cell_edit_context import (
     remembered_cell_edit_context,
@@ -1520,11 +1524,13 @@ class CellDock(QWidget):
         board for the set itself (P.3.1) — one click, no extra IPC round trip."""
         self._read_refresh_from_selection(remembered_read_layers())
 
-    def _read_refresh_from_selection(self, layers) -> None:
+    def _read_refresh_from_selection(self, layers, empty_layers=()) -> None:
         """The refresh read, with the layer set already decided on this (the UI)
         thread: ALL_COPPER_LAYERS or a collection of canonical copper names. The
         worker only filters by it (Э5). `_on_refresh_geometry` is the fast path
-        over this, `_on_refresh_geometry_with_layers` the dialog path.
+        over this, `_on_refresh_geometry_with_layers` the dialog path — which is
+        also the only caller that knows `empty_layers` (the layers IT left off as
+        empty; the fast path has no dialog to have seen them).
 
         Board IPC (selection read + net_from_role resolution) runs on the worker
         thread via start_long_op; the preview dialog + Apply stay on the UI
@@ -1568,6 +1574,9 @@ class CellDock(QWidget):
             # argument of _read_refresh_from_selection: the remembered set on the
             # fast path, the dialog's answer on the other one.
             "layers": layers,
+            # Э4/Э5: the layers the dialog left off as EMPTY, for the per-read Log
+            # report — decided here too, and empty on the fast path.
+            "empty_layers": list(empty_layers),
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
@@ -1606,6 +1615,32 @@ class CellDock(QWidget):
                 error=message),
             _ERROR_STYLE)
 
+    def _report_layer_read(self, report) -> None:
+        """The per-read layer report (Э5, printed on BOTH paths by Э4): which
+        layers were read, which were skipped and WHY.
+
+        The fast path runs without a dialog and reads whatever the remembered set
+        says, so without this line a week-old unchecked box would silently keep a
+        layer's records out of the cell and look like damage."""
+        if not report:
+            return
+        read = report.get("read") or []
+        if read:
+            self._show_message(
+                _("read layers: {layers}").format(layers=", ".join(read)),
+                _SUCCESS_STYLE)
+        else:
+            self._show_message(_("no layer of the selection was read"),
+                               _WARN_STYLE)
+        for name in report.get("skipped_manual") or []:
+            self._show_message(
+                _("skipped {layer}: unchecked by hand").format(layer=name),
+                _WARN_STYLE)
+        for name in report.get("skipped_empty") or []:
+            self._show_message(
+                _("skipped {layer}: empty in the selection").format(layer=name),
+                _WARN_STYLE)
+
     def _run_refresh_geometry(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: selection read + plan build — never touches a widget.
         Returns {"plan": RefreshPlan} or {"error": ...} (a ValidationError's
@@ -1622,7 +1657,7 @@ class CellDock(QWidget):
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
-            tracks = [i for i in items if isinstance(i, Track)]
+            raw_tracks = [i for i in items if isinstance(i, Track)]
             # Э5: the filter stands HERE — after the selection is split into
             # footprints/vias/tracks, BEFORE build_refresh_plan matches anything.
             # Copper on a layer that is not read must never reach the matcher:
@@ -1632,7 +1667,12 @@ class CellDock(QWidget):
             # pair, and remove_missing drops its records (Э5, design Р12).
             # Vias are layer-less and components stand on a side, not a layer:
             # only TRACKS are filtered (P.2).
-            tracks = filter_tracks_by_layers(tracks, payload.get("layers"))
+            tracks = filter_tracks_by_layers(raw_tracks, payload.get("layers"))
+            # Э5: the report of what the filter did — a layer in the selection
+            # that is not read is EXACTLY "unchecked in the layer set", and that is
+            # the line which keeps a remembered "off" from looking like damage.
+            layer_read = layer_report(raw_tracks, tracks,
+                                      payload.get("empty_layers"))
             # N: the nested placements name OTHER cells, so their definitions
             # (and the project's sheet map, used by the role-narrowing cascade)
             # come from the root config. Loaded ONLY when there is something to
@@ -1660,7 +1700,7 @@ class CellDock(QWidget):
                 sheet_names=sheet_names)
         except ValidationError as e:
             return {"error": str(e)}
-        return {"plan": plan}
+        return {"plan": plan, "layer_report": layer_read}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
@@ -1674,6 +1714,9 @@ class CellDock(QWidget):
             QMessageBox.warning(
                 self, _("Refresh geometry from selection"), result["error"])
             return
+        # Э4/Э5: the layer report goes FIRST and unconditionally — a read without
+        # a dialog has no other place to say which layers it looked at.
+        self._report_layer_read(result.get("layer_report"))
         plan = result["plan"]
         # A no-op plan (the selection already matches) is reported and NOT run
         # through _apply_refresh_plan — no pointless autostage write.
@@ -1773,14 +1816,23 @@ class CellDock(QWidget):
         bucket[:] = [r for r in bucket if id(r) not in doomed]
         return before - len(bucket)
 
-    def refresh_from_selection_requested(self, name: str, file_path) -> None:
+    def refresh_from_selection_requested(self, name: str, file_path,
+                                         choose_layers: bool = False) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
         context menu's "Update from selection...": when the requested cell is
         not the one currently loaded, load it first, then run the same
-        _on_refresh_geometry path as the dock's own button."""
+        _on_refresh_geometry path as the dock's own button.
+
+        `choose_layers` (Э4 of plan_2026_09_12_cell_layer_dialog) picks the OTHER
+        entry point of the same read: the context menu's "…(choose layers)…" and
+        the Tools → Config leg call the layer dialog first, and that dialog
+        continues into the very same read."""
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
-        self._on_refresh_geometry()
+        if choose_layers:
+            self._on_refresh_geometry_with_layers()
+        else:
+            self._on_refresh_geometry()
 
     # ── Import vias/tracks from selection (2026-09-03, plan
     #    fpga_oscill_missing_copper_and_cell_import §B.3) ─────────────────
@@ -1790,10 +1842,11 @@ class CellDock(QWidget):
         REMEMBERED layer set and no dialog (P.3.1)."""
         self._read_import_from_selection(remembered_read_layers())
 
-    def _read_import_from_selection(self, layers) -> None:
+    def _read_import_from_selection(self, layers, empty_layers=()) -> None:
         """The import read, with the layer set already decided on this thread.
         A track on a layer outside `layers` is invisible to the plan, so it is
-        simply never imported (Э5).
+        simply never imported (Э5). `empty_layers` comes from the dialog path
+        only, exactly as in _read_refresh_from_selection.
 
         Board IPC (selection read + net_from_role resolution) runs on the worker
         thread via start_long_op; the preview dialog + Apply stay on the UI
@@ -1831,6 +1884,8 @@ class CellDock(QWidget):
             # _read_refresh_from_selection). For Import a checked-off layer simply
             # means "not added" — nothing is ever removed here.
             "layers": layers,
+            # Э4/Э5: the dialog's empty layers, for the same Log report.
+            "empty_layers": list(empty_layers),
         }
         self._active_op = start_long_op(
             connection, (self.import_vias_tracks_button,),
@@ -1855,11 +1910,13 @@ class CellDock(QWidget):
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
-            tracks = [i for i in items if isinstance(i, Track)]
+            raw_tracks = [i for i in items if isinstance(i, Track)]
             # Э5: the same filter as _run_refresh_geometry, in the same place —
             # a track on an unchecked layer is invisible here too, so it is never
             # imported (for Import the consequence is only "not added").
-            tracks = filter_tracks_by_layers(tracks, payload.get("layers"))
+            tracks = filter_tracks_by_layers(raw_tracks, payload.get("layers"))
+            layer_read = layer_report(raw_tracks, tracks,
+                                      payload.get("empty_layers"))
             plan = build_import_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 footprints, vias, tracks, adapter,
@@ -1867,7 +1924,7 @@ class CellDock(QWidget):
                 cell_layer=payload.get("cell_layer"))
         except ValidationError as e:
             return {"error": str(e)}
-        return {"plan": plan}
+        return {"plan": plan, "layer_report": layer_read}
 
     def _finish_import_vias_tracks(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
@@ -1878,6 +1935,10 @@ class CellDock(QWidget):
             QMessageBox.warning(
                 self, _("Import vias/tracks from selection"), result["error"])
             return
+        # Э4/Э5: the same layer report as the refresh path — and BEFORE the
+        # "Nothing to import" branch, so a read that found nothing still says
+        # which layers it looked at.
+        self._report_layer_read(result.get("layer_report"))
         plan = result["plan"]
         rows = import_preview_rows(plan)
         if not rows:
@@ -1915,14 +1976,19 @@ class CellDock(QWidget):
         self._autostage()
         return count
 
-    def import_from_selection_requested(self, name: str, file_path) -> None:
+    def import_from_selection_requested(self, name: str, file_path,
+                                        choose_layers: bool = False) -> None:
         """ConfigTreeDock's cell_import_requested delegate (2026-09-03) — the
         context menu's "Import from selection...": when the requested cell is
         not the one currently loaded, load it first, then run the same
-        _on_import_vias_tracks path as the dock's own button."""
+        _on_import_vias_tracks path as the dock's own button. `choose_layers`
+        (Э4) is the dialog leg, exactly as in refresh_from_selection_requested."""
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
-        self._on_import_vias_tracks()
+        if choose_layers:
+            self._on_import_vias_tracks_with_layers()
+        else:
+            self._on_import_vias_tracks()
 
     # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
 

@@ -52,6 +52,7 @@ from ..board_layers import (
     remember_read_layers,
     remembered_read_layers,
     selection_layer_names,
+    skipped_empty_layers,
 )
 from ..worker import socket_busy, start_long_op
 
@@ -149,7 +150,12 @@ def _fetch_copper_layers(adapter):
 
 def _ask_for_layers(parent, copper_layers, selection_items, on_ok) -> None:
     """Phase 2 (UI thread, phase 1 already finished): ask, and only on OK
-    remember the user's own choice and continue with the read."""
+    remember the user's own choice and continue with the read.
+
+    `on_ok(chosen_names, empty_names)`: the read set AND the layers the dialog
+    left off as empty — the latter is what the per-read Log report cannot derive
+    by itself (Э5), because a layer with no copper in the selection leaves no
+    trace there."""
     rows = layer_choices(copper_layers, remembered_read_layers(),
                          selection_layer_names(selection_items))
     dialog = CellLayersDialog(rows, parent)
@@ -158,12 +164,12 @@ def _ask_for_layers(parent, copper_layers, selection_items, on_ok) -> None:
     chosen = dialog.checked_names()
     remember_read_layers(
         layers_to_remember(rows, chosen, dialog.touched_names()))
-    on_ok(chosen)
+    on_ok(chosen, skipped_empty_layers(rows, chosen))
 
 
 def open_cell_layers_dialog(parent, connection, adapter, selection_items, on_ok,
                             widgets=(), on_error=None) -> object:
-    """Open the layer dialog and run `on_ok(chosen_names)` on OK.
+    """Open the layer dialog and run `on_ok(chosen_names, empty_names)` on OK.
 
     `widgets` are the caller's guard widgets (its buttons): while phase 1 runs
     they are disabled, so the same action cannot be started twice — the second

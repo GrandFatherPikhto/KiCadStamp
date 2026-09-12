@@ -183,8 +183,9 @@ def test_the_worker_reads_the_layers_before_the_dialog_opens(monkeypatch):
     selection = [_selection_track(DomainLayer.BL_F_Cu),
                  _selection_track(DomainLayer.BL_In2_Cu)]
 
-    controller = open_cell_layers_dialog(None, _FakeConnection(), adapter,
-                                         selection, done.append)
+    controller = open_cell_layers_dialog(
+        None, _FakeConnection(), adapter, selection,
+        lambda chosen, empty=(): done.append(chosen))
 
     assert controller == "controller"
     assert call["fn"] is cell_layers_mod._fetch_copper_layers
@@ -208,10 +209,28 @@ def test_ok_remembers_the_manual_choice_and_continues(monkeypatch):
 
     open_cell_layers_dialog(
         None, _FakeConnection(), adapter,
-        [_selection_track(DomainLayer.BL_F_Cu)], done.append)
+        [_selection_track(DomainLayer.BL_F_Cu)],
+        lambda chosen, empty=(): done.append(chosen))
 
     assert done == [["F.Cu"]]                        # the read runs with what is on
     assert remembered_read_layers() == ["F.Cu", "In1.Cu", "In2.Cu"]
+
+
+def test_ok_hands_the_skipped_empty_layers_to_the_read(monkeypatch):
+    """The read gets BOTH halves: the layer set it may look at, and the names the
+    dialog left off as EMPTY — which only the dialog knows, because a layer with
+    no copper in the selection leaves no trace there (Э5's Log report)."""
+    board = _FakeBoard()
+    _record_start(monkeypatch, layers=enabled_copper_layers(board))
+    _record_dialog(monkeypatch, checked=["F.Cu"])
+    got = []
+
+    open_cell_layers_dialog(
+        None, _FakeConnection(), _FakeAdapter(board),
+        [_selection_track(DomainLayer.BL_F_Cu)],
+        lambda chosen, empty: got.append((chosen, empty)))
+
+    assert got == [(["F.Cu"], ["In1.Cu", "In2.Cu", "B.Cu"])]
 
 
 def test_cancel_remembers_nothing_and_starts_nothing(monkeypatch):
@@ -242,7 +261,7 @@ def test_a_remembered_set_is_the_starting_point_of_the_next_dialog(monkeypatch):
     # First run: copper on EVERY layer, so nothing comes off by itself — only the
     # user's own "B.Cu off" is a decision, and only it is remembered.
     open_cell_layers_dialog(None, _FakeConnection(), _FakeAdapter(board),
-                            selection, [].append)
+                            selection, lambda *args: None)
     assert remembered_read_layers() == ["F.Cu", "In1.Cu", "In2.Cu"]
 
     # Second run, same selection: B.Cu opens OFF although it has copper.

@@ -15761,3 +15761,50 @@ msgstr "чтение слоёв"
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr "Не удалось прочитать медные слои платы: {error}"
+
+#: gui/docks/config_tree.py
+msgid "Update from selection (choose layers)..."
+msgstr "Обновить из выделения (выбрать слои)..."
+
+#: gui/docks/config_tree.py
+msgid "Import from selection (choose layers)..."
+msgstr "Импортировать из выделения (выбрать слои)..."
+
+#: gui/main_window.py
+msgid "Update cell from selection..."
+msgstr "Обновить ячейку из выделения..."
+
+#: gui/main_window.py
+msgid "Update cell from selection (choose layers)..."
+msgstr "Обновить ячейку из выделения (выбрать слои)..."
+
+#: gui/main_window.py
+msgid "Import vias/tracks from selection..."
+msgstr "Импортировать виа/дорожки из выделения..."
+
+#: gui/main_window.py
+msgid "Import vias/tracks from selection (choose layers)..."
+msgstr "Импортировать виа/дорожки из выделения (выбрать слои)..."
+
+#: gui/dock_hub.py
+msgid "Pick a cell in the Config tree first."
+msgstr "Сначала выбери ячейку в дереве Config."
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "read layers: {layers}"
+msgstr "прочитаны слои: {layers}"
+
+#: gui/docks/cell_editor.py
+msgid "no layer of the selection was read"
+msgstr "ни один слой выделения не прочитан"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "skipped {layer}: unchecked by hand"
+msgstr "пропущен {layer}: снят вручную"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "skipped {layer}: empty in the selection"
+msgstr "пропущен {layer}: пусто в выделении"

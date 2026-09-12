@@ -69,11 +69,13 @@ __all__ = [
     "enabled_copper_layers",
     "filter_tracks_by_layers",
     "layer_choices",
+    "layer_report",
     "layers_to_remember",
     "live_copper_name",
     "remember_read_layers",
     "remembered_read_layers",
     "selection_layer_names",
+    "skipped_empty_layers",
 ]
 
 # The "every layer" value of the layer set (see filter_tracks_by_layers). None is
@@ -238,6 +240,51 @@ def layer_choices(copper_layers, remembered, present_names) -> list[LayerChoice]
             empty=empty,
             auto_unchecked=remembered_checked and empty))
     return rows
+
+
+def skipped_empty_layers(choices, checked_names) -> list[str]:
+    """The layers the dialog leaves OFF although nothing is on them — the report's
+    "empty in the selection" lines.
+
+    A fact only the dialog knows: the worker can see the copper that was in the
+    selection (and name the layers it dropped because they were not read), but a
+    layer with NO copper leaves no trace in the selection at all — so a report
+    built by the worker alone could never mention it."""
+    checked = set(checked_names or ())
+    return [row.copper.copper_name for row in choices
+            if row.empty and row.copper.copper_name not in checked]
+
+
+def layer_report(tracks_seen, tracks_read, empty_layers=()) -> dict:
+    """The per-read Log report (Э5): which layers a read looked at, which it left
+    out, and why.
+
+    `tracks_seen` — every live track of the selection (BEFORE the layer filter);
+    `tracks_read` — the tracks the read actually looked at (AFTER it);
+    `empty_layers` — the names the dialog left off as empty (see
+    skipped_empty_layers; the fast path has no dialog and passes nothing).
+
+    A layer present in the selection but not read is one the layer set excluded —
+    "снят вручную" is then literally true, because the only way a layer is off is
+    a past or present decision by the user. Layers that merely had no copper in
+    the selection are reported only on the dialog path, where the dialog itself
+    saw them."""
+
+    def _names(tracks):
+        return {name for name in (live_copper_name(track.layer)
+                                  for track in tracks or ()) if name}
+
+    read = _names(tracks_read)
+    dropped = _names(tracks_seen) - read
+    return {
+        "read": sorted(read),
+        "skipped_manual": sorted(dropped),
+        # A layer the selection DID show copper on is never called "empty" — the
+        # selection can move between the dialog opening and the read (they are
+        # 400 ms apart), and the seen layer is the stronger evidence.
+        "skipped_empty": sorted(
+            {str(name) for name in empty_layers or ()} - read - dropped),
+    }
 
 
 def layers_to_remember(choices, checked_names, touched_names) -> list[str]:

@@ -232,6 +232,13 @@ class ConfigTreeDock(QWidget):
     # copper the cell doesn't describe yet -> NEW records; existing ones are
     # never touched). Same (name, file_path) shape.
     cell_import_requested = pyqtSignal(str, object)
+    # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
+    # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
+    # ("одно без диалога, другое — с диалогом") and both from here AND from
+    # Tools → Config. Same (name, file_path) payload; DockHub passes
+    # choose_layers=True down to the one CellDock entry point of each read.
+    cell_refresh_layers_requested = pyqtSignal(str, object)
+    cell_import_layers_requested = pyqtSignal(str, object)
     # Fired by the context menu's "Copy placement from cell..." (2026-09-06,
     # plan copy_placement_from_cell) — CellDock listens via its
     # copy_from_cell_requested() entry point: the OFFLINE cell-to-cell
@@ -1404,6 +1411,18 @@ class ConfigTreeDock(QWidget):
                 # cannot MODIFY one — they complement, never overlap).
                 menu.addAction(_("Import from selection...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
+                # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
+                # reads with the layer dialog in front. The FAST items above stay
+                # one-click (no window, no board read for the layer set); these
+                # ask FIRST which layers to read.
+                menu.addAction(
+                    _("Update from selection (choose layers)...")
+                ).triggered.connect(
+                    lambda: self.cell_refresh_layers_requested.emit(old_name, file_path))
+                menu.addAction(
+                    _("Import from selection (choose layers)...")
+                ).triggered.connect(
+                    lambda: self.cell_import_layers_requested.emit(old_name, file_path))
                 # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
                 # sibling — copy another cell's placement (component geometry +
                 # vias/tracks) into this one; the donor is picked from a minimal
@@ -1644,6 +1663,22 @@ class ConfigTreeDock(QWidget):
                 file_ctx = self._file_context_for_item(tree_item)
                 if file_ctx is not None:
                     return file_ctx[0], data[2]
+        return None
+
+    def selected_cell(self) -> Optional[tuple]:
+        """The currently selected cells leaf as (name, file_path), or None when
+        there is no selection or the selection is a different node kind.
+
+        The Tools → Config entries (DockHub.update_selected_cell_from_selection /
+        import_selected_cell_from_selection, Э4 of plan_2026_09_12_cell_layer_
+        dialog) act on the cell currently selected in the Config tree — the mirror
+        of selected_chain()/selected_scheme_list() above. The identity comes from
+        _item_identity(), so a commented label is stripped exactly as elsewhere."""
+        for tree_item in self.tree.selectedItems():
+            identity = self._item_identity(tree_item)
+            if (identity is not None and identity[0] == "leaf"
+                    and identity[2] == "cells"):
+                return identity[3], identity[1]      # (name, file path)
         return None
 
     def _selected_export_items(self) -> list:

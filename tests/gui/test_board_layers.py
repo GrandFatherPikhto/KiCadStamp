@@ -25,11 +25,13 @@ from gui.board_layers import (
     enabled_copper_layers,
     filter_tracks_by_layers,
     layer_choices,
+    layer_report,
     layers_to_remember,
     live_copper_name,
     remember_read_layers,
     remembered_read_layers,
     selection_layer_names,
+    skipped_empty_layers,
 )
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer as DomainLayer
@@ -371,3 +373,55 @@ class TestLayersToRemember:
         rows = layer_choices(_copper_rows(("F.Cu", "B.Cu")), None,
                              {"F.Cu", "B.Cu"})
         assert layers_to_remember(rows, ["F.Cu"], {"B.Cu"}) == ["F.Cu"]
+
+
+# ── Э4/Э5: the per-read Log report ──────────────────────────────────────────
+
+class TestSkippedEmptyLayers:
+    def test_only_the_layers_left_off_are_reported(self):
+        rows = layer_choices(_copper_rows(FOUR), None, {"F.Cu"})
+        # In1/In2/B.Cu came off by the rule; the user put In2 back on.
+        assert skipped_empty_layers(rows, ["F.Cu", "In2.Cu"]) == ["In1.Cu", "B.Cu"]
+
+    def test_nothing_empty_nothing_reported(self):
+        rows = layer_choices(_copper_rows(FOUR), None, set(FOUR))
+        assert skipped_empty_layers(
+            rows, [row.copper.copper_name for row in rows]) == []
+
+
+class TestLayerReport:
+    """The read saying what it looked at. The dropped group is literally
+    "unchecked by hand": a layer is only ever off because a decision was made
+    about it — and a layer with no copper in the selection leaves no trace the
+    worker could name, which is why the dialog passes the empty ones in."""
+
+    def test_read_layers_and_the_ones_the_set_dropped(self):
+        seen = [_selection_track(DomainLayer.BL_F_Cu),
+                _selection_track(DomainLayer.BL_In1_Cu),
+                _selection_track(DomainLayer.BL_B_Cu)]
+        read = [seen[0], seen[2]]
+        assert layer_report(seen, read) == {
+            "read": ["B.Cu", "F.Cu"],
+            "skipped_manual": ["In1.Cu"],
+            "skipped_empty": [],
+        }
+
+    def test_empty_layers_are_reported_only_while_unread(self):
+        seen = [_selection_track(DomainLayer.BL_F_Cu)]
+        assert layer_report(seen, seen, ["F.Cu", "In2.Cu"]) == {
+            "read": ["F.Cu"], "skipped_manual": [], "skipped_empty": ["In2.Cu"]}
+
+    def test_a_layer_the_selection_showed_is_never_called_empty(self):
+        """The selection can move between the dialog opening and the read (they
+        are ~400ms apart): copper in hand is the stronger evidence."""
+        seen = [_selection_track(DomainLayer.BL_In1_Cu)]
+        assert layer_report(seen, [], ["In1.Cu"])["skipped_empty"] == []
+
+    def test_an_empty_read_reports_nothing_read(self):
+        assert layer_report([], []) == {"read": [], "skipped_manual": [],
+                                        "skipped_empty": []}
+
+    def test_one_layer_read_twice_is_named_once(self):
+        seen = [_selection_track(DomainLayer.BL_F_Cu),
+                _selection_track(DomainLayer.BL_F_Cu)]
+        assert layer_report(seen, seen)["read"] == ["F.Cu"]

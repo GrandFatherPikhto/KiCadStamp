@@ -622,11 +622,13 @@ def test_cell_refresh_requested_does_not_open_the_cell_dialog(real_main_window,
     dialog = hub.cell_dialog
     calls = []
     monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
-                        lambda name, file_path: calls.append((name, file_path)))
+                        lambda name, file_path, choose_layers=False:
+                        calls.append((name, file_path, choose_layers)))
 
     real_main_window.config_tree_dock.cell_refresh_requested.emit("one_role", root)
 
-    assert calls == [("one_role", root)]
+    # Э4 added the choose_layers flag: the "..." item keeps it False.
+    assert calls == [("one_role", root, False)]
     assert not dialog.isVisible()
 
 
@@ -642,12 +644,117 @@ def test_cell_import_requested_does_not_open_the_cell_dialog(real_main_window,
     dialog = hub.cell_dialog
     calls = []
     monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
-                        lambda name, file_path: calls.append((name, file_path)))
+                        lambda name, file_path, choose_layers=False:
+                        calls.append((name, file_path, choose_layers)))
 
     real_main_window.config_tree_dock.cell_import_requested.emit("one_role", root)
 
-    assert calls == [("one_role", root)]
+    assert calls == [("one_role", root, False)]
     assert not dialog.isVisible()
+
+
+def test_context_menu_choose_layers_legs_ask_for_the_dialog(real_main_window,
+                                                            monkeypatch, tmp_path):
+    """Э4 (plan_2026_09_12_cell_layer_dialog): the Config tree's
+    "... (choose layers)..." items reach the SAME CellDock entry points with
+    choose_layers=True — one flag, no second implementation — and still open no
+    Cell dialog (the layer dialog is the dock's own, later)."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+    dialog = hub.cell_dialog
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda name, file_path, choose_layers=False:
+                        calls.append(("refresh", name, file_path, choose_layers)))
+    monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
+                        lambda name, file_path, choose_layers=False:
+                        calls.append(("import", name, file_path, choose_layers)))
+
+    real_main_window.config_tree_dock.cell_refresh_layers_requested.emit(
+        "one_role", root)
+    real_main_window.config_tree_dock.cell_import_layers_requested.emit(
+        "one_role", root)
+
+    assert calls == [("refresh", "one_role", root, True),
+                     ("import", "one_role", root, True)]
+    assert not dialog.isVisible()
+
+
+def test_tools_config_cell_reads_route_to_dock_hub(real_main_window, monkeypatch):
+    """Э4: Tools → Config carries BOTH variants of each read — the fast pair and
+    the choose-layers pair — and every one goes through its DockHub delegate."""
+    tools = next(m for m in real_main_window.menuBar().actions()
+                 if m.text() == "Tools").menu()
+    config = next(a for a in tools.actions()
+                  if a.menu() is not None and a.text() == "Config").menu()
+    texts = [a.text() for a in config.actions()]
+    for label in ("Update cell from selection...",
+                  "Update cell from selection (choose layers)...",
+                  "Import vias/tracks from selection...",
+                  "Import vias/tracks from selection (choose layers)..."):
+        assert label in texts
+
+    calls = []
+    monkeypatch.setattr(real_main_window._dock_hub,
+                        "update_selected_cell_from_selection",
+                        lambda choose_layers=False:
+                        calls.append(("refresh", choose_layers)))
+    monkeypatch.setattr(real_main_window._dock_hub,
+                        "import_selected_cell_from_selection",
+                        lambda choose_layers=False:
+                        calls.append(("import", choose_layers)))
+
+    real_main_window.update_cell_from_selection_action.trigger()
+    real_main_window.update_cell_layers_action.trigger()
+    real_main_window.import_cell_from_selection_action.trigger()
+    real_main_window.import_cell_layers_action.trigger()
+
+    assert calls == [("refresh", False), ("refresh", True),
+                     ("import", False), ("import", True)]
+
+
+def test_tools_config_cell_read_acts_on_the_selected_cell(real_main_window,
+                                                          monkeypatch):
+    """The Tools leg needs a cell: it acts on the one SELECTED in the Config tree,
+    the same shape as the other Tools delegates (delete_selected_chain, ...)."""
+    hub = real_main_window._dock_hub
+    monkeypatch.setattr(hub.config_tree_dock, "selected_cell",
+                        lambda: ("one_role", "root.sexp"))
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda name, file_path, choose_layers=False:
+                        calls.append(("refresh", name, file_path, choose_layers)))
+    monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
+                        lambda name, file_path, choose_layers=False:
+                        calls.append(("import", name, file_path, choose_layers)))
+
+    hub.update_selected_cell_from_selection()
+    hub.update_selected_cell_from_selection(choose_layers=True)
+    hub.import_selected_cell_from_selection()
+
+    assert calls == [("refresh", "one_role", "root.sexp", False),
+                     ("refresh", "one_role", "root.sexp", True),
+                     ("import", "one_role", "root.sexp", False)]
+
+
+def test_tools_config_cell_read_without_a_selected_cell_shows_a_message(
+        real_main_window, monkeypatch):
+    """No cell selected in the Config tree -> a Log line, no read started."""
+    hub = real_main_window._dock_hub
+    monkeypatch.setattr(hub.config_tree_dock, "selected_cell", lambda: None)
+    started = []
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda *args, **kwargs: started.append((args, kwargs)))
+    messages = []
+    monkeypatch.setattr(dock_hub_mod, "show_message",
+                        lambda text, style="", logger=None: messages.append(text))
+
+    hub.update_selected_cell_from_selection()
+
+    assert started == []
+    assert messages == ["Pick a cell in the Config tree first."]
 
 
 def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_path):

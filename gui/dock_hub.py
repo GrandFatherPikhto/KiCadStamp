@@ -901,6 +901,13 @@ class DockHub:
         # existing records).
         self.config_tree_dock.cell_import_requested.connect(
             self._import_cell_from_selection)
+        # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the context menu's
+        # "... (choose layers)..." variants — the SAME two delegates with the
+        # layer dialog in front (one extra flag, no second implementation).
+        self.config_tree_dock.cell_refresh_layers_requested.connect(
+            partial(self._refresh_cell_from_selection, choose_layers=True))
+        self.config_tree_dock.cell_import_layers_requested.connect(
+            partial(self._import_cell_from_selection, choose_layers=True))
         # 2026-09-06 (plan copy_placement_from_cell): the context menu's "Copy
         # placement from cell..." — the OFFLINE cell-to-cell placement copy
         # onto the requested cell (donor picked from a minimal role-set-fitted
@@ -2498,7 +2505,43 @@ class DockHub:
         self.cells_dock.load_entry(name, file_path)
         self._open_cell_dialog()
 
-    def _refresh_cell_from_selection(self, name, file_path) -> None:
+    def _selected_cell_or_report(self):
+        """The Config tree's currently selected cell as (name, file_path), or None
+        with a Log line already written — the ONE "no cell selected" handling the
+        Tools → Config delegates below share (same idiom as
+        delete_selected_chain/reread_scheme_list)."""
+        selection = self.config_tree_dock.selected_cell()
+        if selection is None:
+            show_message(_("Pick a cell in the Config tree first."), "",
+                         logging.getLogger(__name__))
+            return None
+        return selection
+
+    def update_selected_cell_from_selection(self, choose_layers: bool = False) -> None:
+        """Main menu Tools → Config → "Update cell from selection...": the cell
+        currently SELECTED in the Config tree (Denis asked for both variants in
+        both places, Э4), then the very same read the context menu's "Update from
+        selection..." runs. `choose_layers=True` is the OTHER variant: the layer
+        dialog opens first and what it confirms becomes the read's layer set."""
+        selection = self._selected_cell_or_report()
+        if selection is None:
+            return
+        name, file_path = selection
+        self.cells_dock.refresh_from_selection_requested(
+            name, file_path, choose_layers=choose_layers)
+
+    def import_selected_cell_from_selection(self, choose_layers: bool = False) -> None:
+        """Main menu Tools → Config → "Import vias/tracks from selection...": the
+        ADDITIVE counterpart of the delegate above, on the cell currently selected
+        in the Config tree — same fast / choose-layers split."""
+        selection = self._selected_cell_or_report()
+        if selection is None:
+            return
+        name, file_path = selection
+        self.cells_dock.import_from_selection_requested(
+            name, file_path, choose_layers=choose_layers)
+
+    def _refresh_cell_from_selection(self, name, file_path, choose_layers=False) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03, plan
         cell_geometry_refresh) — the context menu's "Update from selection...":
         same explicit file handling as _edit_cell, then drive CellDock's own
@@ -2513,9 +2556,10 @@ class DockHub:
         Save by _autostage(). "Edit cell..." keeps opening the dialog — that is
         that action's own purpose (its component/via/track tables have no home
         on the merged QView page)."""
-        self.cells_dock.refresh_from_selection_requested(name, file_path)
+        self.cells_dock.refresh_from_selection_requested(
+            name, file_path, choose_layers=choose_layers)
 
-    def _import_cell_from_selection(self, name, file_path) -> None:
+    def _import_cell_from_selection(self, name, file_path, choose_layers=False) -> None:
         """ConfigTreeDock's cell_import_requested delegate (2026-09-03, plan
         fpga_oscill_missing_copper_and_cell_import §B.3) — the context menu's
         "Import from selection...": the ADDITIVE backfill counterpart of
@@ -2528,7 +2572,8 @@ class DockHub:
         H.3 (2026-09-10): no Cell dialog here either — same reasoning as
         _refresh_cell_from_selection above; the result is reported in the Log
         and staged by _autostage()."""
-        self.cells_dock.import_from_selection_requested(name, file_path)
+        self.cells_dock.import_from_selection_requested(
+            name, file_path, choose_layers=choose_layers)
 
     def _copy_cell_placement(self, name, file_path) -> None:
         """ConfigTreeDock's cell_copy_requested delegate (2026-09-06, plan

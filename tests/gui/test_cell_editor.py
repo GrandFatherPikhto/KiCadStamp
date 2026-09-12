@@ -1923,3 +1923,115 @@ def test_the_dialog_path_without_a_board_starts_nothing(main_window, tmp_path,
 
     assert started == []
     assert messages and messages[-1] == "Connect to KiCad first."
+
+
+# ── Э4: the per-read layer report and the dialog entry point ────────────────
+
+def _two_layer_selection_board(board_cls=None):
+    """ORIG/CAP at their recorded offsets, the GND via's live counterpart and one
+    live track PER OUTER LAYER — the smallest selection where the layer report has
+    something to say about a layer it left out."""
+    cls = board_cls or _RefreshBoard
+    return cls(
+        [_refresh_dto_fp("R-ORIG", "ORIG", 10.0, 10.0),
+         _refresh_dto_fp("R-CAP", "CAP", 11.0, 10.0),
+         _refresh_dto_via("GND", 10.5, 11.5),
+         _dto_track_on(BoardLayer.BL_F_Cu, "GND", 10.0, 14.0, 11.0, 14.0),
+         _dto_track_on(BoardLayer.BL_B_Cu, "GND", 10.0, 16.0, 11.0, 16.0)],
+        roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
+
+
+def _refresh_payload(dock, board, **extra):
+    payload = {"board": board, "components": list(dock._components),
+               "vias": list(dock._vias), "tracks": list(dock._tracks),
+               "cell_layer": "F.Cu"}
+    payload.update(extra)
+    return payload
+
+
+def test_the_fast_path_reports_the_layers_it_read(main_window, tmp_path, monkeypatch):
+    """Э5/Э4: the fast path runs without a dialog, so these Log lines are the ONLY
+    place that says which layers the read looked at — and which the remembered set
+    left out (and why). Without them a week-old unchecked layer would silently
+    stop being read."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    result = dock._run_refresh_geometry(
+        _refresh_payload(dock, _two_layer_selection_board(), layers={"F.Cu"}))
+    dock._finish_refresh_geometry(result)
+
+    assert "read layers: F.Cu" in messages
+    assert "skipped B.Cu: unchecked by hand" in messages
+
+
+def test_the_dialog_path_reports_the_empty_layers_too(main_window, tmp_path, monkeypatch):
+    """The «пусто в выделении» names come from the dialog (a layer without copper
+    leaves no trace in the selection), and they reach the same report."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    result = dock._run_refresh_geometry(
+        _refresh_payload(dock, _two_layer_selection_board(), layers={"F.Cu"},
+                         empty_layers=["In1.Cu"]))
+    dock._finish_refresh_geometry(result)
+
+    assert "read layers: F.Cu" in messages
+    assert "skipped In1.Cu: empty in the selection" in messages
+
+
+def test_the_import_path_reports_its_layers_too(main_window, tmp_path, monkeypatch):
+    """The report is not a refresh-only nicety: Import says the same thing, and it
+    is printed BEFORE the "Nothing to import" branch."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+
+    class _Reject:
+        def __init__(self, rows, parent=None):
+            pass
+
+        def exec(self):
+            return 0
+    monkeypatch.setattr(cell_editor_mod, "_ImportPreviewDialog", _Reject)
+
+    result = dock._run_import_vias_tracks(
+        _refresh_payload(dock, _two_layer_selection_board(_ImportBoard),
+                         layers={"F.Cu"}))
+    dock._finish_import_vias_tracks(result)
+
+    assert "read layers: F.Cu" in messages
+    assert "skipped B.Cu: unchecked by hand" in messages
+
+
+def test_the_requested_entry_points_can_choose_layers(main_window, tmp_path,
+                                                      monkeypatch):
+    """Э4: the "... (choose layers)..." legs of BOTH context-menu items reach the
+    dialog path of the same read, while the plain items keep the fast one."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    called = []
+    monkeypatch.setattr(dock, "_on_refresh_geometry_with_layers",
+                        lambda: called.append("refresh-dialog"))
+    monkeypatch.setattr(dock, "_on_refresh_geometry",
+                        lambda: called.append("refresh-fast"))
+    monkeypatch.setattr(dock, "_on_import_vias_tracks_with_layers",
+                        lambda: called.append("import-dialog"))
+    monkeypatch.setattr(dock, "_on_import_vias_tracks",
+                        lambda: called.append("import-fast"))
+
+    dock.refresh_from_selection_requested("t", dock._path, choose_layers=True)
+    dock.refresh_from_selection_requested("t", dock._path)
+    dock.import_from_selection_requested("t", dock._path, choose_layers=True)
+    dock.import_from_selection_requested("t", dock._path)
+
+    assert called == ["refresh-dialog", "refresh-fast",
+                      "import-dialog", "import-fast"]

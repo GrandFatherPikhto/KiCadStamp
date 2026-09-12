@@ -386,6 +386,33 @@ class MainWindow(QMainWindow):
         self.extract_cluster_config_action.triggered.connect(
             lambda: self._dock_hub.extract_cluster_from_selection())
         self.config_menu.addAction(self.extract_cluster_config_action)
+        # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the cell re-reads,
+        # in BOTH variants Denis asked for ("одно без диалога, другое — с
+        # диалогом"). They act on the cell currently SELECTED in the Config tree,
+        # the same way the context menu acts on the cell it was opened on; the fast
+        # pair stays one click (no window, no board read for the layer set).
+        self.update_cell_from_selection_action = QAction(
+            _("Update cell from selection..."), self)
+        self.update_cell_from_selection_action.triggered.connect(
+            lambda: self._dock_hub.update_selected_cell_from_selection())
+        self.config_menu.addAction(self.update_cell_from_selection_action)
+        self.update_cell_layers_action = QAction(
+            _("Update cell from selection (choose layers)..."), self)
+        self.update_cell_layers_action.triggered.connect(
+            lambda: self._dock_hub.update_selected_cell_from_selection(
+                choose_layers=True))
+        self.config_menu.addAction(self.update_cell_layers_action)
+        self.import_cell_from_selection_action = QAction(
+            _("Import vias/tracks from selection..."), self)
+        self.import_cell_from_selection_action.triggered.connect(
+            lambda: self._dock_hub.import_selected_cell_from_selection())
+        self.config_menu.addAction(self.import_cell_from_selection_action)
+        self.import_cell_layers_action = QAction(
+            _("Import vias/tracks from selection (choose layers)..."), self)
+        self.import_cell_layers_action.triggered.connect(
+            lambda: self._dock_hub.import_selected_cell_from_selection(
+                choose_layers=True))
+        self.config_menu.addAction(self.import_cell_layers_action)
 
         # ── Scheme Lists submenu (2026-09-06, plan scheme_list §5.3) ──────
         # "Record..." captures the CURRENT board selection as a named Scheme

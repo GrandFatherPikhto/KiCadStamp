@@ -17101,3 +17101,50 @@ msgstr ""
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "Update from selection (choose layers)..."
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "Import from selection (choose layers)..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "Update cell from selection..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "Update cell from selection (choose layers)..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "Import vias/tracks from selection..."
+msgstr ""
+
+#: gui/main_window.py
+msgid "Import vias/tracks from selection (choose layers)..."
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "Pick a cell in the Config tree first."
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "read layers: {layers}"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "no layer of the selection was read"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "skipped {layer}: unchecked by hand"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "skipped {layer}: empty in the selection"
+msgstr ""
