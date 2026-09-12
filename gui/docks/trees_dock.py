@@ -22,9 +22,9 @@ from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog,
                              QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
                              QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
-                             QSizePolicy, QSplitter, QStackedWidget, QTabWidget,
-                             QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
-                             QVBoxLayout, QWidget)
+                             QScrollArea, QSizePolicy, QSplitter, QStackedWidget,
+                             QTabWidget, QTreeWidget, QTreeWidgetItem,
+                             QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import TreeInstance, load_config, load_tree
@@ -68,6 +68,7 @@ from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers, settings
+from ..ui_utils import wrap_in_scroll_area
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
@@ -871,7 +872,16 @@ class TreesDock(QWidget):
             form_panel.setObjectName(f"tree_form_panel_{tree.name}")
             form_panel.setProperty("_panel_built", False)
             form_panel.addWidget(QWidget())
-            splitter.addWidget(form_panel)
+            # 2026-09-12 (plan plan_2026_09_12_no_widget_squeezing.md): the
+            # panel goes into the splitter WRAPPED, exactly like a Config right
+            # page. This dock has no QScrollArea of its own, and the central
+            # QTabWidget is pinned to a minimum height of 1 (dock_hub.py:166) so
+            # the Log dock can be grown past its content — which is precisely
+            # the setup that made Qt squeeze this form's combos to 0 px instead
+            # of clipping the container (measured:
+            # diagnostics/probe_trees_dock_form_squeeze.py). The wrap takes the
+            # squeeze, the form keeps its own field heights and scrolls.
+            splitter.addWidget(wrap_in_scroll_area(form_panel))
             splitter.setStretchFactor(0, 1)
             splitter.setStretchFactor(1, 0)
             # Per-tree splitter persistence (2026-09-05, same as the Config
@@ -1423,12 +1433,16 @@ class TreesDock(QWidget):
         """The right-hand form PANEL of ANY page widget — the page-level
         counterpart of _tree_widget_of_page (splitter -> widget(1)): by
         construction (§3.1) the page hosts the tree first and ONE form panel
-        second. Returns None for a bare/placeholder page (or a historical bare
-        form wrapper), so every caller goes through the SAME page -> panel
-        unwrap instead of guessing."""
+        second. Since 2026-09-12 widget(1) is the scroll area wrapping that
+        panel (see _rebuild_tabs), so the wrap is unwrapped here. Returns None
+        for a bare/placeholder page (or a historical bare form wrapper), so
+        every caller goes through the SAME page -> panel unwrap instead of
+        guessing."""
         if not isinstance(widget, QSplitter):
             return None
         right = widget.widget(1)
+        if isinstance(right, QScrollArea):
+            right = right.widget()
         return right if isinstance(right, QStackedWidget) else None
 
     def _active_form_panel(self) -> Optional[QStackedWidget]:

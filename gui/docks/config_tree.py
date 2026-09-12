@@ -116,13 +116,11 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QAbstractItemView, QAbstractScrollArea,
-                              QApplication, QFileDialog, QFrame,
-                              QInputDialog, QMenu, QMessageBox, QScrollArea,
-                              QSizePolicy, QSplitter, QStackedWidget,
-                              QTreeWidget, QTreeWidgetItem,
+from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QFileDialog,
+                              QInputDialog, QMenu, QMessageBox, QSplitter,
+                              QStackedWidget, QTreeWidget, QTreeWidgetItem,
                               QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
@@ -130,6 +128,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
 from .. import settings, config_io
+from ..ui_utils import wrap_in_scroll_area
 from ._common import (add_include, disable_include, display_path,
                       highlight_stylesheet_for, non_includable_keys,
                       SplitterSizeKeeper, upsert_list_entry)
@@ -139,27 +138,6 @@ from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, re
 
 logger = logging.getLogger(__name__)
 
-
-class _RightPageScrollArea(QScrollArea):
-    """QScrollArea wrapper for ONE Config right page (S.2 of
-    techdocs/me/scroll.md / prompt_2026_09_10_splitters_and_log_sizing.md).
-
-    QStackedWidget.minimumSizeHint() is the MAX over ALL pages — hidden ones
-    included — so a single tall page floored the whole Config dock (measured:
-    ThermalViaArrayDock 495 px pinned the dock at 522). Wrapping each page caps
-    that page's contribution.
-
-    This subclass caps the HEIGHT floor at 1 while leaving the WIDTH floor at the
-    content's own minimumSizeHint: a plain QScrollArea reports a small,
-    content-INDEPENDENT minimum width (measured 68 px for every page), which
-    shrank the whole left dock area from 556 to 150 px — wrapping must be
-    horizontally transparent, or the "fix" becomes a width regression."""
-
-    def minimumSizeHint(self) -> QSize:
-        widget = self.widget()
-        width = (widget.minimumSizeHint().width() if widget is not None
-                 else super().minimumSizeHint().width())
-        return QSize(width, 1)
 
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
@@ -562,36 +540,15 @@ class ConfigTreeDock(QWidget):
     @staticmethod
     def _wrap_right_page(widget: QWidget) -> QWidget:
         """Return the widget that actually goes INTO the stack: `widget` itself
-        when it already scrolls its own content, otherwise a QScrollArea around
-        it (S.2 of techdocs/me/scroll.md).
+        when it already scrolls its own content, otherwise a MinHeightScrollArea
+        around it (S.2 of techdocs/me/scroll.md).
 
-        Nesting a scroll area around a QPlainTextEdit/tree/table is the
-        project's documented anti-pattern (log_panel.py:157, pending.py:240)."""
-        if isinstance(widget, QAbstractScrollArea):
-            return widget
-        area = _RightPageScrollArea()
-        area.setWidgetResizable(True)
-        # The load-bearing line: with setWidgetResizable(True) the area still
-        # stretches from its content, so its own minimum must be overridden
-        # explicitly. 1, not 0 — Qt treats an explicit 0 as "unset" and falls
-        # back to minimumSizeHint() (same sentinel as log_panel.py:157).
-        area.setMinimumHeight(1)
-        # NoFrame: a per-page frame is part of the "распухание" a previous
-        # attempt produced.
-        area.setFrameShape(QFrame.Shape.NoFrame)
-        # As-needed bars on both axes: nothing is reserved until the page
-        # really has something to scroll.
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        # Vertical `Ignored` keeps the page from dictating the stack's height
-        # (the explicit setMinimumHeight(1) above caps it); horizontal stays
-        # `Preferred` so the enclosing splitter still allocates width from the
-        # hint/stretch — an `Ignored` horizontal policy collapsed the whole
-        # right page to 0 px (measured with probe_splitter_and_log_floor).
-        area.setSizePolicy(QSizePolicy.Policy.Preferred,
-                           QSizePolicy.Policy.Ignored)
-        area.setWidget(widget)
-        return area
+        The five settings this must NOT lose live in ONE place now —
+        gui/ui_utils.wrap_in_scroll_area — because the Trees dock form panels
+        need the identical pairing (2026-09-12, plan
+        plan_2026_09_12_no_widget_squeezing.md), and two copies of a measured
+        invariant drift apart."""
+        return wrap_in_scroll_area(widget)
 
     def right_page_at(self, index: int) -> Optional[QWidget]:
         """The USER-facing widget of right-stack page `index` — unwraps the
