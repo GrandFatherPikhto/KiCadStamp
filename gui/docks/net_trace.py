@@ -307,7 +307,8 @@ class NetTraceDock(QWidget):
         self._active_op = start_long_op(
             self._connection,
             (self.extract_button, self.redraw_button),
-            self._run_extract, self._finish_extract, self._on_op_failed, payload)
+            self._run_extract, self._finish_extract, self._on_op_failed, payload,
+            busy_text=_("reading the board"))
 
     def _resolve_sheet_names_for_extract(self, path: Optional[Path]) -> Dict[str, str]:
         """Best-effort ctx.sheet_names for anchor_sheet narrowing at extract
@@ -516,7 +517,8 @@ class NetTraceDock(QWidget):
         self._active_op = start_long_op(
             self._connection,
             (self.extract_button, self.redraw_button),
-            self._run_redraw, self._finish_redraw, self._on_op_failed, payload)
+            self._run_redraw, self._finish_redraw, self._on_op_failed, payload,
+            busy_text=_("placing"))
 
     def _collect_redraw_inputs(self) -> Optional[Dict[str, Any]]:
         """UI thread: build the form's net/anchor, then load the saved record's

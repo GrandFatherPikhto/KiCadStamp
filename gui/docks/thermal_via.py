@@ -394,7 +394,8 @@ class ThermalViaArrayDock(QWidget):
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
             self._main_window.connection, (self.redraw_button,),
-            self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
+            self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload,
+            busy_text=_("placing"))
 
     def _on_redraw_failed(self, message: str) -> None:
         self._show_message(_("Placement failed: {error}").format(error=message), _ERROR_STYLE)

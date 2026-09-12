@@ -873,7 +873,8 @@ class RecordSchemeListDialog(QDialog):
         self._pivot_op = refresh_snapshot_then(
             self._connection, (self.pivot_from_selection_button,),
             lambda: self._pivot_from_selection_now(refs),
-            self._on_pivot_snapshot_refresh_failed)
+            self._on_pivot_snapshot_refresh_failed,
+            busy_text=_("reading the board"))
 
     def _pivot_from_selection_now(self, refs: List[str]) -> None:
         """UI thread, AFTER the snapshot rebuild (see
@@ -1525,7 +1526,8 @@ class SchemeListFormWidget(QWidget):
         self._pivot_op = refresh_snapshot_then(
             self._connection, (self.pivot_from_selection_button,),
             lambda: self._pivot_from_selection_now(record),
-            self._on_pivot_snapshot_refresh_failed)
+            self._on_pivot_snapshot_refresh_failed,
+            busy_text=_("reading the board"))
 
     def _pivot_from_selection_now(self, record: SchemeListConfig) -> None:
         """UI thread, AFTER the snapshot rebuild (see

@@ -1425,7 +1425,7 @@ def test_redraw_selected_collects_checked_refs_and_calls_worker(
     r_item.setCheckState(0, Qt.CheckState.Checked)
 
     captured = {}
-    def fake_start(connection, widgets, worker, finish, failed, payload):
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
         captured["payload"] = payload
         return object()
     import gui.docks.trees_dock as td_mod
@@ -1479,7 +1479,7 @@ def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
     dock, _root = _dock_with(main_window, tmp_path)
 
     captured = {}
-    def fake_start(connection, widgets, worker, finish, failed, payload):
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
         captured["payload"] = payload
         return object()
     import gui.docks.trees_dock as td_mod
@@ -1541,7 +1541,7 @@ def test_run_forest_redraw_collects_all_trees_and_calls_forest_worker(
         collect_tree_refs, run_curated_forest_redraw_worker)
 
     captured = {}
-    def fake_start(connection, widgets, worker, finish, failed, payload):
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
         captured["worker"] = worker
         captured["payload"] = payload
         return object()
@@ -1591,7 +1591,7 @@ def test_redraw_edited_node_module_kind_uses_forest_content_worker(
     module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
 
     captured = {}
-    def fake_start(connection, widgets, worker, finish, failed, payload):
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
         captured["worker"] = worker
         captured["payload"] = payload
         return object()
@@ -1619,7 +1619,7 @@ def test_redraw_edited_node_normal_kind_uses_single_node_worker(
     assert node.kind != "module"
 
     captured = {}
-    def fake_start(connection, widgets, worker, finish, failed, payload):
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
         captured["worker"] = worker
         captured["payload"] = payload
         return object()

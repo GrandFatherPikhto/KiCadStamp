@@ -282,7 +282,7 @@ def test_action_starts_the_worker_with_explicit_paths(main_window, tmp_path, mon
     dock, root_path = _dock(main_window, tmp_path)
     launched = []
 
-    def fake_start(connection, widgets, fn, on_success, on_error, payload):
+    def fake_start(connection, widgets, fn, on_success, on_error, payload, **kwargs):
         launched.append(payload)
         return object()
 

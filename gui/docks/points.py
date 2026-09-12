@@ -817,6 +817,9 @@ class PointsDock(QWidget):
         adapter = self._live_adapter()
         if not uuid or adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator):
+        # this is a programmatic reload — another point is being loaded/renamed
+        # (_load_point), so no button of this dock started the removal.
         self._active_op = start_long_op(
             self._connection, [], board_overlay.remove_overlay,
             lambda _ok: None, lambda _message: None, adapter, [uuid])
@@ -832,6 +835,9 @@ class PointsDock(QWidget):
         adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a
+        # ROOT switch — the dock reacts to the new root being set, no click of
+        # ours starts this.
         self._active_op = start_long_op(
             self._connection, [], board_overlay.remove_overlay,
             lambda _ok: None, lambda _message: None, adapter, uuids)

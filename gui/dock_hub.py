@@ -440,7 +440,13 @@ class DockHub:
         """Config-tree context menu's "Re-source..." delegate
         (scheme_list_resource_requested, plan 5b.3/5b.4): the record is
         already known from the right-click — re-point it under the same name.
-        `file_path` is the record's owning file (the re-source write target)."""
+        `file_path` is the record's owning file (the re-source write target).
+
+        No guard widget is passed to the capture (Э2, plan_2026_09_12_busy_
+        indicator): this leg is started by a context-menu QAction built on the
+        fly in the Config tree, and that object is gone with its menu long
+        before the worker runs — there is nothing stable to disable. A second
+        run would need a fresh right-click plus the whole dialog round trip."""
         self._run_resource_scheme_list(entry, file_path)
 
     def resource_scheme_list(self) -> None:
@@ -454,15 +460,22 @@ class DockHub:
                          logging.getLogger(__name__))
             return
         file_path, entry = selection
-        self._run_resource_scheme_list(entry, file_path)
+        self._run_resource_scheme_list(
+            entry, file_path,
+            trigger=self._menu_trigger_action("resource_scheme_list_action"))
 
-    def _run_resource_scheme_list(self, entry, file_path) -> None:
+    def _run_resource_scheme_list(self, entry, file_path, trigger=None) -> None:
         """UI thread — the shared Re-source flow: guards, the fixed-name
         RecordSchemeListDialog (both source tabs stay available), the ref
         derivation (record_refs_for — same By-sheet/By-selection branch as
         Record), the duplicate pre-checks with exclude_name = the record
         itself, then the capture dispatched to the worker. Never touches the
-        board on this thread."""
+        board on this thread.
+
+        `trigger` is the menu QAction the flow was started by, for the guard
+        widget of its start_long_op (Э2, plan_2026_09_12_busy_indicator); the
+        Config-tree context-menu leg passes None on purpose (see
+        resource_scheme_list_record)."""
         from .worker import start_long_op
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
@@ -588,9 +601,11 @@ class DockHub:
                    "pivot": list(pivot),
                    "scope_sheet_paths": scope_sheet_paths,
                    "scope_presets": payload_scope_presets}
+        scheme_widgets = [trigger] if trigger is not None else []
         self._scheme_active_op = start_long_op(
-            connection, (), self._run_resource_capture,
-            self._finish_resource_capture, self._on_resource_op_failed, payload)
+            connection, scheme_widgets, self._run_resource_capture,
+            self._finish_resource_capture, self._on_resource_op_failed, payload,
+            busy_text=_("reading the board"))
 
     def _show_config_chain(self, *_args) -> None:
         """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
@@ -1361,6 +1376,17 @@ class DockHub:
         via_requested -> _start_new_thermal_via)."""
         self._start_new_thermal_via(self.root_metadata_dock.root_path)
 
+    def _menu_trigger_action(self, attr_name: str):
+        """The menu QAction a menu-only flow was started by, to hand to
+        start_long_op as its guard widget (Э2, plan_2026_09_12_busy_indicator:
+        a DISABLED QAction is how a second click on the same menu entry is
+        refused while the operation holds the shared kipy socket).
+
+        Looked up by attribute NAME, lazily: MainWindow builds its Actions
+        after DockHub exists, and a bare-stub window in a test has none — hence
+        None instead of an AttributeError."""
+        return getattr(self.main_window, attr_name, None)
+
     # ── Tools → "Scheme Lists" (2026-09-06, plan scheme_list §5.3 / Stage 5a)
     # "Record..." captures the source the user picks in a TWO-tab dialog — "By
     # sheet" (root sheet + sub-sheet checklist, the DEFAULT) or "By selection"
@@ -1394,6 +1420,10 @@ class DockHub:
             # (plan_2026_09_11_no_modals_and_busy_kicad X.1).
             show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
+        # Э2 (plan_2026_09_12_busy_indicator): the Tools-menu QAction that
+        # started this flow is disabled until the capture finishes, so the same
+        # entry cannot put a second live-board read on the shared kipy socket.
+        trigger = self._menu_trigger_action("record_scheme_list_action")
         # source_sheet derivation (capture_scheme_list's sheet_names parameter)
         # needs the {uuid: sheetname} map the project config carries
         # (ctx.sheet_names). Best-effort: a broken config must not block Record
@@ -1492,9 +1522,11 @@ class DockHub:
                    "pivot": list(pivot),
                    "scope_sheet_paths": scope_sheet_paths,
                    "scope_presets": payload_scope_presets}
+        scheme_widgets = [trigger] if trigger is not None else []
         self._scheme_active_op = start_long_op(
-            connection, (), self._run_record_capture, self._finish_record_capture,
-            self._on_record_op_failed, payload)
+            connection, scheme_widgets, self._run_record_capture,
+            self._finish_record_capture, self._on_record_op_failed, payload,
+            busy_text=_("reading the board"))
 
     def _run_record_capture(self, payload: Dict) -> Dict[str, Any]:
         """Worker thread: the actual capture (live-board IPC) — never touches
@@ -1557,10 +1589,14 @@ class DockHub:
         payload2 = dict(result["payload"])
         payload2["boundary_net_actions"] = actions
         connection = self.main_window.connection
+        # No guard widget (Э2, plan_2026_09_12_busy_indicator): this second leg
+        # is started from the phase-1 COMPLETION HANDLER, not from a click —
+        # between the two, the boundary dialog is modal, so no menu can be
+        # reached and nothing is left to disable.
         self._scheme_active_op = start_long_op(
             connection, (), self._run_record_capture,
             self._finish_record_capture_phase2, self._on_record_op_failed,
-            payload2)
+            payload2, busy_text=_("reading the board"))
 
     def _finish_record_capture_phase2(self, result: Dict[str, Any]) -> None:
         """UI thread, phase-2 completion (G2): the record was re-captured WITH
@@ -1666,10 +1702,12 @@ class DockHub:
         payload2 = dict(result["payload"])
         payload2["boundary_net_actions"] = actions
         connection = self.main_window.connection
+        # No guard widget — same reasoning as the Record phase-2 above: started
+        # from a completion handler behind a modal dialog, never from a click.
         self._scheme_active_op = start_long_op(
             connection, (), self._run_resource_capture,
             self._finish_resource_capture_phase2, self._on_resource_op_failed,
-            payload2)
+            payload2, busy_text=_("reading the board"))
 
     def _finish_resource_capture_phase2(self, result: Dict[str, Any]) -> None:
         """UI thread, phase-2 completion (G3): the record was re-captured WITH
@@ -1732,8 +1770,13 @@ class DockHub:
         (plan
         2026-09-02 tree_module_embedding P3 п.3): the forest-wide, module-aware
         curated redraw across ALL trees. TreesDock owns the trees/cfg/ctx and
-        the worker callback plumbing (no new dock button — menu only)."""
-        self.trees_dock._run_forest_redraw()
+        the worker callback plumbing (no new dock button — menu only).
+
+        The QAction is handed down as the operation's guard widget (Э2,
+        plan_2026_09_12_busy_indicator): greyed out for the duration, so the
+        same menu entry cannot start a second forest redraw."""
+        self.trees_dock._run_forest_redraw(
+            self._menu_trigger_action("full_redraw_action"))
 
     def open_instances_dialog(self) -> None:
         """Main menu "Tools -> Trees -> Instances..." (2026-09-02, plan tree_instances
@@ -1816,29 +1859,37 @@ class DockHub:
 
     def redraw_selected(self) -> None:
         """Tools → Trees → Redraw selected: curated redraw of the CURRENT
-        tree's CHECKED nodes (background worker)."""
+        tree's CHECKED nodes (background worker). The menu QAction is handed
+        down as the guard widget (Э2, plan_2026_09_12_busy_indicator)."""
         self._focus_trees_dock()
-        self.trees_dock._on_redraw_selected()
+        self.trees_dock._on_redraw_selected(
+            self._menu_trigger_action("redraw_selected_action"))
 
     def reread_internode_copper(self) -> None:
         """Tools → Trees → "Reread inter-node copper" (plan_2026_09_12_internode_
         copper_core Э4): re-read the CURRENT tree's copper between pads from the
-        live board — a background worker, no dialog, the report in the Log."""
+        live board — a background worker, no dialog, the report in the Log. The
+        menu QAction is the operation's guard widget (Э2)."""
         self._focus_trees_dock()
-        self.trees_dock._on_reread_internode_copper()
+        self.trees_dock._on_reread_internode_copper(
+            self._menu_trigger_action("reread_internode_action"))
 
     def identify_selected_copper(self) -> None:
         """Tools → Trees → "Whose copper is this?" (plan_2026_09_12_select_copper_
         by_record Э3): map the live board SELECTION back to the net_traces records
-        that own it — a background worker, the answer in the Log, read-only."""
+        that own it — a background worker, the answer in the Log, read-only. The
+        menu QAction is the operation's guard widget (Э2)."""
         self._focus_trees_dock()
-        self.trees_dock._on_identify_selected_copper()
+        self.trees_dock._on_identify_selected_copper(
+            self._menu_trigger_action("identify_copper_action"))
 
     def redraw_whole_tree(self) -> None:
         """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
-        the CURRENT tree (background worker)."""
+        the CURRENT tree (background worker). The menu QAction is handed down as
+        the guard widget (Э2, plan_2026_09_12_busy_indicator)."""
         self._focus_trees_dock()
-        self.trees_dock._on_redraw_whole_tree()
+        self.trees_dock._on_redraw_whole_tree(
+            self._menu_trigger_action("redraw_whole_tree_action"))
 
     def _refresh_snapshot_then(self, title: str, on_ready) -> None:
         """R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md) — the
@@ -1860,11 +1911,16 @@ class DockHub:
 
         A connection with no live board behind it cannot be refreshed; the flow
         then proceeds on the cached snapshot (the documented fallback, see
-        gui/worker.py::refresh_snapshot_then)."""
+        gui/worker.py::refresh_snapshot_then).
+
+        The rebuild names itself in the status bar (Э1/Э2 of
+        plan_2026_09_12_busy_indicator): every Extract flow's first visible step
+        IS this board read."""
         from .worker import refresh_snapshot_then
         refresh_snapshot_then(
             self.main_window.connection, (), on_ready,
-            lambda message: self._show_snapshot_refresh_error(title, message))
+            lambda message: self._show_snapshot_refresh_error(title, message),
+            busy_text=_("reading the board"))
 
     def _show_snapshot_refresh_error(self, title: str, message: str) -> None:
         """UI thread: the worker could not rebuild the board snapshot (the live
@@ -2554,7 +2610,12 @@ class DockHub:
         The board read runs on a WORKER thread (start_long_op), never on the UI
         thread, and the report only reaches the Log — never a modal. Best
         effort by design: no adapter, a busy socket or a disabled layer is a
-        silent no-op, because this is a visualisation housekeeping step."""
+        silent no-op, because this is a visualisation housekeeping step.
+
+        No guard widget and no busy word (Э2, plan_2026_09_12_busy_indicator):
+        this is AUTOMATIC housekeeping fired by MainWindow._finish_poll on
+        connect/refresh, not something the user started — the disabled-layer
+        rule above plus the long_op_active check below are its only guards."""
         from .worker import start_long_op
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None

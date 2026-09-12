@@ -351,7 +351,7 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
 
     captured = {}
 
-    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
+    def _fake_start(connection, widgets, fn, on_success, on_error, *args, **kwargs):
         captured["connection"] = connection
         captured["widgets"] = widgets
         captured["args"] = args

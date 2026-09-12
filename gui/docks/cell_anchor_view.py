@@ -157,6 +157,9 @@ def cleanup_all_overlays_sync(connection, timeout_s: float = 5.0) -> None:
         return
     if getattr(connection, "long_op_active", False):
         return  # never interleave on the shared kipy REQ socket
+    # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): this is
+    # the GUI-EXIT sweep — the app is quitting and its windows are already going
+    # away, so there is nothing left to click and nothing to grey out.
     controller = start_long_op(
         connection, [], board_overlay.remove_overlay,
         lambda _ok: None, lambda _message: None, adapter, uuids)
@@ -1534,6 +1537,13 @@ class CellAnchorView(QWidget):
         adapter = self._adapter()
         if not uuids or adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator):
+        # cleanup() has FOUR triggers — leaving the anchor page, opening another
+        # cell, a root change, and the form's own "Remove overlay" button — and
+        # on the button path the form that owns that button is rebuilt by the
+        # caller immediately afterwards (_on_remove_overlay -> _reload_form), so
+        # there is no stable widget to grey out. Handing that button over would
+        # have _release() touch a deleted C++ object.
         self._active_op = start_long_op(
             self._connection, [], board_overlay.remove_overlay,
             lambda _ok: None, lambda _message: None, adapter, uuids)

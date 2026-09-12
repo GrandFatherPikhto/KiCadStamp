@@ -878,8 +878,11 @@ def test_dock_hub_scheme_list_resource_requested_reaches_shared_flow(
     _set_hub_root(hub, root)
 
     calls = []
+    # `trigger` (Э2, plan_2026_09_12_busy_indicator): the Tools-menu leg passes
+    # the QAction, this context-menu leg passes None by design.
     monkeypatch.setattr(hub, "_run_resource_scheme_list",
-                        lambda entry, file_path: calls.append((entry, file_path)))
+                        lambda entry, file_path, trigger=None:
+                        calls.append((entry, file_path)))
 
     record = _scheme_record("amp")
     hub.config_tree_dock.scheme_list_resource_requested.emit(record, root)
@@ -901,7 +904,8 @@ def test_dock_hub_resource_scheme_list_without_selection_warns(hub, tmp_path, mo
 
     opened = []
     monkeypatch.setattr(hub, "_run_resource_scheme_list",
-                        lambda entry, file_path: opened.append(entry))
+                        lambda entry, file_path, trigger=None:
+                        opened.append(entry))
 
     hub.resource_scheme_list()
 
@@ -922,8 +926,11 @@ def test_dock_hub_resource_scheme_list_with_selection_reaches_shared_flow(
     leaf.setSelected(True)
 
     calls = []
+    triggers = []
     monkeypatch.setattr(hub, "_run_resource_scheme_list",
-                        lambda entry, file_path: calls.append((entry, file_path)))
+                        lambda entry, file_path, trigger=None:
+                        (calls.append((entry, file_path)),
+                         triggers.append(trigger)))
 
     hub.resource_scheme_list()
 
@@ -931,3 +938,10 @@ def test_dock_hub_resource_scheme_list_with_selection_reaches_shared_flow(
     entry, file_path = calls[0]
     assert entry["name"] == "amp"
     assert Path(file_path) == root
+    # Э2 (plan_2026_09_12_busy_indicator): this leg looks the Tools-menu QAction
+    # up on the window to use as the guard widget. This fixture's window is a
+    # bare QMainWindow stub with no Actions at all, so the lookup yields None and
+    # the guard list is simply empty — never an AttributeError. (The real
+    # window's Action is asserted in test_trees_dock_internode_reread's
+    # delegate-wiring test, which builds the real MainWindow.)
+    assert triggers == [None]

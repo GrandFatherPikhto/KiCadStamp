@@ -272,7 +272,7 @@ def test_tree_action_starts_worker_and_logs_the_report(main_window, tmp_path, mo
     node = next(n for n in tree.nodes if n.kind == "net_trace")
     launched = []
 
-    def fake_start(connection, widgets, fn, on_success, on_error, payload):
+    def fake_start(connection, widgets, fn, on_success, on_error, payload, **kwargs):
         launched.append(payload)
         on_success(_report(identity="bridge_one"))
         return object()
@@ -323,7 +323,7 @@ def test_dock_button_uses_the_opened_record_identity(main_window, tmp_path, monk
     dock.load_entry({"net": "N", "name": "bridge_two", "anchor_role": "A"})
     launched = []
 
-    def fake_start(connection, widgets, fn, on_success, on_error, payload):
+    def fake_start(connection, widgets, fn, on_success, on_error, payload, **kwargs):
         launched.append(payload)
         return object()
 

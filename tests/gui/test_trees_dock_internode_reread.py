@@ -182,3 +182,90 @@ def test_finish_with_nothing_changed_keeps_the_tree_and_is_clean(main_window, tm
 
     assert len(tree.nodes) == before
     assert dock._stale_net_traces == set()
+
+
+# ── Э2 (plan_2026_09_12_busy_indicator): the guard widget ──────────────────
+# A menu-only flow has no dock button to disable, so the Tools-menu QAction
+# itself is handed to start_long_op: greyed out while the operation runs, a
+# second click on the same entry therefore refused. These tests pin both halves
+# — the wiring (the right Action per flow) and the behaviour.
+
+def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypatch):
+    """Every Tools → Trees delegate passes ITS OWN QAction down to the dock
+    method — the action that the user actually clicked, not a guess."""
+    hub = real_main_window._dock_hub
+    dock = hub.trees_dock
+    seen = {}
+    for name in ("_on_redraw_selected", "_on_redraw_whole_tree",
+                 "_run_forest_redraw", "_on_reread_internode_copper",
+                 "_on_identify_selected_copper"):
+        seen[name] = []
+        monkeypatch.setattr(
+            dock, name,
+            (lambda n: lambda *args, **kwargs: seen[n].append(args))(name))
+
+    hub.redraw_selected()
+    hub.redraw_whole_tree()
+    hub.run_forest_full_redraw()
+    hub.reread_internode_copper()
+    hub.identify_selected_copper()
+
+    assert seen["_on_redraw_selected"] == [
+        (real_main_window.redraw_selected_action,)]
+    assert seen["_on_redraw_whole_tree"] == [
+        (real_main_window.redraw_whole_tree_action,)]
+    assert seen["_run_forest_redraw"] == [
+        (real_main_window.full_redraw_action,)]
+    assert seen["_on_reread_internode_copper"] == [
+        (real_main_window.reread_internode_action,)]
+    assert seen["_on_identify_selected_copper"] == [
+        (real_main_window.identify_copper_action,)]
+
+
+def test_reread_internode_copper_disables_the_menu_action_while_it_runs(
+        main_window, tmp_path, monkeypatch, qapp):
+    """The action handed in is start_long_op's guard widget: it reaches the
+    worker as the ONLY widget, is disabled for the whole read, and is enabled
+    again once the read finishes (the worker fails here — the release path is
+    the same one for success and failure).
+
+    Called WITHOUT a trigger (the direct/test entry point) the list stays empty
+    and the action is not touched at all."""
+    import gui.docks.trees_dock as trees_dock_mod
+    from PyQt6.QtGui import QAction
+    from gui.worker import start_long_op as real_start_long_op
+    from tests.gui.conftest import _pump
+
+    dock, _root_path = _dock(main_window, tmp_path)
+    action = QAction("Reread inter-node copper")
+    assert action.isEnabled()
+
+    widgets_seen = []
+    enabled_seen = []
+
+    def spy_start_long_op(connection, widgets, fn, on_success, on_error,
+                          *args, **kwargs):
+        widgets_seen.append(list(widgets))
+        return real_start_long_op(connection, widgets, fn, on_success, on_error,
+                                  *args, **kwargs)
+
+    def fake_worker(_payload):
+        enabled_seen.append(action.isEnabled())
+        raise RuntimeError("stop here — this test is about the guard widget")
+
+    monkeypatch.setattr(trees_dock_mod, "start_long_op", spy_start_long_op)
+    monkeypatch.setattr(trees_dock_mod, "run_internode_reread_worker", fake_worker)
+
+    dock._on_reread_internode_copper(action)
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
+
+    assert widgets_seen == [[action]]
+    assert enabled_seen == [False], "the QAction stayed enabled while the read ran"
+    assert action.isEnabled(), "the QAction was not restored after the read"
+
+    dock._on_reread_internode_copper()
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
+
+    assert widgets_seen == [[action], []]
+    assert enabled_seen == [False, True], \
+        "a trigger-less call must not touch the menu action"

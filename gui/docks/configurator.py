@@ -465,6 +465,10 @@ class ConfiguratorDock(QWidget):
         adapter = self._overlay_adapter()
         if adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): this
+        # read is fired by the Settings dialog OPENING, not by a click of ours,
+        # and the combo has already been seeded with the remembered value — so
+        # there is no button to grey out, and nothing can be started twice.
         self._active_overlay_op = start_long_op(
             self._connection, [], _fetch_overlay_layers,
             self._apply_overlay_layers, lambda _msg: None, adapter)

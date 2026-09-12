@@ -839,8 +839,13 @@ class ChainDock(QWidget):
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
         self._active_op = start_long_op(
             self._main_window.connection,
-            (),  # no buttons to disable anymore — the form is a dialog
-            self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload)
+            (),  # no guard widget: the Chain form is a dialog (see below)
+            self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload,
+            busy_text=_("placing"))
+        # Э2 (plan_2026_09_12_busy_indicator): the empty list above is correct,
+        # not an oversight — this dock's form lives in a dialog whose buttons
+        # belong to whoever opened it (_ChainDialog), so there is no button of
+        # this dock's own to disable while the redraw runs.
 
     def _on_redraw_failed(self, message: str) -> None:
         self._show_message(_("Placement failed: {error}").format(error=message), _ERROR_STYLE)

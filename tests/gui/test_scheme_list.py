@@ -1094,7 +1094,7 @@ def test_finish_record_capture_truncate_launches_phase2_with_actions(
     payloads = []
     monkeypatch.setattr(
         worker_mod, "start_long_op",
-        lambda _c, _w, worker, on_success, on_error, payload:
+        lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
             payloads.append(payload) or object())
     payload = {"name": "ampA", "refs": ["R1"], "root": str(root)}
     hub._finish_record_capture({"record": record, "root": str(root),
@@ -1299,7 +1299,7 @@ def test_finish_resource_capture_truncate_launches_phase2_with_actions(
     seen = {}
     monkeypatch.setattr(
         worker_mod, "start_long_op",
-        lambda _c, _w, worker, on_success, on_error, payload:
+        lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
             seen.update(worker=worker, success=on_success, payload=payload)
             or object())
     payload = {"name": "amp", "refs": ["R5"], "root": str(root),
@@ -1869,7 +1869,7 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.record_scheme_list()
@@ -1964,7 +1964,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.record_scheme_list()
@@ -2220,7 +2220,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         entry = {"name": "amp", "pivot": [2.5, -1.0],
@@ -2564,7 +2564,7 @@ def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.record_scheme_list()
@@ -2610,7 +2610,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.resource_scheme_list_record(entry, root)
@@ -2658,7 +2658,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.resource_scheme_list_record(entry, root)
@@ -3213,7 +3213,7 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
         import gui.worker as worker_mod
         monkeypatch.setattr(
             worker_mod, "start_long_op",
-            lambda _c, _w, worker, on_success, on_error, payload:
+            lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
         hub.record_scheme_list()

@@ -1021,7 +1021,7 @@ def test_dock_hub_tree_actions_forward_to_trees_dock(real_main_window, monkeypat
             ("redraw_whole_tree", "_on_redraw_whole_tree")):
         called = []
         monkeypatch.setattr(hub.trees_dock, handler,
-                            lambda c=called: c.append(True))
+                            lambda *a, **k: called.append(True))
         getattr(hub, delegate)()
         assert called == [True], f"{delegate} must forward to TreesDock.{handler}"
 

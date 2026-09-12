@@ -2296,6 +2296,10 @@ class TreesDock(QWidget):
         adapter = self._live_adapter()
         if adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): the
+        # triggers are a RENAME and leaving the tree — programmatic state changes
+        # a widget did not start, and on the rename path the form whose field
+        # caused it is rebuilt immediately afterwards (_rebuild_tabs).
         self._active_op = start_long_op(
             self._main_window.connection, (), board_overlay.remove_overlay,
             lambda _result: None, lambda _message: None, adapter, uuids)
@@ -2323,6 +2327,9 @@ class TreesDock(QWidget):
         adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a
+        # tree-TAB switch starts this, not a button — the tab widget has no
+        # operation of its own to grey out.
         self._active_op = start_long_op(
             self._main_window.connection, (), board_overlay.remove_overlay,
             lambda _result: None, lambda _message: None, adapter, uuids)
@@ -2340,6 +2347,9 @@ class TreesDock(QWidget):
         adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a
+        # root switch — the dock reacts to the new root being set, no widget of
+        # this dock started it.
         self._active_op = start_long_op(
             self._main_window.connection, (), board_overlay.remove_overlay,
             lambda _result: None, lambda _message: None, adapter, uuids)
@@ -2602,10 +2612,13 @@ class TreesDock(QWidget):
 
     # ── Inter-node copper: re-read (plan_2026_09_12_internode_copper_core Э4) ──
 
-    def _on_reread_internode_copper(self) -> None:
+    def _on_reread_internode_copper(self, trigger=None) -> None:
         """Tools → Trees → "Reread inter-node copper": re-read the CURRENT
         tree's copper between pads from the LIVE board and refresh its
         `net_traces:` records (design §6).
+
+        `trigger` is the Tools-menu QAction that started it; it is greyed out
+        for the operation's duration (Э2, plan_2026_09_12_busy_indicator).
 
         Zero dialogs, by decision: the outcome is a LIST IN THE LOG, the edits
         land in the working set immediately (File > Save persists them), and
@@ -2631,11 +2644,16 @@ class TreesDock(QWidget):
             "tree": tree,
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
         }
+        # Э2 (plan_2026_09_12_busy_indicator): the menu QAction is disabled
+        # while the read runs, so the same entry cannot put a SECOND board read
+        # on the shared kipy REQ socket.
+        widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
-            self._main_window.connection, (),
+            self._main_window.connection, widgets,
             run_internode_reread_worker,
             self._finish_reread_internode_copper,
-            self._on_reread_worker_failed, payload)
+            self._on_reread_worker_failed, payload,
+            busy_text=_("re-reading copper"))
 
     def _on_reread_worker_failed(self, message: str) -> None:
         self._active_op = None
@@ -2704,11 +2722,17 @@ class TreesDock(QWidget):
             "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
                             if self._ctx is not None else {}),
         }
+        # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): the
+        # trigger is the node context menu's "Select copper on board", an action
+        # built on the fly (_build_node_menu) — the menu is already closed and
+        # its QAction dies with it, so there is nothing left to disable. That is
+        # the correct shape for a context-menu-only flow, not an oversight.
         self._active_op = start_long_op(
             self._main_window.connection, (),
             run_select_record_copper_worker,
             self._finish_select_copper_by_record,
-            self._on_select_copper_failed, payload)
+            self._on_select_copper_failed, payload,
+            busy_text=_("reading the board"))
 
     def _on_select_copper_failed(self, message: str) -> None:
         self._active_op = None
@@ -2726,9 +2750,11 @@ class TreesDock(QWidget):
 
     # ── Copper -> record: "Whose copper is this?" (plan Э3) ─────────────────
 
-    def _on_identify_selected_copper(self) -> None:
+    def _on_identify_selected_copper(self, trigger=None) -> None:
         """Tools → Trees → "Whose copper is this?": map the board SELECTION back
-        to the net_traces records that own it (design §12.2).
+        to the net_traces records that own it (design §12.2). `trigger` is the
+        Tools-menu QAction that started it, greyed out for the read's duration
+        (Э2, plan_2026_09_12_busy_indicator).
 
         READ-ONLY, and it does NOT change the selection: the user just chose it,
         and answering a question by destroying the question would be wrong. An
@@ -2748,11 +2774,13 @@ class TreesDock(QWidget):
             "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
                             if self._ctx is not None else {}),
         }
+        widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
-            self._main_window.connection, (),
+            self._main_window.connection, widgets,
             run_identify_copper_worker,
             self._finish_identify_selected_copper,
-            self._on_identify_copper_failed, payload)
+            self._on_identify_copper_failed, payload,
+            busy_text=_("reading the board"))
 
     def _on_identify_copper_failed(self, message: str) -> None:
         self._active_op = None
@@ -2849,7 +2877,13 @@ class TreesDock(QWidget):
         the SAME forest-content-activation machinery the "Full redraw" menu
         action uses (run_curated_forest_redraw_worker), scoped to just this
         one marker via selected_refs={node.ref} — its content is placed from
-        the owning tree's LIVE anchor, nothing else in that tree moves."""
+        the owning tree's LIVE anchor, nothing else in that tree moves.
+
+        No guard widget goes to start_long_op (Э2, plan_2026_09_12_busy_
+        indicator): the trigger is whichever HOST's "Redraw" button called
+        NodeFormWidget.redraw() — the form owns no button of its own (the
+        master-detail panel's _form_action_row and _NodeDialog both build the
+        button they connect), so from here there is nothing stable to disable."""
         if node is None or not node.ref or self._cfg is None or self._ctx is None:
             return
         if node.kind == "module":
@@ -2863,7 +2897,8 @@ class TreesDock(QWidget):
             self._active_op = start_long_op(
                 self._main_window.connection, (),
                 run_curated_forest_redraw_worker, self._finish_redraw,
-                self._on_redraw_failed, payload)
+                self._on_redraw_failed, payload,
+                busy_text=_("placing"))
             return
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
@@ -2874,7 +2909,8 @@ class TreesDock(QWidget):
         self._active_op = start_long_op(
             self._main_window.connection, (),
             run_single_node_redraw_worker, self._finish_redraw,
-            self._on_redraw_failed, payload)
+            self._on_redraw_failed, payload,
+            busy_text=_("placing"))
 
     def _move_node_flow(self, tree: Tree, node: TreeNode) -> None:
         """FORK-C: a parent-picker dialog, no drag&drop. The candidate list
@@ -3432,11 +3468,15 @@ class TreesDock(QWidget):
         return confirm_first_run_adoption(self, config_path,
                                           adapter=self._live_adapter())
 
-    def _run_curated_redraw(self, selected_refs: set) -> None:
+    def _run_curated_redraw(self, selected_refs: set, trigger=None) -> None:
         """Shared worker invocation for "Redraw selected" and "Redraw whole
         tree" (plan_2026_08_29_fork1_rigid_redraw_override.md §5) — one
         implementation, only the selection source differs. start_long_op keeps
-        it off the UI thread, same worker pattern as run_cascade_worker."""
+        it off the UI thread, same worker pattern as run_cascade_worker.
+
+        `trigger` is the Tools-menu QAction the caller was started by (the one
+        whose checkbox set / tree the run uses), greyed out for the duration
+        (Э2, plan_2026_09_12_busy_indicator)."""
         tree_name = self._current_tree_name()
         if tree_name is None:
             return
@@ -3453,19 +3493,22 @@ class TreesDock(QWidget):
             "tree_name": tree_name,
             "selected_refs": selected_refs,
         }
+        widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
-            self._main_window.connection, (),
+            self._main_window.connection, widgets,
             run_curated_tree_redraw_worker, self._finish_redraw,
-            self._on_redraw_failed, payload)
+            self._on_redraw_failed, payload,
+            busy_text=_("placing"))
 
-    def _on_redraw_selected(self) -> None:
+    def _on_redraw_selected(self, trigger=None) -> None:
         """Collect the CHECKED nodes' refs and run the curated redraw for the
-        current tree in the background."""
+        current tree in the background. `trigger` is the Tools-menu QAction
+        (Э2) — the guard widget for the run it starts."""
         selected_refs = {ref for ref, item in self._node_items.items()
                          if item.checkState(0) == Qt.CheckState.Checked}
-        self._run_curated_redraw(selected_refs)
+        self._run_curated_redraw(selected_refs, trigger)
 
-    def _on_redraw_whole_tree(self) -> None:
+    def _on_redraw_whole_tree(self, trigger=None) -> None:
         """Redraw EVERY node of the current tree in one click — the SAME
         run_curated_tree_redraw_worker as "Redraw selected", but the refs are
         collected DIRECTLY from the Tree structure (collect_tree_refs), not
@@ -3475,9 +3518,9 @@ class TreesDock(QWidget):
         tree = self._current_tree()
         if tree is None:
             return
-        self._run_curated_redraw(set(collect_tree_refs(tree)))
+        self._run_curated_redraw(set(collect_tree_refs(tree)), trigger)
 
-    def _run_forest_redraw(self) -> None:
+    def _run_forest_redraw(self, trigger=None) -> None:
         """Forest-wide curated redraw — the module-aware FULL redraw (plan
         2026-09-02 tree_module_embedding P3 п.2/п.3, design P3 D5): collects
         EVERY node ref of EVERY tree (records AND module markers — checking the
@@ -3503,10 +3546,12 @@ class TreesDock(QWidget):
             "trees": self._trees,
             "selected_refs": refs,
         }
+        widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
-            self._main_window.connection, (),
+            self._main_window.connection, widgets,
             run_curated_forest_redraw_worker, self._finish_redraw,
-            self._on_redraw_failed, payload)
+            self._on_redraw_failed, payload,
+            busy_text=_("placing"))
 
     def _refresh_anchor_live_position(self) -> None:
         """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY
