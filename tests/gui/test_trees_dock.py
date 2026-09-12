@@ -3927,6 +3927,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME  # noqa: E4
 from kicadstamp.domain.board import Footprint                         # noqa: E402
 from kicadstamp.domain.geometry import BoardLayer, Vector2            # noqa: E402
 from kicadstamp.tree_position import (                                # noqa: E402
+    local_offset_to_board_mm,
     node_position,
     relative_rotation_deg,
 )
@@ -6673,3 +6674,160 @@ def test_move_to_removes_by_identity_not_by_value_equality(
     assert dock._in_list(first, parent.children)
     assert not dock._in_list(first, other.children)
     assert len(parent.children) == 1         # only the MOVED one left
+
+
+# ── Э4: both re-hang paths must behave identically ─────────────────────────
+# (plan_2026_09_12_move_to_recalculates_offset §Э4) — the same re-hang, driven
+# through the node form's Parent combo AND through the context menu's "Move
+# to…", has to end on the SAME numbers. If the two paths ever drift apart
+# again, THESE tests are the ones that must fail.
+
+def _two_path_tree():
+    """One move-node shape drivable through both paths: two mount nodes (the
+    form's only re-hang targets) and the node to move, top level to begin with."""
+    mount_a = TreeNode(ref="mnt_a", kind="mount", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[],
+                       anchor=TreeAnchor(role="IC1"))
+    mount_b = TreeNode(ref="mnt_b", kind="mount", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[],
+                       anchor=TreeAnchor(role="IC2"))
+    moved = TreeNode(ref="R_MOVED", kind="placement", xy=(12.0, 0.0),
+                     polar=None, rotation=10.0, name=None, group=None,
+                     children=[])
+    tree = Tree(name="rehang", anchor=TreeAnchor(is_origin=True),
+                nodes=[mount_a, mount_b, moved])
+    return tree, mount_a, mount_b, moved
+
+
+def _two_path_bases(mount_a, mount_b):
+    """The bases of the shape above: the tree's own anchor and mount_a share
+    (10, 0)/0°, mount_b sits at (30, 0) TURNED 90° — a genuinely non-trivial
+    re-hang, where the stored offset AND the stored rotation both have to change
+    while the absolute pose does not."""
+    def _base_for(parent):
+        if parent is None or parent is mount_a:
+            return (10.0, 0.0, 0.0)
+        if parent is mount_b:
+            return (30.0, 0.0, 90.0)
+        raise AssertionError(f"unexpected base {parent!r}")
+    return _base_for
+
+
+def _absolute(node, base):
+    """The (x, y) mm a node lands on for a (x_mm, y_mm, rot_deg) `base` — the
+    project's OWN board-frame conversion, so the test measures exactly what the
+    code under test measures."""
+    bx, by = local_offset_to_board_mm(node.xy, base[2])
+    return (base[0] + bx, base[1] + by)
+
+
+def _rehang_via(dock, tree, mount_b, moved, via, monkeypatch):
+    """Drive one and the same re-hang through the requested path: "form" is the
+    node form's Parent combo, "menu" is the context menu's "Move to…"."""
+    if via == "form":
+        form = _rehang_form(dock, tree, moved, None)
+        form.parent_combo.setCurrentIndex(form._parent_index_of(mount_b))
+        assert form.apply() is True
+    else:
+        _move_to_stub(monkeypatch, mount_b.ref)
+        dock._move_node_flow(tree, moved)
+
+
+@pytest.mark.parametrize("via", ["form", "menu"])
+def test_both_re_hang_paths_store_the_same_hand_computed_offset(
+        main_window, tmp_path, monkeypatch, via):
+    """§Э4, the main test, parametrized by path. The expected numbers are
+    HAND-COMPUTED for a turned base, so a path that stops holding the node still
+    — or forgets that the stored rotation is relative to the base — fails here
+    whichever path it is: 10 + 12 = 22 = 30 + (-8), and the 10° board angle
+    stays 10° (stored as -80° against the 90° base)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _two_path_tree()
+    _pose_stub(monkeypatch, _two_path_bases(mount_a, mount_b))
+
+    _rehang_via(dock, tree, mount_b, moved, via, monkeypatch)
+
+    assert moved in mount_b.children and moved not in tree.nodes
+    assert moved.xy == (0.0, -8.0)
+    assert moved.polar is None                  # the representation is kept
+    assert moved.rotation == -80.0
+    assert _absolute(moved, (30.0, 0.0, 90.0)) == pytest.approx((22.0, 0.0))
+
+
+def test_the_two_paths_agree_bit_for_bit(main_window, tmp_path, monkeypatch):
+    """§Э4: not "close enough" — the SAME re-hang through both paths has to end
+    on bit-identical numbers. The menu rounds through the same _snap_mm the
+    offset widget does precisely so this holds."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+
+    tree_form, mount_a_f, mount_b_f, moved_f = _two_path_tree()
+    _pose_stub(monkeypatch, _two_path_bases(mount_a_f, mount_b_f))
+    _rehang_via(dock, tree_form, mount_b_f, moved_f, "form", monkeypatch)
+
+    tree_menu, mount_a_m, mount_b_m, moved_m = _two_path_tree()
+    _pose_stub(monkeypatch, _two_path_bases(mount_a_m, mount_b_m))
+    _rehang_via(dock, tree_menu, mount_b_m, moved_m, "menu", monkeypatch)
+
+    assert (moved_f.xy, moved_f.polar, moved_f.rotation) == \
+           (moved_m.xy, moved_m.polar, moved_m.rotation)
+    assert moved_f.xy == (0.0, -8.0)            # and both are the right answer
+
+
+def test_re_hang_carries_the_subtree_without_touching_it(
+        main_window, tmp_path, monkeypatch):
+    """§Э4 / Л.3: children are stored relative to the node that moves, and that
+    node's absolute pose does not change — so the subtree follows on its own and
+    NOTHING inside it may be recalculated (a recursive pass would shift it
+    twice). The child's stored numbers stay put and its absolute place is the
+    same before and after."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    tree, mount_a, mount_b, moved = _two_path_tree()
+    moved.rotation = 0.0                        # keep the child's frame a round 0°
+    child = TreeNode(ref="CHILD", kind="placement", xy=(3.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    moved.children.append(child)
+    _pose_stub(monkeypatch, _two_path_bases(mount_a, mount_b))
+
+    before = _absolute(moved, (10.0, 0.0, 0.0))
+    _move_to_stub(monkeypatch, "mnt_b")
+    dock._move_node_flow(tree, moved)
+
+    assert dock._in_list(child, moved.children) and len(moved.children) == 1
+    assert child.xy == (3.0, 0.0)               # NOT recalculated
+    assert child.rotation == 0.0
+    parent_abs_rot = 90.0 + moved.rotation      # new base rotation + stored
+    assert parent_abs_rot == pytest.approx(0.0)  # the moved node did not turn
+    after = _absolute(moved, (30.0, 0.0, 90.0))
+    assert after == pytest.approx(before)
+    cx, cy = local_offset_to_board_mm(child.xy, parent_abs_rot)
+    assert (after[0] + cx, after[1] + cy) == pytest.approx(
+        (before[0] + 3.0, before[1]))
+
+
+def test_both_paths_keep_a_polar_node_polar(main_window, tmp_path, monkeypatch):
+    """Л.2 end-to-end, both paths: the config's representation must survive a
+    re-hang — a silent switch to xy reads as somebody else's edit in the s-expr
+    diff. The base here is TURNED but stays put, so the radius really is the
+    invariant and only the stored angle follows the base."""
+    def _turn_only_bases(parent):
+        if parent is None or parent is mount_a:
+            return (10.0, 0.0, 0.0)
+        if parent is mount_b:
+            return (10.0, 0.0, 90.0)
+        raise AssertionError(f"unexpected base {parent!r}")
+
+    for via in ("form", "menu"):
+        dock, _root = _dock_with(main_window, tmp_path)
+        monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+        tree, mount_a, mount_b, moved = _two_path_tree()
+        moved.xy = None
+        moved.polar = (5.0, 0.0)
+        _pose_stub(monkeypatch, _turn_only_bases)
+
+        _rehang_via(dock, tree, mount_b, moved, via, monkeypatch)
+
+        assert moved.xy is None, via
+        assert moved.polar == (5.0, -90.0), via
