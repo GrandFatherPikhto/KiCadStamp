@@ -44,6 +44,7 @@ from kicadstamp.link_trees import (
 from kicadstamp.tree_position import (
     _anchor_base_live_position,
     _root_entity_ref,
+    _snap_mm,
     board_offset_to_local_mm,
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
@@ -423,6 +424,86 @@ def _pivot_ref_mount_parent(tree: Tree, node: TreeNode,
     if candidate.kind == "mount":
         return candidate
     return _mount_ancestor_of(candidate, tree.nodes)
+
+
+def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
+                       old_parent: Optional[TreeNode],
+                       new_parent: Optional[TreeNode]
+                       ) -> Optional[tuple[Optional[tuple[float, float]],
+                                           Optional[tuple[float, float]],
+                                           float]]:
+    """The new (xy, polar, rotation) for `node` after re-hanging it from
+    `old_parent` to `new_parent`, chosen so the node does NOT move on the board
+    (plan_2026_09_12_move_to_recalculates_offset §Э2).
+
+    A node's xy/polar are stored in its BASE's local frame and its rotation is
+    RELATIVE to that base, so changing the parent silently changes what the
+    stored numbers mean. The absolute board pose is preserved here: the board
+    offset against the new base is the old one plus the base SHIFT (old - new),
+    and the absolute board angle is untouched, so only the stored relative angle
+    changes when the base turned. This is arithmetic on the TreeNode alone — no
+    widgets, no board write — which is what the context menu needs (the form's
+    own _refresh_for_new_anchor reads and writes widgets and cannot be called
+    from there).
+
+    Returns None when there is nothing to change:
+    * a MOUNT node's offset is expressed against its OWN live anchor, not
+      against its parent (_resolve_node_base_pose returns the anchor pose on its
+      very first branch and never looks at parent_node), so a re-hang does not
+      move it and recalculating would inject an error where there was none;
+    * a node that stores no offset at all.
+    The representation is preserved (Л.2): a polar node comes back polar, never
+    silently rewritten as xy, so the s-expr keeps its shape. Rotation is
+    recalculated together with the offset. Children are deliberately NOT touched:
+    they are stored relative to THIS node, whose pose does not change, so the
+    subtree follows on its own (Л.3).
+
+    Raises whatever _resolve_node_base_pose raises when a base does not resolve
+    (no live board, missing component): there is no "roughly" answer here and no
+    silent 0° fallback — the caller decides between asking the user and
+    refusing."""
+    # Л.1: nothing to recalculate — the base does not depend on the parent.
+    if node.kind == "mount" and node.anchor is not None:
+        return None
+    if node.xy is None and node.polar is None:
+        return None
+
+    old_pos, old_deg, _old_mirror = _resolve_node_base_pose(
+        cfg, adapter, sheet_names, tree, old_parent, None)
+    new_pos, new_deg, _new_mirror = _resolve_node_base_pose(
+        cfg, adapter, sheet_names, tree, new_parent, None)
+    # A base with no angle concept (origin/point anchor) stores rotation exactly
+    # like the form does — 0.0 is the definition there, not a guess.
+    old_rot = old_deg if old_deg is not None else 0.0
+    new_rot = new_deg if new_deg is not None else 0.0
+
+    # abs = base + board offset  =>  new board offset = old + (old base - new).
+    # _snap_mm mirrors the offset widget's own round trip (the form stores what
+    # it shows), so both re-hang paths land on bit-identical numbers.
+    dx_mm = (old_pos.x - new_pos.x) / MM
+    dy_mm = (old_pos.y - new_pos.y) / MM
+
+    board_rot = local_rotation_to_board_deg(node.rotation, old_rot)
+    new_rotation = board_rotation_to_local_deg(board_rot, new_rot)
+
+    if node.polar is not None:
+        # Л.2: polar stays polar. The offset takes the SAME board-frame hop the
+        # form's widget does (rotate to the board frame, shift, read the radius
+        # and angle back), so neither path rewrites the config's shape.
+        bx, by = rotate_offset_mm(
+            node.polar[0], 0.0,
+            local_rotation_to_board_deg(node.polar[1], old_rot))
+        bx = _snap_mm(bx + dx_mm)
+        by = _snap_mm(by + dy_mm)
+        radius = _snap_mm(math.hypot(bx, by))
+        angle = _snap_mm(math.degrees(math.atan2(-by, bx)))
+        return (None, (radius, board_rotation_to_local_deg(angle, new_rot)),
+                new_rotation)
+
+    bx, by = local_offset_to_board_mm(node.xy, old_rot)
+    new_xy = board_offset_to_local_mm(
+        (_snap_mm(bx + dx_mm), _snap_mm(by + dy_mm)), new_rot)
+    return (new_xy, None, new_rotation)
 
 
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,

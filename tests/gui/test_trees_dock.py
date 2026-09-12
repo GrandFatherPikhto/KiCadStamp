@@ -6409,3 +6409,126 @@ def test_edit_form_offers_the_parent_combo_with_the_current_parent_selected(
     child = tree.nodes[0].children[0]          # a real child node
     child_form = dock._build_node_form(tree, child)
     assert child_form._selected_parent_node() is tree.nodes[0]
+
+
+# ── Э2: the headless re-hang recalculation ─────────────────────────────────
+# (plan_2026_09_12_move_to_recalculates_offset §Э2) — pure TreeNode arithmetic,
+# no widgets and no board: the base resolver is the only live seam, and it is
+# stubbed here to a parent -> (x_mm, y_mm, rot_deg) map.
+
+def _pose_stub(monkeypatch, base_for):
+    """Replace the live base resolver with a map so the recalculation needs no
+    board: `base_for(parent)` is called with the parent the function asks about
+    (None = the tree's own anchor)."""
+    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+        x_mm, y_mm, rot = base_for(parent_node)
+        return (Vector2.from_xy(int(round(x_mm * MM)), int(round(y_mm * MM))),
+                rot, False)
+    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _fake_base)
+
+
+def _offset_node(**over):
+    fields = dict(ref="N1", kind="clone", xy=(12.0, 0.0), polar=None,
+                  rotation=0.0, name=None, group=None, children=[])
+    fields.update(over)
+    return TreeNode(**fields)
+
+
+def test_reparented_offset_holds_an_xy_node_still(monkeypatch):
+    """The stored offset moves into the NEW parent's frame: same absolute place,
+    different numbers. 10 + 12 = 22 = 30 + (-8). Children are relative to THIS
+    node, whose pose is preserved — touching them would shift them twice (Л.3)."""
+    _pose_stub(monkeypatch, lambda parent: (30.0, 0.0, 0.0)
+               if parent is not None else (10.0, 0.0, 0.0))
+    child = _offset_node(ref="CHILD", xy=(1.0, 1.0))
+    node = _offset_node(children=[child])
+
+    xy, polar, rotation = trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object())
+
+    assert xy == (-8.0, 0.0)
+    assert polar is None                     # the representation is untouched
+    assert rotation == 0.0
+    assert child.xy == (1.0, 1.0)            # the child was not recalculated
+
+
+def test_reparented_offset_follows_a_rotated_base(monkeypatch):
+    """A base that TURNED re-expresses the offset AND the rotation: the absolute
+    board angle does not change, so the stored RELATIVE one must."""
+    _pose_stub(monkeypatch, lambda parent: (30.0, 0.0, 90.0)
+               if parent is not None else (10.0, 0.0, 0.0))
+    node = _offset_node()
+
+    xy, polar, rotation = trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object())
+
+    assert xy == (0.0, -8.0)                 # (-8, 0) rotated by -90°
+    assert polar is None
+    assert rotation == -90.0
+
+
+def test_reparented_offset_keeps_a_polar_node_polar(monkeypatch):
+    """Л.2: a polar node must come back polar — a silent switch to xy would read
+    as somebody else's edit in the s-expr diff."""
+    _pose_stub(monkeypatch, lambda parent: (10.0, 0.0, 90.0)
+               if parent is not None else (10.0, 0.0, 0.0))
+    node = _offset_node(xy=None, polar=(5.0, 0.0), rotation=10.0)
+
+    xy, polar, rotation = trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object())
+
+    assert xy is None
+    assert polar == (5.0, -90.0)             # same board vector, turned base
+    assert rotation == -80.0
+
+
+def test_reparented_offset_shifts_a_polar_node(monkeypatch):
+    """The radius follows the base SHIFT (a polar offset is a vector from the
+    base, not an angle alone): 5 mm from (0,0) is 2 mm from (3,0)."""
+    _pose_stub(monkeypatch, lambda parent: (3.0, 0.0, 0.0)
+               if parent is not None else (0.0, 0.0, 0.0))
+    node = _offset_node(xy=None, polar=(5.0, 0.0))
+
+    xy, polar, rotation = trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object())
+
+    assert xy is None
+    assert polar == (2.0, 0.0)
+    assert rotation == 0.0
+
+
+def test_reparented_offset_has_nothing_to_do_for_a_mount_node(monkeypatch):
+    """Л.1: a MOUNT node's offset is expressed against its OWN anchor, not
+    against its parent, so a re-hang does not move it — the function must say
+    "nothing to change" instead of recalculating against a base that never
+    applied. The base resolver is not even asked."""
+    def _boom(*args, **kwargs):     # pragma: no cover - must not be reached
+        raise AssertionError("the base must not be resolved for a mount node")
+    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _boom)
+    node = _offset_node(kind="mount", xy=(0.0, 0.0),
+                        anchor=TreeAnchor(role="IC1"))
+
+    assert trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object()) is None
+
+
+def test_reparented_offset_has_nothing_to_do_without_a_stored_offset(monkeypatch):
+    """A node that stores neither xy nor polar (a module node) has no frame to
+    rewrite."""
+    _pose_stub(monkeypatch, lambda parent: (0.0, 0.0, 0.0))
+    node = _offset_node(xy=None, polar=None)
+
+    assert trees_dock_mod._reparented_offset(
+        object(), object(), {}, object(), node, None, object()) is None
+
+
+def test_reparented_offset_propagates_an_unresolved_base(monkeypatch):
+    """No "roughly" answer and no silent 0°: an unresolvable base is an
+    exception the caller has to decide about (ask the user / refuse)."""
+    def _unresolvable(*args, **kwargs):
+        raise ValidationError("the new parent's base is not on the board")
+    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _unresolvable)
+
+    with pytest.raises(ValidationError, match="not on the board"):
+        trees_dock_mod._reparented_offset(
+            object(), object(), {}, object(), _offset_node(), None, object())
