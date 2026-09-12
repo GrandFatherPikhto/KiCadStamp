@@ -6236,6 +6236,75 @@ msgstr "the record is retired/skip — apply does not place it, so only the regi
 msgid "the anchor could not be resolved live ({error}) — the geometry cannot be matched"
 msgstr "the anchor could not be resolved live ({error}) — the geometry cannot be matched"
 
+#, python-brace-format
+msgid "no net_traces record {name!r} in the config"
+msgstr "no net_traces record {name!r} in the config"
+
+msgid "no net_traces record is selected"
+msgstr "no net_traces record is selected"
+
+#, python-brace-format
+msgid "no net_traces record for net {net!r} in the config"
+msgstr "no net_traces record for net {net!r} in the config"
+
+#, python-brace-format
+msgid "net {net!r} has {count} net_traces records — open one in the Config tree first"
+msgstr "net {net!r} has {count} net_traces records — open one in the Config tree first"
+
+msgid "by registry and geometry"
+msgstr "by registry and geometry"
+
+msgid "by registry"
+msgstr "by registry"
+
+msgid "by geometry"
+msgstr "by geometry"
+
+#, python-brace-format
+msgid "Board copper for {name!r}: not found."
+msgstr "Board copper for {name!r}: not found."
+
+msgid "  the record stores no tracks or vias"
+msgstr "  the record stores no tracks or vias"
+
+#, python-brace-format
+msgid "  none of the {count} expected copper piece(s) is on the board"
+msgstr "  none of the {count} expected copper piece(s) is on the board"
+
+#, python-brace-format
+msgid "Board copper for {name!r}: selected {found} of {expected} piece(s) ({tier})."
+msgstr "Board copper for {name!r}: selected {found} of {expected} piece(s) ({tier})."
+
+#, python-brace-format
+msgid "  {tracks} track(s), {vias} via(s)"
+msgstr "  {tracks} track(s), {vias} via(s)"
+
+#, python-brace-format
+msgid "  {count} piece(s) not found on the board"
+msgstr "  {count} piece(s) not found on the board"
+
+#, python-brace-format
+msgid "  note: the previous board selection was replaced ({count} item(s) before)"
+msgstr "  note: the previous board selection was replaced ({count} item(s) before)"
+
+msgid "Select copper on board"
+msgstr "Select copper on board"
+
+#, python-brace-format
+msgid "Select copper on board failed: {error}"
+msgstr "Select copper on board failed: {error}"
+
+#, python-brace-format
+msgid "Selected {found} copper piece(s) for {name!r}."
+msgstr "Selected {found} copper piece(s) for {name!r}."
+
+#, python-brace-format
+msgid "Selected {found} copper piece(s) for {name!r} on the board."
+msgstr "Selected {found} copper piece(s) for {name!r} on the board."
+
+msgid "tier unknown"
+msgstr "tier unknown"
+
 #: kicadstamp/net_trace_planner.py:137
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"

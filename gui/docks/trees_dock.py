@@ -76,6 +76,8 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
+from .copper_select import (resolve_record, run_select_record_copper_worker,
+                            select_copper_report_lines)
 from ._common import (ERROR_STYLE as _ERROR_STYLE,
                       WARN_STYLE as _WARN_STYLE,
                       configure_searchable, confirm_first_run_adoption,
@@ -2196,6 +2198,11 @@ class TreesDock(QWidget):
                 lambda: self._add_child_flow(tree, node))
             menu.addAction(_("Add sibling")).triggered.connect(
                 lambda: self._add_sibling_flow(tree, node))
+            if node.kind == "net_trace":
+                # Э2 (design §12.1): highlight THIS record's live copper. Read-
+                # only — the selection is editor UI state, not a board edit.
+                menu.addAction(_("Select copper on board")).triggered.connect(
+                    lambda: self._on_select_copper_by_record(node))
             menu.addAction(_("Reread current position")).triggered.connect(
                 lambda: self._reread_node_flow(tree, node))
             # §3.3: 'Edit node…' no longer opens the modal — a single click on
@@ -2664,6 +2671,56 @@ class TreesDock(QWidget):
                           else _("whole board"))))
         self._mark_dirty()
         self._rebuild_tabs()
+
+    # ── Inter-node copper: select a record's copper on the board (plan Э2) ──
+
+    def _on_select_copper_by_record(self, node: TreeNode) -> None:
+        """Context menu on a kind="net_trace" node: SELECT the record's live
+        copper on the board (design §12.1).
+
+        READ-ONLY: selecting is editor UI state, so there is no board write, no
+        commit and no registry touch (plan P.3). The live read happens on the
+        worker; the outcome lands in the Log, never a modal."""
+        tree = self._current_tree()
+        if tree is None or self._warn_read_only_instance(tree):
+            return
+        if self._cfg is None or self._root_path is None:
+            show_message(_("No project loaded — open a root config first."),
+                         _ERROR_STYLE, logger)
+            return
+        if self._main_window.connection is None:
+            show_message(_("No live board connection — connect KiCad first."),
+                         _ERROR_STYLE, logger)
+            return
+        record, error = resolve_record(self._cfg, identity=node.ref)
+        if record is None:
+            show_message(error, _ERROR_STYLE, logger)
+            return
+        payload = {
+            "record": record,
+            "config_path": str(self._root_path),
+            "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
+                            if self._ctx is not None else {}),
+        }
+        self._active_op = start_long_op(
+            self._main_window.connection, (),
+            run_select_record_copper_worker,
+            self._finish_select_copper_by_record,
+            self._on_select_copper_failed, payload)
+
+    def _on_select_copper_failed(self, message: str) -> None:
+        self._active_op = None
+        show_message(_("Select copper on board failed: {error}")
+                     .format(error=message), _ERROR_STYLE, logger)
+
+    def _finish_select_copper_by_record(self, result: dict) -> None:
+        """The select action's result on the UI thread: report lines to the Log,
+        one status line on the dock (never a modal)."""
+        self._active_op = None
+        for line in select_copper_report_lines(result):
+            logger.info(line)
+        self._show_status(_("Selected {found} copper piece(s) for {name!r}.").format(
+            found=result.get("found", 0), name=result.get("identity", "")))
 
     def _stage_net_traces(self, records: list) -> None:
         """Stage ONLY the records a re-read touched — each into the file that

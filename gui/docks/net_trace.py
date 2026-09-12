@@ -44,6 +44,8 @@ from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
 
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
+from .copper_select import (resolve_record, run_select_record_copper_worker,
+                            select_copper_report_lines)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       combo_line_edits, configure_searchable, display_path,
                       own_line_edits, read_data, set_combo_items, show_message,
@@ -81,6 +83,11 @@ class NetTraceDock(QWidget):
         self._active_op: Optional[Any] = None
         self._path: Optional[Path] = None
         self._root_path: Optional[Path] = None
+        # Identity of the record last opened from the Config tree (name:, else
+        # net:) — "Select on board" acts on that SAVED record, because the form
+        # never holds the machine-written geometry (Э2, plan
+        # select_copper_by_record; design §12.1).
+        self._current_identity: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -114,8 +121,13 @@ class NetTraceDock(QWidget):
         self.extract_button.clicked.connect(self._on_extract)
         self.redraw_button = QPushButton(_("Redraw"))
         self.redraw_button.clicked.connect(self._on_redraw)
+        # Э2 (design §12.1): highlight this record's live copper on the board —
+        # READ-ONLY (selection is editor UI state, not a board edit).
+        self.select_copper_button = QPushButton(_("Select on board"))
+        self.select_copper_button.clicked.connect(self._on_select_copper)
         buttons.addWidget(self.extract_button)
         buttons.addWidget(self.redraw_button)
+        buttons.addWidget(self.select_copper_button)
         layout.addLayout(buttons)
 
         # Geometry note — tracks:/vias: are machine-written, not hand-edited.
@@ -240,6 +252,9 @@ class NetTraceDock(QWidget):
         updates that file instead of adding a root duplicate (2026-08-21
         review fix)."""
         self._show_message("")
+        # Remember WHICH record the flat list opened (name:, else a legacy net:)
+        # so "Select on board" acts on it, not on an ambiguous net (Э2).
+        self._current_identity = str(entry.get("name") or entry.get("net") or "") or None
         if file_path is None:
             file_path = find_list_entry_file(self._root_path, "net_traces", entry)
         if file_path is not None:
@@ -265,6 +280,10 @@ class NetTraceDock(QWidget):
         board (whole-board search, no selection) and write it under
         net_traces: — via the worker thread (board IPC happens there)."""
         self._show_message("")
+        # A fresh extraction writes an UNNAMED record (identity = its net), so
+        # drop the previously opened identity — "Select on board" then resolves
+        # the form's net honestly.
+        self._current_identity = None
         board = self._connection.board
         if board is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
@@ -367,6 +386,53 @@ class NetTraceDock(QWidget):
 
     def _on_op_failed(self, message: str) -> None:
         self._show_message(_("Operation failed: {error}").format(error=message), _ERROR_STYLE)
+
+    # ── Select on board (Э2, design §12.1) ──────────────────────────────────
+
+    def _on_select_copper(self) -> None:
+        """Select button: highlight the CURRENT record's live copper on the
+        board — READ-ONLY (the selection is editor UI state, not a board edit).
+        The record comes from the SAVED root config (by the identity the flat
+        list opened, else by the form's net), because the form never holds the
+        machine-written tracks:/vias:. The board read runs on the worker."""
+        self._show_message("")
+        if self._root_path is None or not Path(self._root_path).exists():
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        if self._connection.board is None:
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError) as e:
+            self._show_message(_("Failed to load file: {error}").format(error=e),
+                               _ERROR_STYLE)
+            return
+        record, error = resolve_record(
+            cfg, identity=self._current_identity or None,
+            net=self.net_edit.currentText().strip() or None)
+        if record is None:
+            self._show_message(error, _ERROR_STYLE)
+            return
+        payload = {
+            "record": record,
+            "config_path": str(self._root_path),
+            "sheet_names": dict(getattr(ctx, "sheet_names", None) or {}),
+        }
+        self._active_op = start_long_op(
+            self._connection, (self.select_copper_button,),
+            run_select_record_copper_worker, self._finish_select_copper,
+            self._on_op_failed, payload)
+
+    def _finish_select_copper(self, result: Dict[str, Any]) -> None:
+        self._active_op = None
+        for line in select_copper_report_lines(result):
+            logger.info(line)
+        self._show_message(
+            _("Selected {found} copper piece(s) for {name!r} on the board.")
+            .format(found=result.get("found", 0),
+                    name=result.get("identity", "")),
+            _SUCCESS_STYLE if result.get("found") else "")
 
     # ── Save (auto-stage) ─────────────────────────────────────────────────
 

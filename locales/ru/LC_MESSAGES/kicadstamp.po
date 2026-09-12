@@ -6272,6 +6272,75 @@ msgstr "запись retired/skip — apply её не размещает, поэ
 msgid "the anchor could not be resolved live ({error}) — the geometry cannot be matched"
 msgstr "якорь не разрешился на живой плате ({error}) — геометрию не с чем сопоставить"
 
+#, python-brace-format
+msgid "no net_traces record {name!r} in the config"
+msgstr "в конфиге нет записи net_traces {name!r}"
+
+msgid "no net_traces record is selected"
+msgstr "запись net_traces не выбрана"
+
+#, python-brace-format
+msgid "no net_traces record for net {net!r} in the config"
+msgstr "в конфиге нет записи net_traces для сети {net!r}"
+
+#, python-brace-format
+msgid "net {net!r} has {count} net_traces records — open one in the Config tree first"
+msgstr "у сети {net!r} {count} записей net_traces — сначала откройте нужную в дереве Config"
+
+msgid "by registry and geometry"
+msgstr "по реестру и геометрии"
+
+msgid "by registry"
+msgstr "по реестру"
+
+msgid "by geometry"
+msgstr "по геометрии"
+
+#, python-brace-format
+msgid "Board copper for {name!r}: not found."
+msgstr "Медь записи {name!r} на плате: не найдена."
+
+msgid "  the record stores no tracks or vias"
+msgstr "  запись не хранит ни дорожек, ни виа"
+
+#, python-brace-format
+msgid "  none of the {count} expected copper piece(s) is on the board"
+msgstr "  ни одного из {count} ожидаемых кусков меди нет на плате"
+
+#, python-brace-format
+msgid "Board copper for {name!r}: selected {found} of {expected} piece(s) ({tier})."
+msgstr "Медь записи {name!r} на плате: выделено {found} из {expected} кусков ({tier})."
+
+#, python-brace-format
+msgid "  {tracks} track(s), {vias} via(s)"
+msgstr "  дорожек: {tracks}, виа: {vias}"
+
+#, python-brace-format
+msgid "  {count} piece(s) not found on the board"
+msgstr "  {count} кусков не найдено на плате"
+
+#, python-brace-format
+msgid "  note: the previous board selection was replaced ({count} item(s) before)"
+msgstr "  примечание: прежнее выделение на плате заменено (до этого — {count} объект(ов))"
+
+msgid "Select copper on board"
+msgstr "Выделить медь на плате"
+
+#, python-brace-format
+msgid "Select copper on board failed: {error}"
+msgstr "Не удалось выделить медь на плате: {error}"
+
+#, python-brace-format
+msgid "Selected {found} copper piece(s) for {name!r}."
+msgstr "Выделено {found} кусков меди для {name!r}."
+
+#, python-brace-format
+msgid "Selected {found} copper piece(s) for {name!r} on the board."
+msgstr "На плате выделено {found} кусков меди для {name!r}."
+
+msgid "tier unknown"
+msgstr "ярус неизвестен"
+
 #: kicadstamp/net_trace_planner.py:137
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"
