@@ -33,6 +33,8 @@ This is a one-time migration, NOT a per-run positional pre-check: after
 adoption the registry owns the copper exactly like any Cell-created item.
 """
 import logging
+from dataclasses import dataclass
+from typing import Any
 
 from .domain.geometry import BoardLayer
 
@@ -42,7 +44,7 @@ from .geometry.spoke_layout import local_to_absolute
 from .placement.commands import ViaCommand, TrackCommand
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .net_resolution import resolve_net_from_role
-from .registry import make_registry_key, track_matches
+from .registry import make_registry_key, track_matches, via_matches
 from .tree_position import relative_rotation_deg
 from .i18n import _
 
@@ -199,47 +201,259 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
     return vias, tracks
 
 
+# ── Read-only matching: which live copper belongs to a net trace ──────────────
+# Plan plan_2026_09_12_select_copper_by_record (Э1; design §12). The matching
+# half of adopt_net_trace_copper is extracted HERE so the ownership-claiming
+# apply path and the READ-ONLY "select copper on board" / "whose copper is
+# this?" paths share ONE implementation. Two copies would drift, and then
+# "select" would highlight copper that apply does not manage (the disease this
+# project fixed twice on 2026-09-12: "Move to…" and the "Nets" tab).
+
+VIA = "via"
+TRACK = "track"
+
+# Which tier found a piece of copper. The TIER ORDER IS STRICT: the registry is
+# exact (it stores the uuid), geometry is a guess that can pair the wrong piece
+# (same net, same width, same layer, a shared end — distance zero).
+TIER_REGISTRY = "registry"
+TIER_GEOMETRY = "geometry"
+
+
+@dataclass(frozen=True)
+class Expectation:
+    """ONE expected piece of a net trace's copper.
+
+    `registry_key` is the registry identity of the piece (see
+    make_registry_key/net_trace_anchor_id) — tier 1 needs it even when the
+    anchor cannot be resolved. `command` is the PLANNED geometry (tier 2); it is
+    None when planning failed (or the record is retired/skip), in which case the
+    piece can still be found by the registry alone.
+    """
+
+    kind: str           # VIA | TRACK
+    index: int          # 0-based within the record's vias/tracks list
+    registry_key: str
+    command: Any | None = None
+
+
+@dataclass(frozen=True)
+class MatchedCopper:
+    """The outcome of matching ONE Expectation against the live board:
+    the live item (Track/Via), or None; and how it was found (TIER_*), or None
+    when it was not found at all."""
+    expectation: Expectation
+    live: Any | None
+    tier: str | None
+
+
+@dataclass
+class LiveCopper:
+    """One record's expected copper and where each piece was found.
+
+    `reason` is set when tier 2 (geometry) could not be attempted at all — the
+    anchor did not resolve live, or the record is retired/skip. That is a normal
+    answer ("there is nothing to match the geometry against"), never an
+    exception: the registry tier still runs in full.
+    """
+    nt: NetTrace
+    identity: str
+    pieces: list[MatchedCopper]
+    reason: str | None = None
+
+    @property
+    def found(self) -> list[Any]:
+        """The live board items (Track/Via) this record owns."""
+        return [p.live for p in self.pieces if p.live is not None]
+
+    @property
+    def missing_count(self) -> int:
+        """Expected pieces with NO live copper on the board — a normal result
+        (the copper may have been partially erased), never an error."""
+        return sum(1 for p in self.pieces if p.live is None)
+
+    @property
+    def expected_count(self) -> int:
+        return len(self.pieces)
+
+    @property
+    def tiers(self) -> set[str]:
+        return {p.tier for p in self.pieces if p.tier is not None}
+
+    @property
+    def found_by_registry(self) -> int:
+        return sum(1 for p in self.pieces if p.tier == TIER_REGISTRY)
+
+    @property
+    def found_by_geometry(self) -> int:
+        return sum(1 for p in self.pieces if p.tier == TIER_GEOMETRY)
+
+
+def match_net_trace_pieces(adapter, expectations: list[Expectation], *,
+                           via_registry, track_registry) -> list[MatchedCopper]:
+    """THE single read-only matching half shared by adopt_net_trace_copper and
+    find_live_copper (plan Э1). WRITES NOTHING — not the registries, not the
+    board, not the config.
+
+    Strict tier order (design §12, plan P.2):
+      1. REGISTRY — the key's stored uuid, resolved against the live board;
+      2. GEOMETRY — the shared track_matches/via_matches predicate against the
+         planned command, for copper no registry entry knows.
+    A piece found neither way is returned with live=None (partial/missing is a
+    valid answer, not an error). Tier 2 NEVER takes a uuid owned by ANY registry
+    entry (either record) — the same no-stealing rule adoption has always had —
+    and never reuses a live item already taken by another piece of this call.
+    """
+    expectations = list(expectations)
+    if not expectations:
+        return []
+
+    live_vias = adapter.get_vias()
+    live_tracks = adapter.get_tracks()
+    live_by_kind = {
+        VIA: {v.uuid: v for v in live_vias},
+        TRACK: {t.uuid: t for t in live_tracks},
+    }
+    registry_by_kind = {VIA: via_registry, TRACK: track_registry}
+    owned_by_kind = {
+        VIA: {e.uuid for e in via_registry.entries.values()},
+        TRACK: {e.uuid for e in track_registry.entries.values()},
+    }
+    taken: dict[str, set[str]] = {VIA: set(), TRACK: set()}
+
+    out: list[MatchedCopper] = []
+    for exp in expectations:
+        kind = exp.kind
+        live_item = None
+        tier = None
+
+        # Tier 1 — the registry knows the uuid of the copper THIS record placed.
+        registry = registry_by_kind[kind]
+        entry = registry.entries.get(exp.registry_key) if exp.registry_key else None
+        if entry is not None:
+            candidate = live_by_kind[kind].get(entry.uuid)
+            if candidate is not None and candidate.uuid not in taken[kind]:
+                live_item, tier = candidate, TIER_REGISTRY
+
+        # Tier 2 — geometry, for copper no registry entry knows. Only run when
+        # the planned command exists (the anchor resolved live).
+        if live_item is None and exp.command is not None:
+            matcher = via_matches if kind == VIA else track_matches
+            blocked = owned_by_kind[kind] | taken[kind]
+            for candidate in (live_vias if kind == VIA else live_tracks):
+                if candidate.uuid in blocked:
+                    continue
+                if matcher(candidate, exp.command):
+                    live_item, tier = candidate, TIER_GEOMETRY
+                    break
+
+        if live_item is not None:
+            taken[kind].add(live_item.uuid)
+        out.append(MatchedCopper(expectation=exp, live=live_item, tier=tier))
+    return out
+
+
+def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
+                     sheet_names: dict[str, str] | None = None) -> LiveCopper:
+    """READ-ONLY: find the live board copper of ONE `net_traces:` record.
+
+    Plan `plan_2026_09_12_select_copper_by_record` Э1/Э2. Tier 1 (registry uuid)
+    runs EVEN when the anchor cannot be resolved live — the registry needs no
+    geometry. Tier 2 (geometry) then plans the record through the SAME
+    plan_net_traces apply uses, so "select" can never highlight different copper
+    than apply manages (the "one mechanism" contract, checked by a test).
+    When planning fails (unresolvable anchor) or the record is retired/skip, the
+    returned LiveCopper carries `reason` and the pieces found by registry only —
+    a normal answer, never an exception.
+
+    Nothing is written anywhere.
+    """
+    identity = net_trace_effective_name(nt)
+    anchor_id = net_trace_anchor_id(nt)
+    _sn = dict(sheet_names or {})
+
+    planned_vias: list[ViaCommand] | None = None
+    planned_tracks: list[TrackCommand] | None = None
+    reason: str | None = None
+    if nt.retired or nt.skip:
+        reason = _(
+            "the record is retired/skip — apply does not place it, so only the "
+            "registry was consulted")
+    else:
+        try:
+            planned_vias, planned_tracks = plan_net_traces(
+                adapter, [nt], sheet_names=_sn)
+        except Exception as e:  # noqa: BLE001 — a read must never raise here
+            reason = _(
+                "the anchor could not be resolved live ({error}) — the geometry "
+                "cannot be matched").format(error=e)
+
+    expectations: list[Expectation] = []
+    for i in range(len(nt.vias)):
+        command = (planned_vias[i]
+                   if planned_vias is not None and i < len(planned_vias) else None)
+        expectations.append(Expectation(
+            kind=VIA, index=i,
+            registry_key=make_registry_key(anchor_id, identity, None, i),
+            command=command))
+    for i in range(len(nt.tracks)):
+        command = (planned_tracks[i]
+                   if planned_tracks is not None and i < len(planned_tracks) else None)
+        expectations.append(Expectation(
+            kind=TRACK, index=i,
+            registry_key=make_registry_key(anchor_id, identity, None, i),
+            command=command))
+
+    pieces = match_net_trace_pieces(adapter, expectations,
+                                    via_registry=via_registry,
+                                    track_registry=track_registry)
+    return LiveCopper(nt=nt, identity=identity, pieces=pieces, reason=reason)
+
+
 def adopt_net_trace_copper(adapter, via_registry, track_registry,
                            net_trace_vias: list[ViaCommand],
                            net_trace_tracks: list[TrackCommand]) -> None:
     """ONE-TIME ownership claim of already-existing copper into the registries
     (see the module docstring — avoids duplicating hand-routed copper on the
     first apply after extract). Safe only for commands with a registry_key
-    (net-trace commands always have one). A live item is claimed only when it
-    matches the planned geometry AND its UUID is not already owned by ANY
-    registry entry (either registry) — never steals copper another mechanism
-    already owns."""
-    owned_via_uuids = {e.uuid for e in via_registry.entries.values()}
-    live_vias = adapter.get_vias()
-    for cmd in net_trace_vias:
-        if cmd.registry_key is None or cmd.registry_key in via_registry.entries:
-            continue
-        for v in live_vias:
-            if v.uuid in owned_via_uuids:
-                continue
-            if via_registry._live_matches(v, cmd):
-                via_registry.entries[cmd.registry_key] = via_registry._build_entry(cmd, v.uuid)
-                owned_via_uuids.add(v.uuid)
-                logger.info(_("net_trace: adopted existing via ({x:.3f}, {y:.3f}) mm into the "
-                              "placement registry").format(x=cmd.position.x / 1e6, y=cmd.position.y / 1e6))
-                break
+    (net-trace commands always have one).
 
-    owned_track_uuids = {e.uuid for e in track_registry.entries.values()}
-    live_tracks = adapter.get_tracks()
-    for cmd in net_trace_tracks:
-        if cmd.registry_key is None or cmd.registry_key in track_registry.entries:
+    Delegates the matching to match_net_trace_pieces — the SAME routine
+    find_live_copper uses (plan_2026_09_12_select_copper_by_record Э1), so the
+    claiming path and the read-only "which copper is this record's" path can
+    never disagree. A piece found by GEOMETRY is a live item no registry entry
+    owns yet — that is exactly the item to claim. A REGISTRY hit is the record's
+    own already-owned copper (nothing to do), and a miss claims nothing."""
+    expectations: list[Expectation] = []
+    for i, cmd in enumerate(net_trace_vias):
+        if cmd.registry_key is not None:
+            expectations.append(Expectation(VIA, i, cmd.registry_key, cmd))
+    for i, cmd in enumerate(net_trace_tracks):
+        if cmd.registry_key is not None:
+            expectations.append(Expectation(TRACK, i, cmd.registry_key, cmd))
+
+    matched = match_net_trace_pieces(adapter, expectations,
+                                     via_registry=via_registry,
+                                     track_registry=track_registry)
+    for piece in matched:
+        # Only a GEOMETRY hit is unclaimed copper; REGISTRY is the record's own
+        # entry and a miss adopts nothing.
+        if piece.tier != TIER_GEOMETRY or piece.live is None:
             continue
-        for t in live_tracks:
-            if t.uuid in owned_track_uuids:
-                continue
-            if track_matches(t, cmd):
-                track_registry.entries[cmd.registry_key] = track_registry._build_entry(cmd, t.uuid)
-                owned_track_uuids.add(t.uuid)
-                logger.info(_("net_trace: adopted existing track ({sx:.3f}, {sy:.3f}) -> "
-                              "({ex:.3f}, {ey:.3f}) mm into the track registry")
-                            .format(sx=cmd.start.x / 1e6, sy=cmd.start.y / 1e6,
-                                    ex=cmd.end.x / 1e6, ey=cmd.end.y / 1e6))
-                break
+        exp = piece.expectation
+        registry = via_registry if exp.kind == VIA else track_registry
+        if exp.registry_key in registry.entries:
+            continue  # claimed earlier in this same call
+        registry.entries[exp.registry_key] = registry._build_entry(
+            exp.command, piece.live.uuid)
+        if exp.kind == VIA:
+            logger.info(_("net_trace: adopted existing via ({x:.3f}, {y:.3f}) mm into the "
+                          "placement registry").format(x=exp.command.position.x / 1e6,
+                                                       y=exp.command.position.y / 1e6))
+        else:
+            logger.info(_("net_trace: adopted existing track ({sx:.3f}, {sy:.3f}) -> "
+                          "({ex:.3f}, {ey:.3f}) mm into the track registry")
+                        .format(sx=exp.command.start.x / 1e6, sy=exp.command.start.y / 1e6,
+                                ex=exp.command.end.x / 1e6, ey=exp.command.end.y / 1e6))
 
     via_registry._save_entries(via_registry.entries)
     track_registry._save_entries(track_registry.entries)
@@ -253,8 +467,17 @@ resolve_live_anchor = _resolve_anchor
 
 
 __all__ = [
+    "Expectation",
+    "LiveCopper",
+    "MatchedCopper",
+    "TIER_GEOMETRY",
+    "TIER_REGISTRY",
+    "TRACK",
+    "VIA",
+    "adopt_net_trace_copper",
+    "find_live_copper",
+    "match_net_trace_pieces",
     "net_trace_anchor_id",
     "plan_net_traces",
-    "adopt_net_trace_copper",
     "resolve_live_anchor",
 ]

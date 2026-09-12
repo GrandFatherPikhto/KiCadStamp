@@ -6229,6 +6229,13 @@ msgstr ""
 msgid "net_traces entry (net {net!r}): retired/skip, not planned"
 msgstr "net_traces entry (net {net!r}): retired/skip, not planned"
 
+msgid "the record is retired/skip — apply does not place it, so only the registry was consulted"
+msgstr "the record is retired/skip — apply does not place it, so only the registry was consulted"
+
+#, python-brace-format
+msgid "the anchor could not be resolved live ({error}) — the geometry cannot be matched"
+msgstr "the anchor could not be resolved live ({error}) — the geometry cannot be matched"
+
 #: kicadstamp/net_trace_planner.py:137
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"
