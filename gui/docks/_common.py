@@ -132,6 +132,45 @@ def set_combo_items(combo: QComboBox, items: List[str]) -> None:
         combo.blockSignals(previous_combo_block)
 
 
+def own_line_edits(widget: QWidget) -> List[QLineEdit]:
+    """The widget's OWN line edits — every QLineEdit under `widget` except the
+    internal one a searchable (editable) QComboBox owns.
+
+    Use this for any signal, INCLUDING `textChanged`. A combo's internal line
+    edit must never receive a `textChanged` subscription: Qt emits it from
+    inside the combo's own record insertion (insertItems -> rowsInserted ->
+    setCurrentIndex -> internalSetText), so a Python slot would re-enter Qt
+    while the signal mutex is held and deadlock the GUI on a non-recursive
+    mutex — measured live on 2026-09-12, see
+    techdocs/handoff/claude/note_2026_09_12_gui_freeze_addItems_deadlock.md.
+
+    The split against combo_line_edits is STRICT and mirrors the one criterion
+    Qt itself uses — `isinstance(edit.parent(), QComboBox)` — so the union of
+    the two is exactly findChildren(QLineEdit), no overlap, no loss. Both
+    helpers keep findChildren's own order, so the order signals are connected
+    in does not change."""
+    return [edit for edit in widget.findChildren(QLineEdit)
+            if not isinstance(edit.parent(), QComboBox)]
+
+
+def combo_line_edits(widget: QWidget) -> List[QLineEdit]:
+    """ONLY the internal line edits of the searchable combos under `widget` —
+    the exact complement of `own_line_edits`.
+
+    Connect ONLY user-driven signals here: `editingFinished`, `returnPressed`.
+    They cannot be emitted by a repopulation, so they are safe.
+    NEVER connect `textChanged` (see `own_line_edits` for why it deadlocks).
+
+    This exists because those subscriptions are LOAD-BEARING and must stay
+    visible: a combo's `currentIndexChanged` does NOT fire for free-typed text
+    that is not in the item list (measured: 0 emissions), so the internal line
+    edit's `editingFinished` is the only signal that carries a hand-typed role
+    or cluster to the dock's autostage. Dropping it silently stops auto-saving
+    typed values — see diagnostics/probe_combo_line_edit_signals.py."""
+    return [edit for edit in widget.findChildren(QLineEdit)
+            if isinstance(edit.parent(), QComboBox)]
+
+
 def configure_searchable(combo: QComboBox) -> None:
     """Turns a plain editable QComboBox into a filter-as-you-type search
     box. Qt's own default completer for an editable combo only matches
