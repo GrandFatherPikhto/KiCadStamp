@@ -1931,11 +1931,14 @@ def test_anchor_base_live_ref_anchor_still_resolves(monkeypatch):
 
 
 def test_prompt_node_returns_none_when_build_node_failed(main_window, tmp_path, monkeypatch):
-    """Regression 2026-09-02 (live crash — the whole GUI died): the node
-    dialog's OK accept()s unconditionally, so build_node() runs AFTER exec() in
-    _prompt_node; a build_node() that returned None (used ref / empty ref / bad
-    offset — it already showed a warning) used to crash on node.ref. Now it is
-    treated like a cancel."""
+    """Regression 2026-09-02 (live crash — the whole GUI died): a build_node()
+    that returns None (used ref / empty ref / bad offset — it already showed a
+    warning) must be treated like a cancel, never dereferenced as a node.
+
+    Since Э2 (plan_2026_09_12_node_dialog_usability) the real OK button cannot
+    reach this state any more (it accepts only on a successful build), so the
+    guard is exercised the only way left: a caller that bypassed OK — here the
+    stubbed exec() above."""
     import gui.docks.trees_dock as td_mod
 
     dock, _root = _dock_with(main_window, tmp_path)
@@ -1944,6 +1947,82 @@ def test_prompt_node_returns_none_when_build_node_failed(main_window, tmp_path, 
                         lambda self: td_mod.QDialog.DialogCode.Accepted)
     monkeypatch.setattr(td_mod._NodeDialog, "build_node", lambda self: None)
     assert dock._prompt_node("Add node", tree, parent_node=None) is None
+
+
+def test_add_mode_ok_keeps_the_dialog_open_and_the_input_on_a_failed_build(
+        main_window, tmp_path, monkeypatch):
+    """Э2 (plan_2026_09_12_node_dialog_usability): OK validates BEFORE accepting,
+    so an empty Ref leaves the dialog OPEN with everything the user typed — the
+    input is never lost and one edit is enough to retry.
+
+    Fails on the pre-Э2 code, where the OK button was wired straight to
+    accept() and the window closed unconditionally (validation then ran after
+    exec() in _prompt_node, with the typed values already gone)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Add node", cfg=dock._cfg, adapter=None, sheet_names={},
+                      tree=tree, parent_node=None)
+    dlg.name_edit.setText("kept_while_invalid")
+    # An empty ref is build_node()'s first refusal ("Ref is required.").
+    dlg.ref_combo.setCurrentText("")
+    dlg.ok_button.click()
+
+    assert dlg.result() != td_mod.QDialog.DialogCode.Accepted   # NOT accepted
+    assert warnings, "the reason must have been shown to the user"
+    assert dlg.name_edit.text() == "kept_while_invalid"          # nothing reset
+    assert dlg.build_node() is None
+
+
+def test_add_mode_ok_accepts_a_valid_form_and_hands_out_the_built_node(
+        main_window, tmp_path, monkeypatch):
+    """Э2: OK accepts only after a successful build_node() and keeps THAT node
+    for the Add flow — _prompt_node must not validate a second time (a second
+    run would show the same QMessageBox again)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+
+    def _fill(dlg, ref, x, y):
+        dlg.ref_combo.setCurrentText(ref)
+        dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+        dlg.offset_widget.x_edit.setText(x)
+        dlg.offset_widget.y_edit.setText(y)
+
+    dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
+                      "Add node", cfg=dock._cfg, adapter=None, sheet_names={},
+                      tree=tree, parent_node=None)
+    _fill(dlg, "brand_new", "1.0", "2.0")
+    dlg.ok_button.click()
+
+    assert dlg.result() == td_mod.QDialog.DialogCode.Accepted
+    built = dlg.build_node()
+    assert built is not None and built.ref == "brand_new"
+    assert built.xy == (1.0, 2.0)
+    # The SAME object comes back on every read: no second validation run.
+    assert dlg.build_node() is built
+    assert warnings == []
+
+    # The same contract through _prompt_node's own path: OK (clicked inside
+    # exec()) hands the built node over with exactly one validation.
+    def _fake_exec(self):
+        _fill(self, "brand_new_2", "3.0", "4.0")
+        self._on_ok()
+        return self.result()
+
+    monkeypatch.setattr(td_mod._NodeDialog, "exec", _fake_exec)
+    node = dock._prompt_node("Add node", tree, parent_node=None)
+    assert node is not None and node.ref == "brand_new_2"
+    assert node.xy == (3.0, 4.0)
+    assert warnings == []
 
 
 def test_edit_dialog_prefilled_and_own_ref_not_rejected(main_window, tmp_path, monkeypatch):

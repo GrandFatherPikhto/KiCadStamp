@@ -17,6 +17,7 @@ dependencies = [
     "PyQt6==6.11.0",
     "pynng==0.9.0",
     "protobuf==5.29.6",
+    "python-ptrace==0.9.9",
 ]
 
 [project.optional-dependencies]

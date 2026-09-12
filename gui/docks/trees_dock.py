@@ -2223,14 +2223,16 @@ class TreesDock(QWidget):
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
+        # Э2 (plan_2026_09_12_node_dialog_usability): the OK button validated the
+        # form BEFORE accepting, so this is the node it built — validation does
+        # NOT run here any more and the user gets no second QMessageBox.
         node = dialog.build_node()
         if node is None:
-            # build_node() already reported the problem (empty/used ref, bad
-            # offset/rotation) via QMessageBox and returned None — treat it as
-            # a cancel, never dereference it below. The node dialog's OK button
-            # accept()s unconditionally, so validation runs HERE, after exec();
-            # a None node used to crash on node.ref (found live 2026-09-02,
-            # AttributeError in _add_node_flow -> whole GUI died).
+            # Still honoured for a caller that bypassed OK (exec() stubbed by a
+            # test): build_node() reports the problem itself and returns None —
+            # treat it as a cancel, never dereference it below. A None node used
+            # to crash on node.ref (found live 2026-09-02, AttributeError in
+            # _add_node_flow -> whole GUI died).
             return None
         # Phase 5.5 auto-numbering: a NEW node whose free-typed ref (not a
         # placeable record — those are shown "(used)" and stay strict) collides
@@ -3789,6 +3791,11 @@ class _NodeDialog(QDialog):
     field are reachable on the dialog (via the embedded form) so the existing
     callers/tests keep working until §6 ports them onto NodeFormWidget."""
     _form: Optional[NodeFormWidget] = None
+    # Э2 (plan_2026_09_12_node_dialog_usability): the node the Add-mode OK
+    # button validated and accepted with — see _on_ok/build_node. A class-level
+    # default (not set in __init__) so the attribute is found by normal lookup,
+    # never by __getattr__ (which forwards unknown names to the embedded form).
+    _built_node: Optional[TreeNode] = None
 
     def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
                  title: str, cfg=None, adapter=None, sheet_names=None,
@@ -3820,8 +3827,15 @@ class _NodeDialog(QDialog):
             buttons.addWidget(self.redraw_button)
             buttons.addWidget(self.close_button)
         else:
+            # Э2 (plan_2026_09_12_node_dialog_usability): OK validates FIRST and
+            # accepts only when the form built a node — a failed build leaves the
+            # dialog OPEN with everything the user typed. Until 2026-09-12 OK was
+            # wired straight to accept(), so the window closed unconditionally
+            # and validation had to run after exec() in _prompt_node, by which
+            # time the input was already gone (the 2026-09-02 workaround this
+            # replaces; the edit mode's Apply/Close pair already behaved right).
             self.ok_button = QPushButton(_("OK"))
-            self.ok_button.clicked.connect(self.accept)
+            self.ok_button.clicked.connect(self._on_ok)
             cancel_button = QPushButton(_("Cancel"))
             cancel_button.clicked.connect(self.reject)
             buttons.addWidget(self.ok_button)
@@ -3875,9 +3889,31 @@ class _NodeDialog(QDialog):
         place the real record on the live board via the dock)."""
         self._form.redraw()
 
+    def _on_ok(self) -> None:
+        """Add-mode OK: validate the form and accept ONLY when it built a node.
+
+        build_node() reports the problem itself (a QMessageBox naming the empty/
+        used ref or the bad offset) and returns None; the dialog then stays open
+        and unchanged, so the fix is one edit away (plan
+        plan_2026_09_12_node_dialog_usability Э2). Cancel/Close stays the
+        unconditional reject()."""
+        node = self._form.build_node()
+        if node is None:
+            return
+        self._built_node = node
+        self.accept()
+
     def build_node(self):
-        """The form's build_node() — the Add flow (_prompt_node) reads it after
-        a successful exec()."""
+        """The node the OK button already validated, or — when OK never ran
+        (a caller driving the form directly, a test stubbing exec()) — the
+        form's own build_node().
+
+        The cache is what keeps the Add flow from validating twice: after Э2
+        (plan_2026_09_12_node_dialog_usability) _prompt_node reads the node OK
+        built instead of running build_node() again after exec(), so the same
+        QMessageBox can never appear twice."""
+        if self._built_node is not None:
+            return self._built_node
         return self._form.build_node()
 
     def mount_anchor(self):
