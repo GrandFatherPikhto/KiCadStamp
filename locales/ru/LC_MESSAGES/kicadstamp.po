@@ -9534,12 +9534,14 @@ msgstr ""
 #: kicadstamp/config/tree_instances.py:166
 msgid ""
 "a net_trace node's net is rewritten by replacing its leading sheet "
-"segment, so the template tree's role anchor must carry a sheet "
-"(anchor.sheet) naming the template's own sheet"
+"segment (a legacy record has no name: and carries literal net paths), so "
+"the template tree's role anchor must carry a sheet (anchor.sheet) naming "
+"the template's own sheet"
 msgstr ""
-"сеть узла net_trace переписывается заменой ведущего сегмента (листа), "
-"поэтому role-якорь шаблонного дерева обязан нести sheet (anchor.sheet) с "
-"именем собственного листа шаблона"
+"сеть узла net_trace переписывается заменой ведущего сегмента (листа) — у "
+"старой записи нет name:, а на меди лежат буквальные имена сетей, — поэтому "
+"role-якорь шаблонного дерева обязан нести sheet (anchor.sheet) с именем "
+"собственного листа шаблона"
 
 #: kicadstamp/config/tree_instances.py:172
 #, python-brace-format
@@ -9553,10 +9555,24 @@ msgstr ""
 #: kicadstamp/config/tree_instances.py:175
 msgid ""
 "every net_trace node of a tree template must reference an existing "
-"net_traces: entry by its net name"
+"net_traces: entry by its name (name:, or the net: of a legacy record)"
 msgstr ""
 "каждый узел net_trace шаблона дерева должен ссылаться на существующую "
-"запись net_traces: по имени сети"
+"запись net_traces: по её имени (name:, либо по net: старой записи)"
+
+# ── Э3.2: a named (role, pad) net_trace record needs no sheet rewrite ──
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: net_trace record {record!r} is named ((role, "
+"pad)-based), but its copper still carries literal net(s) at {items} — a "
+"named record's nets are NOT rewritten by sheet; check how the record was "
+"captured"
+msgstr ""
+"tree_instance {name!r}: запись net_trace {record!r} именованная (основана на "
+"(role, pad)), но на её меди всё ещё есть буквальные сети ({items}) — у "
+"именованной записи сети НЕ переписываются по листу; проверьте, как запись "
+"была захвачена"
 
 #: kicadstamp/config/tree_instances.py:206
 #, python-brace-format
@@ -15279,8 +15295,8 @@ msgid "tree_instance {name!r}: template {template!r} declares its own place, but
 msgstr "tree_instance {name!r}: шаблон {template!r} объявляет собственное место, но собственный лист шаблона вывести нельзя"
 
 #: kicadstamp/config/tree_instances.py
-msgid "the template has net_trace or mount nodes, whose expansion needs the template's own sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an explicit sheet to the root Entity of the template tree"
-msgstr "в шаблоне есть узлы net_trace либо mount, для раскрытия которых нужен собственный лист шаблона — добавьте (sheet \"...\") в якорь (role ...) шаблона либо явный sheet корневой Entity дерева-шаблона"
+msgid "the template has a mount node or a legacy (literal-net) net_trace node, whose expansion needs the template's own sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an explicit sheet to the root Entity of the template tree"
+msgstr "в шаблоне есть узел mount либо старый узел net_trace (с буквальной сетью), для раскрытия которых нужен собственный лист шаблона — добавьте (sheet \"...\") в якорь (role ...) шаблона либо явный sheet корневой Entity дерева-шаблона"
 
 #: gui/docks/instances_dialog.py
 msgid "Rotation must be a number — got {value!r}."

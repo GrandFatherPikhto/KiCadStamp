@@ -9574,8 +9574,9 @@ msgstr ""
 #: kicadstamp/config/tree_instances.py:166
 msgid ""
 "a net_trace node's net is rewritten by replacing its leading sheet "
-"segment, so the template tree's role anchor must carry a sheet "
-"(anchor.sheet) naming the template's own sheet"
+"segment (a legacy record has no name: and carries literal net paths), so "
+"the template tree's role anchor must carry a sheet (anchor.sheet) naming "
+"the template's own sheet"
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py:172
@@ -9588,7 +9589,17 @@ msgstr ""
 #: kicadstamp/config/tree_instances.py:175
 msgid ""
 "every net_trace node of a tree template must reference an existing "
-"net_traces: entry by its net name"
+"net_traces: entry by its name (name:, or the net: of a legacy record)"
+msgstr ""
+
+# ── Э3.2: a named (role, pad) net_trace record needs no sheet rewrite ──
+#: kicadstamp/config/tree_instances.py
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: net_trace record {record!r} is named ((role, "
+"pad)-based), but its copper still carries literal net(s) at {items} — a "
+"named record's nets are NOT rewritten by sheet; check how the record was "
+"captured"
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py:206
@@ -16629,7 +16640,7 @@ msgid "tree_instance {name!r}: template {template!r} declares its own place, but
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py
-msgid "the template has net_trace or mount nodes, whose expansion needs the template's own sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an explicit sheet to the root Entity of the template tree"
+msgid "the template has a mount node or a legacy (literal-net) net_trace node, whose expansion needs the template's own sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an explicit sheet to the root Entity of the template tree"
 msgstr ""
 
 #: gui/docks/instances_dialog.py

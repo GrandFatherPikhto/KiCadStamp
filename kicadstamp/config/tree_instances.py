@@ -35,7 +35,27 @@ is not that sheet is NOT this template's copper and is a fatal, never silently
 rewritten. The generated NetTrace's `anchor_sheet` is unconditionally
 overwritten with the instance sheet (same pattern as Tree.anchor.anchor_sheet
 and the Entity copy's sheet). Registry identity (`net_trace_anchor_id` is
-built from the net) is therefore per-copy automatically, no extra code.
+built from the record's identity) is therefore per-copy automatically, no
+extra code.
+
+CHANGED 2026-09-12 (plan_2026_09_12_internode_copper_core Э3.2, design §11/§15):
+a net_trace record's identity moved from its net to its `name`, and its copper
+may be represented by (role, pad) references instead of literal nets — so there
+are now TWO paths, chosen by HOW THE RECORD IS REPRESENTED:
+
+  * path A — a record WITHOUT `name:` (a legacy literal-net record; the
+    `net_traces:` index key is then its net): the leading sheet segment is
+    substituted exactly as described above, INCLUDING the fatal on a net whose
+    leading segment is not the template's own sheet;
+  * path B — a record WITH `name:`: nothing is rewritten by sheet at all. Such
+    a record's copper is (role, pad)-based and its nets are resolved live from
+    the INSTANCE's own components at apply time
+    (net_trace_planner._item_net_name narrows each role search by the copy's
+    anchor_sheet, which is this very instance sheet) — which is why the
+    old_sheet requirement, and with it the "not a {sheet}-sheet net path"
+    fatal, simply does not apply here. The copy is renamed like a placement
+    node instead: its `name` AND the node's ref become `<name>__{instance}`
+    through the same old→new map the template's pivot_ref is rewritten through.
 
 v1.2 (2026-09-03, plan tree_instances_cluster): a declaration may OPTIONALLY
 carry `cluster:` — an override substituted into every generated Entity copy's
@@ -187,10 +207,13 @@ v1 template constraints (each is a hard fatal, never a silent skip):
     net_trace (chain/coordinate/clone/module nodes inside a template are not
     instantiated yet);
   - a placement node's ref must name an existing entities: entry; a net_trace
-    node's ref must name an existing net_traces: entry (its net);
-  - a net_trace node additionally requires the template's role anchor to carry
-    a real sheet (the old sheet whose leading net segment is rewritten), and
-    the net's leading segment must equal that sheet.
+    node's ref must name an existing net_traces: entry BY ITS IDENTITY (name:,
+    or the net: of a legacy record) — the same seam link_trees resolves;
+  - a net_trace node whose record is a LEGACY (name-less, literal-net) one
+    additionally requires the template's role anchor to carry a real sheet (the
+    old sheet whose leading net segment is rewritten), and the net's leading
+    segment must equal that sheet. A NAMED record is (role, pad)-based, rewrites
+    nothing by sheet and needs neither (path B, plan Э3.2).
 
 Q2 (revised 2026-09-02, second round): a referenced template Entity MAY carry
 its OWN real `sheet` — it is REQUIRED for the template's own live
@@ -210,6 +233,27 @@ from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 
 logger = logging.getLogger(__name__)
+
+
+def _record_identity(record: dict) -> str | None:
+    """Raw-dict mirror of config/models.py::net_trace_effective_name — the
+    identity a net_trace NODE's ref is matched by: `name:`, else a legacy
+    record's `net:`. None when the record carries neither."""
+    identity = record.get('name') or record.get('net')
+    return identity if isinstance(identity, str) and identity else None
+
+
+def _literal_item_nets(record: dict) -> list[str]:
+    """The `tracks[i]`/`vias[i]` positions of a record whose copper still
+    carries LITERAL nets. Path B (a named record) rewrites nothing by sheet, so
+    a literal net there is a capture-side inconsistency worth a Log warning —
+    never a silently wrong net on the instance."""
+    out: list[str] = []
+    for kind in ('tracks', 'vias'):
+        for idx, item in enumerate(record.get(kind) or []):
+            if isinstance(item, dict) and item.get('net'):
+                out.append(f"{kind}[{idx}]")
+    return out
 
 
 def _substitute_net_sheet(net: str, old_sheet: str, new_sheet: str,
@@ -265,21 +309,36 @@ def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str
     return clusters
 
 
-def _template_needs_old_sheet(nodes: list) -> bool:
+def _template_needs_old_sheet(nodes: list,
+                              net_traces_by_name: dict | None = None) -> bool:
     """True when the template carries a node whose expansion READS the
-    template's own sheet (`old_sheet`): a net_trace node (its net's leading
-    sheet segment is rewritten) or a mount node (its anchor's sheet decides
-    inside/outside). Used by the entry gate (§И.4): a declaration that brings
-    its own `anchor` may use a template of ANY anchor mode, but such a template
-    must still be able to yield a sheet somewhere (a role anchor's sheet, or the
-    root Entity's own sheet) — otherwise the gate says exactly what to add
+    template's own sheet (`old_sheet`): a mount node (its anchor's sheet decides
+    inside/outside), or a LEGACY net_trace node — one whose record has no
+    `name:`, so its literal nets are rewritten by leading-sheet substitution
+    (path A). A NAMED net_trace record is (role, pad)-based and rewrites
+    nothing by sheet (path B, plan Э3.2), so it does not need the template to
+    yield one.
+
+    `net_traces_by_name` is the record index; a caller that has only the raw
+    nodes (or a node whose record is MISSING) counts a net_trace node as
+    needing the sheet — conservative, and the missing record is a fatal of its
+    own anyway. Used by the entry gate (§И.4): a declaration that brings its
+    own `anchor` may use a template of ANY anchor mode, but such a template
+    must still be able to yield a sheet somewhere (a role anchor's sheet, or
+    the root Entity's own sheet) — otherwise the gate says exactly what to add
     instead of leaving a per-node mystery fatal."""
     for node in nodes:
         if not isinstance(node, dict):
             continue
-        if node.get('kind') in ('net_trace', 'mount'):
+        if node.get('kind') == 'mount':
             return True
-        if _template_needs_old_sheet(node.get('children') or []):
+        if node.get('kind') == 'net_trace':
+            record = (net_traces_by_name or {}).get(node.get('ref'))
+            if record is not None and record.get('name'):
+                continue  # path B: nothing is rewritten by sheet
+            return True
+        if _template_needs_old_sheet(node.get('children') or [],
+                                     net_traces_by_name):
             return True
     return False
 
@@ -304,7 +363,7 @@ def _template_root_entity_ref(template: dict) -> str | None:
 
 
 def _expand_mount_node(node: dict, instance_name: str, sheet: str,
-                       entities_by_name: dict, net_traces_by_net: dict,
+                       entities_by_name: dict, net_traces_by_name: dict,
                        generated_entities: list, generated_net_traces: list,
                        template_name: str, old_sheet: str | None,
                        cluster: str | None, params: dict[str, str] | None,
@@ -354,7 +413,7 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
     children = node.get('children') or []
     if children:
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
-                                        net_traces_by_net, generated_entities,
+                                        net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
                                         old_sheet, cluster, params, ref_map,
                                         anchor_cluster)
@@ -420,7 +479,7 @@ def _rewrite_self_ref(gen: dict, template_name: str, instance_name: str,
 
 
 def _expand_node(node: dict, instance_name: str, sheet: str,
-                 entities_by_name: dict, net_traces_by_net: dict,
+                 entities_by_name: dict, net_traces_by_name: dict,
                  generated_entities: list, generated_net_traces: list,
                  template_name: str, old_sheet: str | None,
                  cluster: str | None = None,
@@ -434,11 +493,16 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     Entity is copied into generated_entities under the new ref with the
     instance sheet.
 
-    kind=net_trace (v1.1): the node's ref is a board net; the matching
-    net_traces: record (found by net) is copied into generated_net_traces with
-    the leading sheet segment of its net (and of every track/via net) replaced
-    by the instance sheet, its anchor_sheet unconditionally overwritten, and
-    the node's own ref rewritten to the new net. Other node kinds
+    kind=net_trace (v1.1; two paths since 2026-09-12, plan Э3.2 — see the
+    module docstring for the full reasoning): the node's ref is the record's
+    IDENTITY; the matching net_traces: record is copied into
+    generated_net_traces with its anchor_sheet unconditionally overwritten by
+    the instance sheet. A LEGACY record (no name:, literal net paths) takes
+    path A: the leading sheet segment of its net (and of every track/via net) is
+    replaced by the instance sheet and the node's own ref is rewritten to the
+    new net. A NAMED (role, pad)-based record takes path B: nothing is rewritten
+    by sheet, and the copy — `name` and node ref alike — is renamed
+    `<name>__{instance}` like a placement node. Other node kinds
     (chain/coordinate/clone/module) stay a fatal.
 
     Q2 (revised 2026-09-02): the template Entity's OWN sheet is deliberately
@@ -482,48 +546,80 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     kind = node.get('kind')
     if kind == 'mount':
         return _expand_mount_node(node, instance_name, sheet, entities_by_name,
-                                  net_traces_by_net, generated_entities,
+                                  net_traces_by_name, generated_entities,
                                   generated_net_traces, template_name, old_sheet,
                                   cluster, params, anchor_cluster, ref_map)
     if kind == 'net_trace':
-        if not old_sheet:
-            raise ValidationError(format_fatal_error(
-                _("tree_instance: template {template!r} net_trace node {ref!r} "
-                  "needs the template's anchor sheet")
-                .format(template=template_name, ref=orig_ref),
-                [_("a net_trace node's net is rewritten by replacing its leading "
-                   "sheet segment, so the template tree's role anchor must carry "
-                   "a sheet (anchor.sheet) naming the template's own sheet")]))
-        record = net_traces_by_net.get(orig_ref)
+        # The record is found by its IDENTITY — name:, else a legacy record's
+        # net: (config/models.py::net_trace_effective_name). That is the same
+        # string a net_trace node's ref names (link_trees builds its key from
+        # the same identity), so a named record is found by its own name.
+        record = net_traces_by_name.get(orig_ref)
         if record is None:
             raise ValidationError(format_fatal_error(
                 _("tree_instance: template {template!r} node {ref!r} has no "
                   "matching net_traces: record").format(template=template_name,
                                                         ref=orig_ref),
                 [_("every net_trace node of a tree template must reference an "
-                   "existing net_traces: entry by its net name")]))
+                   "existing net_traces: entry by its name (name:, or the net: "
+                   "of a legacy record)")]))
 
         gen = copy.deepcopy(node)
-        new_net = _substitute_net_sheet(orig_ref, old_sheet, sheet,
-                                        template_name, orig_ref)
-        gen['ref'] = new_net
-        ref_map[orig_ref] = new_net
         gen_nt = copy.deepcopy(record)
-        gen_nt['net'] = new_net
-        gen_nt['anchor_sheet'] = sheet
-        for t in gen_nt.get('tracks') or []:
-            if isinstance(t, dict) and t.get('net'):
-                t['net'] = _substitute_net_sheet(t['net'], old_sheet, sheet,
-                                                 template_name, orig_ref)
-        for v in gen_nt.get('vias') or []:
-            if isinstance(v, dict) and v.get('net'):
-                v['net'] = _substitute_net_sheet(v['net'], old_sheet, sheet,
-                                                 template_name, orig_ref)
+        if record.get('name'):
+            # ── Path B — a NAMED (role, pad)-based record ──────────────────
+            # Nothing is rewritten by sheet: the nets come live from the
+            # instance's own components (see the module docstring). The copy is
+            # renamed exactly like a placement node, `name` included, so the
+            # node ref and the record's effective identity stay equal.
+            new_ref = f"{_record_identity(record)}__{instance_name}"
+            gen['ref'] = new_ref
+            ref_map[orig_ref] = new_ref
+            gen_nt['name'] = new_ref
+            gen_nt['anchor_sheet'] = sheet
+            literal = _literal_item_nets(gen_nt)
+            if literal:
+                logger.warning(_(
+                    "tree_instance {name!r}: net_trace record {record!r} is "
+                    "named ((role, pad)-based), but its copper still carries "
+                    "literal net(s) at {items} — a named record's nets are NOT "
+                    "rewritten by sheet; check how the record was captured")
+                    .format(name=instance_name, record=orig_ref,
+                            items=", ".join(literal)))
+        else:
+            # ── Path A — a LEGACY literal-net record ───────────────────────
+            # Byte-for-byte the historical behaviour: the leading sheet segment
+            # is substituted on the record's own net and on every track/via net,
+            # which is why the template must be able to yield its own sheet.
+            if not old_sheet:
+                raise ValidationError(format_fatal_error(
+                    _("tree_instance: template {template!r} net_trace node {ref!r} "
+                      "needs the template's anchor sheet")
+                    .format(template=template_name, ref=orig_ref),
+                    [_("a net_trace node's net is rewritten by replacing its "
+                       "leading sheet segment (a legacy record has no name: and "
+                       "carries literal net paths), so the template tree's role "
+                       "anchor must carry a sheet (anchor.sheet) naming the "
+                       "template's own sheet")]))
+            new_net = _substitute_net_sheet(orig_ref, old_sheet, sheet,
+                                            template_name, orig_ref)
+            gen['ref'] = new_net
+            ref_map[orig_ref] = new_net
+            gen_nt['net'] = new_net
+            gen_nt['anchor_sheet'] = sheet
+            for t in gen_nt.get('tracks') or []:
+                if isinstance(t, dict) and t.get('net'):
+                    t['net'] = _substitute_net_sheet(t['net'], old_sheet, sheet,
+                                                     template_name, orig_ref)
+            for v in gen_nt.get('vias') or []:
+                if isinstance(v, dict) and v.get('net'):
+                    v['net'] = _substitute_net_sheet(v['net'], old_sheet, sheet,
+                                                     template_name, orig_ref)
         generated_net_traces.append(gen_nt)
         children = node.get('children') or []
         if children:
             gen['children'] = [_expand_node(c, instance_name, sheet,
-                                            entities_by_name, net_traces_by_net,
+                                            entities_by_name, net_traces_by_name,
                                             generated_entities,
                                             generated_net_traces,
                                             template_name, old_sheet,
@@ -555,7 +651,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     children = node.get('children') or []
     if children:
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
-                                        net_traces_by_net, generated_entities,
+                                        net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
                                         old_sheet, cluster, params, ref_map,
                                         anchor_cluster)
@@ -581,7 +677,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
 
 def _expand_template(template: dict, template_name: str, instance_name: str,
                      sheet: str, entities_by_name: dict,
-                     net_traces_by_net: dict,
+                     net_traces_by_name: dict,
                      cluster: str | None = None,
                      params: dict[str, str] | None = None,
                      decl_anchor: dict | None = None,
@@ -707,19 +803,22 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     else:
         old_sheet = None
     if (has_decl_anchor and old_sheet is None
-            and _template_needs_old_sheet(template.get('nodes') or [])):
+            and _template_needs_old_sheet(template.get('nodes') or [],
+                                          net_traces_by_name)):
         # §И.4: the declaration's anchor lets a template of any mode in, but a
-        # net_trace/mount node still needs the template's OWN sheet, and that
-        # cannot be invented. Say exactly what to add — the alternative would be
-        # a per-node fatal deep inside the walk, far from the real cause.
+        # mount node, or a LEGACY (literal-net) net_trace node, still needs the
+        # template's OWN sheet, and that cannot be invented. A NAMED
+        # (role, pad)-based net_trace record does not (plan Э3.2), so it is not
+        # counted here. Say exactly what to add — the alternative would be a
+        # per-node fatal deep inside the walk, far from the real cause.
         raise ValidationError(format_fatal_error(
             _("tree_instance {name!r}: template {template!r} declares its own "
               "place, but the template's own sheet cannot be derived")
             .format(name=instance_name, template=template_name),
-            [_("the template has net_trace or mount nodes, whose expansion needs "
-               "the template's own sheet — add (sheet \"...\") to a (role ...) "
-               "anchor of the template, or an explicit sheet to the root Entity "
-               "of the template tree")]))
+            [_("the template has a mount node or a legacy (literal-net) "
+               "net_trace node, whose expansion needs the template's own sheet — "
+               "add (sheet \"...\") to a (role ...) anchor of the template, or an "
+               "explicit sheet to the root Entity of the template tree")]))
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
     if has_decl_anchor:
@@ -790,7 +889,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     # effective_node_cluster — two DIFFERENT concepts (see _expand_mount_node).
     ref_map: dict[str, str] = {}
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
-                                 net_traces_by_net, generated_entities,
+                                 net_traces_by_name, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
                                  effective_node_cluster, params, ref_map, cluster)
                     for n in (template.get('nodes') or [])]
@@ -827,10 +926,16 @@ def expand_tree_instances(data: dict) -> dict:
     for ent in entities:
         if isinstance(ent, dict) and isinstance(ent.get('name'), str):
             entities_by_name[ent['name']] = ent
-    net_traces_by_net: dict = {}
+    # Indexed by the record's IDENTITY (name:, else a legacy record's net:) —
+    # the same string a net_trace node's ref names, and the same seam
+    # config/models.py::net_trace_effective_name reads.
+    net_traces_by_name: dict = {}
     for nt in net_traces:
-        if isinstance(nt, dict) and isinstance(nt.get('net'), str):
-            net_traces_by_net[nt['net']] = nt
+        if not isinstance(nt, dict):
+            continue
+        identity = _record_identity(nt)
+        if identity is not None:
+            net_traces_by_name[identity] = nt
     trees_by_name: dict = {}
     for t in trees:
         if isinstance(t, dict) and isinstance(t.get('name'), str):
@@ -911,7 +1016,7 @@ def expand_tree_instances(data: dict) -> dict:
         (generated_tree, generated_entities,
          generated_net_traces) = _expand_template(
             template, template_name, instance_name, sheet, entities_by_name,
-            net_traces_by_net, cluster, params, decl_anchor, decl_rotation)
+            net_traces_by_name, cluster, params, decl_anchor, decl_rotation)
         trees.append(generated_tree)
         entities.extend(generated_entities)
         net_traces.extend(generated_net_traces)

@@ -866,8 +866,17 @@ class TreeInstance:
     declaration, copying the template's geometry and substituting `sheet`.
 
     template — name of an EXISTING trees: entry used as the geometry template.
-        v1 template constraints (fatal otherwise): role-based anchor, only
-        kind=placement nodes, template Entities carry NO own sheet (Q2);
+        Template constraints (fatal otherwise): a role- or self-anchored template
+        UNLESS the declaration brings its own `anchor:` (v1.6, И.2 — then ANY
+        anchor mode is allowed), and only kind=placement / kind=net_trace /
+        kind=mount nodes (chain/coordinate/clone/module inside a template are
+        not instantiated yet). The old "only kind=placement nodes" claim is
+        outdated: a kind=net_trace node has been materialized since v1.1
+        (2026-09-02, plan tree_instances_net_trace), and a mount node since
+        v1.5. A template Entity MAY carry its own `sheet` (Q2 revision
+        2026-09-02): it is kept on the template for its own live
+        re-readability, and the generated COPY's sheet is unconditionally the
+        instance sheet;
     name — the materialized tree's name (a duplicate across instances/against
         hand-written trees is caught by the trees duplicate-name check);
     sheet — substituted into every generated Entity's `sheet` and (for a role
@@ -911,9 +920,10 @@ class TreeInstance:
         instead of whole-field. None (the default) changes nothing: the deep
         copy keeps the template's own params verbatim, today's behaviour.
         Deliberately NOT applied to net_traces (same reason as `cluster` — a
-        net_trace's nets are rewritten by leading-sheet substitution, and its
-        anchor_* narrows an EXTERNAL search, not {placeholder}-parametrized
-        geometry).
+        net_trace's anchor_* narrows an EXTERNAL search, not
+        {placeholder}-parametrized geometry, and its nets are either resolved
+        live through (role, pad) references or rewritten by leading-sheet
+        substitution — see config/tree_instances.py's module docstring).
 
     anchor — OPTIONAL (2026-09-12, plan_2026_09_12_tree_instance_own_place
         §И.2, task C2): the generated tree's OWN place, in the TREE anchor dict
@@ -927,9 +937,11 @@ class TreeInstance:
         role-/self-anchored template). None (the default) keeps today's
         behaviour byte-for-byte.
 
-        The template's own sheet is STILL what drives the net_trace/mount
-        `old_sheet` (И.3.2) — `anchor` moves the instance, it does not change
-        what the instance IS.
+        The template's own sheet is STILL what drives the `old_sheet` of a
+        mount node and of a LEGACY (literal-net) net_trace node (И.3.2) —
+        `anchor` moves the instance, it does not change what the instance IS. A
+        NAMED (role, pad)-based net_trace record needs no `old_sheet` at all
+        (plan_2026_09_12_internode_copper_core Э3.2).
 
     rotation — OPTIONAL own angle of the generated tree (И.3.4, same meaning as
         Tree.rotation): lands on the copy's Tree.rotation and REPLACES the

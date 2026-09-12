@@ -41,6 +41,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .geometry.spoke_layout import local_to_absolute
 from .placement.commands import ViaCommand, TrackCommand
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
+from .net_resolution import resolve_net_from_role
 from .registry import make_registry_key, track_matches
 from .tree_position import relative_rotation_deg
 from .i18n import _
@@ -102,6 +103,38 @@ def _resolve_anchor(adapter, nt: NetTrace, sheet_names: dict[str, str]):
     return anchor_fp, anchor_fp.position
 
 
+def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
+                   label: str) -> str:
+    """The net of one track/via of a net trace, resolved LIVE.
+
+    An item either carries a literal net (a legacy record, and the plain
+    `item.net or nt.net` fall-back) or a (role, pad) REFERENCE —
+    net_from_role / net_from_role_pad, the same pair a Cell's via/track uses
+    (2026-09-12, plan_2026_09_12_internode_copper_core Э3.1; design §15).
+    A reference is resolved HERE, at apply time, exactly like a Cell's: the
+    role is searched over the whole board with the SAME narrowing the record's
+    own anchor uses (anchor_sheet → anchor_cluster; each narrowing step only
+    applies when it actually reduces the candidate set, see
+    role_narrowing._narrow_by_sheet_cluster_selection), so a per-instance copy
+    of the record (tree_instances) resolves against ITS own sheet while a
+    cross-sheet end — the FPGA side of a channel bridge — still resolves by its
+    unique role.
+
+    resolve_net_from_role then takes the net of net_from_role_pad, or applies
+    lemma 2 (exactly one non-rule net) when the pad is omitted — and stays
+    fatal on an unresolved/ambiguous role, a missing pad or a multi-net role:
+    apply stops, it never guesses. The record's own `net` is only a fall-back
+    for an item that carries neither."""
+    role = getattr(item, "net_from_role", None)
+    if role is None:
+        return item.net or nt.net
+    fp = resolve_footprint_by_role(
+        adapter, role, nt.anchor_sheet, nt.anchor_cluster, sheet_names,
+        label=label)
+    return resolve_net_from_role(role, getattr(item, "net_from_role_pad", None),
+                                 {role: fp.ref}, adapter)
+
+
 def plan_net_traces(adapter, net_traces: list[NetTrace],
                     sheet_names: dict[str, str] | None = None,
                     ) -> tuple[list[ViaCommand], list[TrackCommand]]:
@@ -132,8 +165,16 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         rotation_deg = (relative_rotation_deg(anchor_fp.angle_deg, nt.anchor_rotation_deg)
                         if nt.anchor_rotation_deg is not None else 0.0)
         anchor_id = net_trace_anchor_id(nt)
+        # The registry key's template_name component is the record's IDENTITY
+        # (net_trace_effective_name) — for a legacy record that is exactly the
+        # net it always was, so no existing key changes; for a named record it
+        # keeps two bridges of one net apart (net: prefix included).
+        identity = net_trace_effective_name(nt)
+        label = _("net_traces entry (net {net!r})").format(net=identity)
         for i, t in enumerate(nt.tracks):
-            net_name = t.net or nt.net  # explicit; fall back to the record's net
+            # A literal net, or a (role, pad) reference resolved live — see
+            # _item_net_name.
+            net_name = _item_net_name(adapter, nt, t, _sn, label)
             tracks.append(TrackCommand(
                 start=local_to_absolute(anchor, t.start_along_mm, t.start_across_mm, rotation_deg),
                 end=local_to_absolute(anchor, t.end_along_mm, t.end_across_mm, rotation_deg),
@@ -141,17 +182,17 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 net_name=net_name,
                 layer=_layer_to_board(t.layer),
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, nt.net, None, i),
+                registry_key=make_registry_key(anchor_id, identity, None, i),
             ))
         for i, v in enumerate(nt.vias):
-            net_name = v.net or nt.net
+            net_name = _item_net_name(adapter, nt, v, _sn, label)
             vias.append(ViaCommand(
                 position=local_to_absolute(anchor, v.offset_along_mm, v.offset_across_mm, rotation_deg),
                 drill_mm=v.drill_mm,
                 diameter_mm=v.diameter_mm,
                 net_name=net_name,
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, nt.net, None, i),
+                registry_key=make_registry_key(anchor_id, identity, None, i),
             ))
         logger.info(_("net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned")
                     .format(net=nt.net, tracks=len(nt.tracks), vias=len(nt.vias)))

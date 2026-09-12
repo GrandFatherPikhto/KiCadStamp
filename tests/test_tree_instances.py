@@ -1689,3 +1689,134 @@ class TestDeclarationOwnPlace:
         assert gen["anchor"] == {"origin": True}
         nets = sorted(nt["net"] for nt in out["net_traces"])
         assert nets == ["/Channel_0/GRP/N", "/Channel_1/GRP/N"]
+
+
+# ── Э3.2 (2026-09-12): a NAMED (role, pad) record — path B ────────────────
+# plan_2026_09_12_internode_copper_core, stage Э3.2; design §11/§15.
+# A record WITH `name:` carries (role, pad) references instead of literal net
+# paths, so its instance copy rewrites NOTHING by sheet: the nets come live
+# from the instance's own components, and the copy is renamed like a placement
+# node (`<name>__{instance}`) through the same old->new map.
+#
+# The path is chosen by HOW THE RECORD IS REPRESENTED (a name: vs a legacy
+# literal net) — the legacy path A above stays byte-for-byte compatible,
+# including its "not a {sheet}-sheet net path" fatal.
+
+def _named_net_trace_template_data(instances,
+                                   name="spi_clk__fpga__ch0_dac") -> dict:
+    """`_net_trace_template_data`, but path B: the record is NAMED and its
+    copper is represented by (role, pad) references (no literal nets at all)."""
+    data = _net_trace_template_data(instances)
+    record = data["net_traces"][0]
+    record["name"] = name
+    for track in record["tracks"]:
+        track.pop("net", None)
+        track["net_from_role"] = "DAC_BUF"
+        track["net_from_role_pad"] = "5"
+    for via in record["vias"]:
+        via.pop("net", None)
+        via["net_from_role"] = "FPGA"
+        via["net_from_role_pad"] = "22"
+    data["trees"][0]["nodes"][1]["ref"] = name
+    return data
+
+
+def test_named_record_copy_is_renamed_not_substituted(tmp_path):
+    """Path B: the copy's name (and the tree node's ref) is
+    `<name>__{instance}`, nothing else about the record changes."""
+    p = _write(tmp_path, "t.sexp", _named_net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+    ]))
+    cfg, _ = load_config(str(p))
+
+    assert [nt.name for nt in cfg.net_traces] == [
+        "spi_clk__fpga__ch0_dac", "spi_clk__fpga__ch0_dac__ch1_dac_buf"]
+    copy = next(nt for nt in cfg.net_traces if nt.name.endswith("__ch1_dac_buf"))
+    template = next(nt for nt in cfg.net_traces
+                    if nt.name == "spi_clk__fpga__ch0_dac")
+    # anchor_sheet is still the instance sheet (the per-instance narrowing
+    # context of the (role, pad) resolution), the template is untouched.
+    assert copy.anchor_sheet == "Channel_1"
+    assert template.anchor_sheet == "Channel_0"
+
+    tree = next(t for t in cfg.trees if t.name == "ch1_dac_buf")
+    refs = [n.ref for n in tree.nodes]
+    assert "spi_clk__fpga__ch0_dac__ch1_dac_buf" in refs
+    assert "spi_clk__fpga__ch0_dac" not in refs
+
+
+def test_named_record_copy_keeps_role_pad_and_its_own_net(tmp_path):
+    """No net is rewritten: the record's descriptive net stays, every item keeps
+    its (role, pad) reference — that is the whole point of path B."""
+    p = _write(tmp_path, "t.sexp", _named_net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+    ]))
+    cfg, _ = load_config(str(p))
+    copy = next(nt for nt in cfg.net_traces if nt.name.endswith("__ch1_dac_buf"))
+    assert copy.net == "/Channel_0/DAC/+3V3_AVDD"   # unchanged, descriptive
+    assert copy.tracks[0].net is None
+    assert copy.tracks[0].net_from_role == "DAC_BUF"
+    assert copy.tracks[0].net_from_role_pad == "5"
+    assert copy.vias[0].net is None
+    assert copy.vias[0].net_from_role == "FPGA"
+    assert copy.vias[0].net_from_role_pad == "22"
+
+
+def test_named_record_needs_no_template_sheet_but_a_legacy_one_still_does():
+    """The §И.4 gate is now path-aware: a named (role, pad) record rewrites
+    nothing by sheet, so it no longer needs the template to yield one — while a
+    legacy literal-net record still does (its net path must be rewritten)."""
+    from kicadstamp.config.tree_instances import expand_tree_instances
+
+    named = _named_net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+         "anchor": {"origin": True}}])
+    named["trees"][0]["anchor"] = {"role": "DAC_BUF"}   # no sheet anywhere
+    out = expand_tree_instances(named)
+    assert [nt["name"] for nt in out["net_traces"]] == [
+        "spi_clk__fpga__ch0_dac", "spi_clk__fpga__ch0_dac__ch1_dac_buf"]
+
+    legacy = _net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
+         "anchor": {"origin": True}}], template_anchor={"role": "DAC_BUF"})
+    with pytest.raises(ValidationError, match="own sheet cannot be derived"):
+        expand_tree_instances(legacy)
+
+
+def test_template_needs_old_sheet_is_path_aware():
+    """Unit level: a net_trace node counts as needing the template sheet only
+    when its record is a legacy (name-less) one; a missing record stays
+    conservative (its own fatal fires later), and mount nodes are unchanged."""
+    from kicadstamp.config.tree_instances import _template_needs_old_sheet
+
+    nodes = [{"ref": "x", "kind": "net_trace"}]
+    assert _template_needs_old_sheet(nodes, {"x": {"net": "N"}}) is True
+    assert _template_needs_old_sheet(
+        nodes, {"x": {"net": "N", "name": "n__a__b"}}) is False
+    assert _template_needs_old_sheet(nodes) is True          # no index: unknown
+    assert _template_needs_old_sheet(nodes, {}) is True      # record missing
+    assert _template_needs_old_sheet(
+        [{"ref": "m", "kind": "mount"}], {}) is True
+    assert _template_needs_old_sheet(
+        [{"ref": "p", "kind": "placement"}], {}) is False
+
+
+def test_named_record_with_a_literal_item_net_warns_and_is_left_alone(caplog):
+    """A named record is (role, pad)-based; a literal net left on its copper is
+    a capture-side inconsistency. It is never rewritten silently — the copy
+    keeps it and a warning names the record and the items."""
+    from kicadstamp.config.tree_instances import expand_tree_instances
+
+    data = _named_net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
+    track = data["net_traces"][0]["tracks"][0]
+    track.pop("net_from_role")
+    track.pop("net_from_role_pad")
+    track["net"] = "/Channel_0/DAC/+3V3_AVDD"
+    with caplog.at_level("WARNING"):
+        out = expand_tree_instances(data)
+    copy = next(nt for nt in out["net_traces"]
+                if nt["name"].endswith("__ch1_dac_buf"))
+    assert copy["tracks"][0]["net"] == "/Channel_0/DAC/+3V3_AVDD"  # untouched
+    assert any("still carries literal net(s)" in r.message
+               for r in caplog.records)
