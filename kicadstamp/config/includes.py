@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from ..exceptions import (
+    MissingIncludeError,
     ValidationError,
     format_fatal_error,
     unknown_extension_config_error,
@@ -180,11 +181,16 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
 
         include_path = (base_dir / include_str).resolve()
         if not include_path.exists():
-            raise ValidationError(format_fatal_error(
-                _("include: file {file!r} not found").format(file=include_str),
-                [_("expected at {path} (relative to {source!r}, not the current "
-                   "working directory)").format(path=include_path, source=path)]
-            ))
+            raise MissingIncludeError(
+                format_fatal_error(
+                    _("include: file {file!r} not found").format(file=include_str),
+                    [_("expected at {path} (relative to {source!r}, not the current "
+                       "working directory)").format(path=include_path, source=path)]
+                ),
+                missing_path=include_path,
+                include_entry=include_str,
+                source_path=Path(path).resolve(),
+            )
         # Two different situations used to be conflated into one fatal check here:
         # a true cycle (include_path is an ancestor of the file we're resolving right
         # now — the chain would loop forever) and a diamond (include_path was already
@@ -287,11 +293,16 @@ def _walk(path: str, ancestors: set[Path]) -> IncludeTreeNode:
 
         include_path = (base_dir / include_str).resolve()
         if not include_path.exists():
-            raise ValidationError(format_fatal_error(
-                _("include: file {file!r} not found").format(file=include_str),
-                [_("expected at {path} (relative to {source!r}, not the current "
-                   "working directory)").format(path=include_path, source=path)]
-            ))
+            raise MissingIncludeError(
+                format_fatal_error(
+                    _("include: file {file!r} not found").format(file=include_str),
+                    [_("expected at {path} (relative to {source!r}, not the current "
+                       "working directory)").format(path=include_path, source=path)]
+                ),
+                missing_path=include_path,
+                include_entry=include_str,
+                source_path=Path(path).resolve(),
+            )
         if include_path in ancestors:
             raise ValidationError(format_fatal_error(
                 _("include: cycle detected — {file!r} is included from {source!r}, "

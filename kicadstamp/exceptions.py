@@ -1,6 +1,8 @@
 # kicadstamp/exceptions.py
 
 import difflib
+from pathlib import Path
+
 from kicadstamp.i18n import _
 
 class PlacerError(Exception):
@@ -25,6 +27,33 @@ class ValidationError(PlacerError):
     program stops without modifying the board.
     """
     pass
+
+
+class MissingIncludeError(ValidationError):
+    """Fatal `include:` entry pointing at a file that does not exist.
+
+    A ValidationError subclass, so every existing `except ValidationError`
+    keeps catching it and the message text stays byte-identical (the GUI's
+    "show the fatal" path is unchanged); the structured attributes below let
+    the GUI offer a targeted recovery WITHOUT regex-parsing the formatted
+    fatal text.
+
+    The fatal itself is deliberate and stays: a missing include is a real
+    breakage (a typo in the name, or a profile that was not copied whole) and
+    silently skipping it would hide the problem — the whole config format is
+    built on loud errors.
+
+    Attributes:
+      missing_path  — resolved, absolute path of the file that does not exist.
+      include_entry — the name exactly as it was written in `include:`.
+      source_path   — resolved path of the config file carrying that
+                      `include:` line (the file to edit when removing it).
+    """
+    def __init__(self, message: str, *, missing_path, include_entry: str, source_path):
+        super().__init__(message)
+        self.missing_path = Path(missing_path)
+        self.include_entry = include_entry
+        self.source_path = Path(source_path)
 
 
 class FieldsToolError(Exception):

@@ -11,7 +11,7 @@ import pytest
 from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.config.sexp_format import dict_to_sexp
-from kicadstamp.exceptions import ValidationError
+from kicadstamp.exceptions import MissingIncludeError, ValidationError
 
 MINIMAL = {"cells": {"one_role": {"components": [
     {"role": "THE_ROLE", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
@@ -308,3 +308,53 @@ def test_walk_disabled_include_yields_no_child(tmp_path):
     node = walk_include_tree(str(root))
 
     assert node.children == []
+
+
+# ── MissingIncludeError — structured missing-include fatal (2026-09-12) ───
+
+def test_missing_include_is_a_structured_validation_error(tmp_path):
+    """The fatal class changes, the message does not: MissingIncludeError is a
+    ValidationError (every existing `except ValidationError` keeps working and
+    the text stays identical) carrying the three fields the GUI needs to offer
+    a repair without regex-parsing the formatted message."""
+    root = _write(tmp_path, "root.sexp", {"include": ["gone.sexp"]})
+
+    with pytest.raises(MissingIncludeError) as excinfo:
+        load_config(str(root))
+
+    err = excinfo.value
+    assert isinstance(err, ValidationError)
+    assert err.missing_path == (tmp_path / "gone.sexp").resolve()
+    assert err.include_entry == "gone.sexp"
+    assert err.source_path == root.resolve()
+    assert "include: file 'gone.sexp' not found" in str(err)
+
+
+def test_missing_include_fields_point_at_the_deep_source(tmp_path):
+    """A dangling include inside an INCLUDED file: source_path must name the
+    file that actually carries the line (the one the GUI would edit), not the
+    root the walk started from."""
+    _write(tmp_path, "sub.sexp", {"include": ["gone.sexp"]})
+    root = _write(tmp_path, "root.sexp", {"include": ["sub.sexp"]})
+
+    with pytest.raises(MissingIncludeError) as excinfo:
+        load_config(str(root))
+
+    err = excinfo.value
+    assert err.source_path == (tmp_path / "sub.sexp").resolve()
+    assert err.missing_path == (tmp_path / "gone.sexp").resolve()
+    assert err.include_entry == "gone.sexp"
+
+
+def test_walk_include_tree_missing_include_is_structured(tmp_path):
+    """The second raise site (walk_include_tree, the GUI Config-tree walk)
+    carries the same fields as resolve_includes' one."""
+    root = _write(tmp_path, "root.sexp", {"include": ["gone.sexp"]})
+
+    with pytest.raises(MissingIncludeError) as excinfo:
+        walk_include_tree(str(root))
+
+    err = excinfo.value
+    assert err.source_path == root.resolve()
+    assert err.missing_path == (tmp_path / "gone.sexp").resolve()
+    assert err.include_entry == "gone.sexp"
