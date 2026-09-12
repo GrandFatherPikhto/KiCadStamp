@@ -4,8 +4,9 @@
 
 This document describes the toolkit KiCadStamp uses to catch and localize two distinct, confirmed KiCad 10
 crashes (Windows and Linux/Flatpak), and the recommended order to run them in. One of the two (#24970) is
-fixed upstream as of 2026-08-03 — see its own section below — the toolkit itself stays relevant for #24966
-and any future hunt. The tools live in two places:
+fixed upstream as of 2026-08-03 — see its own section below — and the other (#24966) is fixed upstream too
+(2026-09-07, not confirmed on our local 10.0.6 build — full status below); the toolkit itself stays relevant
+for any future hunt. The tools live in two places:
 `kicadstamp/diagnostics/` (detailed step-by-step diagnosis via `python -m`) and `tools/` (operational scripts —
 state cleanup). It also covers, at the end, how to capture and symbolize an actual core dump on either OS once
 one of the tools has reproduced a crash.
@@ -48,9 +49,12 @@ the session's first `begin_commit()`/`push_commit()` succeeds cleanly), opening 
 *afterwards* is usually safe — KiCad typically does not crash. This gives a practical workflow: do the first
 IPC placement run PCB-Editor-only, then open the Schematic Editor for the rest of the session.
 
-Status: reproduced on KiCad 10.0.4 and 10.0.5, on both Windows and Linux (Flatpak). The findings that "10.0.5
-still crashes" and that the exact trigger is `begin_commit()` (not any write) are queued for a follow-up post
-to the GitLab issue; we're deliberately accumulating more data before posting (see `techdocs/status/`).
+Status (2026-09-12): **fixed upstream.** Both GitLab tickets of this family — #24966 and #25322 — were closed
+on 2026-09-07; the fix is commit `bdcb1509`, milestone **10.0.7**. Two facts, kept together because only the
+pair is honest: the fix is upstream, and **we have not confirmed it locally** — the machine used here runs
+KiCad **10.0.6** (read over IPC on 2026-09-12), so that build does not contain the fix yet and the crash
+could not be re-tested against it. The reproduction and measurements below are what we actually observed on
+10.0.4/10.0.5; they are not falsified, just superseded upstream.
 
 **Measured data point (2026-07-27, native Windows, KiCad 10.0, `repeat_first_write_crash.py` after the
 Windows port + `AS_BUSY` fix above):** 10 runs with both Schematic Editor and PCB Editor open — 1/10 crashed
