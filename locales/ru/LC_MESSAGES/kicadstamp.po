@@ -15833,3 +15833,72 @@ msgstr "(медных записей нет)"
 #: gui/docks/cell_editor.py
 msgid "Read-only indicator: this cell has copper records on this layer"
 msgstr "Индикатор только для чтения: у ячейки есть записи меди на этом слое"
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "KiCad: {ms} ms"
+msgstr "KiCad: {ms} мс"
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "KiCad response time — median {median} ms, max {maximum} ms"
+msgstr "Время отклика KiCad — медиана {median} мс, максимум {maximum} мс"
+
+#: gui/docks/configurator.py
+msgid "IPC timeout:"
+msgstr "Таймаут IPC:"
+
+#: gui/docks/configurator.py
+msgid "How long one board call may take before the socket gives up. Measured on a 325-footprint board (2026-09-13): the slowest call was 287 ms, a full board read about 164 ms (roughly 1.5 s on a board three times larger). Takes effect on the NEXT connection."
+msgstr "Сколько может длиться один вызов платы, прежде чем сокет сдастся. Измерено на плате в 325 футпринтов (2026-09-13): самый медленный вызов — 287 мс, полное чтение платы — около 164 мс (примерно 1.5 с на плате втрое больше). Действует со СЛЕДУЮЩЕГО подключения."
+
+#: gui/docks/configurator.py
+msgid "Applies on the next connection — the IPC timeout is fixed when the socket is created, so an open connection keeps the old value."
+msgstr "Действует со следующего подключения — таймаут IPC фиксируется при создании сокета, поэтому открытое соединение сохраняет старое значение."
+
+#: gui/docks/configurator.py
+msgid "Reconnect interval:"
+msgstr "Интервал переподключения:"
+
+#: gui/docks/configurator.py
+msgid "How often KiCadStamp retries connecting while KiCad is closed or not answering. With the default 5000 ms, a KiCad started later is noticed within up to five seconds. Applies immediately."
+msgstr "Как часто KiCadStamp повторяет попытки подключения, пока KiCad закрыт или не отвечает. При умолчании 5000 мс запущенный позже KiCad будет замечен в течение пяти секунд. Действует сразу."
+
+#: gui/docks/configurator.py
+msgid "Measured latency"
+msgstr "Измеренный отклик"
+
+#: gui/docks/configurator.py
+msgid "Live medians and maxima of recent board calls — pick the IPC timeout from these numbers. Full picture: see docs/diagnostics.md."
+msgstr "Живые медианы и максимумы последних вызовов платы — выбирайте таймаут IPC по этим числам. Полная картина — в docs/diagnostics.md."
+
+#: gui/docks/configurator.py
+#, python-brace-format
+msgid "{title}: no data yet"
+msgstr "{title}: данных пока нет"
+
+#: gui/docks/configurator.py
+#, python-brace-format
+msgid "{title}: median {median} ms, max {maximum} ms"
+msgstr "{title}: медиана {median} мс, максимум {maximum} мс"
+
+#: gui/docks/configurator.py
+msgid "KiCad response"
+msgstr "Отклик KiCad"
+
+#: gui/docks/configurator.py
+msgid "Full board read"
+msgstr "Полное чтение платы"
+
+#: gui/docks/configurator.py
+msgid "No measurements yet."
+msgstr "Измерений пока нет."
+
+#: gui/worker.py
+#, python-brace-format
+msgid "The board call did not answer within about {waited} ms while the IPC timeout is {timeout} ms — it looks like it timed out. The reply probably exists; the machine was just busy or slow. If this repeats, raise the IPC timeout in Settings > KiCad (it applies on the next connection)."
+msgstr "Вызов платы не ответил примерно за {waited} мс, а таймаут IPC — {timeout} мс: похоже, это таймаут. Ответ, скорее всего, есть — просто машина была занята или медленная. Если это повторяется, увеличьте таймаут IPC в Settings > KiCad (действует со следующего подключения)."
+
+#: kicadstamp/gui_main.py
+msgid "IPC timeout in ms (overrides the saved setting)"
+msgstr "Таймаут IPC в мс (перебивает сохранённую настройку)"

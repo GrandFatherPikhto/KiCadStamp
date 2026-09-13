@@ -257,6 +257,16 @@ def show_message(text: str, style: str = "",
         record_log.info(text)
 
 
+def format_ms(seconds: float) -> str:
+    """Seconds -> a short millisecond string for the latency readouts: one
+    decimal below 10 ms (1.2 ms), whole ms above (287 ms). Shared by the
+    status-bar label (gui/main_window.py) and the Settings > KiCad page
+    (gui/docks/configurator.py) so both render the same numbers the same way
+    (plan_2026_09_13_ipc_timeout_and_latency Э3)."""
+    ms = float(seconds) * 1000.0
+    return f"{ms:.1f}" if ms < 10 else f"{ms:.0f}"
+
+
 def set_file_combo_selection(combo: QComboBox, path: Optional[Path]) -> None:
     """Reflects `path` into `combo`'s current selection without re-firing
     currentIndexChanged (blockSignals) — the CHEAP half of the file-combo

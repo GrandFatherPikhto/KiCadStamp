@@ -49,12 +49,45 @@ which overwrite a single instance attribute every cycle) used to trigger
 premature C++ destruction of a still-running QThread.
 """
 import logging
+from time import perf_counter
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication
 
+from kicadstamp.i18n import _
+
 logger = logging.getLogger(__name__)
+
+# ── "The call did not finish in time" recommendation (Э4б, plan_2026_09_13_ ──
+# ipc_timeout_and_latency) ──────────────────────────────────────────────────
+#
+# A failed board call whose duration is at least this fraction of the configured
+# IPC timeout is treated as a TIMEOUT — the reply probably exists, the machine
+# was just busy/slow. Decided by TIME only, never by parsing the error text:
+# kipy's KiCadClient.send() raises ConnectionError(...) `from None`, which
+# severs both __cause__ and __context__, so pynng's Timeout type is not
+# recoverable and the string carries no stable marker (verified 2026-09-13 by
+# reading kipy's source). A text match would break silently on another pynng
+# version/locale.
+TIMEOUT_RECOMMENDATION_RATIO = 0.9
+
+
+def timeout_recommendation(duration_s: Optional[float],
+                           timeout_ms: Optional[int]) -> Optional[str]:
+    """A Log line recommending a higher IPC timeout, or None when the failed
+    call finished well within the timeout (a genuine error — e.g. KiCad was
+    closed — must NOT get a timeout hint, Э5.9)."""
+    if duration_s is None or not timeout_ms or timeout_ms <= 0:
+        return None
+    if duration_s < (timeout_ms / 1000.0) * TIMEOUT_RECOMMENDATION_RATIO:
+        return None
+    return _("The board call did not answer within about {waited} ms while the "
+             "IPC timeout is {timeout} ms — it looks like it timed out. The "
+             "reply probably exists; the machine was just busy or slow. If this "
+             "repeats, raise the IPC timeout in Settings > KiCad (it applies on "
+             "the next connection).").format(
+        waited=int(duration_s * 1000), timeout=int(timeout_ms))
 
 # ── Busy indicator (Э1, plan_2026_09_12_busy_indicator) ──────────────────────
 #
@@ -136,16 +169,29 @@ class _LongOpWorker(QObject):
     succeeded = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, fn: Callable[..., Any], args: tuple, parent=None):
+    def __init__(self, fn: Callable[..., Any], args: tuple,
+                 connection: Any = None, parent=None):
         super().__init__(parent)
         self._fn = fn
         self._args = args
+        # Only used to read the configured IPC timeout (connection.timeout_ms)
+        # for the Э4б recommendation — the worker never calls the board itself.
+        self._connection = connection
+
+    def _with_timeout_hint(self, message: str, duration_s: float) -> str:
+        hint = timeout_recommendation(
+            duration_s, getattr(self._connection, "timeout_ms", None))
+        return f"{message}\n{hint}" if hint else message
 
     @pyqtSlot()
     def run(self) -> None:
+        # Э2/Э4б — time the call on the worker thread; the duration feeds the
+        # timeout check on the failure path below.
+        start = perf_counter()
         try:
             result = self._fn(*self._args)
         except Exception as e:
+            duration_s = perf_counter() - start
             # A KiCad IPC failure is a board STATE problem (KiCad busy with an
             # unfinished tool, a dropped connection), not a bug: log the human
             # explanation and hand THAT to the caller, keeping the traceback at
@@ -159,14 +205,14 @@ class _LongOpWorker(QObject):
                 # Lazy, like cli_common.api_error_message: only an actual IPC
                 # error pays for the import.
                 from kicadstamp.cli_common import api_error_message
-                message = api_error_message(e)
+                message = self._with_timeout_hint(api_error_message(e), duration_s)
                 logger.error(message)
                 logger.debug("Long operation failed with a KiCad IPC error",
                              exc_info=True)
                 self.failed.emit(message)
                 return
             logger.exception("Long operation failed")
-            self.failed.emit(str(e))
+            self.failed.emit(self._with_timeout_hint(str(e), duration_s))
             return
         self.succeeded.emit(result)
 
@@ -210,7 +256,7 @@ class LongOpController(QObject):
     def start(self, fn: Callable[..., Any], *args) -> None:
         self._acquire()
         self._thread = QThread(self)
-        self._worker = _LongOpWorker(fn, args)
+        self._worker = _LongOpWorker(fn, args, connection=self._connection)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.succeeded.connect(self._on_worker_succeeded)
@@ -400,22 +446,29 @@ def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
 class PollTask:
     """One unit of work for PollWorkerHandle.submit() — plain data, no Qt
     machinery, so building one never touches a signal/connection."""
-    __slots__ = ("tag", "fn", "args")
+    __slots__ = ("tag", "fn", "args", "connection")
 
-    def __init__(self, tag: object, fn: Callable[..., Any], args: tuple):
+    def __init__(self, tag: object, fn: Callable[..., Any], args: tuple,
+                 connection: Any = None):
         self.tag = tag
         self.fn = fn
         self.args = args
+        # Carried only so the worker thread can read the configured IPC timeout
+        # for the Э4б recommendation; it never calls the board through it.
+        self.connection = connection
 
 
 class PollResult:
     """Outcome of a PollTask, carried back by PollWorker.resultReady."""
-    __slots__ = ("tag", "value", "error")
+    __slots__ = ("tag", "value", "error", "duration_s")
 
-    def __init__(self, tag: object, value: Any, error: Optional[str]):
+    def __init__(self, tag: object, value: Any, error: Optional[str],
+                 duration_s: Optional[float] = None):
         self.tag = tag
         self.value = value
         self.error = error
+        # Wall time the task's fn took, measured on the worker thread (Э2/Э4б).
+        self.duration_s = duration_s
 
 
 class PollWorker(QObject):
@@ -428,9 +481,14 @@ class PollWorker(QObject):
 
     @pyqtSlot(object)
     def run_task(self, task: PollTask) -> None:
+        # Э2 — the tick's own duration is measured here (on the worker thread)
+        # and carried back in the PollResult; the timeout check happens in
+        # PollWorkerHandle._on_result, the poll ticks' own error path.
+        start = perf_counter()
         try:
             value = task.fn(*task.args)
         except Exception as e:
+            duration_s = perf_counter() - start
             # Same board-state rule as _LongOpWorker.run (see the X.2.2 comment
             # there): a KiCad IPC failure gets the human text at ERROR, the
             # traceback only at DEBUG.
@@ -441,12 +499,13 @@ class PollWorker(QObject):
                 logger.error(message)
                 logger.debug("Poll worker task failed with a KiCad IPC error",
                              exc_info=True)
-                self.resultReady.emit(PollResult(task.tag, None, message))
+                self.resultReady.emit(PollResult(task.tag, None, message, duration_s))
                 return
             logger.exception("Poll worker task failed")
-            self.resultReady.emit(PollResult(task.tag, None, str(e)))
+            self.resultReady.emit(PollResult(task.tag, None, str(e), duration_s))
             return
-        self.resultReady.emit(PollResult(task.tag, value, None))
+        self.resultReady.emit(
+            PollResult(task.tag, value, None, perf_counter() - start))
 
 
 class PollWorkerHandle(QObject):
@@ -503,14 +562,24 @@ class PollWorkerHandle(QObject):
             connection.long_op_active = True
         tag = object()
         self._pending[tag] = (on_success, on_error, connection)
-        self.taskRequested.emit(PollTask(tag, fn, args))
+        self.taskRequested.emit(PollTask(tag, fn, args, connection))
 
     def _on_result(self, result: PollResult) -> None:
         on_success, on_error, connection = self._pending.pop(result.tag)
         if connection is not None:
             connection.long_op_active = False
         if result.error is not None:
-            on_error(result.error)
+            # Э4б — a poll task that RAISED is timed here, so a timeout gets the
+            # same "raise the timeout" recommendation as a long op. (The two
+            # poll ticks themselves catch their errors and RETURN them, so their
+            # recommendation lands in the MainWindow finish handlers instead —
+            # see gui/main_window.py; this is the generic safety net.)
+            message = result.error
+            hint = timeout_recommendation(
+                result.duration_s, getattr(connection, "timeout_ms", None))
+            if hint:
+                message = f"{message}\n{hint}"
+            on_error(message)
         else:
             on_success(result.value)
 

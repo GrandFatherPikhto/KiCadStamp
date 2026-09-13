@@ -66,12 +66,35 @@ def apply_saved_color_scheme(app: QApplication) -> None:
             app.setPalette(palette)
 
 
+def resolve_timeout_ms(cli_value) -> int:
+    """The IPC timeout to start with, in priority order (plan_2026_09_13_ipc_
+    timeout_and_latency Э4):
+
+      1. an EXPLICIT --timeout-ms flag;
+      2. the saved gui_state.json["kicad_timeout_ms"] (Settings > KiCad);
+      3. DEFAULT_TIMEOUT_MS.
+
+    ``default=None`` on the argparse option is what distinguishes (1) from the
+    others: comparing the value against DEFAULT_TIMEOUT_MS would be wrong,
+    because passing exactly that number on the command line is still an
+    explicit choice and must win over the saved setting. A stored value that is
+    not a positive int (hand-edited file, a future format) falls through to
+    the default rather than breaking startup — the same discipline
+    _restore_window_state applies to window_geometry/dock_state."""
+    if cli_value is not None:
+        return cli_value
+    saved = settings.state.get("kicad_timeout_ms")
+    if isinstance(saved, int) and not isinstance(saved, bool) and saved > 0:
+        return saved
+    return DEFAULT_TIMEOUT_MS
+
+
 def main():
     parser = argparse.ArgumentParser(description=_("KiCadStamp GUI"))
     parser.add_argument("--version", "-V", action="version",
                         version=f"kicadstamp-gui {__version__}")
-    parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS,
-                        help=_("IPC timeout in ms"))
+    parser.add_argument("--timeout-ms", type=int, default=None,
+                        help=_("IPC timeout in ms (overrides the saved setting)"))
     parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     args = parser.parse_args()
 
@@ -129,7 +152,8 @@ def main():
     if listener is not None:
         app.aboutToQuit.connect(listener.stop)
 
-    window = MainWindow(timeout_ms=args.timeout_ms, verbose=args.verbose)
+    window = MainWindow(timeout_ms=resolve_timeout_ms(args.timeout_ms),
+                        verbose=args.verbose)
     guard.activation_requested.connect(window.bring_to_front)
     window.show()
     sys.exit(app.exec())

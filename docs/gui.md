@@ -9,11 +9,14 @@ extraction/placement mechanics themselves, see [docs/config.md](config.md) (`.se
 ## Launching
 
 ```bash
-python kicadstamp_gui.py [--timeout-ms 20000] [--verbose]
+python kicadstamp_gui.py [--timeout-ms 5000] [--verbose]
 ```
 
-`--verbose` seeds the Log dock's Verbose checkbox (see below) so DEBUG-level detail is visible
-from the first run instead of having to turn it on after something goes wrong.
+`--timeout-ms` sets the IPC timeout for THIS run and overrides the value saved in
+Settings → KiCad whenever it is passed; without it the saved setting is used, and
+`DEFAULT_TIMEOUT_MS` (5000 ms) is the fallback. `--verbose` seeds the Log dock's Verbose checkbox
+(see below) so DEBUG-level detail is visible from the first run instead of having to turn it on
+after something goes wrong.
 
 ## Layout
 
@@ -31,8 +34,11 @@ master-detail):
   - **Trees** — one tab per tree, each a tree | form-panel splitter (ONE panel
     that follows the selection — no Anchor/Node tabs).
 - **Bottom**: **Log**.
-- **Status bar**: connection state, Reconnect/Refresh button, Always on top /
-  Tray icon (Settings), Open fieldstool button, KiCad processes... button.
+- **Status bar**: connection state, the **KiCad response** latency readout
+  (median of the selection-poll round trip, e.g. `KiCad: 1.2 ms`; empty while
+  disconnected), the busy indicator while a long operation runs, Reconnect/Refresh
+  button, Always on top / Tray icon (Settings), Open fieldstool button, KiCad
+  processes... button.
 
 The **KiCad processes...** button opens a picker listing every running `kicad.exe` (PID, Windows
 "Not Responding"/"Running" status, window title) — a shortcut for "look in Task Manager, pick the
@@ -851,13 +857,27 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
   (hex) in `gui_state.json`, applied at startup and re-applied live on change. Before this, both
   trees were bare native-styled `QTreeView`s whose selection was barely visible on Windows (the
   same "еле видно" bug found during this discussion).
-- **KiCad connection timeout** (the **KiCad** page) — the ONE user-facing timeout (`DEFAULT_TIMEOUT_MS`,
-  `kicadstamp/constants.py`), editable in milliseconds. Written straight into
-  `connection.timeout_ms`, which `BoardConnection` reads on every connect, so it takes effect on
-  the NEXT connection without disturbing an open one. The internal protective timings
-  (`_CONNECT_TIMEOUT_GRACE_S`, pynng-safety's `_CLOSE_TIMEOUT_S`, the single-instance ping) are
-  deliberately NOT exposed — one of them literally just closed a live GUI freeze (see
-  `handoff_2026_08_15_pynng_close_timeout.md`).
+- **KiCad connection** (the **KiCad** page) — three things:
+  - **IPC timeout** — the ONE user-facing timeout (`DEFAULT_TIMEOUT_MS`, `kicadstamp/constants.py`,
+    5000 ms since 2026-09-13), editable in milliseconds. Written straight into
+    `connection.timeout_ms`, which `BoardConnection` reads on every connect, so it takes effect on
+    the **NEXT connection** without disturbing an open one (KiCad's socket fixes the timeout when it
+    is created). The value saved in `gui_state.json` is loaded at startup; `--timeout-ms`, when
+    passed, overrides it for that run. The hint under the spinbox names the MEASURED numbers (slowest
+    call 287 ms, a full board read about 164 ms on a 325-footprint board) so the value is picked by
+    data, not by eye. The internal protective timings (`_CONNECT_TIMEOUT_GRACE_S`, pynng-safety's
+    `_CLOSE_TIMEOUT_S`, the single-instance ping) are deliberately NOT exposed — one of them
+    literally just closed a live GUI freeze (see `handoff_2026_08_15_pynng_close_timeout.md`).
+  - **Reconnect interval** — how often the GUI retries connecting while KiCad is closed or not
+    answering (`gui_state.json["reconnect_interval_ms"]`, default 5000 ms). Applies immediately on
+    Apply. Consequence (named in the hint): a KiCad started later is noticed within up to five
+    seconds. The 400 ms selection-watch tick is a different quantity and is not configurable.
+  - **Measured latency** — a read-only readout of the median and maximum of recent board calls: one
+    window for the fast selection poll (the "response time" mirrored into the status bar) and one for
+    the full board read. The durations are gathered by the poll ticks that ALREADY run (no extra board
+    calls), held in two rolling windows on `BoardConnection`, and cleared when the connection drops.
+    Use them to choose the IPC timeout; the full picture is captured with the tools described in
+    `docs/diagnostics.md`.
 - **Hotkeys** (the **Hotkeys** page, 2026-08-30, plan `dock_toolbars_menus_hotkeys` Этап 1) — one
   key-sequence editor per QAction-based hotkey (so far the Project dock's five:
   Open/New/Save/Add.../Remove — see `gui/hotkeys.py`). Rebinding writes

@@ -1027,6 +1027,15 @@ class DockHub:
         set_tray_enabled = getattr(self.main_window, "_set_tray_enabled", None)
         if set_tray_enabled is not None:
             self.configurator_dock.tray_enabled_toggled.connect(set_tray_enabled)
+        # Reconnect interval (Э4а, plan_2026_09_13_ipc_timeout_and_latency):
+        # retime MainWindow's slow poll timer the moment the user applies the
+        # setting — getattr-guarded like the two toggles above (the test
+        # QMainWindow stub has no set_reconnect_interval).
+        set_reconnect_interval = getattr(self.main_window,
+                                         "set_reconnect_interval", None)
+        if set_reconnect_interval is not None:
+            self.configurator_dock.reconnect_interval_changed.connect(
+                set_reconnect_interval)
         # Highlight scheme — re-apply to all three target widgets the moment
         # the Settings tab changes it (mode radio or custom color). All three
         # also applied it once at construction, so this is purely the live

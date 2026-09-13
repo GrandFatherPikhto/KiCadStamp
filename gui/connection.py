@@ -9,12 +9,29 @@ succeed once at startup.
 """
 import logging
 import threading
-from typing import List, Optional
+from collections import deque
+from statistics import median
+from typing import Deque, Dict, List, Optional, Tuple
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.explore import Board, Selected
 
 logger = logging.getLogger(__name__)
+
+# Board-call latency measurement (plan_2026_09_13_ipc_timeout_and_latency Э2).
+# Two independent rolling windows, one per poll tick, because the two measure
+# different things and must never be averaged together:
+#   * FAST — MainWindow._run_poll_selection's get_selected_items(): the KiCad
+#     "response time" (round trip), sampled ~every 400 ms;
+#   * SLOW — MainWindow._run_poll's refresh() + snapshot rebuild: the price of a
+#     "fat" board read, sampled on the slower reconnect/refresh tick.
+# Only median and max are exposed, never the mean (one stuck tick would drag a
+# mean; the median is stable). The windows are cleared on every disconnect so
+# numbers from a previous KiCad session can never look like the current one.
+LATENCY_KIND_FAST = "fast"
+LATENCY_KIND_SLOW = "slow"
+# Enough samples to be stable but short enough to follow the board as it grows.
+LATENCY_WINDOW_SIZE = 40
 
 # Grace period added on top of timeout_ms before giving up on a connect
 # attempt — see _connect_with_timeout()'s docstring.
@@ -110,6 +127,14 @@ class BoardConnection:
         # changed" apart from "same data, new tick".
         self._snapshot: List[Selected] = []
         self._snapshot_version = 0
+        # Rolling latency windows (see LATENCY_KIND_* above), owned here
+        # because this is also the ONE place a connection dies — disconnect()
+        # clears them (Э2: a previous KiCad session's numbers must never look
+        # current).
+        self._latency: Dict[str, Deque[float]] = {
+            LATENCY_KIND_FAST: deque(maxlen=LATENCY_WINDOW_SIZE),
+            LATENCY_KIND_SLOW: deque(maxlen=LATENCY_WINDOW_SIZE),
+        }
 
     @property
     def is_connected(self) -> bool:
@@ -130,6 +155,42 @@ class BoardConnection:
     def _rebuild_snapshot(self) -> None:
         self._snapshot = self.board.select()
         self._snapshot_version += 1
+
+    # ── Board-call latency (plan_2026_09_13_ipc_timeout_and_latency Э2) ────
+
+    def record_latency(self, kind: str, seconds: Optional[float]) -> None:
+        """Append one measured board-call duration (in SECONDS) to the rolling
+        window named by `kind` (LATENCY_KIND_FAST/SLOW). Callers measure on the
+        worker thread (a poll tick) and report here on the UI thread; a None or
+        negative value is ignored so an unmeasured call never skews the window."""
+        window = self._latency.get(kind)
+        if window is None or seconds is None or seconds < 0:
+            return
+        window.append(float(seconds))
+
+    def latency_stats(self, kind: str) -> Optional[Tuple[float, float]]:
+        """(median, max) of the window in SECONDS, or None while it is empty.
+
+        Median, not mean: one stuck tick (a call that hit the socket timeout)
+        would drag a mean far off, while the median stays representative of a
+        normal call — the point of the number is to let the user size the IPC
+        timeout by data (Э3/Э4)."""
+        window = self._latency.get(kind)
+        if not window:
+            return None
+        return median(window), max(window)
+
+    @property
+    def has_latency(self) -> bool:
+        """True once at least one window holds a sample — the status-bar
+        readout stays empty until then (Э3)."""
+        return any(self._latency.values())
+
+    def reset_latency(self) -> None:
+        """Drop every sample — called from disconnect() so a new session starts
+        from a clean slate."""
+        for window in self._latency.values():
+            window.clear()
 
     def connect(self) -> Optional[str]:
         """Attempts a fresh connection. Returns None on success, or an error
@@ -188,3 +249,5 @@ class BoardConnection:
         if self.board is not None:
             self.board.adapter.close()
         self.board = None
+        # Э2 — the old session's latency numbers must not survive a drop.
+        self.reset_latency()

@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import QStyleFactory
 
 from kipy.board_types import BoardLayer
 
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
+
 from gui import hotkeys
 from gui import settings
 from gui.color_schemes import available_color_schemes, load_color_scheme
@@ -445,9 +447,9 @@ def test_timeout_apply_updates_connection(main_window, qapp):
     effect on the next connection without disturbing any open one. Happens on
     apply(), not on the spinbox edit."""
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
-    assert main_window.connection.timeout_ms == 20000  # default, untouched
+    assert main_window.connection.timeout_ms == DEFAULT_TIMEOUT_MS  # untouched
     dock.timeout_spin.setValue(7000)
-    assert main_window.connection.timeout_ms == 20000  # draft only
+    assert main_window.connection.timeout_ms == DEFAULT_TIMEOUT_MS  # draft only
     dock.apply()
     assert main_window.connection.timeout_ms == 7000
 
@@ -464,7 +466,7 @@ def test_timeout_restored_from_settings_and_applied_on_apply(main_window, qapp):
     settings.state.set("kicad_timeout_ms", 9000)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     assert dock.timeout_spin.value() == 9000
-    assert main_window.connection.timeout_ms == 20000  # not applied yet
+    assert main_window.connection.timeout_ms == DEFAULT_TIMEOUT_MS  # not applied yet
     dock.apply()
     assert main_window.connection.timeout_ms == 9000
 

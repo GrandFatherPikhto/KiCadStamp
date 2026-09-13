@@ -17,7 +17,21 @@ POSITION_TOLERANCE_MM = 0.01
 
 # --- Default parameters ---
 DEFAULT_BATCH_SIZE = 10
-DEFAULT_TIMEOUT_MS = 20000
+# IPC timeout for the kipy connection socket, in milliseconds. Fixed once, at
+# socket-creation time (kipy's KiCadClient reads it in KiCad(timeout_ms=...) and
+# KiCadClient.send() has no per-request override), so a change applies from the
+# NEXT connection onwards. 5000 ms is a ~17x margin over the slowest call
+# measured live on 2026-09-13 (287 ms for get_selected_items; the heaviest call,
+# a full get_footprints over 325 footprints, came in at 164 ms and would grow to
+# roughly 1.5 s on a board three times larger — still more than 3x headroom).
+# The socket timeout is the ONLY bound on the worst-case queue stall of a stuck
+# request, so keeping it at the old 20 s meant a 20 s freeze for no measured
+# reason; 5 s bounds that stall five seconds while staying far above real calls.
+DEFAULT_TIMEOUT_MS = 5000
+# Default interval (ms) at which the GUI retries connecting to KiCad while it is
+# NOT connected (MainWindow's slow poll timer). Kept next to DEFAULT_TIMEOUT_MS
+# as the shared default; overridable via gui_state.json["reconnect_interval_ms"].
+DEFAULT_RECONNECT_INTERVAL_MS = 5000
 DEFAULT_LOG_DIR = "logs"
 
 # --- Registry ---

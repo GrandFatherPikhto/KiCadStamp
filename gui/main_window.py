@@ -77,8 +77,10 @@ the tree highlight isn't churned for nothing.
 import base64
 import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Optional
 
+from kicadstamp.constants import DEFAULT_RECONNECT_INTERVAL_MS
 from kicadstamp.domain.board import Footprint
 from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtGui import QAction
@@ -90,13 +92,16 @@ from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
 from . import settings
-from .connection import BoardConnection
+from .connection import (BoardConnection, LATENCY_KIND_FAST,
+                         LATENCY_KIND_SLOW)
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
+from .docks._common import format_ms
 from .docks.profile_import import run_import_dialog
 from .hotkeys import build_action
 from .kicad_processes_dialog import KicadProcessesDialog
-from .worker import GENERIC_BUSY_TEXT, PollWorkerHandle, set_busy_reporter
+from .worker import (GENERIC_BUSY_TEXT, PollWorkerHandle, set_busy_reporter,
+                     timeout_recommendation)
 
 # Stable QAction ids for the global project save model (2026-09-01, plan
 # project_save_model) — the same registry the Settings tab's hotkey list uses.
@@ -105,7 +110,12 @@ PROJECT_DISCARD = "project.discard"
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL_MS = 2000
+# Default reconnect tick (Э4а) — see DEFAULT_RECONNECT_INTERVAL_MS. The
+# EFFECTIVE interval is read from gui_state.json["reconnect_interval_ms"] at
+# construction (self._reconnect_interval_ms); this constant is the fallback.
+POLL_INTERVAL_MS = DEFAULT_RECONNECT_INTERVAL_MS
+# The selection-watch tick is a DIFFERENT quantity (selection responsiveness,
+# not dialing) and stays fixed (Э4а) — do not make it configurable.
 SELECTION_POLL_INTERVAL_MS = 400
 
 # Bump this if a FUTURE dock-layout change should make an old saved layout
@@ -159,6 +169,14 @@ class MainWindow(QMainWindow):
         self.busy_label = QLabel("")
         self.statusBar().addPermanentWidget(self.busy_label)
         set_busy_reporter(self._set_busy)
+
+        # Latency readout (plan_2026_09_13_ipc_timeout_and_latency Э3) — the
+        # MEDIAN response time of the fast selection tick, e.g. "KiCad: 1.2 ms".
+        # Same long-lived-widget shape as busy_label: one widget, written from
+        # one place (_update_latency_label). Empty while there is no connection
+        # — and NOT keyed on long_op_active, which the 400ms tick raises too.
+        self.latency_label = QLabel("")
+        self.statusBar().addPermanentWidget(self.latency_label)
 
         # Always on top / Tray icon checkboxes moved to the Settings tab
         # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
@@ -522,9 +540,15 @@ class MainWindow(QMainWindow):
         self._poll_worker = PollWorkerHandle(self)
         QApplication.instance().aboutToQuit.connect(self._poll_worker.stop)
 
+        # Э4а — the reconnect tick's interval is user-configurable
+        # (gui_state.json["reconnect_interval_ms"], default 5000). While NOT
+        # connected this tick is the ONLY thing that tries connect(), so the
+        # value is "how often we knock on KiCad's door". Read once here;
+        # set_reconnect_interval() updates it live from Settings > KiCad.
+        self._reconnect_interval_ms = self._read_reconnect_interval()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
-        self._timer.start(POLL_INTERVAL_MS)
+        self._timer.start(self._reconnect_interval_ms)
 
         self._selection_timer = QTimer(self)
         self._selection_timer.timeout.connect(self._poll_board_selection)
@@ -811,6 +835,67 @@ class MainWindow(QMainWindow):
         self._update_dirty_indicator()
         self.status_label.setText(_("Unsaved config changes discarded"))
 
+    # ── Reconnect interval + latency readout (Э2/Э3/Э4а) ────────────────
+
+    def _read_reconnect_interval(self) -> int:
+        """The reconnect tick interval: the settings value with a safe
+        fallback. Mirrors gui_main.resolve_timeout_ms's defensive discipline —
+        a stored value that is not a positive int (hand-edited file, another
+        version) must never break startup."""
+        value = settings.state.get("reconnect_interval_ms", POLL_INTERVAL_MS)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return POLL_INTERVAL_MS
+        return value
+
+    def set_reconnect_interval(self, interval_ms: int) -> None:
+        """Applied live from Settings > KiCad (wired by DockHub), so a changed
+        interval needs no restart. Persisting it is ConfiguratorDock.apply()'s
+        job; this only moves the running timer."""
+        if isinstance(interval_ms, bool) or not isinstance(interval_ms, int) or interval_ms <= 0:
+            return
+        self._reconnect_interval_ms = interval_ms
+        self._timer.setInterval(interval_ms)
+
+    def _record_latency(self, kind: str, duration_s) -> None:
+        """Worker-measured duration -> the BoardConnection rolling window, then
+        refresh the status-bar readout. Recording is skipped while the
+        connection is down (a failing call must not seed a window that the drop
+        just cleared), and the connection is treated as optional so a test
+        double without the latency surface still works."""
+        record = getattr(self.connection, "record_latency", None)
+        if record is not None and duration_s is not None and self.connection.is_connected:
+            record(kind, duration_s)
+        self._update_latency_label()
+
+    def _log_timeout_hint(self, duration_s) -> None:
+        """Э4б — the two poll ticks catch their own board errors and RETURN
+        them (they never reach PollWorkerHandle's exception seam), so the "did
+        not finish in time" recommendation is logged here instead, from the
+        single shared helper. Nothing is logged when the failed call finished
+        well within the timeout (a genuine error, e.g. KiCad was closed)."""
+        hint = timeout_recommendation(
+            duration_s, getattr(self.connection, "timeout_ms", None))
+        if hint:
+            logger.warning(hint)
+
+    def _update_latency_label(self) -> None:
+        """Status-bar "KiCad: 1.2 ms" — the MEDIAN of the fast selection tick's
+        window (Э3). Empty when there is no connection or no sample yet."""
+        stats = None
+        latency_stats = getattr(self.connection, "latency_stats", None)
+        if latency_stats is not None and self.connection.is_connected:
+            stats = latency_stats(LATENCY_KIND_FAST)
+        if stats is None:
+            self.latency_label.setText("")
+            self.latency_label.setToolTip("")
+            return
+        median_s, max_s = stats
+        self.latency_label.setText(
+            _("KiCad: {ms} ms").format(ms=format_ms(median_s)))
+        self.latency_label.setToolTip(
+            _("KiCad response time — median {median} ms, max {maximum} ms")
+            .format(median=format_ms(median_s), maximum=format_ms(max_s)))
+
     def _set_busy(self, what: Optional[str]) -> None:
         """Busy reporter installed via gui.worker.set_busy_reporter — called on
         the UI thread when a long operation starts (`what` is a short,
@@ -881,17 +966,26 @@ class MainWindow(QMainWindow):
             self.connection, self._run_poll, (manual,), self._finish_poll, self._on_poll_failed)
 
     def _run_poll(self, manual: bool) -> dict:
-        """Worker thread: connection IPC only — never touches a widget."""
+        """Worker thread: connection IPC only — never touches a widget.
+
+        The call is timed here (perf_counter, on the worker) and its duration
+        returned in the result — the "fat board read" measurement of Э2. It is
+        reported on BOTH outcomes (the error is a returned string, not an
+        exception) so a failed refresh still feeds the window and the Э4б
+        timeout check."""
+        start = perf_counter()
         if self.connection.is_connected:
             error = self.connection.refresh()
         else:
             error = self.connection.connect()
-        return {"error": error}
+        return {"error": error, "duration_s": perf_counter() - start}
 
     def _finish_poll(self, result: dict) -> None:
         """UI thread: reflect the worker's result into widgets."""
+        self._record_latency(LATENCY_KIND_SLOW, result.get("duration_s"))
         error = result["error"]
         if error:
+            self._log_timeout_hint(result.get("duration_s"))
             self.status_label.setText(_("Not connected: {error}").format(error=error))
             self._dock_hub.clear_components()
         else:
@@ -957,19 +1051,22 @@ class MainWindow(QMainWindow):
         on the worker thread; the socket being closed is this very same
         thread's own, already broken (that's why we're in this except
         clause) — no cross-thread concern."""
+        start = perf_counter()
         try:
             items = self.connection.board.adapter.get_selected_items()
         except Exception as e:
             self.connection.disconnect()
-            return {"error": str(e)}
-        return {"error": None, "items": items}
+            return {"error": str(e), "duration_s": perf_counter() - start}
+        return {"error": None, "items": items, "duration_s": perf_counter() - start}
 
     def _finish_poll_selection(self, result: dict) -> None:
         """UI thread: reflect the worker's result into widgets/docks. Does
         not touch the tree's component list itself — only its live-selection
         highlighting; the slower _poll() owns the component list."""
+        self._record_latency(LATENCY_KIND_FAST, result.get("duration_s"))
         if result["error"]:
             logger.warning("Lost connection while polling board selection: %s", result["error"])
+            self._log_timeout_hint(result.get("duration_s"))
             self.status_label.setText(_("Not connected: {error}").format(error=result["error"]))
             self.action_button.setText(_("Reconnect"))
             return

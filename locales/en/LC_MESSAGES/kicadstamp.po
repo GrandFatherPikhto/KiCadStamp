@@ -17173,3 +17173,72 @@ msgstr ""
 #: gui/docks/cell_editor.py
 msgid "Read-only indicator: this cell has copper records on this layer"
 msgstr ""
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "KiCad: {ms} ms"
+msgstr ""
+
+#: gui/main_window.py
+#, python-brace-format
+msgid "KiCad response time — median {median} ms, max {maximum} ms"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "IPC timeout:"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "How long one board call may take before the socket gives up. Measured on a 325-footprint board (2026-09-13): the slowest call was 287 ms, a full board read about 164 ms (roughly 1.5 s on a board three times larger). Takes effect on the NEXT connection."
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Applies on the next connection — the IPC timeout is fixed when the socket is created, so an open connection keeps the old value."
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Reconnect interval:"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "How often KiCadStamp retries connecting while KiCad is closed or not answering. With the default 5000 ms, a KiCad started later is noticed within up to five seconds. Applies immediately."
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Measured latency"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Live medians and maxima of recent board calls — pick the IPC timeout from these numbers. Full picture: see docs/diagnostics.md."
+msgstr ""
+
+#: gui/docks/configurator.py
+#, python-brace-format
+msgid "{title}: no data yet"
+msgstr ""
+
+#: gui/docks/configurator.py
+#, python-brace-format
+msgid "{title}: median {median} ms, max {maximum} ms"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "KiCad response"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Full board read"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "No measurements yet."
+msgstr ""
+
+#: gui/worker.py
+#, python-brace-format
+msgid "The board call did not answer within about {waited} ms while the IPC timeout is {timeout} ms — it looks like it timed out. The reply probably exists; the machine was just busy or slow. If this repeats, raise the IPC timeout in Settings > KiCad (it applies on the next connection)."
+msgstr ""
+
+#: kicadstamp/gui_main.py
+msgid "IPC timeout in ms (overrides the saved setting)"
+msgstr ""

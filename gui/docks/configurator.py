@@ -59,21 +59,31 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
                              QStyleFactory, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
-from kicadstamp.constants import DEFAULT_TIMEOUT_MS
+from kicadstamp.constants import (DEFAULT_RECONNECT_INTERVAL_MS,
+                                  DEFAULT_TIMEOUT_MS)
 from kicadstamp.i18n import _
 
 from .. import board_overlay, overlay_markers, settings
 from ..color_schemes import available_color_schemes, load_color_scheme
+from ..connection import LATENCY_KIND_FAST, LATENCY_KIND_SLOW
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
 from ..worker import start_long_op
 from ._common import (DEFAULT_HIGHLIGHT_COLOR, ERROR_STYLE as _ERROR_STYLE,
-                      show_message)
+                      format_ms, show_message)
 
 logger = logging.getLogger(__name__)
 
-# Sensible bounds for the connection timeout spinbox, in milliseconds.
+# Sensible bounds for the connection timeout spinbox, in milliseconds. Kept
+# UNCHANGED by plan_2026_09_13_ipc_timeout_and_latency Э4 (only the DEFAULT was
+# lowered, in kicadstamp/constants.py) — a user may have a value from the old
+# range stored, and narrowing the range would silently rewrite it.
 TIMEOUT_MIN_MS = 1000
 TIMEOUT_MAX_MS = 120000
+# Reconnect-interval bounds (Э4а): the tick that retries connect() while KiCad
+# is away. 0.5–60 s is a sane range (the old hard-coded value was 2 s, the new
+# default 5 s).
+RECONNECT_MIN_MS = 500
+RECONNECT_MAX_MS = 60000
 
 
 # ── Overlay worker functions (run on the worker thread via start_long_op —
@@ -104,6 +114,9 @@ class ConfiguratorDock(QWidget):
     # flips the window flag / builds the tray icon stays there).
     always_on_top_toggled = pyqtSignal(bool)
     tray_enabled_toggled = pyqtSignal(bool)
+    # Э4а — emitted from apply() so DockHub can retime MainWindow's reconnect
+    # timer live (persistence is done here, in apply()).
+    reconnect_interval_changed = pyqtSignal(int)
     # Emitted from apply() whenever the highlight scheme changed — DockHub
     # listens and re-applies the stylesheet to all highlight consumers (see
     # gui/dock_hub.py).
@@ -262,19 +275,96 @@ class ConfiguratorDock(QWidget):
         return page
 
     def _build_kicad_page(self) -> QWidget:
-        """KiCad connection timeout."""
+        """KiCad connection: IPC timeout, reconnect interval and the measured
+        board-call latency (plan_2026_09_13_ipc_timeout_and_latency Э3/Э4/Э4а).
+
+        Both spinboxes are DRAFTS until apply() — the same modal contract as
+        every other page. The timeout takes effect on the NEXT connection (kipy
+        fixes it at socket-creation time, see the hint), the reconnect interval
+        on apply() (DockHub retimes the live timer)."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
+
         timeout_group = QGroupBox(_("KiCad connection"))
         timeout_layout = QVBoxLayout(timeout_group)
+
+        timeout_layout.addWidget(QLabel(_("IPC timeout:")))
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(TIMEOUT_MIN_MS, TIMEOUT_MAX_MS)
         self.timeout_spin.setSuffix(" ms")
+        # The hint names the MEASURED numbers so the value is picked by data,
+        # not by eye (Э4).
+        self.timeout_spin.setToolTip(
+            _("How long one board call may take before the socket gives up. "
+              "Measured on a 325-footprint board (2026-09-13): the slowest call "
+              "was 287 ms, a full board read about 164 ms (roughly 1.5 s on a "
+              "board three times larger). Takes effect on the NEXT connection."))
         timeout_layout.addWidget(self.timeout_spin)
+        timeout_hint = QLabel(
+            _("Applies on the next connection — the IPC timeout is fixed when "
+              "the socket is created, so an open connection keeps the old value."))
+        timeout_hint.setWordWrap(True)
+        timeout_layout.addWidget(timeout_hint)
+
+        timeout_layout.addWidget(QLabel(_("Reconnect interval:")))
+        self.reconnect_spin = QSpinBox()
+        self.reconnect_spin.setRange(RECONNECT_MIN_MS, RECONNECT_MAX_MS)
+        self.reconnect_spin.setSuffix(" ms")
+        self.reconnect_spin.setToolTip(
+            _("How often KiCadStamp retries connecting while KiCad is closed or "
+              "not answering. With the default 5000 ms, a KiCad started later is "
+              "noticed within up to five seconds. Applies immediately."))
+        timeout_layout.addWidget(self.reconnect_spin)
         layout.addWidget(timeout_group)
+
+        latency_group = QGroupBox(_("Measured latency"))
+        latency_layout = QVBoxLayout(latency_group)
+        self.latency_info_label = QLabel("")
+        self.latency_info_label.setWordWrap(True)
+        latency_layout.addWidget(self.latency_info_label)
+        latency_hint = QLabel(
+            _("Live medians and maxima of recent board calls — pick the IPC "
+              "timeout from these numbers. Full picture: see docs/diagnostics.md."))
+        latency_hint.setWordWrap(True)
+        latency_layout.addWidget(latency_hint)
+        layout.addWidget(latency_group)
         layout.addStretch(1)
         return page
+
+    def refresh_latency_info(self) -> None:
+        """Show the connection's rolling-window median/max for both poll ticks
+        (Э3). Called from reload_from_state() (every Settings open) — a
+        read-only snapshot of BoardConnection.latency_stats, never a board
+        call."""
+        self.latency_info_label.setText(self._latency_text())
+
+    def _latency_text(self) -> str:
+        stats = getattr(self._connection, "latency_stats", None)
+        if stats is None:
+            return _("No measurements yet.")
+        lines = []
+        for kind, title in ((LATENCY_KIND_FAST, _("KiCad response")),
+                            (LATENCY_KIND_SLOW, _("Full board read"))):
+            window_stats = stats(kind)
+            if window_stats is None:
+                lines.append(_("{title}: no data yet").format(title=title))
+            else:
+                med, mx = window_stats
+                lines.append(
+                    _("{title}: median {median} ms, max {maximum} ms").format(
+                        title=title, median=format_ms(med), maximum=format_ms(mx)))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _stored_reconnect_interval() -> int:
+        """Persisted reconnect interval with a safe fallback — a stored value
+        that is not a positive int must never break the dialog."""
+        value = settings.state.get("reconnect_interval_ms",
+                                   DEFAULT_RECONNECT_INTERVAL_MS)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return DEFAULT_RECONNECT_INTERVAL_MS
+        return value
 
     def _build_config_tree_page(self) -> QWidget:
         """Config-tree setting: rename confirmation."""
@@ -559,8 +649,11 @@ class ConfiguratorDock(QWidget):
             # scheme (e.g. gui_state.json synced from another machine/version
             # where the set of schemes differs) must not break the dialog.
             self.color_scheme_combo.setCurrentIndex(0)
-        self.timeout_spin.setValue(settings.state.get("kicad_timeout_ms",
-                                                      DEFAULT_TIMEOUT_MS))
+        stored_timeout = settings.state.get("kicad_timeout_ms", DEFAULT_TIMEOUT_MS)
+        if isinstance(stored_timeout, bool) or not isinstance(stored_timeout, int):
+            stored_timeout = DEFAULT_TIMEOUT_MS
+        self.timeout_spin.setValue(stored_timeout)
+        self.reconnect_spin.setValue(self._stored_reconnect_interval())
         self.rename_confirmation_checkbox.setChecked(
             bool(settings.state.get("rename_confirmation_enabled", True)))
         self.raw_write_checkbox.setChecked(
@@ -576,6 +669,9 @@ class ConfiguratorDock(QWidget):
         self._seed_overlay_layer_combo()
         for action_id, edit in self.hotkey_edits.items():
             edit.setKeySequence(get_shortcut(action_id))
+        # Э3 — show the current measured latency (a pure read of the
+        # connection's rolling windows; never a board call).
+        self.refresh_latency_info()
 
     def apply(self) -> None:
         """Commit the current widget state (the draft) to gui_state.json and
@@ -640,6 +736,11 @@ class ConfiguratorDock(QWidget):
         if self._connection is not None:
             self._connection.timeout_ms = timeout_ms
 
+        # Э4а — the reconnect interval. Persisted here and re-emitted so DockHub
+        # can retime MainWindow's live timer (it applies immediately).
+        reconnect_ms = self.reconnect_spin.value()
+        settings.state.set("reconnect_interval_ms", reconnect_ms)
+
         settings.state.set("rename_confirmation_enabled",
                            self.rename_confirmation_checkbox.isChecked())
         settings.state.set("mcp_allow_raw_write", self.raw_write_checkbox.isChecked())
@@ -668,6 +769,7 @@ class ConfiguratorDock(QWidget):
 
         self.always_on_top_toggled.emit(always_on_top)
         self.tray_enabled_toggled.emit(tray_enabled)
+        self.reconnect_interval_changed.emit(reconnect_ms)
         self.highlight_changed.emit()
 
     def cancel(self) -> None:
