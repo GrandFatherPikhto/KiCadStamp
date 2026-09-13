@@ -15821,3 +15821,15 @@ msgstr "Не выбран ни один слой. Refresh удалит из яч
 #: gui/docks/cell_editor.py
 msgid "No layer is selected — no track will be read (vias and components are read as usual)."
 msgstr "Не выбран ни один слой — дорожки не читаются (виа и компоненты читаются как обычно)."
+
+#: gui/docks/cell_editor.py
+msgid "Content layers:"
+msgstr "Слои с содержимым:"
+
+#: gui/docks/cell_editor.py
+msgid "(no copper records)"
+msgstr "(медных записей нет)"
+
+#: gui/docks/cell_editor.py
+msgid "Read-only indicator: this cell has copper records on this layer"
+msgstr "Индикатор только для чтения: у ячейки есть записи меди на этом слое"

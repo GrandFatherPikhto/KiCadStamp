@@ -17161,3 +17161,15 @@ msgstr ""
 #: gui/docks/cell_editor.py
 msgid "No layer is selected — no track will be read (vias and components are read as usual)."
 msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Content layers:"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "(no copper records)"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Read-only indicator: this cell has copper records on this layer"
+msgstr ""

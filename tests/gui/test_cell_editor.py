@@ -9,6 +9,7 @@ validates/writes.
 from types import SimpleNamespace
 
 from kipy.board_types import BoardLayer as KipyBoardLayer
+from PyQt6.QtWidgets import QCheckBox, QLabel
 
 import pytest
 
@@ -2248,3 +2249,57 @@ def test_an_empty_layer_set_only_logs_on_import(main_window, tmp_path, monkeypat
     assert payloads and payloads[-1]["layers"] == set()   # the read still runs
     assert any("no track will be read" in m for m in messages)
     assert any("vias and components are read as usual" in m for m in messages)
+
+
+# ── Э6: the cell card's layer indicator ─────────────────────────────────────
+
+def _content_boxes(dock):
+    """The indicator's checkboxes, in the order they were added."""
+    return dock.content_layers_holder.findChildren(QCheckBox)
+
+
+def test_the_cell_card_lights_the_layers_the_cell_occupies(main_window, tmp_path):
+    """Э6: «галочки у ячейки — показ, а не хранилище». The layers come from the
+    cell's OWN records, are checked, and cannot be clicked."""
+    dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
+    dock.load_entry("t")
+
+    boxes = _content_boxes(dock)
+
+    assert [box.text() for box in boxes] == ["F.Cu", "B.Cu"]
+    assert all(box.isChecked() for box in boxes)
+    assert not any(box.isEnabled() for box in boxes)   # an indicator, not an editor
+
+
+def test_a_copperless_cell_says_so(main_window, tmp_path):
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())   # no tracks
+    dock.load_entry("t")
+
+    assert _content_boxes(dock) == []
+    labels = [label.text() for label
+              in dock.content_layers_holder.findChildren(QLabel)]
+    assert labels == ["(no copper records)"]
+
+
+def test_the_content_indicator_follows_the_cells_own_layer(main_window, tmp_path):
+    """A record without a `layer` key sits on the cell's own layer — the same rule
+    the read paths use — so switching the combo moves the indicator with it."""
+    dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
+    dock.load_entry("t")
+    assert [box.text() for box in _content_boxes(dock)] == ["F.Cu", "B.Cu"]
+
+    dock.layer_combo.setCurrentIndex(1)               # B.Cu
+
+    assert [box.text() for box in _content_boxes(dock)] == ["B.Cu"]
+
+
+def test_the_indicator_is_rebuilt_with_the_records(main_window, tmp_path):
+    """It follows the loaded cell, not a snapshot taken at construction."""
+    dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
+    dock.load_entry("t")
+    assert [box.text() for box in _content_boxes(dock)] == ["F.Cu", "B.Cu"]
+
+    dock._tracks = [{"net": "GND", "layer": "In1.Cu"}]
+    dock._refresh_all_tables()
+
+    assert [box.text() for box in _content_boxes(dock)] == ["In1.Cu"]

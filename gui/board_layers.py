@@ -56,7 +56,7 @@ from typing import Any, Iterable, NamedTuple, Optional
 from kipy.board_types import BoardLayer
 
 from kicadstamp.domain.board import Track, layer_from_kipy
-from kicadstamp.utils.layers import layer_to_str
+from kicadstamp.utils.layers import COPPER_LAYER_STRINGS, layer_to_str
 
 from . import settings
 
@@ -65,6 +65,7 @@ __all__ = [
     "CopperLayer",
     "LayerChoice",
     "READ_LAYERS_KEY",
+    "cell_copper_layer_names",
     "copper_layer_order",
     "enabled_copper_layers",
     "filter_tracks_by_layers",
@@ -85,6 +86,12 @@ __all__ = [
 # the fast path stays fast). An EMPTY collection is a different answer: nothing
 # is read at all.
 ALL_COPPER_LAYERS: Optional[Any] = None
+
+
+# Stack order for the NAMES a cell's records carry (Э6's indicator): F.Cu, In1..In30,
+# B.Cu. A name outside the canonical set sorts last rather than disappearing — an
+# indicator must show what the records say, not what we would have written.
+_COPPER_NAME_ORDER = {name: index for index, name in enumerate(COPPER_LAYER_STRINGS)}
 
 
 class CopperLayer(NamedTuple):
@@ -248,6 +255,27 @@ def layer_choices(copper_layers, remembered, present_names) -> list[LayerChoice]
             empty=empty,
             auto_unchecked=remembered_checked and empty))
     return rows
+
+
+def cell_copper_layer_names(tracks, cell_layer=None) -> list[str]:
+    """The copper layers a CELL occupies, in stack order — derived on the fly from
+    its own track records (Э6), never stored.
+
+    A record that omits `layer` sits on the cell's own layer (extract writes
+    `layer` only when a track lies on a layer other than the cell's own), so
+    `cell_layer` fills those in. Vias are through-hole and carry no layer at all
+    (P.2), which is why they contribute nothing here: a cell whose copper is vias
+    only occupies exactly the layers an empty cell does.
+
+    Nothing is cached and nothing is editable — a stored copy could drift from the
+    records it describes, which is the whole reason Э6 keeps this computed."""
+    names = set()
+    for record in tracks or ():
+        name = str(record.get("layer") or cell_layer or "").strip()
+        if name:
+            names.add(name)
+    return sorted(names, key=lambda name: (_COPPER_NAME_ORDER.get(name, len(
+        _COPPER_NAME_ORDER)), name))
 
 
 def hidden_copper_layer_names(board) -> list[str]:

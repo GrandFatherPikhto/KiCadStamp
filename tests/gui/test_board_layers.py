@@ -21,6 +21,7 @@ from gui.board_layers import (
     ALL_COPPER_LAYERS,
     READ_LAYERS_KEY,
     CopperLayer,
+    cell_copper_layer_names,
     copper_layer_order,
     enabled_copper_layers,
     filter_tracks_by_layers,
@@ -436,6 +437,38 @@ class TestLayerReport:
         seen = [_selection_track(DomainLayer.BL_F_Cu),
                 _selection_track(DomainLayer.BL_F_Cu)]
         assert layer_report(seen, seen)["read"] == ["F.Cu"]
+
+
+class TestCellCopperLayerNames:
+    """Э6: what the cell card's indicator shows — computed from the records, never
+    stored (a stored copy could drift from the content it describes)."""
+
+    def test_a_layer_less_record_sits_on_the_cells_own_layer(self):
+        tracks = [{"net": "GND"}, {"net": "VCC"}]
+        assert cell_copper_layer_names(tracks, "F.Cu") == ["F.Cu"]
+
+    def test_records_on_several_layers_come_in_stack_order(self):
+        tracks = [{"layer": "B.Cu"}, {"layer": "In2.Cu"}, {"net": "x"},
+                  {"layer": "In1.Cu"}]
+        assert cell_copper_layer_names(tracks, "F.Cu") == [
+            "F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
+
+    def test_the_same_layer_twice_is_named_once(self):
+        assert cell_copper_layer_names([{"layer": "B.Cu"}, {"layer": "B.Cu"}],
+                                       "F.Cu") == ["B.Cu"]
+
+    def test_no_records_no_layers(self):
+        assert cell_copper_layer_names([], "F.Cu") == []
+        assert cell_copper_layer_names(None, "B.Cu") == []
+
+    def test_a_blank_layer_falls_back_to_the_cells_own(self):
+        assert cell_copper_layer_names([{"layer": ""}], "B.Cu") == ["B.Cu"]
+
+    def test_an_unknown_name_is_shown_last_not_hidden(self):
+        """The indicator says what the RECORDS say: quietly dropping a name we do
+        not recognise would be the silent loss this project fights."""
+        assert cell_copper_layer_names([{"layer": "weird"}, {"layer": "F.Cu"}],
+                                       "F.Cu") == ["F.Cu", "weird"]
 
 
 class TestHiddenCopperLayerNames:

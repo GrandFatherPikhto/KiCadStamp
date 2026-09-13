@@ -99,6 +99,7 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 from ..board_layers import (
+    cell_copper_layer_names,
     filter_tracks_by_layers,
     hidden_copper_layer_names,
     layer_report,
@@ -396,7 +397,16 @@ class CellDock(QWidget):
         self.name_edit.setPlaceholderText(_("name (referenced by cell: elsewhere)"))
         head_form.addRow(_("Name:"), self.name_edit)
         self.layer_combo = _layer_combo(_LAYER_ITEMS)
+        self.layer_combo.currentIndexChanged.connect(self._refresh_content_layers)
         head_form.addRow(_("Layer:"), self.layer_combo)
+        # Э6: the read-only "which layers does this cell occupy" indicator — one
+        # checkbox per layer its OWN records mention, lit, and NOT clickable. It
+        # stores nothing and edits nothing (see _refresh_content_layers): the set
+        # is computed from the records every refresh, so it cannot drift from them.
+        self.content_layers_holder = QWidget()
+        self.content_layers_row = QHBoxLayout(self.content_layers_holder)
+        self.content_layers_row.setContentsMargins(0, 0, 0, 0)
+        head_form.addRow(_("Content layers:"), self.content_layers_holder)
         self.comment_edit = QLineEdit()
         self.comment_edit.setPlaceholderText(_("optional free-form note"))
         head_form.addRow(_("Comment:"), self.comment_edit)
@@ -891,9 +901,48 @@ class CellDock(QWidget):
         self._refresh_tracks_table()
         self._refresh_nested_table()
         self._refresh_role_choices()
+        self._refresh_content_layers()
         # The loaded cell changed (load_entry/new_cell/add/remove/...) — the
         # geometry-refresh button only makes sense on a non-empty cell.
         self._update_refresh_enabled()
+
+    def _refresh_content_layers(self) -> None:
+        """Э6: light a checkbox per layer this cell HAS copper records on, in
+        stack order — «галочки … показ, а не хранилище».
+
+        Derived from the cell's own `tracks:` on every refresh (a record without a
+        `layer` key sits on the cell's own layer, which is exactly how extract
+        writes it), so nothing is stored and nothing can go stale. Vias are
+        through-hole and carry no layer, so they add nothing. The boxes are
+        DISABLED on purpose: this is an indicator, not an editor — no layer is
+        added to or removed from the records by clicking here."""
+        while self.content_layers_row.count():
+            item = self.content_layers_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                # setParent(None) FIRST: takeAt only unmanages the widget, while
+                # deleteLater defers the destruction to the next event-loop pass —
+                # until then the old boxes stay CHILDREN of the holder (still found
+                # by findChildren and still drawn where the layout left them), so
+                # every refresh would stack another row of them on screen.
+                widget.setParent(None)
+                widget.deleteLater()
+        names = cell_copper_layer_names(self._tracks,
+                                        self.layer_combo.currentData())
+        if not names:
+            label = QLabel(_("(no copper records)"))
+            label.setEnabled(False)
+            self.content_layers_row.addWidget(label)
+            self.content_layers_row.addStretch(1)
+            return
+        for name in names:
+            box = QCheckBox(name)
+            box.setChecked(True)
+            box.setEnabled(False)
+            box.setToolTip(_("Read-only indicator: this cell has copper records "
+                             "on this layer"))
+            self.content_layers_row.addWidget(box)
+        self.content_layers_row.addStretch(1)
 
     def _refresh_components_table(self) -> None:
         self.components_table.setRowCount(len(self._components))
