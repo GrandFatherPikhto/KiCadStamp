@@ -677,6 +677,40 @@ def test_hotkeys_refresh_removes_previous_rows(main_window, qapp):
     assert len(dock.findChildren(QKeySequenceEdit)) == 2  # old row deleted
 
 
+def test_hotkeys_refresh_does_not_stack_rows_on_repeated_opens(main_window, qapp):
+    """The Settings dialog calls refresh_hotkeys() on EVERY open, so a rebuild
+    that only DEFERS the old widgets' removal leaves them drawn on the page — and
+    deleteLater() is not enough on its own: the DeferredDelete event is not
+    delivered by an ordinary event-loop pass (the test above FORCES it with
+    sendPostedEvents, which is precisely what a running app does not do before it
+    paints). takeAt() unmanges a widget without detaching it from its parent, so
+    the page must not grow when it is rebuilt the way the dialog rebuilds it.
+
+    This is the guard for that whole family (Э1/Э2 of
+    plan_2026_09_13_widget_teardown_leak.md)."""
+    from PyQt6.QtWidgets import QKeySequenceEdit, QLabel
+
+    # Deterministic: the module-level registry accumulates across tests in this
+    # file (same isolation as the test above).
+    hotkeys.HOTKEY_ACTIONS.clear()
+    hotkeys._LIVE_ACTIONS.clear()
+    for index in range(3):
+        build_action(main_window, f"test.leak{index}", f"Action {index}",
+                     "Ctrl+Shift+Q", None)
+
+    dock = ConfiguratorDock(main_window, connection=main_window.connection)
+    before = (len(dock.hotkeys_page.findChildren(QLabel)),
+              len(dock.hotkeys_page.findChildren(QKeySequenceEdit)))
+
+    for _ in range(3):                       # three more "Settings..." openings
+        dock.refresh_hotkeys()
+        qapp.processEvents()                 # no DeferredDelete forcing
+
+    assert (len(dock.hotkeys_page.findChildren(QLabel)),
+            len(dock.hotkeys_page.findChildren(QKeySequenceEdit))) == before
+    assert len(dock.hotkey_edits) == 3       # and the dict is the 3 live actions
+
+
 # ── Board overlay page (Phase D of plan_2026_09_09_cell_anchor_v2_...) ─────
 #
 # Overlay geometry (layer + strokes + marker radius) persists through

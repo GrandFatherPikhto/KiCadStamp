@@ -722,10 +722,22 @@ class ConfiguratorDock(QWidget):
                     sub_item = sub_layout.takeAt(0)
                     sub_widget = sub_item.widget()
                     if sub_widget is not None:
+                        # setParent(None) FIRST — not belt-and-braces:
+                        # * takeAt() unmanges a widget without detaching it from
+                        #   its parent, so it keeps being drawn where the layout
+                        #   left it;
+                        # * deleteLater() alone does not remove it either — the
+                        #   DeferredDelete event is not delivered by an ordinary
+                        #   event-loop pass (only sendPostedEvents delivers it).
+                        # This method runs on EVERY Settings-dialog open, so
+                        # without this the page stacks a full duplicate of the
+                        # hotkey rows per open (measured: 3 -> 6 -> 9 -> 12).
+                        sub_widget.setParent(None)
                         sub_widget.deleteLater()
                 sub_layout.deleteLater()
             widget = item.widget()
             if widget is not None:
+                widget.setParent(None)
                 widget.deleteLater()
         for action_id, label, _default in registered_hotkeys():
             row = QHBoxLayout()
