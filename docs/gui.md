@@ -1938,6 +1938,52 @@ A clean plan opens a read-only **preview dialog** listing the NEW records (Kind 
 **Apply** appends them to the loaded cell in memory and auto-stages it exactly like a manual row Add;
 nothing is written to disk until the project **Save**.
 
+**Which layers a read looks at — the layer dialog and the remembered choice** (2026-09-12/13) — a
+cell's copper can span several layers (F.Cu + inner + B.Cu), so both reads above take a LAYER SET, and
+each of them has two entry points:
+
+* **without the dialog** — the buttons in the Cell dialog, and the plain **Update from selection...** /
+  **Import from selection...** context-menu items: one click, no window, and no board read for the set
+  itself. They run with the REMEMBERED set (below);
+* **with the dialog** — the **"… (choose layers)…"** items in the same context menu and in
+  **Tools → Config** (which act on the cell currently SELECTED in the Config tree): one checkbox per
+  copper layer of the LIVE board, in stack order, under the user's own layer names, with notes for
+  «empty in the selection» and «hidden on the board». The list itself is read on a WORKER (the shared
+  kipy socket stays single-owner), the dialog opens with the finished list, and only OK starts the
+  read. A box names the canonical copper layer ('In1.Cu') even when that layer was renamed.
+
+The dialog's rule order is fixed: it starts from the REMEMBERED set (the first time: everything
+checked), and over it the layers EMPTY in the current selection come off, marked as such. Only the
+user's OWN ticks and unticks are remembered (in `gui_state.json`, per machine — never in the project
+config and never in a profile's `settings:`). The automatic unchecking of a layer that merely happened
+to carry nothing that time is NEVER stored: otherwise one narrow selection would silently erase the
+choice and the next read would start with that layer off although the board has copper on it.
+
+**The tick beats the finding** (design Р12): a layer without a tick does not exist for the cell, and
+copper appearing on it does not tick it by itself. A ticked-off layer is therefore simply NOT read,
+which on **Refresh** means its track records lose their live counterpart and `remove_missing` REMOVES
+them; **Import** only ever adds, so there a ticked-off layer just means "nothing was added".
+
+Every read reports in the Log which layers it looked at, and which it left out and WHY:
+`read layers: F.Cu, B.Cu`, `skipped In1.Cu: unchecked by hand`, `skipped In2.Cu: empty in the
+selection`. The fast path runs without a dialog, so without those lines a week-old untick would look
+like damage done to the cell.
+
+Two consequences worth knowing. **Hidden copper layers** (KiCad's Layers panel) cannot be selected on
+the board at all, so their copper is invisible to a read: every read emits one Log line naming them
+(`hidden copper layers on the board: …`), read fresh inside that same operation — we only WARN, we
+never work around the user's own visibility setting. And an EMPTY layer set (every box unticked) reads
+no track at all: on Refresh that deletes every track record of the cell, so it is confirmed first, in a
+window naming exactly that consequence (Cancel starts nothing and changes nothing); for Import, which
+deletes nothing, the same fact is a Log line — an empty set silences only the TRACKS there, while vias
+and components are read as usual.
+
+**The cell card's own layer boxes** (2026-09-13) are the mirror image and NOT a control: it shows one
+read-only, non-clickable checkbox per layer the cell's OWN `tracks:` use (its `layer:` fills in records
+that omit the key), so you can see at a glance whether a cell has inner-layer copper. Nothing is stored
+on the cell — the set is computed from its records on every refresh, so it cannot drift from them, and
+no `Cell` grows a layer field.
+
 **Copy placement from cell...** (2026-09-06) — the OFFLINE sibling of Refresh/Import, reached from the
 Config tree's cell context menu (right-click a Cell leaf, **Copy placement from cell...**, like Update/
 Import from selection). Instead of reading live copper from a board selection it copies the PLACEMENT of
