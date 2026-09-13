@@ -971,8 +971,19 @@ class MainWindow(QMainWindow):
         The call is timed here (perf_counter, on the worker) and its duration
         returned in the result — the "fat board read" measurement of Э2. It is
         reported on BOTH outcomes (the error is a returned string, not an
-        exception) so a failed refresh still feeds the window and the Э4б
-        timeout check."""
+        exception), so the Э4б timeout check (_log_timeout_hint) runs for a
+        FAILED tick as well, not only for a successful one.
+
+        What a failed tick does NOT do is feed the rolling latency window —
+        deliberately, and by construction. On any error,
+        BoardConnection.refresh() calls disconnect() (its documented behaviour:
+        the next tick retries connect() from scratch), disconnect() calls
+        reset_latency(), and _record_latency records only while
+        `self.connection.is_connected` — already False by the time the UI
+        thread sees the result. So the SLOW window holds successful refreshes
+        and successful connects only; a failed call is timed for the
+        recommendation but never seeds a window the drop just cleared (see
+        _record_latency's own docstring)."""
         start = perf_counter()
         if self.connection.is_connected:
             error = self.connection.refresh()

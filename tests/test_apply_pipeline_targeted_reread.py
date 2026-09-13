@@ -105,6 +105,29 @@ class TestItemsWithoutMovesCostNothing:
         assert adapter.refresh_board.call_count == 1, (
             "Phase 1 must not refill the whole footprint cache per item")
 
+    def test_an_item_with_no_moves_does_not_force_a_full_read_for_the_next_one(self):
+        """Э3.7, the half the sibling above structurally cannot see.
+
+        full_refresh_needed is consumed on the NEXT loop iteration (the
+        `if full_refresh_needed: refresh_board()` at the top of the for), so an
+        empty item can only be observed with an item AFTER it. With three items
+        (a move, then no moves, then no moves) a "no moves" answer that wrongly
+        set the flag — `return [], True` instead of `return [], False` — would
+        make the third iteration call refresh_board() for a board the cache
+        already describes. The board must be read exactly once, at the phase
+        boundary before the vias phase."""
+        adapter = _adapter_with([_dto("R1", "uuid-R1")])
+        pipeline = _pipeline(
+            [_item("first"), _item("no-moves"), _item("third")], adapter)
+        pipeline.planner.plan_item.side_effect = [[_move("R1")], [], []]
+
+        _run_execute(pipeline)
+
+        assert adapter.refresh_board.call_count == 1, (
+            "an item with no moves must not arm a full board read later")
+        assert [c.args[0] for c in adapter.reread_footprints_by_id.call_args_list] == [
+            ["uuid-R1"]]
+
     def test_every_ref_the_item_moved_is_reread_once_and_in_order(self):
         adapter = _adapter_with([
             _dto("R1", "uuid-R1"), _dto("R2", "uuid-R2"), _dto("R3", "uuid-R3"),

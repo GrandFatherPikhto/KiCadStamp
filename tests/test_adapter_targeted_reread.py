@@ -267,6 +267,49 @@ class TestUnansweredUuidsFallBackToAFullRead:
         assert adapter.get_field_value(now[0], "Role") == "A2"
 
 
+# ── Х.2 — a uuid the CACHE does not know falls back to a full read ──────────
+
+class TestAnUnknownUuidFallsBackToAFullRead:
+    def test_a_uuid_absent_from_the_cache_forces_a_full_board_read(self):
+        """Х.2 (plan_2026_09_13_three_tails). The FIRST guard of
+        reread_footprints_by_id: a requested uuid that the current cache
+        generation does not contain cannot be promised a fresh object, so the
+        WHOLE board is re-read instead of a partial substitution.
+
+        Why it is worth pinning even though the pipeline cannot reach it: the
+        only caller (_moved_footprint_uuids) takes the uuids from this very
+        cache, so "a uuid the cache does not know" does not occur today. But the
+        failure mode without the guard is a SILENT skip — nothing is replaced
+        and no full read happens, so the next item plans against a stale entry.
+        This test drives the adapter directly because the pipeline cannot build
+        the case.
+
+        The trap it guards against is subtle: KiCad CAN still answer for the
+        uuid (a live item the cache never learned about), so "it came back" is
+        not proof a targeted replacement is safe — only that it did not 404."""
+        known = _KipyFootprint("R1", "uuid-R1", [("Role", "A")])
+        board = _StubBoard([known])
+        adapter = _adapter(board)
+        old = adapter.get_footprints()          # the cache knows uuid-R1 only
+
+        # uuid-R99 is a live item KiCad will answer for, yet the cache has
+        # never seen it — exactly the "uuid absent from the cache" case.
+        board.by_uuid["uuid-R99"] = _KipyFootprint("R99", "uuid-R99", [("Role", "Z")])
+        # The board the full read would reveal no longer matches the cache.
+        board.footprints = [_KipyFootprint("R99", "uuid-R99", [("Role", "Z")])]
+
+        adapter.reread_footprints_by_id(["uuid-R99"])
+
+        assert board.calls_by_id == [], (
+            "no IPC may be spent asking about a uuid the cache already denies")
+        assert adapter._kicad.get_board.call_count == 1, (
+            "one full board read is the only honest answer for an unknown uuid")
+        now = adapter.get_footprints()
+        assert [fp.ref for fp in now] == ["R99"], (
+            "the cache must describe the board, not the stale generation")
+        assert now[0] is not old[0]
+
+
 # ── Э3.5 — the two read paths must stay the same converter ───────────────────
 
 class TestTargetedReadMatchesTheFullRead:
