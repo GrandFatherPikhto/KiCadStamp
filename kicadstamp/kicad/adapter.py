@@ -57,6 +57,15 @@ def _is_all_ids_stale_error(error: Exception) -> bool:
 
 
 class KiCadBoardAdapter(IBoardAdapter):
+    # Field map of the current footprints-cache generation (see
+    # _field_values_for). Declared as a class-level default so that an instance
+    # built via __new__ WITHOUT __init__ — which several tests do deliberately,
+    # to avoid constructing a real kipy.KiCad() — still reads as "no map yet"
+    # instead of raising AttributeError. The value is immutable None and never
+    # mutated in place; the real map is always created as an INSTANCE attribute,
+    # so nothing is ever shared between two adapters.
+    _field_values_cache: dict[str, dict[str, str | None]] | None = None
+
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):
         logger.debug(_("Initialising KiCadBoardAdapter with timeout {timeout} ms").format(timeout=timeout_ms))
         logger.debug(_("Creating kipy.KiCad instance..."))
@@ -82,6 +91,11 @@ class KiCadBoardAdapter(IBoardAdapter):
         self._board = None
         self._write_risk_checked = False
         self._footprints_cache: list[Footprint] | None = None
+        # {footprint uuid -> {field name -> value}} for the CURRENT
+        # _footprints_cache generation; dropped wherever that cache is dropped
+        # (refresh_board, flip_selected) and per-footprint on set_field_value.
+        # See _field_values_for.
+        self._field_values_cache: dict[str, dict[str, str | None]] | None = None
         # get_selected_items() is polled every ~400ms by the GUI's live-
         # selection timer (see main_window.py's _poll_board_selection) —
         # logging its count unconditionally at DEBUG flooded the log file
@@ -132,6 +146,9 @@ class KiCadBoardAdapter(IBoardAdapter):
         if self._board is None:
             raise BoardNotFoundError(_("Failed to obtain board from KiCad"))
         self._footprints_cache = None
+        # The field map is derived from the SAME kipy objects _footprints_cache
+        # holds, so it is only as fresh as that cache and dies with it.
+        self._field_values_cache = None
         logger.info(_("Board obtained"))
 
     def get_board_filename(self) -> str | None:
@@ -335,27 +352,102 @@ class KiCadBoardAdapter(IBoardAdapter):
         if items:
             self._board.add_to_selection([unwrap(i) for i in items])
 
-    def get_field_value(self, footprint: Footprint, field_name: str) -> str | None:
-        """
-        Value of a custom component field (e.g., Role for KiCadStamp 4.0).
+    def _scan_field_values(self, footprint: Footprint) -> dict[str, str | None]:
+        """One pass over a footprint's texts_and_fields → {field name: value}.
+
         IMPORTANT: texts_and_fields contains a mix of actual Field objects
         (name+text.value) and plain BoardText (silkscreen text without a field
         name at all) — filter by type, otherwise we get AttributeError on .name
-        for BoardText.
+        for BoardText. That isinstance check is also why this cannot be a plain
+        dict comprehension, and it is the whole reason get_field_value always
+        had one.
+
+        An ABSENT field is simply not stored. A present field is stored with
+        whatever the scan found — for a live kipy Field that is '' when the
+        value is empty (kipy 0.7.1's Field.text is always a BoardText wrapper;
+        verified against the installed version) and None only when the Field
+        reports no text object at all. "Absent" vs. "present" therefore lives
+        in KEY PRESENCE, which has_field reads — the VALUE keeps matching the
+        old linear scan byte for byte (see explore.py's Pending-changes use of
+        the pair).
         """
+        values: dict[str, str | None] = {}
         for item in unwrap(footprint).texts_and_fields:
-            if isinstance(item, Field) and item.name == field_name:
-                return item.text.value if item.text else None
-        return None
+            # `not in values` preserves the original scan's first-match-wins
+            # for a (pathological) footprint carrying one field name twice.
+            if isinstance(item, Field) and item.name not in values:
+                values[item.name] = item.text.value if item.text else None
+        return values
+
+    def _field_values_for(self, footprint: Footprint) -> dict[str, str | None]:
+        """The field map of ONE footprint, built on its first read and kept for
+        as long as the current _footprints_cache generation (the two are
+        dropped together — see refresh_board/flip_selected, and
+        _drop_cached_field_values for the per-footprint drop on writes).
+
+        WHY (measured 2026-09-13, probe_placement_cost on the 325-footprint
+        3ch-awg-tia-v103 board): role/cluster resolution filters ALL footprints
+        once per resolution, so a single 20-item apply called get_field_value
+        52170 times — 160 full passes over every footprint's field list, 2.2 s
+        of a 6.2 s run, ~2M builtins.isinstance calls. The scan is now paid
+        once per footprint per generation instead of once per read.
+
+        Keyed by uuid: it is the one identity that stays put inside a cache
+        generation (ref does not — re-annotation renames footprints under a map
+        that is still alive). A footprint with no uuid at all (nothing KiCad
+        has assigned an id to yet) has no stable key, so it is scanned uncached
+        rather than risking two different footprints sharing one entry.
+        """
+        fp_uuid = getattr(footprint, "uuid", None)
+        if not fp_uuid:
+            return self._scan_field_values(footprint)
+        cache = self._field_values_cache
+        if cache is None:
+            # Always an INSTANCE attribute (the class-level default is the
+            # immutable None above) — no state is ever shared across adapters.
+            cache = self._field_values_cache = {}
+        values = cache.get(fp_uuid)
+        if values is None:
+            values = self._scan_field_values(footprint)
+            cache[fp_uuid] = values
+        return values
+
+    def _drop_cached_field_values(self, footprint: Footprint) -> None:
+        """Forgets ONE footprint's cached field map — called by
+        set_field_value, which is the only writer of field values (see there
+        for why a write must invalidate). Deliberately NOT a full reset: during
+        Role/Cluster tagging only the footprints actually written lose their
+        entry, and the rest of the generation keeps its map."""
+        cache = self._field_values_cache
+        fp_uuid = getattr(footprint, "uuid", None)
+        if cache is not None and fp_uuid:
+            cache.pop(fp_uuid, None)
+
+    def get_field_value(self, footprint: Footprint, field_name: str) -> str | None:
+        """
+        Value of a custom component field (e.g., Role for KiCadStamp 4.0).
+
+        Reads through the per-generation field map (_field_values_for) instead
+        of re-scanning texts_and_fields on every call; the type filtering that
+        scan needs (fields vs. plain BoardText) happens there, once per
+        footprint.
+
+        Returns None for a footprint that has no such field; a field that does
+        exist returns what the scan found (see _scan_field_values — '' for an
+        empty value on a live kipy Field). has_field() is what tells "absent"
+        from "present" unambiguously.
+        """
+        return self._field_values_for(footprint).get(field_name)
 
     def has_field(self, footprint: Footprint, field_name: str) -> bool:
         """True if footprint carries a field with this name at all — unlike
         get_field_value(), which returns None both for "field missing" and
         for "field present but empty", this distinguishes the two so a
         caller can skip a footprint instead of hitting set_field_value's
-        fatal ValidationError mid-batch."""
-        return any(isinstance(item, Field) and item.name == field_name
-                   for item in unwrap(footprint).texts_and_fields)
+        fatal ValidationError mid-batch. Reads KEY PRESENCE of the same
+        per-generation map (see _field_values_for), so both calls share one
+        scan."""
+        return field_name in self._field_values_for(footprint)
 
     def set_field_value(self, footprint: Footprint, field_name: str, value: str) -> None:
         """
@@ -387,6 +479,17 @@ class KiCadBoardAdapter(IBoardAdapter):
         for item in unwrap(footprint).texts_and_fields:
             if isinstance(item, Field) and item.name == field_name:
                 item.text.value = value
+                # WHY the cache needs this (2026-09-13): the line above
+                # mutates the Field object IN PLACE — the very object the
+                # field map was built from — so the cached entry for this
+                # footprint now holds the PRE-write value while the footprint
+                # itself does not. Without dropping it, set_field_value() →
+                # get_field_value() would silently return the old value, and
+                # EVERYTHING built on that round trip (set_field_values_bulk,
+                # and the Role/Cluster tagging that goes through it) would
+                # resolve against stale tags. Only this footprint's entry goes;
+                # the next read rebuilds it from the mutated object.
+                self._drop_cached_field_values(footprint)
                 return
         ref = footprint.ref
         raise ValidationError(format_fatal_error(
@@ -647,6 +750,10 @@ class KiCadBoardAdapter(IBoardAdapter):
         # update_items(), silently undoing the flip — found live 2026-07-29:
         # fpga_oscill_r_pi_filter's components landing back on F.Cu).
         self._footprints_cache = None
+        # The field map is derived from those same stale objects, so it is
+        # dropped with them (it is NOT about fields changing here — it is that
+        # the map must never outlive the cache it was built from).
+        self._field_values_cache = None
         logger.debug(_("Flip performed"))
 
     def commit_with_retry(self, description: str, work_fn, retries: int = 1) -> bool:

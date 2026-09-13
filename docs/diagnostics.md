@@ -56,6 +56,8 @@ kicadstamp/diagnostics/
 ├── board_call_timing.py           # Times every adapter call + kipy round trip (library, not run directly)
 ├── run_gui_with_timing.py         # Runs the GUI with every board call timed [LIVE]
 ├── report_board_timing.py         # Summarises a board-call timing log [FILES]
+├── probe_placement_cost.py        # Cost breakdown of one placement's planning phase [LIVE]
+├── probe_field_map_unit_cost.py   # Field map: cost of reading it vs. building it [LIVE]
 └── unersolved_components.py       # Per-component channel (Channel_0/1/2) by nets [LIVE]
 ```
 
@@ -107,6 +109,56 @@ inside the adapter, of which the UI thread accounted for **0.2 s (0.07%)**, and 
 single call of the whole session was **287 ms** against a 20 000 ms timeout. That measurement
 is what retired a planned migration of every board read behind `await` — the freeze it would
 have cured was not there.
+
+---
+
+### `probe_placement_cost.py`
+
+Where one placement run actually spends its time. Reproduces apply's planning phase on a real
+config (read-only — `execute_moves()` is never called) and prints a cost breakdown: startup
+steps, unit costs (refresh / cold vs. warm `get_footprints`), the wall-clock split between the
+IPC socket and Python, per-adapter-method call counts, and a cProfile top list.
+
+```bash
+python -m kicadstamp.diagnostics.probe_placement_cost profiles/3ch-awg-tia-v103/config.sexp
+```
+
+Measured 2026-09-13 on the 325-footprint `3ch-awg-tia-v103` board, 20 items in the config
+(base `bf59e24`): **6.33 s** wall clock, of which `get_field_value()` took **2279.6 ms over
+52170 calls** (0.04 ms each) and `builtins.isinstance` 1 991 659 calls / 1.28 s — a linear
+scan of every footprint's `texts_and_fields` repeated on each read, i.e. roughly 160 full
+passes over the board's fields per placement run.
+
+After the Э1 field map (adapter `_field_values_for`, 2026-09-13) the same probe reports
+**4.06 s** wall clock and **604.9 ms** for the same 52170 calls (0.01 ms each), with
+`isinstance` gone from the profile entirely (total function calls 8 524 572 → 3 701 019).
+What is left in that row is mostly the probe's own instrumentation, not work — see
+`probe_field_map_unit_cost.py` below. The remaining seconds are elsewhere: 20 full-board IPC
+re-reads (2.39 s, one per item — `refresh_board()` in `apply_pipeline.py`) plus 1.16 s of
+socket wait.
+
+Worth noting from those same two runs: execution-order resolution (`resolve execution order`)
+fell from 953 ms to 146 ms, because it resolves every rule/clone_placement's anchor and so
+paid the same per-read scan.
+
+---
+
+### `probe_field_map_unit_cost.py`
+
+Splits the leftover cost of the field map after Э1 into reading a map that is already built
+vs. building it. Needs no config — it reads whatever board is open.
+
+```bash
+python -m kicadstamp.diagnostics.probe_field_map_unit_cost
+```
+
+Measured 2026-09-13, 325-footprint board: a full-board `get_field_value()` sweep costs
+**0.19 ms (0.6 µs per footprint)** with the maps warm and **10.28 ms (31 µs per footprint)**
+when they have to be built — so a placement run pays about **10 ms per `refresh_board()`
+generation** (20 generations ≈ 206 ms) and almost nothing per call. A rebuild is expensive
+because `texts_and_fields` builds a fresh `Footprint` definition wrapper, whose `__init__`
+unwraps every item of the footprint (`kipy/board_types.py:1832`). That is why the follow-up
+question "index by role (Э3)" was answered no: it removes *calls*, not *builds*.
 
 ---
 
