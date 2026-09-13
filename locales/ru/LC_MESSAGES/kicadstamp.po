@@ -15808,3 +15808,8 @@ msgstr "пропущен {layer}: снят вручную"
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr "пропущен {layer}: пусто в выделении"
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "hidden copper layers on the board: {layers} — the selection in KiCad cannot see their copper"
+msgstr "скрытые медные слои платы: {layers} — выделение в KiCad меди на них не видит"

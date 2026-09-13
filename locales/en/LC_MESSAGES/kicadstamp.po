@@ -17148,3 +17148,8 @@ msgstr ""
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr ""
+
+#: gui/docks/cell_editor.py
+#, python-brace-format
+msgid "hidden copper layers on the board: {layers} — the selection in KiCad cannot see their copper"
+msgstr ""

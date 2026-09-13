@@ -68,6 +68,7 @@ __all__ = [
     "copper_layer_order",
     "enabled_copper_layers",
     "filter_tracks_by_layers",
+    "hidden_copper_layer_names",
     "layer_choices",
     "layer_report",
     "layers_to_remember",
@@ -240,6 +241,22 @@ def layer_choices(copper_layers, remembered, present_names) -> list[LayerChoice]
             empty=empty,
             auto_unchecked=remembered_checked and empty))
     return rows
+
+
+def hidden_copper_layer_names(board) -> list[str]:
+    """Display names of the board's HIDDEN copper layers, in stack order — empty
+    when every enabled copper layer is visible (Э2).
+
+    `enabled_copper_layers` is the single place that READS the board, so this
+    cannot drift from what the dialog offers. Only copper: nothing else is ever a
+    candidate for a cell's tracks, and a hidden silkscreen layer says nothing.
+
+    The caller reads this INSIDE a running long operation (the worker already
+    holds the shared socket and is already reading the whole selection) — never
+    from the UI thread, and never from a cached list: a stale line would keep
+    warning about a layer the user has already shown again in KiCad."""
+    return [copper.display_name for copper in enabled_copper_layers(board)
+            if not copper.visible]
 
 
 def skipped_empty_layers(choices, checked_names) -> list[str]:

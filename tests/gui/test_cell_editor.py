@@ -8,6 +8,8 @@ validates/writes.
 """
 from types import SimpleNamespace
 
+from kipy.board_types import BoardLayer as KipyBoardLayer
+
 import pytest
 
 import gui.docks.cell_editor as cell_editor_mod
@@ -2035,3 +2037,110 @@ def test_the_requested_entry_points_can_choose_layers(main_window, tmp_path,
 
     assert called == ["refresh-dialog", "refresh-fast",
                       "import-dialog", "import-fast"]
+
+
+# ── Э2: the hidden-copper-layer warning ─────────────────────────────────────
+# Read INSIDE the worker (it already holds the socket and is already reading the
+# whole selection), so it is as fresh as the read itself and appears on the fast
+# path too — where a hidden layer is most dangerous, because its copper cannot be
+# selected and Refresh would delete its records silently.
+
+_KIPY_F = KipyBoardLayer.BL_F_Cu
+_KIPY_IN1 = KipyBoardLayer.BL_In1_Cu
+_KIPY_IN2 = KipyBoardLayer.BL_In2_Cu
+_KIPY_B = KipyBoardLayer.BL_B_Cu
+_KIPY_SILK = KipyBoardLayer.BL_F_SilkS
+
+_KIPY_NAMES = {_KIPY_F: "F.Cu", _KIPY_IN1: "In1.Cu", _KIPY_IN2: "In2.Cu",
+               _KIPY_B: "B.Cu", _KIPY_SILK: "F.Silkscreen"}
+
+
+class _LayersBoard:
+    """The live-board handle the Э2 check reads. `visible` is MUTABLE on purpose:
+    the freshness guard changes it between two reads."""
+
+    def __init__(self, enabled=(_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B),
+                 visible=None):
+        self.enabled = list(enabled)
+        self.visible = list(enabled if visible is None else visible)
+
+    def get_enabled_layers(self):
+        return list(self.enabled)
+
+    def get_visible_layers(self):
+        return list(self.visible)
+
+    def get_layer_name(self, layer):
+        return _KIPY_NAMES[layer]
+
+
+def _hidden_warnings(caplog):
+    return [r.message for r in caplog.records
+            if "hidden copper layers" in r.message]
+
+
+def test_the_fast_path_warns_about_hidden_copper_layers(main_window, tmp_path,
+                                                        caplog):
+    """Э2/Э7.6: the warning is emitted by the worker, so the FAST path (no
+    dialog, no layer list on screen) is covered as well."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _two_layer_selection_board()
+    board.adapter._board = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])
+
+    dock._run_refresh_geometry(_refresh_payload(dock, board))
+
+    assert _hidden_warnings(caplog) == [
+        "hidden copper layers on the board: In1.Cu — the selection in KiCad "
+        "cannot see their copper"]
+
+
+def test_a_hidden_non_copper_layer_warns_about_nothing(main_window, tmp_path,
+                                                       caplog):
+    """Only copper is read, so only copper is warned about."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _two_layer_selection_board()
+    board.adapter._board = _LayersBoard(
+        enabled=[_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B, _KIPY_SILK],
+        visible=[_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B])   # silk hidden only
+
+    dock._run_refresh_geometry(_refresh_payload(dock, board))
+
+    assert _hidden_warnings(caplog) == []
+
+
+def test_the_hidden_layer_warning_is_as_fresh_as_the_read(main_window, tmp_path,
+                                                          caplog):
+    """Э7.6's freshness guard: the layer stops being hidden between two reads, and
+    the warning appears on the FIRST only. This is what tells a worker-side read
+    from a list cached in the dock (which would keep warning about a layer the
+    user has already shown again)."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _two_layer_selection_board()
+    live = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])   # In1.Cu hidden
+    board.adapter._board = live
+
+    dock._run_refresh_geometry(_refresh_payload(dock, board))
+    assert len(_hidden_warnings(caplog)) == 1
+
+    live.visible = [_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B]      # shown again
+    caplog.clear()
+    dock._run_refresh_geometry(_refresh_payload(dock, board))
+    assert _hidden_warnings(caplog) == []
+
+
+def test_the_import_worker_warns_about_hidden_copper_layers_too(main_window,
+                                                                tmp_path,
+                                                                caplog):
+    """A hidden layer is a BOARD fact, not a refresh-only nicety."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    board = _two_layer_selection_board(_ImportBoard)
+    board.adapter._board = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])
+
+    dock._run_import_vias_tracks(_refresh_payload(dock, board))
+
+    assert len(_hidden_warnings(caplog)) == 1
+    assert "In1.Cu" in _hidden_warnings(caplog)[0]

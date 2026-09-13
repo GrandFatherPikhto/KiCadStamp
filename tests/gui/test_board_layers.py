@@ -24,6 +24,7 @@ from gui.board_layers import (
     copper_layer_order,
     enabled_copper_layers,
     filter_tracks_by_layers,
+    hidden_copper_layer_names,
     layer_choices,
     layer_report,
     layers_to_remember,
@@ -425,3 +426,31 @@ class TestLayerReport:
         seen = [_selection_track(DomainLayer.BL_F_Cu),
                 _selection_track(DomainLayer.BL_F_Cu)]
         assert layer_report(seen, seen)["read"] == ["F.Cu"]
+
+
+class TestHiddenCopperLayerNames:
+    """Э2: the names the Log warning carries — copper only, stack order."""
+
+    def test_names_the_hidden_copper_layer(self):
+        board = _FakeBoard(enabled=[B, IN2, F, IN1], visible=[F, IN2, B])
+        assert hidden_copper_layer_names(board) == ["In1.Cu"]
+
+    def test_several_hidden_layers_come_in_stack_order(self):
+        board = _FakeBoard(enabled=[B, IN2, F, IN1], visible=[F])
+        assert hidden_copper_layer_names(board) == ["In1.Cu", "In2.Cu", "B.Cu"]
+
+    def test_a_hidden_non_copper_layer_is_not_reported(self):
+        """Only copper is ever read, so a hidden silkscreen layer is not ours to
+        warn about (Э7.6's second half)."""
+        board = _FakeBoard(enabled=[F, IN1, IN2, B, SILK, EDGE],
+                           visible=[F, IN1, IN2, B])
+        assert hidden_copper_layer_names(board) == []
+
+    def test_everything_visible_reports_nothing(self):
+        assert hidden_copper_layer_names(
+            _FakeBoard(enabled=[F, IN1, IN2, B])) == []
+
+    def test_the_names_are_the_users_own(self):
+        board = _FakeBoard(enabled=[F, IN1, IN2, B], visible=[F, IN2, B],
+                           names={IN1: "GND"})
+        assert hidden_copper_layer_names(board) == ["GND"]

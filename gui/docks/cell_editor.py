@@ -100,6 +100,7 @@ from kicadstamp.i18n import _
 
 from ..board_layers import (
     filter_tracks_by_layers,
+    hidden_copper_layer_names,
     layer_report,
     remembered_read_layers,
 )
@@ -155,6 +156,39 @@ def record_report_line(sign: str, record: dict, kind: str) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_hidden_copper_layers(adapter) -> None:
+    """One Log line naming the board's HIDDEN copper layers (Э2), emitted from the
+    WORKER that is already reading that same board.
+
+    Why in the worker and not on the UI thread: this operation holds the shared
+    kipy socket for its whole run, so the two cheap reads (get_enabled_layers +
+    get_visible_layers, through enabled_copper_layers) cost nothing extra and can
+    never collide with the ~400 ms poll tick (P.3.1/P.3.3). A list CACHED in the
+    dock was rejected deliberately: it would keep warning about a layer the user
+    has already shown again in KiCad — the line must be as fresh as the read.
+
+    Why the FAST path needs it most: copper on a hidden layer cannot be SELECTED
+    in KiCad, so for Refresh it has no live pair and `remove_missing` deletes its
+    records SILENTLY. The dialog at least shows that layer as "empty in the
+    selection" / "hidden on the board"; without this line the fast path would show
+    nothing at all.
+
+    A missing board handle (a stand-in adapter with no live board) or a failed
+    read skips the warning: it is cosmetic and must never fail the read itself."""
+    board = getattr(adapter, "_board", None)
+    if board is None:
+        return
+    try:
+        hidden = hidden_copper_layer_names(board)
+    except Exception:  # noqa: BLE001 — a warning must never fail an operation
+        logger.debug("Hidden-copper-layer check skipped", exc_info=True)
+        return
+    if hidden:
+        logger.warning(
+            _("hidden copper layers on the board: {layers} — the selection in "
+              "KiCad cannot see their copper").format(layers=", ".join(hidden)))
 
 _LAYER_ITEMS = [("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
 _INHERIT_LAYER_ITEMS = [(_("(inherit cell layer)"), None), ("F.Cu", "F.Cu"), ("B.Cu", "B.Cu")]
@@ -1654,6 +1688,10 @@ class CellDock(QWidget):
             # refresh_board()). Same rule board_overlay/cascade/apply_pipeline
             # already follow.
             adapter.refresh_board()
+            # Э2: the same board's copper-layer VISIBILITY, read here — inside the
+            # operation that already holds the socket and is already reading the
+            # whole selection (P.3.1 constrains the UI thread, not the worker).
+            _warn_hidden_copper_layers(adapter)
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
@@ -1907,6 +1945,9 @@ class CellDock(QWidget):
             # plan resolves the selected roles' fields (and net_from_role)
             # against adapter.get_footprints().
             adapter.refresh_board()
+            # Э2: same visibility read as the refresh worker — the warning is not a
+            # refresh-only nicety (a hidden layer is a board fact).
+            _warn_hidden_copper_layers(adapter)
             items = adapter.get_selected_items()
             footprints = [i for i in items if isinstance(i, Footprint)]
             vias = [i for i in items if isinstance(i, Via)]
