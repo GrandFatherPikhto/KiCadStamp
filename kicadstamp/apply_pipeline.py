@@ -32,6 +32,8 @@ from .config import (Config, load_config, chain_effective_name,
 from .net_trace_planner import net_trace_anchor_id, adopt_net_trace_copper
 from .runtime_context import RuntimeContext
 from .kicad.adapter import KiCadBoardAdapter
+from .domain.board import Footprint
+from .placement.commands import MoveCommand
 from .placement.planner import PlacementPlanner
 from .placement.dependency_order import resolve_execution_order
 from .placement.entity_placement import materialize_entity_placements
@@ -628,6 +630,55 @@ class ApplyPipeline:
 
     # ── Execution ───────────────────────────────────────────────────────────
 
+    def _moved_footprint_uuids(self, moves: list[MoveCommand]) -> tuple[list[str], bool]:
+        """uuids of the footprints a finished item's moves named, plus "this
+        item's result cannot be pinned to uuids at all".
+
+        Feeds Phase 1's targeted re-read: the NEXT item must see the real
+        post-move board, but only for the footprints that actually moved (see
+        adapter.reread_footprints_by_id for the WHY, and P.0 of
+        plan_2026_09_13_targeted_footprint_reread for the numbers: one 20-item
+        apply used to re-read all 325 footprints 20 times to learn ~8 changed
+        positions per item).
+
+        The uuid comes out of the CURRENT footprint cache, by ref — before the
+        next item's re-read replaces those entries (P.1.2 of that plan: the
+        local objects must not be trusted as a record of what KiCad did, but
+        their uuid is exactly the handle KiCad can be asked about).
+
+        Three cases, deliberately different:
+
+        * a ref the cache does not contain — MoveExecutor skips those too
+          ("not found, skipping"), so nothing was written for them and there is
+          nothing to re-read;
+        * a ref whose footprint carries no uuid — we cannot ask KiCad about it,
+          so the caller is told to fall back to a full board read;
+        * no moves at all — an EMPTY list: the item changed nothing, so the next
+          item reads the same cache (not a guess: if the board was not touched by
+          us, there is nothing to update).
+        """
+        refs: list[str] = []
+        seen: set[str] = set()
+        for move in moves:
+            if move.ref not in seen:
+                seen.add(move.ref)
+                refs.append(move.ref)
+        if not refs:
+            return [], False
+        by_ref: dict[str, Footprint] = {}
+        for fp in self.adapter.get_footprints():
+            # setdefault: first match wins, exactly like adapter.get_footprint().
+            by_ref.setdefault(fp.ref, fp)
+        uuids: list[str] = []
+        for ref in refs:
+            fp = by_ref.get(ref)
+            if fp is None:
+                continue
+            if not fp.uuid:
+                return [], True
+            uuids.append(fp.uuid)
+        return uuids, False
+
     def _execute(self) -> None:
         ctx = self.ctx
         # Resolved absolute paths live on RuntimeContext (P1-3). Fall back to
@@ -676,9 +727,26 @@ class ApplyPipeline:
         # --- Phase 1: moves, one dependency-order item at a time ---
         self.planner.begin_planning()
         failed_refs: list[str] = []
+        # What the PREVIOUS item moved, to be re-read before this one plans
+        # (2026-09-13, plan_2026_09_13_targeted_footprint_reread Э2). This used
+        # to be a blanket refresh_board() before every item: it threw the whole
+        # footprint cache away so that get_footprints() would pull all 325
+        # footprints again (2.39 s of a 4.06 s placement, measured) to learn the
+        # few positions that item had changed. Correctness is unchanged — the
+        # data still comes from KiCad, never from the local object a move just
+        # mutated (P.1.2) — only the amount of truth re-read is.
+        pending_reread: list[str] = []
+        # Set when the previous item's moves could not be expressed as uuids at
+        # all: then a full read is the only honest answer (see
+        # _moved_footprint_uuids).
+        full_refresh_needed = False
         for idx, item in enumerate(self.items):
-            if idx > 0:
+            if full_refresh_needed:
                 self.adapter.refresh_board()
+            elif pending_reread:
+                self.adapter.reread_footprints_by_id(pending_reread)
+            pending_reread = []
+            full_refresh_needed = False
             if item.anchor_ref is not None and item.anchor_ref in failed_refs:
                 logger.warning(_("{label}: anchor {ref!r} failed to move earlier in this run — "
                                  "this item's placement is based on its OLD position")
@@ -686,6 +754,16 @@ class ApplyPipeline:
             item_moves = self.planner.plan_item(item)
             logger.info(_("  {label}: {count} moves")
                         .format(label=item.label, count=len(item_moves)))
+            # Resolve what to re-read for the NEXT item BEFORE executing: the
+            # cache is guaranteed alive here (plan_item just read through it),
+            # while execute_moves can legitimately drop it (a server-side flip
+            # clears both caches — P.1.6), and a re-read with no cache is a
+            # deliberate no-op.
+            pending_reread, full_refresh_needed = self._moved_footprint_uuids(item_moves)
+            # A FAILED move is re-read as well as a successful one: the executor
+            # reports a whole batch as failed, and we cannot know which of its
+            # footprints KiCad applied before the refusal — only KiCad can tell
+            # us (Э2).
             item_failed = executor.execute_moves(
                 item_moves,
                 check_collisions=not self.no_collision_check,

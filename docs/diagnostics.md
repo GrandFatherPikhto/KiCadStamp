@@ -116,8 +116,15 @@ have cured was not there.
 
 Where one placement run actually spends its time. Reproduces apply's planning phase on a real
 config (read-only — `execute_moves()` is never called) and prints a cost breakdown: startup
-steps, unit costs (refresh / cold vs. warm `get_footprints`), the wall-clock split between the
-IPC socket and Python, per-adapter-method call counts, and a cProfile top list.
+steps, unit costs (refresh / cold vs. warm `get_footprints` / one targeted re-read), the
+wall-clock split between the IPC socket and Python, per-adapter-method call counts, and a
+cProfile top list.
+
+Since 2026-09-13 it reproduces Phase 1 **twice in one run**: once with the legacy loop
+(`refresh_board()` before every item) and once with the current one (a targeted re-read of the
+previous item's footprints, through the very `ApplyPipeline._moved_footprint_uuids` production
+uses). Both passes see the same board and the same config, so the difference between them is
+the refresh strategy and nothing else.
 
 ```bash
 python -m kicadstamp.diagnostics.probe_placement_cost profiles/3ch-awg-tia-v103/config.sexp
@@ -140,6 +147,26 @@ socket wait.
 Worth noting from those same two runs: execution-order resolution (`resolve execution order`)
 fell from 953 ms to 146 ms, because it resolves every rule/clone_placement's anchor and so
 paid the same per-read scan.
+
+After the targeted re-read (2026-09-13, `adapter.reread_footprints_by_id` +
+`ApplyPipeline._moved_footprint_uuids`) the probe's own two blocks, same run, same 325-footprint
+board, 20 items, 158 planned moves:
+
+| | A) legacy loop | B) current loop |
+|---|---|---|
+| wall clock | 4.47 s | **1.20 s** (−73.2%) |
+| full board reads (`kipy board.get_items`) | 20 | **1** |
+| targeted reads (`kipy board.get_items_by_id`) | 0 | 19 |
+| waiting on the socket | 1.50 s | 0.13 s |
+| `get_field_value` (the same 52170 calls) | 636.5 ms | 188.8 ms |
+| unit cost: one targeted re-read (1 footprint, cache warm) | — | 1.85 ms |
+
+The 19 targeted reads cost 97.1 ms in total (5.11 ms each, ~8 footprints per item) where the 19
+full re-reads they replace cost 2.39 s. The field row improves for the same reason: the map is
+now rebuilt for the ~8 footprints an item moved instead of for all 325, so a run rebuilds a few
+hundred maps instead of 6500. The one remaining full read is the initial `refresh_board()`; the
+count returns to one per item only on a fallback (a flip, or a moved footprint with no uuid to
+ask about — see the probe's own output in that case).
 
 ---
 

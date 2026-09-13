@@ -51,6 +51,9 @@ class IBoardAdapter(ABC):
     def get_footprints(self) -> list[Footprint]: ...
 
     @abstractmethod
+    def reread_footprints_by_id(self, uuid_strs: list[str]) -> None: ...
+
+    @abstractmethod
     def get_vias(self) -> list[Via]: ...
 
     @abstractmethod

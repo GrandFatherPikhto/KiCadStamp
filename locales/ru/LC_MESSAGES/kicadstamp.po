@@ -11059,6 +11059,32 @@ msgstr "Не удалось найти объекты по id: {type}: {e}"
 msgid "Retrieved {count} footprints"
 msgstr "Получено {count} футпринтов"
 
+#: kicadstamp/kicad/adapter.py:340
+msgid "Targeted re-read skipped: footprint cache is already empty"
+msgstr "Точечное перечитывание пропущено: кэш футпринтов уже пуст"
+
+#: kicadstamp/kicad/adapter.py:351
+msgid ""
+"Targeted re-read fell back to a full board read: a requested uuid is not in "
+"the footprint cache"
+msgstr ""
+"Точечное перечитывание свелось к полному чтению платы: запрошенного uuid нет "
+"в кэше футпринтов"
+
+#: kicadstamp/kicad/adapter.py:360
+#, python-brace-format
+msgid ""
+"Targeted re-read fell back to a full board read: {found} of {asked} "
+"requested footprints came back"
+msgstr ""
+"Точечное перечитывание свелось к полному чтению платы: вернулось {found} из "
+"{asked} запрошенных футпринтов"
+
+#: kicadstamp/kicad/adapter.py:373
+#, python-brace-format
+msgid "Re-read {count} footprint(s) in place"
+msgstr "Перечитано {count} футпринтов на своих местах"
+
 #: kicadstamp/kicad/adapter.py:278
 #, python-brace-format
 msgid "Retrieved {count} vias"

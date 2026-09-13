@@ -11052,6 +11052,32 @@ msgstr "Failed to look up items by id: {type}: {e}"
 msgid "Retrieved {count} footprints"
 msgstr "Retrieved {count} footprints"
 
+#: kicadstamp/kicad/adapter.py:340
+msgid "Targeted re-read skipped: footprint cache is already empty"
+msgstr "Targeted re-read skipped: footprint cache is already empty"
+
+#: kicadstamp/kicad/adapter.py:351
+msgid ""
+"Targeted re-read fell back to a full board read: a requested uuid is not in "
+"the footprint cache"
+msgstr ""
+"Targeted re-read fell back to a full board read: a requested uuid is not in "
+"the footprint cache"
+
+#: kicadstamp/kicad/adapter.py:360
+#, python-brace-format
+msgid ""
+"Targeted re-read fell back to a full board read: {found} of {asked} "
+"requested footprints came back"
+msgstr ""
+"Targeted re-read fell back to a full board read: {found} of {asked} "
+"requested footprints came back"
+
+#: kicadstamp/kicad/adapter.py:373
+#, python-brace-format
+msgid "Re-read {count} footprint(s) in place"
+msgstr "Re-read {count} footprint(s) in place"
+
 #: kicadstamp/kicad/adapter.py:278
 #, python-brace-format
 msgid "Retrieved {count} vias"

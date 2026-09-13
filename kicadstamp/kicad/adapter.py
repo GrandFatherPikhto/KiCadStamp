@@ -93,7 +93,8 @@ class KiCadBoardAdapter(IBoardAdapter):
         self._footprints_cache: list[Footprint] | None = None
         # {footprint uuid -> {field name -> value}} for the CURRENT
         # _footprints_cache generation; dropped wherever that cache is dropped
-        # (refresh_board, flip_selected) and per-footprint on set_field_value.
+        # (refresh_board, flip_selected), per-footprint on set_field_value, and
+        # for the footprints reread_footprints_by_id replaces in place.
         # See _field_values_for.
         self._field_values_cache: dict[str, dict[str, str | None]] | None = None
         # get_selected_items() is polled every ~400ms by the GUI's live-
@@ -292,6 +293,85 @@ class KiCadBoardAdapter(IBoardAdapter):
             logger.debug(_("Retrieved {count} footprints").format(count=len(self._footprints_cache)))
         return list(self._footprints_cache)
 
+    def reread_footprints_by_id(self, uuid_strs: list[str]) -> None:
+        """Re-read the NAMED footprints from KiCad and replace exactly their
+        entries in the current ``_footprints_cache``; nothing else is touched.
+
+        WHY it re-reads at all, instead of trusting the local Footprint a move
+        just mutated (P.1.2 of plan_2026_09_13_targeted_footprint_reread):
+        ``move_executor.py:64`` does ``fp.position = cmd.position`` and only
+        THEN hands the object to KiCad, so a local Footprint holds what we
+        ASKED for, not what KiCad DID. The board is, and stays, the source of
+        truth. WHY targeted (P.0 of that plan): Phase 1 used to call
+        ``refresh_board()`` before every item, which drops the whole cache and
+        makes the next ``get_footprints()`` pull all 325 footprints (~110 ms
+        live) so the next item can learn the handful of positions that the
+        previous item actually changed — measured 2.39 s of a 4.06 s placement,
+        paid to learn ~2.5% of the data.
+
+        Contract:
+
+        * An empty list, or a cache somebody already dropped (``None``), is a
+          NO-OP with no IPC at all — the next ``get_footprints()`` re-reads the
+          whole board anyway, so building the cache here would defeat the point
+          (P.1.6: a server-side flip clears it deliberately).
+        * ONE ``get_items_by_id()`` round trip for the whole list, never one per
+          footprint — otherwise this trades one full read for N small ones.
+        * Entries are REPLACED IN PLACE, so the ORDER of ``get_footprints()``
+          never changes. That order is observable: it decides which of two
+          ambiguous candidates wins and in what order error messages list them.
+        * The replaced footprints' entries are dropped from the field map
+          (P.1.5). That map is keyed by uuid and was built from the OLD object,
+          so an entry left behind would answer the next read with pre-move
+          fields — the very "new object, old fields" disease
+          plan_2026_09_13_placement_field_scan_cost closed for writes.
+        * If ANY requested uuid does not come back — a footprint that vanished,
+          an all-stale batch, or a failed request (``get_items_by_id`` returns
+          ``[]`` for both, see its docstring) — the WHOLE board is re-read via
+          ``refresh_board()``. Partial truth is never kept: we cannot tell what
+          happened, so the caller's next read must see reality, not a subset of
+          it. Falling back is logged at DEBUG: it is a normal consequence of
+          something changing under us, not a user-facing error.
+        """
+        if not uuid_strs:
+            return
+        cache = self._footprints_cache
+        if cache is None:
+            logger.debug(_("Targeted re-read skipped: footprint cache is already empty"))
+            return
+        # Deduplicate but KEEP THE CALLER'S ORDER (it is the order the entries
+        # are genuinely needed in, and a repeated uuid must not be requested
+        # twice — KiCad would have to answer it twice for nothing).
+        requested = list(dict.fromkeys(uuid_strs))
+        cached_uuids = {fp.uuid for fp in cache}
+        if any(uuid_str not in cached_uuids for uuid_str in requested):
+            # Not a footprint this cache generation knows about, so we cannot
+            # promise a fresh object for it: one full read is the only honest
+            # answer. No IPC is spent proving it first.
+            logger.debug(_("Targeted re-read fell back to a full board read: "
+                           "a requested uuid is not in the footprint cache"))
+            self.refresh_board()
+            return
+        fresh: dict[str, Footprint] = {}
+        for item in self.get_items_by_id(requested):
+            if isinstance(item, Footprint):
+                fresh[item.uuid] = item
+        if len(fresh) != len(requested):
+            logger.debug(_("Targeted re-read fell back to a full board read: "
+                           "{found} of {asked} requested footprints came back")
+                         .format(found=len(fresh), asked=len(requested)))
+            self.refresh_board()
+            return
+        replaced = 0
+        for idx, fp in enumerate(cache):
+            replacement = fresh.get(fp.uuid)
+            if replacement is None:
+                continue
+            cache[idx] = replacement
+            self._drop_cached_field_values(replacement)
+            replaced += 1
+        logger.debug(_("Re-read {count} footprint(s) in place").format(count=replaced))
+
     def get_vias(self) -> list[Via]:
         vias = [via_from_kipy(v) for v in self._board.get_vias()]
         logger.debug(_("Retrieved {count} vias").format(count=len(vias)))
@@ -383,7 +463,8 @@ class KiCadBoardAdapter(IBoardAdapter):
         """The field map of ONE footprint, built on its first read and kept for
         as long as the current _footprints_cache generation (the two are
         dropped together — see refresh_board/flip_selected, and
-        _drop_cached_field_values for the per-footprint drop on writes).
+        _drop_cached_field_values for the per-footprint drops: a field write,
+        and reread_footprints_by_id replacing the footprint object itself).
 
         WHY (measured 2026-09-13, probe_placement_cost on the 325-footprint
         3ch-awg-tia-v103 board): role/cluster resolution filters ALL footprints
@@ -413,11 +494,16 @@ class KiCadBoardAdapter(IBoardAdapter):
         return values
 
     def _drop_cached_field_values(self, footprint: Footprint) -> None:
-        """Forgets ONE footprint's cached field map — called by
-        set_field_value, which is the only writer of field values (see there
-        for why a write must invalidate). Deliberately NOT a full reset: during
-        Role/Cluster tagging only the footprints actually written lose their
-        entry, and the rest of the generation keeps its map."""
+        """Forgets ONE footprint's cached field map — the map is keyed by uuid
+        and was built from a particular object, so it dies with that object.
+
+        Two callers: set_field_value (which writes item.text.value IN PLACE on
+        the object the map was scanned from — see there for why a write must
+        invalidate) and reread_footprints_by_id (which swaps in a fresh object
+        from KiCad for the same uuid; the map's entry still describes the OLD
+        one). Deliberately NOT a full reset: during Role/Cluster tagging only
+        the footprints actually written lose their entry, and a targeted re-read
+        only costs the moved footprints their map."""
         cache = self._field_values_cache
         fp_uuid = getattr(footprint, "uuid", None)
         if cache is not None and fp_uuid:
@@ -440,11 +526,15 @@ class KiCadBoardAdapter(IBoardAdapter):
         return self._field_values_for(footprint).get(field_name)
 
     def has_field(self, footprint: Footprint, field_name: str) -> bool:
-        """True if footprint carries a field with this name at all — unlike
-        get_field_value(), which returns None both for "field missing" and
-        for "field present but empty", this distinguishes the two so a
-        caller can skip a footprint instead of hitting set_field_value's
-        fatal ValidationError mid-batch. Reads KEY PRESENCE of the same
+        """True if footprint carries a field with this name at all — the
+        question get_field_value() cannot answer. An ABSENT field yields None
+        from get_field_value(), but so does a PRESENT field whose text object
+        is missing entirely, and a present-but-empty field yields '' rather
+        than None (kipy 0.7.1's Field.text is always a BoardText wrapper — see
+        _scan_field_values). This distinguishes "no such field" from "field
+        present, whatever its value", so a caller (Role/Cluster tagging) can
+        skip a footprint instead of hitting set_field_value's fatal
+        ValidationError mid-batch. Reads KEY PRESENCE of the same
         per-generation map (see _field_values_for), so both calls share one
         scan."""
         return field_name in self._field_values_for(footprint)
