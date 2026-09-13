@@ -56,6 +56,9 @@ kicadstamp/diagnostics/
 ├── board_call_timing.py           # Times every adapter call + kipy round trip (library, not run directly)
 ├── run_gui_with_timing.py         # Runs the GUI with every board call timed [LIVE]
 ├── report_board_timing.py         # Summarises a board-call timing log [FILES]
+├── board_read_probe.py            # Records who reads connection.board (library, not run directly)
+├── run_gui_with_read_probe.py     # Runs the GUI with every board read recorded [LIVE]
+├── report_board_reads.py          # Summarises a board-read log [FILES]
 ├── probe_placement_cost.py        # Cost breakdown of one placement's planning phase [LIVE]
 ├── probe_field_map_unit_cost.py   # Field map: cost of reading it vs. building it [LIVE]
 └── unersolved_components.py       # Per-component channel (Channel_0/1/2) by nets [LIVE]
@@ -109,6 +112,39 @@ inside the adapter, of which the UI thread accounted for **0.2 s (0.07%)**, and 
 single call of the whole session was **287 ms** against a 20 000 ms timeout. That measurement
 is what retired a planned migration of every board read behind `await` — the freeze it would
 have cured was not there.
+
+---
+
+### `run_gui_with_read_probe.py` / `report_board_reads.py`
+
+Records **who reads the live board, from which thread and call site** — the input the follow-up
+"board access" task needs to choose its enforcement (a warning in the log, a failure in tests, or
+refusing to hand the board over). Two steps: record, then summarise.
+
+```bash
+python -m kicadstamp.diagnostics.run_gui_with_read_probe   # work the docks as usual, then quit
+python -m kicadstamp.diagnostics.report_board_reads
+```
+
+The recorder turns on a hook that already lives in `gui/connection.py`: the `board` property carries
+an optional, **disabled-by-default** probe and only tests it, so no production file is edited and the
+probe costs nothing until diagnostics installs it. It writes JSON Lines to
+`<repo>/diagnostics/board_reads_<pid>.jsonl` (gitignored), one self-contained object per read with
+the thread name and ONE stack frame — the immediate caller — never a full stack walk, because the
+point is to survive a live session with tens of thousands of reads. **Board data is never recorded**:
+only the thread and the call site, so a log is safe to attach to a bug report. Reads made **inside**
+`gui/connection.py` itself (`self.board` in `refresh`/`disconnect`/...) are not recorded: the
+counter is about *consumers* of the board, and counting the connection's own reads would only add
+UI-thread noise.
+
+The report prints reads by thread and by call site, both descending, and then repeats the
+**UI-thread (MainThread) reads in their own block** — that is the thing being hunted. A read from
+the UI thread is what the next task judges, and these counts make the actual offenders visible
+instead of guessed.
+
+The same step also closed the last way into the board that bypassed the adapter (`adapter._board`):
+the overlay and the copper-layer list now go through four reads declared on `IBoardAdapter`
+(`get_layer_name`, `get_enabled_layers`, `get_visible_layers`, `get_shapes`).
 
 ---
 

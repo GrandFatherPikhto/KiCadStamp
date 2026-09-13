@@ -423,6 +423,17 @@ class _OverlayAdapter(_ClusterAdapter):
         self.removed.extend(uuids)
         return True
 
+    # The live-board reads board_overlay goes through (Э1 of
+    # plan_2026_09_13_board_access_door): delegate to the fake board.
+    def get_enabled_layers(self):
+        return self._board.get_enabled_layers()
+
+    def get_layer_name(self, layer):
+        return self._board.get_layer_name(layer)
+
+    def get_shapes(self):
+        return self._board.get_shapes()
+
 
 def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
     """Acceptance: with the cluster on the board and NO placement/tree at all,

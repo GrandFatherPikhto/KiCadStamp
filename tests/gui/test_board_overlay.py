@@ -77,6 +77,18 @@ class FakeAdapter:
         self.removed.extend(uuid_strs)
         return True
 
+    # The live-board reads board_overlay goes through (Э1 of
+    # plan_2026_09_13_board_access_door): delegate to the fake board, exactly
+    # like the real adapter delegates to its kipy handle.
+    def get_enabled_layers(self):
+        return self._board.get_enabled_layers()
+
+    def get_layer_name(self, layer):
+        return self._board.get_layer_name(layer)
+
+    def get_shapes(self):
+        return self._board.get_shapes()
+
 
 def _record_created_on_board(adapter):
     """After a create, register the created shapes on the fake board so a

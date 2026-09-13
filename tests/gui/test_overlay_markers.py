@@ -86,6 +86,17 @@ class FakeAdapter:
                               if str(s.id.value) not in doomed]
         return True
 
+    # The live-board reads board_overlay goes through (Э1 of
+    # plan_2026_09_13_board_access_door): delegate to the fake board.
+    def get_enabled_layers(self):
+        return self._board.get_enabled_layers()
+
+    def get_layer_name(self, layer):
+        return self._board.get_layer_name(layer)
+
+    def get_shapes(self):
+        return self._board.get_shapes()
+
 
 def _circle(x_mm, y_mm, layer=LAYER):
     c = BoardCircle()

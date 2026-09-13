@@ -53,6 +53,26 @@ class IBoardAdapter(ABC):
     @abstractmethod
     def reread_footprints_by_id(self, uuid_strs: list[str]) -> None: ...
 
+    # Live-board layer/shape reads (plan_2026_09_13_board_access_door Э1).
+    # The overlay and the copper-layer list used to reach into the adapter's
+    # private ``_board`` for these; declaring them here gives that access ONE
+    # door. Names match kipy's board handler exactly, so the duck-typed
+    # consumers (gui/board_overlay.py, gui/board_layers.py) and their existing
+    # test doubles keep working unchanged. They deliberately return the RAW
+    # kipy values (BoardLayer numbers, board item objects): the layer/shape UIs
+    # already speak that vocabulary, and mapping it here would buy nothing.
+    @abstractmethod
+    def get_layer_name(self, layer) -> str: ...
+
+    @abstractmethod
+    def get_enabled_layers(self) -> list[Any]: ...
+
+    @abstractmethod
+    def get_visible_layers(self) -> list[Any]: ...
+
+    @abstractmethod
+    def get_shapes(self) -> list[Any]: ...
+
     @abstractmethod
     def get_vias(self) -> list[Via]: ...
 

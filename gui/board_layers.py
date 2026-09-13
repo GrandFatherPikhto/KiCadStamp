@@ -41,15 +41,17 @@ layer field.
 
 TWO LAYER WORLDS meet here, and the canonical NAME is the bridge between them:
 
-  * `enabled_copper_layers(board)` speaks the BOARD's values (kipy: F.Cu=3 ..
+  * `enabled_copper_layers(adapter)` speaks the BOARD's values (kipy: F.Cu=3 ..
     B.Cu=34, see above) and READS the live board;
   * `filter_tracks_by_layers` speaks the DOMAIN values a `Track` carries
     (kicadstamp.domain.geometry.BoardLayer, F.Cu=0 .. B.Cu=32 — a different
     numbering!) and matches by the canonical name, never by a value.
 
-`board` here is the live board handle the reads go through (`adapter._board` in
-the GUI, a duck-typed fake in tests), exposing get_enabled_layers(),
-get_layer_name(layer), get_visible_layers() and get_copper_layer_count().
+`adapter` here is the live-board facade the reads go through (the real
+KiCadBoardAdapter in the GUI, a duck-typed fake in tests), exposing
+get_enabled_layers(), get_layer_name(layer) and get_visible_layers() — the
+adapter's own reads, not its private `_board` (Э1 of
+plan_2026_09_13_board_access_door).
 """
 from typing import Any, Iterable, NamedTuple, Optional
 
@@ -135,24 +137,24 @@ def copper_layer_order(layers: Iterable[int]) -> list[int]:
     return front + inner + back
 
 
-def enabled_copper_layers(board) -> list[CopperLayer]:
-    """Every ENABLED copper layer of the live `board`, in stackup order, with
-    the user's own layer names and the hidden/visible flag.
+def enabled_copper_layers(adapter) -> list[CopperLayer]:
+    """Every ENABLED copper layer of the live board, in stackup order, with the
+    user's own layer names and the hidden/visible flag.
 
     `position` counts places in the stack, so a four-layer board gives B.Cu
-    position 4 (its value is 34) and the number of rows equals
-    `get_copper_layer_count()` — both asserted by Э7.5's test.
+    position 4 (its value is 34) and the number of rows equals the board's
+    copper-layer count — both asserted by Э7.5's test.
 
-    Names are read per call: `display_name` through the board's
+    Names are read per call: `display_name` through the adapter's
     `get_layer_name()` (a renamed layer shows the user's name), `copper_name`
     through the project's single layer-name bridge
     (domain.board.layer_from_kipy -> utils.layers.layer_to_str), so the record
     vocabulary cannot drift from the rest of the codebase."""
-    ordered = copper_layer_order(board.get_enabled_layers())
-    visible = set(board.get_visible_layers())
+    ordered = copper_layer_order(adapter.get_enabled_layers())
+    visible = set(adapter.get_visible_layers())
     return [CopperLayer(layer=layer,
                         copper_name=layer_to_str(layer_from_kipy(layer)),
-                        display_name=board.get_layer_name(layer),
+                        display_name=adapter.get_layer_name(layer),
                         position=position,
                         visible=layer in visible)
             for position, layer in enumerate(ordered, start=1)]
@@ -278,7 +280,7 @@ def cell_copper_layer_names(tracks, cell_layer=None) -> list[str]:
         _COPPER_NAME_ORDER)), name))
 
 
-def hidden_copper_layer_names(board) -> list[str]:
+def hidden_copper_layer_names(adapter) -> list[str]:
     """Display names of the board's HIDDEN copper layers, in stack order — empty
     when every enabled copper layer is visible (Э2).
 
@@ -290,7 +292,7 @@ def hidden_copper_layer_names(board) -> list[str]:
     holds the shared socket and is already reading the whole selection) — never
     from the UI thread, and never from a cached list: a stale line would keep
     warning about a layer the user has already shown again in KiCad."""
-    return [copper.display_name for copper in enabled_copper_layers(board)
+    return [copper.display_name for copper in enabled_copper_layers(adapter)
             if not copper.visible]
 
 

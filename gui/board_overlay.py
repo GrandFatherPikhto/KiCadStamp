@@ -38,9 +38,10 @@ KiCadBoardAdapter in production, a fake in tests) exposing:
   - remove_by_ids(uuid_strs) -> bool
   - select_items(items) -> None (forces the KiCad repaint)
   - refresh_board() -> None (re-reads the live board)
-  - `_board` with get_enabled_layers(), get_layer_name(layer), get_shapes()
-No method is added to kicadstamp/kicad/interfaces.py — it is an ABC, and
-every new abstract method would break the test doubles across the project.
+  - get_enabled_layers(), get_layer_name(layer), get_shapes() -> the live
+    board's layer/shape reads (declared on IBoardAdapter, Э1 of
+    plan_2026_09_13_board_access_door — the adapter's private `_board` is no
+    longer reached into from here).
 """
 from typing import Any, NamedTuple
 
@@ -128,16 +129,11 @@ def _is_user_layer(layer) -> bool:
     return bool(name) and (name.startswith("BL_User_") or name in _USER_LAYER_NAMES)
 
 
-def _board(adapter):
-    """The adapter's live-board handle the shape/layer reads go through."""
-    return adapter._board
-
-
 def _layer_display(adapter, layer) -> str:
     """The LIVE display name of a layer (get_layer_name), falling back to the
     raw value for a layer that is not on this board at all."""
     try:
-        return _board(adapter).get_layer_name(layer)
+        return adapter.get_layer_name(layer)
     except Exception:  # noqa: BLE001 — a display string must never fail
         return str(layer)
 
@@ -158,8 +154,8 @@ def overlay_layers(adapter) -> list[tuple[Any, str]]:
     Phase-D layer combo would offer, so a user can never be offered (and
     later sweep) Edge.Cuts / a silkscreen / a copper layer.
     """
-    return [(layer, _board(adapter).get_layer_name(layer))
-            for layer in _board(adapter).get_enabled_layers()
+    return [(layer, adapter.get_layer_name(layer))
+            for layer in adapter.get_enabled_layers()
             if _is_user_layer(layer)]
 
 
@@ -250,7 +246,7 @@ def read_marker(adapter, uuid: str) -> tuple[float, float] | None:
     dragged the marker. None when the shape is no longer on the board (the
     user deleted it in KiCad, or it was swept)."""
     adapter.refresh_board()
-    for s in _board(adapter).get_shapes():
+    for s in adapter.get_shapes():
         # gotcha 3: radius is a method — irrelevant here, we only need the
         # centre; filter by uuid to avoid a get_items_by_id() KIID round-trip.
         if isinstance(s, BoardCircle) and str(s.id.value) == uuid:
@@ -290,7 +286,7 @@ def list_overlay_shapes(adapter, layer) -> list[OverlayShape]:
     keeps its own guard, unchanged."""
     adapter.refresh_board()
     shapes: list[OverlayShape] = []
-    for s in _board(adapter).get_shapes():
+    for s in adapter.get_shapes():
         if s.layer != layer:
             continue
         if isinstance(s, BoardCircle):

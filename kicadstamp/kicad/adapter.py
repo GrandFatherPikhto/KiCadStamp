@@ -432,6 +432,26 @@ class KiCadBoardAdapter(IBoardAdapter):
         if items:
             self._board.add_to_selection([unwrap(i) for i in items])
 
+    # --- Live-board layer/shape reads (plan_2026_09_13_board_access_door Э1) ---
+    # The overlay and the copper-layer list used to reach into self._board for
+    # these; the four methods are the ONE door they go through now, so the
+    # private handle stops escaping the adapter. Names deliberately match kipy's
+    # board handler so gui/board_overlay.py and gui/board_layers.py need no body
+    # change and their duck-typed test doubles keep working.
+
+    def get_layer_name(self, layer) -> str:
+        """KiCad's own DISPLAY name of ``layer`` (user-renamable, read live)."""
+        return self._board.get_layer_name(layer)
+
+    def get_enabled_layers(self) -> list[Any]:
+        return self._board.get_enabled_layers()
+
+    def get_visible_layers(self) -> list[Any]:
+        return self._board.get_visible_layers()
+
+    def get_shapes(self) -> list[Any]:
+        return self._board.get_shapes()
+
     def _scan_field_values(self, footprint: Footprint) -> dict[str, str | None]:
         """One pass over a footprint's texts_and_fields → {field name: value}.
 

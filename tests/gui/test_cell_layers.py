@@ -60,10 +60,21 @@ class _FakeBoard:
 
 
 class _FakeAdapter:
-    """The adapter surface `_fetch_copper_layers` uses: just `_board`."""
+    """The adapter surface `_fetch_copper_layers` uses: the live-board layer
+    reads (Э1 of plan_2026_09_13_board_access_door), delegated to the fake
+    board exactly like the real adapter delegates to its kipy handle."""
 
     def __init__(self, board):
         self._board = board
+
+    def get_enabled_layers(self):
+        return self._board.get_enabled_layers()
+
+    def get_visible_layers(self):
+        return self._board.get_visible_layers()
+
+    def get_layer_name(self, layer):
+        return self._board.get_layer_name(layer)
 
 
 class _FakeConnection:

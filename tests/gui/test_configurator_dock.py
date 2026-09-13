@@ -785,7 +785,11 @@ def test_overlay_layer_combo_filled_from_live_board_user_layers(main_window, qap
         def get_layer_name(self, layer):
             return self.names.get(layer, str(layer))
 
-    adapter = SimpleNamespace(_board=_Board())
+    board = _Board()
+    adapter = SimpleNamespace(
+        _board=board,
+        get_enabled_layers=board.get_enabled_layers,   # Э1: the adapter's own door
+        get_layer_name=board.get_layer_name)
     layers = overlay_mod.overlay_layers(adapter)   # the worker's output shape
 
     settings.state.set(overlay_mod.OVERLAY_LAYER_KEY, "User.KiCadStamp")

@@ -186,13 +186,10 @@ def _warn_hidden_copper_layers(adapter) -> None:
     selection" / "hidden on the board"; without this line the fast path would show
     nothing at all.
 
-    A missing board handle (a stand-in adapter with no live board) or a failed
-    read skips the warning: it is cosmetic and must never fail the read itself."""
-    board = getattr(adapter, "_board", None)
-    if board is None:
-        return
+    A stand-in adapter without the layer reads, or a failed read, skips the
+    warning: it is cosmetic and must never fail the read itself."""
     try:
-        hidden = hidden_copper_layer_names(board)
+        hidden = hidden_copper_layer_names(adapter)
     except Exception:  # noqa: BLE001 — a warning must never fail an operation
         logger.debug("Hidden-copper-layer check skipped", exc_info=True)
         return

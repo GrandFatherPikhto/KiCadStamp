@@ -11,7 +11,7 @@ import logging
 import threading
 from collections import deque
 from statistics import median
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.explore import Board, Selected
@@ -36,6 +36,13 @@ LATENCY_WINDOW_SIZE = 40
 # Grace period added on top of timeout_ms before giving up on a connect
 # attempt — see _connect_with_timeout()'s docstring.
 _CONNECT_TIMEOUT_GRACE_S = 2.0
+
+# Board-read probe (plan_2026_09_13_board_access_door Э3): None = DISABLED, and
+# that is the default. Diagnostics installs a callable here to count who reads
+# the board and from which thread; the `board` getter only loads this name and
+# tests it, so a disabled probe costs one attribute read and one branch — no
+# stack walk. Production code NEVER assigns it (Э5: no enforcement of any kind).
+board_read_probe: Optional[Callable[[], None]] = None
 
 
 def _connect_with_timeout(timeout_ms: int) -> Board:
@@ -110,7 +117,7 @@ def _connect_with_timeout(timeout_ms: int) -> Board:
 class BoardConnection:
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):
         self.timeout_ms = timeout_ms
-        self.board: Optional[Board] = None
+        self._board: Optional[Board] = None
         # Phase 5.2 — held exclusively by a background long op (Extract/
         # Redraw, see gui/worker.py): while True, MainWindow's polling timers
         # skip their ticks so this kipy REQ socket has exactly one in-flight
@@ -135,6 +142,26 @@ class BoardConnection:
             LATENCY_KIND_FAST: deque(maxlen=LATENCY_WINDOW_SIZE),
             LATENCY_KIND_SLOW: deque(maxlen=LATENCY_WINDOW_SIZE),
         }
+
+    @property
+    def board(self) -> Optional[Board]:
+        """The live board — the ONE door to it (plan_2026_09_13_board_access_door
+        Э2). A property, not a plain attribute, so a future read guard has a
+        single place to live; THIS step's getter deliberately checks and forbids
+        nothing and behaves exactly like the attribute it replaces. The setter
+        stays: ~20 test assignments of ``connection.board = <fake>`` catch real
+        behaviour, and the point of force belongs on the READ, not the write.
+
+        The optional probe (module-level ``board_read_probe``) is DISABLED by
+        default and does nothing unless diagnostics has installed it — see Э3."""
+        probe = board_read_probe
+        if probe is not None:
+            probe()
+        return self._board
+
+    @board.setter
+    def board(self, value: Optional[Board]) -> None:
+        self._board = value
 
     @property
     def is_connected(self) -> bool:

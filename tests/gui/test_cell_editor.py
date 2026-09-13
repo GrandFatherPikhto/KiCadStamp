@@ -2075,6 +2075,17 @@ class _LayersBoard:
         return _KIPY_NAMES[layer]
 
 
+def _attach_layer_reads(adapter, board):
+    """Point the fake adapter's Э2 layer reads at `board`.
+
+    Э1 of plan_2026_09_13_board_access_door: the warning reads through the
+    adapter's own methods now, never through ``adapter._board``."""
+    adapter.get_enabled_layers = board.get_enabled_layers
+    adapter.get_visible_layers = board.get_visible_layers
+    adapter.get_layer_name = board.get_layer_name
+    return board
+
+
 def _hidden_warnings(caplog):
     return [r.message for r in caplog.records
             if "hidden copper layers" in r.message]
@@ -2087,7 +2098,8 @@ def test_the_fast_path_warns_about_hidden_copper_layers(main_window, tmp_path,
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     board = _two_layer_selection_board()
-    board.adapter._board = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])
+    _attach_layer_reads(board.adapter,
+                        _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B]))
 
     dock._run_refresh_geometry(_refresh_payload(dock, board))
 
@@ -2102,9 +2114,9 @@ def test_a_hidden_non_copper_layer_warns_about_nothing(main_window, tmp_path,
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     board = _two_layer_selection_board()
-    board.adapter._board = _LayersBoard(
+    _attach_layer_reads(board.adapter, _LayersBoard(
         enabled=[_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B, _KIPY_SILK],
-        visible=[_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B])   # silk hidden only
+        visible=[_KIPY_F, _KIPY_IN1, _KIPY_IN2, _KIPY_B]))   # silk hidden only
 
     dock._run_refresh_geometry(_refresh_payload(dock, board))
 
@@ -2121,7 +2133,7 @@ def test_the_hidden_layer_warning_is_as_fresh_as_the_read(main_window, tmp_path,
     dock.load_entry("t")
     board = _two_layer_selection_board()
     live = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])   # In1.Cu hidden
-    board.adapter._board = live
+    _attach_layer_reads(board.adapter, live)
 
     dock._run_refresh_geometry(_refresh_payload(dock, board))
     assert len(_hidden_warnings(caplog)) == 1
@@ -2139,7 +2151,8 @@ def test_the_import_worker_warns_about_hidden_copper_layers_too(main_window,
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     board = _two_layer_selection_board(_ImportBoard)
-    board.adapter._board = _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B])
+    _attach_layer_reads(board.adapter,
+                        _LayersBoard(visible=[_KIPY_F, _KIPY_IN2, _KIPY_B]))
 
     dock._run_import_vias_tracks(_refresh_payload(dock, board))
 

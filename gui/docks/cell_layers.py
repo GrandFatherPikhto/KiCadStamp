@@ -145,7 +145,7 @@ def _row_note(row: LayerChoice) -> str:
 def _fetch_copper_layers(adapter):
     """Worker thread, phase 1: the live board's copper layers (Э1). The ONLY
     board read of the dialog path, and it never touches a widget."""
-    return enabled_copper_layers(adapter._board)
+    return enabled_copper_layers(adapter)
 
 
 def _ask_for_layers(parent, copper_layers, selection_items, on_ok) -> None:
