@@ -16,6 +16,7 @@ Covered here (Э1–Э4б, the Э5 list):
   * gui.worker.timeout_recommendation — decided by TIME, never by the error
     text.
 """
+import logging
 import time
 from types import SimpleNamespace
 
@@ -43,6 +44,18 @@ class _FakeAdapter:
 
     def close(self):
         self.closed += 1
+
+
+class _SlowFailingAdapter(_FakeAdapter):
+    """get_selected_items() raises a REAL exception after a real delay — the
+    fast tick's `except` arm (Э2), as opposed to _FakeAdapter's silent [].
+
+    A genuine KiCad-gone failure, deliberately with no 'timeout' word in the
+    message: the recommendation must come from the measured duration alone."""
+
+    def get_selected_items(self):
+        time.sleep(0.02)  # >= the 9 ms threshold set by timeout_ms=10 below
+        raise ConnectionError("KiCad closed")
 
 
 class _FakeBoard:
@@ -331,3 +344,87 @@ def test_recommendation_is_decided_by_time_not_by_error_text(qapp):
     assert "The device is not available" in errors[0]
     assert "\n" in errors[0]      # a recommendation line was appended
     assert "200" in errors[0]
+
+
+# ── Sentinel guards on the FAILURE path (plan_2026_09_13_failure_path_ ─────
+# latency_sentinels) ────────────────────────────────────────────────────────
+#
+# A duration is measured on BOTH outcomes of each poll tick, but only the
+# SUCCESS path was guarded. Deleting perf_counter() from either failure return
+# (mutations M8/M9) left every test green while silently killing the whole
+# latency/recommendation feature exactly when the user needs it — a request
+# that fell over on the timeout. These two tests pin that contract down.
+
+
+def test_slow_tick_failure_still_measures_and_feeds_the_window(
+        real_main_window, caplog):
+    """Э1 — the M9 guard. `_run_poll` has ONE return shared by success and
+    failure, so a FAILED refresh must still (1) carry a measured duration,
+    (2) feed the SLOW rolling window BoardConnection.latency_stats reads, and
+    (3) log the "raise the timeout" recommendation once past the threshold.
+
+    The failing board call is stubbed on the connection and returns an error
+    STRING (the exact shape _run_poll handles — it never sees an exception
+    from this arm). The stub deliberately does NOT disconnect: a REAL
+    BoardConnection.refresh() failure drops the connection, and disconnect()
+    clears the very window under test — the same trap the plan calls out for
+    Э2, which would otherwise make check (2) untestable here too."""
+    window, connection = _connected_real_window(real_main_window)
+    connection.timeout_ms = 10  # threshold = 0.9 * 10 ms = 9 ms
+
+    def slow_failing_refresh():
+        time.sleep(0.02)  # >= 9 ms: indistinguishable from a timed-out call
+        return "KiCad closed"
+
+    connection.refresh = slow_failing_refresh
+    assert connection.is_connected  # the stub keeps the session up
+
+    with caplog.at_level(logging.WARNING, logger="gui.main_window"):
+        result = window._run_poll(manual=False)
+        window._finish_poll(result)
+
+    # 1 — a duration WAS measured on the failed outcome (M9 zeroes this).
+    assert result["duration_s"] is not None
+    assert result["duration_s"] >= 0.02
+
+    # 2 — it reached the SLOW window (a None duration would be skipped there).
+    stats = connection.latency_stats(LATENCY_KIND_SLOW)
+    assert stats is not None
+    assert stats[1] >= 0.02
+
+    # 3 — and the timeout recommendation was logged from it.
+    assert "timed out" in caplog.text
+    assert "IPC timeout is 10 ms" in caplog.text
+
+
+def test_fast_tick_failure_still_measures_and_recommends(
+        real_main_window, caplog):
+    """Э2 — the M8 guard. The fast tick's `except` arm returns the error as a
+    STRING and also calls disconnect(); disconnect() CLEARS both windows (its
+    own accepted behaviour), so what survives to be asserted is exactly what
+    the plan says: the measured duration in the returned dict and the
+    recommendation it produced. Asserting a non-empty window here would be
+    false by construction — hence the two "reality" assertions at the end,
+    which document the reset instead of fighting it."""
+    window, connection = _connected_real_window(real_main_window)
+    connection.timeout_ms = 10  # threshold = 0.9 * 10 ms = 9 ms
+    connection.board.adapter = _SlowFailingAdapter()
+
+    with caplog.at_level(logging.WARNING, logger="gui.main_window"):
+        result = window._run_poll_selection()
+        window._finish_poll_selection(result)
+
+    # 1 — measured on the failure path too (M8 zeroes this).
+    assert result["error"] == "KiCad closed"
+    assert result["duration_s"] is not None
+    assert result["duration_s"] >= 0.02
+
+    # 2 — the recommendation was still logged from that duration.
+    assert "timed out" in caplog.text
+    assert "IPC timeout is 10 ms" in caplog.text
+
+    # Reality check, documented rather than assumed: the except arm dropped the
+    # connection and reset_latency() emptied the window before the UI thread
+    # ever saw the result — which is why the guards above key on the RESULT.
+    assert connection.is_connected is False
+    assert connection.latency_stats(LATENCY_KIND_FAST) is None
