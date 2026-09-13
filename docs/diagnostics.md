@@ -53,6 +53,9 @@ kicadstamp/diagnostics/
 ├── test_ierarchy.py               # Footprints vs schematic sheet map [LIVE]
 ├── test_ierarchy_uuid.py          # Raw sheet_path.path form [LIVE]
 ├── test_sheet_path.py             # path_human_readable on a live board [LIVE]
+├── board_call_timing.py           # Times every adapter call + kipy round trip (library, not run directly)
+├── run_gui_with_timing.py         # Runs the GUI with every board call timed [LIVE]
+├── report_board_timing.py         # Summarises a board-call timing log [FILES]
 └── unersolved_components.py       # Per-component channel (Channel_0/1/2) by nets [LIVE]
 ```
 
@@ -72,6 +75,40 @@ the structure tree above uses the same legend (`[LIVE]` / `[LIVE+WRITE]` / `[FIL
 ---
 
 ## Script descriptions
+
+### `run_gui_with_timing.py` / `report_board_timing.py`
+
+Measures where a GUI session actually spends its time inside the board adapter — per call,
+per thread. Two steps: record, then summarise.
+
+```bash
+python -m kicadstamp.diagnostics.run_gui_with_timing   # work the docks as usual, then quit
+python -m kicadstamp.diagnostics.report_board_timing
+```
+
+The recorder is a monkey patch installed before the GUI starts (`board_call_timing.py`), so
+no production file is edited and nothing has to be reverted. It writes JSON Lines to
+`<repo>/diagnostics/board_timing_<pid>.jsonl` (gitignored, one self-contained object per
+line, flushed immediately — a crash mid-session still leaves a readable log). **Board data is
+never recorded**: only call names, durations, item counts and the calling thread, so a log is
+safe to attach to a bug report.
+
+The report prints per-method counts with median/p90/max, the share of the session spent
+inside the adapter, a per-thread split, failed calls, and the ten slowest single calls.
+
+Two numbers are worth knowing what to do with:
+
+- **the per-thread split** answers "does the UI thread read the board", which is what decides
+  whether a synchronous read is a real freeze or a theoretical one;
+- **the slowest bulk calls** size `DEFAULT_TIMEOUT_MS` from data rather than a guess.
+
+Measured on a live 325-footprint board, 2026-09-13: a 272 s session spent **9.1 s (3.3%)**
+inside the adapter, of which the UI thread accounted for **0.2 s (0.07%)**, and the slowest
+single call of the whole session was **287 ms** against a 20 000 ms timeout. That measurement
+is what retired a planned migration of every board read behind `await` — the freeze it would
+have cured was not there.
+
+---
 
 ### `diagnose_first_write_crash.py`
 
