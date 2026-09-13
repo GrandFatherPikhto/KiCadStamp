@@ -2185,10 +2185,39 @@ class TreesDock(QWidget):
         2026-09-02 P4 п.1): every OTHER tree, minus the ones `current` already
         embeds (a within-one-parent duplicate is a config fatal, P1 п.3), minus
         any tree that would close a module cycle — i.e. a tree that already
-        reaches `current` transitively through modules."""
+        reaches `current` transitively through modules.
+
+        Э1 (plan_2026_09_13_tree_instance_self_embed, 2026-09-13): an instance
+        and its template are MUTUALLY recursive — the instance is materialized
+        FROM the template (its nodes ARE the template's, deep-copied and
+        renamed), so neither may embed the other. That relation lives in
+        `tree_instances:`, never in a module edge, which is exactly why the
+        module-only walk below used to be blind to it and offered
+        `ch0_dac_buf` its own generated instance `ch1_dac_buf` (Denis's live
+        fatal of 13.09: the expansion walk then hit `(kind module)` inside the
+        template). The edges go into the SAME reachability graph the module
+        cycles already use, so chains longer than one step fall out of the
+        ordinary traversal — no separate "one step" check.
+
+        This list is what the dialog OFFERS; it is not by itself a guard — the
+        tree-name combo is a searchable picker that accepts hand-typed text
+        (NodeFormWidget._module_ref_refusal), and one more rule lives there: a
+        `tree_instances:` TEMPLATE may embed no tree at all (any kind=="module"
+        node inside a template is a hard fatal at the next load, even pointing
+        at an unrelated tree — measured, diagnostics/probe_2026_09_13_module_
+        self_embed_candidates.py part 2). It is deliberately NOT folded in here
+        as an early `return []`: keeping it in the refusal leaves this function
+        exactly the graph the plan's P.1 table describes, where a template's own
+        instance disappears BECAUSE OF the instance->template edge (that is what
+        the guard's mutation test proves)."""
         by_name = {t.name: t for t in self._trees}
-        targets = {t.name: TreesDock._module_targets(t) for t in self._trees}
-        already_embedded = targets.get(current.name, set())
+        targets = {t.name: set(TreesDock._module_targets(t)) for t in self._trees}
+        already_embedded = set(targets.get(current.name, ()))
+        for name, inst in self._instances.items():
+            if name in targets:
+                targets[name].add(inst.template)
+            if inst.template in targets:
+                targets[inst.template].add(name)
 
         def reaches(name: str, goal: str, _seen: set[str]) -> bool:
             if name == goal:
@@ -4690,6 +4719,55 @@ class NodeFormWidget(QWidget):
         self.kind_combo.setCurrentIndex(kind_idx)
         self.ref_combo.setCurrentText(name)
 
+    def _module_ref_refusal(self, ref: str) -> Optional[str]:
+        """The reason `ref` may not be the ref of a kind=="module" node here, or
+        None when it may (Э2, plan_2026_09_13_tree_instance_self_embed).
+
+        The tree-name combo `_on_kind_changed` fills is a searchable PICKER, not
+        a whitelist (`configure_searchable`: Qt's `NoInsert` policy — hand-typed
+        text that is not in the item list IS accepted as the field's value, and
+        `currentIndexChanged` does not even fire for it). The candidate LIST of
+        `TreesDock._module_tree_candidates` is therefore no guard at all on its
+        own: switching an existing node's Kind to "tree" (the ref text survives
+        every repopulation — `_set_ref_items` preserves the current text) or
+        just typing a tree name bypasses it. This is the ONE place that builds a
+        module node (both the modal node dialog and the master-detail Node tab's
+        apply() go through `build_node`), so the list is enforced here.
+
+        One exception: an EXISTING module node keeps its own ref, whatever the
+        list says — the list deliberately excludes what this tree ALREADY
+        embeds (its own ref is the first thing excluded, as the per-parent
+        duplicate), and a rename can leave the ref pointing at no tree at all.
+        Without the exception, editing such a node's offset/rotation would be
+        impossible."""
+        tree = self._tree
+        name = tree.name if tree is not None else "?"
+        dock = self._dock
+        if (tree is not None and dock is not None
+                and getattr(dock, "_instances_of", None) is not None
+                and dock._instances_of(tree.name)):
+            # A tree_instances TEMPLATE — checked FIRST and unconditionally:
+            # every node of it is expanded into every generated instance, and
+            # _expand_node fatals on a module node (measured, probe part 2 —
+            # including one pointing at an UNRELATED tree, which the candidate
+            # list DOES offer, its graph knowing only the instance/template
+            # relation). A template therefore embeds nothing at all, list or no
+            # list.
+            return _("Tree {name!r} is a tree_instances template — a node of "
+                     "kind (tree) inside it cannot be expanded and is a fatal "
+                     "on the next load. Embed it in a non-template tree "
+                     "instead.").format(name=name)
+        if ref in self._module_candidates:
+            return None
+        existing = self._existing
+        if (existing is not None and existing.kind == "module"
+                and ref == existing.ref):
+            return None
+        return _("Tree {ref!r} cannot be embedded in tree {name!r}: it is not a "
+                 "tree of this config, is already embedded there, or would "
+                 "close a module cycle (a tree may not embed its own template, "
+                 "nor a tree that already embeds it).").format(ref=ref, name=name)
+
     def build_node(self) -> Optional[TreeNode]:
         """Collect + validate the form into a TreeNode, or None (invalid —
         an error is shown via QMessageBox)."""
@@ -4710,6 +4788,13 @@ class NodeFormWidget(QWidget):
                 _("Record {ref!r} already has a node in this file — a record's "
                   "position source must be exactly one.").format(ref=ref))
             return None
+        # Э2 (plan_2026_09_13_tree_instance_self_embed): the module tree-name
+        # LIST is enforced, not merely offered — see _module_ref_refusal.
+        if self.kind_combo.currentData() == "module":
+            refusal = self._module_ref_refusal(ref)
+            if refusal is not None:
+                QMessageBox.warning(self, _("Add node"), refusal)
+                return None
 
         fields, err = self.offset_widget.build()
         if err:

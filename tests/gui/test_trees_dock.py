@@ -2881,6 +2881,198 @@ def test_node_dialog_module_prefill_round_trips_the_marker_offset(main_window, t
     assert node.xy == (10.0, 5.0)
 
 
+# ── tree_instances self-embed guard ─────────────────────────────────────────
+# (plan_2026_09_13_tree_instance_self_embed, Denis's live fatal of 13.09: the
+# tree-name combo offered the template ch0_dac_buf its OWN generated instance
+# ch1_dac_buf — `tree_instances:` is not a module edge, so the module-cycle
+# walk was blind to the relation, and _expand_node killed the next load.)
+# ────────────────────────────────────────────────────────────────────────────
+
+# dac_tpl is a tree_instances TEMPLATE (with one generated instance
+# ch1_dac_buf); host/other/mid/wrap are ordinary hand-written trees:
+#   host  -> other           (a plain embed, must stay legal)
+#   mid   -> ch1_dac_buf     (embeds the INSTANCE: the 3-link chain
+#                             mid -> ch1_dac_buf -> dac_tpl)
+#   wrap  -> dac_tpl         (embeds the TEMPLATE: the chain
+#                             wrap -> dac_tpl -> ch1_dac_buf)
+SELF_EMBED_CFG = {
+    "entities": [{"name": "N1", "cell": "c1"}],
+    "trees": [
+        {"name": "dac_tpl", "anchor": {"role": "R", "sheet": "Channel_0"},
+         "nodes": [{"ref": "N1", "kind": "placement", "xy": [0.0, 0.0]}]},
+        {"name": "host", "anchor": {"origin": True},
+         "nodes": [{"ref": "other", "kind": "module", "xy": [0.0, 0.0]}]},
+        {"name": "other", "anchor": {"origin": True}, "nodes": []},
+        {"name": "mid", "anchor": {"origin": True},
+         "nodes": [{"ref": "ch1_dac_buf", "kind": "module", "xy": [1.0, 0.0]}]},
+        {"name": "wrap", "anchor": {"origin": True},
+         "nodes": [{"ref": "dac_tpl", "kind": "module", "xy": [2.0, 0.0]}]},
+    ],
+    "tree_instances": [
+        {"template": "dac_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
+    ],
+}
+
+
+def _self_embed_dock(main_window, tmp_path):
+    root = tmp_path / "self_embed.sexp"
+    root.write_text(dict_to_sexp(SELF_EMBED_CFG), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    return dock, root
+
+
+def test_module_candidates_never_offer_a_template_its_own_instance(
+        main_window, tmp_path):
+    """Э3.1 (the main guard). The template's own generated instance must not be
+    offered as a module candidate for the template, and the template must not be
+    offered into its own instance — `tree_instances:` is not a module edge, so
+    the module-cycle walk used to see neither relation (Denis's live fatal of
+    13.09: `(kind module) (ref "ch1_dac_buf")` inside `ch0_dac_buf`).
+
+    Mutations checked by hand (see the report; diagnostics/mutation_check_
+    self_embed.py):
+      * drop the instance -> template edge: the FIRST assert fails (the template
+        goes back to offering its own instance — the live bug);
+      * drop the template -> instance edge: the SECOND assert fails (the
+        template comes back as a candidate for its own instance)."""
+    dock, _root = _self_embed_dock(main_window, tmp_path)
+    tpl = _tree_of(dock, "dac_tpl")
+    instance = _tree_of(dock, "ch1_dac_buf")
+
+    assert "ch1_dac_buf" not in dock._module_tree_candidates(tpl)
+    assert "dac_tpl" not in dock._module_tree_candidates(instance)
+    # (`host`/`other` still appear for the template: the GRAPH cannot know that
+    # a module node inside a template is a fatal whatever it points at — the
+    # dialog's refusal (test below) closes that, and reaching them by the list
+    # was never the problem.)
+
+
+def test_module_candidates_still_allow_an_instance_in_an_unrelated_tree(
+        main_window, tmp_path):
+    """Э3.2 (the guard against OVER-restricting — the mistake the plan's P.2
+    warns about). A generated instance is an ordinary tree for every tree that
+    is not its template: `host` may embed it, and a module node built for it is
+    accepted (Denis embeds ch1_dac_buf into `fpga` exactly like this)."""
+    dock, _root = _self_embed_dock(main_window, tmp_path)
+    host = _tree_of(dock, "host")
+    candidates = dock._module_tree_candidates(host)
+    assert "ch1_dac_buf" in candidates          # the instance
+    assert "dac_tpl" in candidates              # even the template itself
+    assert "mid" in candidates                  # and a tree embedding the instance
+    assert "other" not in candidates            # already embedded here
+
+    # The dialog agrees with the list: a hand-typed instance ref builds a node.
+    dlg = _NodeDialog(dock, [], set(), "Add child", tree=host,
+                      module_candidates=candidates, all_trees=dock._trees)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
+    dlg.ref_combo.setCurrentText("ch1_dac_buf")
+    dlg.offset_widget.x_edit.setText("5.0")
+    dlg.offset_widget.y_edit.setText("6.0")
+    node = dlg.build_node()
+    assert node is not None
+    assert (node.kind, node.ref) == ("module", "ch1_dac_buf")
+
+
+def test_module_candidates_follow_the_chain_through_the_instance_relation(
+        main_window, tmp_path):
+    """Э3.3: chains longer than one step fall out of the SAME traversal — no
+    separate "one step" check. `wrap` embeds the TEMPLATE, so it reaches the
+    instance through the template->instance edge (wrap -> dac_tpl ->
+    ch1_dac_buf) and may not be embedded back into it; `mid` embeds the
+    instance, so it reaches the template (mid -> ch1_dac_buf -> dac_tpl).
+
+    Mutation checked by hand: drop the instance<->template edges -> the first
+    assert fails (wrap comes back as a candidate for the instance)."""
+    dock, _root = _self_embed_dock(main_window, tmp_path)
+    instance = _tree_of(dock, "ch1_dac_buf")
+    tpl = _tree_of(dock, "dac_tpl")
+
+    assert "wrap" not in dock._module_tree_candidates(instance)
+    # `mid` embeds the INSTANCE, so it reaches the template through the
+    # instance->template edge — a two-link chain the module-only walk could not
+    # see (mutating that edge away puts 'mid' back into the list).
+    assert "mid" not in dock._module_tree_candidates(tpl)
+    # `other` is embedded NOWHERE near the pair and stays available.
+    assert "other" in dock._module_tree_candidates(instance)
+
+
+def test_node_form_refuses_a_hand_typed_module_ref_outside_the_list(
+        main_window, tmp_path, monkeypatch):
+    """Э3.5/Э2 (the second path, KEPT closed). The tree-name combo is a
+    searchable PICKER, not a whitelist (`configure_searchable`: Qt's NoInsert
+    accepts hand-typed text that is not in the item list, and
+    `currentIndexChanged` does not even fire for it) — so switching an existing
+    node's Kind to "tree" (the ref text survives every repopulation) or simply
+    typing a tree name bypasses the candidate list entirely. build_node is the
+    ONE place a module node is built, so it enforces the list:
+      * into a TEMPLATE — refused with the template-specific message (this is
+        Denis's node: `(kind module) (ref "ch1_dac_buf")` inside ch0_dac_buf);
+      * an unknown/duplicate/cycling tree — refused by the same check;
+      * an existing module node's OWN ref — still accepted (an unrelated edit
+        must remain possible).
+
+    Mutation checked by hand: drop the check in build_node -> the first
+    build_node() returns a node instead of None."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _self_embed_dock(main_window, tmp_path)
+    tpl = _tree_of(dock, "dac_tpl")
+    host = _tree_of(dock, "host")
+    warnings: list[str] = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a[2]) or None)
+
+    def _open(tree, ref):
+        dlg = _NodeDialog(dock, [], set(), "Add child", tree=tree,
+                          module_candidates=dock._module_tree_candidates(tree),
+                          all_trees=dock._trees)
+        dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("module"))
+        dlg.ref_combo.setCurrentText(ref)
+        dlg.offset_widget.x_edit.setText("0.0")
+        dlg.offset_widget.y_edit.setText("0.0")
+        return dlg
+
+    # (a) the live bug: the template's own instance, typed past the empty list.
+    assert _open(tpl, "ch1_dac_buf").build_node() is None
+    assert warnings and "template" in warnings[-1]
+
+    # (b) an unrelated tree into the template — also a load-time fatal.
+    assert _open(tpl, "other").build_node() is None
+    assert "template" in warnings[-1]
+
+    # (c) a typo/unknown tree into an ordinary tree.
+    assert _open(host, "no_such_tree").build_node() is None
+    assert "no_such_tree" in warnings[-1]
+
+    # (d) a tree the target already embeds (the per-parent duplicate the list
+    #     excludes): the config fatal this check now catches before Save.
+    assert _open(host, "other").build_node() is None
+    assert "other" in warnings[-1]
+    # (e) the control: a LEGAL embed typed by hand still builds a node.
+    dlg = _open(host, "wrap")
+    node = dlg.build_node()
+    assert node is not None and (node.kind, node.ref) == ("module", "wrap")
+
+
+def test_node_form_lets_an_existing_module_node_keep_its_own_ref(
+        main_window, tmp_path):
+    """Э3.5 control: the candidate list deliberately EXCLUDES what the tree
+    already embeds, so an existing module node's own ref is missing from it —
+    enforcing the list blindly would make every offset edit of an
+    already-embedded module node impossible."""
+    dock, _root = _self_embed_dock(main_window, tmp_path)
+    host = _tree_of(dock, "host")
+    existing = TreeNode(ref="other", kind="module", xy=(0.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None)
+    dlg = _NodeDialog(dock, [], set(), "Edit node", tree=host, existing=existing,
+                      module_candidates=dock._module_tree_candidates(host),
+                      all_trees=dock._trees)
+    node = dlg.build_node()
+    assert node is not None
+    assert (node.kind, node.ref) == ("module", "other")
+
+
 def test_node_form_has_no_pivot_widgets_after_the_tree_settings_move(
         main_window, tmp_path, monkeypatch):
     """2026-09-11 (plan_2026_09_11_tree_settings_form §W.5): the per-node pivot

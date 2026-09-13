@@ -17361,3 +17361,13 @@ msgstr ""
 #, python-brace-format
 msgid "Diagnostics: recording board reads stopped at the {limit} MB size cap, {count} reads → {path}"
 msgstr ""
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Tree {name!r} is a tree_instances template — a node of kind (tree) inside it cannot be expanded and is a fatal on the next load. Embed it in a non-template tree instead."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Tree {ref!r} cannot be embedded in tree {name!r}: it is not a tree of this config, is already embedded there, or would close a module cycle (a tree may not embed its own template, nor a tree that already embeds it)."
+msgstr ""
