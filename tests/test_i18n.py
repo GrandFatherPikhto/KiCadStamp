@@ -2,6 +2,7 @@
 """Tests for kicadstamp/i18n.py — language detection precedence and the
 setup_i18n() install mechanism. See docs/i18n_translation.md."""
 import ast
+import json
 import re
 import string
 import sys
@@ -16,6 +17,36 @@ ROOT = Path(__file__).parent.parent
 EN_PO = ROOT / "locales" / "en" / "LC_MESSAGES" / "kicadstamp.po"
 RU_PO = ROOT / "locales" / "ru" / "LC_MESSAGES" / "kicadstamp.po"
 RU_MO = RU_PO.with_suffix(".mo")
+
+# Config-section names that appear verbatim in user-facing catalog entries.
+# Kept in sync with diagnostics/scan_ru_catalogue_damage.py's SECTIONS — the
+# detector that found the 2026-09-13 catalogue drift.
+CONFIG_SECTIONS = (
+    "thermal_via_arrays", "clone_placements", "coordinate_placements",
+    "net_traces", "tree_instances", "scheme_lists", "extract_profiles",
+    "clone_profiles", "sheet_templates", "entities", "chains", "cells",
+    "points", "rules", "trees",
+)
+
+_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)")
+
+# msgid -> (placeholders the RU msgstr may legitimately DROP, reason).
+# Dropping a placeholder is RED by default: .format(**kwargs) does not raise,
+# but the value silently disappears from the message. The live proof is the
+# 2026-09-13 bug where 'duplicate name(s) in {section}: {names}' lost
+# {section}, so every duplicate-name error in ANY config section reported the
+# section as 'thermal_via_arrays'. Escape here only with a stated reason.
+PLACEHOLDER_DROP_EXCEPTIONS = {
+    "Exported {count} entr{suffix} to {name}": (
+        frozenset({"suffix"}),
+        "English-only pluralization suffix ('entry'/'entries'); Russian "
+        "'записей' is invariant and needs no suffix",
+    ),
+}
+
+# The recognized-duplicates list for the rule below: one JSON object per line,
+# {"reason": ..., "msgids": [...]}.
+RU_DUP_EXCEPTIONS_FILE = ROOT / "tests" / "ru_duplicate_msgstr_exceptions.jsonl"
 
 # The shipped packages — the same scope pyproject.toml's packages.find uses.
 # tests/ and tools/ are deliberately NOT scanned: their strings never reach
@@ -148,6 +179,21 @@ def _po_entries(po_path: Path):
             yield mid, mstr
 
 
+def _recognized_duplicate_groups() -> dict:
+    """Parse RU_DUP_EXCEPTIONS_FILE (JSONL, one group per line) into
+    {frozenset(msgids): reason}."""
+    out: dict = {}
+    for line in RU_DUP_EXCEPTIONS_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        obj = json.loads(line)
+        msgids = obj["msgids"]
+        assert len(msgids) >= 2, f"need >=2 msgids: {line!r}"
+        out[frozenset(msgids)] = obj["reason"]
+    return out
+
+
 class TestLocaleCatalogIntegrity:
     """Catches malformed RU translations that `pybabel compile` does NOT
     reject — pybabel only validates %-style (python-format), never the
@@ -187,19 +233,38 @@ class TestLocaleCatalogIntegrity:
             f"(msgid, msgstr, error): {broken}"
         )
 
+    def test_ru_msgstr_does_not_name_a_config_section_absent_from_msgid(self):
+        """Found live 2026-09-13: the mass translation pass f20a806 slid
+        msgstrs onto the wrong msgids, so some RU errors named a config
+        section the English original never mentions. The worst case was
+        'duplicate name(s) in {section}: {names}' -> 'дублирующиеся имена в
+        thermal_via_arrays: {names}': {section} was dropped and the section
+        name hard-coded, so EVERY duplicate-name error in ANY config section
+        reported 'thermal_via_arrays' to the user. A msgstr may only name a
+        section the msgid already names. No exceptions have been found; if
+        one ever is, describe it here instead of silencing it."""
+        sections = set(CONFIG_SECTIONS)
+        bad = []
+        for mid, mstr in _po_entries(RU_PO):
+            extra = ({s for s in sections if s in mstr}
+                     - {s for s in sections if s in mid})
+            if extra:
+                bad.append((mid[:70], mstr[:70], sorted(extra)))
+        assert not bad, (
+            "msgstr names config section(s) absent from its msgid — "
+            "(msgid, msgstr, extra sections): " + repr(bad))
+
     def test_ru_msgstr_placeholders_are_a_subset_of_msgid(self):
-        """A msgstr may legitimately DROP a placeholder the English original
-        has (e.g. an English-only pluralization suffix that Russian grammar
-        doesn't need) — that's safe, .format(**kwargs) ignores unused
-        kwargs. But a msgstr must never INVENT a placeholder name absent
-        from msgid: the call site's .format(...) only ever supplies the
-        English original's names, so a stray {typo} in the translation
-        raises KeyError at runtime instead of a silent drop."""
-        placeholder_re = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)")
+        """A msgstr must never INVENT a placeholder name absent from msgid:
+        the call site's .format(...) only ever supplies the English
+        original's names, so a stray {typo} in the translation raises
+        KeyError at runtime. (For DROPPED placeholders — the mirror image,
+        and the one that bit us on 2026-09-13 — see
+        test_ru_msgstr_does_not_drop_a_msgid_placeholder below.)"""
         invented = []
         for mid, mstr in _po_entries(RU_PO):
-            mid_names = set(placeholder_re.findall(mid))
-            mstr_names = set(placeholder_re.findall(mstr))
+            mid_names = set(_PLACEHOLDER_RE.findall(mid))
+            mstr_names = set(_PLACEHOLDER_RE.findall(mstr))
             extra = mstr_names - mid_names
             if extra:
                 invented.append((mid[:70], mstr[:70], extra))
@@ -208,11 +273,78 @@ class TestLocaleCatalogIntegrity:
             f"at runtime) — (msgid, msgstr, extra names): {invented}"
         )
 
+    def test_ru_msgstr_does_not_drop_a_msgid_placeholder(self):
+        """The rule that was missing until 2026-09-13. The old docstring of
+        the test above argued a DROPPED placeholder was safe because
+        '.format(**kwargs) ignores unused kwargs' — true for crashing, false
+        for meaning, as '{section}' proved: the translation hard-coded a
+        section name and every duplicate-name error misdiagnosed any section
+        as 'thermal_via_arrays'. So a lost placeholder is RED here, escaping
+        only through the named, justified PLACEHOLDER_DROP_EXCEPTIONS."""
+        bad = []
+        for mid, mstr in _po_entries(RU_PO):
+            allowed = PLACEHOLDER_DROP_EXCEPTIONS.get(mid, (frozenset(), ""))[0]
+            lost = (set(_PLACEHOLDER_RE.findall(mid))
+                    - set(_PLACEHOLDER_RE.findall(mstr)) - allowed)
+            if lost:
+                bad.append((mid[:70], mstr[:70], sorted(lost)))
+        assert not bad, (
+            "msgstr drops placeholder(s) present in msgid — the value is "
+            "silently lost to the user; fix the translation or add a "
+            "justified PLACEHOLDER_DROP_EXCEPTIONS entry — "
+            "(msgid, msgstr, dropped names): " + repr(bad))
+
+    def test_ru_msgstr_duplicates_are_only_the_recognized_ones(self):
+        """One RU msgstr serving several DIFFERENT msgids is a red flag for
+        the 2026-09-13 drift: the mass pass f20a806 slid translations onto
+        the wrong msgids, so 'Center X mm:' / 'Center Y mm:' / 'Diameter
+        (mm):' all read 'Диаметр (мм):'. Genuine coincidences (punctuation,
+        case, synonyms, English wording variants) are listed, each with a
+        reason, in tests/ru_duplicate_msgstr_exceptions.txt; every other
+        repeat must be fixed in the .po."""
+        by_msgstr: dict = {}
+        for mid, mstr in _po_entries(RU_PO):
+            by_msgstr.setdefault(mstr, []).append(mid)
+        recognized = _recognized_duplicate_groups()
+        bad = []
+        for mstr, mids in by_msgstr.items():
+            if len(mids) > 1 and frozenset(mids) not in recognized:
+                bad.append((mstr[:60], sorted(mids)))
+        assert not bad, (
+            "msgstr shared by several msgids without being recognized — fix "
+            "the translation(s) or add a justified line to "
+            "tests/ru_duplicate_msgstr_exceptions.txt — "
+            "(msgstr, msgids): " + repr(bad))
+
+    def test_duplicate_exception_list_has_no_stale_groups(self):
+        """Guards the whitelist from rotting: every recognized group must
+        still exist as an actual duplicate (a stale entry would silently
+        pre-approve a future mis-assignment), and each must carry a reason."""
+        by_msgstr: dict = {}
+        for mid, mstr in _po_entries(RU_PO):
+            by_msgstr.setdefault(mstr, []).append(mid)
+        actual = {frozenset(v) for v in by_msgstr.values() if len(v) > 1}
+        recognized = _recognized_duplicate_groups()
+        stale = sorted(tuple(sorted(k)) for k in set(recognized) - actual)
+        assert not stale, (
+            "stale entries in tests/ru_duplicate_msgstr_exceptions.txt "
+            "(no longer a duplicate group): " + repr(stale))
+        empty = [sorted(k) for k, r in recognized.items() if not r.strip()]
+        assert not empty, f"recognized group(s) without a reason: {empty}"
+
     def test_set_anchor_translations_are_not_rule_anchor_leftovers(self):
         """Regression 2026-09-02: the "Set anchor…"/"Set anchor" RU msgstrs
         used to carry the stale «якорь правила» left over from the removed
         "rule anchor" msgid (Rule -> Chain rename); they must be the proper
-        imperative «Назначить якорь…»/«Назначить якорь»."""
+        imperative «Назначить якорь…»/«Назначить якорь».
+
+        Kept as a regression, but it is a private instance of a class now
+        closed by general rules: a translation drifted onto a neighbouring
+        message. See test_ru_msgstr_duplicates_are_only_the_recognized_ones
+        (shared-msgstr rule) and
+        test_ru_msgstr_does_not_name_a_config_section_absent_from_msgid
+        (config-section rule) — both added 2026-09-13, when the same drift
+        was found across the whole RU catalogue."""
         ru = dict(_po_entries(RU_PO))
         assert ru.get("Set anchor…") == "Назначить якорь…"
         assert ru.get("Set anchor") == "Назначить якорь"

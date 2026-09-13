@@ -135,7 +135,7 @@ msgstr "Сначала выберите цепь в дереве Config."
 #: gui/dock_hub.py:683
 #, python-brace-format
 msgid "Deleted net {name!r}. Backed up: {backups}."
-msgstr "Удалено {name!r}. Резервная копия: {backups}."
+msgstr "Удалена цепь {name!r}. Резервная копия: {backups}."
 
 #: gui/dock_hub.py:766 gui/dock_hub.py:773 gui/docks/instances_dialog.py:39
 msgid "Tree instances"
@@ -1123,7 +1123,7 @@ msgstr "(нет)"
 #: gui/docks/cascade.py:135
 #, python-brace-format
 msgid "Tree redraw: applying {name!r}"
-msgstr "Tree redraw: применяю {name!r}"
+msgstr "Перерисовка дерева: применяю {name!r}"
 
 #: gui/docks/cascade.py:144
 #, python-brace-format
@@ -1131,18 +1131,18 @@ msgid ""
 "Tree redraw: {name!r} — rigid override failed ({error}); falling back to "
 "the record's own position"
 msgstr ""
-"Tree redraw: {name!r} — жёсткий override не удался ({error}); позиция "
-"берётся из собственных полей записи"
+"Перерисовка дерева: {name!r} — жёсткий override не удался ({error}); "
+"позиция берётся из собственных полей записи"
 
 #: gui/docks/cascade.py:154
 #, python-brace-format
 msgid "Tree redraw: {name!r} — ok"
-msgstr "Tree redraw: {name!r} — ok"
+msgstr "Перерисовка дерева: {name!r} — ok"
 
 #: gui/docks/cascade.py:160 gui/docks/cascade.py:164
 #, python-brace-format
 msgid "Tree redraw: {name!r} — FAILED: {error}"
-msgstr "Tree redraw: {name!r} — ОШИБКА: {error}"
+msgstr "Перерисовка дерева: {name!r} — ОШИБКА: {error}"
 
 #: gui/docks/cascade.py:234
 #, python-brace-format
@@ -1156,7 +1156,7 @@ msgstr ""
 #: gui/docks/cascade.py:248
 #, python-brace-format
 msgid "Forest redraw: applying {name!r}"
-msgstr "Tree redraw: применяю {name!r}"
+msgstr "Перерисовка леса: применяю {name!r}"
 
 #: gui/docks/cascade.py:256
 #, python-brace-format
@@ -1173,18 +1173,18 @@ msgid ""
 "Forest redraw: {name!r} — rigid override failed ({error}); falling back "
 "to the record's own position"
 msgstr ""
-"Tree redraw: {name!r} — жёсткий override не удался ({error}); позиция "
-"берётся из собственных полей записи"
+"Перерисовка леса: {name!r} — жёсткий override не удался ({error}); "
+"позиция берётся из собственных полей записи"
 
 #: gui/docks/cascade.py:277
 #, python-brace-format
 msgid "Forest redraw: {name!r} — ok"
-msgstr "Tree redraw: {name!r} — ok"
+msgstr "Перерисовка леса: {name!r} — ok"
 
 #: gui/docks/cascade.py:283 gui/docks/cascade.py:287
 #, python-brace-format
 msgid "Forest redraw: {name!r} — FAILED: {error}"
-msgstr "Tree redraw: {name!r} — ОШИБКА: {error}"
+msgstr "Перерисовка леса: {name!r} — ОШИБКА: {error}"
 
 #: gui/docks/cell_editor.py:97
 msgid "(inherit cell layer)"
@@ -1291,7 +1291,7 @@ msgstr "Импорт via/track из выделения"
 
 #: gui/docks/cell_editor.py:293
 msgid "Kind"
-msgstr "Вид"
+msgstr "Тип"
 
 #: gui/docks/cell_editor.py:293 gui/docks/trees_dock.py:1989
 msgid "Position"
@@ -1300,7 +1300,7 @@ msgstr "Положение"
 #: gui/docks/cell_editor.py:293 gui/docks/placer.py:901 gui/docks/tools.py:72
 #: gui/docks/tools.py:78 gui/docks/tree_from_selection_dialog.py:297
 msgid "Net"
-msgstr "Цепь"
+msgstr "Сеть"
 
 #: gui/docks/cell_editor.py:345
 msgid "name (referenced by cell: elsewhere)"
@@ -1403,15 +1403,15 @@ msgstr "Обновить выбранное"
 
 #: gui/docks/cell_editor.py:526 gui/docks/cell_editor.py:606
 msgid "Literal"
-msgstr "термо"
+msgstr "Литерал"
 
 #: gui/docks/cell_editor.py:526 gui/docks/cell_editor.py:606
 msgid "From role"
-msgstr "ROLE"
+msgstr "Из роли"
 
 #: gui/docks/cell_editor.py:528 gui/docks/cell_editor.py:608
 msgid "Net source:"
-msgstr "Источник:"
+msgstr "Источник цепи:"
 
 #: gui/docks/cell_editor.py:534 gui/docks/cell_editor.py:614
 msgid "optional — blank means the rule's own net"
@@ -1425,7 +1425,7 @@ msgstr "Цепь:"
 
 #: gui/docks/cell_editor.py:549 gui/docks/cell_editor.py:625
 msgid "optional pad — blank means the role's single non-rule net"
-msgstr "необязательно — пусто означает собственную цепь правила"
+msgstr "необязательный пад — пусто означает единственную не-rule цепь роли"
 
 #: gui/docks/cell_editor.py:554
 msgid "drill mm (0.3)"
@@ -1535,7 +1535,7 @@ msgstr "Диаметр"
 
 #: gui/docks/cell_editor.py:1072 gui/docks/cell_editor.py:1195
 msgid "Net source: From role — pick a Role first."
-msgstr "Якорь: сначала выберите Role."
+msgstr "Источник цепи: из роли — сначала выберите Role."
 
 #: gui/docks/cell_editor.py:1105 gui/docks/cell_editor.py:1117
 msgid "Pick a via row first."
@@ -1811,7 +1811,7 @@ msgstr "Нет соединения с платой — сначала подк�
 
 #: gui/docks/chain.py:377
 msgid "chain anchor"
-msgstr "Якорь:"
+msgstr "Якорь цепи"
 
 #: gui/docks/chain.py:384 gui/docks/trees_dock.py:1825
 #, python-brace-format
@@ -1946,7 +1946,7 @@ msgstr "Массивы термо-via"
 # 2026-08-12 coordinate_placements work (same menu block as the others).
 #: gui/docks/config_tree.py:146
 msgid "Coordinate placements"
-msgstr "Добавить координатное размещение..."
+msgstr "Координатные размещения"
 
 #: gui/docks/config_tree.py:147 gui/docks/detail_panel.py:123
 #: gui/docks/detail_panel.py:163
@@ -1994,7 +1994,7 @@ msgstr "Добавить расстановку..."
 
 #: gui/docks/config_tree.py:172
 msgid "Add chain..."
-msgstr "Добавить точку..."
+msgstr "Добавить цепь..."
 
 #: gui/docks/config_tree.py:340
 msgid "Config"
@@ -2569,7 +2569,9 @@ msgstr ""
 #: gui/docks/live_position.py:135
 #, python-brace-format
 msgid "clone {name!r}: no component resolved to read the cell origin from"
-msgstr "Для чтения позиции ячейки нужны имя Cluster и Cell."
+msgstr ""
+"клон {name!r}: не удалось определить компонент, из которого читается "
+"начало ячейки"
 
 #: gui/docks/live_position.py:137
 msgid ""
@@ -2606,7 +2608,7 @@ msgstr "Найти..."
 
 #: gui/docks/log_panel.py:138
 msgid "Prev"
-msgstr "Назад"
+msgstr "Пред."
 
 #: gui/docks/log_panel.py:141
 msgid "Next"
@@ -2690,7 +2692,7 @@ msgstr "Синхронизировать со схемой..."
 
 #: gui/docks/placer.py:218
 msgid "cluster/role"
-msgstr "Cluster"
+msgstr "cluster/role"
 
 #: gui/docks/placer.py:229
 msgid ""
@@ -2714,11 +2716,11 @@ msgstr "Y мм"
 
 #: gui/docks/placer.py:254
 msgid "Center X mm:"
-msgstr "Диаметр (мм):"
+msgstr "Центр X, мм:"
 
 #: gui/docks/placer.py:255
 msgid "Center Y mm:"
-msgstr "Диаметр (мм):"
+msgstr "Центр Y, мм:"
 
 #: gui/docks/placer.py:256 gui/docks/placer.py:313
 msgid "Radius mm:"
@@ -2726,7 +2728,7 @@ msgstr ""
 
 #: gui/docks/placer.py:257 gui/docks/placer.py:315
 msgid "Angle °:"
-msgstr "Угол:"
+msgstr "Угол °:"
 
 #: gui/docks/placer.py:270
 msgid "Center"
@@ -2742,7 +2744,7 @@ msgstr ""
 
 #: gui/docks/placer.py:297 gui/docks/trees_dock.py:1917
 msgid "Offset:"
-msgstr "Смещение вдоль:"
+msgstr "Смещение:"
 
 #: gui/docks/placer.py:322
 msgid "= angle (polar) or 0"
@@ -2750,19 +2752,19 @@ msgstr ""
 
 #: gui/docks/placer.py:323
 msgid "Rotation °:"
-msgstr "Поворот"
+msgstr "Поворот °:"
 
 #: gui/docks/placer.py:443
 msgid "Polar offset needs BOTH Radius and Angle."
-msgstr "Для пакетной замены Cell нужны и сеть, и cell."
+msgstr "Полярному смещению нужны И радиус, И угол."
 
 #: gui/docks/placer.py:447
 msgid "Offset X"
-msgstr "Смещение вдоль"
+msgstr "Смещение X"
 
 #: gui/docks/placer.py:450
 msgid "Offset Y"
-msgstr "Смещение вдоль"
+msgstr "Смещение Y"
 
 #: gui/docks/placer.py:471
 msgid "Center X"
@@ -2774,7 +2776,7 @@ msgstr ""
 
 #: gui/docks/placer.py:768
 msgid "Single component"
-msgstr "Разместить компоненты"
+msgstr "Один компонент"
 
 #: gui/docks/placer.py:768 gui/docks/profile_import.py:35
 #: gui/docks/profile_import.py:39 gui/docks/tree_from_selection_dialog.py:124
@@ -2842,7 +2844,7 @@ msgstr ""
 
 #: gui/docks/placer.py:926
 msgid "Nets"
-msgstr "Цепи"
+msgstr "Сети"
 
 #: gui/docks/placer.py:931
 msgid "Net overrides (resolved net -> final override):"
@@ -3081,7 +3083,7 @@ msgstr "Расстановщик: назначить Cluster={name}"
 #: gui/docks/placer.py:2915
 #, python-brace-format
 msgid "{action} entity {name!r} in {path}"
-msgstr "{action} {name!r} в {path}"
+msgstr "{action} entity {name!r} в {path}"
 
 #: gui/docks/placer.py:2991
 #, python-brace-format
@@ -3587,7 +3589,7 @@ msgstr "Столбцы"
 
 #: gui/docks/thermal_via.py:294
 msgid "Margin"
-msgstr "Поле"
+msgstr "Отступ"
 
 #: gui/docks/thermal_via_dialog.py:37
 msgid "Thermal via"
@@ -3665,7 +3667,7 @@ msgstr "якорь дерева (из выделения)"
 #: gui/docks/tree_from_selection_dialog.py:93 gui/docks/trees_dock.py:1526
 #: gui/docks/trees_dock.py:1666
 msgid "Tree name:"
-msgstr "Переименовать"
+msgstr "Имя дерева:"
 
 #: gui/docks/tree_from_selection_dialog.py:95
 msgid "e.g. power_tree"
@@ -3749,7 +3751,7 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:73
 msgid "clone"
-msgstr "Закрыть"
+msgstr "Клон"
 
 #: gui/docks/trees_dock.py:74
 msgid "placement"
@@ -3765,7 +3767,7 @@ msgstr "дерево"
 
 #: gui/docks/trees_dock.py:93
 msgid "⚓ (origin)"
-msgstr "Начало"
+msgstr "⚓ (начало)"
 
 #: gui/docks/trees_dock.py:95
 msgid "⚓ (auto)"
@@ -3793,7 +3795,7 @@ msgstr "⚓ (неизвестно)"
 #: gui/docks/trees_dock.py:369 gui/docks/trees_dock.py:411
 #, python-brace-format
 msgid "Trees: root config failed to load: {error}"
-msgstr "Не удалось загрузить файл: {error}"
+msgstr "Trees: не удалось загрузить корневой конфиг: {error}"
 
 #: gui/docks/trees_dock.py:448
 #, python-brace-format
@@ -4192,11 +4194,11 @@ msgstr ""
 
 #: gui/docks/trees_dock.py:2463
 msgid "Config record"
-msgstr "Дерево конфигурации"
+msgstr "Запись конфигурации"
 
 #: gui/docks/trees_dock.py:2464
 msgid "External refdes"
-msgstr "внешний"
+msgstr "Внешний refdes"
 
 #: gui/docks/trees_dock.py:2465
 msgid "Auto (derive from Entity's own cell)"
@@ -4522,7 +4524,7 @@ msgstr ""
 #: kicadstamp/apply_pipeline.py:603
 #, python-brace-format
 msgid "Coordinate placements: {count} moves"
-msgstr "Добавить координатное размещение..."
+msgstr "Координатные размещения: {count} перемещений"
 
 #: kicadstamp/apply_pipeline.py:610
 #, python-brace-format
@@ -4841,9 +4843,7 @@ msgstr "режиму точек нужны обе конечные точки с
 
 #: kicadstamp/channel_copy.py:337
 msgid "channel-copy needs a pivot component that exists on the live board"
-msgstr ""
-"channel-copy нужен пивот-компонент, существующий на живой плате, чтобы "
-"заякорить исходный канал"
+msgstr "channel-copy нужен пивот-компонент, существующий на живой плате"
 
 #: kicadstamp/channel_copy.py:350
 #, python-brace-format
@@ -5776,7 +5776,7 @@ msgstr "{section}: в {path} не является списком — не тр�
 #: kicadstamp/config_writer.py:353
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
-msgstr "include: в {path} не является списком — не трогаю"
+msgstr "trees: в {path} не является списком — не трогаю"
 
 #: kicadstamp/config_writer.py:413
 #, python-brace-format
@@ -5844,7 +5844,7 @@ msgstr ""
 #: kicadstamp/extract_writer.py:134
 #, python-brace-format
 msgid "Entity write failed: {error}"
-msgstr "Запись не удалась: {error}"
+msgstr "Запись entity не удалась: {error}"
 
 #: kicadstamp/extract_writer.py:162
 #, python-brace-format
@@ -6164,7 +6164,7 @@ msgstr ""
 #: kicadstamp/net_resolution.py:108
 #, python-brace-format
 msgid "footprint {ref!r} (role {role!r}) not found on the board"
-msgstr "футпринт {ref!r} не найден на плате"
+msgstr "футпринт {ref!r} (роль {role!r}) не найден на плате"
 
 #: kicadstamp/net_resolution.py:110
 #, python-brace-format
@@ -6176,7 +6176,8 @@ msgstr ""
 #: kicadstamp/net_resolution.py:119
 #, python-brace-format
 msgid "pad {pad!r} of {ref!r} (role {role!r}) not found or has no net"
-msgstr "refs: компонент {ref!r} (роль {role!r}) не найден на плате"
+msgstr ""
+"пад {pad!r} компонента {ref!r} (роль {role!r}) не найден или не имеет цепи"
 
 #: kicadstamp/net_resolution.py:121
 #, python-brace-format
@@ -6944,7 +6945,7 @@ msgstr ""
 #: kicadstamp/tree_position.py:806 kicadstamp/tree_position.py:1068
 #, python-brace-format
 msgid "these nodes form a cycle through tree anchors: {items}"
-msgstr "эти записи образуют цикл через свои анкоры: {items}"
+msgstr "эти узлы образуют цикл через якоря деревьев: {items}"
 
 #: kicadstamp/tree_position.py:947
 #, python-brace-format
@@ -7023,7 +7024,7 @@ msgstr ""
 #: kicadstamp/trees.py:274 kicadstamp/trees.py:607
 #, python-brace-format
 msgid "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
-msgstr "Якорь: Ref и Role взаимоисключающие — задайте одно."
+msgstr "узел {ref!r}: xy и polar взаимоисключающие — задайте ровно одно"
 
 #: kicadstamp/trees.py:297
 #, python-brace-format
@@ -7188,7 +7189,7 @@ msgstr "цепейо (цепь {net!r}): якорь {anchor!r} не найден
 #: kicadstamp/validation.py:68
 #, python-brace-format
 msgid "chain (net {net!r})"
-msgstr "via на цепи {net!r}"
+msgstr "цепь (net {net!r})"
 
 #: kicadstamp/validation.py:85
 #, python-brace-format
@@ -7256,15 +7257,15 @@ msgstr "Проверки существования клонируемых ша�
 #: kicadstamp/validation.py:225
 #, python-brace-format
 msgid "entity {name!r}: cell {cell!r} not found in cells"
-msgstr "clone_placement {name!r}: шаблон {cell!r} не найден в cells"
+msgstr "entity {name!r}: шаблон {cell!r} не найден в cells"
 
 #: kicadstamp/validation.py:229
 msgid "entity references a non‑existent cell"
-msgstr "clone_placement ссылается на несуществующий шаблон"
+msgstr "entity ссылается на несуществующий шаблон"
 
 #: kicadstamp/validation.py:232
 msgid "Entity cell existence checks passed"
-msgstr "Проверки существования клонируемых шаблонов пройдены"
+msgstr "Проверки существования шаблонов entity пройдены"
 
 #: kicadstamp/validation.py:266
 msgid "cycle among cell definitions"
@@ -7287,8 +7288,8 @@ msgid ""
 "Name {name!r} appears twice in clone_placements — used by {users}; name "
 "identities must be unique"
 msgstr ""
-"имя {name!r} встречается дважды в clone_placements — имена должны быть "
-"уникальны"
+"имя {name!r} встречается дважды в clone_placements — используется "
+"{users}; идентификаторы имён должны быть уникальны"
 
 #: kicadstamp/validation.py:346
 #, python-brace-format
@@ -7337,7 +7338,7 @@ msgstr "clone_placements с неоднозначной identity"
 
 #: kicadstamp/validation.py:391
 msgid "Duplicate clone anchor checks passed"
-msgstr "Проверка на дубликаты якорей clone_placements: всё сходится"
+msgstr "Проверка дубликатов якорей клонирования пройдена"
 
 #: kicadstamp/validation.py:407 kicadstamp/validation.py:415
 msgid "anchor_sheet is used but sheet name dictionary is empty"
@@ -7398,7 +7399,7 @@ msgstr ""
 
 #: kicadstamp/validation.py:503
 msgid "Candidate-pool collision checks passed"
-msgstr "Проверка на дубликаты якорей clone_placements: всё сходится"
+msgstr "Проверка столкновений пула кандидатов пройдена"
 
 #: kicadstamp/validation.py:547
 #, python-brace-format
@@ -7443,9 +7444,7 @@ msgstr "клон ссылается на несуществующую цепь �
 
 #: kicadstamp/validation.py:604
 msgid "clone via.net checks against real board nets passed"
-msgstr ""
-"Проверка via.net clone_placements против реальных цепей платы: всё "
-"сходится"
+msgstr "Проверка via.net против реальных цепей платы пройдена"
 
 #: kicadstamp/validation.py:633
 msgid "multiple clone_placements in 'by selection' mode in one run"
@@ -7502,7 +7501,7 @@ msgstr "откройте нужную плату в KiCad или исправь�
 #: kicadstamp/validation.py:835
 #, python-brace-format
 msgid "at ({x:.3f}, {y:.3f}) mm"
-msgstr "Реально:     ({x:.3f}, {y:.3f}) мм"
+msgstr "в ({x:.3f}, {y:.3f}) мм"
 
 #: kicadstamp/validation.py:839
 #, python-brace-format
@@ -7519,7 +7518,7 @@ msgstr ""
 #: kicadstamp/validation.py:879
 #, python-brace-format
 msgid "clone {name!r}: {msg}"
-msgstr "точка {name!r}"
+msgstr "клон {name!r}: {msg}"
 
 #: kicadstamp/validation.py:898
 msgid "Running pre‑validation checks..."
@@ -7687,9 +7686,9 @@ msgid ""
 "net comes from – it is not a net by itself; write net_from_role: <ROLE> "
 "(and optionally net_from_role_pad: <N>)"
 msgstr ""
-"net_template_pad={pad!r} лишь уточняет, на каком паде кандидата роли "
-"лежит цепь — сам по себе это не цепь; укажите также net_template: "
-"'<pattern>'"
+"net_from_role_pad={pad!r} лишь уточняет, на каком паде роли лежит цепь "
+"via — сам по себе это не цепь; укажите также net_from_role: <ROLE> (и, "
+"при желании, net_from_role_pad: <N>)"
 
 #: kicadstamp/config/entries.py:73
 #, python-brace-format
@@ -7733,9 +7732,9 @@ msgid ""
 "net comes from – it is not a net by itself; write net_from_role: <ROLE> "
 "(and optionally net_from_role_pad: <N>)"
 msgstr ""
-"net_template_pad={pad!r} лишь уточняет, на каком паде кандидата роли "
-"лежит цепь — сам по себе это не цепь; укажите также net_template: "
-"'<pattern>'"
+"net_from_role_pad={pad!r} лишь уточняет, на каком паде роли лежит цепь "
+"track — сам по себе это не цепь; укажите также net_from_role: <ROLE> (и, "
+"при желании, net_from_role_pad: <N>)"
 
 #: kicadstamp/config/entries.py:98
 msgid "on track"
@@ -8150,9 +8149,7 @@ msgstr ""
 
 #: kicadstamp/config/entries.py:521
 msgid "these are mutually exclusive position modes — pick exactly one"
-msgstr ""
-"это взаимоисключающие способы задать собственный локальный (0,0) шаблона "
-"— выберите один"
+msgstr "это взаимоисключающие режимы позиционирования — выберите ровно один"
 
 #: kicadstamp/config/entries.py:530
 #, python-brace-format
@@ -8177,7 +8174,7 @@ msgstr "неизвестные поля в спице (пад {pad!r}) прав�
 #: kicadstamp/config/entries.py:562
 #, python-brace-format
 msgid "spoke (pad {pad!r}) of rule (net {net!r})"
-msgstr "неизвестные поля в спице (пад {pad!r}) правила (цепь {net!r})"
+msgstr "спица (пад {pad!r}) правила (цепь {net!r})"
 
 #: kicadstamp/config/entries.py:596
 #, python-brace-format
@@ -8285,7 +8282,7 @@ msgstr "extract-net всегда пишет реальный медный сло
 
 #: kicadstamp/config/entries.py:763
 msgid "entity without name"
-msgstr "clone_placement без name"
+msgstr "entity без name"
 
 #: kicadstamp/config/entries.py:764
 msgid ""
@@ -8296,7 +8293,7 @@ msgstr ""
 #: kicadstamp/config/entries.py:768
 #, python-brace-format
 msgid "unknown fields in entity {name!r}"
-msgstr "неизвестные поля в точке {name!r}"
+msgstr "неизвестные поля в сущности {name!r}"
 
 #: kicadstamp/config/entries.py:773
 #, python-brace-format
@@ -8325,7 +8322,7 @@ msgstr ""
 #: kicadstamp/config/entries.py:792
 #, python-brace-format
 msgid "by_selection: true with non-empty nets in entity {name!r}"
-msgstr "by_selection: true вместе с непустым nets в clone_placement {name!r}"
+msgstr "by_selection: true вместе с непустым nets в entity {name!r}"
 
 #: kicadstamp/config/entries.py:793
 msgid ""
@@ -8340,11 +8337,11 @@ msgstr ""
 #: kicadstamp/config/entries.py:799
 #, python-brace-format
 msgid "in entity {name!r}"
-msgstr "в шаблоне {name!r}"
+msgstr "в сущности {name!r}"
 
 #: kicadstamp/config/entries.py:824
 msgid "clone_placement without cluster"
-msgstr "clone_placement без name"
+msgstr "clone_placement без cluster"
 
 #: kicadstamp/config/entries.py:825
 msgid ""
@@ -8366,7 +8363,7 @@ msgstr " (например, 'pad' не сработает; используйт�
 #: kicadstamp/config/entries.py:851
 #, python-brace-format
 msgid "clone_placement {name!r} without cell"
-msgstr "clone_placement {name!r}"
+msgstr "clone_placement {name!r} без шаблона"
 
 #: kicadstamp/config/entries.py:852
 msgid ""
@@ -8775,17 +8772,17 @@ msgstr ""
 #: kicadstamp/config/entries.py:1364
 #, python-brace-format
 msgid "unknown fields in trees entry {name!r}"
-msgstr "неизвестные поля в точке {name!r}"
+msgstr "неизвестные поля в записи trees {name!r}"
 
 #: kicadstamp/config/entries.py:1369
 #, python-brace-format
 msgid "unknown fields in tree anchor {name!r}"
-msgstr "неизвестные поля в точке {name!r}"
+msgstr "неизвестные поля в якоре дерева {name!r}"
 
 #: kicadstamp/config/entries.py:1378
 #, python-brace-format
 msgid "invalid trees entry {name!r}"
-msgstr "запись thermal_via_arrays {name!r}"
+msgstr "недопустимая запись trees {name!r}"
 
 #: kicadstamp/config/includes.py:98
 #, python-brace-format
@@ -8928,7 +8925,7 @@ msgstr "include: {file!r} слит в {source!r}"
 #: kicadstamp/config/loader.py:95
 #, python-brace-format
 msgid "duplicate name(s) in {section}: {names}"
-msgstr "дублирующиеся имена в thermal_via_arrays: {names}"
+msgstr "дублирующиеся имена в {section}: {names}"
 
 #: kicadstamp/config/loader.py:113
 #, python-brace-format
@@ -9000,8 +8997,9 @@ msgid ""
 "default cluster/role pair) — --only cannot tell same-named entries apart "
 "otherwise"
 msgstr ""
-"каждая запись thermal_via_arrays должна иметь уникальное name: — иначе "
-"--only не сможет различить записи с одинаковым именем"
+"каждая запись coordinate_placements должна иметь уникальное name (явное "
+"или пару cluster/role по умолчанию) — иначе --only не сможет различить "
+"записи с одинаковым именем"
 
 #: kicadstamp/config/loader.py:201
 msgid ""
@@ -9083,8 +9081,9 @@ msgid ""
 "every entities entry needs a unique name: — --only and trees: node refs "
 "(kind 'placement') cannot tell same-named entities apart otherwise"
 msgstr ""
-"каждая запись thermal_via_arrays должна иметь уникальное name: — иначе "
-"--only не сможет различить записи с одинаковым именем"
+"каждая запись entities должна иметь уникальное name: — иначе --only и "
+"trees: node refs (kind 'placement') не смогут различить записи с "
+"одинаковым именем"
 
 #: kicadstamp/config/loader.py:276
 #, python-brace-format
@@ -9097,8 +9096,9 @@ msgid ""
 "named trees apart otherwise (a duplicate name may also arrive via "
 "include: from another file)"
 msgstr ""
-"каждая запись thermal_via_arrays должна иметь уникальное name: — иначе "
-"--only не сможет различить записи с одинаковым именем"
+"каждая запись trees должна иметь уникальное name — иначе curated redraw "
+"не сможет различить деревья с одинаковым именем (дубликат имени может "
+"также прийти через include: из другого файла)"
 
 #: kicadstamp/config/loader.py:289
 #, python-brace-format
@@ -9140,7 +9140,7 @@ msgstr ""
 #: kicadstamp/config/loader.py:339
 #, python-brace-format
 msgid "mirror without layer change in entity {name!r}"
-msgstr "mirror без смены слоя в clone_placement {name!r}"
+msgstr "mirror без смены слоя в entity {name!r}"
 
 #: kicadstamp/config/loader.py:341
 #, python-brace-format
@@ -9149,14 +9149,14 @@ msgid ""
 "without changing side is physically meaningless: either set layer to "
 "{opposite}, or remove mirror"
 msgstr ""
-"шаблон {cell!r} на {cell_layer}, слой размещения {place_layer} — mirror "
-"без смены стороны физически бессмыслен: либо задайте layer {opposite}, "
-"либо уберите mirror"
+"шаблон {cell!r} на {cell_layer}, слой entity {place_layer} — mirror без "
+"смены стороны физически бессмыслен: либо задайте layer {opposite}, либо "
+"уберите mirror"
 
 #: kicadstamp/config/loader.py:349
 #, python-brace-format
 msgid "layer changed without mirror in entity {name!r}"
-msgstr "слой сменён без mirror в clone_placement {name!r}"
+msgstr "слой сменён без mirror в entity {name!r}"
 
 #: kicadstamp/config/loader.py:351
 #, python-brace-format
@@ -9165,7 +9165,7 @@ msgid ""
 " footprints on non‑flipped sites are nonsense; add mirror: true, or "
 "remove the layer override"
 msgstr ""
-"шаблон {cell!r} на {cell_layer}, слой размещения {place_layer} — "
+"шаблон {cell!r} на {cell_layer}, слой entity {place_layer} — "
 "перевёрнутые футпринты на неперевёрнутых местах бессмысленны; добавьте "
 "mirror: true или уберите переопределение слоя"
 
@@ -9209,7 +9209,7 @@ msgstr "точка {name!r}"
 #: kicadstamp/config/loader.py:401
 #, python-brace-format
 msgid "coordinate_placements entry {name!r}"
-msgstr "clone_placement {name!r}"
+msgstr "запись coordinate_placements {name!r}"
 
 #: kicadstamp/config/loader.py:405
 #: kicadstamp/placement/services/via_planner.py:73
@@ -9333,12 +9333,12 @@ msgstr "известные сущности в источнике: {names}"
 #: kicadstamp/config/profile_copy.py:341
 #, python-brace-format
 msgid "chain {name!r} not found in import source"
-msgstr "точка {name!r} не найдена в источнике импорта"
+msgstr "цепь {name!r} не найдена в источнике импорта"
 
 #: kicadstamp/config/profile_copy.py:342
 #, python-brace-format
 msgid "known chains in the source: {names}"
-msgstr "известные точки в источнике: {names}"
+msgstr "известные цепи в источнике: {names}"
 
 #: kicadstamp/config/profile_copy.py:356
 #, python-brace-format
@@ -9363,7 +9363,7 @@ msgstr "Импорт отменён — существующие записи н
 
 #: kicadstamp/config/profile_copy.py:379
 msgid "nothing was written"
-msgstr " -> как записано"
+msgstr "ничего не записано"
 
 #: kicadstamp/config/profile_copy.py:391
 #, python-brace-format
@@ -9544,8 +9544,8 @@ msgid ""
 "in {path}: record name {name!r} appears twice — a dict section key must "
 "be unique"
 msgstr ""
-"имя {name!r} встречается дважды в clone_placements — имена должны быть "
-"уникальны"
+"в {path}: имя записи {name!r} встречается дважды — ключ секции словаря "
+"должен быть уникальным"
 
 #: kicadstamp/config/sexp_format.py:836
 #, python-brace-format
@@ -10931,7 +10931,7 @@ msgstr ""
 #: kicadstamp/geometry/clone_geometry.py:40
 #, python-brace-format
 msgid "{kind} with net_from_role not resolved in cell {cell!r} ({name!r})"
-msgstr "via без цепи в шаблоне {cell!r} ({name!r})"
+msgstr "{kind} с неразрешённым net_from_role в ячейке {cell!r} ({name!r})"
 
 #: kicadstamp/geometry/spoke_layout.py
 #, python-brace-format
@@ -10983,9 +10983,7 @@ msgstr ""
 #: kicadstamp/geometry/clone_geometry.py:87
 #, python-brace-format
 msgid "track (along={s_along},{s_across} -> {e_along},{e_across})"
-msgstr ""
-"трек (along={s_along},{s_across} -> {e_along},{e_across}) не имеет цепи —"
-" каждый трек в клонируемом шаблоне должен иметь цепь, как и via"
+msgstr "трек (along={s_along},{s_across} -> {e_along},{e_across})"
 
 #: kicadstamp/geometry/clone_geometry.py:94
 #, python-brace-format
@@ -11030,7 +11028,7 @@ msgstr "Экземпляр kipy.KiCad создан"
 #: kicadstamp/kicad/adapter.py:73
 #, python-brace-format
 msgid "Connected to KiCad {version}"
-msgstr "Сначала подключитесь к KiCad."
+msgstr "Подключено к KiCad {version}"
 
 #: kicadstamp/kicad/adapter.py:79
 msgid "Could not query KiCad version after connect"
@@ -11373,7 +11371,7 @@ msgstr "собственная живая позиция zero-offset Entity {nam
 #: kicadstamp/placement/entity_placement.py:237
 #, python-brace-format
 msgid "tree {name!r} anchor"
-msgstr "авто-якорь дерева {name!r}"
+msgstr "якорь дерева {name!r}"
 
 #: kicadstamp/placement/entity_placement.py:242
 msgid ""
@@ -11983,7 +11981,7 @@ msgstr "{label}: якорь {anchor!r} не найден на плате"
 #: kicadstamp/placement/services/coordinate_position_calculator.py:285
 #, python-brace-format
 msgid "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
-msgstr "  {ref}: ({x:.3f}, {y:.3f}) мм, угол={angle:.1f}°"
+msgstr "[{label}] {ref} -> ({x:.3f}, {y:.3f}) мм, {angle}°"
 
 #: kicadstamp/placement/services/manual_position_calculator.py:168
 #, python-brace-format

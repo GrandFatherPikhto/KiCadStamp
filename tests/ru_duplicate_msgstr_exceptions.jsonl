@@ -1,0 +1,21 @@
+{"reason": "English wording variant of the same hint ('maybe'/'did you mean')", "msgids": [" (did you mean {suggestion!r}?)", " (maybe you meant {suggestion!r}?)"]}
+{"reason": "'none' vs '(none)': same notion, punctuation only", "msgids": ["(none)", "none"]}
+{"reason": "capitalisation-only difference (Entity/entity)", "msgids": ["An Entity named {name!r} already exists.", "An entity named {name!r} already exists."]}
+{"reason": "plural vs singular label of the same tab (Vias/Via)", "msgids": ["Via", "Vias"]}
+{"reason": "label with and without trailing colon", "msgids": ["X mm", "X mm:"]}
+{"reason": "label with and without trailing colon", "msgids": ["Y mm", "Y mm:"]}
+{"reason": "English wording variant with/without parentheses", "msgids": ["anchor: (origin) and (external) are mutually exclusive", "anchor: origin and external are mutually exclusive"]}
+{"reason": "English dash variant (– vs —) in the same sentence", "msgids": ["anchor_sheet={sheet!r} is set but anchor_role is missing – anchor_sheet only narrows ambiguity of anchor_role, it is not an anchor itself", "anchor_sheet={sheet!r} is set but anchor_role is missing — anchor_sheet only narrows ambiguity of anchor_role, it is not an anchor itself"]}
+{"reason": "English dash variant (– vs —) in the same sentence", "msgids": ["nets is an explicit role->net mapping for 'by nets' mode; in selection mode roles are resolved by mouse selection, not by nets – nets is meaningless here. Either remove nets, or remove by_selection: true", "nets is an explicit role->net mapping for 'by nets' mode; in selection mode roles are resolved by mouse selection, not by nets — nets is meaningless here. Either remove nets, or remove by_selection: true"]}
+{"reason": "English wording variant with/without colon before the value", "msgids": ["{label} {text!r} is not an integer.", "{label}: {text!r} is not an integer."]}
+{"reason": "English wording variant with/without colon before the value", "msgids": ["{label} {text!r} is not a number.", "{label}: {text!r} is not a number."]}
+{"reason": "capitalisation-only difference (Edit cell.../Edit Cell...)", "msgids": ["Edit Cell...", "Edit cell..."]}
+{"reason": "capitalisation-only difference (clone/Clone)", "msgids": ["Clone", "clone"]}
+{"reason": "article-only difference ('the config'/'config')", "msgids": ["Failed to load config: {error}", "Failed to load the config: {error}"]}
+{"reason": "label with and without trailing colon", "msgids": ["Pad", "Pad:"]}
+{"reason": "the two msgids are the same action ('Rename'/'Rename tree')", "msgids": ["Rename", "Rename tree"]}
+{"reason": "synonymous English verbs (Place/Placement failed)", "msgids": ["Place failed: {error}", "Placement failed: {error}"]}
+{"reason": "capitalisation-only difference (Scheme Lists/Scheme lists)", "msgids": ["Scheme Lists", "Scheme lists"]}
+{"reason": "synonymous English nouns (Kind/Type), both render as 'Тип'", "msgids": ["Kind", "Type"]}
+{"reason": "synonymous English verbs (Remove/Delete selected)", "msgids": ["Delete selected", "Remove selected"]}
+{"reason": "English dash variant (– vs —) in the same sentence", "msgids": ["these are mutually exclusive ways to define the anchor – either by refdes (anchor_ref) or by Role field (anchor_role), not both", "these are mutually exclusive ways to define the anchor — either by refdes (anchor_ref) or by Role field (anchor_role), not both"]}
