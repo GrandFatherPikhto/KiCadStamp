@@ -4,8 +4,12 @@ PlacerDock/ExtractDock to signal "work in progress" around long synchronous
 operations (wait cursor + trigger buttons disabled), plus (2026-09-12, plan
 plan_2026_09_12_no_widget_squeezing.md) the two helpers that keep a squeezed
 container from squeezing the form inside it: wrap_in_scroll_area() and
-resize_dialog_within_screen()."""
-from PyQt6.QtCore import QRect
+resize_dialog_within_screen(). The remembered-dialog-size pair lives here too,
+so since 2026-09-13 (plan_2026_09_13_dialog_size_saver_crash.md) this file also
+guards its event filter against Qt delivering Hide AFTER the dialog's C++ object
+is gone — the case that used to abort the process."""
+import PyQt6.sip as sip
+from PyQt6.QtCore import QEvent, QRect
 from PyQt6.QtWidgets import (QDialog, QFrame, QPlainTextEdit, QPushButton,
                              QScrollArea, QSizePolicy, QWidget)
 
@@ -207,3 +211,88 @@ def test_restore_dialog_size_rejects_a_nonpositive_remembered_value(qapp):
     dialog.resize(333, 222)
     restore_dialog_size(dialog)
     assert (dialog.width(), dialog.height()) == (333, 222)
+
+
+# ── the size saver must survive its dialog (2026-09-13) ─────────────────────
+#
+# plan_2026_09_13_dialog_size_saver_crash.md: Qt delivers Hide from the
+# dialog's OWN destruction path, i.e. after the C++ object is gone while the
+# Python wrapper (held by the filter's own `self._dialog`) is still alive.
+# QWidget.width() then raises RuntimeError from inside Qt's C++ event dispatch,
+# where nothing can catch it — Qt aborts the process (measured: 4 aborted runs
+# of 5 on pytest tests/gui/test_phase3_wiring.py). These are the guards.
+
+def test_size_saver_never_touches_a_deleted_dialog(qapp):
+    """The dialog's C++ object is gone, the filter is still asked about
+    Hide/Close: save() must be a no-op, not a RuntimeError.
+
+    sip.delete() is the deterministic form of what the crash does with timing
+    (diagnostics/probe_deleted_dialog_hide_filter.py shows the same state,
+    isdeleted == True, reached by Qt itself): the C++ object goes, both Python
+    wrappers stay, and the filter gets called."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+
+    sip.delete(dialog)
+    assert sip.isdeleted(dialog)
+
+    saver.save()                                   # pre-fix: RuntimeError
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Close)) is False
+    assert settings.state.get("dialog_size:_Dialog") is None
+
+
+def test_size_saver_survives_qt_destroying_the_dialog(qapp):
+    """The same guard through Qt's own destruction path — deleteLater() plus a
+    DeferredDelete drain, i.e. what the failing run does when the dialog's
+    wrapper is collected while a Hide is still on its way to the filter."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+    dialog.resize(660, 500)
+    dialog.show()
+    qapp.processEvents()
+
+    dialog.deleteLater()
+    # deleteLater() alone is not enough — the DeferredDelete event has to be
+    # drained explicitly (same gotcha as plan_2026_09_13_widget_teardown_leak;
+    # a plain processEvents() does not deliver it). Qt6 dropped the
+    # ProcessEventsFlag spelling for this, so sendPostedEvents is the way.
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert sip.isdeleted(dialog)
+
+    # Whatever Qt still delivers from here on must be a no-op.
+    qapp.processEvents()
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
+    assert settings.state.get("dialog_size:_Dialog") is None
+
+
+def test_size_saver_still_stores_a_live_dialogs_size(qapp):
+    """The counter-guard: a live dialog's Hide MUST still store the size — the
+    dead-object check must not degrade into "never save anything"."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+    dialog.resize(640, 480)
+    dialog.show()
+    qapp.processEvents()
+    expected = [dialog.width(), dialog.height()]
+
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
+    assert settings.state.get("dialog_size:_Dialog") == expected
+
+
+def test_size_saver_observes_without_swallowing_other_events(qapp):
+    """The filter observes only: it returns False for everything (it has no
+    right to eat events) and stores nothing for an event that is not a
+    Hide/Close."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+    dialog.resize(640, 480)
+    dialog.show()
+    qapp.processEvents()
+
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Show)) is False
+    assert settings.state.get("dialog_size:_Dialog") is None
