@@ -771,8 +771,13 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
   every load — no duplication. An instance's geometry is edited by editing the template (in the Trees
   dock) and the declaration's `name`/`sheet` (Tools → **Instances…**, see the GUI docs).
-- `name` must be unique across ALL trees (a clash — with a hand-written tree or another instance — is
-  the usual duplicate-name fatal at load).
+- `name` must be unique across ALL trees. A clash — with a hand-written tree, with the template
+  itself, or with another declaration of the same name — is fatal at `load_config()` time, and the
+  expansion reports it by the INSTANCE that caused it (`duplicate tree name from tree_instance '...'`,
+  or `duplicate name(s) in tree_instances: [...]` when two declarations share one name) instead of
+  leaving the same-named pair for the trees duplicate-name check, whose node-level wording ("a
+  record's position source must be exactly one") used to hide the actual cause (2026-09-13, plan
+  plan_2026_09_13_tree_duplicate_name_diagnosis.md).
 
 ---
 

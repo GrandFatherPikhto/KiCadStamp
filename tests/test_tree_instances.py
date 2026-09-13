@@ -8,6 +8,8 @@ records BEFORE the per-entry loaders run, so the generated records flow through
 the SAME _load_tree/_load_entity machinery (rule 2 / duplicate-name checks) as
 hand-written ones — these tests pin that behaviour down.
 """
+import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -240,7 +242,9 @@ class TestFatals:
 class TestDuplicateAndRuleTwo:
     def test_two_instances_with_same_name_are_fatal(self, tmp_path):
         """Two declarations with the same name materialize duplicate generated
-        records — the EXISTING duplicate-name checks catch them (no new code)."""
+        records. Since plan_2026_09_13_tree_duplicate_name_diagnosis the fatal
+        comes from the expansion itself (Э2.2), naming the declarations instead
+        of the duplicate records they would have produced."""
         p = _write(tmp_path, "t.sexp", _template_data([
             {"template": "dac_buf_tpl", "name": "dup", "sheet": "Channel_1"},
             {"template": "dac_buf_tpl", "name": "dup", "sheet": "Channel_2"},
@@ -249,8 +253,9 @@ class TestDuplicateAndRuleTwo:
             load_config(str(p))
 
     def test_instance_name_colliding_with_hand_written_tree_is_fatal(self, tmp_path):
-        """An instance name equal to a hand-written tree -> generated tree
-        collides -> the trees duplicate-name check fatals."""
+        """An instance name equal to a hand-written tree (here: the template
+        itself) -> the expansion refuses to build the second tree (Э2.1) instead
+        of leaving a same-named pair for a downstream duplicate-name check."""
         data = _template_data([
             {"template": "dac_buf_tpl", "name": "dac_buf_tpl", "sheet": "Channel_1"},
         ])
@@ -1815,8 +1820,121 @@ def test_named_record_with_a_literal_item_net_warns_and_is_left_alone(caplog):
     track["net"] = "/Channel_0/DAC/+3V3_AVDD"
     with caplog.at_level("WARNING"):
         out = expand_tree_instances(data)
-    copy = next(nt for nt in out["net_traces"]
-                if nt["name"].endswith("__ch1_dac_buf"))
-    assert copy["tracks"][0]["net"] == "/Channel_0/DAC/+3V3_AVDD"  # untouched
+    copied = next(nt for nt in out["net_traces"]
+                  if nt["name"].endswith("__ch1_dac_buf"))
+    assert copied["tracks"][0]["net"] == "/Channel_0/DAC/+3V3_AVDD"  # untouched
     assert any("still carries literal net(s)" in r.message
                for r in caplog.records)
+
+
+class TestDuplicateTreeNameDiagnosis:
+    """plan_2026_09_13_tree_duplicate_name_diagnosis — a duplicate tree name must
+    be reported BY ITS NAME, at the moment it is created, and never as the
+    symptom it used to arrive as.
+
+    The live report (13.09, profile 3ch-awg-tia-v103-new) read "tree
+    'ch1_dac_buf': record 'dac_buf_channel_0__ch1_dac_buf' already has a node
+    elsewhere in this config — a record's position source must be exactly one":
+    that is trees.py's rule 2 talking, deep in the node walk, because the two
+    same-named trees also share their node refs. The real cause — two trees
+    called ch1_dac_buf — was never mentioned. Both halves of the fix are pinned
+    here: the raw-dict name check in the loader (Э1) and the two expansion-time
+    guards in expand_tree_instances (Э2.1/Э2.2)."""
+
+    def test_two_literal_trees_with_one_name_say_duplicate_name(self, tmp_path):
+        """Э3.1 — the raw-dict check (Э1), through the whole loader. The twin
+        shares the template's name AND its node refs, i.e. exactly the shape that
+        used to surface as "position source must be exactly one".
+
+        A .json config on purpose: in a .sexp file the s-expr parser already
+        refuses two same-named trees of one file (trees.py::tree_from_sexp, rule
+        1, same message) — so only a route that reaches the loader as plain dicts
+        (here .json; in the wild the same happens for a duplicate arriving via
+        include: from another file, or from a sheet template) is where the Э1
+        check has to speak. That is also why this guard is not "already green":
+        see the mutation note in the test's ticket — without Э1 this exact config
+        dies with the position-source symptom instead."""
+        data = _template_data([])
+        twin = copy.deepcopy(data["trees"][0])          # same name, same refs
+        data["trees"].append(twin)
+        p = tmp_path / "t.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+
+        with pytest.raises(ValidationError) as excinfo:
+            load_config(str(p))
+
+        text = str(excinfo.value)
+        assert "duplicate name(s) in trees" in text
+        assert "dac_buf_tpl" in text
+        # The symptom the message used to be, and must never be again.
+        assert "position source" not in text
+
+    def test_instance_name_taken_by_a_literal_tree_is_fatal_at_expansion(self):
+        """Э3.2 — the name is checked where it is created: the declaration is
+        expanded with the raw dict in hand, so the fatal arrives before the tree
+        (and its duplicate entity copies) exist at all."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"}])
+        twin = copy.deepcopy(data["trees"][0])
+        twin["name"] = "ch1_dac_buf"
+        data["trees"].append(twin)
+
+        with pytest.raises(ValidationError,
+                           match="duplicate tree name from tree_instance"):
+            expand_tree_instances(data)
+
+    def test_instance_named_like_its_template_is_the_same_collision(self):
+        """Э2 trap 3 — the template is a tree too, so an instance may not reuse
+        its name (the Instances dialog already refuses this)."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "dac_buf_tpl",
+             "sheet": "Channel_1"}])
+
+        with pytest.raises(ValidationError,
+                           match="duplicate tree name from tree_instance"):
+            expand_tree_instances(data)
+
+    def test_two_declarations_with_one_name_are_fatal_at_expansion(self):
+        """Э3.3 — the second declaration is the thing at fault, so the message
+        names the declarations, not the duplicate entity copies they produce."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+
+        data = _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_2"},
+        ])
+
+        with pytest.raises(
+                ValidationError,
+                match=r"duplicate name\(s\) in tree_instances: \['ch1_dac_buf'\]"):
+            expand_tree_instances(data)
+
+    def test_one_template_three_instances_with_distinct_names_load_silently(
+            self, tmp_path):
+        """Э3.4 — the counter-guard, and the case Denis actually uses: ONE
+        template instantiated three times under different names is legal and must
+        stay legal (the guard is on the instance's name, never on its template)."""
+        p = _write(tmp_path, "t.sexp", _template_data([
+            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+             "sheet": "Channel_1"},
+            {"template": "dac_buf_tpl", "name": "ch2_dac_buf",
+             "sheet": "Channel_2"},
+            {"template": "dac_buf_tpl", "name": "ch3_dac_buf",
+             "sheet": "Channel_3"},
+        ]))
+        cfg, _ = load_config(str(p))
+
+        assert [t.name for t in cfg.trees] == [
+            "dac_buf_tpl", "ch1_dac_buf", "ch2_dac_buf", "ch3_dac_buf"]
+        assert [d.name for d in cfg.tree_instances] == [
+            "ch1_dac_buf", "ch2_dac_buf", "ch3_dac_buf"]
+        for name in ("ch1_dac_buf", "ch2_dac_buf", "ch3_dac_buf"):
+            assert _entity_by_name(cfg, f"dac_buf__{name}").cell == "c_dac"
+            assert _tree_by_name(cfg, name).nodes[0].ref == f"dac_buf__{name}"

@@ -343,8 +343,30 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # config_file.md). A single seen_refs set is shared across ALL trees of the
     # whole include graph, so the "a record's ref appears in at most one node"
     # invariant (trees.py's rule 2) holds across files, not just per file.
+    #
+    # The duplicate-name check runs TWICE on purpose: first on the RAW dicts,
+    # before a single node is parsed (2026-09-13, plan_2026_09_13_tree_duplicate_
+    # name_diagnosis Э1), then again on the loaded Trees below. Two same-named
+    # trees normally also share their node refs (the case that produced the live
+    # report: an already-materialized instance left in trees: next to its own
+    # tree_instances: declaration), and then _load_tree — which walks the trees
+    # one by one with the shared seen_refs — trips over trees.py's rule 2 and
+    # reports "a record's position source must be exactly one": a SYMPTOM, in a
+    # message that never mentions the duplicate name at all. The raw check fires
+    # first and says the plain truth. Entries that are not mappings, or whose
+    # name is not a string, are deliberately skipped here: _load_tree has better
+    # messages for them ("entry must be a mapping, got ...") and must keep them.
+    _check_duplicate_names(
+        [t for t in (data.get('trees') or [])
+         if isinstance(t, dict) and isinstance(t.get('name'), str)],
+        lambda t: t['name'], "trees",
+        _("every trees entry needs a unique name — curated redraw cannot tell "
+          "same-named trees apart otherwise (a duplicate name may also arrive via "
+          "include: from another file)"))
     tree_refs: set[str] = set()
     trees = [_load_tree(t, seen_refs=tree_refs) for t in data.get('trees', [])]
+    # Second echelon (cheap, and it covers a name the loaders themselves could
+    # derive): the same check on the loaded Trees.
     _check_duplicate_names(
         trees, lambda t: t.name, "trees",
         _("every trees entry needs a unique name — curated redraw cannot tell "

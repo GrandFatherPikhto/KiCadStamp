@@ -9852,6 +9852,38 @@ msgstr "tree_instances: у записи #{idx} params: не является с�
 msgid "tree_instance {name!r}: template tree {template!r} not found"
 msgstr "tree_instance {name!r}: дерево-шаблон {template!r} не найдено"
 
+#: kicadstamp/config/tree_instances.py:942
+#, python-brace-format
+msgid "duplicate name(s) in tree_instances: {names}"
+msgstr "дублирующиеся имена в tree_instances: {names}"
+
+#: kicadstamp/config/tree_instances.py:944
+msgid ""
+"every tree_instances: declaration needs a unique name — each one "
+"materializes exactly one tree (plus its entity copies), so give the second "
+"declaration its own name:, or drop it"
+msgstr ""
+"у каждой декларации tree_instances: должно быть уникальное name: — каждая "
+"порождает ровно одно дерево (и копии его сущностей): дайте второй декларации "
+"своё name: или уберите её"
+
+#: kicadstamp/config/tree_instances.py:1046
+#, python-brace-format
+msgid "duplicate tree name from tree_instance {name!r}"
+msgstr "дублирующееся имя дерева из tree_instance {name!r}"
+
+#: kicadstamp/config/tree_instances.py:1048
+msgid ""
+"every tree in one config needs a unique name, and a tree with that name "
+"already exists here — a trees: entry, the template itself, or an earlier "
+"tree_instances: declaration — rename this instance, or rename/remove the "
+"tree that already carries the name"
+msgstr ""
+"в одном конфиге у каждого дерева должно быть уникальное имя, а дерево с таким "
+"именем уже есть — это либо запись trees:, либо сам шаблон, либо более ранняя "
+"декларация tree_instances: — переименуйте этот инстанс или "
+"переименуйте/удалите дерево, которое уже носит это имя"
+
 #: kicadstamp/config/tree_instances.py:346
 #, python-brace-format
 msgid "known trees: {names}"
