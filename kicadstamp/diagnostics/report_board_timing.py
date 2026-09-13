@@ -97,6 +97,38 @@ def main(paths):
     for t, ms in sorted(threads.items(), key=lambda kv: -kv[1]):
         print(f"  {t:<30}{ms / 1000:>8.1f}s")
 
+    # Э4 (plan_2026_09_13_diagnostics_switch): the calls made ON the UI thread,
+    # by method and by CALL SITE. The per-thread split above cannot name them,
+    # and with the recorder embedded in the GUI a thread NAME is not a criterion
+    # at all (in the MCP server and in the CLI everything legitimately runs on
+    # MainThread) — which is why the recorder marks these rows explicitly (`ui`,
+    # written only when the GUI's injected predicate said "this is the UI
+    # thread") instead of matching on "MainThread".
+    ui_top = [r for r in top if r.get("ui")]
+    marked = any(r.get("ui") for r in rows)
+    print("\nUI-thread calls (outermost rows only, as everywhere above — the "
+          "nested ones double-count):")
+    if ui_top:
+        by_site = defaultdict(list)
+        for r in ui_top:
+            by_site[(r["method"], r.get("site", "<unknown>"))].append(r)
+        print(f"  {'method':<26}{'n':>6}{'total':>10}{'max':>10}  site")
+        print("  " + "-" * 74)
+        for (method, site), rs in sorted(by_site.items(),
+                                         key=lambda kv: -sum(r["ms"] for r in kv[1])):
+            ms = [r["ms"] for r in rs]
+            print(f"  {method:<26}{len(rs):>6}{sum(ms) / 1000:>9.1f}s"
+                  f"{max(ms):>9.1f}ms  {site}")
+        print(f"  total: {len(ui_top)} call(s), "
+              f"{sum(r['ms'] for r in ui_top) / 1000:.1f}s on the UI thread")
+    elif not marked:
+        print("  none — no row carries a call site, so either no board call "
+              "happened on the UI thread, or the recording ran WITHOUT the GUI's "
+              "UI-thread predicate (the external launcher installs none; the "
+              "Settings > Diagnostics switch does)")
+    else:
+        print("  none — no board call was made from the UI thread in this log")
+
     errs = [r for r in rows if not r["ok"]]
     if errs:
         print(f"\nfailed calls: {len(errs)}")

@@ -53,10 +53,10 @@ kicadstamp/diagnostics/
 ├── test_ierarchy.py               # Footprints vs schematic sheet map [LIVE]
 ├── test_ierarchy_uuid.py          # Raw sheet_path.path form [LIVE]
 ├── test_sheet_path.py             # path_human_readable on a live board [LIVE]
-├── board_call_timing.py           # Times every adapter call + kipy round trip (library, not run directly)
+├── board_call_timing.py           # Times every adapter call (library; also a Settings switch)
 ├── run_gui_with_timing.py         # Runs the GUI with every board call timed [LIVE]
 ├── report_board_timing.py         # Summarises a board-call timing log [FILES]
-├── board_read_probe.py            # Records who reads connection.board (library, not run directly)
+├── board_read_probe.py            # Records who reads connection.board (library; also a Settings switch)
 ├── run_gui_with_read_probe.py     # Runs the GUI with every board read recorded [LIVE]
 ├── report_board_reads.py          # Summarises a board-read log [FILES]
 ├── probe_placement_cost.py        # Cost breakdown of one placement's planning phase [LIVE]
@@ -84,28 +84,58 @@ the structure tree above uses the same legend (`[LIVE]` / `[LIVE+WRITE]` / `[FIL
 ### `run_gui_with_timing.py` / `report_board_timing.py`
 
 Measures where a GUI session actually spends its time inside the board adapter — per call,
-per thread. Two steps: record, then summarise.
+per thread, and (since 2026-09-13) per call site for the calls made on the UI thread. Two
+steps: record, then summarise.
 
 ```bash
 python -m kicadstamp.diagnostics.run_gui_with_timing   # work the docks as usual, then quit
 python -m kicadstamp.diagnostics.report_board_timing
 ```
 
-The recorder is a monkey patch installed before the GUI starts (`board_call_timing.py`), so
-no production file is edited and nothing has to be reverted. It writes JSON Lines to
-`<repo>/diagnostics/board_timing_<pid>.jsonl` (gitignored, one self-contained object per
-line, flushed immediately — a crash mid-session still leaves a readable log). **Board data is
-never recorded**: only call names, durations, item counts and the calling thread, so a log is
-safe to attach to a bug report.
+#### Two ways to switch the recorder on
+
+Since 2026-09-13 (plan `plan_2026_09_13_diagnostics_switch`) the same recorder can be turned
+on **while the GUI keeps running**:
+
+- **the external launcher above** — the recorder is a monkey patch installed *before* the GUI
+  starts (`board_call_timing.py`), so the log covers the session from the very first second.
+  Use it for a clean measurement; no production file is edited and nothing has to be reverted;
+- **Settings → Diagnostics** (the **Diagnostics** page) — for the case the tool actually exists
+  for: something looks odd, you switch recording on, keep working, switch it off. Restarting the
+  GUI (the only option before this page) would scare the oddity away.
+
+The switch is persisted in `gui_state.json`, so a recording found ON starts again at the NEXT
+startup — and says so in the Log (a forgotten switch is never silent). **The Log gets exactly
+TWO lines per session**: "recording → path" and "stopped, N calls → path". One line per call
+would drown the Log, so the data goes to JSONL only. A session stops itself at **50 MB**, with a
+Log line naming the reason and the path — a switch left on over a weekend must not fill the disk.
+
+Both ways write the same thing: JSON Lines in `<repo>/diagnostics/board_timing_<pid>.jsonl`
+(gitignored, one self-contained object per line, flushed immediately — a crash mid-session still
+leaves a readable log). **Board data is never recorded**: only call names, durations, item counts
+and the calling thread, so a log is safe to attach to a bug report.
+
+#### Reading the report
 
 The report prints per-method counts with median/p90/max, the share of the session spent
-inside the adapter, a per-thread split, failed calls, and the ten slowest single calls.
+inside the adapter, a per-thread split, failed calls, and the ten slowest single calls. It also
+prints a **UI-thread calls** section: method, number of calls, summed and maximum time and —
+where it was recorded — the **call site** (`file:line`) of the caller, outermost rows only, by
+descending total time. When there is none it says so, and says which of the two reasons applies.
 
-Two numbers are worth knowing what to do with:
+Three numbers are worth knowing what to do with:
 
 - **the per-thread split** answers "does the UI thread read the board", which is what decides
   whether a synchronous read is a real freeze or a theoretical one;
+- **the UI-thread section** names the offenders: the calls on the UI thread are the ones that
+  can freeze the window, and a call site is what makes a fix possible without searching;
 - **the slowest bulk calls** size `DEFAULT_TIMEOUT_MS` from data rather than a guess.
+
+A call site is recorded **only for calls made on the UI thread** — the GUI installs that
+predicate when it turns recording on (the recorder itself never imports Qt, and the external
+launcher installs none). That is ~0.4% of the calls; walking the stack for all 81 000 of them
+would not be. It is also why a thread NAME is not used: in the MCP server process and in the CLI
+every call legitimately happens on `MainThread`.
 
 Measured on a live 325-footprint board, 2026-09-13: a 272 s session spent **9.1 s (3.3%)**
 inside the adapter, of which the UI thread accounted for **0.2 s (0.07%)**, and the slowest
@@ -125,6 +155,12 @@ refusing to hand the board over). Two steps: record, then summarise.
 python -m kicadstamp.diagnostics.run_gui_with_read_probe   # work the docks as usual, then quit
 python -m kicadstamp.diagnostics.report_board_reads
 ```
+
+Like the timing recorder, this one has the same two switches (2026-09-13, plan
+`plan_2026_09_13_diagnostics_switch`): the external launcher above, or **Settings → Diagnostics**
+while the GUI keeps running — same persistence in `gui_state.json`, same "two Log lines per
+session, never one per read", same 50 MB self-stop. The probe lives in the GUI process
+(`gui/connection.py`), so there `MainThread` really is the UI thread; the report marks it.
 
 The recorder turns on a hook that already lives in `gui/connection.py`: the `board` property carries
 an optional, **disabled-by-default** probe and only tests it, so no production file is edited and the

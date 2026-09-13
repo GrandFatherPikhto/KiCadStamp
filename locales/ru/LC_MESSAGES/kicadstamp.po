@@ -15928,3 +15928,71 @@ msgstr "Вызов платы не ответил примерно за {waited}
 #: kicadstamp/gui_main.py
 msgid "IPC timeout in ms (overrides the saved setting)"
 msgstr "Таймаут IPC в мс (перебивает сохранённую настройку)"
+
+#: gui/docks/configurator.py
+msgid "Diagnostics"
+msgstr "Диагностика"
+
+#: gui/docks/configurator.py
+msgid "Recording"
+msgstr "Запись"
+
+#: kicadstamp/diagnostics/board_call_timing.py
+msgid "Record board calls (durations)"
+msgstr "Записывать обращения к плате (длительности)"
+
+#: kicadstamp/diagnostics/board_read_probe.py
+msgid "Record board reads (thread and call site)"
+msgstr "Записывать чтения платы (поток и место вызова)"
+
+#: gui/docks/configurator.py
+msgid "Times every call to the board adapter and writes the durations to a JSON Lines file in <repo>/diagnostics/. Use it to find out what a slow board read actually costs and which method was called from the UI thread. Two lines go to the Log per session — the start and the stop with the path — never one line per call. Stops itself at 50 MB."
+msgstr "Замеряет каждый вызов адаптера платы и пишет длительности в файл JSON Lines в <repo>/diagnostics/. Позволяет узнать, сколько на самом деле стоит медленное чтение платы и какой метод вызывался из потока UI. В Лог за сеанс уходит две строки — начало и остановка с путём, — и никогда по строке на вызов. Само останавливается на 50 МБ."
+
+#: gui/docks/configurator.py
+msgid "Records who reads the live board, from which thread and call site, to a JSON Lines file in <repo>/diagnostics/. This is how a board read that happens on the UI thread is caught. Two lines go to the Log per session; stops itself at 50 MB."
+msgstr "Записывает, кто читает живую плату, из какого потока и откуда, в файл JSON Lines в <repo>/diagnostics/. Именно так ловится чтение платы в потоке UI. В Лог за сеанс уходит две строки; само останавливается на 50 МБ."
+
+#: gui/docks/configurator.py
+msgid "Both switches are remembered between runs — a recording found ON at startup is announced in the Log. Summarise a file with `python -m kicadstamp.diagnostics.report_board_timing` (or `report_board_reads`); the full picture is in docs/diagnostics.md."
+msgstr "Оба выключателя запоминаются между запусками — запись, обнаруженная включённой при старте, объявляется в Логе. Разобрать файл: `python -m kicadstamp.diagnostics.report_board_timing` (или `report_board_reads`); полная картина — в docs/diagnostics.md."
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls → {path}"
+msgstr "Диагностика: запись обращений к плате → {path}"
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls → {path} (the switch was left ON in Settings → Diagnostics; turn it off when the data is collected)"
+msgstr "Диагностика: запись обращений к плате → {path} (выключатель остался ВКЛЮЧЁН в Настройках → Диагностика; выключите его, когда данные собраны)"
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls stopped, {count} calls → {path}"
+msgstr "Диагностика: запись обращений к плате остановлена, вызовов: {count} → {path}"
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls stopped at the {limit} MB size cap, {count} calls → {path}"
+msgstr "Диагностика: запись обращений к плате остановлена на потолке размера {limit} МБ, вызовов: {count} → {path}"
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads → {path}"
+msgstr "Диагностика: запись чтений платы → {path}"
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads → {path} (the switch was left ON in Settings → Diagnostics; turn it off when the data is collected)"
+msgstr "Диагностика: запись чтений платы → {path} (выключатель остался ВКЛЮЧЁН в Настройках → Диагностика; выключите его, когда данные собраны)"
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads stopped, {count} reads → {path}"
+msgstr "Диагностика: запись чтений платы остановлена, чтений: {count} → {path}"
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads stopped at the {limit} MB size cap, {count} reads → {path}"
+msgstr "Диагностика: запись чтений платы остановлена на потолке размера {limit} МБ, чтений: {count} → {path}"

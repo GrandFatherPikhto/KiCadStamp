@@ -809,7 +809,7 @@ this dialog never touches it. Everything here is local per-machine state (the sa
 `last_root_file`/`window_geometry`/`tree_group_by` already use).
 
 The dialog is a two-pane browser: a **category tree on the left** (General / Appearance / KiCad /
-Config tree / Hotkeys / MCP server / Board overlay) and the matching settings page on the right. Settings apply
+Config tree / Hotkeys / MCP server / Board overlay / Diagnostics) and the matching settings page on the right. Settings apply
 **explicitly** via the **OK / Apply / Cancel** buttons — a widget change is only a draft until
 **Apply** (persists and stays open) or **OK** (persists and closes) commits it; **Cancel** (or the
 window X) discards the draft. Side effects (always-on-top flag, tray icon, highlight re-apply,
@@ -902,6 +902,23 @@ connection timeout, hotkey rebinding) fire only on Apply/OK.
   next drawn overlay. The same page carries the **Remove entire overlay layer** button — the
   guaranteed cleanup that sweeps EVERY graphic shape off the chosen layer (confirmed first), for
   recovering from lost overlay uuids.
+- **Diagnostics** (the **Diagnostics** page, 2026-09-13, plan
+  `plan_2026_09_13_diagnostics_switch`) — two independent switches over the two recorders of
+  `kicadstamp/diagnostics/`: **Record board calls (durations)** (where a GUI session spends its
+  time inside the adapter, per call and per thread) and **Record board reads (thread and call
+  site)** (who reads the live board, from which thread and from where). Both recorders used to be
+  reachable ONLY by relaunching the GUI through `run_gui_with_timing`/`run_gui_with_read_probe`;
+  those launchers stay (a clean measurement from the first second), and these switches exist for
+  the case they cannot serve: something looks odd NOW, and restarting the GUI would scare it away.
+  Stored as `gui_state.json["diagnostics_record_board_calls"]` /
+  `["diagnostics_record_board_reads"]`, so a switch found ON starts recording again at the NEXT
+  startup — **and says so in the Log** (the reminder wording), so a forgotten switch is never
+  silent. Each session writes JSON Lines into `<repo>/diagnostics/` (gitignored) and exactly TWO
+  Log lines — start → path, stop with the call count → path; never one line per call (81 000 of
+  them would drown the Log). A session stops itself at 50 MB with a Log line naming the reason.
+  Reading a file: `python -m kicadstamp.diagnostics.report_board_timing` (or
+  `report_board_reads`) — see [docs/diagnostics.md](diagnostics.md). While recording is OFF
+  nothing at all happens: no patch, no file, no stack frame read.
 
 ## Extract
 

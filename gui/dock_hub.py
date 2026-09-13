@@ -329,6 +329,15 @@ class DockHub:
         # call again later if a dock ever registers hotkeys dynamically.
         self.configurator_dock.refresh_hotkeys()
 
+        # Diagnostics recording switches (plan_2026_09_13_diagnostics_switch Э2):
+        # a switch found ON in gui_state.json starts its recorder at startup, and
+        # says so in the Log — a forgotten switch must not be silent. Called
+        # AFTER LogDock exists (built above), otherwise the reminder would be
+        # logged into nothing; reminder=True selects the startup wording. With
+        # both switches OFF (the default) this is a no-op: nothing patched,
+        # nothing opened.
+        self.configurator_dock.sync_diagnostics_recording(reminder=True)
+
         # Config working set (2026-09-01, plan project_save_model): every
         # stage/clear notifies this listener -> dirty indicator + a debounced
         # refresh so the tree/collectors show the staged content. QTimer-

@@ -59,6 +59,27 @@ from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
+
+def is_ui_thread() -> bool:
+    """True when the current thread is the GUI (UI) thread — the predicate the
+    diagnostics recorder is given when the Settings > Diagnostics switch is ON
+    (plan_2026_09_13_diagnostics_switch Э3).
+
+    The recorder (kicadstamp/diagnostics/board_call_timing.py) never imports Qt,
+    so the answer comes from here, injected from outside: recording the caller's
+    frame is worth its cost for the ~0.4% of calls made on the UI thread (those
+    are the ones that can freeze the window), and not for the other 99.6%.
+
+    Deliberately NOT "the thread is named MainThread": in the MCP server process
+    and in the CLI everything legitimately runs on MainThread, so a name check
+    would call every one of their calls a violation. Comparing threads also
+    keeps this honest when the GUI is embedded (tests, fieldstool)."""
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return QThread.currentThread() == app.thread()
+
+
 # ── "The call did not finish in time" recommendation (Э4б, plan_2026_09_13_ ──
 # ipc_timeout_and_latency) ──────────────────────────────────────────────────
 #

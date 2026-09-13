@@ -17268,3 +17268,71 @@ msgstr ""
 #: kicadstamp/gui_main.py
 msgid "IPC timeout in ms (overrides the saved setting)"
 msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Diagnostics"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Recording"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_call_timing.py
+msgid "Record board calls (durations)"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_read_probe.py
+msgid "Record board reads (thread and call site)"
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Times every call to the board adapter and writes the durations to a JSON Lines file in <repo>/diagnostics/. Use it to find out what a slow board read actually costs and which method was called from the UI thread. Two lines go to the Log per session — the start and the stop with the path — never one line per call. Stops itself at 50 MB."
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Records who reads the live board, from which thread and call site, to a JSON Lines file in <repo>/diagnostics/. This is how a board read that happens on the UI thread is caught. Two lines go to the Log per session; stops itself at 50 MB."
+msgstr ""
+
+#: gui/docks/configurator.py
+msgid "Both switches are remembered between runs — a recording found ON at startup is announced in the Log. Summarise a file with `python -m kicadstamp.diagnostics.report_board_timing` (or `report_board_reads`); the full picture is in docs/diagnostics.md."
+msgstr ""
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls → {path}"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls → {path} (the switch was left ON in Settings → Diagnostics; turn it off when the data is collected)"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls stopped, {count} calls → {path}"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_call_timing.py
+#, python-brace-format
+msgid "Diagnostics: recording board calls stopped at the {limit} MB size cap, {count} calls → {path}"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads → {path}"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads → {path} (the switch was left ON in Settings → Diagnostics; turn it off when the data is collected)"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads stopped, {count} reads → {path}"
+msgstr ""
+
+#: kicadstamp/diagnostics/board_read_probe.py
+#, python-brace-format
+msgid "Diagnostics: recording board reads stopped at the {limit} MB size cap, {count} reads → {path}"
+msgstr ""

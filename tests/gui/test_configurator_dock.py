@@ -36,7 +36,7 @@ def test_tree_lists_expected_categories(main_window, qapp):
     labels = [dock.tree.topLevelItem(i).text(0)
               for i in range(dock.tree.topLevelItemCount())]
     assert labels == ["General", "Appearance", "KiCad", "Config tree",
-                      "Hotkeys", "MCP server", "Board overlay"]
+                      "Hotkeys", "MCP server", "Board overlay", "Diagnostics"]
     assert dock.stack.count() == len(labels)
 
 

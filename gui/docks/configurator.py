@@ -9,7 +9,8 @@ from the Tools menu ("Settings...").
 Since 2026-09-01 (plan project_settings_dialogs) this is no longer a Detail
 dock tab: it is a two-pane browser — a QTreeWidget of categories on the left
 (General / Appearance / KiCad / Config tree / Hotkeys / MCP server /
-Board overlay) and the matching settings page on the right (QStackedWidget).
+Board overlay / Diagnostics) and the matching settings page on the right
+(QStackedWidget).
 And settings are applied EXPLICITLY (OK/Cancel/Apply, modal), not live: every
 widget holds the "draft"; ConfiguratorDock.apply() writes the draft to
 gui_state.json and fires the side effects (window-flag / tray / highlight /
@@ -45,6 +46,17 @@ timeout.md), so letting the user set it to 0/huge would reopen that bug class. T
 value is written into connection.timeout_ms on apply(), which BoardConnection reads
 by reference on every connect() — so it takes effect on the NEXT connection without
 disturbing any open one.
+
+Diagnostics (2026-09-13, plan_2026_09_13_diagnostics_switch Э2) — the two switches
+that turn the recorders of kicadstamp/diagnostics/ on and off while the GUI keeps
+running. That is the whole point of the page: the odd thing a diagnosis hunts for
+is rare, and restarting the GUI (the only way before this page existed) is exactly
+what scares it away. Both switches persist in gui_state.json like every other
+setting here, so a switch left ON starts recording at the NEXT startup too — and
+says so in the Log (sync_diagnostics_recording(reminder=True), called by DockHub
+once the Log dock exists). The Log gets exactly TWO lines per session — start and
+stop, with the path; the data goes to JSONL, never to the Log (81k lines would
+drown it). The recorders stop themselves at their own size cap.
 """
 import logging
 from functools import partial
@@ -61,13 +73,14 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox,
 
 from kicadstamp.constants import (DEFAULT_RECONNECT_INTERVAL_MS,
                                   DEFAULT_TIMEOUT_MS)
+from kicadstamp.diagnostics import board_call_timing, board_read_probe
 from kicadstamp.i18n import _
 
 from .. import board_overlay, overlay_markers, settings
 from ..color_schemes import available_color_schemes, load_color_scheme
 from ..connection import LATENCY_KIND_FAST, LATENCY_KIND_SLOW
 from ..hotkeys import get_shortcut, registered_hotkeys, set_shortcut
-from ..worker import start_long_op
+from ..worker import is_ui_thread, start_long_op
 from ._common import (DEFAULT_HIGHLIGHT_COLOR, ERROR_STYLE as _ERROR_STYLE,
                       format_ms, show_message)
 
@@ -84,6 +97,13 @@ TIMEOUT_MAX_MS = 120000
 # default 5 s).
 RECONNECT_MIN_MS = 500
 RECONNECT_MAX_MS = 60000
+
+# Diagnostics recording switches (plan_2026_09_13_diagnostics_switch Э2) — the
+# gui_state.json keys behind the Diagnostics page's two checkboxes. Kept as
+# constants because the test suite asserts on them and because a typo in one of
+# two call sites (reload_from_state / apply) would be invisible otherwise.
+DIAGNOSTICS_BOARD_CALLS_KEY = "diagnostics_record_board_calls"
+DIAGNOSTICS_BOARD_READS_KEY = "diagnostics_record_board_reads"
 
 
 # ── Overlay worker functions (run on the worker thread via start_long_op —
@@ -159,6 +179,7 @@ class ConfiguratorDock(QWidget):
         self.hotkeys_page = self._build_hotkeys_page()
         self.mcp_page = self._build_mcp_page()
         self.overlay_page = self._build_overlay_page()
+        self.diagnostics_page = self._build_diagnostics_page()
         # The last-dispatched overlay sweep op (worker.py keeps its own
         # keep-alive too — this is for inspection/idempotency, the same shape
         # as the docks' _active_op).
@@ -172,6 +193,7 @@ class ConfiguratorDock(QWidget):
             (_("Hotkeys"), self.hotkeys_page),
             (_("MCP server"), self.mcp_page),
             (_("Board overlay"), self.overlay_page),
+            (_("Diagnostics"), self.diagnostics_page),
         ):
             self.tree.addTopLevelItem(QTreeWidgetItem([label]))
             self.stack.addWidget(page)
@@ -503,6 +525,83 @@ class ConfiguratorDock(QWidget):
         layout.addStretch(1)
         return page
 
+    # ── Diagnostics page (plan_2026_09_13_diagnostics_switch Э2) ───────────
+    #
+    # Two independent switches over the two recorders in
+    # kicadstamp/diagnostics/ — the same tools that used to be reachable ONLY by
+    # leaving the GUI and relaunching it through
+    # run_gui_with_timing/run_gui_with_read_probe. The launchers stay (a clean
+    # measurement from the first second), this page is for "noticed something
+    # odd — record while I keep working".
+    #
+    # Nothing here touches the board: starting a recording only opens a file and
+    # (for calls) installs the monkey patch once. The Log contract is two lines
+    # per session — see sync_diagnostics_recording.
+
+    def _build_diagnostics_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        recording_group = QGroupBox(_("Recording"))
+        recording_layout = QVBoxLayout(recording_group)
+        self.board_calls_checkbox = QCheckBox(
+            _("Record board calls (durations)"))
+        self.board_calls_checkbox.setToolTip(
+            _("Times every call to the board adapter and writes the durations "
+              "to a JSON Lines file in <repo>/diagnostics/. Use it to find out "
+              "what a slow board read actually costs and which method was "
+              "called from the UI thread. Two lines go to the Log per session — "
+              "the start and the stop with the path — never one line per call. "
+              "Stops itself at 50 MB."))
+        recording_layout.addWidget(self.board_calls_checkbox)
+        self.board_reads_checkbox = QCheckBox(
+            _("Record board reads (thread and call site)"))
+        self.board_reads_checkbox.setToolTip(
+            _("Records who reads the live board, from which thread and call "
+              "site, to a JSON Lines file in <repo>/diagnostics/. This is how a "
+              "board read that happens on the UI thread is caught. Two lines go "
+              "to the Log per session; stops itself at 50 MB."))
+        recording_layout.addWidget(self.board_reads_checkbox)
+
+        hint = QLabel(
+            _("Both switches are remembered between runs — a recording found ON "
+              "at startup is announced in the Log. Summarise a file with "
+              "`python -m kicadstamp.diagnostics.report_board_timing` (or "
+              "`report_board_reads`); the full picture is in docs/diagnostics.md."))
+        hint.setWordWrap(True)
+        recording_layout.addWidget(hint)
+        layout.addWidget(recording_group)
+        layout.addStretch(1)
+        return page
+
+    def sync_diagnostics_recording(self, reminder: bool = False) -> None:
+        """Start/stop the two recorders so they match the PERSISTED switches
+        (Э2). Called from apply() (the OK/Apply half) and from DockHub once the
+        docks exist, with reminder=True — the startup case.
+
+        Both recorders are idempotent, so a repeated Apply with a switch already
+        ON neither reopens a file nor adds a second Log line (Э5.4). Nothing
+        happens at all while both switches are OFF: no patch, no file, no board
+        access.
+
+        The UI-thread predicate (Э3) is injected HERE, from the GUI — the
+        recorder must never import Qt. It is cleared again when recording stops,
+        so a GUI that no longer records pays nothing."""
+        want_calls = bool(settings.state.get(DIAGNOSTICS_BOARD_CALLS_KEY, False))
+        if want_calls and not board_call_timing.is_recording():
+            board_call_timing.set_ui_thread_predicate(is_ui_thread)
+            board_call_timing.start(reminder=reminder)
+        elif not want_calls and board_call_timing.is_recording():
+            board_call_timing.stop()
+            board_call_timing.set_ui_thread_predicate(None)
+
+        want_reads = bool(settings.state.get(DIAGNOSTICS_BOARD_READS_KEY, False))
+        if want_reads and not board_read_probe.is_recording():
+            board_read_probe.start(reminder=reminder)
+        elif not want_reads and board_read_probe.is_recording():
+            board_read_probe.stop()
+
     def _overlay_adapter(self):
         """The live board adapter the overlay page's IPC goes through, or
         None when not connected."""
@@ -658,6 +757,14 @@ class ConfiguratorDock(QWidget):
             bool(settings.state.get("rename_confirmation_enabled", True)))
         self.raw_write_checkbox.setChecked(
             bool(settings.state.get("mcp_allow_raw_write", False)))
+        # Diagnostics switches (Э2). Only the WIDGETS are seeded here — the
+        # recorders themselves are (re)synced from the persisted state by apply()
+        # or by DockHub at startup, never from here: reload_from_state() is what
+        # Cancel calls, and a Cancel must neither start nor stop a recording.
+        self.board_calls_checkbox.setChecked(
+            bool(settings.state.get(DIAGNOSTICS_BOARD_CALLS_KEY, False)))
+        self.board_reads_checkbox.setChecked(
+            bool(settings.state.get(DIAGNOSTICS_BOARD_READS_KEY, False)))
         # Board overlay (Phase D): re-seed the geometry spinboxes from the
         # persisted values (board_overlay accessors fall back to the module
         # constants = the defaults) and show the remembered layer offline —
@@ -744,6 +851,16 @@ class ConfiguratorDock(QWidget):
         settings.state.set("rename_confirmation_enabled",
                            self.rename_confirmation_checkbox.isChecked())
         settings.state.set("mcp_allow_raw_write", self.raw_write_checkbox.isChecked())
+
+        # Diagnostics recording switches (Э2): persist, then start/stop the
+        # recorders FROM the persisted state (one source of truth, see
+        # sync_diagnostics_recording). Both are idempotent, so Apply with an
+        # unchanged switch neither reopens a file nor adds a Log line.
+        settings.state.set(DIAGNOSTICS_BOARD_CALLS_KEY,
+                           self.board_calls_checkbox.isChecked())
+        settings.state.set(DIAGNOSTICS_BOARD_READS_KEY,
+                           self.board_reads_checkbox.isChecked())
+        self.sync_diagnostics_recording()
 
         # Board overlay (Phase D): persist the overlay geometry. The layer is
         # stored as its KiCad display name; the combo always carries a value
