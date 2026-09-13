@@ -179,18 +179,20 @@ class NetTraceDock(QWidget):
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
         self.anchor_widget.set_known_roles(roles, clusters)
 
-    def refresh_known_nets(self, board) -> None:
-        """Net picker from the WHOLE board's copper (tracks + vias) — NOT the
-        selection, and NOT get_all_nets() (which would include pad-only nets
-        with no copper to capture). Same collection pattern as
-        extract.py::_update_origin_choices, minus the selection restriction."""
-        if board is None:
-            set_combo_items(self.net_edit, [])
-            return
-        adapter = board.adapter
-        nets = {t.net_name for t in adapter.get_tracks() if t.net_name}
-        nets |= {v.net_name for v in adapter.get_vias() if v.net_name}
-        set_combo_items(self.net_edit, sorted(nets))
+    def refresh_known_nets(self, net_names) -> None:
+        """Fill the Net picker with the names the poll WORKER collected for
+        this dock: the WHOLE board's COPPER nets (tracks + vias), never
+        adapter.get_all_nets() — that one would add pad-only nets with no
+        copper to capture (gui/board_nets.copper_net_names owns the collecting,
+        including the same logic kicadstamp/cloner/extract.py's origin choices
+        use; Э2 of plan_2026_09_13_ui_thread_net_reads moved it off the UI
+        thread).
+
+        Only the widget is touched here: this dock used to be handed the live
+        board and call the adapter itself, on the UI thread. An empty or
+        missing list clears the combo, exactly as the None board it used to
+        receive did."""
+        set_combo_items(self.net_edit, list(net_names or ()))
 
     # ── Message helper ──────────────────────────────────────────────────────
 

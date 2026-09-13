@@ -7,6 +7,7 @@ are preserved) and writes to the file the Entity actually lives in (an
 Entity in an included file is updated in place, never duplicated)."""
 from pathlib import Path
 
+from gui.board_nets import board_net_names
 from gui.docks.tools import ToolsDock
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
@@ -150,9 +151,12 @@ def test_role_choices_are_scoped_to_the_picked_cell_only(main_window, tmp_path):
 
 def test_refresh_known_nets_populates_net_value_choices(main_window, tmp_path):
     """2026-09-01 regression fix: the Net value combos are fed from the live
-    board's net names via refresh_known_nets (wired in DockHub.push_snapshot),
-    the same list PlacerDock's refresh_known_nets feeds its Nets/Net
-    overrides tabs (placer.py:1546)."""
+    board's net names via refresh_known_nets (wired in DockHub.push_snapshot).
+
+    Since plan_2026_09_13_ui_thread_net_reads Э1/Э2 the names are collected by
+    the poll WORKER (gui.board_nets.board_net_names — one read shared with
+    thermal_via/chain) and the dock only fills its tables; this test pins the
+    whole chain adapter -> collector -> three combos."""
     class _Net:
         def __init__(self, name):
             self.name = name
@@ -161,13 +165,10 @@ def test_refresh_known_nets_populates_net_value_choices(main_window, tmp_path):
         def get_all_nets(self):
             return [_Net("+3V3"), _Net("GND"), _Net("+5V")]
 
-    class _Board:
-        adapter = _Adapter()
-
     dock, _ = _make_dock(main_window, tmp_path, entities=[
         {"name": "E1", "cell": "pi_filter"},
     ])
-    dock.refresh_known_nets(_Board())
+    dock.refresh_known_nets(board_net_names(_Adapter()))
     assert _combo_items(dock.nets_table.value_edit) == ["+3V3", "+5V", "GND"]
     assert _combo_items(dock.net_overrides_table.key_edit) == ["+3V3", "+5V", "GND"]
     assert _combo_items(dock.net_overrides_table.value_edit) == ["+3V3", "+5V", "GND"]

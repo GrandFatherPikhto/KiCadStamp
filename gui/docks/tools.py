@@ -56,6 +56,8 @@ class ToolsDock(QWidget):
         # Live-board net names for the value combos (refresh_known_nets,
         # 2026-09-01) — the ToolsDock never received the board poll before,
         # which is exactly why the Net/Override combos stayed empty free text.
+        # Since 2026-09-13 the names arrive from the poll WORKER rather than
+        # from a board handle (plan_2026_09_13_ui_thread_net_reads Э2).
         self._known_nets: list = []
 
         layout = QVBoxLayout(self)
@@ -189,15 +191,18 @@ class ToolsDock(QWidget):
                 return entry, file_path
         return None
 
-    def refresh_known_nets(self, board) -> None:
+    def refresh_known_nets(self, net_names) -> None:
         """Populate the Net/Override value combos with the live board's
-        actual net names (2026-09-01 — the same list PlacerDock's
-        refresh_known_nets feeds its own Nets/Net overrides tabs, placer.py:
-        1546; the ToolsDock never received the board poll, which is why these
-        combos stayed empty). Same ~2s cadence as the other docks (DockHub.
-        push_snapshot)."""
-        self._known_nets = sorted(
-            {n.name for n in board.adapter.get_all_nets() if n.name})
+        actual net names (2026-09-01 — the ToolsDock never received the board
+        poll, which is why these combos stayed empty free text). Same manual
+        Refresh path as the other docks (DockHub.push_snapshot).
+
+        The names come from the poll WORKER (Э1/Э2 of
+        plan_2026_09_13_ui_thread_net_reads; gui/board_nets.board_net_names,
+        shared with thermal_via/chain instead of one get_all_nets() call per
+        dock). This method touches widgets only; an empty list clears the
+        choices, which is what an absent board used to mean."""
+        self._known_nets = list(net_names or ())
         self.nets_table.set_value_choices(self._known_nets)
         self.net_overrides_table.set_key_choices(self._known_nets)
         self.net_overrides_table.set_value_choices(self._known_nets)

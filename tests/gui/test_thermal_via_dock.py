@@ -9,6 +9,7 @@ OTHER already-saved thermal_via_arrays entries survive into the config
 handed to the pipeline).
 """
 import gui.docks.thermal_via as thermal_via_mod
+from gui.board_nets import board_net_names
 from gui.docks.thermal_via import ThermalViaArrayDock
 from kicadstamp.config import Config, RuntimeContext, ThermalViaArrayConfig, load_thermal_via_array
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
@@ -288,10 +289,13 @@ class _FakeNetBoard:
 
 
 def test_refresh_known_nets_populates_net_combo(main_window, tmp_path):
+    """The names the poll WORKER collects reach the combo (Э1/Э2 of
+    plan_2026_09_13_ui_thread_net_reads): an unnamed net is dropped by the
+    collector, the dock only does set_combo_items."""
     dock, _ = _make_dock(main_window, tmp_path)
     board = _FakeNetBoard([_FakeNet("+3V3"), _FakeNet("GND"), _FakeNet("")])
 
-    dock.refresh_known_nets(board)
+    dock.refresh_known_nets(board_net_names(board.adapter))
 
     items = [dock.net_edit.itemText(i) for i in range(dock.net_edit.count())]
     assert items == ["+3V3", "GND"]

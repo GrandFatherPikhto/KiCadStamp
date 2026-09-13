@@ -1062,7 +1062,7 @@ class DockHub:
 
     # ── delegates MainWindow's poll/timer logic drives ────────────────────
 
-    def push_snapshot(self, snapshot, board) -> None:
+    def push_snapshot(self, snapshot, net_names, copper_net_names) -> None:
         """Feed a freshly rebuilt BoardConnection.snapshot into the docks
         that display it — the ONE consumer of the snapshot (see
         gui/main_window.py's _poll): the Components tree model (the ROWS) plus
@@ -1073,20 +1073,29 @@ class DockHub:
         Only the manual Refresh/Reconnect path drives this one; the
         navigational freshness trigger uses push_known_lists alone, because
         the tree-model rebuild is exactly the churn the idle auto-tick
-        deliberately avoids (see main_window.py's module docstring)."""
+        deliberately avoids (see main_window.py's module docstring).
+
+        ``net_names``/``copper_net_names`` are the net-name lists the poll
+        WORKER collected on this very tick (MainWindow._run_poll ->
+        _collect_net_names, gui/board_nets.py): the board's nets for the three
+        "which net?" combos, the copper nets (tracks + vias) for NetTraceDock.
+        This method used to receive the live BOARD instead and let those four
+        docks call it themselves — on the UI thread, ~0.1 s per manual Refresh
+        (measured 2026-09-13), which is the freeze
+        plan_2026_09_13_ui_thread_net_reads removes (Э2). An empty/absent list
+        clears its combo exactly as a None board used to."""
         self.tree_dock.set_footprints(snapshot)
-        self.push_known_lists(snapshot, board)
+        self.push_known_lists(snapshot)
         # NOTE (2026-09-05): placer_dock.refresh_known_nets is GONE — the
         # Placer's manual Nets/Net overrides/Refs tabs were removed (nets
-        # auto-resolve); the other docks' refresh_known_nets stay here (they
-        # read the BOARD, so they belong to the explicit Refresh path only —
-        # see push_known_lists).
-        self.thermal_via_dock.refresh_known_nets(board)
-        self.chain_dock.refresh_known_nets(board)
-        self.net_trace_dock.refresh_known_nets(board)
-        self.tools_dock.refresh_known_nets(board)
+        # auto-resolve). The other four docks are handed the NAMES the worker
+        # read (above); none of them touches an adapter on this path.
+        self.thermal_via_dock.refresh_known_nets(net_names)
+        self.chain_dock.refresh_known_nets(net_names)
+        self.net_trace_dock.refresh_known_nets(copper_net_names)
+        self.tools_dock.refresh_known_nets(net_names)
 
-    def push_known_lists(self, snapshot, board) -> None:
+    def push_known_lists(self, snapshot) -> None:
         """The SNAPSHOT-derived known-value lists: every Role/Cluster
         suggestion source, WITHOUT the Components-tree model rebuild
         (tree_dock.set_footprints) — that one shows board ROWS, not the
@@ -1095,11 +1104,14 @@ class DockHub:
         while the row views keep what they have until the user asks for a full
         Refresh.
 
-        Deliberately NOT the NET lists: refresh_known_nets reads the BOARD
-        itself (adapter.get_all_nets()/get_tracks()), i.e. a live IPC call, and
-        this trigger fires on the UI thread — a direct board read there is
-        exactly what S.1 forbids (the 2026-08-08 hang). Those calls stay on the
-        manual Refresh path (push_snapshot).
+        Deliberately NOT the NET lists — and no board either. The nets are
+        collected by the poll WORKER (see push_snapshot) and this trigger skips
+        them for the reason it always did: it fires often, on the UI thread,
+        and a live IPC read there is exactly what S.1 forbids (the 2026-08-08
+        hang); those lists stay on the manual Refresh path. The old ``board``
+        parameter only ever carried the handle along — this method never read
+        it, and the Refresh path no longer has one to offer
+        (plan_2026_09_13_ui_thread_net_reads Э2).
 
         The two TREE docks take no argument: they re-read the live cache
         themselves (RoleClusterTreeDock._connection.snapshot /
@@ -1159,8 +1171,7 @@ class DockHub:
             if on_ready is not None:
                 on_ready()
             self.push_known_lists(
-                list(getattr(connection, "snapshot", None) or []),
-                getattr(connection, "board", None))
+                list(getattr(connection, "snapshot", None) or []))
 
         def _failed(message: str) -> None:
             # A failed rebuild means the live board is gone (BoardConnection.

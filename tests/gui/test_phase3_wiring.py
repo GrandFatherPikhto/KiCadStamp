@@ -1368,14 +1368,16 @@ def test_push_snapshot_feeds_cell_anchor_view(real_main_window, monkeypatch):
                             lambda snapshot: None, raising=False)
         monkeypatch.setattr(dock, "refresh_known_roles",
                             lambda snapshot: None, raising=False)
+        # Since plan_2026_09_13_ui_thread_net_reads Э2 these take the COLLECTED
+        # net-name lists, never the board.
         monkeypatch.setattr(dock, "refresh_known_nets",
-                            lambda board: None, raising=False)
+                            lambda net_names: None, raising=False)
     received = []
     monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
                         lambda snapshot: received.append(snapshot))
 
     snapshot = [SimpleNamespace(cluster="PIF_3V3_VDD", role="C1")]
-    hub.push_snapshot(snapshot, board=object())
+    hub.push_snapshot(snapshot, [], [])
 
     assert received == [snapshot]
 
@@ -2043,7 +2045,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("thermal_roles", []).append(s))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_nets",
-                        lambda b: pushed.setdefault("thermal_nets", []).append(b))
+                        lambda n: pushed.setdefault("thermal_nets", []).append(n))
     # No separate coordinate_dock since 2026-08-12 (Group 1) — coordinate
     # mode lives inside the merged placer_dock, whose refresh_known_roles is
     # already captured above as pushed["roles"].
@@ -2052,7 +2054,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     monkeypatch.setattr(hub.rules_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("rules_roles", []).append(s))
     monkeypatch.setattr(hub.rules_dock, "refresh_known_nets",
-                        lambda b: pushed.setdefault("rules_nets", []).append(b))
+                        lambda n: pushed.setdefault("rules_nets", []).append(n))
     monkeypatch.setattr(hub.cells_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("cells_roles", []).append(s))
     # net_trace_dock (2026-08-21, plan net_trace_dock) — net picker from the
@@ -2060,32 +2062,35 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     monkeypatch.setattr(hub.net_trace_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("net_trace_roles", []).append(s))
     monkeypatch.setattr(hub.net_trace_dock, "refresh_known_nets",
-                        lambda b: pushed.setdefault("net_trace_nets", []).append(b))
+                        lambda c: pushed.setdefault("net_trace_nets", []).append(c))
     # tools_dock (2026-09-01, plan plan_2026_09_01_tools_dialog_and_entity_
     # roles.md) — the "Edit template" dialog's Net value combos are fed from
     # the live board on the same tick (the ToolsDock never got the poll
     # before — the regression fix).
     monkeypatch.setattr(hub.tools_dock, "refresh_known_nets",
-                        lambda b: pushed.setdefault("tools_nets", []).append(b))
+                        lambda n: pushed.setdefault("tools_nets", []).append(n))
     # cell_anchor_view (Phase E, 2026-09-09) — the working-context Cluster
     # combo is populated from the live snapshot on the same tick.
     monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
                         lambda s: pushed.setdefault("anchor_roles", []).append(s))
 
-    board, snapshot = object(), object()
-    hub.push_snapshot(snapshot, board)
+    # The NET lists are the worker-collected names, not a board handle
+    # (plan_2026_09_13_ui_thread_net_reads Э2) — three docks share one list,
+    # net_trace gets its own copper list.
+    net_names, copper_net_names, snapshot = ["GND"], ["GND", "VCC"], object()
+    hub.push_snapshot(snapshot, net_names, copper_net_names)
     assert pushed["tree"] == [snapshot]
     assert pushed["roles"] == [snapshot]
     assert pushed["thermal_roles"] == [snapshot]
-    assert pushed["thermal_nets"] == [board]
+    assert pushed["thermal_nets"] == [net_names]
     assert pushed["points_roles"] == [snapshot]
     assert pushed["rules_roles"] == [snapshot]
-    assert pushed["rules_nets"] == [board]
+    assert pushed["rules_nets"] == [net_names]  # rules_dock IS chain_dock
     assert pushed["cells_roles"] == [snapshot]
     assert pushed["anchor_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
-    assert pushed["net_trace_nets"] == [board]
-    assert pushed["tools_nets"] == [board]
+    assert pushed["net_trace_nets"] == [copper_net_names]
+    assert pushed["tools_nets"] == [net_names]
 
     cleared = []
     monkeypatch.setattr(hub.tree_dock, "set_footprints", lambda s: cleared.append(s))

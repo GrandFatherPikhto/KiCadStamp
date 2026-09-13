@@ -20,6 +20,7 @@ from kicadstamp.config import Config, RuntimeContext
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 import gui.docks.net_trace as net_trace_mod
+from gui.board_nets import board_net_names, copper_net_names
 from gui.docks.net_trace import NetTraceDock
 from kicadstamp.utils.units import MM
 
@@ -84,6 +85,13 @@ def _connect_board(dock, fps, tracks, vias, roles=None):
 
 
 # ── Net picker (whole board copper, NOT the selection) ───────────────────────
+#
+# Since plan_2026_09_13_ui_thread_net_reads Э1/Э2 the COLLECTING lives on the
+# poll worker (gui.board_nets.copper_net_names) and the dock only fills the
+# combo from the finished list — so these guards now check both halves: the
+# list is the board's copper (tracks + vias, deduped), and an empty list
+# empties the combo. The pad-only check (Э4.6) is the one that must keep
+# failing if the collector is ever "simplified" into get_all_nets().
 
 def test_net_picker_collects_unique_nets_from_whole_board_copper(main_window):
     dock = NetTraceDock(main_window)
@@ -97,28 +105,39 @@ def test_net_picker_collects_unique_nets_from_whole_board_copper(main_window):
         _make_via(0, 0, "/Channel_0/DAC_DB3"),
         _make_via(0, 0, "GND"),  # already seen via tracks
     ]
-    board = SimpleNamespace(adapter=adapter)
 
-    dock.refresh_known_nets(board)
+    names = copper_net_names(adapter)
 
+    assert names == ["/Channel_0/DAC_DB2", "/Channel_0/DAC_DB3", "GND"]
+    dock.refresh_known_nets(names)
     items = [dock.net_edit.itemText(i) for i in range(dock.net_edit.count())]
-    assert items == ["/Channel_0/DAC_DB2", "/Channel_0/DAC_DB3", "GND"]
+    assert items == names
 
 
 def test_net_picker_ignores_pad_only_nets_without_copper(main_window):
     """get_all_nets() would include pad-only nets — the picker must NOT (there
-    is nothing to capture for them)."""
-    dock = NetTraceDock(main_window)
+    is nothing to capture for them). Э4.6 of the plan: swapping the collector
+    for board_net_names() must fail this test, which is why the two lists are
+    asserted to differ rather than only the combo's contents."""
     adapter = MagicMock()
     adapter.get_tracks.return_value = []
     adapter.get_vias.return_value = []
-    board = SimpleNamespace(adapter=adapter)
-    dock.refresh_known_nets(board)
+    adapter.get_all_nets.return_value = [SimpleNamespace(name="PAD_ONLY")]
+
+    assert copper_net_names(adapter) == []
+    assert board_net_names(adapter) == ["PAD_ONLY"]
+
+    dock = NetTraceDock(main_window)
+    dock.refresh_known_nets(copper_net_names(adapter))
     assert dock.net_edit.count() == 0
 
 
 def test_net_picker_empty_when_board_disconnected(main_window):
+    """The tick that could not read a board hands an empty list — the combo
+    goes empty, exactly as the None board this method used to receive did."""
     dock = NetTraceDock(main_window)
+    dock.refresh_known_nets([])
+    assert dock.net_edit.count() == 0
     dock.refresh_known_nets(None)
     assert dock.net_edit.count() == 0
 

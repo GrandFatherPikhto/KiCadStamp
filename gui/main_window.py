@@ -92,6 +92,7 @@ from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
 from . import settings
+from .board_nets import board_net_names, copper_net_names
 from .connection import (BoardConnection, LATENCY_KIND_FAST,
                          LATENCY_KIND_SLOW)
 from .dock_hub import DockHub
@@ -983,13 +984,49 @@ class MainWindow(QMainWindow):
         thread sees the result. So the SLOW window holds successful refreshes
         and successful connects only; a failed call is timed for the
         recommendation but never seeds a window the drop just cleared (see
-        _record_latency's own docstring)."""
+        _record_latency's own docstring).
+
+        A SUCCESSFUL tick also collects the net-name lists the docks consume
+        (_collect_net_names, Э1 of plan_2026_09_13_ui_thread_net_reads) — on
+        this thread, while the tick still owns the shared socket. They travel
+        in the same result dict as everything else: the dict is the ONE thing
+        that crosses the thread boundary, so nothing extra has to be shared."""
         start = perf_counter()
         if self.connection.is_connected:
             error = self.connection.refresh()
         else:
             error = self.connection.connect()
-        return {"error": error, "duration_s": perf_counter() - start}
+        result = {"error": error, "duration_s": perf_counter() - start}
+        if not error:
+            # Only on success: refresh()/connect() drop the connection on
+            # failure, so there would be no board left to ask.
+            result.update(self._collect_net_names())
+        return result
+
+    def _collect_net_names(self) -> dict:
+        """Worker thread, successful tick only: the net-name lists
+        DockHub.push_snapshot hands to the four net-consuming docks.
+
+        Where they come from (Э1): thermal_via/chain/tools want every named net
+        and used to make three identical adapter.get_all_nets() calls; net_trace
+        wants the nets that carry copper (tracks + vias) and used to make two.
+        Both lists are collected once, here, through gui/board_nets.py.
+
+        Why here and not in _finish_poll: this is IPC, and _finish_poll runs on
+        the UI thread. Doing it there is what froze the window for ~0.1 s on
+        every manual Refresh (measured live 2026-09-13), with a 5 s IPC timeout
+        waiting at the far end of each call — the freeze the 2026-08-08 hang
+        rule exists to prevent. This tick already owns the shared kipy REQ
+        socket, so the reads cost the same and block nobody.
+
+        An absent board is not an error: the docks treat an empty list exactly
+        as they treated a None board before — the combo simply goes empty."""
+        board = self.connection.board
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            return {"net_names": [], "copper_net_names": []}
+        return {"net_names": board_net_names(adapter),
+                "copper_net_names": copper_net_names(adapter)}
 
     def _finish_poll(self, result: dict) -> None:
         """UI thread: reflect the worker's result into widgets."""
@@ -1015,7 +1052,14 @@ class MainWindow(QMainWindow):
             self.status_label.setText(
                 _("Connected — {count} components (as of the last board read)")
                 .format(count=len(snapshot)))
-            self._dock_hub.push_snapshot(snapshot, self.connection.board)
+            # The BOARD handle is deliberately not handed out any more — the
+            # four net-consuming docks get the names the worker collected
+            # (Э2). Passing the board is what let them read KiCad here, on the
+            # UI thread, and what hid those reads from the door census.
+            self._dock_hub.push_snapshot(
+                snapshot,
+                result.get("net_names") or [],
+                result.get("copper_net_names") or [])
             self._dock_hub.push_fieldstool_snapshot(snapshot)
             # Overlay housekeeping (E.2.4, plan_2026_09_11_overlay_markers_
             # owner): on connect and on every manual refresh, make the overlay

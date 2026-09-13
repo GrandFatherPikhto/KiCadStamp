@@ -220,9 +220,14 @@ class ThermalViaArrayDock(QWidget):
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
         self.origin_widget.set_known_roles(roles, clusters)
 
-    def refresh_known_nets(self, board) -> None:
-        nets = sorted({n.name for n in board.adapter.get_all_nets() if n.name})
-        set_combo_items(self.net_edit, nets)
+    def refresh_known_nets(self, net_names) -> None:
+        """Populate the Net combo with the live board's net names — the list
+        the poll WORKER collected this tick (Э1/Э2 of
+        plan_2026_09_13_ui_thread_net_reads; gui/board_nets.board_net_names).
+        Only the widget is touched here: the dock used to be handed the board
+        and read the adapter itself, on the UI thread. An empty list clears
+        the combo."""
+        set_combo_items(self.net_edit, list(net_names or ()))
 
     # ── Message helper ────────────────────────────────────────────────────
 

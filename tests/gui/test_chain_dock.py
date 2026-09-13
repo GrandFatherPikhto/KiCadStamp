@@ -19,6 +19,7 @@ import dataclasses
 from types import SimpleNamespace
 
 import gui.docks.chain as chain_mod
+from gui.board_nets import board_net_names
 from gui.docks.chain import ChainDock
 from kicadstamp.config import (Config, RuntimeContext, chain_effective_name,
                                load_chain as _lc)
@@ -396,10 +397,12 @@ def test_refresh_known_roles_populates_anchor_and_spoke_cluster_combos(main_wind
 
 
 def test_refresh_known_nets_populates_net_combo(main_window, tmp_path):
+    """The names the poll WORKER collects reach the combo (Э1/Э2 of
+    plan_2026_09_13_ui_thread_net_reads) — the dock no longer takes a board."""
     dock, _ = _make_dock(main_window, tmp_path)
     board = SimpleNamespace(adapter=SimpleNamespace(
         get_all_nets=lambda: [SimpleNamespace(name="+3V3"), SimpleNamespace(name="GND")]))
-    dock.refresh_known_nets(board)
+    dock.refresh_known_nets(board_net_names(board.adapter))
     nets = [dock.net_edit.itemText(i) for i in range(dock.net_edit.count())]
     assert nets == ["+3V3", "GND"]
 
