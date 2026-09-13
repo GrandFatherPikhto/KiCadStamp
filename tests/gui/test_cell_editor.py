@@ -2144,3 +2144,107 @@ def test_the_import_worker_warns_about_hidden_copper_layers_too(main_window,
 
     assert len(_hidden_warnings(caplog)) == 1
     assert "In1.Cu" in _hidden_warnings(caplog)[0]
+
+
+# ── Э2а: an EMPTY layer set ─────────────────────────────────────────────────
+# Empty is a legitimate answer ("nothing" is not "everything": ALL_COPPER_LAYERS
+# is None), so the button is never greyed out — but on Refresh an empty set
+# deletes every track record of the cell, and the preview dialog was removed on
+# 2026-09-06. The confirmation below is therefore the ONLY place the consequence
+# can be seen before it happens.
+
+def _answer_question(monkeypatch, answer):
+    """Stand in for QMessageBox.question: record the calls, answer `answer`."""
+    calls = []
+
+    def _question(parent, title, text, *args, **kwargs):
+        calls.append((title, text))
+        return answer
+
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "question", _question)
+    return calls
+
+
+_CANCEL = cell_editor_mod.QMessageBox.StandardButton.Cancel
+_OK = cell_editor_mod.QMessageBox.StandardButton.Ok
+
+
+def test_an_empty_layer_set_asks_before_refresh_deletes_tracks(main_window,
+                                                               tmp_path,
+                                                               monkeypatch):
+    """Э2а/Э7.9: the question names the consequence; Cancel starts nothing and
+    changes nothing, OK runs the read."""
+    dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
+    dock.load_entry("t")
+    main_window.connection.board = _RefreshBoard([])
+    payloads = _capture_payloads(monkeypatch)
+    before = (list(dock._tracks), list(dock._vias))
+
+    calls = _answer_question(monkeypatch, _CANCEL)
+    dock._read_refresh_from_selection(set())
+
+    assert len(calls) == 1
+    assert calls[0][0] == "Layers to read"
+    assert calls[0][1] == ("No layer is selected. Refresh deletes every track "
+                           "record of this cell. Continue?")
+    assert payloads == []                          # nothing was started
+    assert (dock._tracks, dock._vias) == before    # and nothing changed
+
+    _answer_question(monkeypatch, _OK)
+    dock._read_refresh_from_selection(set())
+
+    assert payloads and payloads[-1]["layers"] == set()
+
+
+def test_the_empty_set_confirmation_covers_the_fast_path(main_window, tmp_path,
+                                                         monkeypatch):
+    """The REMEMBERED set can be empty too, and the fast path would then delete
+    those records just as silently: the check lives in the read, so one place
+    covers both entry points."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _RefreshBoard([])
+    remember_read_layers([])                       # the user unchecked everything
+    payloads = _capture_payloads(monkeypatch)
+    calls = _answer_question(monkeypatch, _CANCEL)
+
+    dock._on_refresh_geometry()                    # the one-click path
+
+    assert len(calls) == 1
+    assert payloads == []
+
+
+def test_only_a_provided_and_empty_set_asks(main_window, tmp_path, monkeypatch):
+    """The None-vs-empty distinction the design rests on: ALL_COPPER_LAYERS (None)
+    and a set with layers in it both ask NOTHING."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _RefreshBoard([])
+    payloads = _capture_payloads(monkeypatch)
+    calls = _answer_question(monkeypatch, _OK)
+
+    dock._read_refresh_from_selection(ALL_COPPER_LAYERS)
+    dock._read_refresh_from_selection({"F.Cu"})
+
+    assert calls == []
+    assert [payload["layers"] for payload in payloads] == [None, {"F.Cu"}]
+
+
+def test_an_empty_layer_set_only_logs_on_import(main_window, tmp_path, monkeypatch):
+    """Э2а: Import deletes nothing, so no window — but the line must be exact: an
+    empty set silences ONLY the tracks, and the read still makes sense."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    main_window.connection.board = _ImportBoard([])
+    payloads = _capture_payloads(monkeypatch)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
+    calls = _answer_question(monkeypatch, _OK)
+
+    dock._read_import_from_selection(set())
+
+    assert calls == []                             # no window for Import
+    assert payloads and payloads[-1]["layers"] == set()   # the read still runs
+    assert any("no track will be read" in m for m in messages)
+    assert any("vias and components are read as usual" in m for m in messages)

@@ -114,6 +114,13 @@ def copper_layer_order(layers: Iterable[int]) -> list[int]:
     In1.Cu..In30.Cu range. Callers therefore never need to know a single layer
     VALUE — which is the point, since a value is not a place in the stack (see
     the module docstring)."""
+    # The signature promises ANY Iterable, and the three passes below would then
+    # silently exhaust a GENERATOR after the first one: the read would collapse to
+    # a single F.Cu with no error at all (measured: copper_layer_order(genexp) ->
+    # [3]). kipy's get_enabled_layers() returns a real list today — which is
+    # exactly why this must be pinned here AND by a test (Э7.10), not left to a
+    # caller's good manners.
+    layers = list(layers)
     front = [layer for layer in layers if layer == BoardLayer.BL_F_Cu]
     inner = sorted(layer for layer in layers
                    if BoardLayer.BL_In1_Cu <= layer <= BoardLayer.BL_In30_Cu)

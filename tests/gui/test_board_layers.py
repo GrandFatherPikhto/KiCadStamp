@@ -174,6 +174,16 @@ class TestCopperLayerOrder:
         assert copper_layer_order([]) == []
         assert copper_layer_order(list(NON_COPPER)) == []
 
+    def test_a_generator_is_not_silently_exhausted(self):
+        """Э2б/Э7.10: the signature promises ANY Iterable, and the three passes
+        inside would exhaust a generator on the first one — the read would then
+        collapse to a single F.Cu with no error at all (measured). kipy returns a
+        real list today, so only this test keeps the fix from being lost again."""
+        ordered = [F, IN1, IN2, B]
+        assert copper_layer_order(layer for layer in [B, IN2, F, IN1]) == ordered
+        assert copper_layer_order(iter([B, IN2, F, IN1])) == ordered
+        assert copper_layer_order(list(ordered)) == ordered
+
 
 class TestLiveCopperName:
     """A live Track carries a DOMAIN layer (kicadstamp.domain.geometry), whose

@@ -15813,3 +15813,11 @@ msgstr "пропущен {layer}: пусто в выделении"
 #, python-brace-format
 msgid "hidden copper layers on the board: {layers} — the selection in KiCad cannot see their copper"
 msgstr "скрытые медные слои платы: {layers} — выделение в KiCad меди на них не видит"
+
+#: gui/docks/cell_editor.py
+msgid "No layer is selected. Refresh deletes every track record of this cell. Continue?"
+msgstr "Не выбран ни один слой. Refresh удалит из ячейки все записи дорожек. Продолжить?"
+
+#: gui/docks/cell_editor.py
+msgid "No layer is selected — no track will be read (vias and components are read as usual)."
+msgstr "Не выбран ни один слой — дорожки не читаются (виа и компоненты читаются как обычно)."

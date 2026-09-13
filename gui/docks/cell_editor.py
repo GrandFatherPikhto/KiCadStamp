@@ -158,6 +158,16 @@ def record_report_line(sign: str, record: dict, kind: str) -> str:
 logger = logging.getLogger(__name__)
 
 
+def _is_empty_layer_set(layers) -> bool:
+    """True for a PROVIDED layer set with nothing in it (Э2а).
+
+    ALL_COPPER_LAYERS is None, so "no restriction" and "read no track at all" stay
+    two different answers — the whole design rests on that difference (P.4 of the
+    plan), which is also why the answer is a confirmation and never a greyed-out
+    button."""
+    return layers is not None and not layers
+
+
 def _warn_hidden_copper_layers(adapter) -> None:
     """One Log line naming the board's HIDDEN copper layers (Э2), emitted from the
     WORKER that is already reading that same board.
@@ -1584,6 +1594,14 @@ class CellDock(QWidget):
             return
         if self._active_op is not None:
             return
+        # Э2а: an EMPTY layer set deletes every track record of this cell on
+        # Refresh, and since the preview dialog was removed (2026-09-06, "click =
+        # apply immediately") this confirmation is the ONLY place the consequence
+        # can be seen BEFORE it happens. The check sits in the read itself, so it
+        # covers the fast path (an empty REMEMBERED set) and the dialog path (all
+        # boxes unchecked) alike.
+        if _is_empty_layer_set(layers) and not self._confirm_empty_layers():
+            return
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_refresh_plan never mutates them, and the records
         # it returns are the SAME dict objects, so Apply lands on the loaded
@@ -1648,6 +1666,18 @@ class CellDock(QWidget):
             _("Could not read the board's copper layers: {error}").format(
                 error=message),
             _ERROR_STYLE)
+
+    def _confirm_empty_layers(self) -> bool:
+        """Э2а: name the CONSEQUENCE, not a generic "are you sure?". Cancel starts
+        nothing and changes nothing; OK runs the read, whose tracks-side effect is
+        exactly what the text says — only the cell's track records go."""
+        reply = QMessageBox.question(
+            self, _("Layers to read"),
+            _("No layer is selected. Refresh deletes every track record of this "
+              "cell. Continue?"),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        return reply == QMessageBox.StandardButton.Ok
 
     def _report_layer_read(self, report) -> None:
         """The per-read layer report (Э5, printed on BOTH paths by Э4): which
@@ -1904,6 +1934,15 @@ class CellDock(QWidget):
             return
         if self._active_op is not None:
             return
+        # Э2а: for Import nothing is deleted, so no window is needed — but the Log
+        # line must be exact: an empty set silences ONLY the tracks (the filter
+        # stands on the tracks alone), while vias and components are read as usual,
+        # so the read itself still makes sense.
+        if _is_empty_layer_set(layers):
+            self._show_message(
+                _("No layer is selected — no track will be read (vias and "
+                  "components are read as usual)."),
+                _WARN_STYLE)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_import_plan never mutates them, and the plan's
         # new records are brand-new dicts to APPEND on Apply (existing records

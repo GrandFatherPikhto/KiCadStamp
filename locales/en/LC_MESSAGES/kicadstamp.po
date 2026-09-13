@@ -17153,3 +17153,11 @@ msgstr ""
 #, python-brace-format
 msgid "hidden copper layers on the board: {layers} — the selection in KiCad cannot see their copper"
 msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "No layer is selected. Refresh deletes every track record of this cell. Continue?"
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "No layer is selected — no track will be read (vias and components are read as usual)."
+msgstr ""
