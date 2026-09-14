@@ -420,7 +420,8 @@ def _refresh_snapshot_worker(connection: Any) -> Dict[str, Any]:
 def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
                           on_ready: Callable[[], Any],
                           on_error: Callable[[str], Any], *,
-                          busy_text: Optional[str] = None) -> Any:
+                          busy_text: Optional[str] = None,
+                          on_refused: Optional[Callable[[], Any]] = None) -> Any:
     """Rebuild the board snapshot on a worker thread, then continue on the UI
     thread — "freshness at the point of use".
 
@@ -444,8 +445,26 @@ def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
         the cached snapshot, the only data there is;
       * another long op already holds the shared socket — the request is
         REFUSED and logged, never queued (a second concurrent owner on the same
-        REQ socket is exactly the corruption this module exists to prevent).
-        Callers normally make that click impossible by passing a guard widget.
+        REQ socket is exactly the corruption this module exists to prevent), and
+        ``on_refused`` (when given) runs so the caller can tell the two ``None``
+        outcomes apart.
+
+    ``on_refused`` is the ONLY signal that separates "the continuation already
+    ran" from "the request was refused" — both return ``None``, deliberately
+    (the refusal contract above is pinned by
+    ``test_refresh_snapshot_then_refuses_while_another_long_op_holds_the_socket``).
+    A caller that must react to a refusal passes it; a caller that does not care
+    passes nothing and keeps the previous behaviour byte for byte. It runs
+    synchronously on the calling (UI) thread and must be cheap and must NOT
+    touch the adapter — it only schedules
+    (:func:`refresh_snapshot_then_with_retry`) or reports.
+
+    A guard widget does NOT make that click impossible: it disables the
+    caller's own button for the caller's own operation only, while the ~400 ms
+    selection-poll tick holds the shared socket ~16 % of the time (measured
+    2026-09-14 from ``diagnostics/board_timing_806966.jsonl``). Clicks that must
+    survive a busy socket go through :func:`refresh_snapshot_then_with_retry`,
+    never through a guard alone.
 
     Note that no adapter call ever happens on the calling (UI) thread: the
     rebuild runs on the worker thread, which is what keeps this compatible with
@@ -458,6 +477,8 @@ def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
     if getattr(connection, "long_op_active", False):
         logger.warning("Snapshot refresh refused: another long operation already "
                        "holds the shared kipy socket")
+        if on_refused is not None:
+            on_refused()
         return None
     return start_long_op(connection, widgets, _refresh_snapshot_worker,
                          lambda _result: on_ready(), on_error, connection,

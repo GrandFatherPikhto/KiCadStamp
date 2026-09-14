@@ -130,3 +130,42 @@ def test_refresh_snapshot_then_refuses_while_another_long_op_holds_the_socket(
     assert log == []                     # neither on_ready nor on_error
     assert connection.refresh_threads == []
     assert any("refused" in r.message for r in caplog.records)
+
+
+def test_refresh_snapshot_then_reports_a_refusal_through_on_refused(caplog):
+    """Э1 — the two ``None`` outcomes are distinguishable: when another long op
+    holds the socket, the caller's ``on_refused`` runs (and neither on_ready nor
+    on_error does), so a click can react instead of dead-ending. The internal
+    WARNING stays diagnostic (gui.worker)."""
+    connection = _RefreshingConnection([["stale"]])
+    connection.long_op_active = True
+    log: list = []
+
+    with caplog.at_level(logging.WARNING):
+        controller = refresh_snapshot_then(
+            connection, (), lambda: log.append("ready"),
+            lambda message: log.append(("error", message)),
+            on_refused=lambda: log.append("refused"))
+
+    assert controller is None
+    assert log == ["refused"]            # ONLY the refusal signal
+    assert connection.refresh_threads == []
+    assert any("refused" in r.message for r in caplog.records)
+
+
+def test_refresh_snapshot_then_never_refuses_without_a_live_board():
+    """Э1 — ``on_refused`` marks a REFUSAL, not the "no live board" fallback:
+    there the continuation still runs at once on the cached snapshot (the old
+    synchronous behaviour) and no refusal is reported."""
+    connection = SimpleNamespace(snapshot=["cached"], board=None,
+                                 long_op_active=False)
+    log: list = []
+
+    controller = refresh_snapshot_then(
+        connection, (), lambda: log.append("ready"),
+        lambda message: log.append(("error", message)),
+        on_refused=lambda: log.append("refused"))
+
+    assert controller is None
+    assert log == ["ready"]
+    assert connection.long_op_active is False
