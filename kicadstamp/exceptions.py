@@ -112,6 +112,39 @@ def format_fatal_error(title: str, problems: list) -> str:
     return "\n".join(lines)
 
 
+def fatal_error_reason(error) -> str:
+    """The REASON carried by an error whose text is a format_fatal_error() block
+    — WITHOUT the box and WITHOUT the trailing "Placement stopped, board not
+    modified. Fix the config and run again." verdict (plan_2026_09_14 Э3).
+
+    That verdict only makes sense where the run really DOES stop. A curated tree
+    redraw catches such an error PER NODE and keeps going — the board IS being
+    modified — so embedding the whole block into its warning read "Placement
+    stopped, board not modified" at the exact moment the board was touched, and
+    passed a config-typo verdict the user would go hunting for.
+
+    Planners elsewhere extract the title line by a literal English prefix
+    (validation._fatal_title_line). That silently does nothing under a translated
+    catalogue (the heading itself is localized), which is why this helper strips
+    the STRUCTURE instead: the box lines and the verdict line by their own
+    localized text (the very msgids format_fatal_error used), plus the
+    "FATAL ERROR: " heading by the localized marker of its own msgid. Anything
+    that is not a formatted fatal block is returned as-is, stripped — so a plain
+    ValidationError keeps its full text."""
+    text = str(error)
+    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
+    heading = _("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
+    body = [ln.strip() for ln in text.splitlines()]
+    body = [ln for ln in body if ln and set(ln) != {"="} and ln != verdict]
+    if not body:
+        return text.strip()
+    if heading and body[0].startswith(heading):
+        body[0] = body[0][len(heading):].strip()
+        if not body[0]:
+            body.pop(0)
+    return "; ".join(body) if body else text.strip()
+
+
 def check_unknown_keys(data: dict, known_keys: set, title: str, extra_hint: str = "") -> None:
     """
     Fatal if data has keys outside known_keys. Every YAML block in this

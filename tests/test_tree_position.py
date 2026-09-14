@@ -337,6 +337,195 @@ class TestRigidGroupCaptureApply:
         assert cap.local_offset.y == 9 * MM
 
 
+class TestRigidCaptureMountParent:
+    """Э2 (plan_2026_09_14): a kind "mount" node standing as a rigid-group
+    PARENT resolves through mount_node_base. A mount node's ref is a tree-LOCAL
+    name (a named anchor point), never a board refdes, so the (ref, None) pair
+    the old capture fed to resolve_base_live_position asked the board for a
+    footprint that cannot exist; the child then silently degraded to "redrawn
+    from its own record fields, not rigidly" — losing the user's hand-fit AND
+    blaming the config for a typo it did not have. Shape taken from Denis's
+    live profile node verbatim (kind mount parent, kind placement child)."""
+
+    def _tree(self) -> LinkedTree:
+        child = _node_dc(ref="fpga_oscill_fpga", kind="placement", xy=(-2.0, 0.0))
+        mount = TreeNode(
+            ref="fpga_22_oscill", kind="mount", xy=(0.0, 0.0), polar=None,
+            rotation=0.0, name=None, group=None, children=[child],
+            anchor=TreeAnchor(role="FPGA", anchor_sheet="FPGA",
+                              anchor_cluster="FPGA", anchor_pad="22",
+                              is_origin=False))
+        anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                              record=None, is_origin=True, is_external=False)
+        nodes = [LinkedNode(
+            node=mount, record=None, is_external=False,
+            children=[LinkedNode(
+                node=child, record=_record("placement", "fpga_oscill_fpga"),
+                is_external=False, children=[])])]
+        return LinkedTree(name="fpga", anchor=anchor, nodes=nodes)
+
+    def _patch_mount_seam(self, monkeypatch, pad_pos):
+        """The live mount seam: role FPGA + sheet/cluster/pad 22 resolve, and the
+        pad position IS the mount base. Returns the list of pads read — proof the
+        mount's OWN pad was used, not a ref lookup."""
+        import kicadstamp.tree_position as tp
+
+        class _FakeFp:
+            position = Vector2.from_xy(0, 0)
+            angle_deg = 0.0
+
+        class _FakeResolver:
+            def __init__(self, *a, **k):
+                pass
+
+            def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
+                                  anchor_cluster, label=""):
+                assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
+                    (None, "FPGA", "FPGA", "FPGA")
+                return _FakeFp()
+
+        reads = []
+
+        def fake_pad(adapter, fp, pad, label):
+            reads.append(pad)
+            return pad_pos
+
+        monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+        monkeypatch.setattr(tp, "resolve_anchor_pad_position", fake_pad)
+        return reads
+
+    def _patch_child_and_parent_rotations(self, monkeypatch, pad_pos):
+        import kicadstamp.tree_position as tp
+
+        def fake_child_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+            # A ref-based parent read would arrive here with the MOUNT's ref —
+            # the trap that makes the mutation red instead of silently non-rigid.
+            assert ref == "fpga_oscill_fpga", (
+                f"a mount ref must never be looked up on the board: {ref!r}")
+            return Vector2.from_xy(pad_pos.x - 2 * MM, pad_pos.y)
+
+        monkeypatch.setattr(tp, "resolve_base_live_position", fake_child_pos)
+        monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+
+    def test_mount_parent_captures_the_child_rigidly(self, monkeypatch):
+        """Э4 guard #4: the child of a mount parent IS captured (rigidly). A
+        mutation that drops the mount-anchor parsing makes the capture fall into
+        the swallowing except and yields NO capture — red, not "quietly
+        non-rigid"."""
+        pad_pos = Vector2.from_xy(100 * MM, 50 * MM)
+        reads = self._patch_mount_seam(monkeypatch, pad_pos)
+        self._patch_child_and_parent_rotations(monkeypatch, pad_pos)
+
+        captures, parent_map = capture_rigid_state(
+            "adapter", "cfg", self._tree(), ["fpga_oscill_fpga"], {})
+
+        assert parent_map["fpga_oscill_fpga"] == ("fpga_22_oscill", None, False)
+        assert reads == ["22"]                      # the mount's OWN pad was used
+        cap = captures["fpga_oscill_fpga"]          # captured RIGIDLY, not skipped
+        assert cap.mount_parent is not None
+        assert cap.mount_parent.ref == "fpga_22_oscill"
+        assert cap.local_offset.x == -2 * MM
+        assert cap.local_offset.y == 0
+        assert cap.relative_rotation == pytest.approx(0.0)
+
+    def test_mount_parent_apply_reprojects_into_its_current_base(self, monkeypatch):
+        """The apply half re-resolves the mount base through the seam: the pad
+        moved 100 -> 200 mm, so the child follows to 198 mm (its captured -2 mm
+        offset) — the mount base, never a ref lookup, is the new frame."""
+        pad_pos = Vector2.from_xy(100 * MM, 50 * MM)
+        self._patch_mount_seam(monkeypatch, pad_pos)
+        self._patch_child_and_parent_rotations(monkeypatch, pad_pos)
+        captures, parent_map = capture_rigid_state(
+            "adapter", "cfg", self._tree(), ["fpga_oscill_fpga"], {})
+        cap = captures["fpga_oscill_fpga"]
+
+        self._patch_mount_seam(monkeypatch, Vector2.from_xy(200 * MM, 50 * MM))
+        parent_ref, parent_record, _is_anchor = parent_map["fpga_oscill_fpga"]
+        override = apply_rigid_override("adapter", "cfg", parent_ref, parent_record,
+                                        cap, {})
+        assert override.position.x == 198 * MM
+        assert override.position.y == 50 * MM
+
+
+def test_capture_warning_drops_the_fatal_board_verdict(monkeypatch, caplog):
+    """Э3 (plan_2026_09_14): when a node's live base fails with a FORMATTED
+    fatal (format_fatal_error), the capture warning must carry the REASON — never
+    the "Placement stopped, board not modified..." verdict, which is false here
+    because this run keeps going and the board IS modified. Guard #7 is the
+    negative assertion on the localized verdict text."""
+    import logging
+
+    import kicadstamp.tree_position as tp
+    from kicadstamp.exceptions import format_fatal_error
+    from kicadstamp.i18n import _
+
+    def boom(*a, **k):
+        raise ValidationError(format_fatal_error(
+            "fpga_22_oscill: anchor not found", ["no such ref on the board"]))
+
+    monkeypatch.setattr(tp, "resolve_base_live_position", boom)
+    tree = _linked_tree("t", anchor_ref=None, is_origin=True,
+                        nodes=[_linked_node("D1", record=_record("clone", "D1"))])
+
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.tree_position"):
+        captures, _parent_map = capture_rigid_state("adapter", "cfg", tree, ["D1"], {})
+
+    assert captures == {}
+    messages = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "no such ref on the board" in messages       # the reason survives
+    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
+    assert verdict not in messages                      # the foreign verdict does not
+
+
+# ── the seam's own completeness (plan_2026_09_14 Э2, Э4 guard #6) ───────────
+# The walks registered here are the ones mount_node_base's docstring promises to
+# serve. This is the guard that keeps a SIXTH walk from being added silently:
+# the registry and the docstring are asserted to agree, and every registered
+# walk's source must actually call the seam. (A walk added in a brand-new module
+# still has to be registered by hand — the docstring is the register of record,
+# and the docstring check below turns red the moment the two drift apart.)
+
+_SEAM_WALKS = {
+    "kicadstamp/placement/entity_placement.py": ("_walk",),
+    "kicadstamp/tree_position.py": ("_node_path_pose", "layout_tree_from_base",
+                                    "capture_rigid_state", "_mount_parent_base_pose"),
+    "kicadstamp/scheme_list_apply.py": ("_collect_scheme_nodes",),
+}
+
+
+def test_every_registered_mount_walk_goes_through_the_seam():
+    """Э4 guard #6: the docstring of mount_node_base claims to be THE single seam
+    for EVERY recursive tree walk. That claim is only worth anything if no walk
+    special-cases a mount node WITHOUT calling it — exactly how the fifth walk
+    (capture_rigid_state / _node_parent_map) was missed for months."""
+    import ast
+    from pathlib import Path
+
+    from kicadstamp.tree_position import mount_node_base
+
+    root = Path(__file__).resolve().parent.parent
+    for rel, names in _SEAM_WALKS.items():
+        text = (root / rel).read_text(encoding="utf-8")
+        module = ast.parse(text)
+        by_name = {n.name: n for n in ast.walk(module)
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for name in names:
+            assert name in by_name, f"{rel}::{name} — registered seam user is gone"
+            segment = ast.get_source_segment(text, by_name[name]) or ""
+            assert "mount_node_base" in segment or "_mount_parent_base_pose" in segment, (
+                f"{rel}::{name} handles a mount node without the seam "
+                "(mount_node_base) — a mount base resolved any other way is the "
+                "defect plan_2026_09_14 Э2 fixed")
+
+    doc = mount_node_base.__doc__ or ""
+    for token in ("entity_placement._walk", "node-path walk",
+                  "layout_tree_from_base", "scheme_list_apply",
+                  "capture_rigid_state", "_node_parent_map", "FIFTH"):
+        assert token in doc, (
+            f"mount_node_base's docstring no longer names {token!r} — the "
+            "register of walks and the seam have drifted apart")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # resolve_record_live_position — thin kind dispatcher (monkeypatched deps)
 # ═══════════════════════════════════════════════════════════════════════════

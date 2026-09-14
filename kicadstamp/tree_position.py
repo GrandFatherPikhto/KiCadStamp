@@ -33,7 +33,7 @@ import logging
 
 from .anchor_graph import Record, build_records
 from .cell_frame import CellFrame, rotate_ydown_mm
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .geometry.cell_anchor import cell_mount_offset
 from .i18n import _
 from .domain.geometry import BoardLayer, Vector2
@@ -142,8 +142,13 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
 
     THE single seam for the mount-base substitution in EVERY recursive tree walk
     (entity_placement._walk and its node-path walk, layout_tree_from_base,
-    scheme_list_apply) so materialization (Apply) and the live/curated path can
-    never drift. `tree` is the plain Tree whose nodes are being laid and
+    scheme_list_apply) — and, since plan_2026_09_14 Э2, the rigid-redraw parent
+    lookup too (tree_position.capture_rigid_state / _node_parent_map, through
+    _mount_parent_base_pose): that was the FIFTH walk over the same trees and
+    the one that had been left outside this seam, so a mount node standing as a
+    rigid-group PARENT used to be fed to resolve_base_live_position as if its
+    ref were a board refdes — which a mount ref never is. `tree` is the plain
+    Tree whose nodes are being laid and
     `tree_base_pos`/`tree_base_rot` the EFFECTIVE base its content is laid from
     (the same (pos, rot) the walk starts its top level from) — the internal
     method needs both to pose the placing node; a caller with no plain Tree (a
@@ -874,9 +879,23 @@ class RigidCapture:
     moved (plan_2026_08_29_tree_live_rigid_redraw.md §1): the node's offset
     from its parent in the parent's OLD local frame (so it can be re-projected
     into the parent's NEW frame at apply time), plus the node's rotation
-    relative to its parent (preserved across the parent's rotation change)."""
+    relative to its parent (preserved across the parent's rotation change).
+
+    mount_parent/mount_tree — the MOUNT-parent context (plan_2026_09_14 Э2).
+    A captured node whose parent is a kind "mount" node cannot be re-resolved at
+    apply time from the (parent_ref, parent_record) pair apply_rigid_override
+    receives: a mount node's ref is a tree-LOCAL name (a named anchor point,
+    e.g. "pad 22 of the FPGA component"), never a board refdes, and its record
+    is None by construction. The mount node and the plain Tree it belongs to are
+    therefore captured alongside the offset, and the apply half re-resolves the
+    parent's CURRENT base through the ONE seam (mount_node_base,
+    _mount_parent_base_pose) — without widening apply_rigid_override's signature
+    for its other callers, which pass (ref, record) only. Both are None for a
+    NORMAL parent, which keeps every existing path byte-identical."""
     local_offset: Vector2
     relative_rotation: float
+    mount_parent: "TreeNode | None" = None
+    mount_tree: "Tree | None" = None
 
 
 def _tree_node_index(tree: LinkedTree) -> dict[str, LinkedNode]:
@@ -915,6 +934,45 @@ def _node_parent_map(tree: LinkedTree) -> dict[str, tuple[str | None, Record | N
     return parent_map
 
 
+def _mount_parent_base_pose(adapter, cfg, mount_node: TreeNode,
+                            tree: "Tree | None", sheet_names
+                            ) -> tuple[Vector2, float]:
+    """Absolute (pos, rot) of a kind "mount" node standing as a rigid-group
+    PARENT — the fifth tree walk's trip through mount_node_base, THE single seam
+    (plan_2026_09_14 Э2).
+
+    A mount node's `ref` is a tree-LOCAL name, never a board refdes: feeding it
+    to resolve_base_live_position asks the board for a footprint that must not
+    exist, so the capture used to die on a FATAL "anchor not found on the board"
+    and fall back to "redrawn from its own record fields, not rigidly" — the
+    user's hand-fit was silently lost AND the warning blamed the config for a
+    typo it did not have. The base is mount_node_base's job, fed the plain Tree +
+    the forest exactly as gui/docks/trees_dock._resolve_node_base_pose and the
+    stage-2 layout feed it.
+
+    The forest is derived from cfg.trees (the trees dock pins `cfg.trees is its
+    own list` — trees_dock_cfg_trees_desync), so no caller has to carry it. An
+    INTERNAL mount (a role THIS tree places) additionally needs the tree's OWN
+    layout base (tree_layout_base), computed ON DEMAND: a LIVE mount (a role
+    outside the tree) must not fail because the tree's own anchor happens to be
+    unresolvable, so the live branch is taken first — from the structural
+    classification this helper and the seam SHARE (resolve_internal_mount_match,
+    never a second resolver)."""
+    forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
+    if tree is None:
+        return mount_node_base(mount_node, None, _ORIGIN, 0.0, adapter, cfg,
+                               sheet_names, forest)
+    if resolve_internal_mount_match(cfg, tree, mount_node) is None:
+        # LIVE method — the tree base is irrelevant (and tree_layout_base could
+        # fail for an unrelated anchor reason), so take the live branch directly.
+        return mount_node_base(mount_node, None, _ORIGIN, 0.0, adapter, cfg,
+                               sheet_names, forest)
+    tree_base_pos, tree_base_rot = tree_layout_base(
+        adapter, cfg, tree, sheet_names, forest)
+    return mount_node_base(mount_node, tree, tree_base_pos, tree_base_rot,
+                           adapter, cfg, sheet_names, forest)
+
+
 def _base_position_or_origin(adapter, cfg, ref, record, resolved_points, sheet_names) -> Vector2:
     """resolve_base_live_position with the origin-anchor special case: an
     origin anchor (ref=None AND record=None) is the absolute (0,0) point."""
@@ -950,29 +1008,53 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
     parent's NEW frame at apply time. Returns (captures, parent_map)."""
     index = _tree_node_index(tree)
     parent_map = _node_parent_map(tree)
+    forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
+    plain_tree = forest.get(tree.name)
     resolved_points: dict = {}
     captures: dict[str, RigidCapture] = {}
     for name in names:
         ln = index.get(name)
         if ln is None or ln.record is None:
             continue  # external/point never emit names; defensive only
+        parent_ref, parent_record, parent_is_anchor = parent_map[name]
+        # A kind "mount" PARENT (plan_2026_09_14 Э2): its base is its OWN
+        # anchor's position through mount_node_base, never a live ref lookup
+        # (_mount_parent_base_pose explains why). The tree ANCHOR
+        # (parent_is_anchor=True) is deliberately excluded: its ref is a real
+        # record/external refdes and keeps the existing path untouched.
+        parent_ln = None if parent_is_anchor or parent_ref is None \
+            else index.get(parent_ref)
+        mount_parent = (parent_ln.node if parent_ln is not None
+                        and parent_ln.node.kind == "mount" else None)
         try:
             child_pos_old = resolve_base_live_position(adapter, cfg, ln.node.ref, ln.record,
                                                        resolved_points, sheet_names)
             child_rot_old = _base_rotation_or_zero(adapter, cfg, ln.node.ref, ln.record, sheet_names)
-            parent_ref, parent_record, _is_anchor = parent_map[name]
-            parent_pos_old = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
-                                                      resolved_points, sheet_names)
-            parent_rot_old = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record,
-                                                    sheet_names)
+            if mount_parent is not None:
+                parent_pos_old, parent_rot_old = _mount_parent_base_pose(
+                    adapter, cfg, mount_parent, plain_tree, sheet_names)
+            else:
+                parent_pos_old = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
+                                                          resolved_points, sheet_names)
+                parent_rot_old = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record,
+                                                        sheet_names)
         except Exception as exc:  # noqa: BLE001 — one node without a live base
+            # Э3 (plan_2026_09_14): the caught error's text may be a
+            # format_fatal_error() block, whose "Placement stopped, board not
+            # modified" verdict is FALSE here — this run keeps going and the
+            # board IS modified. fatal_error_reason keeps the reason and drops
+            # the verdict, so the warning never contradicts itself nor blames the
+            # config for a typo it does not have.
             logger.warning(_("tree redraw: node {name!r} has no resolvable live "
                              "position ({error}) — redrawn from its own record "
-                             "fields, not rigidly").format(name=name, error=exc))
+                             "fields, not rigidly").format(
+                                 name=name, error=fatal_error_reason(exc)))
             continue
         captures[name] = RigidCapture(
             local_offset=child_local_offset(child_pos_old, parent_pos_old, parent_rot_old),
             relative_rotation=relative_rotation_deg(child_rot_old, parent_rot_old),
+            mount_parent=mount_parent,
+            mount_tree=plain_tree if mount_parent is not None else None,
         )
     return captures, parent_map
 
@@ -982,10 +1064,20 @@ def apply_rigid_override(adapter, cfg, parent_ref, parent_record, capture: Rigid
     """Apply half of the rigid-group redraw (plan §1): re-project the captured
     local offset into the parent's CURRENT (post-move) frame and preserve the
     node's rotation relative to the parent. Returns the PositionOverride to
-    feed into the ApplyPipeline."""
-    parent_pos_new = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
-                                              {}, sheet_names)
-    parent_rot_new = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record, sheet_names)
+    feed into the ApplyPipeline.
+
+    A MOUNT parent (capture.mount_parent set — plan_2026_09_14 Э2) is
+    re-resolved through mount_node_base instead: (parent_ref, parent_record)
+    cannot express it (a mount ref is a tree-local name and its record is None
+    by construction), which is exactly the bug this fixes. Every other capture
+    keeps the (ref, record) path byte-for-byte."""
+    if capture.mount_parent is not None:
+        parent_pos_new, parent_rot_new = _mount_parent_base_pose(
+            adapter, cfg, capture.mount_parent, capture.mount_tree, sheet_names)
+    else:
+        parent_pos_new = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
+                                                  {}, sheet_names)
+        parent_rot_new = _base_rotation_or_zero(adapter, cfg, parent_ref, parent_record, sheet_names)
     child_pos_new = child_absolute_position(parent_pos_new, parent_rot_new, capture.local_offset)
     child_rot_new = parent_rot_new + capture.relative_rotation
     return PositionOverride(position=child_pos_new, rotation_deg=child_rot_new)
