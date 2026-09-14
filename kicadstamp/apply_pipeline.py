@@ -913,6 +913,57 @@ class ApplyPipeline:
         self._execute()
         return None
 
+    # ── Lifetime ────────────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        """Release this run's own adapter — and with it the kipy client's pynng
+        socket (kicadstamp/kicad/adapter.py:72).
+
+        The pipeline OWNS the adapter it builds in _connect_adapter(), but
+        run() deliberately does NOT close it: PlacerDock reads
+        ``pipeline.adapter`` AFTER run() has returned (_tag_cluster reads
+        footprints and writes ``Cluster=`` through it), so the lifetime
+        belongs to the CALLER, not to run()
+        (plan_2026_09_14_apply_pipeline_socket_leak.md P.2). Every caller that
+        is done with the pipeline calls this — or uses the pipeline as a
+        context manager — instead of leaving the socket to the GC.
+
+        Measured live on profiles/3ch-awg-tia-v103 (tree fpga, 22 names, план
+        P.0): the forest redraw creates ONE adapter per name plus one of its
+        own, and NOT closing them cost 6.0 s of an 18.7 s action — three
+        ``pynng Socket.close() did not return within 2.0s`` warnings, exactly
+        2.0 s each, on sockets the GC finalized in a batch.
+
+        Idempotent (the reference is dropped BEFORE closing, so the second and
+        the tenth call are no-ops) and NEVER raises — the same contract as
+        KiCadBoardAdapter.close(), for the same reason: the socket may already
+        be broken, which is often precisely why this is being called.
+        """
+        adapter, self.adapter = self.adapter, None
+        if adapter is None:
+            return
+        try:
+            adapter.close()
+        except Exception:
+            # Same contract as adapter.close(): a close() failure is never
+            # actionable and must not propagate into an unwinding stack.
+            logger.debug("Closing the pipeline's adapter failed (ignored)",
+                         exc_info=True)
+
+    def __enter__(self) -> "ApplyPipeline":
+        """Context-manager form of the same contract — ``with ApplyPipeline(
+        ...) as pipeline:`` guarantees the socket is released on the happy
+        path, on an exception inside the block AND on a per-name failure (the
+        cascade's ``except PlacerError`` branch is a normal path, see
+        run_cascade)."""
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        # Never swallow the exception that is unwinding (a failed name must
+        # still reach the cascade's per-name failure branch).
+        return False
+
 
 # ── Module-level convenience entry point ──────────────────────────────────
 
@@ -968,7 +1019,11 @@ def run_apply(options: RunOptions, cfg=None, ctx=None) -> list[str] | None:
         preloaded_cfg=cfg,
         preloaded_ctx=ctx,
     )
-    return pipeline.run()
+    # run_apply() owns this pipeline exclusively — it hands the caller nothing
+    # but the dry-run report (a list of strings), so the socket goes back in
+    # the SAME line the run is made from (plan ...socket_leak P.3.2).
+    with pipeline:
+        return pipeline.run()
 
 
 def cmd_apply(args, cfg=None, ctx=None):

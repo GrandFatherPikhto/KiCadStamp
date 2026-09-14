@@ -89,11 +89,18 @@ def run_cascade(config_path: str, cfg, ctx, names: List[str],
     for name in names:
         logger.info(_("Redraw dependents: applying {name!r}").format(name=name))
         try:
-            pipeline = ApplyPipeline(
+            # The `with` is what keeps the sockets from piling up: EVERY name
+            # gets its own ApplyPipeline, and the pipeline owns a kipy client
+            # with a pynng socket inside (plan_2026_09_14_apply_pipeline_
+            # socket_leak P.1). `with`, not a close on the happy path, because
+            # a per-name failure is a NORMAL path here (except PlacerError
+            # below) — a failed name must hand its socket back exactly like a
+            # successful one.
+            with ApplyPipeline(
                 config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
                 timeout_ms=timeout_ms,
-                only=[name], dry_run=False)
-            pipeline.run()
+                only=[name], dry_run=False) as pipeline:
+                pipeline.run()
             results.append((name, True, None))
             logger.info(_("Redraw dependents: {name!r} — ok").format(name=name))
         except PlacerError as e:
@@ -162,54 +169,62 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     # Э3 (plan_2026_09_13_timeout_sweep): the worker's own adapter waits exactly
     # as long as the main connection does, and the per-record ApplyPipeline runs
     # below inherit the same number instead of ApplyPipeline's own default.
+    # This worker's OWN adapter carries a pynng socket too, so it is released
+    # in the finally — on the happy path AND when a name raises through
+    # adapter.refresh_board() below (plan ...socket_leak P.3.2 / P.7: adding
+    # the closure is allowed, the redraw's semantics are not touched).
     adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
-    adapter.refresh_board()
-    sheet_names = ctx.sheet_names if ctx else {}
-    captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
-
-    results: List[Tuple[str, bool, Optional[str]]] = []
-    for name in names:
-        logger.info(_("Tree redraw: applying {name!r}").format(name=name))
-        override = None
-        cap = captures.get(name)
-        if cap is not None:
-            parent_ref, parent_record, _is_anchor = parent_map[name]
-            try:
-                override = apply_rigid_override(adapter, cfg, parent_ref, parent_record,
-                                                cap, sheet_names)
-            except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
-                logger.warning(_("Tree redraw: {name!r} — rigid override failed "
-                                 "({error}); falling back to the record's own position")
-                               .format(name=name, error=e))
-        try:
-            pipeline = ApplyPipeline(
-                config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
-                timeout_ms=timeout_ms, only=[name], dry_run=False,
-                position_overrides={name: override} if override else None)
-            pipeline.run()
-            results.append((name, True, None))
-            logger.info(_("Tree redraw: {name!r} — ok").format(name=name))
-        except PlacerError as e:
-            # ValidationError/PlacerError family — already a well-formatted,
-            # expected "fatal at the boundary" message (format_fatal_error); no
-            # traceback needed (a per-record failure must not abort the rest).
-            results.append((name, False, str(e)))
-            logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
-        except ApiError as e:
-            # Same board-state rule as run_cascade (X.2.2) — this is the path
-            # Denis actually hit: a busy KiCad used to arrive as a raw stack.
-            message = _api_error_text(e)
-            results.append((name, False, message))
-            logger.error(_("Tree redraw: {name!r} — FAILED: {error}")
-                         .format(name=name, error=message))
-        except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
-            logger.exception("Tree redraw: %s failed", name)
-            results.append((name, False, str(e)))
-            logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
-        # Sync this module's adapter with the board after the run, so the NEXT
-        # child's apply_rigid_override reads the parent's post-move position.
+    try:
         adapter.refresh_board()
-    return results, warnings
+        sheet_names = ctx.sheet_names if ctx else {}
+        captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
+
+        results: List[Tuple[str, bool, Optional[str]]] = []
+        for name in names:
+            logger.info(_("Tree redraw: applying {name!r}").format(name=name))
+            override = None
+            cap = captures.get(name)
+            if cap is not None:
+                parent_ref, parent_record, _is_anchor = parent_map[name]
+                try:
+                    override = apply_rigid_override(adapter, cfg, parent_ref, parent_record,
+                                                    cap, sheet_names)
+                except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
+                    logger.warning(_("Tree redraw: {name!r} — rigid override failed "
+                                     "({error}); falling back to the record's own position")
+                                   .format(name=name, error=e))
+            try:
+                # Per-name socket, released on BOTH paths — see run_cascade.
+                with ApplyPipeline(
+                    config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
+                    timeout_ms=timeout_ms, only=[name], dry_run=False,
+                    position_overrides={name: override} if override else None) as pipeline:
+                    pipeline.run()
+                results.append((name, True, None))
+                logger.info(_("Tree redraw: {name!r} — ok").format(name=name))
+            except PlacerError as e:
+                # ValidationError/PlacerError family — already a well-formatted,
+                # expected "fatal at the boundary" message (format_fatal_error); no
+                # traceback needed (a per-record failure must not abort the rest).
+                results.append((name, False, str(e)))
+                logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+            except ApiError as e:
+                # Same board-state rule as run_cascade (X.2.2) — this is the path
+                # Denis actually hit: a busy KiCad used to arrive as a raw stack.
+                message = _api_error_text(e)
+                results.append((name, False, message))
+                logger.error(_("Tree redraw: {name!r} — FAILED: {error}")
+                             .format(name=name, error=message))
+            except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
+                logger.exception("Tree redraw: %s failed", name)
+                results.append((name, False, str(e)))
+                logger.warning(_("Tree redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+            # Sync this module's adapter with the board after the run, so the NEXT
+            # child's apply_rigid_override reads the parent's post-move position.
+            adapter.refresh_board()
+        return results, warnings
+    finally:
+        adapter.close()
 
 
 def run_curated_tree_redraw_worker(payload: dict) -> tuple:
@@ -253,98 +268,108 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
 
     # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as the
     # curated tree redraw above.
+    # THE hot path (×22 per "Redraw the whole tree" click): one local adapter
+    # plus one ApplyPipeline per name. Both halves are released explicitly —
+    # 23 unclosed sockets per click is exactly the 6.0 s of "pynng Socket.close()
+    # did not return within 2.0s" measured live (plan ...socket_leak P.0-P.1).
+    # The finally, not a happy-path close, so a failing name (or a raise out of
+    # adapter.refresh_board() below) still hands its socket back.
     adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
-    adapter.refresh_board()
-    sheet_names = ctx.sheet_names if ctx else {}
-
-    # Stage 2 (design P3 D5): lay each NORMAL flow root from its LIVE anchor and
-    # merge the absolute overrides of everything its module markers reach.
-    content_refs, flow_root_names = curated_forest_module_content(linked, selected_refs)
-    by_tree = {t.name: t for t in trees}
-    stage2: Dict[str, Any] = {}
-    for root_name in flow_root_names:
-        root = by_tree.get(root_name)
-        if root is None:
-            continue
-        try:
-            # tree_layout_base = the RAW live anchor pose + the tree's OWN inner
-            # point and angle (plan_2026_09_11_tree_inner_point_and_rotation
-            # §V.2.2). The old inline `base_rot if base_rot is not None else 0.0`
-            # silent-zero substitution is gone: a None rotation (a (point ...)
-            # anchor has none by construction) now simply contributes the tree's
-            # own EXPLICIT rotation, which the user sees and edits (§V.2.3).
-            base_pos, base_rot = tree_layout_base(
-                adapter, cfg, root, sheet_names, by_tree)
-            stage2.update(layout_tree_from_base(
-                root, base_pos, base_rot, by_tree,
-                # mount nodes (plan tree_node_own_anchor §2) need the live board
-                # to lay out from their own (role) anchor — the pure module-
-                # embedding callers pass nothing, this live caller has the
-                # adapter right here.
-                adapter=adapter, cfg=cfg, sheet_names=sheet_names))
-        except Exception as e:  # noqa: BLE001 — honest, module content stays put
-            logger.warning(_("Forest redraw: root tree {name!r} — stage-2 base "
-                             "unavailable ({error}); its embedded module content "
-                             "is left in place").format(name=root_name, error=e))
-
-    captures: Dict[str, Any] = {}
-    parent_map: Dict[str, Any] = {}
-    for tree in linked:
-        tree_captures, tree_parent_map = capture_rigid_state(
-            adapter, cfg, tree, names, sheet_names)
-        captures.update(tree_captures)
-        parent_map.update(tree_parent_map)
-
-    results: List[Tuple[str, bool, Optional[str]]] = []
-    for name in names:
-        logger.info(_("Forest redraw: applying {name!r}").format(name=name))
-        override = None
-        if name in content_refs:
-            # Module content: the stage-2 absolute layout value, not rigid.
-            if name in stage2:
-                pos, rot = stage2[name]
-                override = PositionOverride(position=pos, rotation_deg=rot)
-            else:
-                logger.warning(_("Forest redraw: module content {name!r} has no "
-                                 "stage-2 layout value — applied from its own "
-                                 "record").format(name=name))
-        else:
-            cap = captures.get(name)
-            if cap is not None:
-                parent_ref, parent_record, _is_anchor = parent_map[name]
-                try:
-                    override = apply_rigid_override(adapter, cfg, parent_ref,
-                                                    parent_record, cap, sheet_names)
-                except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
-                    logger.warning(_("Forest redraw: {name!r} — rigid override failed "
-                                     "({error}); falling back to the record's own position")
-                                   .format(name=name, error=e))
-        try:
-            pipeline = ApplyPipeline(
-                config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
-                timeout_ms=timeout_ms, only=[name], dry_run=False,
-                position_overrides={name: override} if override else None)
-            pipeline.run()
-            results.append((name, True, None))
-            logger.info(_("Forest redraw: {name!r} — ok").format(name=name))
-        except PlacerError as e:
-            # ValidationError/PlacerError family — already a well-formatted,
-            # expected "fatal at the boundary" message (format_fatal_error); no
-            # traceback needed (a per-record failure must not abort the rest).
-            results.append((name, False, str(e)))
-            logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
-        except ApiError as e:
-            # Same board-state rule as run_cascade (X.2.2).
-            message = _api_error_text(e)
-            results.append((name, False, message))
-            logger.error(_("Forest redraw: {name!r} — FAILED: {error}")
-                         .format(name=name, error=message))
-        except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
-            logger.exception("Forest redraw: %s failed", name)
-            results.append((name, False, str(e)))
-            logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+    try:
         adapter.refresh_board()
-    return results, warnings
+        sheet_names = ctx.sheet_names if ctx else {}
+
+        # Stage 2 (design P3 D5): lay each NORMAL flow root from its LIVE anchor and
+        # merge the absolute overrides of everything its module markers reach.
+        content_refs, flow_root_names = curated_forest_module_content(linked, selected_refs)
+        by_tree = {t.name: t for t in trees}
+        stage2: Dict[str, Any] = {}
+        for root_name in flow_root_names:
+            root = by_tree.get(root_name)
+            if root is None:
+                continue
+            try:
+                # tree_layout_base = the RAW live anchor pose + the tree's OWN inner
+                # point and angle (plan_2026_09_11_tree_inner_point_and_rotation
+                # §V.2.2). The old inline `base_rot if base_rot is not None else 0.0`
+                # silent-zero substitution is gone: a None rotation (a (point ...)
+                # anchor has none by construction) now simply contributes the tree's
+                # own EXPLICIT rotation, which the user sees and edits (§V.2.3).
+                base_pos, base_rot = tree_layout_base(
+                    adapter, cfg, root, sheet_names, by_tree)
+                stage2.update(layout_tree_from_base(
+                    root, base_pos, base_rot, by_tree,
+                    # mount nodes (plan tree_node_own_anchor §2) need the live board
+                    # to lay out from their own (role) anchor — the pure module-
+                    # embedding callers pass nothing, this live caller has the
+                    # adapter right here.
+                    adapter=adapter, cfg=cfg, sheet_names=sheet_names))
+            except Exception as e:  # noqa: BLE001 — honest, module content stays put
+                logger.warning(_("Forest redraw: root tree {name!r} — stage-2 base "
+                                 "unavailable ({error}); its embedded module content "
+                                 "is left in place").format(name=root_name, error=e))
+
+        captures: Dict[str, Any] = {}
+        parent_map: Dict[str, Any] = {}
+        for tree in linked:
+            tree_captures, tree_parent_map = capture_rigid_state(
+                adapter, cfg, tree, names, sheet_names)
+            captures.update(tree_captures)
+            parent_map.update(tree_parent_map)
+
+        results: List[Tuple[str, bool, Optional[str]]] = []
+        for name in names:
+            logger.info(_("Forest redraw: applying {name!r}").format(name=name))
+            override = None
+            if name in content_refs:
+                # Module content: the stage-2 absolute layout value, not rigid.
+                if name in stage2:
+                    pos, rot = stage2[name]
+                    override = PositionOverride(position=pos, rotation_deg=rot)
+                else:
+                    logger.warning(_("Forest redraw: module content {name!r} has no "
+                                     "stage-2 layout value — applied from its own "
+                                     "record").format(name=name))
+            else:
+                cap = captures.get(name)
+                if cap is not None:
+                    parent_ref, parent_record, _is_anchor = parent_map[name]
+                    try:
+                        override = apply_rigid_override(adapter, cfg, parent_ref,
+                                                        parent_record, cap, sheet_names)
+                    except Exception as e:  # noqa: BLE001 — honest fallback, never break the chain
+                        logger.warning(_("Forest redraw: {name!r} — rigid override failed "
+                                         "({error}); falling back to the record's own position")
+                                       .format(name=name, error=e))
+            try:
+                # Per-name socket, released on BOTH paths — see run_cascade.
+                with ApplyPipeline(
+                    config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
+                    timeout_ms=timeout_ms, only=[name], dry_run=False,
+                    position_overrides={name: override} if override else None) as pipeline:
+                    pipeline.run()
+                results.append((name, True, None))
+                logger.info(_("Forest redraw: {name!r} — ok").format(name=name))
+            except PlacerError as e:
+                # ValidationError/PlacerError family — already a well-formatted,
+                # expected "fatal at the boundary" message (format_fatal_error); no
+                # traceback needed (a per-record failure must not abort the rest).
+                results.append((name, False, str(e)))
+                logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+            except ApiError as e:
+                # Same board-state rule as run_cascade (X.2.2).
+                message = _api_error_text(e)
+                results.append((name, False, message))
+                logger.error(_("Forest redraw: {name!r} — FAILED: {error}")
+                             .format(name=name, error=message))
+            except Exception as e:  # noqa: BLE001 — genuinely unexpected, keep the traceback
+                logger.exception("Forest redraw: %s failed", name)
+                results.append((name, False, str(e)))
+                logger.warning(_("Forest redraw: {name!r} — FAILED: {error}").format(name=name, error=e))
+            adapter.refresh_board()
+        return results, warnings
+    finally:
+        adapter.close()
 
 
 def run_curated_forest_redraw_worker(payload: dict) -> tuple:
@@ -371,13 +396,14 @@ def run_single_node_redraw_worker(payload: dict) -> tuple:
     fail the same way the whole apply would — that is NOT fixed in Phase B."""
     ref = payload.get("ref") or payload.get("only")
     try:
-        pipeline = ApplyPipeline(
+        # Per-click socket, released on both paths — see run_cascade.
+        with ApplyPipeline(
             config_path=payload.get("config_path", ""),
             preloaded_cfg=payload.get("cfg"),
             preloaded_ctx=payload.get("ctx"),
             timeout_ms=worker_timeout_ms(payload),
-            only=[ref], dry_run=False)
-        pipeline.run()
+            only=[ref], dry_run=False) as pipeline:
+            pipeline.run()
         return [(ref, True, None)], []
     except PlacerError as e:
         # ValidationError/PlacerError family — a well-formatted expected

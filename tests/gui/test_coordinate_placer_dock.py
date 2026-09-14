@@ -18,6 +18,29 @@ from gui.docks.placer import PlacerDock
 from kicadstamp.config import Config, RuntimeContext, load_coordinate_placement
 
 
+class _PipelineStubLifetime:
+    """Lifetime half of the real ApplyPipeline, inherited by the stand-in
+    below: the pipeline's close() releases the kipy/pynng socket the run
+    created, and PlacerDock closes it in a finally after the optional
+    cluster tagging (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
+    plan_2026_09_14_apply_pipeline_socket_leak)."""
+
+    closed = 0
+
+    def close(self):
+        # Counted, so the coordinate-mode test below can assert that the early
+        # return still hands the socket back (the close sits in a finally):
+        # plan_2026_09_14_apply_pipeline_socket_leak P.3.2.
+        type(self).closed += 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data), encoding="utf-8")
 
@@ -325,7 +348,7 @@ def test_collect_redraw_inputs_coordinate_retired_blocked(main_window, tmp_path,
 def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monkeypatch):
     """Coordinate mode's Redraw places but does NOT tag Cluster — the moved
     component is identified by its own Cluster/Role (2026-08-12, Group 1)."""
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, **kwargs):
             self.items = []
 
@@ -340,6 +363,9 @@ def test_run_redraw_coordinate_skips_cluster_tagging(main_window, tmp_path, monk
                                "name": "FPGA_PERIPH/R18", "coordinate": True})
 
     assert result == {"name": "FPGA_PERIPH/R18", "tagged": None}
+    # Same run, second contract: the coordinate early-return still releases the
+    # socket (the close is in a finally, not on the happy path).
+    assert _FakePipeline.closed == 1
 
 
 def test_finish_redraw_coordinate_reports_simple_success(main_window, tmp_path, caplog):

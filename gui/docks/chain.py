@@ -816,13 +816,15 @@ class ChainDock(QWidget):
 
     def _run_redraw(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: ApplyPipeline run only — never touches a widget."""
-        pipeline = ApplyPipeline(config_path=str(payload["path"]),
-                                 preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
-                                 timeout_ms=worker_timeout_ms(payload),
-                                 only=payload["names"], dry_run=False,
-                                 isolate_spokes=payload.get("isolate_spokes"))
+        # `with` releases the run's own kipy/pynng socket on both paths
+        # (plan_2026_09_14_apply_pipeline_socket_leak P.3.2).
         try:
-            pipeline.run()
+            with ApplyPipeline(config_path=str(payload["path"]),
+                               preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
+                               timeout_ms=worker_timeout_ms(payload),
+                               only=payload["names"], dry_run=False,
+                               isolate_spokes=payload.get("isolate_spokes")) as pipeline:
+                pipeline.run()
         except (PlacerError, ValidationError) as e:
             return {"error": _("Placement failed: {error}").format(error=e)}
         except ApiError as e:

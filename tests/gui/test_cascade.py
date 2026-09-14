@@ -26,6 +26,25 @@ from gui.docks.cascade import (
 )
 
 
+class _PipelineStubLifetime:
+    """Lifetime half of the real ApplyPipeline, inherited by every stand-in
+    below instead of re-declared per class: the pipeline IS a context manager
+    whose __exit__ releases the kipy/pynng socket the run created
+    (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
+    plan_2026_09_14_apply_pipeline_socket_leak). The cascade enters it with
+    `with ...`, so the stand-in must support the protocol too."""
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
 def _chain_cfg():
     cp_cell = Cell(name="cp_cell", components=[TemplateComponentSlot(role="R_CP")])
     c1_cell = Cell(name="c1_cell", components=[TemplateComponentSlot(role="R_C1")])
@@ -54,7 +73,7 @@ def test_run_cascade_sequential_order_and_partial_failure(monkeypatch):
     of the chain when a middle record fails."""
     calls = []
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False):
@@ -109,7 +128,7 @@ def test_run_curated_tree_redraw_runs_pipeline_per_plan_name(monkeypatch, tmp_pa
 
     calls = []
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
@@ -143,7 +162,7 @@ def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch,
         '            (node (ref "CL_B") (xy 3 4))))')
     selected = {"CL_B"}  # parent CL_A not selected -> warning
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
@@ -200,7 +219,7 @@ def test_run_curated_forest_redraw_cross_tree_order(monkeypatch, tmp_path):
 
     calls = []
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
@@ -224,7 +243,7 @@ def _raising_pipeline(raised):
     """A fake ApplyPipeline whose run() always raises `raised` — for the
     per-record failure-path tests (no live board)."""
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
@@ -349,7 +368,7 @@ def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp
 
     calls = []
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
                      timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):

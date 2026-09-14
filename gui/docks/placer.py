@@ -1843,37 +1843,48 @@ class PlacerDock(QWidget):
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
                                  timeout_ms=worker_timeout_ms(payload),
                                  only=[payload.get("only_name", payload["name"])], dry_run=False)
+        # This dock is the one caller that must NOT close right after run():
+        # _tag_cluster runs AFTERWARDS, reads footprints and writes Cluster=
+        # through pipeline.adapter, so the socket has to stay open until the
+        # tagging is done. Closing inside run() — or here, before the tagging —
+        # would be a SILENT break: adapter.close() swallows its own errors by
+        # contract, and nothing downstream would report the lost Cluster=
+        # field (plan_2026_09_14_apply_pipeline_socket_leak P.2). The finally
+        # therefore sits around the WHOLE composition, tagging errors included.
         try:
-            pipeline.run()
-        except (PlacerError, ValidationError) as e:
-            return {"error": _("Placement failed: {error}").format(error=e)}
-        except ApiError as e:
-            # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
-            # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
-            # "finish the unfinished tool in KiCad"), never a raw stack.
-            return {"error": _("Placement failed: {error}").format(
-                error=api_error_message(e))}
-        except Exception as e:
-            logger.exception("Placer redraw failed")
-            return {"error": _("Placement failed: {error}").format(error=e)}
+            try:
+                pipeline.run()
+            except (PlacerError, ValidationError) as e:
+                return {"error": _("Placement failed: {error}").format(error=e)}
+            except ApiError as e:
+                # KiCad IPC failure = board STATE, not a bug (plan_2026_09_11_no_
+                # modals_and_busy_kicad X.2.2): the human explanation (AS_BUSY ->
+                # "finish the unfinished tool in KiCad"), never a raw stack.
+                return {"error": _("Placement failed: {error}").format(
+                    error=api_error_message(e))}
+            except Exception as e:
+                logger.exception("Placer redraw failed")
+                return {"error": _("Placement failed: {error}").format(error=e)}
 
-        if payload.get("coordinate"):
-            # Coordinate mode: nothing to tag — the moved component is
-            # identified by its own Cluster/Role fields, already set.
-            return {"name": payload["name"], "tagged": None}
+            if payload.get("coordinate"):
+                # Coordinate mode: nothing to tag — the moved component is
+                # identified by its own Cluster/Role fields, already set.
+                return {"name": payload["name"], "tagged": None}
 
-        try:
-            tagged = self._tag_cluster(pipeline, payload["cfg"], payload["ctx"], payload["name"])
-        except ApiError as e:
-            # The placement itself landed; tagging failed on a live-board
-            # write — same board-state rule as above (X.2.2).
-            return {"warn": _("Placed, but tagging Cluster failed: {error}").format(
-                error=api_error_message(e))}
-        except Exception as e:
-            logger.exception("Cluster tagging after placement failed")
-            return {"warn": _("Placed, but tagging Cluster failed: {error}").format(error=e)}
+            try:
+                tagged = self._tag_cluster(pipeline, payload["cfg"], payload["ctx"], payload["name"])
+            except ApiError as e:
+                # The placement itself landed; tagging failed on a live-board
+                # write — same board-state rule as above (X.2.2).
+                return {"warn": _("Placed, but tagging Cluster failed: {error}").format(
+                    error=api_error_message(e))}
+            except Exception as e:
+                logger.exception("Cluster tagging after placement failed")
+                return {"warn": _("Placed, but tagging Cluster failed: {error}").format(error=e)}
 
-        return {"name": payload["name"], "tagged": tagged}
+            return {"name": payload["name"], "tagged": tagged}
+        finally:
+            pipeline.close()
 
     def _finish_redraw(self, result: Dict[str, Any]) -> None:
         """UI thread: reflect the worker's result into the message label."""

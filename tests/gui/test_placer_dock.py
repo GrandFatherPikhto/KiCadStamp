@@ -13,6 +13,7 @@ manual verification against KiCad, same as every other dock this session.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import kicadstamp.apply_pipeline as ap_mod
 import gui.docks.placer as placer_mod
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import (Cell, Config, RuntimeContext, load_clone_placement)
@@ -21,6 +22,24 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
+
+
+class _PipelineStubLifetime:
+    """Lifetime half of the real ApplyPipeline, inherited by the stand-in
+    below: close() releases the kipy/pynng socket the run created, and
+    PlacerDock closes the pipeline in a finally AFTER the optional cluster
+    tagging (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
+    plan_2026_09_14_apply_pipeline_socket_leak)."""
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
 
 
 def _write(path, data) -> None:
@@ -516,6 +535,69 @@ def test_tag_cluster_pure_composite_tags_nothing(main_window, tmp_path, monkeypa
     assert pipeline.adapter.field_writes is None  # set_field_values_bulk never called
 
 
+# ── The socket must OUTLIVE run(): _tag_cluster needs a live adapter ───────
+# С3 (plan_2026_09_14_apply_pipeline_socket_leak.md P.4): PlacerDock is the one
+# caller that reads pipeline.adapter AFTER run() has returned — _tag_cluster
+# builds a PlacementPlanner on it, reads footprints and writes Cluster= through
+# it. So the socket has to stay open until the tagging is done, and be released
+# right after (including on the tagging-failure path). Closing inside run()
+# would break this SILENTLY: adapter.close() swallows its own errors by
+# contract, so nothing downstream would report the lost Cluster= field.
+
+def test_redraw_keeps_the_socket_open_for_tagging_then_closes_it(
+        main_window, tmp_path, monkeypatch):
+    """С3 — kills M3 (closing inside run()) and M5 (closing right after run(),
+    before _tag_cluster): the adapter must still be LIVE when the tagging
+    runs, and closed exactly once by the time _run_redraw returns.
+
+    The pipeline here is the REAL ApplyPipeline: only its board-touching steps
+    are stubbed, so _connect_adapter() — the step that really builds the socket
+    — runs, and a close added to run() would be visible to the tagging hook.
+    """
+    dock, _cells_file, placer_file = _make_cell_and_dock(main_window, tmp_path)
+
+    created = []
+    closed = []
+
+    class _SpyAdapter:
+        def __init__(self, **kwargs):
+            created.append(True)
+
+        def refresh_board(self):
+            pass
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(ap_mod, "KiCadBoardAdapter", _SpyAdapter)
+    for step in ("_load_config", "_filter_config", "_validate",
+                 "_resolve_order", "_create_planner", "_execute"):
+        monkeypatch.setattr(ap_mod.ApplyPipeline, step, lambda self: None)
+
+    tagged_names = []
+
+    def _fake_tag_cluster(pipeline, cfg, ctx, name):
+        # This is where the real _tag_cluster plans on pipeline.adapter, reads
+        # footprints and writes Cluster= through it — the socket must be LIVE.
+        assert pipeline.adapter is not None, \
+            "run() had already closed the socket before the Cluster tagging"
+        assert closed == [], \
+            "the socket was already closed before the Cluster tagging ran"
+        tagged_names.append(name)
+        return 7
+
+    monkeypatch.setattr(dock, "_tag_cluster", _fake_tag_cluster)
+
+    result = dock._run_redraw({"placer_path": placer_file, "cfg": Config(),
+                               "ctx": RuntimeContext(), "name": "CL_X"})
+
+    assert result == {"name": "CL_X", "tagged": 7}
+    assert tagged_names == ["CL_X"]
+    assert created == [True], "one run builds exactly one socket"
+    assert closed == [True], \
+        "the socket must be released once the tagging is done"
+
+
 # ── Cell source (2026-08-12, Group 0: role:/cluster: migrated to coordinate_placements) ──
 
 def test_single_component_identity_fields_round_trip_after_the_layout_move(main_window, tmp_path):
@@ -813,7 +895,7 @@ def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatc
     # …and the worker half: that carried number is the ApplyPipeline's timeout.
     captured = {}
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, **kwargs):
             captured.update(kwargs)
 

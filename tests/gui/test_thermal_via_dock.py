@@ -15,6 +15,29 @@ from kicadstamp.config import Config, RuntimeContext, ThermalViaArrayConfig, loa
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
+class _PipelineStubLifetime:
+    """Lifetime half of the real ApplyPipeline, inherited by every stand-in
+    below instead of re-declared per class: the pipeline IS a context manager
+    whose __exit__ releases the kipy/pynng socket the run created
+    (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
+    plan_2026_09_14_apply_pipeline_socket_leak). The dock under test enters it
+    with `with ...`, so the stand-in must support the protocol."""
+
+    closed = 0
+
+    def close(self):
+        # Counted, so the tests below can assert that a redraw really hands its
+        # socket back (plan_2026_09_14_apply_pipeline_socket_leak P.3.2).
+        type(self).closed += 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data), encoding="utf-8")
 
@@ -320,7 +343,7 @@ def test_redraw_preserves_other_entries_for_registry_safety(main_window, tmp_pat
 
     pipeline_calls = []
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, config_path, preloaded_cfg, preloaded_ctx, only, dry_run,
                      timeout_ms=None):
             pipeline_calls.append({"config_path": config_path, "cfg": preloaded_cfg, "only": only})
@@ -415,7 +438,7 @@ def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatc
     # …and the worker half: that carried number is the ApplyPipeline's timeout.
     captured = {}
 
-    class _FakePipeline:
+    class _FakePipeline(_PipelineStubLifetime):
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
@@ -426,6 +449,8 @@ def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatc
     dock._run_redraw(payloads[0])
 
     assert captured["timeout_ms"] == 31_000
+    # Same run, second contract: the worker releases the socket it built.
+    assert _FakePipeline.closed == 1
 
 
 # ── Target-file combo (2026-08-13, plan tree_to_combo_file_pickers) ──────
