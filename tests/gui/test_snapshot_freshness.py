@@ -22,7 +22,8 @@ from PyQt6 import sip
 from PyQt6.QtCore import QObject
 
 import gui.worker as worker_mod
-from gui.worker import (refresh_snapshot_then, refresh_snapshot_then_with_retry,
+from gui.worker import (defer_while_socket_busy, refresh_snapshot_then,
+                        refresh_snapshot_then_with_retry,
                         snapshot_refresh_supported)
 from tests.gui.conftest import _pump
 
@@ -293,3 +294,104 @@ def test_no_live_board_never_arms_a_retry(monkeypatch):
 
     assert log == ["ready"]
     assert scheduled == []
+
+
+# ── Э1 — the YOUNGER twin's liveness guard (defer_while_socket_busy) ────────
+
+def test_defer_while_socket_busy_skips_a_window_closed_during_the_delay(
+        qapp, monkeypatch):
+    """Э1 — ``defer_while_socket_busy`` carries the SAME liveness guard as
+    ``refresh_snapshot_then_with_retry``, and until 2026-09-14 nothing pinned it:
+    deleting ``if _gone(): return`` from its retry left the whole suite green
+    (plan_2026_09_14_defer_helper_liveness_guard P.0). Two twins, one guard, a
+    sentinel for one of them.
+
+    The ``QTimer`` outlives the widget, so a dock the user closed during the delay
+    must make the retry touch NOTHING: ``proceed`` is not started and
+    ``on_still_busy`` is NOT called — the latter is the whole point, because the
+    real caller's ``on_still_busy`` is ``self._warn_no_node_offset`` on the
+    deleted dock, i.e. exactly the ``RuntimeError`` from an event-loop callback
+    this guard exists to prevent (the same class as the live ``_DialogSizeSaver``
+    ``abort()`` of 2026-09-13). No third attempt either."""
+    connection = SimpleNamespace(long_op_active=True, snapshot=["cached"])
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+    owner = QObject()
+
+    armed = defer_while_socket_busy(
+        connection, (), lambda: log.append("proceed"),
+        lambda: log.append("still_busy"), owner=owner)
+
+    assert armed is False                          # the press was deferred...
+    assert len(scheduled) == 1                     # ...with EXACTLY ONE retry
+    assert scheduled[0][0] == worker_mod.SNAPSHOT_REFRESH_RETRY_DELAY_MS
+    assert log == []                               # nothing ran inline
+
+    sip.delete(owner)                              # the dock closed meanwhile
+    scheduled[0][1]()                              # must be a no-op
+
+    assert log == []                               # no proceed, NO on_still_busy
+    assert len(scheduled) == 1                     # and no third attempt
+
+
+# ── Э2 — the guard-WIDGETS half of ``_gone()``: a hole found by mutation ────
+
+def test_defer_while_socket_busy_watches_the_guard_widgets_too(qapp, monkeypatch):
+    """Э2 (a hole found by mutation 2026-09-14) — the liveness guard checks the
+    guard ``widgets`` as well as ``owner``, and nothing pinned that half: dropping
+    ``candidates.extend(widget_list)`` from ``_gone()`` left the whole suite green
+    (``pytest tests/gui -q``: 2131 passed), because BOTH twins' sentinels delete
+    only ``owner``. The branch is live in the older twin's caller — scheme_list's
+    pivots put a real BUTTON in the widgets tuple (``pivot_from_selection_button``)
+    — so a widget that goes away during the delay must stop the retry even when
+    ``owner`` is still alive. Same no-op contract as above: no ``proceed``, no
+    ``on_still_busy``, no third attempt."""
+    connection = SimpleNamespace(long_op_active=True, snapshot=["cached"])
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+    owner = QObject()
+    widget = QObject()
+
+    armed = defer_while_socket_busy(
+        connection, (widget,), lambda: log.append("proceed"),
+        lambda: log.append("still_busy"), owner=owner)
+
+    assert armed is False
+    assert len(scheduled) == 1
+
+    sip.delete(widget)                             # the guard button went away
+    scheduled[0][1]()                              # must be a no-op
+
+    assert log == []                               # no proceed, NO on_still_busy
+    assert len(scheduled) == 1                     # and no third attempt
+
+
+def test_retry_watches_a_guard_widget_closed_during_the_delay(qapp, monkeypatch):
+    """Э2 — the SAME hole on the older twin, closed for symmetry: dropping
+    ``candidates.extend(widget_list)`` from ``refresh_snapshot_then_with_retry``'s
+    ``_gone()`` also left the whole suite green (its sentinel, right above the
+    retry guards, deletes only ``owner``). A deleted guard widget means the retry
+    runs nothing at all — no rebuild, no ``on_cached``, no ``on_ready`` — which is
+    what the caller's own button (scheme_list's ``pivot_from_selection_button``,
+    its two pivot sites) relies on when the tab it lives on is rebuilt during the
+    delay."""
+    connection = _RefreshingConnection([["stale"]])
+    connection.long_op_active = True
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+    owner = QObject()
+    widget = QObject()
+
+    refresh_snapshot_then_with_retry(
+        connection, (widget,), lambda: log.append("ready"),
+        lambda message: log.append(("error", message)), owner=owner,
+        on_cached=lambda: log.append("cached"))
+
+    assert len(scheduled) == 1
+
+    sip.delete(widget)                             # the guard button went away
+    scheduled[0][1]()                              # must be a no-op
+
+    assert log == []                               # no cache, no ready, no error
+    assert connection.refresh_threads == []
+    assert len(scheduled) == 1                     # and no third attempt
