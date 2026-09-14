@@ -27,7 +27,7 @@ from .geometry.cell_copper_connectivity import (
 )
 from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .net_resolution import resolve_net
 from .placement.services.component_pool import ComponentPool
 from .placement.services.clone_role_resolver import (
@@ -682,13 +682,20 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
 def _fatal_title_line(e: ValidationError) -> str:
     """The 'FATAL ERROR: <title>' line of a formatted ValidationError, without
     the '=' box/borders — so one check's error can be embedded as a clean
-    problem line inside another's consolidated fatal (2026-08-12, Group 2)."""
-    text = str(e)
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("FATAL ERROR:"):
-            return stripped[len("FATAL ERROR:"):].strip()
-    return text
+    problem line inside another's consolidated fatal (2026-08-12, Group 2).
+
+    Since 2026-09-14 this is a THIN WRAPPER over exceptions.fatal_error_reason
+    (title-only mode), not a second parser of the same format — the two used to
+    drift because this one cut the title by a literal "FATAL ERROR:" prefix, an
+    English msgid. Under the ru catalogue the heading itself is localized
+    ("ФАТАЛЬНАЯ ОШИБКА:"), startswith matched nothing, and the WHOLE block leaked
+    into the problem list: box borders, '✗' hint lines and the "Placement
+    stopped, board not modified" verdict of a DIFFERENT check. Found live under
+    LANGUAGE=ru (2026-09-14); the English run could never show it, which is
+    exactly why the guards in tests/test_validation.py force the ru catalogue.
+    fatal_error_reason strips the structure by the same localized msgids
+    format_fatal_error BUILT it with, so the two cannot drift apart again."""
+    return fatal_error_reason(e, title_only=True)
 
 
 def check_coordinate_placements_exist(adapter: KiCadBoardAdapter, cfg: Config,

@@ -475,6 +475,141 @@ def test_check_coordinate_placements_exist_resolves_each_entry():
     check_coordinate_placements_exist(adapter, cfg)  # no raise despite no match
 
 
+# ── _fatal_title_line under a translated catalogue (plan 2026-09-14) ────────
+#
+# _fatal_title_line used to cut the title by a literal English "FATAL ERROR:"
+# prefix. Under the ru catalogue the heading itself is localized
+# ("ФАТАЛЬНАЯ ОШИБКА:"), so startswith matched nothing and the WHOLE nested block
+# — box borders, '✗' hint lines and the "Placement stopped, board not modified"
+# verdict of a DIFFERENT check — was embedded as one problem line of the outer
+# consolidated fatal (found live under LANGUAGE=ru; the English run could never
+# show it, which is why every guard below forces the RU catalogue explicitly).
+
+def _force_catalogue(monkeypatch, lang: str):
+    """Install `lang`'s gettext function on the modules under test — the state a
+    real run in that language has.
+
+    A bare `monkeypatch.setenv("LANGUAGE", lang)` + `setup_i18n()` does NOT do it:
+    `_` is copied into each module at import time, and tests/conftest.py has
+    already imported every module under the ENGLISH catalogue, so re-running
+    setup_i18n() rebinds only kicadstamp.i18n._ — the modules keep their English
+    function and the guards would silently test English (measured:
+    diagnostics/probe_fatal_title_line_locale.py, phase A). A real entry point
+    calls setup_i18n() BEFORE importing them (kicadstamp/cli_main.py:14-20), so
+    there every module-level `_` IS the language's function; patching the module
+    attributes reproduces exactly that.
+
+    Returns the language's gettext callable."""
+    import gettext
+
+    import kicadstamp.exceptions as exceptions_module
+    import kicadstamp.i18n as i18n_module
+    import kicadstamp.validation as validation_module
+
+    translation = gettext.translation(
+        "kicadstamp", localedir=str(i18n_module.LOCALE_DIR), languages=[lang],
+        fallback=True)
+    if lang == "ru":
+        # A missing/stale .mo makes `translation` a NullTranslations whose
+        # gettext() returns msgids unchanged — every assertion below would then
+        # check the ENGLISH catalogue and pass no matter what the code does. Pin
+        # the localized heading marker this whole fix hinges on.
+        assert translation.gettext("  FATAL ERROR: {title}") == "  ФАТАЛЬНАЯ ОШИБКА: {title}", (
+            "the ru catalogue does not translate the fatal heading — the guard "
+            "would be testing English")
+    for module in (exceptions_module, validation_module):
+        monkeypatch.setattr(module, "_", translation.gettext)
+    return translation.gettext
+
+
+class TestFatalTitleLineUnderTranslation:
+    def test_ru_fatal_leaves_no_box_no_hint_no_verdict(self, monkeypatch):
+        """Guard #1 — the bug itself: under ru only the title line comes back."""
+        from kicadstamp.exceptions import ValidationError, format_fatal_error
+        from kicadstamp.validation import _fatal_title_line
+
+        _ = _force_catalogue(monkeypatch, "ru")
+        e = ValidationError(format_fatal_error(
+            "fpga_22_oscill: anchor 'fpga_22_oscill' not found on board",
+            ["no such ref on the board (typo? component not moved to PCB yet?)"]))
+        assert "ФАТАЛЬНАЯ ОШИБКА" in str(e)   # the ru catalogue really built it
+
+        line = _fatal_title_line(e)
+        assert line == "fpga_22_oscill: anchor 'fpga_22_oscill' not found on board"
+        assert "=" * 10 not in line                                  # no box
+        assert "✗" not in line                                       # no hint lines
+        assert _("Placement stopped, board not modified. "
+                 "Fix the config and run again.") not in line       # no foreign verdict
+
+    def test_en_fatal_is_unchanged(self, monkeypatch):
+        """Guard #2 (regression): the English text is exactly what it was."""
+        from kicadstamp.exceptions import ValidationError, format_fatal_error
+        from kicadstamp.validation import _fatal_title_line
+
+        _force_catalogue(monkeypatch, "en")
+        e = ValidationError(format_fatal_error("TITLE line", ["HINT line"]))
+        assert "FATAL ERROR: TITLE line" in str(e)
+        assert _fatal_title_line(e) == "TITLE line"
+
+    def test_unformatted_error_passes_through(self, monkeypatch):
+        """Guard #3: a plain ValidationError is not a fatal block — untouched."""
+        from kicadstamp.exceptions import ValidationError, fatal_error_reason
+        from kicadstamp.validation import _fatal_title_line
+
+        _force_catalogue(monkeypatch, "ru")
+        plain = ValidationError("just a plain problem")
+        assert _fatal_title_line(plain) == "just a plain problem"
+        assert fatal_error_reason(plain, title_only=True) == "just a plain problem"
+
+    def test_title_line_is_a_wrapper_over_the_one_parser(self, monkeypatch):
+        """The seam: title-only mode IS the wrapper's implementation — one parser
+        of the format, and the default mode still keeps the '✗' hints."""
+        from kicadstamp.exceptions import (
+            ValidationError, fatal_error_reason, format_fatal_error)
+        from kicadstamp.validation import _fatal_title_line
+
+        _force_catalogue(monkeypatch, "ru")
+        e = ValidationError(format_fatal_error("TITLE", ["HINT"]))
+        assert _fatal_title_line(e) == fatal_error_reason(e, title_only=True) == "TITLE"
+        assert fatal_error_reason(e) == "TITLE; ✗ HINT"
+
+
+def test_coordinate_placements_fatal_embeds_titles_under_ru(monkeypatch):
+    """The consequence the plan measured, through the only caller: under ru the
+    consolidated fatal used to carry a WHOLE nested fatal block per broken entry
+    (its own borders, its own '✗' hint and a verdict about a run that did not
+    stop there). Now each entry contributes its title line only. Counted, not
+    just searched for, because the OUTER fatal legitimately has its own borders
+    and one '✗' per problem line."""
+    from kicadstamp.config import CoordinatePlacement
+    from kicadstamp.validation import check_coordinate_placements_exist
+
+    ru = _force_catalogue(monkeypatch, "ru")
+    cfg = Config(coordinate_placements=[
+        CoordinatePlacement(cluster="FPGA_PERIPH", role="R18",
+                            x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        CoordinatePlacement(cluster="Y", role="R2",
+                            x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+    ])
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = []      # nothing tagged -> both fail
+
+    with pytest.raises(ValidationError) as exc_info:
+        check_coordinate_placements_exist(adapter, cfg)
+    text = str(exc_info.value)
+
+    assert "FPGA_PERIPH/R18" in text and "Y/R2" in text   # both problems, ONE fatal
+    # The OUTER fatal's own shape: three '=' rules (before the title, after it,
+    # before the verdict) and one '✗' per problem line. Each leaked nested block
+    # used to add three more rules, one more heading and one more '✗'.
+    assert text.count("=" * 70) == 3, "a nested block's borders leaked into the problem list"
+    assert text.count("✗") == 2, "a nested block's hint line leaked into the problem list"
+    heading = ru("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
+    assert text.count(heading) == 1, "a nested fatal's heading leaked into the problem list"
+    verdict = ru("Placement stopped, board not modified. Fix the config and run again.")
+    assert text.count(verdict) == 1, "a nested block's verdict leaked into the problem list"
+
+
 class TestCandidatePoolCollisions:
     """2026-08-20: two rules sharing one net and consuming the SAME
     (role, spoke-cluster) candidate pool silently steal each other's

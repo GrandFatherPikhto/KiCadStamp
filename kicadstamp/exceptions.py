@@ -112,36 +112,55 @@ def format_fatal_error(title: str, problems: list) -> str:
     return "\n".join(lines)
 
 
-def fatal_error_reason(error) -> str:
+def fatal_error_reason(error, *, title_only: bool = False) -> str:
     """The REASON carried by an error whose text is a format_fatal_error() block
     — WITHOUT the box and WITHOUT the trailing "Placement stopped, board not
     modified. Fix the config and run again." verdict (plan_2026_09_14 Э3).
+    title_only=True stops at the HEADING line and drops the "✗ …" hint lines as
+    well — one diagnosis line, for a caller that embeds this error as a single
+    problem line inside its own consolidated fatal
+    (validation._fatal_title_line, plan_2026_09_14_fatal_title_line_localized Э1).
 
     That verdict only makes sense where the run really DOES stop. A curated tree
     redraw catches such an error PER NODE and keeps going — the board IS being
     modified — so embedding the whole block into its warning read "Placement
     stopped, board not modified" at the exact moment the board was touched, and
-    passed a config-typo verdict the user would go hunting for.
+    passed a config-typo verdict the user would go hunting for. Same story for an
+    embedded problem line: the borders and the verdict of an INNER check are
+    noise, and a foreign verdict, inside the OUTER fatal that really is stopping
+    the run.
 
-    Planners elsewhere extract the title line by a literal English prefix
+    Planners used to extract the title line by a literal English prefix
     (validation._fatal_title_line). That silently does nothing under a translated
     catalogue (the heading itself is localized), which is why this helper strips
     the STRUCTURE instead: the box lines and the verdict line by their own
     localized text (the very msgids format_fatal_error used), plus the
-    "FATAL ERROR: " heading by the localized marker of its own msgid. Anything
-    that is not a formatted fatal block is returned as-is, stripped — so a plain
-    ValidationError keeps its full text."""
+    "FATAL ERROR: " heading by the localized marker of its own msgid. This is THE
+    one parser of that format — _fatal_title_line is a thin wrapper over it.
+
+    Anything that is not a formatted fatal block (no '=' box, heading not
+    matched) is never mistaken for one: title_only=True hands the message back
+    verbatim, and the default mode keeps the previous line-per-reason join — a
+    plain single-line ValidationError reads the same in both modes."""
     text = str(error)
     verdict = _("Placement stopped, board not modified. Fix the config and run again.")
     heading = _("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
-    body = [ln.strip() for ln in text.splitlines()]
+    raw_lines = text.splitlines()
+    # A real format_fatal_error() block carries 70-character '=' rules; a lone
+    # '=' inside a plain message must not count as a box.
+    structured = any(len(ln.strip()) >= 3 and set(ln.strip()) == {"="}
+                     for ln in raw_lines)
+    body = [ln.strip() for ln in raw_lines]
     body = [ln for ln in body if ln and set(ln) != {"="} and ln != verdict]
     if not body:
         return text.strip()
     if heading and body[0].startswith(heading):
+        structured = True
         body[0] = body[0][len(heading):].strip()
         if not body[0]:
             body.pop(0)
+    if title_only:
+        return body[0] if structured and body else text
     return "; ".join(body) if body else text.strip()
 
 
