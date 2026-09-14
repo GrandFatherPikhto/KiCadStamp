@@ -176,23 +176,27 @@ def test_find_pad_owner_by_uuid():
 
 
 def test_roles_for_cluster_narrows():
-    adapter = FakeAdapter()
-    for ref, role, cluster in (("R1", "C1", "PIF_3V3_VDD"),
-                               ("R2", "C2", "PIF_3V3_VDD"),
-                               ("R3", "C1", "AD_DAC/IC2"),
-                               ("R4", "OTHER", "AD_DAC/IC2")):
-        fp = _fp(ref, ref)
-        adapter.footprints.append(fp)
-        adapter.set_field(ref, "Role", role)
-        adapter.set_field(ref, "Cluster", cluster)
-    # OTHER is present on the board but only on AD_DAC/IC2 — narrowing to
-    # PIF_3V3_VDD must drop it from the Role choices.
-    roles = roles_for_cluster(adapter, ["C1", "C2", "OTHER"], "PIF_3V3_VDD")
+    """Э3 (plan_2026_09_14_ui_thread_offenders): the hint reads the board SNAPSHOT
+    (role/cluster as FIELD VALUES, explore.Selected) — never the adapter — so this
+    feeds it a snapshot instead of a live board."""
+    snapshot = [SimpleNamespace(role=role, cluster=cluster)
+                for role, cluster in (("C1", "PIF_3V3_VDD"),
+                                      ("C2", "PIF_3V3_VDD"),
+                                      ("C1", "AD_DAC/IC2"),
+                                      ("OTHER", "AD_DAC/IC2"))]
+    # OTHER is in the snapshot but only on AD_DAC/IC2 — narrowing to PIF_3V3_VDD must
+    # drop it from the Role choices.
+    roles = roles_for_cluster(snapshot, ["C1", "C2", "OTHER"], "PIF_3V3_VDD")
     assert roles == ["C1", "C2"]
 
 
-def test_roles_for_cluster_falls_back_without_adapter_or_cluster():
+def test_roles_for_cluster_falls_back_without_snapshot_or_cluster():
+    """An OFFLINE session (no snapshot at all, before the first connect) and an empty
+    Cluster both fall back to the FULL cell role list — the hint never hides a valid
+    role, which is exactly what makes stale-by-design snapshot data safe to use here
+    (Э5.2 of plan_2026_09_14_ui_thread_offenders)."""
     assert roles_for_cluster(None, ["A", "B"], "PIF") == ["A", "B"]
+    assert roles_for_cluster([], ["A", "B"], "PIF") == ["A", "B"]
     assert roles_for_cluster(None, ["A", "B"], "") == ["A", "B"]
 
 
@@ -575,6 +579,69 @@ def test_role_combo_lists_cell_components_without_board(main_window, tmp_path):
     assert items == ["C1", "C2"]
 
 
+class _PoisonedAdapter:
+    """Blows up on ANY attribute access — a UI path that still reaches the adapter for
+    the Role hint fails LOUDLY instead of quietly reading 325 footprints."""
+
+    def __getattr__(self, name):
+        raise AssertionError(
+            f"the board adapter was read for the Role hint: {name}")
+
+
+def _connected_snapshot(main_window, entries, adapter=None):
+    """Hand the Role hint a board snapshot, behind a board whose adapter POISONS any
+    read — which is how the hint is pinned to the snapshot rather than the adapter.
+
+    The real BoardConnection is filled the production way (_rebuild_snapshot <-
+    board.select); the stand-in connection this test module runs on keeps `snapshot` as
+    a plain attribute, so the value is written straight onto it."""
+    connection = main_window.connection
+    board = SimpleNamespace(
+        adapter=_PoisonedAdapter() if adapter is None else adapter,
+        select=lambda: list(entries))
+    connection.board = board
+    rebuild = getattr(connection, "_rebuild_snapshot", None)
+    if callable(rebuild):
+        rebuild()
+    else:
+        connection.snapshot = list(entries)
+    return board
+
+
+def test_role_combo_narrowing_never_reads_the_adapter(main_window, tmp_path):
+    """Э5.2 (plan_2026_09_14_ui_thread_offenders) — the narrowing is a HINT and takes it
+    from connection.snapshot: with a POISONED adapter the combo still narrows to the
+    roles present on that cluster, and nothing raises.
+
+    The narrowing RESULT is what carries the proof: the cell also has OTHER, which the
+    snapshot does not carry on this cluster. The pre-2026-09-14 adapter code swallowed a
+    failed read and fell back to the FULL list (its own `except` did that on purpose), so
+    putting the adapter back must show up as OTHER reappearing here — not merely as a
+    raise."""
+    view, _target = _make_view(main_window, tmp_path)
+    _connected_snapshot(main_window, [SimpleNamespace(role="C1", cluster="CL"),
+                                      SimpleNamespace(role="C2", cluster="CL"),
+                                      SimpleNamespace(role="C1", cluster="OTHER")])
+
+    view._fill_role_choices(["C1", "C2", "OTHER"], "CL")
+
+    items = [view._role_combo.itemText(i) for i in range(view._role_combo.count())]
+    assert items == ["C1", "C2"], "the hint fell back to the full list — it read a board"
+
+
+def test_role_combo_narrowing_tolerates_an_empty_snapshot(main_window, tmp_path):
+    """Э5.2 — an EMPTY snapshot (offline session, before the first connect) must not
+    break the page or hide a role: the combo keeps the cell's FULL role list."""
+    view, _target = _make_view(main_window, tmp_path)
+    main_window.connection.board = None
+    main_window.connection.snapshot = []
+
+    view._fill_role_choices(["C1", "C2"], "CL")
+
+    items = [view._role_combo.itemText(i) for i in range(view._role_combo.count())]
+    assert items == ["C1", "C2"]
+
+
 def test_legacy_role_pad_xy_cell_opens_in_anchor_page(main_window, tmp_path):
     """Фаза B regression: a cell stored in the OLD anchor_xy+anchor_role+
     anchor_pad shape still opens correctly in the new "Cell anchor" page —
@@ -651,21 +718,20 @@ def test_clear_anchor_removes_all_three(main_window, tmp_path):
 
 
 def test_cluster_narrowing_updates_role_combo(main_window, tmp_path):
-    """With a (fake) live board, picking the working Cluster narrows the Role
-    combo to the roles present on that cluster (C.3)."""
-    adapter = FakeAdapter()
-    for ref, role, cluster in (("R1", "C1", "PIF_3V3_VDD"),
-                               ("R2", "C2", "AD_DAC/IC2")):
-        fp = _fp(ref, ref)
-        adapter.footprints.append(fp)
-        adapter.set_field(ref, "Role", role)
-        adapter.set_field(ref, "Cluster", cluster)
-    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    """Picking the working Cluster narrows the Role combo to the roles the board's
+    SNAPSHOT carries on that cluster (C.3).
 
+    Rewritten for Э3 (plan_2026_09_14_ui_thread_offenders): the narrowing used to be
+    served by the live adapter, so this test fed a FakeAdapter; the source is now
+    connection.snapshot, and the poisoned adapter proves the adapter plays no part."""
     view, _ = _make_view(main_window, tmp_path)
     # Start with every cell role available (no cluster picked yet).
     assert [view._role_combo.itemText(i) for i in range(view._role_combo.count())] \
         == ["C1", "C2"]
+
+    _connected_snapshot(main_window,
+                        [SimpleNamespace(role="C1", cluster="PIF_3V3_VDD"),
+                         SimpleNamespace(role="C2", cluster="AD_DAC/IC2")])
 
     view._cluster_combo.setCurrentText("PIF_3V3_VDD")   # triggers narrowing
     items = [view._role_combo.itemText(i) for i in range(view._role_combo.count())]

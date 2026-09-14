@@ -98,12 +98,19 @@ own in-flight REQ transaction, and a read that went straight to the shared adapt
 is exactly what produces `Error receiving reply from KiCad: Operation canceled`. `gui.worker.
 socket_busy(connection)` is the single check every such read now carries — the Placer's **Select on
 board**, the node form's **Read current position**, the node context menu's **Reread current
-position**, the anchor form's board-frame base read, the Instantiate-from-selection tree-anchor read
-and the first-run copper heads-up in front of a redraw. A refused action does nothing at all (nothing
-is written, nothing is highlighted, the fields keep their values) and is simply repeated: the tick
-holds the socket for milliseconds. The same plan moved the one flow whose read could genuinely take
-seconds — the node's **Reread current position** — onto a worker under `start_long_op`, so it no
-longer freezes the window either.
+position**, the anchor form's board-frame base read and the first-run copper heads-up in front of a
+redraw. A refused action does nothing at all (nothing is written, nothing is highlighted, the fields
+keep their values) and is simply repeated: the tick holds the socket for milliseconds. The same plan
+moved the one flow whose read could genuinely take seconds — the node's **Reread current position** —
+onto a worker under `start_long_op`, so it no longer freezes the window either.
+
+The Instantiate-from-selection tree-anchor base left that refused list on 2026-09-14 (plan_
+2026_09_14_ui_thread_offenders): it costs 1x `get_footprints` plus one field read PER footprint
+(138.6 ms measured on a 325-footprint board), and refusing it meant that roughly every sixth OK in
+that dialog dropped to "enter the xy manually". It now runs on a worker under `start_long_op`, and a
+socket that is busy at that moment gets ONE deferred retry (120 ms) before the same manual answer.
+The cell-anchor page's Role narrowing left the board entirely in the same change: it is a HINT and
+reads the board snapshot the GUI already holds, so it costs no IPC at all.
 
 ## Widget height and scrolling (2026-09-12)
 
@@ -1825,7 +1832,8 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
 
 - **Source** (the first tab) hosts ONLY the **working context — Sheet (optional) / Cluster** of the
   placed instance. The **Role anchor** tab holds **Role** (closed combo from THIS cell's own
-  components, narrowed by the working Cluster — the roles actually present on that cluster) and an
+  components, narrowed by the working Cluster — the roles actually present on that cluster, read from
+  the board snapshot the GUI already holds, never from a live board read) and an
   optional **Pad**. **Read from selection** understands the three selection cases: a selected **pad** →
   its owner footprint's Role + Cluster and the pad number; a selected **footprint** → Role + Cluster
   (Pad untouched); a selected **Via** → an explicit "this is the Marker anchor tab's case" message,

@@ -585,6 +585,64 @@ def refresh_snapshot_then_with_retry(
                                  busy_text=busy_text, on_refused=_defer_retry)
 
 
+def defer_while_socket_busy(
+        connection: Any, widgets: Iterable[Any],
+        proceed: Callable[[], Any], on_still_busy: Callable[[], Any], *,
+        owner: Any = None,
+        retry_delay_ms: int = SNAPSHOT_REFRESH_RETRY_DELAY_MS) -> bool:
+    """Run ``proceed()`` NOW when the shared kipy REQ socket is free, or arm EXACTLY ONE
+    deferred retry when another owner holds it — the same shape
+    :func:`refresh_snapshot_then_with_retry` gives a refused snapshot rebuild, for a
+    caller whose continuation is a worker of its own (a live read under
+    :func:`start_long_op`) instead of the snapshot rebuild.
+
+    Why it exists (measured 2026-09-14, ``diagnostics/board_timing_806966.jsonl``): the
+    ~400 ms selection-poll tick holds that socket 16.4 % of the time, so a live read that
+    only REFUSES on a busy socket vanishes roughly every sixth press
+    (``plan_2026_09_14_ui_thread_offenders`` §Э2 — the Instantiate-from-selection base).
+    ``retry_delay_ms`` (120 ms) is longer than the tick's own p90 (77.5 ms), so the single
+    retry almost always meets a free socket — and it is deferred through
+    ``QTimer.singleShot``: no wait loop, no ``processEvents()``, the UI thread is never
+    blocked for a millisecond.
+
+    ONE retry, not a queue: a second refusal is a real refusal, and the caller owns what
+    happens then (``on_still_busy`` — a message, a refusal, a fallback). Two or more
+    retries turn a rare silence into a rare hang, the class this module just cleared.
+
+    Just before the retry ``owner`` and every guard widget are checked for deletion
+    (``sip.isdeleted``): the ``QTimer`` outlives the widget, so a dialog the user closed
+    during the delay would otherwise be written to from an event-loop callback
+    (``RuntimeError`` — the same class as the live ``_DialogSizeSaver`` ``abort()`` of
+    2026-09-13).
+
+    ``proceed()`` must be cheap and must NOT touch the adapter itself — it only STARTS a
+    worker, which is what raises the token; that is why the free-socket check belongs
+    here, on the UI thread, and not inside the worker.
+
+    Returns True when ``proceed()`` already ran, False when the retry was armed or
+    ``on_still_busy()`` already ran (i.e. the deadline was skipped)."""
+    if not socket_busy(connection):
+        proceed()
+        return True
+    widget_list = tuple(widgets)
+
+    def _gone() -> bool:
+        candidates = [owner] if owner is not None else []
+        candidates.extend(widget_list)
+        return any(_qt_object_gone(c) for c in candidates)
+
+    def _retry() -> None:
+        if _gone():
+            return
+        if socket_busy(connection):
+            on_still_busy()
+            return
+        proceed()
+
+    QTimer.singleShot(retry_delay_ms, _retry)
+    return False
+
+
 class PollTask:
     """One unit of work for PollWorkerHandle.submit() — plain data, no Qt
     machinery, so building one never touches a signal/connection."""

@@ -362,43 +362,179 @@ def test_anchor_form_base_orientation_resolves_when_the_socket_is_free(
     assert len(seen) == 1
 
 
-# ── Э1г :3251 — TreesDock._anchor_base_mm: ILLNESS 1 ───────────────────────
+# ── Э2 (plan_2026_09_14_ui_thread_offenders) :3354 — the Instantiate "from
+#    selection" base: ILLNESS 2 (worker) + the ONE deferred retry ───────────
+#
+# Measured live on 2026-09-14 (board_timing_16175.jsonl): every OK in
+# "Instantiate from Cell" with placement mode "from selection" cost the SHARED
+# adapter 1x get_footprints + 325x get_field_value + 1x get_selected_items ON
+# THE UI THREAD (138.6 ms max), and — the worse half — REFUSED while the ~400 ms
+# selection-poll tick held that socket (16.4 % of the run), so roughly every
+# sixth press silently fell back to "Enter the xy manually instead".
+#
+# The base feeds xy = selection centre − base, i.e. GEOMETRY that is WRITTEN, so
+# it stays a LIVE read — it only moves onto a worker under the token, with one
+# deferred retry for the busy socket.
 
-def test_anchor_base_mm_refuses_while_the_poll_tick_owns_the_socket(
-        main_window, tmp_path, monkeypatch):
-    """Э4.1 — the "from selection" placement mode of the Instantiate dialog
-    resolves the tree anchor's LIVE base through the shared adapter. With the
-    tick in flight the answer is None — the existing "cannot resolve the tree
-    anchor live" refusal — and no read is made.
+class _NoBoardAdapter:
+    """Stands in for KiCadBoardAdapter INSIDE the worker (the worker builds its
+    own adapter — no test may reach a real KiCad socket)."""
 
-    Pre-fix this fails: the base was read on the UI thread."""
+    def __init__(self, timeout_ms=None):
+        self.timeout_ms = timeout_ms
+
+    def refresh_board(self) -> None:
+        pass
+
+
+class _TimerSpy:
+    """Records the retry timer instead of firing it — which is what makes "EXACTLY
+    ONE retry" observable without sleeping: the spy's callbacks are run by hand."""
+
+    armed = []
+
+    @staticmethod
+    def singleShot(ms, callback):
+        _TimerSpy.armed.append((ms, callback))
+
+
+def _patch_base_read(main_window, monkeypatch, seen, tree):
+    """Install the two seams the base read crosses: the worker's own adapter and the
+    read itself. `seen` records (token, thread) at the READ — so a read that happens
+    inline on the UI thread is caught by the read's own record, not by a new symbol.
+
+    Only reads of THIS `tree` are recorded: the anchor FORM's own
+    `_conversion_base_deg` resolves a `replace(tree, ...)` copy on the UI thread when
+    the tabs are rebuilt after the node is staged (the synchronous-form path this task
+    deliberately does NOT touch — see the report), and it must not mask or be mistaken
+    for the base flow's own record."""
+    connection = main_window.connection
+    monkeypatch.setattr(td_mod, "KiCadBoardAdapter", _NoBoardAdapter)
+
+    def _spy(adapter, cfg, probe, sheet_names=None, *args, **kwargs):
+        if probe is tree:
+            seen.append({"token": connection.long_op_active,
+                         "thread": threading.current_thread()})
+        return (Vector2.from_xy_mm(5.0, 6.0), 0.0)
+
+    monkeypatch.setattr(td_mod, "_anchor_base_live_position", _spy)
+
+
+def test_anchor_base_read_runs_on_a_worker_under_the_token(
+        main_window, tmp_path, monkeypatch, qapp):
+    """Э5.1 — the base is read on ANOTHER thread than the UI one, with the shared-socket
+    token held for the whole read, and the UI half gets plain numbers.
+
+    The mutation behind this guard is putting the read back inline (the pre-2026-09-14
+    code): then the seam records the MAIN thread with the token FALSE, and this test
+    fails on its own record — no new symbol is asserted on."""
     _board(main_window, object())
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-
+    connection = main_window.connection
     seen = []
-    monkeypatch.setattr(td_mod, "_anchor_base_live_position",
-                        _spy_read(seen, (Vector2.from_xy_mm(5.0, 6.0), 0.0)))
-    main_window.connection.long_op_active = True
+    _patch_base_read(main_window, monkeypatch, seen, tree)
 
-    assert dock._anchor_base_mm(tree) is None
-    assert seen == [], \
-        "the instantiate base was read while the poll tick owned the socket"
+    dock._anchor_base_then((10.0, 8.0), "cell1", "ENT_A", "CL", "", tree)
+
+    assert connection.long_op_active is True, \
+        "the base read does not take the shared-socket token"
+    assert seen == [], "the board was read on the UI thread, synchronously"
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert seen and seen[0]["token"] is True, \
+        "the base was read without the shared-socket token"
+    assert seen[0]["thread"] is not threading.main_thread(), \
+        "the base was read on the UI thread"
 
 
-def test_anchor_base_mm_resolves_when_the_socket_is_free(
-        main_window, tmp_path, monkeypatch):
-    """With the socket free the base comes back in mm, unchanged."""
+def test_anchor_base_finish_stages_the_node_at_centre_minus_base(
+        main_window, tmp_path, monkeypatch, qapp):
+    """The UI half turns the worker's plain mm numbers into the node's stored xy
+    (selection centre − base) and stages the Entity — no board object crosses back."""
+    _board(main_window, object())
+    dock, root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    connection = main_window.connection
+    before = list(tree.nodes)
+    seen = []
+    _patch_base_read(main_window, monkeypatch, seen, tree)
+
+    dock._anchor_base_then((10.0, 8.0), "cell1", "ENT_A", "CL", "", tree)
+    _pump(qapp, lambda: not connection.long_op_active)
+    assert len(seen) == 1, "the base read must happen exactly once"
+
+    assert len(tree.nodes) == len(before) + 1
+    node = tree.nodes[-1]
+    assert node.ref == "ENT_A"
+    assert node.xy == (5.0, 2.0), "xy must be centre − base"
+    assert dock._dirty is True
+
+
+def test_anchor_base_retries_once_when_the_poll_tick_owns_the_socket(
+        main_window, tmp_path, monkeypatch, qapp):
+    """Э5.1б — a busy socket no longer eats the press: the read happens on the SINGLE
+    deferred retry, as soon as the tick lets go. (Measured: the tick holds the shared
+    socket 16.4 % of the run; the retry waits 120 ms, past its 77.5 ms p90.)"""
     _board(main_window, object())
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
-
+    connection = main_window.connection
     seen = []
-    monkeypatch.setattr(td_mod, "_anchor_base_live_position",
-                        _spy_read(seen, (Vector2.from_xy_mm(5.0, 6.0), 0.0)))
+    _patch_base_read(main_window, monkeypatch, seen, tree)
 
-    assert dock._anchor_base_mm(tree) == (5.0, 6.0)
-    assert len(seen) == 1
+    connection.long_op_active = True          # the poll tick is in flight
+    dock._anchor_base_then((10.0, 8.0), "cell1", "ENT_A", "CL", "", tree)
+
+    assert seen == [], "the read was made while the tick owned the socket"
+    assert dock._active_op is None, "no worker may start on the tick's socket"
+
+    connection.long_op_active = False         # the tick finished
+    _pump(qapp, lambda: bool(seen), timeout=5.0)
+    _pump(qapp, lambda: not connection.long_op_active, timeout=5.0)
+
+    assert len(seen) == 1, "the single retry did not run the read"
+    assert seen[0]["token"] is True
+    assert seen[0]["thread"] is not threading.main_thread()
+    assert tree.nodes[-1].xy == (5.0, 2.0)
+
+
+def test_anchor_base_arms_exactly_one_retry_then_refuses(
+        main_window, tmp_path, monkeypatch):
+    """Э5.1б — the retry is ONE, not a loop: with the socket still busy at the retry the
+    read is never made, the user gets the EXISTING wording once, and no second timer is
+    armed. Deterministic — the retry timer is recorded, never fired."""
+    from gui import worker as worker_mod
+
+    _board(main_window, object())
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    connection = main_window.connection
+    seen = []
+    started = []
+    warnings = []
+    _TimerSpy.armed = []
+    _patch_base_read(main_window, monkeypatch, seen, tree)
+    monkeypatch.setattr(worker_mod, "QTimer", _TimerSpy)
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+
+    connection.long_op_active = True
+    dock._anchor_base_then((10.0, 8.0), "cell1", "ENT_A", "CL", "", tree)
+
+    assert len(_TimerSpy.armed) == 1, "the refused press must arm exactly one retry"
+    assert warnings == [] and seen == [] and started == [], \
+        "nothing may be decided before the retry runs"
+
+    _TimerSpy.armed[0][1]()                   # run the retry: still busy
+    assert len(_TimerSpy.armed) == 1, "the refusal must not arm a THIRD attempt"
+    assert warnings and warnings[0][1] == _("Instantiate from Cell")
+    assert "Enter the xy manually instead" in warnings[0][2]
+    assert started == [], "a worker was started on a socket the tick still owns"
+    assert seen == [], "the base was read while the tick owned the socket"
+    assert dock._active_op is None
 
 
 # ── Э1д :3502 — _confirm_first_run_redraw: ILLNESS 1 ───────────────────────

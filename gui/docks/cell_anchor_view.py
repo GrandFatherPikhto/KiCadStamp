@@ -318,26 +318,32 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
             "role": role, "pad": pad, "cluster": cluster}
 
 
-def roles_for_cluster(adapter, cell_roles, cluster: str) -> list:
-    """The cell roles that are actually present among the live footprints of
-    `cluster` (cluster_prefix_match against the Cluster field), sorted. Falls
-    back to the FULL cell_roles when the board/adapter is unavailable or
-    nothing of this cell is on the cluster — the narrowing is a HINT (C.3),
-    never a hard filter that hides a valid role."""
+def roles_for_cluster(snapshot, cell_roles, cluster: str) -> list:
+    """The cell roles that are actually present among the footprints of
+    `cluster` in the GUI's board SNAPSHOT (cluster_prefix_match against the
+    Cluster field), sorted. Falls back to the FULL cell_roles when the snapshot
+    is unavailable/empty or nothing of this cell is on the cluster — the
+    narrowing is a HINT (C.3), never a hard filter that hides a valid role.
+
+    `snapshot` — BoardConnection.snapshot: the items are explore.Selected and
+    carry `role`/`cluster` as FIELD VALUES for every footprint on the board
+    (see its docstring). Deliberately NOT the adapter any more (Э3,
+    plan_2026_09_14_ui_thread_offenders): this is a hint, and reading the live
+    board for it cost one get_footprints() plus one get_field_value() PER
+    FOOTPRINT on the UI thread — 325 calls per refresh, 164.2 ms max measured
+    2026-09-13 (cell_anchor_view.py:333/334), for data the snapshot already
+    holds for free. Staying a hint is what makes that safe: an empty or stale
+    snapshot can only offer a different SUGGESTION, never hide a role the cell
+    really has (the combo keeps its free-text entry)."""
     if not cell_roles or not cluster:
         return sorted(cell_roles)
-    if adapter is None:
-        return sorted(cell_roles)
     present: set = set()
-    try:
-        for fp in adapter.get_footprints():
-            fp_cluster = adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or ""
-            if cluster_prefix_match(fp_cluster, cluster):
-                role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
-                if role in cell_roles:
-                    present.add(role)
-    except Exception:  # noqa: BLE001 — narrowing is best-effort
-        return sorted(cell_roles)
+    for item in snapshot or ():
+        fp_cluster = getattr(item, "cluster", None) or ""
+        if cluster_prefix_match(fp_cluster, cluster):
+            role = getattr(item, "role", None)
+            if role in cell_roles:
+                present.add(role)
     return sorted(present) if present else sorted(cell_roles)
 
 
@@ -1159,7 +1165,7 @@ class CellAnchorView(QWidget):
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()
-        narrowed = roles_for_cluster(self._adapter(), roles, cluster)
+        narrowed = roles_for_cluster(self._board_snapshot(), roles, cluster)
         current = self._role_combo.currentText()
         set_combo_items(self._role_combo, narrowed)
         if current and current in narrowed:
@@ -1170,6 +1176,17 @@ class CellAnchorView(QWidget):
         if board is None:
             return None
         return getattr(board, "adapter", None)
+
+    def _board_snapshot(self):
+        """The WHOLE-BOARD snapshot the Role hint reads (explore.Selected items,
+        with `role`/`cluster` as FIELD VALUES) — never the adapter, see
+        roles_for_cluster (Э3, plan_2026_09_14_ui_thread_offenders). Empty until
+        the first successful connect, which the hint tolerates by design.
+
+        Deliberately NOT `self._snapshot`: that one is this PAGE's own list of the
+        CELL's components, and the hint is exactly about what the rest of the board
+        carries on the working Cluster — a different question, a different list."""
+        return getattr(self._connection, "snapshot", None) or ()
 
     # ── Component tab handlers ────────────────────────────────────────────
 

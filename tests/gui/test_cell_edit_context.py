@@ -219,7 +219,12 @@ def _make_view(main_window, tmp_path, adapter=None, data=None):
 def test_view_prefills_remembered_context_and_narrows(main_window, tmp_path):
     """Opening the cell-anchor page for a cell with a remembered Cluster that
     IS on the live board sets the Cluster combo AND narrows the Role combo —
-    no click on the board needed (Phase E's main consumer)."""
+    no click on the board needed (Phase E's main consumer).
+
+    Э3 (plan_2026_09_14_ui_thread_offenders): the narrowing is served by the board
+    SNAPSHOT (role/cluster as field VALUES), so that is what the page is given; the
+    FakeAdapter below stays because the page's OTHER paths (read-from-selection, the
+    marker/bbox workers) legitimately read the live board."""
     adapter = FakeAdapter()
     c1 = _fp("fp1", "R1")
     c2 = _fp("fp2", "R2")          # C2 lives on a DIFFERENT cluster
@@ -228,6 +233,9 @@ def test_view_prefills_remembered_context_and_narrows(main_window, tmp_path):
     adapter.set_field(c1, ROLE_FIELD_NAME, "C1")
     adapter.set_field(c2, CLUSTER_FIELD_NAME, "AD_DAC/IC2")
     adapter.set_field(c2, ROLE_FIELD_NAME, "C2")
+    main_window.connection.snapshot = [
+        SimpleNamespace(role="C1", cluster="PIF_3V3_VDD"),
+        SimpleNamespace(role="C2", cluster="AD_DAC/IC2")]
     remember_cell_edit_context(tmp_path / "root.sexp", "cell1",
                                "PIF_3V3_VDD", None)
 

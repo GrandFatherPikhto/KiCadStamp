@@ -74,7 +74,7 @@ from .. import board_overlay, overlay_markers, settings
 from ..connection import worker_timeout_ms
 from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
-from ..worker import socket_busy, start_long_op
+from ..worker import defer_while_socket_busy, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
@@ -412,6 +412,33 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
         return {"available": False, "reason": str(exc)}
     return {"available": True, "x": pos.x, "y": pos.y, "rotation": rot,
             "ref": tree.anchor.ref}
+
+
+def run_anchor_base_mm_worker(payload: dict) -> dict:
+    """start_long_op worker entry point for the Instantiate-from-Cell "from selection"
+    base (Э2, plan_2026_09_14_ui_thread_offenders): the tree anchor's live base in mm.
+
+    The SAME read Tools → Trees → "Anchor position" makes (own adapter, refreshed board,
+    `_anchor_base_live_position` — every anchor mode); what differs is the answer, because
+    this one is W R I T T E N: `xy = selection centre - base` becomes the new node's stored
+    offset. So it stays a LIVE read (a snapshot base would be wrong geometry, not a stale
+    list) and only moves off the UI thread, where one press of that dialog's OK used to
+    cost the SHARED adapter 1x get_footprints + 325x get_field_value + 1x get_selected_items
+    (138.6 ms max, plan §P.1).
+
+    NEVER raises: an anchor that does not resolve — or a failed IPC read — comes back as
+    {"base": None}, and the UI half answers with the very warning the synchronous read
+    gave. Failures are logged at DEBUG (diagnostic detail, no user-facing wording)."""
+    tree = payload["tree"]
+    try:
+        adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
+        adapter.refresh_board()
+        pos, _rot = _anchor_base_live_position(
+            adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
+    except Exception:  # noqa: BLE001 — best-effort read, never crash the flow
+        logger.debug("tree anchor base read failed", exc_info=True)
+        return {"base": None}
+    return {"base": (pos.x / MM, pos.y / MM)}
 
 
 def run_node_reread_worker(payload: dict) -> dict:
@@ -3351,28 +3378,102 @@ class TreesDock(QWidget):
         mode (plan instantiate_from_entity §1.5)."""
         return tree.anchor is not None and not tree.anchor.is_self
 
-    def _anchor_base_mm(self, tree: Tree) -> Optional[tuple[float, float]]:
-        """Live base (mm) of the tree's own anchor, or None when it cannot be
-        resolved (not connected / anchor unresolvable / another owner holds the
-        shared socket) — needed only for the "from selection" placement mode
-        (node xy = group center - anchor base).
+    def _anchor_base_then(self, center, cell_name: str, entity_name: str, cluster: str,
+                          sheet: str, tree: Tree) -> None:
+        """Continue "Instantiate from Cell" in the "from selection" mode once the tree
+        anchor's live base is known — the read itself runs on a WORKER (Э2,
+        plan_2026_09_14_ui_thread_offenders).
 
-        Э1 (plan_2026_09_12_ui_thread_board_reads): the base is a LIVE read
-        through the SHARED adapter, so it is refused while the ~400ms selection
-        tick owns that socket; None is the existing "cannot resolve the tree
-        anchor live" answer the Instantiate flow already reports."""
-        adapter = self._live_adapter()
-        if adapter is None or self._cfg is None:
-            return None
-        if socket_busy(self._main_window.connection):
-            return None
-        try:
-            sheet_names = self._ctx.sheet_names if self._ctx else {}
-            pos, _rot = _anchor_base_live_position(
-                adapter, self._cfg, tree, sheet_names)
-        except Exception:  # noqa: BLE001 — live read, best-effort
-            return None
-        return (pos.x / MM, pos.y / MM)
+        Until 2026-09-14 the base was read INLINE right here through the SHARED adapter.
+        Two prices were paid for that, and the second is the worse one:
+          * 1x get_footprints + 325x get_field_value + 1x get_selected_items ON THE UI
+            THREAD, 138.6 ms max on a 325-footprint board (the plan's measured table);
+          * a REFUSAL while the ~400 ms selection-poll tick held that socket — measured
+            at 16.4 % of the run, so roughly every sixth OK in this dialog silently
+            dropped to "Enter the xy manually instead" (the docstring promised the
+            refusal, and it was real).
+        The read stays LIVE (it becomes the node's stored xy, so a snapshot base would be
+        wrong geometry) — it only leaves the UI thread, and a busy socket now gets ONE
+        deferred retry (defer_while_socket_busy) instead of eating the click.
+
+        `center` — the selection's centre in mm (already known); `tree` — the tree the
+        dialog was opened for, re-checked by the continuation."""
+        connection = getattr(self._main_window, "connection", None)
+        if self._live_adapter() is None or self._cfg is None or connection is None:
+            self._warn_no_node_offset()
+            return
+        payload = {
+            "cfg": self._cfg,
+            "tree": tree,
+            "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
+            "timeout_ms": worker_timeout_ms(connection),
+        }
+
+        def _proceed() -> None:
+            self._active_op = start_long_op(
+                connection, (), run_anchor_base_mm_worker,
+                lambda result: self._finish_anchor_base(
+                    result, center, cell_name, entity_name, cluster, sheet, tree),
+                self._on_anchor_base_failed, payload,
+                busy_text=_("reading the board"))
+
+        # ONE deferred retry when another owner holds the shared socket, then the existing
+        # "derive the offset by hand" answer — see defer_while_socket_busy.
+        defer_while_socket_busy(connection, (), _proceed,
+                                self._warn_no_node_offset, owner=self)
+
+    def _finish_anchor_base(self, result, center, cell_name: str, entity_name: str,
+                            cluster: str, sheet: str, tree: Tree) -> None:
+        """The worker's numbers, on the UI thread — the ONLY half that writes config.
+
+        Re-checks that `tree` is still one of ours: the read can outlive a root switch or
+        a reload, and appending the node to a detached tree would stage it into nothing."""
+        self._active_op = None
+        if not any(t is tree for t in self._trees):
+            return
+        base = (result or {}).get("base")
+        if base is None:
+            self._warn_no_node_offset()
+            return
+        self._stage_instantiated_node(cell_name, entity_name, cluster, sheet, tree,
+                                      (center[0] - base[0], center[1] - base[1]))
+
+    def _on_anchor_base_failed(self, message: str) -> None:
+        """start_long_op's failure path (an IPC error or a worker bug). The dialog's
+        name/cluster choices are NOT lost for it: the user gets the same "derive the
+        offset by hand" answer, the reason goes to the Log — never a second modal."""
+        self._active_op = None
+        logger.warning("Instantiate from Cell: anchor base read failed: %s", message)
+        self._warn_no_node_offset()
+
+    def _warn_no_node_offset(self) -> None:
+        """The ONE wording for "the offset cannot be derived" (text unchanged)."""
+        QMessageBox.warning(
+            self, _("Instantiate from Cell"),
+            _("Cannot derive the node offset from the selection (no "
+              "selected footprint / cannot resolve the tree anchor "
+              "live). Enter the xy manually instead."))
+
+    def _stage_instantiated_node(self, cell_name: str, entity_name: str, cluster: str,
+                                 sheet: str, tree: Tree, xy) -> None:
+        """The write half shared by BOTH positioning modes: the Entity record plus the
+        tree node at `xy` (the tail of _instantiate_from_cell_now, unchanged)."""
+        from .tree_from_selection import build_instantiated_entity
+
+        if self._root_path is None:
+            return
+        upsert_entity(self._root_path,
+                      build_instantiated_entity(cell_name, entity_name,
+                                                cluster, sheet))
+        tree.nodes.append(TreeNode(
+            ref=entity_name, kind="placement", xy=xy, polar=None,
+            rotation=0.0, name=None, group=None, children=[]))
+        self._mark_dirty()
+        self._rebuild_tabs()
+        self._show_status(_("Added {entity!r} (cell {cell!r}) to tree {tree!r} "
+                            "— Save to persist.")
+                          .format(entity=entity_name, cell=cell_name,
+                                  tree=tree.name))
 
     def _instantiate_from_cell(self, selected, raw_items=()) -> None:
         """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the
@@ -3515,33 +3616,18 @@ class TreesDock(QWidget):
                 return
         if dialog.from_selection():
             center = selected_center_mm(selected)
-            base = self._anchor_base_mm(tree)
-            if center is None or base is None:
-                QMessageBox.warning(
-                    self, _("Instantiate from Cell"),
-                    _("Cannot derive the node offset from the selection (no "
-                      "selected footprint / cannot resolve the tree anchor "
-                      "live). Enter the xy manually instead."))
+            if center is None:
+                self._warn_no_node_offset()
                 return
-            xy = (center[0] - base[0], center[1] - base[1])
-        else:
-            xy = dialog.manual_xy()
-            if xy is None:
-                return
-        if self._root_path is None:
+            # Э2 (plan_2026_09_14_ui_thread_offenders): the anchor base is a LIVE read and
+            # runs on a WORKER — this half returns here, the node is staged once the base
+            # is known (see _anchor_base_then / _finish_anchor_base).
+            self._anchor_base_then(center, cell_name, entity_name, cluster, sheet, tree)
             return
-        upsert_entity(self._root_path,
-                      build_instantiated_entity(cell_name, entity_name,
-                                                cluster, sheet))
-        tree.nodes.append(TreeNode(
-            ref=entity_name, kind="placement", xy=xy, polar=None,
-            rotation=0.0, name=None, group=None, children=[]))
-        self._mark_dirty()
-        self._rebuild_tabs()
-        self._show_status(_("Added {entity!r} (cell {cell!r}) to tree {tree!r} "
-                            "— Save to persist.")
-                          .format(entity=entity_name, cell=cell_name,
-                                  tree=tree.name))
+        xy = dialog.manual_xy()
+        if xy is None:
+            return
+        self._stage_instantiated_node(cell_name, entity_name, cluster, sheet, tree, xy)
 
     def _on_rename_tree(self) -> None:
         tree = self._current_tree()
