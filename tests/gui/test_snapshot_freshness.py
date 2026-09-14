@@ -18,7 +18,12 @@ import logging
 import threading
 from types import SimpleNamespace
 
-from gui.worker import refresh_snapshot_then, snapshot_refresh_supported
+from PyQt6 import sip
+from PyQt6.QtCore import QObject
+
+import gui.worker as worker_mod
+from gui.worker import (refresh_snapshot_then, refresh_snapshot_then_with_retry,
+                        snapshot_refresh_supported)
 from tests.gui.conftest import _pump
 
 
@@ -169,3 +174,122 @@ def test_refresh_snapshot_then_never_refuses_without_a_live_board():
     assert controller is None
     assert log == ["ready"]
     assert connection.long_op_active is False
+
+
+def _capture_retries(monkeypatch) -> list:
+    """Capture QTimer.singleShot calls made by gui.worker (the helper's retry)
+    WITHOUT waiting on real time — the exact idiom tests/gui/test_trees_dock.py
+    already uses for a deferred rebuild. Returns [(delay_ms, callback), ...]."""
+    scheduled: list = []
+    monkeypatch.setattr(
+        worker_mod.QTimer, "singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)))
+    return scheduled
+
+
+def test_retry_recovers_when_the_socket_frees(qapp, monkeypatch):
+    """Э2 — the refused click is retried ONCE after the delay; with the socket
+    free by then the rebuild runs and on_ready continues on FRESH data."""
+    connection = _RefreshingConnection([["stale"], ["fresh"]])
+    connection.long_op_active = True
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+
+    refresh_snapshot_then_with_retry(
+        connection, (),
+        lambda: log.append(("ready", list(connection.snapshot))),
+        lambda message: log.append(("error", message)))
+
+    assert len(scheduled) == 1                     # exactly one retry armed
+    assert scheduled[0][0] == worker_mod.SNAPSHOT_REFRESH_RETRY_DELAY_MS
+    assert log == []                               # nothing ran yet
+    assert connection.refresh_threads == []
+
+    connection.long_op_active = False              # the tick finished
+    scheduled[0][1]()                              # fire the deferred retry
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert [entry[0] for entry in log] == ["ready"]
+    assert log[0][1] == ["fresh"]                  # fresh, not the cached stale
+    assert len(connection.refresh_threads) == 1    # exactly ONE rebuild
+
+
+def test_retry_is_single_and_falls_back_to_the_cache(monkeypatch):
+    """Э2 — a socket still busy on the retry means the continuation runs on the
+    CACHED snapshot (on_cached reports it) and NO third attempt is armed."""
+    connection = _RefreshingConnection([["stale"]])
+    connection.long_op_active = True
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+
+    refresh_snapshot_then_with_retry(
+        connection, (),
+        lambda: log.append(("ready", list(connection.snapshot))),
+        lambda message: log.append(("error", message)),
+        on_cached=lambda: log.append("cached"))
+
+    assert len(scheduled) == 1
+    scheduled[0][1]()                              # retry: still busy
+
+    assert len(scheduled) == 1                     # no third attempt
+    assert log == ["cached", ("ready", ["stale"])]  # report, then the cache
+    assert connection.refresh_threads == []        # never rebuilt
+
+
+def test_retry_skips_a_window_closed_during_the_delay(qapp, monkeypatch):
+    """Э2 ловушка 3 — the timer outlives the widget: a deleted owner means the
+    retry touches nothing and raises nothing (no RuntimeError, no continuation)."""
+    connection = _RefreshingConnection([["stale"]])
+    connection.long_op_active = True
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+    owner = QObject()
+
+    refresh_snapshot_then_with_retry(
+        connection, (), lambda: log.append("ready"),
+        lambda message: log.append(("error", message)), owner=owner)
+
+    sip.delete(owner)                              # the dialog closed meanwhile
+    scheduled[0][1]()                              # must be a no-op
+
+    assert log == []                               # no on_ready, no error
+    assert connection.refresh_threads == []
+    assert len(scheduled) == 1
+
+
+def test_on_still_busy_refuses_instead_of_the_cached_continuation(monkeypatch):
+    """Э2.5 — the coordinate consumers (the pivots) keep the refusal:
+    on_still_busy runs and on_ready does NOT, so no position is ever read from a
+    stale snapshot."""
+    connection = _RefreshingConnection([["stale"]])
+    connection.long_op_active = True
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+
+    refresh_snapshot_then_with_retry(
+        connection, (), lambda: log.append("ready"),
+        lambda message: log.append(("error", message)),
+        on_cached=lambda: log.append("cached"),
+        on_still_busy=lambda: log.append("still_busy"))
+
+    scheduled[0][1]()                              # retry: still busy
+
+    assert log == ["still_busy"]                   # neither cache nor on_ready
+    assert connection.refresh_threads == []
+
+
+def test_no_live_board_never_arms_a_retry(monkeypatch):
+    """Э2 — without a refreshable board there is nothing to retry: the
+    continuation runs at once and no timer is armed."""
+    connection = SimpleNamespace(snapshot=["cached"], board=None,
+                                 long_op_active=False)
+    scheduled = _capture_retries(monkeypatch)
+    log: list = []
+
+    refresh_snapshot_then_with_retry(
+        connection, (), lambda: log.append("ready"),
+        lambda message: log.append(("error", message)),
+        on_cached=lambda: log.append("cached"))
+
+    assert log == ["ready"]
+    assert scheduled == []

@@ -52,7 +52,8 @@ import logging
 from time import perf_counter
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt6 import sip
+from PyQt6.QtCore import QObject, QThread, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication
 
 from kicadstamp.i18n import _
@@ -483,6 +484,105 @@ def refresh_snapshot_then(connection: Any, widgets: Iterable[Any],
     return start_long_op(connection, widgets, _refresh_snapshot_worker,
                          lambda _result: on_ready(), on_error, connection,
                          busy_text=busy_text)
+
+
+SNAPSHOT_REFRESH_RETRY_DELAY_MS = 120
+"""How long after a refused snapshot rebuild the single retry waits. The
+selection-poll tick that usually holds the shared socket lives 67 ms at the
+median and 77.5 ms at p90 (measured 2026-09-14,
+``plan_2026_09_14_snapshot_refusal_dead_end`` P.0), so ~120 ms lands in a free
+socket almost always while staying invisible to the user."""
+
+
+def _qt_object_gone(obj: Any) -> bool:
+    """True when the Qt object behind `obj` no longer exists (a plain Python
+    stand-in — a test double that is not a QObject — has no C++ side to
+    outlive, so it counts as alive).
+
+    Used by :func:`refresh_snapshot_then_with_retry`'s retry: the ``QTimer``
+    outlives the widget, and running the continuation against a deleted
+    dock/dialog would raise ``RuntimeError`` in the middle of an event-loop
+    callback — the same class of bug as the live ``abort()`` of 2026-09-13
+    (``_DialogSizeSaver``)."""
+    try:
+        return bool(sip.isdeleted(obj))
+    except (TypeError, RuntimeError):
+        return False
+
+
+def refresh_snapshot_then_with_retry(
+        connection: Any, widgets: Iterable[Any],
+        on_ready: Callable[[], Any], on_error: Callable[[str], Any], *,
+        busy_text: Optional[str] = None, owner: Any = None,
+        retry_delay_ms: int = SNAPSHOT_REFRESH_RETRY_DELAY_MS,
+        on_cached: Optional[Callable[[], Any]] = None,
+        on_still_busy: Optional[Callable[[], Any]] = None) -> Any:
+    """``refresh_snapshot_then`` plus the one thing a refused click needs: a
+    SINGLE deferred retry, then the caller's choice of a cached continuation or
+    a refusal.
+
+    A refused click used to vanish (``plan_2026_09_14_snapshot_refusal_
+    dead_end``): the ~400 ms selection-poll tick holds the shared socket ~16 %
+    of the time, so roughly every sixth press met a refusal that
+    :func:`refresh_snapshot_then` only logged. This wrapper makes the press
+    survive:
+
+    * attempt 1 goes through :func:`refresh_snapshot_then`; a refusal schedules
+      EXACTLY ONE retry with ``QTimer.singleShot`` (``retry_delay_ms``) — the UI
+      thread is never blocked, there is no wait loop and no ``processEvents()``;
+    * attempt 2 is the LAST one; if it is refused too, ``_exhausted`` runs
+      instead of a third attempt (two or more turn a rare silence into a rare
+      hang — the class this module just finished clearing);
+    * just before attempt 2 the retry checks that the window/dock is still
+      alive (``owner`` and every guard widget): a deleted widget means the user
+      closed the dialog during the delay, so the retry touches nothing and
+      raises nothing.
+
+    The exhausted outcome is the caller's choice, because staleness costs
+    different things:
+
+    * ``on_still_busy`` given (the scheme-list pivots, which read POSITIONS out
+      of the snapshot): it runs and ``on_ready`` does NOT — a pivot computed
+      from a stale snapshot is wrong geometry, not a slightly old list, so the
+      operation is refused and the caller tells the user;
+    * otherwise (the tree dialogs, Extract, fieldstool — list NAMES and cluster
+      MEMBERSHIP): ``on_cached`` (when given) runs first so the caller can
+      report the fallback, then ``on_ready()`` runs on the cached snapshot and
+      the button works.
+
+    No message is drawn here — the caller owns it (``show_message`` of
+    ``gui.docks._common``: WARN for a cache fallback, ERROR for a refusal;
+    plan §Э2-M). The diagnostic ``logger.warning`` inside
+    :func:`refresh_snapshot_then` stays.
+
+    Returns the first attempt's controller, or ``None`` (a synchronous
+    fallback, or a refusal whose single retry is now armed)."""
+    widget_list = tuple(widgets)
+
+    def _gone() -> bool:
+        candidates = [owner] if owner is not None else []
+        candidates.extend(widget_list)
+        return any(_qt_object_gone(c) for c in candidates)
+
+    def _exhausted() -> None:
+        if on_still_busy is not None:
+            on_still_busy()
+            return
+        if on_cached is not None:
+            on_cached()
+        on_ready()
+
+    def _retry() -> None:
+        if _gone():
+            return
+        refresh_snapshot_then(connection, widget_list, on_ready, on_error,
+                              busy_text=busy_text, on_refused=_exhausted)
+
+    def _defer_retry() -> None:
+        QTimer.singleShot(retry_delay_ms, _retry)
+
+    return refresh_snapshot_then(connection, widget_list, on_ready, on_error,
+                                 busy_text=busy_text, on_refused=_defer_retry)
 
 
 class PollTask:
