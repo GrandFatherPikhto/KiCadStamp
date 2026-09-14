@@ -497,6 +497,53 @@ def test_redraw_spoke_isolates_only_the_selected_spoke(main_window, tmp_path):
     assert cfg_chain.spokes[1].pad == "26" and cfg_chain.spokes[1].skip is False
 
 
+# ── Э3 (plan_2026_09_13_timeout_sweep): the worker's own pipeline waits as long
+# as the main connection does ────────────────────────────────────────────────
+#
+# Х5 (plan_2026_09_13_three_unsentinelled_guards): the sweep fixed this in FOUR
+# docks (chain, placer, net_trace, thermal_via) by writing
+# `payload["timeout_ms"] = worker_timeout_ms(...)` on the UI side and reading it
+# back in the worker (`timeout_ms=worker_timeout_ms(payload)`), but guarded only
+# trees_dock. Measured 14.09 on 792f20f: with the payload line removed from this
+# dock, 174 tests stayed green. Both halves are pinned below, and the value is
+# deliberately NOT DEFAULT_TIMEOUT_MS — on the constant the guard would stay
+# green even with the payload line dropped, because the fallback lands on the
+# very same number.
+
+def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatch):
+    """The UI half: the payload carries the timeout the main connection RUNS
+    with (what Settings > KiCad applied), never a literal of the dock's own."""
+    dock, _root = _make_dock(main_window, tmp_path)
+    fake_cfg, fake_ctx = Config(), RuntimeContext()
+    monkeypatch.setattr(chain_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+    main_window.connection.timeout_ms = 31_000     # exactly what the Settings tab writes
+
+    payloads = []
+    monkeypatch.setattr(chain_mod, "start_long_op",
+                        lambda *a, **k: payloads.append(a[5]) or object())
+
+    dock.redraw_pad({"net": "+3V3", "anchor_role": "FPGA",
+                     "spokes": [{"pad": "17", "cell": "cap"}]}, 0)
+
+    assert payloads, "the redraw did not go through start_long_op"
+    assert payloads[0]["timeout_ms"] == 31_000
+
+    # …and the worker half: that carried number is the ApplyPipeline's timeout.
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(chain_mod, "ApplyPipeline", _FakePipeline)
+    dock._run_redraw(payloads[0])
+
+    assert captured["timeout_ms"] == 31_000
+
+
 # ── Bulk-set Cell for net ──────────────────────────────────────────────────
 
 def test_bulk_dialog_preview_shows_chains_and_pads(main_window, tmp_path):

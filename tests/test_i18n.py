@@ -407,14 +407,54 @@ class TestCatalogCompleteness:
 
     def test_compiled_ru_mo_is_in_sync_with_po(self):
         """The .mo binary is what gettext reads at runtime — a .po edit that
-        isn't recompiled ships a STALE binary (RU shows English despite the
-        .po being complete). Every TRANSLATED (non-empty msgstr) .po entry
-        must be present in the compiled .mo."""
+        isn't recompiled ships a STALE binary (RU shows English, or worse: the
+        OLD text, despite the .po being correct).
+
+        TWO checks, because presence alone cannot see a half-done update:
+
+          * PRESENCE — every TRANSLATED (non-empty msgstr) .po entry exists in
+            the compiled .mo. Catches a recompile that dropped entries (e.g.
+            the fuzzy ones, see i18ntroubles Ловушка 3);
+          * VALUE — the .mo's message EQUALS the .po's, compared as DECODED
+            strings. Catches a .po edit that was never recompiled at all: the
+            .mo keeps the previous wording while the .po shows the fix.
+
+        Found live 2026-09-14 (plan_2026_09_13_three_unsentinelled_guards Х1):
+        with `git show 9bf240c:locales/ru/LC_MESSAGES/kicadstamp.mo` placed next
+        to the fixed .po, all 22 tests in this file stayed GREEN while the user
+        read the very lie the .po fix removed — 'дублирующиеся имена в
+        thermal_via_arrays' for every config section. The .po is not what
+        anybody reads; the .mo is.
+
+        Plural entries are keyed by (msgid, n) in a .mo, never by plain msgid:
+        the RU catalogue has none today (verified 2026-09-14 — `msgid_plural`
+        appears 0 times in both .po files and the compiled catalog has 0 tuple
+        keys), so a plain msgid lookup is exact here. The assertion below
+        reports a plural entry appearing later instead of mistaking it for a
+        missing message."""
         with open(RU_MO, "rb") as f:
             mo = gettext.GNUTranslations(f)
         catalog = getattr(mo, "_catalog", {})
-        missing = sorted(mid for mid, _mstr in _po_entries(RU_PO)
-                         if mid not in catalog)
+        assert catalog, "the compiled .mo has an empty catalog"
+
+        plural_keys = sorted(k for k in catalog if isinstance(k, tuple))
+        assert not plural_keys, (
+            "the compiled .mo now carries plural entries, which this test keys "
+            "by plain msgid — extend it (see the docstring): "
+            + repr(plural_keys[:5]))
+
+        missing = []
+        stale = []
+        for mid, mstr in _po_entries(RU_PO):
+            if mid not in catalog:
+                missing.append(mid)
+            elif catalog[mid] != mstr:
+                stale.append((mid, mstr, catalog[mid]))
         assert not missing, (
             "locales/ru/LC_MESSAGES/kicadstamp.po has translated entries missing "
             "from the compiled .mo — recompile it (pybabel compile): " + repr(missing))
+        assert not stale, (
+            "the compiled .mo carries an OLDER translation than the .po — the "
+            "edit was never recompiled (pybabel compile), and the user reads "
+            "the .mo, not the .po — (msgid, .po msgstr, .mo msgstr): "
+            + repr([(m[:60], a[:60], b[:60]) for m, a, b in stale]))

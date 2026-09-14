@@ -353,7 +353,9 @@ python -m kicadstamp.diagnostics.get_pad_bbox --ref IC1 --pad 17 --verbose
 **Parameters:**
 - `--ref` – component refdes (default `IC1`).
 - `--pad` – pad number (shows all if omitted).
-- `--timeout` – IPC timeout (ms).
+- `--timeout` – IPC timeout (ms, default `DEFAULT_TIMEOUT_MS` — 5000). This probe makes a
+  single cheap pad read, so unlike the five heavy batch probes next to it, it takes the shipped
+  default rather than a long budget of its own.
 - `--verbose` – verbose output.
 
 **Output:**

@@ -482,3 +482,60 @@ def test_sheet_names_falls_back_to_root(main_window, tmp_path, monkeypatch):
 
     assert sheet_names == {"u": "Channel_1"}
     assert calls == [str(leaf), str(root)]
+
+
+# ── Э3 (plan_2026_09_13_timeout_sweep): the worker's own pipeline waits as long
+# as the main connection does ────────────────────────────────────────────────
+#
+# Х5 (plan_2026_09_13_three_unsentinelled_guards): the sweep wrote the payload
+# line in FOUR docks and guarded only trees_dock. Measured 14.09 on 792f20f:
+# removing `payload["timeout_ms"] = ...` from this dock left 174 tests green.
+# Both halves are pinned here, on a value that is NOT DEFAULT_TIMEOUT_MS — on
+# the constant the guard would stay green with the payload line dropped, since
+# worker_timeout_ms() falls back to exactly that number.
+
+def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatch):
+    """The UI half carries the connection's own timeout into the payload; the
+    worker half builds its ApplyPipeline with the carried value — so a user who
+    raises the IPC timeout in Settings is not silently kept on the old one."""
+    dock, _target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{
+            "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+            "tracks": [{"start_along_mm": 1.0, "start_across_mm": 2.0,
+                        "end_along_mm": 3.0, "end_across_mm": 4.0,
+                        "net": "/Channel_0/DAC_DB2", "layer": "F.Cu"}],
+            "vias": [],
+        }]
+    })
+    dock.load_entry({
+        "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+        "tracks": [{"start_along_mm": 1.0}], "vias": [],
+    })
+    fake_cfg = Config()
+    fake_ctx = RuntimeContext()
+    monkeypatch.setattr(net_trace_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+    main_window.connection.timeout_ms = 31_000     # exactly what the Settings tab writes
+
+    payloads = []
+    monkeypatch.setattr(net_trace_mod, "start_long_op",
+                        lambda *a, **k: payloads.append(a[5]) or object())
+
+    dock._on_redraw()
+
+    assert payloads, "the redraw did not go through start_long_op"
+    assert payloads[0]["timeout_ms"] == 31_000
+
+    # …and the worker half: that carried number is the ApplyPipeline's timeout.
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(net_trace_mod, "ApplyPipeline", _FakePipeline)
+    dock._run_redraw(payloads[0])
+
+    assert captured["timeout_ms"] == 31_000

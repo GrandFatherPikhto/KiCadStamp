@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
 import logging
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
@@ -25,11 +26,16 @@ def main():
     parser = argparse.ArgumentParser(description=_("Get bounding box of a pad"))
     parser.add_argument("--ref", default="IC1", help=_("Refdes of the target component"))
     parser.add_argument("--pad", help=_("Pad number (if not specified, show all)"))
-    # 20 s kept for consistency with the sibling diagnostics tools (Э4,
-    # plan_2026_09_13_timeout_sweep). Unlike the other five this is a SINGLE
-    # cheap pad read that does not need the long budget — reported to Denis
-    # instead of silently changed here.
-    parser.add_argument("--timeout", type=int, default=20000, help=_("IPC timeout in ms"))
+    # NO long budget here, unlike the five sibling diagnostics probes (Э4 of
+    # plan_2026_09_13_timeout_sweep): this tool makes a SINGLE cheap pad read
+    # (one get_footprint + one get_bounding_boxes call), so it takes the
+    # SHIPPED default instead of a 20 s literal. The 20 s that used to sit here
+    # was not "on purpose" — it was the old global default. Measured 14.09 on a
+    # live session (364k calls): the slowest call of all was 292 ms, a
+    # seventeen-fold margin under the 5 s constant. Fixed in Х6 of
+    # plan_2026_09_13_three_unsentinelled_guards.
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_MS,
+                        help=_("IPC timeout in ms"))
     parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     args = parser.parse_args()
 

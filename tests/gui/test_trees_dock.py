@@ -2949,11 +2949,25 @@ def test_module_candidates_never_offer_a_template_its_own_instance(
 
 
 def test_module_candidates_still_allow_an_instance_in_an_unrelated_tree(
-        main_window, tmp_path):
+        main_window, tmp_path, monkeypatch):
     """Э3.2 (the guard against OVER-restricting — the mistake the plan's P.2
     warns about). A generated instance is an ordinary tree for every tree that
     is not its template: `host` may embed it, and a module node built for it is
-    accepted (Denis embeds ch1_dac_buf into `fpga` exactly like this)."""
+    accepted (Denis embeds ch1_dac_buf into `fpga` exactly like this).
+
+    Х4 (plan_2026_09_13_three_unsentinelled_guards), and this is the whole point
+    of the stub below: a counter-guard has to FAIL when the refusal starts
+    appearing here, and measured 14.09 on 1766e88 it did not — the mutation that
+    refuses everything made THIS test open a modal QMessageBox.warning and hang
+    until the budget ran out (exit 124, no verdict at all). QMessageBox.warning
+    is therefore replaced by a recorder and the test asserts that NO warning was
+    shown: an added assertion, not a relaxation — a refusal that starts being
+    raised and silently swallowed still reddens the test."""
+    import gui.docks.trees_dock as td_mod
+    shown = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: shown.append(a))
+
     dock, _root = _self_embed_dock(main_window, tmp_path)
     host = _tree_of(dock, "host")
     candidates = dock._module_tree_candidates(host)
@@ -2972,6 +2986,7 @@ def test_module_candidates_still_allow_an_instance_in_an_unrelated_tree(
     node = dlg.build_node()
     assert node is not None
     assert (node.kind, node.ref) == ("module", "ch1_dac_buf")
+    assert not shown, "a legal embed was refused: " + repr(shown)
 
 
 def test_module_candidates_follow_the_chain_through_the_instance_relation(
@@ -3056,11 +3071,24 @@ def test_node_form_refuses_a_hand_typed_module_ref_outside_the_list(
 
 
 def test_node_form_lets_an_existing_module_node_keep_its_own_ref(
-        main_window, tmp_path):
+        main_window, tmp_path, monkeypatch):
     """Э3.5 control: the candidate list deliberately EXCLUDES what the tree
     already embeds, so an existing module node's own ref is missing from it —
     enforcing the list blindly would make every offset edit of an
-    already-embedded module node impossible."""
+    already-embedded module node impossible.
+
+    Х4 (plan_2026_09_13_three_unsentinelled_guards): same treatment as its
+    sibling above — this is the counter-guard the plan's own named mutation is
+    aimed at (drop the "existing module node keeps its own ref" exception in
+    _module_ref_refusal), and measured 14.09 on 1766e88 that mutation made it
+    HANG on the modal rather than fail (exit 124). The recorder stub turns the
+    hang into a red test, and `assert not shown` is what makes it red even if
+    the refusal later starts being swallowed silently."""
+    import gui.docks.trees_dock as td_mod
+    shown = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: shown.append(a))
+
     dock, _root = _self_embed_dock(main_window, tmp_path)
     host = _tree_of(dock, "host")
     existing = TreeNode(ref="other", kind="module", xy=(0.0, 0.0), polar=None,
@@ -3071,6 +3099,7 @@ def test_node_form_lets_an_existing_module_node_keep_its_own_ref(
     node = dlg.build_node()
     assert node is not None
     assert (node.kind, node.ref) == ("module", "other")
+    assert not shown, "a legal offset edit was refused: " + repr(shown)
 
 
 def test_node_form_has_no_pivot_widgets_after_the_tree_settings_move(

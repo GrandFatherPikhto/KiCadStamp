@@ -8,6 +8,8 @@ resize_dialog_within_screen(). The remembered-dialog-size pair lives here too,
 so since 2026-09-13 (plan_2026_09_13_dialog_size_saver_crash.md) this file also
 guards its event filter against Qt delivering Hide AFTER the dialog's C++ object
 is gone — the case that used to abort the process."""
+import logging
+
 import PyQt6.sip as sip
 from PyQt6.QtCore import QEvent, QRect
 from PyQt6.QtWidgets import (QDialog, QFrame, QPlainTextEdit, QPushButton,
@@ -296,3 +298,46 @@ def test_size_saver_observes_without_swallowing_other_events(qapp):
 
     assert saver.eventFilter(dialog, QEvent(QEvent.Type.Show)) is False
     assert settings.state.get("dialog_size:_Dialog") is None
+
+
+# ── a failing settings write must not reach Qt's C++ stack (Х2, 2026-09-14) ──
+#
+# plan_2026_09_13_three_unsentinelled_guards Х2: `try/except Exception` +
+# logger.exception around settings.state.set() is the SECOND arm of the
+# "nothing leaves eventFilter" contract — the first arm (sip.isdeleted, above)
+# covers the dead dialog, this one covers a settings write that raises (a JSON
+# payload it cannot serialise, a file it cannot decode). Qt answers an exception
+# escaping an event filter with abort(), so removing this try/except is
+# invisible to the four guards above: measured 2026-09-14 — only 21 tests green.
+
+def test_size_saver_survives_a_failing_settings_write(qapp, monkeypatch, caplog):
+    """A settings.state.set() that RAISES must neither escape eventFilter (Qt
+    aborts the process when one does) nor be silently swallowed — it has to be
+    logged, so that "log instead of abort" is not degraded into "pass".
+
+    The contract is about the EXIT FROM eventFilter, not from save(): that is
+    where the exception would meet Qt's C++ dispatch, so the assertion is made
+    on the filter's return value."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+    dialog.resize(640, 480)
+    dialog.show()
+    qapp.processEvents()
+
+    def _refuse_to_write(key, value):
+        raise RuntimeError("settings file is not even decodable")
+
+    monkeypatch.setattr(settings.state, "set", _refuse_to_write)
+
+    with caplog.at_level(logging.ERROR):
+        assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
+        assert saver.eventFilter(dialog, QEvent(QEvent.Type.Close)) is False
+
+    assert settings.state.get("dialog_size:_Dialog") is None
+    assert any("Cannot remember the size of dialog key" in record.getMessage()
+               and "dialog_size:_Dialog" in record.getMessage()
+               for record in caplog.records), (
+        "the failed settings write was swallowed silently — it must be LOGGED "
+        "(logger.exception), or 'log instead of abort' becomes 'pass instead "
+        "of abort': " + repr([r.getMessage() for r in caplog.records]))

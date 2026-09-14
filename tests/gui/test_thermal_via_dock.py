@@ -380,6 +380,54 @@ def test_on_redraw_dispatches_to_worker(main_window, tmp_path, monkeypatch):
     assert payload["ctx"] is fake_ctx
 
 
+# ── Э3 (plan_2026_09_13_timeout_sweep): the worker's own pipeline waits as long
+# as the main connection does ────────────────────────────────────────────────
+#
+# Х5 (plan_2026_09_13_three_unsentinelled_guards): the sweep wrote the payload
+# line in FOUR docks and guarded only trees_dock. Measured 14.09 on 792f20f:
+# removing `payload["timeout_ms"] = ...` from this dock left 174 tests green.
+# Both halves are pinned here, on a value that is NOT DEFAULT_TIMEOUT_MS — on
+# the constant the guard would stay green with the payload line dropped, since
+# worker_timeout_ms() falls back to exactly that number.
+
+def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatch):
+    """The UI half carries the connection's own timeout into the payload; the
+    worker half builds its ApplyPipeline with the carried value — so a user who
+    raises the IPC timeout in Settings is not silently kept on the old one."""
+    dock, _target_file = _make_dock(main_window, tmp_path)
+    dock.name_edit.setText("fpga_thermal")
+    dock.pad_edit.setText("1")
+    dock.anchor_ref_edit.setText("U3")
+    fake_cfg = Config()
+    fake_ctx = RuntimeContext()
+    monkeypatch.setattr(thermal_via_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
+    main_window.connection.timeout_ms = 31_000     # exactly what the Settings tab writes
+
+    payloads = []
+    monkeypatch.setattr(thermal_via_mod, "start_long_op",
+                        lambda *a, **k: payloads.append(a[5]) or object())
+
+    dock._on_redraw()
+
+    assert payloads, "the redraw did not go through start_long_op"
+    assert payloads[0]["timeout_ms"] == 31_000
+
+    # …and the worker half: that carried number is the ApplyPipeline's timeout.
+    captured = {}
+
+    class _FakePipeline:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(thermal_via_mod, "ApplyPipeline", _FakePipeline)
+    dock._run_redraw(payloads[0])
+
+    assert captured["timeout_ms"] == 31_000
+
+
 # ── Target-file combo (2026-08-13, plan tree_to_combo_file_pickers) ──────
 
 def _combo_index_for_filename(combo, filename):

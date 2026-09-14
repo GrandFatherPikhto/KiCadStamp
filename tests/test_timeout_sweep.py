@@ -18,9 +18,12 @@ Three guards live here:
   3. an EXPLICIT timeout still wins — the counter-guard against "swept so hard
      that nothing is configurable any more".
 
-``kicadstamp/diagnostics/`` is the stated exception: six probes there keep a
-long timeout ON PURPOSE, each with a comment saying why (Э4). They are excluded
-from the literal scan and are not covered by the default guards.
+``kicadstamp/diagnostics/`` used to be excluded from the scan wholesale. Since
+Х6 (plan_2026_09_13_three_unsentinelled_guards) it is scanned like everything
+else, with FIVE named exceptions — the probes that keep a long timeout ON
+PURPOSE, each with a comment saying why (Э4). The sixth, ``get_pad_bbox.py``,
+only ever had the old global default there (and then a comment claiming it was
+deliberate), so it now uses ``DEFAULT_TIMEOUT_MS``.
 
 Mutation checks run by hand when this landed (the hand-off report has the
 output): putting one literal back in gui/docks/trees_dock.py turns guard 1 red;
@@ -41,17 +44,40 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The shipping packages the sweep covers (Э5.1).
 _SCANNED_PACKAGES = ("kicadstamp", "gui", "mcp_server")
-# Diagnostics probes keep a long timeout on purpose (Э4) — guarded there by
-# their own comments, not by this scan.
-_EXCLUDED_DIRS = (REPO_ROOT / "kicadstamp" / "diagnostics",)
 # The literal in every shape it used to be written in (20000 / 20_000).
 _LITERAL = re.compile(r"\b20_?000\b")
+
+# Diagnostics probes that keep a 20 s literal ON PURPOSE (Э4): each runs a HEAVY
+# batch read, where a ceiling sized for the GUI would fake timeouts into the
+# very numbers the probe exists to report. They are excluded BY NAME, each with
+# its reason — anything else under kicadstamp/diagnostics/ is scanned like the
+# shipping tree. Х6 (plan_2026_09_13_three_unsentinelled_guards) closed the
+# blanket exclusion that used to hide get_pad_bbox.py, whose 20 s was simply the
+# old default. `test_the_diagnostic_exception_list_has_no_stale_entries` keeps
+# this list from rotting.
+_DIAGNOSTIC_LITERAL_EXCEPTIONS = {
+    "probe_placement_cost.py":
+        "times a full placement Phase 1 on a grown board",
+    "diagnostic_charset.py":
+        "scans every field of every footprint on the whole board",
+    "probe_inter_cluster_nets_gnd.py":
+        "reads the whole selection's copper plus the board's item lists",
+    "probe_schematic_ipc_api.py":
+        "calls undocumented SCH-layer IPC methods of unknown latency",
+    "probe_field_map_unit_cost.py":
+        "sweeps every footprint --iter times to build medians",
+}
+
+
+def _diagnostics_dir() -> Path:
+    return REPO_ROOT / "kicadstamp" / "diagnostics"
 
 
 def _scanned_sources():
     for package in _SCANNED_PACKAGES:
         for path in sorted((REPO_ROOT / package).rglob("*.py")):
-            if any(path.is_relative_to(excluded) for excluded in _EXCLUDED_DIRS):
+            if (path.parent == _diagnostics_dir()
+                    and path.name in _DIAGNOSTIC_LITERAL_EXCEPTIONS):
                 continue
             yield path
 
@@ -77,6 +103,32 @@ class TestNoStrayLiterals:
         sources = list(_scanned_sources())
         assert len(sources) > 100
         assert any(p.name == "cli_main.py" for p in sources)
+
+    def test_get_pad_bbox_is_scanned_like_the_shipping_tree(self):
+        """Х6 (plan_2026_09_13_three_unsentinelled_guards): the probe whose
+        20 s was only the old global default stopped hiding behind the blanket
+        diagnostics exclusion — it is scanned now, so putting a literal back
+        there turns the guard above red. The five named exceptions must still
+        be skipped, or their long budget would be scanned as a mistake."""
+        scanned = {p.name for p in _scanned_sources()}
+        assert "get_pad_bbox.py" in scanned
+        assert "probe_placement_cost.py" not in scanned
+
+    def test_the_diagnostic_exception_list_has_no_stale_entries(self):
+        """Anti-rot for the named exceptions: a probe that was renamed away, or
+        that no longer carries the literal, must not keep pre-approving a
+        future 20 s literal silently — and every entry must state a reason."""
+        for name, reason in _DIAGNOSTIC_LITERAL_EXCEPTIONS.items():
+            assert reason.strip(), f"exception without a reason: {name}"
+            path = _diagnostics_dir() / name
+            assert path.exists(), f"exception names a missing probe: {name}"
+            literal_lines = [
+                line for line in path.read_text(encoding="utf-8").splitlines()
+                if _LITERAL.search(line)]
+            assert literal_lines, (
+                f"{name} no longer carries a 20 s literal — drop its exception "
+                "from _DIAGNOSTIC_LITERAL_EXCEPTIONS so the file is scanned "
+                "again")
 
 
 def _capture_cli_namespace(monkeypatch, argv):

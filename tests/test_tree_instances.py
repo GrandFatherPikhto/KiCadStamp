@@ -1869,6 +1869,57 @@ class TestDuplicateTreeNameDiagnosis:
         # The symptom the message used to be, and must never be again.
         assert "position source" not in text
 
+    def test_a_non_mapping_tree_entry_keeps_the_loaders_own_message(self, tmp_path):
+        """Х3 (plan_2026_09_13_three_unsentinelled_guards): the raw-dict name
+        check SKIPS entries that are not mappings — and that filter is load
+        bearing. It is what keeps _load_tree's own, far better diagnosis in
+        charge of a garbage entry. Measured 2026-09-14 on 792f20f: with the
+        filter, this config dies as "trees: entry must be a mapping, got str";
+        with the filter lifted the raw check reaches t.get('name') first and the
+        whole diagnosis collapses into `AttributeError: 'str' object has no
+        attribute 'get'` — a bare Python traceback where the user deserves a
+        sentence.
+
+        Both the exception TYPE and its TEXT are pinned: a test that only says
+        "it raises" is green before and after the mutation, which is exactly how
+        this guard was found missing.
+
+        A .json config on purpose, same reasoning as the duplicate-name test
+        above: the s-expr parser never lets a non-mapping reach the loader, so
+        only the plain-dict route exercises the filter."""
+        data = {"trees": [{"name": "t1", "anchor": {"origin": True}, "nodes": []},
+                          "мусор"]}
+        p = tmp_path / "t.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+
+        with pytest.raises(ValidationError) as excinfo:
+            load_config(str(p))
+
+        text = str(excinfo.value)
+        assert "trees: entry must be a mapping, got str" in text
+        assert "AttributeError" not in text
+
+    def test_a_non_string_tree_name_is_left_to_the_loader(self, tmp_path):
+        """Х3, second case of the same filter: an entry whose name is NOT a
+        string is skipped by the raw-dict check too.
+
+        Measured 2026-09-14 on 792f20f — such a config simply LOADS, with the
+        Tree carrying `name=7` (an int). That may well be a hole: the curated
+        redraw, the GUI's tree lists and every name-based lookup then deal with
+        a non-string name, and nothing else validates it either. Fixing it is
+        NOT part of this task (the plan forbids touching code here), so this
+        test PINS today's behaviour; the question is raised in the hand-off
+        report instead."""
+        data = {"trees": [{"name": "t1", "anchor": {"origin": True}, "nodes": []},
+                          {"name": 7, "anchor": {"origin": True}, "nodes": []}]}
+        p = tmp_path / "t.json"
+        p.write_text(json.dumps(data), encoding="utf-8")
+
+        cfg, _ctx = load_config(str(p))
+
+        assert [t.name for t in cfg.trees] == ["t1", 7]
+        assert isinstance(cfg.trees[1].name, int)   # not silently coerced
+
     def test_instance_name_taken_by_a_literal_tree_is_fatal_at_expansion(self):
         """Э3.2 — the name is checked where it is created: the declaration is
         expanded with the raw dict in hand, so the fatal arrives before the tree
