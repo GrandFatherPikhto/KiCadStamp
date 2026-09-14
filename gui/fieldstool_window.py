@@ -69,7 +69,8 @@ from kicadstamp.schematic_editing import check_kicad_not_running, write_files
 from kicadstamp.schematic_set_fields import (plan_ensure_fields_for_root,
                                              plan_set_edits_for_root)
 
-from .docks._common import (ERROR_STYLE as _ERROR_STYLE, configure_searchable,
+from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
+                            WARN_STYLE as _WARN_STYLE, configure_searchable,
                             show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
 from .schema_model import (SchematicComponent, SchematicInstance,
@@ -275,11 +276,16 @@ class MainWindow(QMainWindow):
     def _refresh_board_snapshot_then(self, on_ready=None) -> None:
         """Rebuild the shared BoardConnection.snapshot on the worker thread,
         feed it to set_live_snapshot() (the pending diff's board side), then run
-        `on_ready` on the UI thread. See
-        gui.worker.refresh_snapshot_then: without a live board behind the
-        connection, or while another long op holds the shared socket, it falls
-        back/refuses and `on_ready` still runs, so a click never dead-ends."""
-        from .worker import refresh_snapshot_then
+        `on_ready` on the UI thread.
+
+        Without a live board behind the connection `on_ready` runs at once on
+        the cached snapshot. While another long op holds the shared socket the
+        old text here claimed `on_ready` "still runs, so a click never
+        dead-ends" — that was false (found 2026-09-14, the live "Add node"
+        finding) and is fixed by gui.worker.refresh_snapshot_then_with_retry:
+        one deferred retry, then the continuation on the CACHED snapshot,
+        reported with a WARN line in the Log."""
+        from .worker import refresh_snapshot_then_with_retry
         connection = self.connection
 
         def _adopt() -> None:
@@ -293,7 +299,12 @@ class MainWindow(QMainWindow):
             if on_ready is not None:
                 on_ready()
 
-        refresh_snapshot_then(connection, (), _adopt, _failed)
+        refresh_snapshot_then_with_retry(
+            connection, (), _adopt, _failed, owner=self,
+            on_cached=lambda: show_message(
+                _("The board is busy — using the previously read board "
+                  "snapshot; the pending list may be slightly out of date."),
+                _WARN_STYLE, logger))
 
     def _rescan(self) -> None:
         """Explicit action, not auto-polled — the schematic only changes

@@ -39,7 +39,8 @@ from kipy.errors import ApiError
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (QDialog, QMessageBox, QSizePolicy, QTabWidget)
 
-from .docks._common import (ERROR_STYLE as _ERROR_STYLE, display_path,
+from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
+                            WARN_STYLE as _WARN_STYLE, display_path,
                             show_message)
 from .docks.entity_delete import delete_entry
 from .docks.extract_diagnostics import (format_cluster_rejections,
@@ -1149,10 +1150,19 @@ class DockHub:
         Without a live board behind the connection there is nothing fresher to
         distribute — the docks already hold THIS very snapshot (it was pushed
         when it was built) — so only ``on_ready`` runs; that also keeps the
-        page-switch trigger safe (see below). While another long op holds the
-        socket the rebuild is refused and ``on_ready`` still runs, so a user's
-        click never dead-ends (gui.worker.refresh_snapshot_then's docstring)."""
-        from .worker import refresh_snapshot_then, snapshot_refresh_supported
+        page-switch trigger safe (see below).
+
+        While another long op holds the socket the rebuild IS refused, and
+        until 2026-09-14 that refusal swallowed the click (the live "Add node"
+        finding, plan_2026_09_14_snapshot_refusal_dead_end). It no longer does:
+        a click-bearing call goes through
+        gui.worker.refresh_snapshot_then_with_retry — one deferred retry, then
+        the continuation on the CACHED snapshot, reported with a WARN line in
+        the Log — while the page-switch call (on_ready is None) keeps the plain
+        strict refusal, because it has no click of its own to preserve."""
+        from .worker import (refresh_snapshot_then,
+                             refresh_snapshot_then_with_retry,
+                             snapshot_refresh_supported)
         connection = self.main_window.connection
 
         def _distribute() -> None:
@@ -1193,7 +1203,20 @@ class DockHub:
                 on_ready()
             return
 
-        refresh_snapshot_then(connection, (), _distribute, _failed)
+        if on_ready is None:
+            # The page switch (see _on_config_right_page_changed): a
+            # navigational refresh with no click of its own, so the plain strict
+            # call is kept — no retry, no message.
+            refresh_snapshot_then(connection, (), _distribute, _failed)
+            return
+
+        refresh_snapshot_then_with_retry(
+            connection, (), _distribute, _failed,
+            owner=self.main_window,
+            on_cached=lambda: show_message(
+                _("The board is busy — using the previously read board "
+                  "snapshot; the Role/Cluster suggestions may be slightly out "
+                  "of date."), _WARN_STYLE, logger))
 
     def clear_components(self) -> None:
         """Connection-lost path: empty the Components tree (live mode only —
@@ -1941,16 +1964,25 @@ class DockHub:
         """R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md) — the
         ONE shared rebuild point of the two Extract flows.
 
-        Both flows read ``connection.snapshot`` three times: the fully-selected
-        Cluster detection and BOTH geometry payload builders (the inter-cluster
-        net detection and the entity/anchor position reads). That snapshot is
-        rebuilt only by connect()/manual refresh — MainWindow._poll's automatic
-        tick is a deliberate no-op once connected — so it is frozen at connect
-        time: a component ADDED to a cluster in KiCad afterwards is missing from
-        the snapshot, which makes a PARTIAL selection look fully selected (and
-        every position read out of it is stale). The rebuild runs on the worker
-        thread — never a direct adapter/IPC call on the UI thread, which is
-        exactly the 2026-08-08 hang fixed by Commit H
+        Both flows read ``connection.snapshot`` ONCE, and only for the
+        fully-selected Cluster detection (``fully_selected_clusters``) — that is
+        MEMBERSHIP (which components a cluster has, and whether all are
+        selected), NOT geometry. An earlier revision of this docstring claimed
+        the geometry payload builders read the snapshot too, and that "every
+        position read out of it is stale"; that stopped being true (found
+        2026-09-14) — the inter-cluster net detection and the entity/anchor
+        position reads take a live ADAPTER
+        (``detect_inter_cluster_nets(..., adapter=adapter)``,
+        ``resolve_entity_live_position_mm(adapter, ...)``,
+        ``resolve_role_anchor_base_mm(adapter, ...)``).
+
+        What the rebuild still buys: the snapshot freezes at
+        connect/manual-refresh time (MainWindow._poll's automatic tick is a
+        deliberate no-op once connected), so a component ADDED to a cluster in
+        KiCad afterwards is missing from it, which makes a PARTIAL selection
+        look fully selected. The rebuild runs on the worker thread — never a
+        direct adapter/IPC call on the UI thread, which is exactly the 2026-08-08
+        hang fixed by Commit H
         (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md) — and
         ``on_ready`` then continues the flow on the UI thread with the snapshot
         already fresh.
@@ -1962,11 +1994,23 @@ class DockHub:
         The rebuild names itself in the status bar (Э1/Э2 of
         plan_2026_09_12_busy_indicator): every Extract flow's first visible step
         IS this board read."""
-        from .worker import refresh_snapshot_then
-        refresh_snapshot_then(
+        from .worker import refresh_snapshot_then_with_retry
+        refresh_snapshot_then_with_retry(
             self.main_window.connection, (), on_ready,
             lambda message: self._show_snapshot_refresh_error(title, message),
-            busy_text=_("reading the board"))
+            busy_text=_("reading the board"),
+            owner=self.main_window,
+            # Э2.3: this path's fallback must name its CONSEQUENCE. The snapshot
+            # feeds fully_selected_clusters (MEMBERSHIP), so a stale one can
+            # make a partially selected cluster read as fully selected and the
+            # tree comes out missing a component — "slightly old list" does not
+            # describe that, so the message says what to check.
+            on_cached=lambda: show_message(
+                _("The board is busy — the cluster list comes from the "
+                  "previously read board snapshot: a component added to a "
+                  "cluster since then may be missing, so a partially selected "
+                  "cluster can look fully selected — check the extracted tree "
+                  "for a missing component."), _WARN_STYLE, logger))
 
     def _show_snapshot_refresh_error(self, title: str, message: str) -> None:
         """UI thread: the worker could not rebuild the board snapshot (the live

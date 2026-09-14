@@ -62,7 +62,7 @@ from kicadstamp.scheme_list_capture import (
 )
 from kicadstamp.utils.units import MM
 
-from ..worker import refresh_snapshot_then, start_long_op
+from ..worker import refresh_snapshot_then_with_retry, start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE,
                       add_include, display_path, read_data, show_message,
@@ -870,11 +870,19 @@ class RecordSchemeListDialog(QDialog):
                   "on the 'By sheet' tab, or select footprints on the board "
                   "for 'By selection'."))
             return
-        self._pivot_op = refresh_snapshot_then(
+        self._pivot_op = refresh_snapshot_then_with_retry(
             self._connection, (self.pivot_from_selection_button,),
             lambda: self._pivot_from_selection_now(refs),
             self._on_pivot_snapshot_refresh_failed,
-            busy_text=_("reading the board"))
+            busy_text=_("reading the board"),
+            owner=self.pivot_from_selection_button,
+            # Э2.5: the pivot reads POSITIONS out of the snapshot, so the
+            # cached-snapshot fallback would write wrong geometry, not just an
+            # old list — keep the refusal and let the USER know (ERROR: this is
+            # the user-facing line, distinct from gui.worker's diagnostic
+            # WARNING).
+            on_still_busy=lambda: self._on_pivot_snapshot_refresh_failed(
+                _("another operation is using the board")))
 
     def _pivot_from_selection_now(self, refs: List[str]) -> None:
         """UI thread, AFTER the snapshot rebuild (see
@@ -1523,11 +1531,17 @@ class SchemeListFormWidget(QWidget):
             return
         # R.2.1: rebuild the polled full-board snapshot on the worker thread
         # (never an adapter call here) BEFORE reading any position out of it.
-        self._pivot_op = refresh_snapshot_then(
+        self._pivot_op = refresh_snapshot_then_with_retry(
             self._connection, (self.pivot_from_selection_button,),
             lambda: self._pivot_from_selection_now(record),
             self._on_pivot_snapshot_refresh_failed,
-            busy_text=_("reading the board"))
+            busy_text=_("reading the board"),
+            owner=self.pivot_from_selection_button,
+            # Э2.5: same rule as the RecordSchemeListDialog pivot above — a
+            # position read from a stale snapshot is wrong geometry, so refuse
+            # and tell the user (ERROR, user-facing) instead of falling back.
+            on_still_busy=lambda: self._on_pivot_snapshot_refresh_failed(
+                _("another operation is using the board")))
 
     def _pivot_from_selection_now(self, record: SchemeListConfig) -> None:
         """UI thread, AFTER the snapshot rebuild (see
