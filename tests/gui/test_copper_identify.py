@@ -223,7 +223,10 @@ def test_worker_only_reads_the_selection(tmp_path, monkeypatch):
     nt = _record()
     track = _live_track("hand-trk")
     adapter = _fake_adapter(live_tracks=[track], selected=[track])
-    monkeypatch.setattr(copper_select_mod, "_live_adapter", lambda: adapter)
+    # Accepts the payload timeout the worker now passes (Э3,
+    # plan_2026_09_13_timeout_sweep).
+    monkeypatch.setattr(copper_select_mod, "_live_adapter",
+                        lambda *_args, **_kwargs: adapter)
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
 

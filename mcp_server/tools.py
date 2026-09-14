@@ -15,6 +15,7 @@ from functools import wraps
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.i18n import _
 
@@ -156,7 +157,7 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
     def _apply_config(config_path: str, dry_run: bool = False,
                       only: list[str] | None = None,
                       cluster: list[str] | None = None,
-                      no_selection: bool = False, timeout_ms: int = 20000,
+                      no_selection: bool = False, timeout_ms: int = DEFAULT_TIMEOUT_MS,
                       batch_size: int = 10, no_collision_check: bool = False,
                       collision_margin: float = 0.2) -> str:
         return handlers.apply_config(

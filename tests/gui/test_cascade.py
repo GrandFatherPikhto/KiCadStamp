@@ -56,6 +56,7 @@ def test_run_cascade_sequential_order_and_partial_failure(monkeypatch):
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False):
             self.only = only
 
@@ -110,6 +111,7 @@ def test_run_curated_tree_redraw_runs_pipeline_per_plan_name(monkeypatch, tmp_pa
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
             calls.append((list(only or []), position_overrides))
 
@@ -143,6 +145,7 @@ def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch,
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
             pass
 
@@ -199,6 +202,7 @@ def test_run_curated_forest_redraw_cross_tree_order(monkeypatch, tmp_path):
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
             calls.append(list(only or []))
 
@@ -222,6 +226,7 @@ def _raising_pipeline(raised):
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
             pass
 
@@ -346,6 +351,7 @@ def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp
 
     class _FakePipeline:
         def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
                      only=None, dry_run=False, position_overrides=None):
             calls.append((list(only or []), position_overrides))
 

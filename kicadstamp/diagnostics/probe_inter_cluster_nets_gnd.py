@@ -34,6 +34,9 @@ def main() -> int:
     )
     from kicadstamp.kicad.adapter import KiCadBoardAdapter
 
+    # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
+    # DEFAULT_TIMEOUT_MS: one probe reads the whole selection's copper plus the
+    # board's item lists, so a low ceiling would abort the report, not the board.
     adapter = KiCadBoardAdapter(timeout_ms=20000)
     adapter.refresh_board()
     selected = list(adapter.get_selected_items() or [])

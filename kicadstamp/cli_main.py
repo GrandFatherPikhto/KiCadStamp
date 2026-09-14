@@ -188,7 +188,7 @@ def main() -> int:
     extract_parser.add_argument("--profile", metavar="NAME",
                                 help=_("Take name/output/param/net-template/origin-by-* from profile NAME "
                                        "in --profiles file (cannot combine with explicit flags)"))
-    extract_parser.add_argument("--timeout-ms", type=int, default=20000, help=_("IPC timeout in ms"))
+    extract_parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS, help=_("IPC timeout in ms"))
     extract_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     extract_parser.add_argument("--log-file", help=_("File to save logs"))
     extract_parser.add_argument("--param", action="append", metavar="KEY=VALUE",
@@ -273,7 +273,7 @@ def main() -> int:
     extract_net_parser.add_argument("--anchor-pad", metavar="PAD",
                                     help=_("Anchor point = this pad's centre instead of the footprint centre"))
     extract_net_parser.add_argument("--output", required=True, help=_("Output .sexp/JSON file"))
-    extract_net_parser.add_argument("--timeout-ms", type=int, default=20000, help=_("IPC timeout in ms"))
+    extract_net_parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS, help=_("IPC timeout in ms"))
     extract_net_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     extract_net_parser.add_argument("--log-file", help=_("File to save logs"))
 

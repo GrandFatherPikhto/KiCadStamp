@@ -155,7 +155,10 @@ def test_tier_label_combines_both():
 def test_worker_selects_the_matched_copper_and_is_read_only(tmp_path, monkeypatch):
     adapter = _fake_adapter(live_tracks=[_live_track()], live_vias=[_live_via()],
                             selected=["something"])
-    monkeypatch.setattr(copper_select_mod, "_live_adapter", lambda: adapter)
+    # The worker now hands its payload timeout to _live_adapter (Э3,
+    # plan_2026_09_13_timeout_sweep), so the stand-in must accept it.
+    monkeypatch.setattr(copper_select_mod, "_live_adapter",
+                        lambda *_args, **_kwargs: adapter)
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
     via_reg = tmp_path / "registry" / "root.registry.json"
@@ -176,7 +179,8 @@ def test_worker_selects_the_matched_copper_and_is_read_only(tmp_path, monkeypatc
 
 def test_worker_with_nothing_found_clears_the_selection(tmp_path, monkeypatch):
     adapter = _fake_adapter()
-    monkeypatch.setattr(copper_select_mod, "_live_adapter", lambda: adapter)
+    monkeypatch.setattr(copper_select_mod, "_live_adapter",
+                        lambda *_args, **_kwargs: adapter)
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
 

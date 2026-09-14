@@ -558,6 +558,10 @@ def probe_schematic_wrapper(client, doc, try_write: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Простукивание недокументированного SCH-слоя IPC-API KiCad через kipy")
+    # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
+    # DEFAULT_TIMEOUT_MS: this probe calls UNDOCUMENTED SCH-layer IPC methods
+    # whose latency is unknown by definition, and a blocking one only ends when
+    # the socket gives up — so the budget stays generous on purpose.
     parser.add_argument("--timeout-ms", type=int, default=20000,
                         help="таймаут IPC в мс (по умолчанию 20000)")
     parser.add_argument("--verbose", action="store_true",

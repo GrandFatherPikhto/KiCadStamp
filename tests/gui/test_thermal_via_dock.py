@@ -321,7 +321,8 @@ def test_redraw_preserves_other_entries_for_registry_safety(main_window, tmp_pat
     pipeline_calls = []
 
     class _FakePipeline:
-        def __init__(self, config_path, preloaded_cfg, preloaded_ctx, only, dry_run):
+        def __init__(self, config_path, preloaded_cfg, preloaded_ctx, only, dry_run,
+                     timeout_ms=None):
             pipeline_calls.append({"config_path": config_path, "cfg": preloaded_cfg, "only": only})
 
         def run(self):

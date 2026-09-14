@@ -48,6 +48,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iter", type=int, default=20)
+    # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
+    # DEFAULT_TIMEOUT_MS: the probe sweeps EVERY footprint of the board --iter
+    # times over, so a per-call ceiling sized for the GUI would fake timeouts
+    # into the medians this tool exists to report.
     ap.add_argument("--timeout-ms", type=int, default=20000)
     args = ap.parse_args(argv)
 

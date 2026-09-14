@@ -71,6 +71,7 @@ from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers, settings
+from ..connection import worker_timeout_ms
 from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import socket_busy, start_long_op
@@ -351,7 +352,9 @@ def run_internode_reread_worker(payload: dict) -> dict:
         plan_internode_reread,
     )
 
-    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    # The timeout travels in the payload (Э3, plan_2026_09_13_timeout_sweep) —
+    # the value the main connection actually runs with, decided on the UI side.
+    adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
     adapter.refresh_board()
     selected = list(adapter.get_selected_items() or [])
     if selected:
@@ -397,7 +400,9 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
     thread."""
     tree = payload["tree"]
     try:
-        adapter = KiCadBoardAdapter(timeout_ms=20000)
+        # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as
+        # the reread worker above.
+        adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
         adapter.refresh_board()
         pos, rot = _anchor_base_live_position(
             adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
@@ -2776,6 +2781,10 @@ class TreesDock(QWidget):
             "cfg": self._cfg,
             "tree": tree,
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
+            # Э3 — the worker's own adapter waits exactly as long as the main
+            # connection does (read here, on the UI side, like every other
+            # parameter the worker needs).
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         # Э2 (plan_2026_09_12_busy_indicator): the menu QAction is disabled
         # while the read runs, so the same entry cannot put a SECOND board read
@@ -2854,6 +2863,7 @@ class TreesDock(QWidget):
             "config_path": str(self._root_path),
             "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
                             if self._ctx is not None else {}),
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): the
         # trigger is the node context menu's "Select copper on board", an action
@@ -2906,6 +2916,7 @@ class TreesDock(QWidget):
             "config_path": str(self._root_path),
             "sheet_names": (dict(getattr(self._ctx, "sheet_names", None) or {})
                             if self._ctx is not None else {}),
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
@@ -3026,6 +3037,7 @@ class TreesDock(QWidget):
                 "ctx": self._ctx,
                 "trees": self._trees,
                 "selected_refs": {node.ref},
+                "timeout_ms": worker_timeout_ms(self._main_window.connection),
             }
             self._active_op = start_long_op(
                 self._main_window.connection, (),
@@ -3038,6 +3050,7 @@ class TreesDock(QWidget):
             "cfg": self._cfg,
             "ctx": self._ctx,
             "ref": node.ref,
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         self._active_op = start_long_op(
             self._main_window.connection, (),
@@ -3645,6 +3658,7 @@ class TreesDock(QWidget):
             "trees": self._trees,
             "tree_name": tree_name,
             "selected_refs": selected_refs,
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
@@ -3698,6 +3712,7 @@ class TreesDock(QWidget):
             "ctx": self._ctx,
             "trees": self._trees,
             "selected_refs": refs,
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         widgets = [trigger] if trigger is not None else []
         self._active_op = start_long_op(
@@ -3741,6 +3756,7 @@ class TreesDock(QWidget):
             "cfg": self._cfg,
             "tree": tree,
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
+            "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         # Э2 (plan_2026_09_12_busy_indicator): the menu QAction is disabled
         # while the read runs, so the same entry cannot put a SECOND board read

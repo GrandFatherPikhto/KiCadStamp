@@ -382,7 +382,7 @@ Holds global constants used across various modules.
 | `ANGLE_TOLERANCE_DEG` | `0.1` | Angle tolerance for "already in place" checks. |
 | `POSITION_TOLERANCE_MM` | `0.01` | Position tolerance for registry. |
 | `DEFAULT_BATCH_SIZE` | `10` | Default batch size for transactions. |
-| `DEFAULT_TIMEOUT_MS` | `20000` | Default IPC timeout. |
+| `DEFAULT_TIMEOUT_MS` | `5000` | Default IPC timeout. |
 | `DEFAULT_LOG_DIR` | `"logs"` | Default log directory. |
 | `SPOKE_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Placeholder for spoke‑level vias in registry. |
 

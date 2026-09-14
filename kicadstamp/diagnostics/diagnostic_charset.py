@@ -68,6 +68,9 @@ def main():
     ap.add_argument("--fields", default=",".join(DEFAULT_FIELDS),
                     help=_("comma‑separated, no spaces (default: {default})")
                     .format(default=",".join(DEFAULT_FIELDS)))
+    # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
+    # DEFAULT_TIMEOUT_MS: this one scans every field of every footprint on the
+    # whole board, a heavy batch read rather than the GUI's per-call budget.
     ap.add_argument("--timeout-ms", type=int, default=20000,
                     help=_("IPC timeout in ms"))
     ap.add_argument("--verbose", action="store_true",

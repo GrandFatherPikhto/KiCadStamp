@@ -237,6 +237,10 @@ def main(argv=None):
     ap.add_argument("config", help="path to the .sexp config to plan")
     ap.add_argument("--iter", type=int, default=UNIT_ITERATIONS_DEFAULT,
                     help="iterations for the unit-cost medians (default %(default)s)")
+    # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
+    # DEFAULT_TIMEOUT_MS: this probe times the heaviest workload we have (a full
+    # placement Phase 1 on a grown board), so a low ceiling would turn the very
+    # numbers it exists to produce into timeouts.
     ap.add_argument("--timeout-ms", type=int, default=20000)
     ap.add_argument("--profile-rows", type=int, default=18)
     args = ap.parse_args(argv)

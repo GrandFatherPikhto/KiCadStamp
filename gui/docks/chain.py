@@ -81,6 +81,7 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
 
+from ..connection import worker_timeout_ms
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from .live_position import read_anchor_live
@@ -817,6 +818,7 @@ class ChainDock(QWidget):
         """Worker thread: ApplyPipeline run only — never touches a widget."""
         pipeline = ApplyPipeline(config_path=str(payload["path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
+                                 timeout_ms=worker_timeout_ms(payload),
                                  only=payload["names"], dry_run=False,
                                  isolate_spokes=payload.get("isolate_spokes"))
         try:
@@ -842,6 +844,10 @@ class ChainDock(QWidget):
         self._show_message(_("Placed {name!r}.").format(name=names), _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
+        # Э3 (plan_2026_09_13_timeout_sweep): the worker's ApplyPipeline opens its
+        # OWN kipy socket, so it must wait exactly as long as the main connection
+        # does — read here, on the UI side, never from the worker's thread.
+        payload["timeout_ms"] = worker_timeout_ms(self._main_window.connection)
         self._active_op = start_long_op(
             self._main_window.connection,
             (),  # no guard widget: the Chain form is a dialog (see below)

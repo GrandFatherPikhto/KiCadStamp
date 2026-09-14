@@ -42,6 +42,7 @@ from kicadstamp.i18n import _
 from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
                                           read_net_trace_flags, write_net_trace)
 
+from ..connection import worker_timeout_ms
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from .copper_select import (resolve_record, run_select_record_copper_worker,
@@ -516,6 +517,10 @@ class NetTraceDock(QWidget):
         payload = self._collect_redraw_inputs()
         if payload is None:
             return
+        # Э3 (plan_2026_09_13_timeout_sweep): the worker's ApplyPipeline opens its
+        # OWN kipy socket, so it must wait exactly as long as the main connection
+        # does — read here, on the UI side, never from the worker's thread.
+        payload["timeout_ms"] = worker_timeout_ms(self._connection)
         self._active_op = start_long_op(
             self._connection,
             (self.extract_button, self.redraw_button),
@@ -577,6 +582,7 @@ class NetTraceDock(QWidget):
         """Worker thread: ApplyPipeline --only=<net> — never touches a widget."""
         pipeline = ApplyPipeline(config_path=str(payload["path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
+                                 timeout_ms=worker_timeout_ms(payload),
                                  only=[payload["name"]], dry_run=False)
         try:
             pipeline.run()

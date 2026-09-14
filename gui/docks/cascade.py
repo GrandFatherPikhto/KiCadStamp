@@ -26,6 +26,7 @@ from kipy.errors import ApiError
 from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.cli_common import api_error_message
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -41,6 +42,8 @@ from kicadstamp.tree_position import (
     tree_layout_base,
 )
 from kicadstamp.trees import Tree
+
+from ..connection import worker_timeout_ms
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +69,9 @@ def cascade_records(cfg, start_key: str) -> list:
     return redraw_records_in_order(graph, start_key)
 
 
-def run_cascade(config_path: str, cfg, ctx,
-                names: List[str]) -> List[Tuple[str, bool, Optional[str]]]:
+def run_cascade(config_path: str, cfg, ctx, names: List[str],
+                timeout_ms: int = DEFAULT_TIMEOUT_MS
+                ) -> List[Tuple[str, bool, Optional[str]]]:
     """Worker-thread-safe: ONE ApplyPipeline --only run per name, in the
     given topological order. Returns [(name, ok, error), ...] in the same
     order — never touches a widget, only logs (which the Log dock's root
@@ -76,6 +80,10 @@ def run_cascade(config_path: str, cfg, ctx,
     The preloaded cfg/ctx are shared across runs: apply_pipeline's filters
     never mutate their input (each filter returns a derived Config), so a
     run's --only narrowing can never leak into the next record's run.
+
+    ``timeout_ms`` is the IPC timeout every record's own ApplyPipeline waits
+    with — carried in from the dock (Э3, plan_2026_09_13_timeout_sweep) so a
+    background redraw waits exactly as long as the main connection does.
     """
     results: List[Tuple[str, bool, Optional[str]]] = []
     for name in names:
@@ -83,6 +91,7 @@ def run_cascade(config_path: str, cfg, ctx,
         try:
             pipeline = ApplyPipeline(
                 config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
+                timeout_ms=timeout_ms,
                 only=[name], dry_run=False)
             pipeline.run()
             results.append((name, True, None))
@@ -111,13 +120,15 @@ def run_cascade(config_path: str, cfg, ctx,
 
 def run_cascade_worker(payload: Dict[str, Any]) -> list:
     """start_long_op worker entry point — plain data in, plain data out
-    (never touches a widget)."""
+    (never touches a widget). The IPC timeout rides in the payload (Э3)."""
     return run_cascade(
-        payload["config_path"], payload["cfg"], payload["ctx"], payload["names"])
+        payload["config_path"], payload["cfg"], payload["ctx"], payload["names"],
+        worker_timeout_ms(payload))
 
 
 def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
-                            tree_name: str, selected_refs: set[str]
+                            tree_name: str, selected_refs: set[str],
+                            timeout_ms: int = DEFAULT_TIMEOUT_MS
                             ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
     """Links `trees` against cfg, finds tree_name, plans a curated redraw over
     selected_refs (curated_redraw_plan), logs its structural warnings, and
@@ -148,7 +159,10 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     # topological order, or hand-moved before Redraw — both read identically,
     # live). Non-persistent: only the physical movement, via the calculator
     # position_overrides (Option 1 — handoff …step0.md §3-§4).
-    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    # Э3 (plan_2026_09_13_timeout_sweep): the worker's own adapter waits exactly
+    # as long as the main connection does, and the per-record ApplyPipeline runs
+    # below inherit the same number instead of ApplyPipeline's own default.
+    adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
     adapter.refresh_board()
     sheet_names = ctx.sheet_names if ctx else {}
     captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
@@ -170,7 +184,7 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         try:
             pipeline = ApplyPipeline(
                 config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
-                only=[name], dry_run=False,
+                timeout_ms=timeout_ms, only=[name], dry_run=False,
                 position_overrides={name: override} if override else None)
             pipeline.run()
             results.append((name, True, None))
@@ -206,11 +220,12 @@ def run_curated_tree_redraw_worker(payload: dict) -> tuple:
     link/plan/run without touching the UI."""
     return run_curated_tree_redraw(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
-        payload["tree_name"], payload["selected_refs"])
+        payload["tree_name"], payload["selected_refs"], worker_timeout_ms(payload))
 
 
 def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
-                              selected_refs: set[str]
+                              selected_refs: set[str],
+                              timeout_ms: int = DEFAULT_TIMEOUT_MS
                               ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
     """Multi-tree curated redraw (plan 4.2 / design §6 + plan 2026-09-02 P3
     module embedding, design P3 D5): plans the run in the global FOREST order
@@ -236,7 +251,9 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     for warning in warnings:
         logger.warning(warning)
 
-    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as the
+    # curated tree redraw above.
+    adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
     adapter.refresh_board()
     sheet_names = ctx.sheet_names if ctx else {}
 
@@ -305,7 +322,7 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         try:
             pipeline = ApplyPipeline(
                 config_path=config_path, preloaded_cfg=cfg, preloaded_ctx=ctx,
-                only=[name], dry_run=False,
+                timeout_ms=timeout_ms, only=[name], dry_run=False,
                 position_overrides={name: override} if override else None)
             pipeline.run()
             results.append((name, True, None))
@@ -335,7 +352,7 @@ def run_curated_forest_redraw_worker(payload: dict) -> tuple:
     over run_curated_forest_redraw (plain data in, plain data out)."""
     return run_curated_forest_redraw(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
-        payload["selected_refs"])
+        payload["selected_refs"], worker_timeout_ms(payload))
 
 
 def run_single_node_redraw_worker(payload: dict) -> tuple:
@@ -358,6 +375,7 @@ def run_single_node_redraw_worker(payload: dict) -> tuple:
             config_path=payload.get("config_path", ""),
             preloaded_cfg=payload.get("cfg"),
             preloaded_ctx=payload.get("ctx"),
+            timeout_ms=worker_timeout_ms(payload),
             only=[ref], dry_run=False)
         pipeline.run()
         return [(ref, True, None)], []

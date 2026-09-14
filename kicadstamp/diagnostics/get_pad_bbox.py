@@ -25,6 +25,10 @@ def main():
     parser = argparse.ArgumentParser(description=_("Get bounding box of a pad"))
     parser.add_argument("--ref", default="IC1", help=_("Refdes of the target component"))
     parser.add_argument("--pad", help=_("Pad number (if not specified, show all)"))
+    # 20 s kept for consistency with the sibling diagnostics tools (Э4,
+    # plan_2026_09_13_timeout_sweep). Unlike the other five this is a SINGLE
+    # cheap pad read that does not need the long budget — reported to Denis
+    # instead of silently changed here.
     parser.add_argument("--timeout", type=int, default=20000, help=_("IPC timeout in ms"))
     parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
     args = parser.parse_args()

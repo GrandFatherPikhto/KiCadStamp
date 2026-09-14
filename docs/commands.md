@@ -56,7 +56,7 @@ python kicadstamp_cli.py apply <config.sexp> [options]
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Only print the plan (moves, vias, tracks), do not apply changes. |
-| `--timeout-ms` | IPC timeout in milliseconds (default: `20000`). |
+| `--timeout-ms` | IPC timeout in milliseconds (default: `DEFAULT_TIMEOUT_MS`, 5000 ms). |
 | `--batch-size` | Number of objects per transaction (default: `10`). |
 | `--verbose` | Enable verbose output (DEBUG). |
 | `--log-file` | Save logs to the specified file. |
@@ -235,7 +235,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 |------|-------------|
 | `--name` | Name of the template (key in the `templates` section). Optional in direct-flags mode (not `--profile`): if omitted, prompted for interactively. |
 | `--output` | Output file path. The extension determines the format: `.json` → JSON (flat dictionary), `.sexp` → s-expr (a `.yaml`/`.yml` suffix is a fatal error — YAML support was removed 2026-08-28). |
-| `--timeout-ms` | IPC timeout in milliseconds (default: `20000`). |
+| `--timeout-ms` | IPC timeout in milliseconds (default: `DEFAULT_TIMEOUT_MS`, 5000 ms). |
 | `--verbose` | Enable verbose output. |
 | `--log-file` | Save logs to a file. |
 | `--param KEY=VALUE` | Sets a parameter for verifying `--net-template` (e.g., `channel=1`). Not written to the template, only used for round‑trip validation. Can be repeated. **Optional now** — via/track nets resolve from roles (`net_from_role`) and channel patterns are auto‑discovered, so `params` is only needed when you still override nets via `--net-template`. |

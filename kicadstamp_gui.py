@@ -5,7 +5,7 @@ GUI entry point lives in kicadstamp/gui_main.py (also the pyproject.toml
 console_scripts entry point).
 
 Usage:
-    python kicadstamp_gui.py [--timeout-ms 20000] [--verbose]
+    python kicadstamp_gui.py [--timeout-ms 5000] [--verbose]
 """
 import sys
 from pathlib import Path

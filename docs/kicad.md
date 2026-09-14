@@ -123,7 +123,7 @@ Thus, the adapter does not prevent the crash (impossible from the client side) b
 
 #### 10. Internal Constants and Settings
 
-- Default timeout is `DEFAULT_TIMEOUT_MS` from `constants.py` (20000 ms).
+- Default timeout is `DEFAULT_TIMEOUT_MS` from `constants.py` (5000 ms).
 - The timeout can be overridden via the `timeout_ms` parameter in the constructor.
 - Logging is done via the `logging` module with DEBUG/INFO levels.
 
@@ -159,7 +159,7 @@ Thanks to the `IBoardAdapter` interface, the code does not depend on a specific 
 - `flip_selected` does not update the local footprint object – after calling it, you must reload the board via `refresh_board()` and re‑fetch the footprint.
 - When reading custom fields via IPC, the field must be added in the schematic (Eeschema) and propagated to the board via **Update PCB from Schematic**.
 - `get_selected_items()` requires that something is selected in KiCad. If a group is selected, it is correctly expanded into its members.
-- The adapter uses the default timeout `DEFAULT_TIMEOUT_MS` from `constants.py` (20000 ms). It can be overridden via the `timeout_ms` parameter when instantiating.
+- The adapter uses the default timeout `DEFAULT_TIMEOUT_MS` from `constants.py` (5000 ms). It can be overridden via the `timeout_ms` parameter when instantiating.
 - `remove_by_id()` is used by registries to delete obsolete vias/tracks; if the object with that UUID no longer exists, it returns `False` and logs a warning, but does not raise an exception.
 
 ---

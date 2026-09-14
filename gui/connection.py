@@ -45,6 +45,41 @@ _CONNECT_TIMEOUT_GRACE_S = 2.0
 board_read_probe: Optional[Callable[[], None]] = None
 
 
+# ── The worker's own adapter and the ONE IPC timeout (Э3, ─────────────────────
+# plan_2026_09_13_timeout_sweep) ─────────────────────────────────────────────
+# A worker building its OWN adapter is deliberate and stays that way (a pynng
+# REQ socket is single-owner, so it cannot be shared with the UI's poll ticks).
+# What was wrong is the NUMBER those adapters were built with: each of the
+# docks' workers carried its own hard-coded 20 s literal, so a user who raised
+# the IPC timeout in Settings still had every background redraw/read answering
+# on the old kipy default. This helper is the single answer to "how long does a
+# worker wait for KiCad": the caller (UI side) reads the value the main
+# connection is ACTUALLY running with and carries it in the worker payload; the
+# worker reads it back out of that payload. It never reaches into the connection
+# from the worker thread (a worker touches nothing the UI owns).
+def worker_timeout_ms(source) -> int:
+    """The IPC timeout a worker's own board adapter must be built with.
+
+    *source* is either the live connection (caller/UI side — read
+    ``connection.timeout_ms``, i.e. what Settings > KiCad has APPLIED, not what
+    is merely saved in gui_state.json: the saved draft is written into the
+    connection on apply(), see gui/docks/configurator.py) or the worker payload
+    dict (worker side — the value the caller decided and carried in).
+
+    Anything missing or unusable — no connection, a test double without the
+    attribute, a payload from a caller that predates this — falls back to
+    ``DEFAULT_TIMEOUT_MS``, the very default the main connection starts with, so
+    a worker can never silently end up on kipy's own constructor default.
+    """
+    if isinstance(source, dict):
+        value = source.get("timeout_ms")
+    else:
+        value = getattr(source, "timeout_ms", None)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return DEFAULT_TIMEOUT_MS
+    return value
+
+
 def _connect_with_timeout(timeout_ms: int) -> Board:
     """Board.connect() wrapped with an EXTERNAL timeout, run on a throwaway
     daemon thread.

@@ -5,7 +5,7 @@ CLI lives in kicadstamp/cli_main.py (also the pyproject.toml console_scripts
 entry point).
 
 Usage:
-    python kicadstamp_cli.py apply config.yaml [--dry-run] [--timeout-ms 20000] [--batch-size 10]
+    python kicadstamp_cli.py apply config.yaml [--dry-run] [--timeout-ms 5000] [--batch-size 10]
     python kicadstamp_cli.py undo [--verbose]
 """
 import sys

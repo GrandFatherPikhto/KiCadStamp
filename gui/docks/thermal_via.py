@@ -65,6 +65,7 @@ from kicadstamp.config import (Config, RuntimeContext, load_config,
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 
+from ..connection import worker_timeout_ms
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -374,6 +375,7 @@ class ThermalViaArrayDock(QWidget):
         """Worker thread: ApplyPipeline run only — never touches a widget."""
         pipeline = ApplyPipeline(config_path=str(payload["path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
+                                 timeout_ms=worker_timeout_ms(payload),
                                  only=[payload["name"]], dry_run=False)
         try:
             pipeline.run()
@@ -397,6 +399,10 @@ class ThermalViaArrayDock(QWidget):
         self._show_message(_("Placed {name!r}.").format(name=result["name"]), _SUCCESS_STYLE)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
+        # Э3 (plan_2026_09_13_timeout_sweep): the worker's ApplyPipeline opens its
+        # OWN kipy socket, so it must wait exactly as long as the main connection
+        # does — read here, on the UI side, never from the worker's thread.
+        payload["timeout_ms"] = worker_timeout_ms(self._main_window.connection)
         self._active_op = start_long_op(
             self._main_window.connection, (self.redraw_button,),
             self._run_redraw, self._finish_redraw, self._on_redraw_failed, payload,

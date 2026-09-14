@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from kicadstamp.kicad.adapter import KiCadBoardAdapter
 
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ class ConnectionManager:
         building a real :class:`KiCadBoardAdapter`. Tests inject a fake.
     """
 
-    def __init__(self, timeout_ms: int = 20000,
+    def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS,
                  adapter_factory: Callable[[int], KiCadBoardAdapter] | None = None) -> None:
         self._timeout_ms = timeout_ms
         self._factory: Callable[[int], KiCadBoardAdapter] = adapter_factory or _default_factory

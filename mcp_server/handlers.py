@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.constants import (CLUSTER_FIELD_NAME, DEFAULT_TIMEOUT_MS,
+                                  ROLE_FIELD_NAME)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.i18n import _
 from kicadstamp.utils.layers import layer_to_str
@@ -211,7 +212,7 @@ class _CollectHandler(logging.Handler):
 
 def apply_config(config_path: str, *, dry_run: bool = False,
                  only: list[str] | None = None, cluster: list[str] | None = None,
-                 no_selection: bool = False, timeout_ms: int = 20000,
+                 no_selection: bool = False, timeout_ms: int = DEFAULT_TIMEOUT_MS,
                  batch_size: int = 10, no_collision_check: bool = False,
                  collision_margin: float = 0.2) -> str:
     """Run the existing VALIDATED apply pipeline (``run_apply``) on a config.

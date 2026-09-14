@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from PyQt6.QtGui import QAction
 
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -233,8 +234,12 @@ def test_anchor_position_action_stays_disabled_when_it_was_disabled(
 def test_worker_returns_plain_data_and_touches_no_widget(monkeypatch):
     """The worker is a plain function: no dock, no Qt parent, no widget — and
     what it hands back is plain data (numbers, a string/None), never a board
-    object or a widget. Its own adapter is built with the unchanged 20s
-    timeout."""
+    object or a widget.
+
+    Its own adapter is built with the timeout carried in the payload (Э3,
+    plan_2026_09_13_timeout_sweep) — this direct call carries none, so what is
+    pinned here is the fallback: the same DEFAULT_TIMEOUT_MS the main
+    connection starts with, never a literal of the worker's own."""
     adapter_seen = []
     monkeypatch.setattr(td_mod, "KiCadBoardAdapter",
                         lambda timeout_ms=None: adapter_seen.append(
@@ -250,7 +255,7 @@ def test_worker_returns_plain_data_and_touches_no_widget(monkeypatch):
                       "rotation": 90.0, "ref": "U1"}
     assert all(isinstance(v, (int, float, str, bool, type(None)))
                for v in result.values()), "the result is not plain data"
-    assert adapter_seen[0].timeout_ms == 20000
+    assert adapter_seen[0].timeout_ms == DEFAULT_TIMEOUT_MS
     assert adapter_seen[0].refreshed is True
 
 
@@ -363,3 +368,41 @@ def test_origin_anchor_is_shown_without_a_worker(main_window, tmp_path,
     assert dock.anchor_pos_label.text() == _("anchor (origin): (0, 0) mm @ 0°")
     assert calls == []
     assert main_window.connection.long_op_active is False
+
+
+# ── Э3 (plan_2026_09_13_timeout_sweep): the worker's own adapter waits as long
+# as the main connection does ────────────────────────────────────────────────
+
+def test_payload_carries_the_connection_timeout_and_the_worker_uses_it(
+        main_window, tmp_path, monkeypatch):
+    """The point of the sweep: the number the worker's OWN adapter is built with
+    is the one the main connection RUNS with (what Settings > KiCad applied),
+    carried into the payload by the dock — never a literal of the worker's own.
+    Raising the knob therefore changes how long a background read waits."""
+    dock, _root = _dock_with(main_window, tmp_path, REF_ANCHOR_TREES)
+    connection = main_window.connection
+    connection.timeout_ms = 12_345     # exactly what ConfiguratorDock.apply() writes
+
+    payloads = []
+    monkeypatch.setattr(
+        td_mod, "start_long_op",
+        lambda *args, **kwargs: payloads.append(args[5]) or object())
+
+    dock._refresh_anchor_live_position()
+
+    assert payloads, "the read did not go through start_long_op"
+    assert payloads[0]["timeout_ms"] == 12_345
+
+    # …and the worker turns that payload value into the adapter it builds.
+    adapter_seen = []
+    monkeypatch.setattr(td_mod, "KiCadBoardAdapter",
+                        lambda timeout_ms=None: adapter_seen.append(timeout_ms)
+                        or _FakeAdapter(timeout_ms))
+    monkeypatch.setattr(td_mod, "_anchor_base_live_position",
+                        lambda adapter, cfg, tree, sheet_names: (
+                            Vector2.from_xy(0, 0), 0.0))
+
+    result = td_mod.run_anchor_live_position_worker(payloads[0])
+
+    assert result["available"] is True
+    assert adapter_seen == [12_345]

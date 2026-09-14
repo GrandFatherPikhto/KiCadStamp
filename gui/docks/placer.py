@@ -133,6 +133,7 @@ from kicadstamp.i18n import _
 from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.utils.units import MM
 
+from ..connection import worker_timeout_ms
 from ..ui_utils import busy
 from ..worker import socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -1840,6 +1841,7 @@ class PlacerDock(QWidget):
         # directly in payload["name"], so fall back to that.
         pipeline = ApplyPipeline(config_path=str(payload["placer_path"]),
                                  preloaded_cfg=payload["cfg"], preloaded_ctx=payload["ctx"],
+                                 timeout_ms=worker_timeout_ms(payload),
                                  only=[payload.get("only_name", payload["name"])], dry_run=False)
         try:
             pipeline.run()
@@ -2202,6 +2204,10 @@ class PlacerDock(QWidget):
     # _load_cell_entry_for_anchor were already re-implemented there.)
 
     def _start_redraw_op(self, payload: Dict[str, Any]) -> None:
+        # Э3 (plan_2026_09_13_timeout_sweep): the worker's ApplyPipeline opens its
+        # OWN kipy socket, so it must wait exactly as long as the main connection
+        # does — read here, on the UI side, never from the worker's thread.
+        payload["timeout_ms"] = worker_timeout_ms(self._main_window.connection)
         self._active_op = start_long_op(
             self._main_window.connection,
             self._action_buttons(),

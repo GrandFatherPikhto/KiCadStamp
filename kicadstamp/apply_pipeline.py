@@ -45,6 +45,7 @@ from .placement.services.via_planner import thermal_anchor_id
 from .placement.services.manual_position_calculator import chain_anchor_ids
 from .placement.services.coordinate_position_calculator import build_coordinate_moves
 from .cluster_matching import cluster_prefix_match
+from .constants import DEFAULT_TIMEOUT_MS
 from .placement.executor import BatchExecutor
 from .scheme_list_apply import execute_scheme_list_plans, plan_all_scheme_lists
 from .exceptions import PlacerError
@@ -387,7 +388,7 @@ class ApplyPipeline:
         self,
         config_path: str,
         *,
-        timeout_ms: int = 20000,
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
         batch_size: int = 10,
         dry_run: bool = False,
         no_selection: bool = False,
@@ -924,12 +925,13 @@ class RunOptions:
     Carries every knob the :class:`ApplyPipeline` needs for one apply run, so
     library callers (:mod:`kicadstamp.author`) can build a fully-typed option
     object instead of synthesizing a fake ``argparse.Namespace``. Defaults
-    mirror :class:`ApplyPipeline`'s own keyword defaults (``timeout_ms=20000``,
-    ``batch_size=10``, ``collision_margin=0.2``).
+    mirror :class:`ApplyPipeline`'s own keyword defaults (``timeout_ms`` =
+    :data:`kicadstamp.constants.DEFAULT_TIMEOUT_MS`, ``batch_size=10``,
+    ``collision_margin=0.2``).
     """
 
     config_path: str
-    timeout_ms: int = 20000
+    timeout_ms: int = DEFAULT_TIMEOUT_MS
     batch_size: int = 10
     dry_run: bool = False
     no_selection: bool = False

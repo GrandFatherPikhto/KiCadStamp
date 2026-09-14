@@ -383,7 +383,7 @@
 | `ANGLE_TOLERANCE_DEG` | `0.1` | Допуск по углу для проверки «уже на месте». |
 | `POSITION_TOLERANCE_MM` | `0.01` | Допуск по позиции для реестра. |
 | `DEFAULT_BATCH_SIZE` | `10` | Размер батча по умолчанию. |
-| `DEFAULT_TIMEOUT_MS` | `20000` | Таймаут IPC по умолчанию. |
+| `DEFAULT_TIMEOUT_MS` | `5000` | Таймаут IPC по умолчанию. |
 | `DEFAULT_LOG_DIR` | `"logs"` | Папка для логов по умолчанию. |
 | `SPOKE_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Плейсхолдер для via уровня спицы в реестре. |
 
