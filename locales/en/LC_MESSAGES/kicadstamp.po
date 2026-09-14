@@ -17371,3 +17371,19 @@ msgstr ""
 #, python-brace-format
 msgid "Tree {ref!r} cannot be embedded in tree {name!r}: it is not a tree of this config, is already embedded there, or would close a module cycle (a tree may not embed its own template, nor a tree that already embeds it)."
 msgstr ""
+
+#: gui/dock_hub.py
+msgid "The board is busy — the cluster list comes from the previously read board snapshot: a component added to a cluster since then may be missing, so a partially selected cluster can look fully selected — check the extracted tree for a missing component."
+msgstr ""
+
+#: gui/dock_hub.py
+msgid "The board is busy — using the previously read board snapshot; the Role/Cluster suggestions may be slightly out of date."
+msgstr ""
+
+#: gui/fieldstool_window.py
+msgid "The board is busy — using the previously read board snapshot; the pending list may be slightly out of date."
+msgstr ""
+
+#: gui/docks/scheme_list.py
+msgid "another operation is using the board"
+msgstr ""

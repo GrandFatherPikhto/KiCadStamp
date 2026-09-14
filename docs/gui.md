@@ -259,7 +259,11 @@ dialog candidates) are re-read from a board snapshot REBUILT on the worker threa
 — switching a Config right-QView page, or opening a Tree node/anchor dialog (2026-09-11,
 plan_2026_09_11_stale_snapshot_role_lists.md) — instead of freezing at connect time (the automatic
 poll tick is a no-op once connected); the components TREE rows themselves and the status-bar counter
-still update only on the manual Refresh. A live KiCad connection is what feeds them; offline they are
+still update only on the manual Refresh. That rebuild shares the one KiCad socket with the ~400 ms
+selection-poll tick, which holds it ~16 % of the time, so a click can meet a busy socket: the rebuild
+then makes ONE deferred retry (~120 ms) and, if that is refused too, the lists come from the CACHED
+snapshot with a WARN line in the Log — the click always opens its dialog (since 2026-09-14,
+plan_2026_09_14_snapshot_refusal_dead_end.md). A live KiCad connection is what feeds them; offline they are
 simply empty and every combo stays a free-text picker. Since 2026-09-12 that distribution is also
 ORDERED so a list refresh can never sit on the path of an unrelated click: `on_ready` (the Tree node
 dialog) runs FIRST and the eight docks are repopulated after it (2026-09-12,
@@ -954,10 +958,15 @@ concrete cause is shown on **Instantiate from Cell...** tab 2's strict gate.
 The main menu's **Tools → Trees → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
 selection's own tree. Select a group of clusters on the board, then run it. The fully-selected-cluster
-detection and the geometry payloads are built from a board snapshot REBUILT on the worker thread first
-(R.2.2, plan_2026_09_11_stale_snapshot_positions.md — one shared point, also used by "Extract
-cluster..."): a component added to a cluster in KiCad after connecting is honoured, so a selection that
-merely LOOKED complete no longer extracts a Cell missing it, and the recorded positions are current.
+detection reads the board snapshot REBUILT on the worker thread first (R.2.2,
+plan_2026_09_11_stale_snapshot_positions.md — one shared point, also used by "Extract cluster..."): a
+component added to a cluster in KiCad after connecting is honoured, so a selection that merely LOOKED
+complete no longer extracts a Cell missing it. The geometry is NOT read from that snapshot — the
+inter-cluster net detection and the entity/anchor positions go to the live adapter (the snapshot only
+decides cluster MEMBERSHIP; corrected 2026-09-14). If the socket is busy, one deferred retry is made
+and, when that is refused too, the detection runs on the CACHED snapshot — with a WARN in the Log that
+names the consequence (a cluster whose components changed since that read can look fully selected, so
+check the extracted tree for a missing component), because blocking the menu item would be worse.
 A modal dialog has three
 tabs: **Clusters** (the FULLY-selected clusters, checkboxes on by default, with a live ΔX/ΔY offset
 preview once an anchor is chosen), **Anchor** (a root-cluster combo that prefills Sheet/Cluster/Role
@@ -1623,7 +1632,10 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
   same exclusive-socket long op every other live read uses — so the click cannot compute from
   coordinates frozen at connect/manual-refresh time (R.2.1,
   plan_2026_09_11_stale_snapshot_positions.md); a connection without a live board behind it keeps the
-  cached snapshot, exactly as before. The dialog OK
+  cached snapshot, exactly as before. A BUSY socket is different: the rebuild makes one deferred retry
+  and, if that is refused too, the pivot is REFUSED outright (an ERROR line in the Log) rather than
+  computed from the cached snapshot — a pivot from stale coordinates is wrong geometry, not a slightly
+  old list (2026-09-14, plan_2026_09_14_snapshot_refusal_dead_end.md). The dialog OK
   (Record/Re-source) STORES these fields as the new record's pivot — there is no separate Apply in the
   dialog, and OK stays disabled while the x/y fields do not hold numbers. This third tab is NOT a
   source: visiting it never changes the chosen source ("By sheet"/"By selection"), and pressing OK
@@ -1705,7 +1717,10 @@ Since Commit F the page is a **two-tab** page:
   preview — nothing is written until **Apply** is pressed. The recorded region's centre comes from the
   polled full-board snapshot, which is REBUILT on the worker thread before the click reads any position
   (R.2.1, plan_2026_09_11_stale_snapshot_positions.md): a component moved in KiCad is honoured at once,
-  still without any direct board IPC on the GUI thread (Commit H).
+  still without any direct board IPC on the GUI thread (Commit H). With the socket busy the same rule
+  as the record dialog's pivot applies: one deferred retry, then a REFUSAL with an ERROR line in the
+  Log — never a pivot from the cached snapshot (2026-09-14,
+  plan_2026_09_14_snapshot_refusal_dead_end.md).
 
 The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
 (Re-source...) or re-syncing (Reread), never by hand.
