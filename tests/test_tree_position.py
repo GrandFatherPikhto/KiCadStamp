@@ -1622,6 +1622,70 @@ def test_forest_module_content_nested_flow_root_is_outer(tmp_path):
     assert flow_roots == ["a"]
 
 
+# ── "Redraw whole tree" scope (plan_2026_09_14 Э1, Э4 guards #1/#2) ──────────
+# "Redraw whole tree" hands the FOREST planner ONE tree's own refs. These two
+# guards fix what that scope MEANS, on a forest where a SECOND independent tree
+# also embeds a module — so a widened scope is caught, not masked by a profile
+# whose extra trees happen to be module-placed already (Э4 warning: on Denis's
+# profile "Full redraw" and "Redraw whole tree" give the same plan, so a guard
+# built on it would be green by coincidence).
+
+def test_whole_tree_scope_pulls_embedded_content(tmp_path):
+    """Э4 guard #1: selecting ONLY the owner tree's own refs (exactly what
+    "Redraw whole tree" now hands in — its module marker and nothing else) pulls
+    the referenced tree's WHOLE content into the plan, and the owner stays the
+    single flow root. Mutation: reverting the dispatch to a tree-scoped run
+    yields no D0/D1 here — red."""
+    cfg = _clone_cfg(["D0", "D1", "T0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "fpga") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "sub") (anchor (origin))\n'
+        '      (node (ref "T0") (kind clone) (xy 3 3)))\n'
+        '(tree (name "solo") (anchor (origin))\n'
+        '      (node (ref "sub") (kind module) (xy 5 5)))')
+    selected = {"ch0"}          # == set(collect_tree_refs(fpga))
+    names, _warnings = curated_redraw_plan_forest(linked, selected)
+    content_refs, flow_roots = curated_forest_module_content(linked, selected)
+    assert content_refs == {"D0", "D1"}
+    assert set(names) == {"D0", "D1"}
+    assert flow_roots == ["fpga"]
+
+
+def test_whole_tree_scope_leaves_a_foreign_independent_tree_alone(tmp_path):
+    """Э4 guard #2 — THE one that is green by coincidence on Denis's profile:
+    with the scope narrowed to ONE tree, a SECOND independent tree that embeds
+    its own module neither becomes a flow root nor contributes a name. Widening
+    the scope to every tree's refs (the mutation) activates solo's marker too —
+    flow_roots becomes ['fpga', 'solo'] and T0 enters the plan — red."""
+    cfg = _clone_cfg(["D0", "D1", "T0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "fpga") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "sub") (anchor (origin))\n'
+        '      (node (ref "T0") (kind clone) (xy 3 3)))\n'
+        '(tree (name "solo") (anchor (origin))\n'
+        '      (node (ref "sub") (kind module) (xy 5 5)))')
+    narrowed = {"ch0"}
+    names, _warnings = curated_redraw_plan_forest(linked, narrowed)
+    _content, flow_roots = curated_forest_module_content(linked, narrowed)
+    assert "T0" not in names                 # guard #2: foreign content untouched
+    assert flow_roots == ["fpga"]            # and the foreign tree is NOT a root
+
+    # Contrast, proving the guard is not vacuous: the WIDE scope ("Full redraw")
+    # really does bring the second tree in.
+    wide, _warnings2 = curated_redraw_plan_forest(linked, {"ch0", "sub"})
+    _content2, wide_roots = curated_forest_module_content(linked, {"ch0", "sub"})
+    assert set(wide) == {"D0", "D1", "T0"}
+    assert wide_roots == ["fpga", "solo"]
+
+
 # ── mount nodes in the live layout path (plan_2026_09_11_tree_mount_nodes) ──
 
 def _mount_dc(ref, role, children, xy=None, rotation=0.0):

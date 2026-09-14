@@ -3721,13 +3721,16 @@ class TreesDock(QWidget):
                                           adapter=self._live_adapter())
 
     def _run_curated_redraw(self, selected_refs: set, trigger=None) -> None:
-        """Shared worker invocation for "Redraw selected" and "Redraw whole
-        tree" (plan_2026_08_29_fork1_rigid_redraw_override.md §5) — one
-        implementation, only the selection source differs. start_long_op keeps
-        it off the UI thread, same worker pattern as run_cascade_worker.
+        """Worker invocation of the TREE-scoped curated redraw, used by "Redraw
+        selected" (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
+        start_long_op keeps it off the UI thread, same worker pattern as
+        run_cascade_worker. "Redraw whole tree" no longer comes here: since
+        plan_2026_09_14 Э1 it goes through the FOREST machinery scoped to the
+        current tree, so that embedded module content is redrawn with it
+        (_run_forest_redraw_with_refs).
 
         `trigger` is the Tools-menu QAction the caller was started by (the one
-        whose checkbox set / tree the run uses), greyed out for the duration
+        whose checkbox set the run uses), greyed out for the duration
         (Э2, plan_2026_09_12_busy_indicator)."""
         tree_name = self._current_tree_name()
         if tree_name is None:
@@ -3762,31 +3765,44 @@ class TreesDock(QWidget):
         self._run_curated_redraw(selected_refs, trigger)
 
     def _on_redraw_whole_tree(self, trigger=None) -> None:
-        """Redraw EVERY node of the current tree in one click — the SAME
-        run_curated_tree_redraw_worker as "Redraw selected", but the refs are
-        collected DIRECTLY from the Tree structure (collect_tree_refs), not
-        from checkbox state, so no manual check-marking is needed even on a
-        multi-branch/large tree (plan_2026_08_29_fork1_rigid_redraw_override.md
-        §5)."""
+        """Redraw EVERY node of the current tree — TOGETHER with the content of
+        every module it embeds (plan_2026_09_14 Э1). The refs come DIRECTLY
+        from the Tree structure (collect_tree_refs), not from checkbox state, so
+        no manual check-marking is needed even on a multi-branch/large tree
+        (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
+
+        It goes through the FOREST machinery scoped to the CURRENT tree's refs
+        (run_curated_forest_redraw_worker via _run_forest_redraw_with_refs):
+        from the user's side of the screen a module marker IS a tree node, so
+        "redraw the whole tree" must mean "together with what it embedded".
+        Measured on the live fpga profile, exactly this call yields
+        flow_roots=['fpga'] (foreign trees never become roots) and pulls every
+        embedded ch*_dac_buf's own content into the plan (18 content refs,
+        22 names total — where a tree-scoped run applied 4). The FULL trees list
+        still rides in the payload because the forest planner resolves module
+        markers by tree name. The menu wording and its translations are
+        deliberately untouched (deferred by Denis)."""
         tree = self._current_tree()
         if tree is None:
             return
-        self._run_curated_redraw(set(collect_tree_refs(tree)), trigger)
+        self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)
 
-    def _run_forest_redraw(self, trigger=None) -> None:
-        """Forest-wide curated redraw — the module-aware FULL redraw (plan
-        2026-09-02 tree_module_embedding P3 п.2/п.3, design P3 D5): collects
-        EVERY node ref of EVERY tree (records AND module markers — checking the
-        markers activates their content) and runs run_curated_forest_redraw_
-        worker in the background, which stage-2-places active module content
-        from the flow roots' live anchors. Exposed ONLY through the Tools menu
-        (DockHub.run_forest_full_redraw) — NO new dock button."""
+    def _run_forest_redraw_with_refs(self, refs: set, trigger=None) -> None:
+        """Shared worker invocation of the FOREST curated redraw — the ONE place
+        its two callers differ only in the refs they hand in: "Full redraw"
+        (every tree's every node) and "Redraw whole tree" (the CURRENT tree's
+        nodes — plan_2026_09_14 Э1). start_long_op keeps it off the UI thread,
+        same worker pattern as run_curated_tree_redraw_worker, and the FULL
+        trees list is ALWAYS in the payload: run_curated_forest_redraw resolves
+        module markers by tree name, so a caller that narrowed the SELECTION
+        must still hand over every tree (otherwise the by_tree lookup silently
+        finds nothing and the embedded content stays put).
+
+        `trigger` is the Tools-menu QAction the caller was started by, greyed
+        out for the duration (Э2, plan_2026_09_12_busy_indicator)."""
         if not self._trees or not self._root_path or self._cfg is None:
             self._show_status(_("Nothing to redraw."))
             return
-        refs: set[str] = set()
-        for tree in self._trees:
-            refs.update(collect_tree_refs(tree))
         if not refs:
             self._show_status(_("Nothing to redraw."))
             return
@@ -3806,6 +3822,25 @@ class TreesDock(QWidget):
             run_curated_forest_redraw_worker, self._finish_redraw,
             self._on_redraw_failed, payload,
             busy_text=_("placing"))
+
+    def _run_forest_redraw(self, trigger=None) -> None:
+        """Forest-wide curated redraw — the module-aware FULL redraw (plan
+        2026-09-02 tree_module_embedding P3 п.2/п.3, design P3 D5): collects
+        EVERY node ref of EVERY tree (records AND module markers — checking the
+        markers activates their content) and runs run_curated_forest_redraw_
+        worker in the background, which stage-2-places active module content
+        from the flow roots' live anchors. Exposed ONLY through the Tools menu
+        (DockHub.run_forest_full_redraw) — NO new dock button.
+
+        Deliberately stays a SEPARATE menu entry from "Redraw whole tree"
+        (Denis asked for a separate item, not a merge): on his current profile
+        both produce the same plan (4 trees, 3 embedded in the fourth), so the
+        difference is invisible there — a profile with two INDEPENDENT trees is
+        what shows it (Э4 guard #3)."""
+        refs: set[str] = set()
+        for tree in (self._trees or []):
+            refs.update(collect_tree_refs(tree))
+        self._run_forest_redraw_with_refs(refs, trigger)
 
     def _refresh_anchor_live_position(self, trigger=None) -> None:
         """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY

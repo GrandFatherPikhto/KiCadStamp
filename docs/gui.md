@@ -675,7 +675,13 @@ nodes). So a channel's `CH0/1/2_DAC_BUF` can live in the `fpga` tree and be redr
 WITHOUT stripping its `anchor_role` first.
 
 **Redraw whole tree** (Tools → Trees) redraws every node of the current tree in one click, with no
-manual checkbox marking. On the first redraw in a profile whose copper registry is still EMPTY while
+manual checkbox marking — TOGETHER with the content of every module that tree embeds (2026-09-14,
+plan_2026_09_14_tree_redraw_subtrees_and_mount_parents.md Э1): from the user's side of the screen a
+module marker IS a tree node, so "the whole tree" means "together with what it embedded". It runs
+through the same module-aware forest machinery as **Full redraw**, only scoped to this tree's OWN refs
+(the full trees list still travels along, because module markers are resolved by tree name) — so a
+foreign independent tree is neither redrawn nor made a layout root. On the first redraw in a profile
+whose copper registry is still EMPTY while
 the board already carries copper, KiCadStamp asks "adopt existing copper into the registry?" (Bug 3,
 2026-09-05): the redraw registers any existing copper that matches the layout as owned, so a later
 move relocates it instead of leaving leftovers. Recommended flow: run one redraw WITHOUT moving
@@ -709,7 +715,11 @@ embed shows one **"⇐ embedded in {parent}"** item per embedding parent (double
 The module-aware FULL redraw — every tree's records plus every active module's content, laid out from
 each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → Trees → Full redraw (all
 trees and modules)…** (menu only, no dock button); the per-tree **Redraw selected / Redraw whole
-tree** items in the same **Tools → Trees** submenu stay single-tree.
+tree** items in the same **Tools → Trees** submenu differ from it in SCOPE: **Redraw selected** is the
+current tree's CHECKED nodes (a rigid group), while **Redraw whole tree** is the current tree's own
+nodes PLUS the content of the modules it embeds (Э1 above) — on a profile with two independent trees
+the two operations genuinely differ, even though on a profile where every extra tree is embedded they
+happen to agree.
 
 **Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md; optional `cluster:`
 axis 2026-09-03, plan tree_instances_cluster):** a tree + its Entity records can be declared once as a

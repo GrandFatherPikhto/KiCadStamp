@@ -347,7 +347,9 @@ class MainWindow(QMainWindow):
         self.trees_menu.addSeparator()
         # Redraw (relocated from the TreesDock toolbar, 2026-09-03):
         # "Redraw selected" = the current tree's CHECKED nodes; "Redraw whole
-        # tree" = every node of the current tree; "Full redraw..." = the
+        # tree" = every node of the current tree TOGETHER WITH the content of
+        # every module it embeds (plan_2026_09_14 Э1 — it now runs through the
+        # forest machinery, scoped to this tree's refs); "Full redraw..." = the
         # forest-wide module-aware run across ALL trees (plan 2026-09-02 P3).
         self.redraw_selected_action = QAction(_("Redraw selected"), self)
         self.redraw_selected_action.triggered.connect(

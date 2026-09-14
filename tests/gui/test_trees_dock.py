@@ -1477,13 +1477,51 @@ def test_collect_tree_refs_returns_all_refs_dfs():
     assert collect_tree_refs(tree) == ["AMS1117_REG", "C_OUT", "R_AROUND"]
 
 
-def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
+def test_redraw_whole_tree_collects_all_refs_and_calls_forest_worker(
         main_window, tmp_path, monkeypatch):
-    """§5: "Redraw whole tree" collects ALL node refs DIRECTLY from the Tree
-    (parent-before-child, no reliance on checkbox state) and calls the same
-    run_curated_tree_redraw_worker with the full set — identical outcome to
-    manually checking every box + "Redraw selected"."""
+    """§5 + plan_2026_09_14 Э1: "Redraw whole tree" collects ALL node refs
+    DIRECTLY from the Tree (parent-before-child, no reliance on checkbox state)
+    and dispatches the FOREST worker (run_curated_forest_redraw_worker, no
+    tree_name payload), scoped to THIS tree's refs — so the content of any
+    module the tree embeds is redrawn with it.
+
+    Э4 guard #1: the WORKER IDENTITY is the guard — reverting the dispatch to
+    the old tree-scoped run_curated_tree_redraw_worker (the mutation) turns this
+    red, which is exactly the regression that left embedded ch*_dac_buf
+    content out of the plan (4 applied names instead of 22)."""
     dock, _root = _dock_with(main_window, tmp_path)
+    from gui.docks.trees_dock import run_curated_forest_redraw_worker
+
+    captured = {}
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
+        captured["worker"] = worker
+        captured["payload"] = payload
+        return object()
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+
+    dock._on_redraw_whole_tree()
+
+    assert captured
+    assert captured["worker"] is run_curated_forest_redraw_worker
+    assert "tree_name" not in captured["payload"]
+    assert captured["payload"]["trees"] is dock._trees
+    assert captured["payload"]["selected_refs"] == {"AMS1117_REG", "C_OUT", "R_AROUND"}
+
+
+def test_redraw_whole_tree_scope_is_one_tree_not_the_whole_forest(
+        main_window, tmp_path, monkeypatch):
+    """plan_2026_09_14 Э1 (Э4 guard #1): on a profile where the first tree
+    EMBEDS another one, "Redraw whole tree" hands the forest worker only the
+    CURRENT tree's refs — the module marker included, because that marker is
+    what activates the embedded content — and NOT every tree's refs (that is
+    "Full redraw", added trees and all). A mutation that widened the scope back
+    to every tree would make the two payloads equal and turn this red."""
+    dock, _root = _module_dock(main_window, tmp_path)
+    from gui.docks.trees_dock import collect_tree_refs
+
+    fpga = _tree_of(dock, "fpga")
+    assert dock._current_tree().name == "fpga"  # first tab is the current tree
 
     captured = {}
     def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
@@ -1494,10 +1532,11 @@ def test_redraw_whole_tree_collects_all_refs_and_calls_worker(
 
     dock._on_redraw_whole_tree()
 
-    assert captured
-    assert captured["payload"]["tree_name"] == "power_tree"
-    assert captured["payload"]["selected_refs"] == {"AMS1117_REG", "C_OUT", "R_AROUND"}
-    assert captured["payload"]["trees"] is dock._trees
+    assert captured["payload"]["selected_refs"] == set(collect_tree_refs(fpga))
+    every_tree: set[str] = set()
+    for tree in dock._trees:
+        every_tree.update(collect_tree_refs(tree))
+    assert captured["payload"]["selected_refs"] != every_tree
 
 
 def test_redraw_whole_tree_cancelled_by_first_run_heads_up(
