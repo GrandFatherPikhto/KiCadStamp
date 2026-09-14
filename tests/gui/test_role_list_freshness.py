@@ -19,6 +19,7 @@ happens EXACTLY once per trigger (not once per dock) and never on the UI
 thread, and the offline session keeps the previous behaviour (empty lists,
 free-text input, no crash).
 """
+import logging
 import threading
 from types import SimpleNamespace
 
@@ -250,3 +251,133 @@ def test_offline_trigger_keeps_the_previous_behaviour(
     assert captured["role_candidates"] == []
     assert captured["cluster_candidates"] == []
     assert pushed == []                        # still nothing pushed offline
+
+
+def _busy_socket_live_window(real_main_window, snapshots):
+    """A real MainWindow+DockHub with a live connection that STARTS busy (the
+    ~400 ms poll tick holding the shared socket) — the live "Add node" finding."""
+    hub = real_main_window._dock_hub
+    dock = hub.trees_dock
+    connection = _LiveConnection(snapshots)
+    connection.long_op_active = True           # the tick holds the socket
+    real_main_window.connection = connection
+    tree = Tree(name="T", anchor=None, nodes=[])
+    dock._trees = [tree]
+    return hub, dock, connection, tree
+
+
+def _capture_retries(monkeypatch) -> list:
+    """Capture the helper's deferred retry (gui.worker.QTimer.singleShot) as
+    [(delay_ms, callback), ...] without waiting on real time."""
+    import gui.worker as worker_mod
+
+    scheduled: list = []
+    monkeypatch.setattr(
+        worker_mod.QTimer, "singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)))
+    return scheduled
+
+
+def _fake_node_dialog(captured):
+    class _FakeNodeDialog:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected     # cancel — nothing is staged
+
+    return _FakeNodeDialog
+
+
+def test_add_node_click_survives_a_busy_socket_with_one_retry(
+        qapp, real_main_window, monkeypatch):
+    """Э2/Э4.1 — the live finding: "Add node" pressed while the tick holds the
+    socket. The click survives through ONE deferred retry, and with the socket
+    free by then the dialog opens on FRESH candidates (the tree flow works
+    through the injected refresher chain, not a checkpoint).
+
+    Mutation: `if on_ready is None:` -> `if True:` sends the click down the
+    page-switch branch, so no retry is armed and the dialog never opens -> red."""
+    _hub, dock, connection, tree = _busy_socket_live_window(
+        real_main_window, [[_row("R1", "OLD_ROLE", "CL1")],
+                           [_row("R1", "OLD_ROLE", "CL1"),
+                            _row("R2", "NEW_ROLE", "CL2")]])
+    scheduled = _capture_retries(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(trees_dock_mod, "_NodeDialog", _fake_node_dialog(captured))
+
+    dock._add_node_flow(tree)
+
+    assert len(scheduled) == 1                 # the click armed exactly one retry
+    assert captured == {}                      # ...and the dialog is not open yet
+
+    connection.long_op_active = False          # the tick finished
+    scheduled[0][1]()                          # fire the deferred retry
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert connection.refresh_calls == 1       # rebuilt exactly once
+    assert "NEW_ROLE" in captured["role_candidates"]   # dialog opened, FRESH
+    assert "CL2" in captured["cluster_candidates"]
+
+
+def test_add_node_click_falls_back_to_the_cache_and_says_so(
+        qapp, real_main_window, monkeypatch, caplog):
+    """Э2/Э4.2/Э2-M — with the socket busy on BOTH attempts the click STILL works:
+    the dialog opens on the CACHED snapshot, and the fallback is reported through
+    show_message(WARN_STYLE) from THIS hub's logger (gui.dock_hub), on top of
+    gui.worker's diagnostic WARNING.
+
+    Mutations: dropping the on_cached report -> no gui.dock_hub WARN -> red;
+    dropping the cached continuation -> the dialog never opens -> red."""
+    import gui.dock_hub as dh_mod
+
+    hub, dock, connection, tree = _busy_socket_live_window(
+        real_main_window, [[_row("R1", "OLD_ROLE", "CL1")]])
+    scheduled = _capture_retries(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(trees_dock_mod, "_NodeDialog", _fake_node_dialog(captured))
+    boxes: list = []
+    monkeypatch.setattr(dh_mod.QMessageBox, "warning",
+                        lambda *a, **k: boxes.append(a))
+
+    caplog.clear()
+    dock._add_node_flow(tree)
+    scheduled[0][1]()                          # retry: the socket is still busy
+
+    assert captured != {}                      # the dialog opened anyway
+    assert captured["role_candidates"] == ["OLD_ROLE"]   # from the cached snapshot
+    assert connection.refresh_calls == 0       # never rebuilt
+    warns = [r for r in caplog.records
+             if r.name == "gui.dock_hub" and r.levelno == logging.WARNING]
+    assert len(warns) == 1
+    assert "The board is busy" in warns[0].message
+    # The diagnostic line is separate and still there (gui.worker / WARNING).
+    assert any(r.name == "gui.worker" for r in caplog.records)
+    # A connection-state refusal is a Log line, never a modal (X.1).
+    assert boxes == []
+
+
+def test_tree_flow_passes_the_window_as_the_retry_owner(
+        qapp, real_main_window, monkeypatch):
+    """Э2 ловушка 3, wiring half — dock_hub calls the helper with widgets=(), so
+    `owner` is the ONLY liveness guard the retry has there, and it must be the
+    main window (DockHub is not a QWidget — verified 2026-09-14). With no owner
+    the retry would run the continuation against a window closed during the 120 ms
+    delay. The BEHAVIOUR of that guard is pinned on the helper itself
+    (test_snapshot_freshness.py::test_retry_skips_a_window_closed_during_the_delay)."""
+    import gui.worker as worker_mod
+
+    _hub, dock, _connection, tree = _busy_socket_live_window(
+        real_main_window, [[_row("R1", "OLD_ROLE", "CL1")]])
+    calls: list = []
+    monkeypatch.setattr(
+        worker_mod, "refresh_snapshot_then_with_retry",
+        lambda *a, **k: calls.append((a, k)))
+
+    dock._add_node_flow(tree)
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[1] == ()                       # no guard widgets on this path
+    assert kwargs["owner"] is real_main_window # the only liveness guard
+    assert "on_cached" in kwargs               # the cache fallback is reported

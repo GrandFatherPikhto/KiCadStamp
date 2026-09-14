@@ -813,3 +813,69 @@ def test_rescan_button_without_a_live_board_keeps_the_old_behaviour(
     fieldstool_window._on_rescan()                   # must not raise / hang
 
     assert fieldstool_window.pending_refs == set()
+
+
+def test_rescan_falls_back_to_the_cache_when_the_socket_stays_busy(
+        fieldstool_window, tmp_path, monkeypatch, caplog):
+    """Э2/Э2-M — with the socket busy on BOTH attempts the Rescan still works on
+    the CACHED board side, and the fallback is reported through
+    show_message(WARN_STYLE) from fieldstool's OWN logger.
+
+    Mutations: dropping the on_cached report -> no WARN -> red; dropping the
+    cached continuation -> the board side is never adopted -> red."""
+    import gui.worker as worker_mod
+
+    root = _write_root(tmp_path, symbol_block(["R1"], role="NEW"))
+    fieldstool_window._set_root_sheet(root)          # the schematic side
+    # The cached board side says OLD, so the pending diff is the observable proof
+    # that the continuation ran at all.
+    connection = _RefreshingConnection([[_selected("R1", "OLD", None)]])
+    connection.long_op_active = True                 # another op holds the socket
+    fieldstool_window.connection = connection
+    scheduled = []
+    monkeypatch.setattr(
+        worker_mod.QTimer, "singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)))
+
+    caplog.clear()
+    fieldstool_window._on_rescan()
+    assert len(scheduled) == 1                       # the single retry is armed
+
+    scheduled[0][1]()                                # retry: still busy
+
+    assert connection.refresh_calls == 0             # never rebuilt
+    assert fieldstool_window.pending_refs == {"R1"}  # ...but the Rescan ran
+    warns = [r for r in caplog.records
+             if r.name == "gui.fieldstool_window"
+             and r.levelno == logging.WARNING]
+    assert len(warns) == 1
+    assert "The board is busy" in warns[0].message
+
+
+def test_rescan_passes_the_window_as_the_retry_owner(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Э2 ловушка 3, wiring half — fieldstool also calls the helper with
+    widgets=(), so `owner` is its ONLY liveness guard and must be the window
+    itself; otherwise the retry would run the continuation against a window
+    closed during the 120 ms delay (the behaviour is pinned on the helper in
+    test_snapshot_freshness.py::test_retry_skips_a_window_closed_during_the_delay)."""
+    import gui.worker as worker_mod
+
+    root = _write_root(tmp_path, symbol_block(["R1"], role="NEW"))
+    fieldstool_window._set_root_sheet(root)
+    connection = _RefreshingConnection([[_selected("R1", "OLD", None)]])
+    connection.long_op_active = True
+    fieldstool_window.connection = connection
+    calls: list = []
+    # Patched AFTER the setup rescan, so only the _on_rescan below is counted.
+    monkeypatch.setattr(
+        worker_mod, "refresh_snapshot_then_with_retry",
+        lambda *a, **k: calls.append((a, k)))
+
+    fieldstool_window._on_rescan()
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args[1] == ()                             # no guard widgets here
+    assert kwargs["owner"] is fieldstool_window      # the only liveness guard
+    assert "on_cached" in kwargs                     # the fallback is reported

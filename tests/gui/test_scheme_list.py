@@ -3338,3 +3338,63 @@ def test_record_dialog_pivot_rebuilds_the_snapshot_before_reading_positions(
         assert refresh_threads[0] != threading.main_thread().name
     finally:
         dialog.close()
+
+
+def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
+        main_window, monkeypatch, caplog):
+    """Э2.5 — the pivot reads POSITIONS out of the snapshot, so a busy socket
+    must NOT fall back to the cached one (that would write wrong geometry). After
+    the single retry is refused too, the continuation does NOT run and the user
+    gets their OWN ERROR line from THIS dock's logger (not just gui.worker's
+    diagnostic WARNING).
+
+    Mutation: swapping on_still_busy for on_cached in _on_pivot_from_selection
+    turns this red — _pivot_from_selection_now would run against the stale
+    snapshot and the pivot fields would change."""
+    import gui.worker as worker_mod
+
+    adapter = _line_board()
+    fps = _fps_by_ref(adapter)
+    connection = SimpleNamespace(
+        board=SimpleNamespace(refresh=lambda: None),
+        snapshot=_fp_snapshot(adapter),
+        long_op_active=True)                      # another op holds the socket
+    scheduled = []
+    monkeypatch.setattr(
+        worker_mod.QTimer, "singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)))
+
+    dialog = RecordSchemeListDialog(
+        _snap_live(adapter), ["R1", "C1", "C2"], main_window,
+        adapter=adapter,
+        selected_footprints=_selection_from(fps["R1"]),
+        selection_provider=lambda: _selection_from(fps["R1"]),
+        snapshot_provider=lambda: connection.snapshot,
+        connection=connection)
+    try:
+        dialog.tabs.setCurrentIndex(1)            # By selection — refs R1/C1/C2
+        ran: list = []
+        monkeypatch.setattr(dialog, "_pivot_from_selection_now",
+                            lambda *a, **k: ran.append(True))
+        before = dialog.pivot_value()
+
+        dialog.pivot_from_selection_button.click()
+        assert len(scheduled) == 1                # the single retry is armed
+        assert ran == []                          # nothing computed yet
+
+        scheduled[0][1]()                         # retry: socket still busy
+
+        assert ran == []                          # NO cached-snapshot pivot
+        assert dialog.pivot_value() == before     # the fields stayed untouched
+        errors = [r for r in caplog.records
+                  if r.name == "gui.docks.scheme_list"
+                  and r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "another operation is using the board" in errors[0].message
+        # ...and the dock did NOT report a cache fallback.
+        warns = [r for r in caplog.records
+                 if r.name == "gui.docks.scheme_list"
+                 and r.levelno == logging.WARNING]
+        assert warns == []
+    finally:
+        dialog.close()
