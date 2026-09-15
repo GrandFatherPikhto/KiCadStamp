@@ -54,6 +54,7 @@ __all__ = [
     "PadArea",
     "pad_area_of",
     "pad_angle_deg",
+    "pad_shape_center",
     "warn_bbox_fallback",
 ]
 
@@ -174,7 +175,7 @@ def pad_area_of(pad: Any) -> PadArea | None:
     if shape in _SHAPES_WITHOUT_OWN_AREA or shape not in _SHAPES_WITH_OWN_AREA:
         return None
 
-    center = _pad_area_center(pad)
+    center = pad_shape_center(pad)
     if center is None:
         return None
 
@@ -193,10 +194,15 @@ def pad_area_of(pad: Any) -> PadArea | None:
                    angle_deg=pad_angle_deg(pad))
 
 
-def _pad_area_center(pad: Any) -> Vector2 | None:
+def pad_shape_center(pad: Any) -> Vector2 | None:
     """Centre of the pad SHAPE: ``position`` + the pad's own ``offset``
     (nm, in the pad's axes) rotated by the pad angle. An absent offset (or
-    None) means a zero offset."""
+    None) means a zero offset — and it is also what the thermal via grid must
+    be centred on (geometry/thermal_grid.py), not the hole.
+
+    None when the pad carries no usable position: the caller then has nothing
+    to centre on, which is an invariant violation worth its own error, not a
+    silent (0, 0)."""
     position = getattr(pad, "position", None)
     if position is None:
         return None

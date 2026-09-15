@@ -1,6 +1,7 @@
 # kicadstamp/geometry/keepout.py
 
 import math
+from typing import Any
 
 from ..domain.geometry import Vector2
 
@@ -9,12 +10,22 @@ from ..domain.geometry import Vector2
 * from_bbox — constructs a Rect from a Box2 obtained from the adapter, with clearance margin.
 * from_circle — approximates a circle as a square (for vias).
 * intersects — checks overlap of two Rects.
-* point_is_clear — checks whether a point is free (the via circle of radius via_radius
-  does not intersect any keepout rectangle).
+* blocks_via — the ONE predicate every obstacle type answers: does a via of radius
+  via_radius centred at this point touch me?
+* point_is_clear — checks whether a point is free (the via does not touch any obstacle).
 * build_keepout — takes a list of bounding boxes and builds a list of Rects with clearance_mm
   (used to create keepout areas from existing components and vias).
 * find_free_point — searches for a free point around the ideal position, expanding in rings.
   Respects a preferred direction. Used to place vias while avoiding collisions.
+
+The obstacle list is deliberately MIXED (2026-09-15,
+plan_2026_09_15_pad_geometry_thermal_vias, Э2): a `Rect` comes from KiCad's
+bounding box (or from a via planned earlier in the same run) and lives in BOARD
+axes, while a `PadArea` (geometry/pad_area.py) is a pad's own copper in the
+PAD's axes. Both answer `blocks_via`, so the two kinds cannot drift apart: a pad
+keeps the same conservative "square via corner" test it used to get as a Rect,
+only applied in its own axes — and therefore correctly under ANY footprint
+rotation, which an axis-aligned Rect never was (Д2).
 """
 
 class Rect:
@@ -41,14 +52,23 @@ class Rect:
         return not (self.max_x < other.min_x or other.max_x < self.min_x or
                     self.max_y < other.min_y or other.max_y < self.min_y)
 
+    def blocks_via(self, point: Vector2, via_radius: float) -> bool:
+        """True when a via centred at `point` with radius via_radius touches
+        this rectangle — BIT FOR BIT the test point_is_clear used to do inline
+        (a square approximation of the via, same as from_circle), so every
+        existing caller keeps today's result."""
+        return Rect.from_circle(point, via_radius).intersects(self)
+
     def __repr__(self):
         return f"Rect({self.min_x}, {self.min_y}, {self.max_x}, {self.max_y})"
 
 
-def point_is_clear(point: Vector2, via_radius: float, keepout: list[Rect]) -> bool:
-    """True if the via circle of radius via_radius around point does not intersect any keepout rectangle."""
-    via_box = Rect.from_circle(point, via_radius)
-    return not any(via_box.intersects(r) for r in keepout)
+def point_is_clear(point: Vector2, via_radius: float, keepout: list[Any]) -> bool:
+    """True if the via circle of radius via_radius around point touches no obstacle.
+
+    `keepout` is a mixed list of anything answering `blocks_via` — Rect and
+    PadArea today."""
+    return not any(obstacle.blocks_via(point, via_radius) for obstacle in keepout)
 
 
 def build_keepout(bboxes, clearance_mm: float, mm_per_unit: int = 1_000_000) -> list[Rect]:
@@ -56,6 +76,10 @@ def build_keepout(bboxes, clearance_mm: float, mm_per_unit: int = 1_000_000) -> 
     Builds a list of Rects from bounding boxes (see adapter.get_bounding_boxes),
     with clearance_mm on each side. None elements (bbox unavailable for a particular
     pad/footprint) are silently skipped — calling code may log this separately if needed.
+
+    Stays for callers that only have KiCad bounding boxes; a pad that can build
+    its own area (pad_area.pad_area_of) is better served by that area, which does
+    not inherit the box's rotation defects (Д1/Д2).
     """
     clearance = int(clearance_mm * mm_per_unit)
     rects = []
@@ -68,7 +92,7 @@ def build_keepout(bboxes, clearance_mm: float, mm_per_unit: int = 1_000_000) -> 
 
 def find_free_point(
     ideal: Vector2,
-    keepout: list[Rect],
+    keepout: list[Any],
     via_radius: float,
     preferred_direction: tuple[float, float] | None = None,
     step_mm: float = 0.1,
@@ -77,7 +101,7 @@ def find_free_point(
     n_directions: int = 8,
 ) -> Vector2 | None:
     """
-    Searches for the nearest free point (not intersecting keepout) around ideal
+    Searches for the nearest free point (touching no obstacle) around ideal
     in expanding rings: first ideal itself, then rings of radius step_mm, 2*step_mm,
     ... up to max_radius_mm.
 
@@ -120,7 +144,7 @@ def find_free_point(
 
 def find_free_point_along_line(
     ideal: Vector2,
-    keepout: list[Rect],
+    keepout: list[Any],
     via_radius: float,
     line_direction: tuple[float, float],
     step_mm: float = 0.1,

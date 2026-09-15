@@ -16057,3 +16057,7 @@ msgstr "плата занята — её использует другая оп�
 #, python-brace-format
 msgid "Pad {ref}.{pad}: no own pad area (shape {shape}) — falling back to KiCad's bounding box, which may be shifted at this pad angle ({angle:.2f}°)"
 msgstr "Пад {ref}.{pad}: своей области пада нет (форма {shape}) — берётся габарит KiCad, который под этим углом пада ({angle:.2f}°) может быть сдвинут"
+
+#: kicadstamp/geometry/thermal_grid.py
+msgid "pad has no position"
+msgstr "у пада нет позиции"

@@ -1,6 +1,7 @@
 # kicadstamp/placement/services/via_planner.py
 
 import logging
+from typing import Any
 
 from ...domain.geometry import BoardLayer
 from ...domain.geometry import Vector2
@@ -8,7 +9,8 @@ from ...domain.geometry import Vector2
 from ...domain.board import Footprint
 
 from ...config import Config, ThermalViaArrayConfig
-from ...geometry.keepout import Rect, build_keepout, find_free_point
+from ...geometry.keepout import Rect, find_free_point
+from ...geometry.pad_area import pad_area_of, warn_bbox_fallback
 from ...geometry.thermal_grid import compute_thermal_via_grid
 from ...kicad.adapter import KiCadBoardAdapter
 from ...utils.units import MM
@@ -158,13 +160,29 @@ class ViaPlanner:
         planned: list[PlacedComponentInfo],
         exclude: set[tuple[str, str]] | None = None,
         planned_vias: list[ViaCommand] | None = None,
-    ) -> list[Rect]:
-        pad_items = []
+    ) -> list[Any]:
+        """Obstacles a via must not touch this run.
+
+        A pad with an area of its OWN becomes a PadArea built from the fields of
+        the pad already read (geometry/pad_area.py) — no board access at all, and
+        correct under any footprint rotation: KiCad's bounding box comes back
+        shifted for a footprint angle that is not a multiple of 90° (measured
+        15.09.2026: 1.724 mm for every pad of IC2 at 315° — Д1 of
+        plan_2026_09_15_pad_geometry_thermal_vias) and is an axis-aligned box
+        around a rotated rectangle in any case (Д2).
+
+        Only pads WITHOUT their own area (custom/unknown shape, no usable size)
+        still need that box, and they are asked for in ONE batch — the same single
+        request this method has always made, now usually smaller; each of them is
+        logged when its box cannot be trusted (a pad angle that is not a multiple
+        of 90°).
+        """
+        pad_items: list[tuple[str, Any]] = []
         target_ref_name = target_fp.ref
         for pad in self.adapter.get_footprint_pads(target_fp):
             if exclude and (target_ref_name, pad.number) in exclude:
                 continue
-            pad_items.append(pad)
+            pad_items.append((target_ref_name, pad))
         for info in planned:
             fp = self.adapter.get_footprint(info.ref)
             if fp is None:
@@ -172,9 +190,32 @@ class ViaPlanner:
             for pad in self.adapter.get_footprint_pads(fp):
                 if exclude and (info.ref, pad.number) in exclude:
                     continue
-                pad_items.append(pad)
-        bboxes = self.adapter.get_bounding_boxes(pad_items)
-        keepout = build_keepout(bboxes, self.cfg.via_keepout_clearance_mm, mm_per_unit=MM)
+                pad_items.append((info.ref, pad))
+
+        clearance = int(self.cfg.via_keepout_clearance_mm * MM)
+        keepout: list[Any] = []
+        fallback: list[tuple[Any, str]] = []
+        for ref, pad in pad_items:
+            area = pad_area_of(pad)
+            if area is None:
+                fallback.append((pad, ref))
+            else:
+                # Same convention as Rect.from_bbox's clearance: grown on every
+                # side, so via_keepout_clearance_mm stays "per side".
+                keepout.append(area.inflated(clearance))
+        if fallback:
+            boxes = list(self.adapter.get_bounding_boxes(
+                [pad for pad, _ref in fallback]))
+            if len(boxes) < len(fallback):
+                # Never line a SHORT answer up with the pads: the adapter owes a
+                # positional list (see get_bounding_boxes), and a mock that
+                # returns fewer must not shift every following box onto the
+                # wrong pad.
+                boxes += [None] * (len(fallback) - len(boxes))
+            for (pad, ref), bbox in zip(fallback, boxes):
+                warn_bbox_fallback(logger, ref, pad)
+                if bbox is not None:
+                    keepout.append(Rect.from_bbox(bbox, clearance))
         # Vias planned earlier in the same run must be treated as obstacles too,
         # otherwise a thermal via can land on top of a sibling regular via
         # (found 2026-07-31). Same clearance convention as pad keepout.
