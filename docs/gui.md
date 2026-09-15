@@ -1052,6 +1052,20 @@ board read runs on a worker, and the AREA is the current board SELECTION when th
 WHOLE board — the tree already knows its nodes, clusters and pads, so no selection is needed for the
 common case.
 
+Three of its rules were wrong on a live board and are fixed (2026-09-15, plan
+`plan_2026_09_15_internode_copper_sheets_and_nets`): a component belongs to a tree node when the node's
+sheet is **ANY segment of the component's hierarchical path** — a `DAC` sub-sheet inside `Channel_0` IS
+`Channel_0`, and with the old leaf-only rule a board whose ICs live one level deeper matched NO component
+at all (every unit came out FOREIGN and the Log said nothing); a pad terminates and moors copper **only of
+its own net** (`net_name`), so a B.Cu bypass capacitor's GND pad under an F.Cu signal track no longer cuts
+that track in two and no longer claims it as a bridge end; and a NEW record's `anchor_sheet` is the
+**TREE NODE's sheet** (`Channel_0`), never the component's leaf (`DAC` exists in every channel and narrows
+the anchor to nothing). The report also stopped being silent about what it threw away: the Log ends with
+the discarded units by verdict (`foreign`, `cluster`, `stub`, `unmoored`) and, when not one component of
+the area matched a node of the tree, with a line naming the tree and the `(Cluster, sheet)` keys its nodes
+wait for; two nodes of one Cluster matching one component are reported by name and left unmatched rather
+than guessed.
+
 **Tools → Trees → Whose copper is this?** (2026-09-12, plan
 `plan_2026_09_12_select_copper_by_record`) answers the reverse question: which `net_traces:` records own
 the copper you have SELECTED on the live board. It is READ-ONLY — it reads your selection and never

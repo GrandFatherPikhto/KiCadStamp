@@ -16,7 +16,7 @@ not needed at all if anchor_sheet is not used in the config.
 """
 import glob
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 
@@ -180,3 +180,23 @@ def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None
     path_uuids = list(fp.sheet_path_uuids)
     chain = path_uuids[:-1]
     return [sheet_names.get(u) for u in chain]
+
+
+def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:
+    """True when `sheet` is ONE OF THE SEGMENTS of a resolved sheet-name path —
+    not necessarily the LAST one: the component may live deeper than the sheet we
+    are looking for (a DAC sub-sheet inside Channel_0 is still Channel_0's).
+
+    This is THE one rule for "does this sheet name this component", shared by the
+    role-narrowing cascade (role_narrowing._fp_on_sheet, i.e. every
+    anchor_role/sheet search) and by the inter-node copper capture's node
+    matching (internode_capture) — the two used to answer the same question in
+    two different ways (leaf segment vs any segment), and a tree's anchor
+    resolved while its copper did not.
+
+    A None/empty `sheet` names nothing and matches nothing: "no sheet given" is
+    NOT a wildcard here. Callers that mean "any sheet" (a config entry with no
+    sheet at all) decide that themselves, explicitly."""
+    if not sheet:
+        return False
+    return any(name == sheet for name in names)

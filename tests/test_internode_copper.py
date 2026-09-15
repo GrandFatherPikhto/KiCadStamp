@@ -79,9 +79,13 @@ def _run(items, pads_by_ref, refs):
 
 def test_two_bridges_between_different_pad_pairs_are_two_units():
     """Two independent links of the SAME net between different pad pairs must
-    stay two units — the unit is the piece of copper, not the net."""
-    pads = {"R1": [_pad("1", 10, 10)], "R2": [_pad("1", 20, 10)],
-            "R3": [_pad("1", 10, 20)], "R4": [_pad("1", 20, 20)]}
+    stay two units — the unit is the piece of copper, not the net. The pads
+    carry that same net: a pad moors copper of its own net only (Э2 of
+    plan_2026_09_15_internode_copper_sheets_and_nets)."""
+    pads = {"R1": [_pad("1", 10, 10, net="SHARED")],
+            "R2": [_pad("1", 20, 10, net="SHARED")],
+            "R3": [_pad("1", 10, 20, net="SHARED")],
+            "R4": [_pad("1", 20, 20, net="SHARED")]}
     raw = [_track((10, 10), (20, 10), net="SHARED"),
            _track((10, 20), (20, 20), net="SHARED")]
     units, warnings = _run(raw, pads, ["R1", "R2", "R3", "R4"])
@@ -154,6 +158,53 @@ def test_track_passing_over_a_pad_without_touching_it_is_not_moored():
     assert units[0].pads == (PadRef("R2", "1"),)
 
 
+# ── С4/С5/С7: a pad bounds only copper of its OWN net (Э2 of
+# plan_2026_09_15_internode_copper_sheets_and_nets) ──────────────────────
+
+def test_a_pad_of_another_net_under_the_copper_does_not_moor_it():
+    """С4 — the live shape that produced five FALSE bridges: the PIF bypass
+    capacitors sit on B.Cu right under the OpAmp, so their GND pads catch the
+    F.Cu signal track ends. A pad of another net is not the end of this piece of
+    copper: the unit is moored to the pads of ITS net only."""
+    pads = {"R1": [_pad("1", 10, 10)], "R2": [_pad("1", 20, 10)],
+            "C9": [_pad("2", 20, 10, net="GND")]}
+    units, warnings = _run([_track((10, 10), (20, 10))], pads, ["R1", "R2", "C9"])
+    assert warnings == []
+    assert len(units) == 1
+    assert units[0].pads == (PadRef("R1", "1"), PadRef("R2", "1"))
+    assert PadRef("C9", "2") not in units[0].pads
+
+
+def test_a_joint_on_a_pad_of_another_net_merges_the_pieces():
+    """С5 — a joint that happens to sit on a pad of ANOTHER net is an ordinary
+    joint: nothing stops here, so the two pieces are ONE unit. Cutting them is
+    what turned one bridge into two and a bypass cap into a bridge end."""
+    pads = {"R1": [_pad("1", 10, 10)], "R3": [_pad("1", 30, 10)],
+            "C9": [_pad("2", 20, 10, net="GND")]}
+    raw = [_track((10, 10), (20, 10)), _track((20, 10), (30, 10))]
+    units, _ = _run(raw, pads, ["R1", "R3", "C9"])
+    assert len(units) == 1
+    assert len(units[0].tracks) == 2
+    assert units[0].pads == (PadRef("R1", "1"), PadRef("R3", "1"))
+
+
+def test_copper_and_pads_without_a_net_moor_to_nothing():
+    """С7 — copper that carries no net, and a pad that carries none, are both
+    'connected to nothing': they must not attach to each other just because the
+    two absences compare equal. (Capture skips net-less copper with a warning —
+    that warning can only be honest if the copper was not moored first.)"""
+    pads = {"R1": [_pad("1", 0, 0, net=None)]}
+    units, _ = _run([_track((0, 0), (10, 0), net=None)], pads, ["R1"])
+    assert len(units) == 1
+    assert units[0].pads == ()
+    assert classify_unit(units[0], {"R1": "A"}) == CopperVerdict.UNMOORED
+
+    # and a NAMED track does not attach to an unconnected pad of its own ref
+    pads2 = {"R1": [_pad("1", 0, 0, net=None)], "R2": [_pad("1", 10, 0, net="N")]}
+    units2, _ = _run([_track((0, 0), (10, 0), net="N")], pads2, ["R1", "R2"])
+    assert units2[0].pads == (PadRef("R2", "1"),)
+
+
 def test_no_copper_yields_no_units():
     units, warnings = _run([], {}, [])
     assert units == [] and warnings == []
@@ -219,7 +270,10 @@ def test_foreign_pad_outranks_node_count():
 # ── net-name consistency is a warning, never a silent merge/split ─────────
 
 def test_net_conflict_on_one_unit_is_a_warning():
-    pads = {"R1": [_pad("1", 0, 0)], "R2": [_pad("1", 20, 0)]}
+    """The two pieces join off any pad (the joint at (10, 0) is in the air), so
+    they are ONE unit whose copper carries two nets — each piece moored to the
+    pad of its own net at its own end."""
+    pads = {"R1": [_pad("1", 0, 0, net="N1")], "R2": [_pad("1", 20, 0, net="N2")]}
     raw = [_track((0, 0), (10, 0), net="N1"),
            _track((10, 0), (20, 0), net="N2")]
     units, warnings = _run(raw, pads, ["R1", "R2"])
@@ -231,7 +285,8 @@ def test_net_conflict_on_one_unit_is_a_warning():
 
 
 def test_single_net_unit_has_no_warning_and_reports_its_net():
-    pads = {"R1": [_pad("1", 0, 0)], "R2": [_pad("1", 20, 0)]}
+    pads = {"R1": [_pad("1", 0, 0, net="SHARED")],
+            "R2": [_pad("1", 20, 0, net="SHARED")]}
     units, warnings = _run([_track((0, 0), (20, 0), net="SHARED")], pads,
                            ["R1", "R2"])
     assert warnings == []

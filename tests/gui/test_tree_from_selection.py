@@ -1124,9 +1124,13 @@ def _detect_adapter(pads_by_ref, roles_by_ref):
     return adapter
 
 
-def _two_cluster_board():
-    """R1 (PIF_AVDD) pad at (10,10), R2 (PIF_CLKVDD) pad at (20,10)."""
-    pads = {"R1": [_pad_mm(10, 10)], "R2": [_pad_mm(20, 10)]}
+def _two_cluster_board(net="N"):
+    """R1 (PIF_AVDD) pad at (10,10), R2 (PIF_CLKVDD) pad at (20,10). The pads
+    carry the net of the copper under test — a pad moors copper of its OWN net
+    only (Э2 of plan_2026_09_15_internode_copper_sheets_and_nets), so a fixture
+    that leaves them on another net proves "nothing is moored", not the rule it
+    names."""
+    pads = {"R1": [_pad_mm(10, 10, net=net)], "R2": [_pad_mm(20, 10, net=net)]}
     roles = {"R1": "DAC", "R2": "DAC_BUF"}
     return _detect_adapter(pads, roles), pads, roles
 
@@ -1134,7 +1138,7 @@ def _two_cluster_board():
 def test_detect_offers_a_unit_between_two_clusters():
     """The copper between two selected clusters is ONE row, carrying the unit's
     pad signature (the record identity) and the nodes it connects."""
-    adapter, _pads, _roles = _two_cluster_board()
+    adapter, _pads, _roles = _two_cluster_board(net="SHARED")
     raw = [_fp("R1"), _fp("R2"), _track_mm(10, 10, 20, 10, net="SHARED")]
     rows = detect_inter_cluster_nets(raw, _clusters(), adapter=adapter)
     assert len(rows) == 1
@@ -1149,7 +1153,8 @@ def test_detect_offers_a_unit_between_two_clusters():
 def test_detect_ignores_copper_inside_one_cluster():
     """Copper whose pads all belong to ONE selected cluster is cell copper: not
     a capture candidate (the same verdict the re-read computes)."""
-    adapter = _detect_adapter({"R1": [_pad_mm(10, 10), _pad_mm(12, 10)]},
+    adapter = _detect_adapter({"R1": [_pad_mm(10, 10, net="AVDD"),
+                                      _pad_mm(12, 10, net="AVDD")]},
                               {"R1": "DAC"})
     raw = [_fp("R1"), _track_mm(10, 10, 12, 10, net="AVDD")]
     assert detect_inter_cluster_nets(raw, _clusters(), adapter=adapter) == []
@@ -1159,7 +1164,8 @@ def test_detect_ignores_copper_reaching_a_foreign_component():
     """A unit moored to a pad OUTSIDE the tree's nodes is somebody else's
     connection — never offered, whatever its net is."""
     adapter = _detect_adapter(
-        {"R1": [_pad_mm(10, 10)], "R9": [_pad_mm(20, 10)]},
+        {"R1": [_pad_mm(10, 10, net="SHARED")],
+         "R9": [_pad_mm(20, 10, net="SHARED")]},
         {"R1": "DAC", "R9": "OTHER"})
     raw = [_fp("R1"), _fp("R9"), _track_mm(10, 10, 20, 10, net="SHARED")]
     assert detect_inter_cluster_nets(raw, _clusters(), adapter=adapter) == []
@@ -1170,7 +1176,7 @@ def test_detect_offers_a_gnd_bridge_between_two_nodes():
     rule_nets): GND is NOT an exception any more. A GND TRACK between two nodes
     is real inter-node copper and is offered; only a pour (a zone, absent from
     the connectivity graph) could look like "all the GND at once"."""
-    adapter, _pads, _roles = _two_cluster_board()
+    adapter, _pads, _roles = _two_cluster_board(net="GND")
     raw = [_fp("R1"), _fp("R2"), _track_mm(10, 10, 20, 10, net="GND")]
     rows = detect_inter_cluster_nets(raw, _clusters(), adapter=adapter)
     assert [r.net for r in rows] == ["GND"]
@@ -1186,8 +1192,8 @@ def test_detect_offers_one_unit_spanning_three_nodes():
                       profile_key=None, refs=["C3"]),
     ]
     adapter = _detect_adapter(
-        {"R1": [_pad_mm(10, 0)], "R2": [_pad_mm(20, 0)],
-         "C3": [_pad_mm(15, 10)]},
+        {"R1": [_pad_mm(10, 0, net="+3V3")], "R2": [_pad_mm(20, 0, net="+3V3")],
+         "C3": [_pad_mm(15, 10, net="+3V3")]},
         {"R1": "DAC", "R2": "DAC_BUF", "C3": "CAP"})
     raw = [_fp("R1"), _fp("R2"), _fp("C3"),
            _track_mm(10, 0, 15, 0, net="+3V3"),
@@ -1203,8 +1209,10 @@ def test_detect_offers_two_bridges_of_one_net_as_two_rows():
     """A ROW IS A UNIT (plan Э5): two independent bridges of one net are two
     rows with different pad signatures — they will be two records."""
     adapter = _detect_adapter(
-        {"R1": [_pad_mm(10, 10, number="1"), _pad_mm(10, 20, number="2")],
-         "R2": [_pad_mm(20, 10, number="1"), _pad_mm(20, 20, number="2")]},
+        {"R1": [_pad_mm(10, 10, number="1", net="SHARED"),
+                _pad_mm(10, 20, number="2", net="SHARED")],
+         "R2": [_pad_mm(20, 10, number="1", net="SHARED"),
+                _pad_mm(20, 20, number="2", net="SHARED")]},
         {"R1": "DAC", "R2": "DAC_BUF"})
     raw = [_fp("R1"), _fp("R2"),
            _track_mm(10, 10, 20, 10, net="SHARED"),
@@ -1242,8 +1250,9 @@ def test_detect_offers_a_unit_reaching_two_nodes_while_a_third_has_the_net():
     """A net ALSO present on a third cluster does not disqualify the unit: the
     rule looks at THIS copper, not at the net's name coverage."""
     adapter = _detect_adapter(
-        {"R1": [_pad_mm(10, 10)], "R2": [_pad_mm(20, 10)],
-         "C3": [_pad_mm(30, 30)]},
+        {"R1": [_pad_mm(10, 10, net="SHARED")],
+         "R2": [_pad_mm(20, 10, net="SHARED")],
+         "C3": [_pad_mm(30, 30, net="SHARED")]},
         {"R1": "DAC", "R2": "DAC_BUF", "C3": "CAP"})
     clusters = _clusters() + [
         ReReadCluster(cluster="PIF_DVDD", sheet="Channel_1",

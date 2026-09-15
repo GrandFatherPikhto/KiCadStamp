@@ -15650,6 +15650,20 @@ msgid "  unchanged:  {count}"
 msgstr "  без изменений: {count}"
 
 #: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid "  not taken:  {counts} — copper the classification left alone"
+msgstr "  не взято:     {counts} — медь, которую классификация не взяла"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"  no component of the area matched any node of tree {tree!r} by (Cluster, "
+"sheet) — the tree's nodes expect: {keys}"
+msgstr ""
+"  ни один компонент области не совпал ни с одним узлом дерева {tree!r} по "
+"(Cluster, листу) — узлы дерева ждут: {keys}"
+
+#: kicadstamp/internode_capture.py
 msgid ""
 "zones are not read (see the Z1 work): only tracks and vias count as copper, "
 "so a pour never appears in the capture"
@@ -15681,6 +15695,26 @@ msgid ""
 msgstr ""
 "пропущен кусок меди между падами {pads}: у пада {pad} на плате нет поля "
 "Role, поэтому запись нечем заякорить"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"skipped a piece of copper between pads {pads}: the anchor pad {pad} belongs "
+"to no node of this tree, so the record has no anchor sheet to narrow its role"
+msgstr ""
+"пропущен кусок меди между падами {pads}: якорный пад {pad} не принадлежит ни "
+"одному узлу этого дерева, поэтому записи нечем сузить роль якоря"
+
+#: kicadstamp/internode_capture.py
+#, python-brace-format
+msgid ""
+"component {ref!r} (Cluster {cluster!r}, sheet path {path}) matches {count} "
+"nodes of tree {tree!r} at once: {nodes} — the component is left out of the "
+"tree, it is never guessed"
+msgstr ""
+"компонент {ref!r} (Cluster {cluster!r}, путь листов {path}) совпал сразу с "
+"{count} узлами дерева {tree!r}: {nodes} — компонент в дерево не берём, "
+"угадывать не будем"
 
 #: kicadstamp/internode_capture.py
 #, python-brace-format

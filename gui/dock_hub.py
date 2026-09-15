@@ -2208,10 +2208,20 @@ class DockHub:
         from kicadstamp.internode_capture import capture_units
         node_by_ref = {ref: (c.cluster or c.sheet or "?")
                        for c in selected for ref in c.refs}
+        # Э3 (plan_2026_09_15_internode_copper_sheets_and_nets): a NEW record's
+        # anchor_sheet is the sheet of the TREE NODE its anchor component belongs
+        # to — the cluster's OWN sheet (Channel_0), never the leaf segment of the
+        # component's path ('DAC'): the leaf exists in every channel, so the
+        # anchor it narrows to stays ambiguous and apply refuses the record.
+        # Built from `clusters` — the very set the units were classified against
+        # (detect_inter_cluster_nets above) — so every pad of a checked unit has
+        # its node here, whether or not the user kept that cluster row checked.
+        node_sheet_by_ref = {ref: c.sheet for c in clusters for ref in c.refs}
         captures, capture_warnings = capture_units(
             adapter, [n.unit for n in checked_nets if n.unit is not None],
             area_footprints=self._selection_footprints,
             node_by_ref=node_by_ref,
+            node_sheet_by_ref=node_sheet_by_ref,
             sheet_names=sheet_names,
             existing_names=[nt.name or nt.net for nt in cfg.net_traces])
         for warning in capture_warnings:

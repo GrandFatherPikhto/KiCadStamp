@@ -1137,6 +1137,13 @@ Extraction is a CLI command, not the mouse-selection `extract`:
   longer on the board is reported in the Log and marked "no copper" in the tree,
   so removing it stays a human decision (the copper may simply be pulled out for
   a moment);
+* **A component is found by ANY segment of its sheet path** (2026-09-15, plan
+  `plan_2026_09_15_internode_copper_sheets_and_nets`): a node on `Channel_0`
+  owns a component on `['Channel_0', 'DAC']` too, exactly like the role-anchor
+  resolver has always matched sheets. A pad ends and moors copper **only of its
+  own net** (see the Reread section in `gui.md`), and a NEW record's
+  `anchor_sheet` is its TREE NODE's sheet, not the component's leaf. The Log
+  ends with the units the classification did not take, by verdict;
 * **ZONES ARE NOT READ.** Only tracks and vias count as copper: a zone connects
   by overlap, so a GND pour would fuse every cluster into one "unit" and the
   classification above would fall apart. A pour never appears in a capture.

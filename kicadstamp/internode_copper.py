@@ -13,6 +13,14 @@ connected component and the strict classification below would die (this is the
 main trap of the design, §4/R1: union-find is naturally inclined to do exactly
 that).
 
+A PAD TERMINATES AND MOORS ONLY COPPER OF ITS OWN NET (2026-09-15,
+plan_2026_09_15_internode_copper_sheets_and_nets Э2). Copper electrically runs
+into a pad of ITS net; a pad of ANOTHER net sitting under a track is a different
+layer or a short, not the end of this piece — so it neither splits the joint nor
+moors the copper. Copper or a pad without a net is moored to nothing. The net is
+the criterion, not the layer: the domain Pad has no layer at all, a through-hole
+pad has many, and net_name is exact for every one of them.
+
 ZONES ARE NOT PART OF THIS GRAPH. NEVER. (design §14, decision Р4.) A zone
 connects by OVERLAP, not by ROUTING: a GND pour covering every cluster would
 fuse all of them into one unit and the classification would fall apart. The
@@ -161,7 +169,9 @@ def find_copper_units(
     (the extract-selection callers keep everything in one list). EVERY pad of
     every area footprint is an anchor — not only the pads of the tree's own
     clusters: that is what makes a pad a boundary ("stop at the pad") rather
-    than a filter on cluster membership.
+    than a filter on cluster membership. A pad is a boundary of a piece of
+    copper only when it carries that copper's OWN net (see the module docstring,
+    Э2 of plan_2026_09_15_internode_copper_sheets_and_nets).
 
     Returns (units, warnings). `warnings` carries the net-name conflicts
     (design Э1: a unit's copper must carry one net; a mismatch is a Log
@@ -206,9 +216,25 @@ def find_copper_units(
                                    pad=_normalize_pad_number(pad.number)))
     pad_boxes = _inflated_boxes(adapter, pads) if pads else []
 
-    def _point_on_pad(point: Vector2) -> bool:
-        return any(box is not None and _point_in_box(point, box)
-                   for box in pad_boxes)
+    # The pads of ONE net, so a piece of copper only ever tests the pads that
+    # could really end it. The net rule is a FILTER IN FRONT OF _point_in_box,
+    # never a second geometry: "is the point on this pad" keeps exactly one
+    # answer (_point_in_box, i.e. the pad's own area or KiCad's box). A pad
+    # without a net (unconnected) is in NO group — it bounds nothing.
+    pads_by_net: dict[str, list[tuple[PadRef, Any]]] = {}
+    for ref, pad, box in zip(pad_refs, pads, pad_boxes):
+        net = pad.net_name
+        if box is not None and net:
+            pads_by_net.setdefault(net, []).append((ref, box))
+
+    def _own_pads_at(point: Vector2, net: str | None) -> list[PadRef]:
+        """The pads of `net` whose boundary contains `point`. Copper that carries
+        no net is moored to nothing at all (Э2 of
+        plan_2026_09_15_internode_copper_sheets_and_nets)."""
+        if not net:
+            return []
+        return [ref for ref, box in pads_by_net.get(net, ())
+                if _point_in_box(point, box)]
 
     def _joint_point(a_start: Vector2, a_end: Vector2,
                      b_start: Vector2, b_end: Vector2) -> Vector2 | None:
@@ -245,32 +271,30 @@ def find_copper_units(
         for j in range(i + 1, len(tracks)):
             o = tracks[j]
             p = _joint_point(t.start, t.end, o.start, o.end)
-            if p is not None and not _point_on_pad(p):
+            if p is not None and not _own_pads_at(p, t.net_name):
                 union(("t", i), ("t", j))
     for i, t in enumerate(tracks):
         for j, v in enumerate(vias):
             p = _joint_point(t.start, t.end, v.position, v.position)
-            if p is not None and not _point_on_pad(p):
+            if p is not None and not _own_pads_at(p, t.net_name):
                 union(("t", i), ("v", j))
 
-    # ── Moor every copper item to every pad box it touches. Mooring labels the
-    # unit, it never unions two units (see above).
+    # ── Moor every copper item to the pads OF ITS OWN NET it touches. Mooring
+    # labels the unit, it never unions two units (see above).
     unit_pads: dict[tuple[str, int], set[PadRef]] = {}
     # Per-ITEM mooring (the ready answer the capture path uses for its
     # (role, pad) references — see CopperUnit.track_pads/via_pads).
     item_pads: dict[tuple[str, int], set[PadRef]] = {}
-    for index, box in enumerate(pad_boxes):
-        if box is None:
-            continue
-        ref = pad_refs[index]
-        for i, t in enumerate(tracks):
-            if _point_in_box(t.start, box) or _point_in_box(t.end, box):
-                unit_pads.setdefault(find(("t", i)), set()).add(ref)
-                item_pads.setdefault(("t", i), set()).add(ref)
-        for j, v in enumerate(vias):
-            if _point_in_box(v.position, box):
-                unit_pads.setdefault(find(("v", j)), set()).add(ref)
-                item_pads.setdefault(("v", j), set()).add(ref)
+    for i, t in enumerate(tracks):
+        key = ("t", i)
+        for ref in _own_pads_at(t.start, t.net_name) + _own_pads_at(t.end, t.net_name):
+            unit_pads.setdefault(find(key), set()).add(ref)
+            item_pads.setdefault(key, set()).add(ref)
+    for j, v in enumerate(vias):
+        key = ("v", j)
+        for ref in _own_pads_at(v.position, v.net_name):
+            unit_pads.setdefault(find(key), set()).add(ref)
+            item_pads.setdefault(key, set()).add(ref)
 
     # ── Assemble, preserving the raw_items order of the first copper item.
     order: list[tuple[str, int]] = []

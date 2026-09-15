@@ -41,7 +41,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .config import (
     Config,
@@ -63,7 +63,7 @@ from .internode_copper import (
     generate_trace_name,
 )
 from .net_trace_planner import resolve_live_anchor
-from .sheet_names import resolve_sheet_path_names
+from .sheet_names import resolve_sheet_path_names, sheet_in_path
 from .trees import Tree
 from .utils.units import MM
 
@@ -79,6 +79,11 @@ __all__ = [
     "reread_report_lines",
     "tree_net_trace_identities",
 ]
+
+# The order the report lists copper the classification did NOT take in: the
+# design's own table order (Р1), minus INTERNODE — that is what a re-read takes.
+_DISCARD_ORDER = (CopperVerdict.FOREIGN, CopperVerdict.CLUSTER,
+                  CopperVerdict.UNMOORED, CopperVerdict.STUB)
 
 
 # ── result shapes ──────────────────────────────────────────────────────────
@@ -106,6 +111,19 @@ class RereadPlan:
     unchanged: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # ── what the re-read did NOT take, and why (Э4 of
+    # plan_2026_09_15_internode_copper_sheets_and_nets) ────────────────────
+    # `discarded` counts units by verdict (CopperVerdict.value -> count); only
+    # the non-zero ones are ever reported. `matched_components` /
+    # `unmatched_components` count the area's components that carry a Cluster and
+    # did / did not match a node of this tree, and `node_keys` is that tree's own
+    # key list ("PIF_DVDD/Channel_0", ...) — together they turn "the re-read sees
+    # no copper" from silence into one line that names the tree and what its
+    # nodes wait for (the live complaint this stage exists for).
+    discarded: dict[str, int] = field(default_factory=dict)
+    matched_components: int = 0
+    unmatched_components: int = 0
+    node_keys: list[str] = field(default_factory=list)
 
     @property
     def records(self) -> list[NetTrace]:
@@ -159,19 +177,23 @@ def _tree_node_keys(tree: Tree, cfg: Config) -> dict[tuple[str | None, str | Non
 
 @dataclass(frozen=True)
 class _Component:
+    # `sheet` is the LEAF of the path and is DIAGNOSTICS ONLY (the probe prints
+    # it to show what the old leaf rule would have done); `path` is what the
+    # matching reads — every named segment of the hierarchical path, root first.
     ref: str
     fp: Any
     role: str | None
     cluster: str | None
     sheet: str | None
+    path: tuple[str, ...] = ()
 
 
-def _sheet_of(fp, sheet_names: dict[str, str]) -> str | None:
-    """The LEAF sheet name of a footprint, or None when the sheet dictionary
-    cannot name it (the same honest "no match" resolve_sheet_path_names
-    documents)."""
-    names = [n for n in resolve_sheet_path_names(fp, sheet_names) if n]
-    return names[-1] if names else None
+def _sheet_path(fp, sheet_names: dict[str, str]) -> tuple[str, ...]:
+    """Every NAMED segment of a footprint's hierarchical sheet path, root first
+    ('Channel_0', 'DAC'). A segment the dictionary cannot name is dropped:
+    resolve_sheet_path_names reports it honestly as None, and an unnamed segment
+    must match nothing (the same rule role_narrowing._fp_on_sheet follows)."""
+    return tuple(n for n in resolve_sheet_path_names(fp, sheet_names) if n)
 
 
 def _area_components(adapter, footprints: Iterable[Any],
@@ -180,14 +202,59 @@ def _area_components(adapter, footprints: Iterable[Any],
     for fp in footprints:
         if not isinstance(fp, Footprint):
             continue
+        path = _sheet_path(fp, sheet_names)
         out[fp.ref] = _Component(
             ref=fp.ref,
             fp=fp,
             role=(adapter.get_field_value(fp, ROLE_FIELD_NAME) or None),
             cluster=(adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or None),
-            sheet=_sheet_of(fp, sheet_names),
+            sheet=path[-1] if path else None,
+            path=path,
         )
     return out
+
+
+def _node_key_label(label: str, sheet: str | None) -> str:
+    """One tree node key as the report and the ambiguity warning name it —
+    "PIF_DVDD/Channel_0", or just the label for a sheet-less key."""
+    return f"{label}/{sheet}" if sheet else label
+
+
+def _match_node(
+    comp: _Component,
+    node_keys: dict[tuple[str | None, str | None], str],
+) -> tuple[tuple[str, str | None] | None, list[str]]:
+    """((node label, node sheet), conflicting node names) for ONE area component.
+
+    A component belongs to the node keyed `(cluster, sheet)` when its Cluster
+    equals `cluster` AND `sheet` is ANY segment of its sheet path (or the key
+    carries no sheet at all) — the SAME "sheet anywhere in the path" seam the
+    role-narrowing cascade uses (sheet_names.sheet_in_path), so a tree's anchor
+    and its copper can no longer answer the same question differently (Э1 of
+    plan_2026_09_15_internode_copper_sheets_and_nets). A key WITH a sheet
+    outranks the sheet-less key `(cluster, None)`: a component matching both
+    belongs to the sheet-specific node.
+
+    TWO DIFFERENT node keys matching ONE component is an AMBIGUITY, never a
+    choice — that is what "two nodes of one Cluster on Channel_0 and DAC" means
+    for a component living on ['Channel_0', 'DAC']. The component is left
+    unmatched and the conflicting keys are returned so the caller can report
+    them by name (the resolver's contract: it never guesses)."""
+    if comp.cluster is None:
+        return None, []
+    matched = [(sheet, label)
+               for (cluster, sheet), label in node_keys.items()
+               if cluster == comp.cluster and sheet is not None
+               and sheet_in_path(comp.path, sheet)]
+    if len(matched) > 1:
+        return None, [_node_key_label(label, sheet) for sheet, label in matched]
+    if matched:
+        sheet, label = matched[0]
+        return (label, sheet), []
+    label = node_keys.get((comp.cluster, None))
+    if label is not None:
+        return (label, None), []
+    return None, []
 
 
 def _pad_label(pad: PadRef, components: dict[str, _Component]) -> str:
@@ -287,24 +354,41 @@ def _same_geometry(old: NetTrace, new: NetTrace) -> bool:
     return True
 
 
-def _anchor_context(adapter, unit: CopperUnit, components: dict[str, _Component]):
-    """(role, sheet, cluster, pad, point, rotation) for a NEW record: the unit's
-    first pad. The anchor role is REQUIRED by the grammar, so a component
-    without a Role field is reported by the caller as a skip, not anchored
-    somewhere arbitrary."""
+def _anchor_context(adapter, unit: CopperUnit, components: dict[str, _Component],
+                    node_sheet_by_ref: Mapping[str, str | None]
+                    ) -> tuple[tuple | None, str | None]:
+    """((role, sheet, cluster, pad, point, rotation), skip reason) for a NEW
+    record: the unit's first pad.
+
+    `sheet` is the sheet of the TREE NODE the anchor component belongs to — NOT
+    the leaf segment of the component's own path (Э3 of
+    plan_2026_09_15_internode_copper_sheets_and_nets). The record's anchor must
+    narrow the role to THIS node's instance of the reused sheet, and a leaf like
+    'DAC' exists in every channel: it narrows nothing, so the resolver stops on
+    an ambiguous role and the whole record is never applied. The caller owns
+    that mapping — the re-read knows it from the node match (Э1), the Extract
+    dialog from its own cluster's sheet.
+
+    The anchor role is REQUIRED by the grammar, so the two things that can be
+    missing are named, never guessed around: "no_role" (a component without a
+    Role field cannot be referenced) and "no_node" (the caller cannot say which
+    node the pad belongs to, so there is no honest anchor_sheet)."""
     pad = unit.pads[0]
     comp = components.get(pad.ref)
     if comp is None or not comp.role:
-        return None
+        return None, "no_role"
+    if pad.ref not in node_sheet_by_ref:
+        return None, "no_node"
     pad_obj = adapter.get_pad_by_number(comp.fp, pad.pad)
     point = pad_obj.position if pad_obj is not None else comp.fp.position
-    return (comp.role, comp.sheet, comp.cluster, pad.pad, point,
-            round(comp.fp.angle_deg, 4))
+    return (comp.role, node_sheet_by_ref[pad.ref], comp.cluster, pad.pad, point,
+            round(comp.fp.angle_deg, 4)), None
 
 
 def capture_unit(adapter, unit: CopperUnit, *,
                  components: dict[str, _Component],
                  node_by_ref: dict[str, str],
+                 node_sheet_by_ref: Mapping[str, str | None],
                  sheet_names: dict[str, str],
                  existing: NetTrace | None = None,
                  existing_names: Iterable[str] = (),
@@ -321,7 +405,15 @@ def capture_unit(adapter, unit: CopperUnit, *,
     one stays on literal nets. `node_by_ref` maps a component to the tree node
     it belongs to (its Cluster tag), which names the record and labels the
     report; a component outside it makes the unit FOREIGN and it is never
-    passed in here (the classification is the caller's)."""
+    passed in here (the classification is the caller's).
+
+    `node_sheet_by_ref` maps EVERY component of the area to the sheet of the
+    tree node it belongs to — `None` for a node that carries no sheet. It is
+    REQUIRED and deliberately has no default: a NEW record's anchor_sheet IS
+    that node's sheet (Э3 of plan_2026_09_15_internode_copper_sheets_and_nets),
+    so a caller that cannot name the node must say so and get a skip, rather
+    than silently anchoring the record on the component's leaf segment — which
+    is exactly the defect this argument removes."""
     net = unit.net_name
     if net is None:
         return None, _(
@@ -333,14 +425,22 @@ def capture_unit(adapter, unit: CopperUnit, *,
     named = existing is None or bool(existing.name)
 
     if existing is None:
-        context = _anchor_context(adapter, unit, components)
+        context, reason = _anchor_context(adapter, unit, components,
+                                          node_sheet_by_ref)
         if context is None:
-            if not allow_legacy:
-                return None, None
+            if reason == "no_role":
+                if not allow_legacy:
+                    return None, None
+                return None, _(
+                    "skipped a piece of copper between pads {pads}: the pad {pad} "
+                    "has no Role field on the board, so the record could not be "
+                    "anchored").format(
+                        pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
+                        pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}")
             return None, _(
-                "skipped a piece of copper between pads {pads}: the pad {pad} "
-                "has no Role field on the board, so the record could not be "
-                "anchored").format(
+                "skipped a piece of copper between pads {pads}: the anchor pad "
+                "{pad} belongs to no node of this tree, so the record has no "
+                "anchor sheet to narrow its role").format(
                     pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
                     pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}")
         role, sheet, cluster, pad, point, rotation = context
@@ -376,12 +476,18 @@ def capture_unit(adapter, unit: CopperUnit, *,
 def capture_units(adapter, units: Iterable[CopperUnit], *,
                   area_footprints: Iterable[Any],
                   node_by_ref: dict[str, str],
+                  node_sheet_by_ref: Mapping[str, str | None],
                   sheet_names: dict[str, str] | None = None,
                   existing_names: Iterable[str] = (),
                   ) -> tuple[list[CapturedTrace], list[str]]:
     """Capture a batch of ALREADY-CLASSIFIED inter-node units as NEW records —
     the dialog's half of capture_unit (a tree being built has nothing to match
-    against yet). Returns (captures, warnings)."""
+    against yet). Returns (captures, warnings).
+
+    `node_sheet_by_ref` is the dialog's knowledge of which sheet each component's
+    TREE NODE lives on (its cluster's sheet — gui/dock_hub.py builds it from the
+    dialog's own ReReadCluster records) and is REQUIRED for the same reason as
+    in capture_unit: it is the anchor_sheet a NEW record gets."""
     _sn = dict(sheet_names or {})
     components = _area_components(adapter, area_footprints, _sn)
     names = list(existing_names)
@@ -390,6 +496,7 @@ def capture_units(adapter, units: Iterable[CopperUnit], *,
     for unit in units:
         record, warning = capture_unit(adapter, unit, components=components,
                                        node_by_ref=node_by_ref,
+                                       node_sheet_by_ref=node_sheet_by_ref,
                                        sheet_names=_sn,
                                        existing_names=names)
         if warning:
@@ -422,6 +529,12 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     (the domain Zone is a name-only stub with no bulk read, so today nobody
     can): a non-zero count is reported as "zones are not read", because their
     absence from the capture must not look like lost copper (design §14).
+
+    The plan also carries what was NOT taken (Э4 of
+    plan_2026_09_15_internode_copper_sheets_and_nets): the discarded units by
+    verdict, and — when not one area component matched a node of this tree — the
+    tree's own node keys, so the report can say what its nodes wait for instead
+    of printing an empty result.
     """
     _sn = dict(sheet_names or {})
     plan = RereadPlan()
@@ -432,15 +545,34 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
 
     node_keys = _tree_node_keys(tree, cfg)
     components = _area_components(adapter, area_footprints, _sn)
+    # Э1: a component belongs to a node when ANY segment of its sheet path names
+    # that node's sheet (the SAME seam the role resolver uses — sheet_in_path),
+    # so a tree's anchor and its copper can no longer disagree. The node's OWN
+    # sheet — never the component's leaf — is what a NEW record stores as its
+    # anchor_sheet (Э3), so the anchor narrows the role to THIS instance.
     node_by_ref: dict[str, str] = {}
+    anchor_sheet_by_ref: dict[str, str | None] = {}
     for comp in components.values():
-        if comp.cluster is None:
+        match, conflicts = _match_node(comp, node_keys)
+        if conflicts:
+            plan.warnings.append(_(
+                "component {ref!r} (Cluster {cluster!r}, sheet path {path}) "
+                "matches {count} nodes of tree {tree!r} at once: {nodes} — the "
+                "component is left out of the tree, it is never guessed").format(
+                    ref=comp.ref, cluster=comp.cluster,
+                    path="/".join(comp.path) or "-", count=len(conflicts),
+                    tree=tree.name, nodes=", ".join(conflicts)))
             continue
-        label = node_keys.get((comp.cluster, comp.sheet))
-        if label is None:
-            label = node_keys.get((comp.cluster, None))
-        if label is not None:
-            node_by_ref[comp.ref] = label
+        if match is None:
+            if comp.cluster is not None:
+                plan.unmatched_components += 1
+            continue
+        label, sheet = match
+        node_by_ref[comp.ref] = label
+        anchor_sheet_by_ref[comp.ref] = sheet
+        plan.matched_components += 1
+    plan.node_keys = [_node_key_label(label, sheet)
+                      for (_cluster, sheet), label in node_keys.items()]
 
     identities = tree_net_trace_identities(tree)
     tree_records = [nt for nt in cfg.net_traces
@@ -472,7 +604,12 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     existing_names = [net_trace_effective_name(nt) for nt in cfg.net_traces]
 
     for unit in units:
-        if classify_unit(unit, node_by_ref) is not CopperVerdict.INTERNODE:
+        verdict = classify_unit(unit, node_by_ref)
+        if verdict is not CopperVerdict.INTERNODE:
+            # Э4: the copper the classification did NOT take is COUNTED, not
+            # silently dropped — the report names it by verdict (the live
+            # complaint was an empty report while 766 units existed).
+            plan.discarded[verdict.value] = plan.discarded.get(verdict.value, 0) + 1
             continue
         signature = frozenset(_pad_label(p, components) for p in unit.pads)
         old = by_signature.pop(signature, None)
@@ -483,6 +620,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         # re-read and the "Extract tree" dialog must produce the SAME copper.
         record, warning = capture_unit(
             adapter, unit, components=components, node_by_ref=node_by_ref,
+            node_sheet_by_ref=anchor_sheet_by_ref,
             sheet_names=_sn, existing=old, existing_names=existing_names)
         if warning:
             plan.warnings.append(warning)
@@ -529,7 +667,14 @@ def apply_reread_plan(cfg: Config, plan: RereadPlan) -> Config:
 def reread_report_lines(tree_name: str, plan: RereadPlan) -> list[str]:
     """The re-read report as LOG LINES (design §6 — a list, never a dialog).
     Full names, never abbreviated: they are how a bridge is found in the tree
-    and in the flat list."""
+    and in the flat list.
+
+    The found/updated/unchanged/not-found lines are the historical ones, byte
+    for byte (logs and tests read them as substrings). Everything Э4 of
+    plan_2026_09_15_internode_copper_sheets_and_nets adds — the discarded
+    counters and the "no component matched any node" line — is appended AFTER
+    them: silence about thrown-away copper was the second half of the live
+    complaint, so the report now ends by saying what it did not take and why."""
     lines = [_("Tree {name!r}: inter-node copper re-read.").format(name=tree_name)]
     if plan.added:
         lines.append(_("  added:      {names}").format(
@@ -546,6 +691,18 @@ def reread_report_lines(tree_name: str, plan: RereadPlan) -> list[str]:
             "  not found:  {name} — the copper is no longer on the board, the "
             "record is kept").format(name=ident))
     lines.append(_("  unchanged:  {count}").format(count=len(plan.unchanged)))
+    if plan.discarded:
+        counts = ", ".join(
+            "{verdict} {count}".format(verdict=verdict.value,
+                                       count=plan.discarded[verdict.value])
+            for verdict in _DISCARD_ORDER if plan.discarded.get(verdict.value))
+        lines.append(_("  not taken:  {counts} — copper the classification left "
+                       "alone").format(counts=counts))
+    if plan.unmatched_components and not plan.matched_components:
+        lines.append(_(
+            "  no component of the area matched any node of tree {tree!r} by "
+            "(Cluster, sheet) — the tree's nodes expect: {keys}").format(
+                tree=tree_name, keys=", ".join(plan.node_keys) or "-"))
     for warning in plan.warnings:
         lines.append("  " + warning)
     return lines

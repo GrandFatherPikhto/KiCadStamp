@@ -41,7 +41,7 @@ from ...config import ClonePlacement
 from ...utils.units import MM
 from ...cluster_matching import cluster_prefix_match
 from ...constants import CLUSTER_FIELD_NAME
-from ...sheet_names import resolve_sheet_path_names
+from ...sheet_names import resolve_sheet_path_names, sheet_in_path
 from ...i18n import _
 
 logger = logging.getLogger(__name__)
@@ -56,9 +56,13 @@ def _fp_on_sheet(fp, anchor_sheet: str, sheet_names: dict[str, str]) -> bool:
     (0 conflicts, 0 unresolved UUIDs on mishin‑coil). Works for ANY component —
     unlike the previous approach via local net names, does not require fp to have
     a local net at all.
+
+    The "one of the segments" test itself lives in
+    sheet_names.sheet_in_path — ONE rule, shared with the inter-node copper
+    capture's node matching (internode_capture), so an anchor and its copper can
+    never again disagree about which sheet a component is on.
     """
-    names = resolve_sheet_path_names(fp, sheet_names)
-    return anchor_sheet in names
+    return sheet_in_path(resolve_sheet_path_names(fp, sheet_names), anchor_sheet)
 
 
 def narrow_candidates_by_sheet(candidates, sheet: str | None,

@@ -6,7 +6,16 @@ Pure planning against a mock adapter: unit identity by pad SET, added/updated/
 unchanged/missing bookkeeping, the legacy (no signature) fallback by net, the
 (role, pad) representation of what is written, and the guarantee that nothing
 is ever removed.
+
+The last section is the nested-sheet work of
+plan_2026_09_15_internode_copper_sheets_and_nets (С1-С3, С8-С12): three
+channels carrying the SAME Cluster and Role tags (one reused hierarchical sheet
+per channel), the DAC/OpAmp components one level deeper than the PIF
+capacitors. A component is matched by ANY segment of its sheet path (Э1), a NEW
+record stores its TREE NODE's sheet (Э3), and the report names what the
+classification did not take (Э4).
 """
+import dataclasses
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -19,6 +28,7 @@ from kicadstamp.internode_capture import (
     reread_report_lines,
     tree_net_trace_identities,
 )
+from kicadstamp.placement.services.clone_role_resolver import resolve_footprint_by_role
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 from gui.docks.reead import ReReadCluster
@@ -355,9 +365,13 @@ def test_created_and_reread_copper_are_identical():
     rows = detect_inter_cluster_nets(items + fps, clusters, adapter=board)
     assert len(rows) == 1
 
+    # node_sheet_by_ref is the dialog's own knowledge of its clusters' sheets
+    # (Э3): these clusters carry none, and the tree's nodes carry none either —
+    # the two must agree, which is the whole point of this test.
     captures, warnings = capture_units(
         board, [rows[0].unit], area_footprints=fps,
-        node_by_ref={"R1": "A", "R2": "B"}, existing_names=[])
+        node_by_ref={"R1": "A", "R2": "B"},
+        node_sheet_by_ref={"R1": None, "R2": None}, existing_names=[])
     assert warnings == [] and len(captures) == 1
     created = captures[0]
 
@@ -380,3 +394,362 @@ def test_zones_are_reported_as_not_read():
     assert any("zones are not read" in w for w in plan.warnings)
     assert any("zones are not read" in line
                for line in reread_report_lines("t", plan))
+
+
+# ── nested sheets: the live shape (Э1/Э3/Э4 of
+# plan_2026_09_15_internode_copper_sheets_and_nets) ───────────────────────
+#
+# Three channels, the SAME Cluster and Role tags in every one of them (the
+# schematic reuses one hierarchical sheet per channel), and the DAC/OpAmp
+# components one level DEEPER than the PIF capacitors:
+#
+#   C134   C_OUT_BYPASS  PIF_DVDD   ['Channel_0']
+#   IC2    AD_DAC        DAC_BUF    ['Channel_0', 'DAC']
+#   R43    AD_OUT        DAC_OUT    ['Channel_0', 'DAC']
+#   C155 / IC3 / R44     same tags  ['Channel_1' ...]
+#   C176 / IC4 / R45     same tags  ['Channel_2' ...]
+#
+# The tree's nodes carry the CHANNEL sheet (Channel_0) — that is the value
+# Entity.sheet holds, and the value a NEW record must store as its anchor_sheet
+# (Э3): the leaf 'DAC' exists in all three channels and narrows nothing.
+
+_X_STEP_MM = 100.0
+
+
+def _sheet_map(channels=3) -> dict[str, str]:
+    """{uuid: name} for the fixture. Every channel has its own 'Channel_N' with
+    a 'DAC' and an 'OpAmp' sub-sheet inside it — the uuids are per-channel, the
+    NAMES repeat, exactly like the live project."""
+    names: dict[str, str] = {}
+    for ch in range(channels):
+        names[f"ch{ch}"] = f"Channel_{ch}"
+        names[f"dac{ch}"] = "DAC"
+        names[f"opamp{ch}"] = "OpAmp"
+    return names
+
+
+def _nested_fp(ref, role, cluster, x_mm, y_mm, channel=0, sub=None):
+    """A footprint on 'Channel_N', or one level deeper on a sub-sheet of it. The
+    LAST uuid of sheet_path_uuids is the component's own — exactly the one
+    resolve_sheet_path_names cuts off."""
+    fp = _fp(ref, role=role, cluster=cluster, x_mm=x_mm, y_mm=y_mm)
+    uuids = [f"ch{channel}"]
+    if sub:
+        uuids.append(f"{sub}{channel}")
+    uuids.append(f"own-{ref}")
+    fp.sheet_path_uuids = tuple(uuids)
+    return fp
+
+
+def _nested_board():
+    """(board, footprints) for the three channels: the capacitor at x+10, the
+    DAC at x+20 (its pads at y=10 and y=20) and R43 at x+30, y=20."""
+    fps: list = []
+    pads: dict = {}
+    for ch in range(3):
+        x = _X_STEP_MM * ch
+        cap = _nested_fp(f"C{134 + ch * 21}", "C_OUT_BYPASS", "PIF_DVDD",
+                         x + 10, 10, ch)
+        dac = _nested_fp(f"IC{2 + ch}", "AD_DAC", "DAC_BUF", x + 20, 10, ch,
+                         sub="dac")
+        out = _nested_fp(f"R{43 + ch}", "AD_OUT", "DAC_OUT", x + 20, 20, ch,
+                         sub="dac")
+        fps += [cap, dac, out]
+        pads[cap.ref] = [_pad("1", "+3V3_DVDD", x + 10, 10)]
+        pads[dac.ref] = [_pad("3", "+3V3_DVDD", x + 20, 10),
+                         _pad("1", "OA_OUT", x + 20, 20)]
+        pads[out.ref] = [_pad("1", "OA_OUT", x + 30, 20)]
+    return _Board(fps, pads), fps
+
+
+def _bridge_pif_to_dac(ch):
+    """The channel's +3V3_DVDD bridge: the PIF capacitor on 'Channel_N' to the
+    NESTED DAC pad."""
+    x = _X_STEP_MM * ch
+    return _track(x + 10, 10, x + 20, 10, "+3V3_DVDD")
+
+
+def _bridge_dac_to_out(ch):
+    """The channel's OA_OUT bridge between TWO nested components (both on
+    ['Channel_N', 'DAC'])."""
+    x = _X_STEP_MM * ch
+    return _track(x + 20, 20, x + 30, 20, "OA_OUT")
+
+
+def _channel_entities(channels=(0,)):
+    """One Entity per node: the tree node's sheet is the CHANNEL, not the
+    nested sub-sheet the component itself lives on."""
+    out = []
+    for ch in channels:
+        for cluster in ("PIF_DVDD", "DAC_BUF", "DAC_OUT"):
+            out.append(Entity(name=f"{cluster.lower()}_{ch}", cell="c",
+                              cluster=cluster, sheet=f"Channel_{ch}"))
+    return out
+
+
+def _tree_of(entities, net_trace_refs=()):
+    nodes = [TreeNode(ref=e.name, kind="placement", xy=(0.0, 0.0), polar=None,
+                      rotation=0.0, name=None, group=None, children=[])
+             for e in entities]
+    nodes += [TreeNode(ref=r, kind="net_trace", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[])
+              for r in net_trace_refs]
+    return Tree(name="ch0_dac_buf", anchor=TreeAnchor(is_origin=True), nodes=nodes)
+
+
+def _nested_cfg(entities=(), net_traces=()) -> Config:
+    return Config(entities=list(entities), net_traces=list(net_traces))
+
+
+def test_c1_a_nested_component_matches_the_node_of_any_path_segment():
+    """С1 — a component on ['Channel_0', 'DAC'] belongs to the node whose sheet
+    is 'Channel_0': the sheet is one of the SEGMENTS of its path, not only its
+    leaf. With the leaf rule this bridge is found by NOBODY (every unit is
+    FOREIGN) and the re-read reports an empty result — the live complaint."""
+    board, fps = _nested_board()
+    entities = _channel_entities((0,))
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+                                 area_items=[_bridge_pif_to_dac(0)],
+                                 area_footprints=fps, sheet_names=_sheet_map())
+    assert [c.identity for c in plan.added] == ["3v3_dvdd__dac_buf__pif_dvdd"]
+    record = plan.added[0].record
+    assert record.pads == ["AD_DAC.3", "C_OUT_BYPASS.1"]
+    assert record.anchor_role == "C_OUT_BYPASS" and record.anchor_pad == "1"
+    assert record.anchor_cluster == "PIF_DVDD"
+    assert record.anchor_sheet == "Channel_0"
+    # only channel 0's three components match these nodes; 1 and 2 are FOREIGN
+    assert plan.matched_components == 3 and plan.unmatched_components == 6
+    text = "\n".join(reread_report_lines("ch0_dac_buf", plan))
+    assert "not taken:" not in text
+    assert "no component of the area matched any node" not in text
+
+
+def test_c2_the_same_cluster_on_another_channel_is_not_this_node():
+    """С2 — 'Channel_1' has the SAME Cluster tag, so matching by Cluster alone
+    would swallow its copper. It must stay foreign: the node says Channel_0."""
+    board, fps = _nested_board()
+    entities = _channel_entities((0,))
+    plan = plan_internode_reread(
+        board, _nested_cfg(entities), _tree_of(entities),
+        area_items=[_bridge_pif_to_dac(0), _bridge_pif_to_dac(1)],
+        area_footprints=fps, sheet_names=_sheet_map())
+    assert [c.identity for c in plan.added] == ["3v3_dvdd__dac_buf__pif_dvdd"]
+    assert plan.discarded.get("foreign") == 1
+    captured = {pad for c in plan.added for pad in c.record.pads}
+    assert "C_OUT_BYPASS.1" in captured and "AD_DAC.3" in captured
+
+
+def test_c3_two_nodes_of_one_cluster_matching_one_component_are_reported_not_chosen():
+    """С3 — two nodes of ONE Cluster on 'Channel_0' and 'DAC': a component on
+    ['Channel_0', 'DAC'] matches BOTH. The design's rule is not to guess: the
+    component is left unmatched and the report names it and both nodes."""
+    board, fps = _nested_board()
+    entities = [Entity(name="dac_buf_ch0", cell="c", cluster="DAC_BUF",
+                       sheet="Channel_0"),
+                Entity(name="dac_buf_far", cell="c", cluster="DAC_BUF",
+                       sheet="DAC")]
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+                                 area_items=[_bridge_dac_to_out(0)],
+                                 area_footprints=fps, sheet_names=_sheet_map())
+    assert plan.added == []
+    assert any("IC2" in w for w in plan.warnings)
+    text = "\n".join(reread_report_lines("ch0_dac_buf", plan))
+    assert "IC2" in text
+    assert "DAC_BUF/Channel_0" in text and "DAC_BUF/DAC" in text
+
+
+def test_a_sheet_key_outranks_the_sheet_less_key():
+    """Э1 priority — a node WITH a sheet beats a sheet-less node of the same
+    Cluster: the component names the sheet-specific node, so its record anchors
+    on 'Channel_0' rather than on nothing."""
+    board, fps = _nested_board()
+    entities = [Entity(name="dac_buf_ch0", cell="c", cluster="DAC_BUF",
+                       sheet="Channel_0"),
+                Entity(name="dac_out_ch0", cell="c", cluster="DAC_OUT",
+                       sheet="Channel_0"),
+                Entity(name="dac_buf_nosheet", cell="c", cluster="DAC_BUF",
+                       sheet=None)]
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+                                 area_items=[_bridge_dac_to_out(0)],
+                                 area_footprints=fps, sheet_names=_sheet_map())
+    assert len(plan.added) == 1
+    assert plan.added[0].record.anchor_sheet == "Channel_0"
+
+
+def test_c8_a_new_record_stores_the_node_sheet_and_its_anchor_narrows_to_one():
+    """С8 — the record stores the TREE NODE's sheet ('Channel_0'), and the
+    resolver's own sheet -> cluster cascade then narrows the anchor role to
+    exactly the channel-0 component. The leaf ('DAC') exists in all three
+    channels: it would leave three candidates and apply would refuse the record."""
+    board, fps = _nested_board()
+    entities = [e for e in _channel_entities((0,))
+                if e.cluster in ("DAC_BUF", "DAC_OUT")]
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+                                 area_items=[_bridge_dac_to_out(0)],
+                                 area_footprints=fps, sheet_names=_sheet_map())
+    assert len(plan.added) == 1
+    record = plan.added[0].record
+    assert record.anchor_role == "AD_DAC" and record.anchor_pad == "1"
+    assert record.anchor_cluster == "DAC_BUF"
+    assert record.anchor_sheet == "Channel_0"       # NOT the leaf 'DAC'
+    fp = resolve_footprint_by_role(board, record.anchor_role, record.anchor_sheet,
+                                   record.anchor_cluster, _sheet_map(),
+                                   label="test")
+    assert fp.ref == "IC2"
+
+
+def test_c9_the_dialog_path_stores_the_cluster_sheet_too():
+    """С9 — the Extract dialog's own capture path (detect_inter_cluster_nets +
+    capture_units) stores the same anchor_sheet: its clusters are keyed by the
+    channel sheet, and that is what it hands to capture_units."""
+    board, fps = _nested_board()
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["IC2"]),
+                ReReadCluster(cluster="DAC_OUT", sheet="Channel_0",
+                              entity_name=None, cell="dac_out",
+                              profile_key=None, refs=["R43"])]
+    rows = detect_inter_cluster_nets([_bridge_dac_to_out(0)] + fps, clusters,
+                                     adapter=board)
+    assert len(rows) == 1
+    captures, warnings = capture_units(
+        board, [rows[0].unit], area_footprints=fps,
+        node_by_ref={"IC2": "DAC_BUF", "R43": "DAC_OUT"},
+        node_sheet_by_ref={"IC2": "Channel_0", "R43": "Channel_0"},
+        sheet_names=_sheet_map(), existing_names=[])
+    assert warnings == [] and len(captures) == 1
+    assert captures[0].record.anchor_role == "AD_DAC"
+    assert captures[0].record.anchor_sheet == "Channel_0"   # NOT the leaf 'DAC'
+
+
+def test_an_anchor_whose_node_is_unknown_is_skipped_with_a_warning():
+    """Э3 — a caller that cannot name the anchor's node gets a SKIP, never a
+    silent record anchored on a sheet that does not narrow."""
+    board, fps = _nested_board()
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["IC2"]),
+                ReReadCluster(cluster="DAC_OUT", sheet="Channel_0",
+                              entity_name=None, cell="dac_out",
+                              profile_key=None, refs=["R43"])]
+    rows = detect_inter_cluster_nets([_bridge_dac_to_out(0)] + fps, clusters,
+                                     adapter=board)
+    captures, warnings = capture_units(
+        board, [rows[0].unit], area_footprints=fps,
+        node_by_ref={"IC2": "DAC_BUF", "R43": "DAC_OUT"},
+        node_sheet_by_ref={"R43": "Channel_0"},      # the anchor pad's node missing
+        sheet_names=_sheet_map(), existing_names=[])
+    assert captures == []
+    assert any("belongs to no node" in w for w in warnings)
+
+
+def test_c10_an_existing_record_keeps_its_own_anchor_sheet():
+    """С10 — Э3 is about NEW records only: every branch that matched an existing
+    record (unchanged and updated) keeps the identity it was stored with,
+    anchor_sheet included. Here the stored sheet differs from the node's sheet
+    AND still resolves, because the anchor role exists once on the board."""
+    board, fps = _unique_role_board()
+    entities = [Entity(name="dac_buf_ch0", cell="c", cluster="DAC_BUF",
+                       sheet="Channel_0"),
+                Entity(name="oa_ch0", cell="c", cluster="OA", sheet="Channel_0")]
+    unit = _track(120.0, 20.0, 120.0, 30.0, "OA_OUT")       # U7.4 -> U8.1
+    fresh = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+                                  area_items=[unit], area_footprints=fps,
+                                  sheet_names=_sheet_map())
+    assert len(fresh.added) == 1
+    created = fresh.added[0].record
+    assert created.anchor_role == "OA" and created.anchor_pad == "4"
+    assert created.anchor_sheet == "Channel_0"          # a NEW record: node sheet
+
+    stored = dataclasses.replace(created, name="kept__oa", anchor_sheet="OpAmp")
+    cfg = _nested_cfg(entities, [stored])
+    tree = _tree_of(entities, net_trace_refs=("kept__oa",))
+
+    # unchanged: the stored geometry already matches the board
+    same = plan_internode_reread(board, cfg, tree, area_items=[unit],
+                                 area_footprints=fps, sheet_names=_sheet_map())
+    assert same.unchanged == ["kept__oa"]
+    assert apply_reread_plan(cfg, same).net_traces[0].anchor_sheet == "OpAmp"
+
+    # updated: the geometry moved — the refreshed record keeps the identity
+    moved = dataclasses.replace(
+        stored, tracks=[dataclasses.replace(stored.tracks[0], end_along_mm=99.0)])
+    plan = plan_internode_reread(board, _nested_cfg(entities, [moved]), tree,
+                                 area_items=[unit], area_footprints=fps,
+                                 sheet_names=_sheet_map())
+    assert len(plan.updated) == 1
+    refreshed, _counts = plan.updated[0]
+    assert refreshed.record.anchor_sheet == "OpAmp"     # its own, not 'Channel_0'
+    assert refreshed.record.anchor_role == "OA" and refreshed.record.name == "kept__oa"
+
+
+def _unique_role_board():
+    """U7 (nested on 'Channel_0'/'OpAmp', Role OA — ONCE on the board, so it
+    resolves with or without a sheet) and U8 (nested on 'Channel_0'/'DAC', Role
+    AD_DAC). U7 sorts FIRST among the bridge's pads, so it IS the unit's anchor:
+    a stored record anchored on U7 keeps its own sheet 'OpAmp' — a sheet that
+    differs from its node's 'Channel_0' and still resolves live, which is what
+    makes "an existing record keeps its anchor_sheet" testable (С10)."""
+    u7 = _nested_fp("U7", "OA", "OA", 120.0, 10.0, 0, sub="opamp")
+    u8 = _nested_fp("U8", "AD_DAC", "DAC_BUF", 120.0, 30.0, 0, sub="dac")
+    pads = {"U7": [_pad("4", "OA_OUT", 120.0, 20.0)],
+            "U8": [_pad("1", "OA_OUT", 120.0, 30.0)]}
+    return _Board([u7, u8], pads), [u7, u8]
+
+
+def test_c11_the_report_names_what_was_discarded_and_when_nothing_matched():
+    """С11 — the report's new lines: the discarded counters (only non-zero ones),
+    and — when NOT ONE component of the area matched a node — the line that
+    names the tree and what its nodes wait for. Both must be absent when they
+    have nothing to say (see С1)."""
+    board, fps = _nested_board()
+    entities = _channel_entities((0,))
+    plan = plan_internode_reread(
+        board, _nested_cfg(entities), _tree_of(entities),
+        area_items=[_bridge_pif_to_dac(0), _bridge_pif_to_dac(1)],
+        area_footprints=fps, sheet_names=_sheet_map())
+    text = "\n".join(reread_report_lines("ch0_dac_buf", plan))
+    assert "not taken:" in text and "foreign 1" in text
+    assert "no component of the area matched any node" not in text
+
+    far = [Entity(name="dac_buf_far", cell="c", cluster="DAC_BUF",
+                  sheet="Sheet_9")]
+    plan2 = plan_internode_reread(board, _nested_cfg(far), _tree_of(far),
+                                  area_items=[_bridge_pif_to_dac(0)],
+                                  area_footprints=fps, sheet_names=_sheet_map())
+    assert plan2.matched_components == 0 and plan2.unmatched_components == 9
+    text2 = "\n".join(reread_report_lines("ch0_dac_buf", plan2))
+    assert "no component of the area matched any node of tree 'ch0_dac_buf'" in text2
+    assert "DAC_BUF/Sheet_9" in text2
+    assert "not taken:" in text2 and "foreign 1" in text2
+
+
+def test_c12_created_and_reread_copper_are_identical_on_nested_sheets():
+    """С12 — the "one mechanism" contract (Э5 of the core plan) on the nested
+    shape: the copper the dialog CREATES and the copper a RE-READ finds must be
+    the same record, or a re-read would rewrite what the dialog just wrote."""
+    board, fps = _nested_board()
+    entities = [e for e in _channel_entities((0,))
+                if e.cluster in ("DAC_BUF", "DAC_OUT")]
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["IC2"]),
+                ReReadCluster(cluster="DAC_OUT", sheet="Channel_0",
+                              entity_name=None, cell="dac_out",
+                              profile_key=None, refs=["R43"])]
+    rows = detect_inter_cluster_nets([_bridge_dac_to_out(0)] + fps, clusters,
+                                     adapter=board)
+    captures, _warnings = capture_units(
+        board, [rows[0].unit], area_footprints=fps,
+        node_by_ref={"IC2": "DAC_BUF", "R43": "DAC_OUT"},
+        node_sheet_by_ref={"IC2": "Channel_0", "R43": "Channel_0"},
+        sheet_names=_sheet_map(), existing_names=[])
+    created = captures[0]
+
+    plan = plan_internode_reread(
+        board, _nested_cfg(entities, [created.record]),
+        _tree_of(entities, net_trace_refs=(created.identity,)),
+        area_items=[_bridge_dac_to_out(0)], area_footprints=fps,
+        sheet_names=_sheet_map())
+    assert plan.added == [] and plan.updated == [] and plan.missing == []
+    assert plan.unchanged == [created.identity]
