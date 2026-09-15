@@ -24,9 +24,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from kipy.board_types import BoardLayer as KipyBoardLayer, FootprintInstance, Net as KipyNet, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, Zone as KipyZone
+from kipy.board_types import BoardLayer as KipyBoardLayer, FootprintInstance, Net as KipyNet, Pad as KipyPad, PadStackShape as KipyPadStackShape, Track as KipyTrack, Via as KipyVia, Zone as KipyZone
 from kipy.geometry import Vector2 as KipyVector2
 
+from ..constants import (
+    PAD_SHAPE_CHAMFERED,
+    PAD_SHAPE_CIRCLE,
+    PAD_SHAPE_CUSTOM,
+    PAD_SHAPE_OVAL,
+    PAD_SHAPE_RECT,
+    PAD_SHAPE_ROUNDRECT,
+    PAD_SHAPE_TRAPEZOID,
+    PAD_SHAPE_UNKNOWN,
+)
 from ..utils.units import MM
 from .geometry import BoardLayer, Vector2
 
@@ -43,6 +53,7 @@ __all__ = [
     "layer_to_kipy",
     "net_from_kipy",
     "pad_from_kipy",
+    "pad_shape_from_kipy",
     "track_from_kipy",
     "unwrap",
     "via_from_kipy",
@@ -114,7 +125,19 @@ class Pad:
 
     ``size`` is the copper-layer size in board units (nm) — the
     ``padstack.copper_layers[0].size`` value thermal-grid keepout needs;
-    ``angle_rad`` is the padstack rotation in radians.
+    ``angle_rad`` is the padstack rotation in radians, ABSOLUTE (measured
+    15.09.2026: a footprint at 90° reports padstack angles of 180° — the
+    footprint's own rotation is already included).
+
+    ``shape``/``offset``/``trapezoid_delta`` complete the same copper layer, so
+    the pad's own copper area can be derived with NO further board access
+    (geometry/pad_area.py): KiCad's bounding box for a pad of a footprint
+    rotated by an angle that is not a multiple of 90° comes back shifted
+    (measured 15.09.2026, plan_2026_09_15_pad_geometry_thermal_vias → Д1), so it
+    cannot be used as "where the copper is". All three default to None, which
+    reads as "a plain rectangle with no offset" — a test double that predates
+    these fields (tests/test_via_planner.py sets only
+    number/position/size/angle_rad) keeps working with no edits.
     """
 
     number: Any  # kipy reports str/int/float depending on the pad — kept as-is
@@ -122,6 +145,11 @@ class Pad:
     position: Vector2
     size: Vector2 | None = None
     angle_rad: float = 0.0
+    # One of constants.PAD_SHAPE_*; None = not reported by the source (treated
+    # as a plain rectangle by geometry/pad_area.py).
+    shape: str | None = None
+    offset: Vector2 | None = None            # nm, in the PAD's own axes; None = (0, 0)
+    trapezoid_delta: Vector2 | None = None   # nm, trapezoid only
     _kipy: Any = field(default=None, repr=False, compare=False)
 
 
@@ -246,14 +274,60 @@ def footprint_from_kipy(fp: FootprintInstance) -> Footprint:
     )
 
 
+# kipy's PadStackShape -> the domain vocabulary (constants.PAD_SHAPE_*), covering
+# the whole enum. Anything unmapped (a future PSS_* member, a sentinel) becomes
+# PAD_SHAPE_UNKNOWN, which has no area of its own: the caller then falls back to
+# KiCad's bounding box and warns where that box may be shifted
+# (geometry/pad_area.warn_bbox_fallback).
+_KIPY_PAD_SHAPE_TO_DOMAIN = {
+    KipyPadStackShape.PSS_RECTANGLE: PAD_SHAPE_RECT,
+    KipyPadStackShape.PSS_ROUNDRECT: PAD_SHAPE_ROUNDRECT,
+    KipyPadStackShape.PSS_CHAMFEREDRECT: PAD_SHAPE_CHAMFERED,
+    KipyPadStackShape.PSS_OVAL: PAD_SHAPE_OVAL,
+    KipyPadStackShape.PSS_CIRCLE: PAD_SHAPE_CIRCLE,
+    KipyPadStackShape.PSS_TRAPEZOID: PAD_SHAPE_TRAPEZOID,
+    KipyPadStackShape.PSS_CUSTOM: PAD_SHAPE_CUSTOM,
+    KipyPadStackShape.PSS_UNKNOWN: PAD_SHAPE_UNKNOWN,
+}
+
+
+def pad_shape_from_kipy(shape: Any) -> str:
+    """Map a kipy PadStackShape onto constants.PAD_SHAPE_*.
+
+    Total by design: this runs on the read path of every pad of every footprint,
+    so an unrecognised value must degrade to PAD_SHAPE_UNKNOWN (fallback
+    geometry), never raise.
+    """
+    try:
+        return _KIPY_PAD_SHAPE_TO_DOMAIN[shape]
+    except (KeyError, TypeError):
+        return PAD_SHAPE_UNKNOWN
+
+
 def pad_from_kipy(pad: KipyPad) -> Pad:
     padstack = getattr(pad, "padstack", None)
     size = None
+    shape = None
+    offset = None
+    trapezoid_delta = None
     angle_rad = 0.0
     if padstack is not None:
         copper = getattr(padstack, "copper_layers", None)
         if copper:
-            size = _point_from_kipy(copper[0].size)
+            layer = copper[0]
+            size = _point_from_kipy(layer.size)
+            # A layer that does not report its shape at all (a hand-made test
+            # double) keeps `None` = "plain rectangle"; a layer that reports an
+            # unmapped shape gets PAD_SHAPE_UNKNOWN = "no area of its own".
+            raw_shape = getattr(layer, "shape", None)
+            if raw_shape is not None:
+                shape = pad_shape_from_kipy(raw_shape)
+            raw_offset = getattr(layer, "offset", None)
+            if raw_offset is not None:
+                offset = _point_from_kipy(raw_offset)
+            raw_delta = getattr(layer, "trapezoid_delta", None)
+            if raw_delta is not None:
+                trapezoid_delta = _point_from_kipy(raw_delta)
         angle = getattr(padstack, "angle", None)
         if angle is not None:
             angle_rad = angle.to_radians()
@@ -263,6 +337,9 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
         position=_point_from_kipy(pad.position),
         size=size,
         angle_rad=angle_rad,
+        shape=shape,
+        offset=offset,
+        trapezoid_delta=trapezoid_delta,
         _kipy=pad,
     )
 

@@ -16052,3 +16052,8 @@ msgstr "Плата занята — используется ранее проч
 #: gui/docks/scheme_list.py
 msgid "another operation is using the board"
 msgstr "плата занята — её использует другая операция"
+
+#: kicadstamp/geometry/pad_area.py
+#, python-brace-format
+msgid "Pad {ref}.{pad}: no own pad area (shape {shape}) — falling back to KiCad's bounding box, which may be shifted at this pad angle ({angle:.2f}°)"
+msgstr "Пад {ref}.{pad}: своей области пада нет (форма {shape}) — берётся габарит KiCad, который под этим углом пада ({angle:.2f}°) может быть сдвинут"

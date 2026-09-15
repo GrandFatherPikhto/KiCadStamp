@@ -17387,3 +17387,8 @@ msgstr ""
 #: gui/docks/scheme_list.py
 msgid "another operation is using the board"
 msgstr ""
+
+#: kicadstamp/geometry/pad_area.py
+#, python-brace-format
+msgid "Pad {ref}.{pad}: no own pad area (shape {shape}) — falling back to KiCad's bounding box, which may be shifted at this pad angle ({angle:.2f}°)"
+msgstr ""
