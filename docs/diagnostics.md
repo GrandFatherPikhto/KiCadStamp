@@ -28,6 +28,7 @@ kicadstamp/diagnostics/
 ├── diagnostic_charset.py          # Finds non-ASCII characters (homoglyphs) in Role/Cluster board-wide [LIVE]
 ├── diagnostic_keepout.py          # Keepout and overlap analysis [LIVE]
 ├── get_pad_bbox.py                # Pad bounding box [LIVE]
+├── pad_geometry_probe.py          # KiCad's pad box vs the pad's own area; thermal-via keepout [LIVE]
 ├── get_selected_component.py      # Detailed info on selected components [LIVE]
 ├── get_selection.py               # List of selected objects [LIVE]
 ├── test_create_one_via.py         # Creates a single via [LIVE+WRITE]
@@ -336,6 +337,49 @@ python -m kicadstamp.diagnostics.diagnostic_keepout <config.sexp>
 
 **Dependencies:**
 `kicadstamp.config`, `kicadstamp.kicad.adapter`, `kicadstamp.placement.planner`, `kicadstamp.geometry.keepout`.
+
+---
+
+### `pad_geometry_probe.py`
+
+**Purpose:**
+Shows where KiCad SAYS a pad is versus where its copper actually is, and what that does to one
+`thermal_via_arrays` entry. Two sections plus one result line.
+
+**Usage:**
+```bash
+python -m kicadstamp.diagnostics.pad_geometry_probe profiles/3ch-awg-tia-v103/config.sexp --thermal ad_dac_via_pad
+python -m kicadstamp.diagnostics.pad_geometry_probe profiles/3ch-awg-tia-v103/config.sexp --ref IC2
+```
+
+**Output:**
+- **A** — every pad of the footprint: its number, the padstack shape, the body angle and the pad's OWN
+  angle, the centre of KiCad's bounding box MINUS the centre of the pad's own area (`dx dy |d|` mm) and
+  the size of both. A pad without an area of its own (`custom`/`unknown`, no `size`) is flagged as such,
+  and a WARNING line counts them — those are the pads the fallback cannot cover.
+- **B** (`--thermal` only) — the ideal grid of that entry's pad, point by point: blocked under the OLD
+  rule (KiCad's boxes as axis-aligned `Rect`s, recomputed inside the probe) and under the CURRENT one
+  (`ViaPlanner._build_keepout`, the pads' own areas), and then the real `ViaPlanner.plan_vias` for this
+  ONE entry (planning only) — the distance from the ideal point to the via that was placed for it and
+  whether that via lies on the thermal pad's own area.
+- **Result line** — `old: X of N blocked; new: Y of N blocked; placed off pad: Z`. At 0° the two rules
+  must agree and Z must be 0; under a rotation that is not a multiple of 90° the OLD column is the one
+  that goes wrong.
+
+**Read-only:** no executor, no registry, no write to the board; `plan_vias` is called for its planning
+result only.
+
+**Background:** measured 15.09.2026 — for a footprint rotated to 315° KiCad returned the bounding box of
+EVERY pad of that footprint shifted by the same 1.724 mm, while the pad's position, its copper size and
+its padstack angle stayed correct. An IPC-applied rotation on the Linux test board did NOT reproduce
+that shift (0.000 mm for every pad, before the write, right after it and after a re-read), so the
+per-pad number this probe prints is what tells one stand from another. The box is also an axis-aligned
+AABB around a ROTATED pad, which the same table shows as a size difference: 0.813 × 0.813 mm against
+the pad's own 0.300 × 0.850 mm.
+
+**Dependencies:**
+`kicadstamp.config`, `kicadstamp.kicad.adapter`, `kicadstamp.placement.services.via_planner`,
+`kicadstamp.geometry.pad_area`, `kicadstamp.geometry.keepout`, `kicadstamp.geometry.thermal_grid`.
 
 ---
 

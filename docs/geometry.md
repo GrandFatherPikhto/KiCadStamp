@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The modules in the `geometry/` directory provide low‑level geometric functions and classes used for calculating positions of components, vias, and tracks; building keepout areas; searching for free space; predicting pad positions after movement/rotation; generating thermal via grids; and transforming local template coordinates to global board coordinates.
+The modules in the `geometry/` directory provide low‑level geometric functions and classes used for calculating positions of components, vias, and tracks; deriving a pad's own copper area (rotation‑invariant); building keepout areas; searching for free space; predicting pad positions after movement/rotation; generating thermal via grids; and transforming local template coordinates to global board coordinates.
 
 These modules are **independent** of KiCad and the adapter – they operate solely on coordinates and vectors, making them easy to test and reuse. They are primarily used in `placement/services/manual_position_calculator.py`, `placement/services/clone_position_calculator.py`, `via_planner.py`, and other placement modules.
 
@@ -13,7 +13,8 @@ These modules are **independent** of KiCad and the adapter – they operate sole
 ```
 geometry/
 ├── __init__.py             # Public API export
-├── keepout.py              # Keepout rectangles and free‑space search
+├── keepout.py              # Keepout obstacles (Rect + a pad's own area) and free‑space search
+├── pad_area.py             # The pad's own copper area, in the pad's axes
 ├── pad_projection.py       # Pad position prediction (only for diagnostics)
 ├── spoke_layout.py         # Template transformation for ManualSpoke (vias and tracks)
 ├── clone_geometry.py       # Template transformation for ClonePlacement (with tracks and mirror)
@@ -26,20 +27,43 @@ geometry/
 
 ### `keepout.py` – Keepout Areas and Free‑Space Search
 
-**Purpose:**  
+**Purpose:**
 Defines the `Rect` (axis‑aligned bounding box) class and provides functions for building keepout areas from bounding boxes, checking point clearance (accounting for via radius), and searching for free space around an ideal position (spiral or along a line).
+
+**Obstacles are MIXED** (since 2026‑09‑15): a `Rect` (board axes — KiCad's bounding box, or a via planned earlier in the same run) and a `PadArea` (`pad_area.py` — a pad's own copper in the PAD's axes) both answer ONE predicate, `blocks_via(point, radius)`. A keepout built from the pads' own areas therefore does not inherit the rotation defects of the bounding box, while `Rect` keeps its historical behaviour bit for bit.
 
 **Key Classes and Functions:**
 
 | Name | Description |
 |------|-------------|
-| `Rect` | AABB rectangle. Constructor: `Rect(min_x, min_y, max_x, max_y)`. Methods: `from_bbox(bbox, clearance)` – creates a rectangle from a `Box2` with clearance; `from_circle(center, radius)` – approximates a circle as a square; `intersects(other)` – checks intersection. |
-| `point_is_clear(point, via_radius, keepout)` | Checks whether the point is free (the circle of radius `via_radius` does not intersect any keepout rectangle). |
-| `build_keepout(bboxes, clearance_mm, mm_per_unit)` | Takes a list of `Box2` (from the adapter) and builds a list of `Rect` with clearance `clearance_mm` on each side. Skips `None` elements. |
-| `find_free_point(ideal, keepout, via_radius, preferred_direction=None, step_mm=0.1, max_radius_mm=3.0, n_directions=8)` | Searches for the nearest free point around `ideal` in expanding rings. On each ring, it first tries `preferred_direction` (if given), then `n_directions` points evenly around the circle. Returns a `Vector2` or `None`. |
-| `find_free_point_along_line(ideal, keepout, via_radius, line_direction, step_mm=0.1, max_radius_mm=3.0)` | Searches for a free point along a straight line through `ideal` with direction `line_direction` (unit vector). Checks `ideal`, then steps out in both directions. |
+| `Rect` | AABB rectangle. Constructor: `Rect(min_x, min_y, max_x, max_y)`. Methods: `from_bbox(bbox, clearance)` – creates a rectangle from a `Box2` with clearance; `from_circle(center, radius)` – approximates a circle as a square; `intersects(other)` – checks intersection; `blocks_via(point, radius)` – does a via of that radius touch me (the historical square‑via test, unchanged). |
+| `point_is_clear(point, via_radius, keepout)` | Checks whether the point is free — nothing in `keepout` answers `blocks_via`. `keepout` is a mixed list of `Rect` and `PadArea`. |
+| `build_keepout(bboxes, clearance_mm, mm_per_unit)` | Takes a list of `Box2` (from the adapter) and builds a list of `Rect` with clearance `clearance_mm` on each side. Skips `None` elements. Kept for callers that only have boxes; a pad that can build its own area is better served by `pad_area.pad_area_of`. |
+| `find_free_point(ideal, keepout, via_radius, preferred_direction=None, step_mm=0.1, max_radius_mm=3.0, n_directions=8)` | Searches for the nearest free point around `ideal` in expanding rings. On each ring, it first tries `preferred_direction` (if given), then `n_directions` points evenly around the circle. Returns a `Vector2` or `None`. Takes the same mixed obstacle list. |
+| `find_free_point_along_line(ideal, keepout, via_radius, line_direction, step_mm=0.1, max_radius_mm=3.0)` | Searches for a free point along a straight line through `ideal` with direction `line_direction` (unit vector). Checks `ideal`, then steps out in both directions. Same mixed obstacle list. |
 
 **Used in:** `via_planner.py` **only** for placing thermal vias (the only case requiring automatic search). For all other vias (spoke‑level and component‑level), search is not used because they are placed strictly by template coordinates.
+
+---
+
+### `pad_area.py` – The Pad's Own Copper Area
+
+**Purpose:**
+Turns the fields of an ALREADY‑READ pad into the pad's own copper area — a rectangle in the **pad's own axes**. Keepout, the Extract selection closure and the inter‑node copper attachment all need "is this point on that pad", and KiCad's axis‑aligned bounding box is a wrong answer to it for a rotated pad.
+
+Two measured reasons (2026‑09‑15, KiCad 10.0.6 + kipy 10.0.1, `profiles/3ch-awg-tia-v103`, IC2 at 315°): the box is an axis‑aligned AABB around a **rotated** rectangle, so the 0.300 × 0.850 mm signal pad reads 0.813 × 0.813 mm — 2.6× its copper area — and the same copper can read "occupied" at 45° and "free" at 0°; and for a footprint rotated by an angle that is not a multiple of 90° that box was measured to come back shifted by one and the same offset for every pad of the footprint (1.724 mm on Denis's session — the measurement the "may be shifted" warning is about; an IPC‑applied rotation on the Linux test board did not reproduce it, and the probe prints the number per pad). Nothing in this module reads the board: every input is a field of a pad that has already been read (`position`, `size`, `shape`, `offset`, `trapezoid_delta`, `angle_rad`), so building the area costs no IPC call at all.
+
+**Key Functions:**
+
+| Name | Description |
+|------|-------------|
+| `PadArea` | Frozen value: `center` (nm — `position` + the pad's own `offset` rotated by the pad angle), `half_w`, `half_h` (nm) and `angle_deg` (the pad's ABSOLUTE angle, the footprint's rotation already included). Methods: `contains(point, margin=0)` — the point is transformed into the pad's axes and compared there; `blocks_via(point, radius)` — the same conservative "square via corner" test `Rect` always did, but applied in the pad's axes, so it is invariant under the footprint's rotation; `inflated(margin)` — a grown copy (the clearance stays "per side", exactly as `Rect.from_bbox` had it); `bounds()` — the axis‑aligned board‑frame box, for consumers that genuinely need an AABB. |
+| `pad_area_of(pad)` | The pad's own area, or `None` when the caller must fall back to KiCad's box: a `custom`/`unknown` shape, or a padstack without a usable `size`. `rect`, `roundrect`, `chamfered`, `oval` and `circle` are bounded by `size`; `trapezoid` grows both half‑sizes by `max(|delta.x|, |delta.y|)`, deliberately conservative under either reading of the delta axes. A pad double that carries no `shape` attribute at all reads as a plain rectangle with no offset. |
+| `pad_angle_deg(pad)` | The pad's absolute angle in degrees — the project keeps radians on the DTO and degrees at the rotation primitive, so the conversion lives here. |
+| `pad_shape_center(pad)` | The centre of the pad SHAPE — what the thermal via grid must be centred on, never the hole. |
+| `warn_bbox_fallback(logger, ref, pad)` | Logs (naming the ref and the pad number) that a pad without an area of its own is about to be measured by KiCad's box — and only when the pad angle is NOT a multiple of 90°, the one case where that box was measured to be shifted. |
+
+**Used in:** `via_planner._build_keepout` (the keepout obstacles), `thermal_grid.compute_thermal_via_grid` (the grid centre) and `template_selection._inflated_boxes` (the seam the Extract closure and `internode_copper.find_copper_units` share).
 
 ---
 
@@ -108,8 +132,10 @@ Analogous to `spoke_layout.py`, but for `ClonePlacement` (cloned placements). Di
 
 ### `thermal_grid.py` – Thermal Via Grid Generation
 
-**Purpose:**  
+**Purpose:**
 Computes absolute coordinates for an array of thermal vias under a thermal pad (e.g., `IC1`). Accounts for pad size, edge margins, row/column counts, and staggered patterns.
+
+The local grid (rows/columns/stagger/margin) is laid out in the **pad's own axes** and then turned by the pad's ABSOLUTE angle with the project's own rotation primitive — `rotate_local_offset` (`spoke_layout.py`), the same y‑down formula as `cell_frame.rotate_ydown_mm`. The inline `x·cos − y·sin, x·sin + y·cos` this replaced turned the array the OTHER way round, which is invisible while the grid maps onto itself (an unstaggered grid at 0/90/180/270°, a square one also at 45°) and visible for a staggered grid at 90°/270° or a rectangular one at 45°. The grid is centred on the centre of the pad SHAPE (`pad_area.pad_shape_center`) — `position` plus the pad's own offset, rotated — never on the hole: an offset pad has its copper elsewhere. A pad with no position at all is a fatal, not a grid around the origin.
 
 **Key Functions:**
 
@@ -126,7 +152,8 @@ Computes absolute coordinates for an array of thermal vias under a thermal pad (
 
 | Module | Used in | Purpose |
 |--------|---------|---------|
-| `keepout.py` | `via_planner.py` | Building keepout and searching for free spots for thermal vias. |
+| `keepout.py` | `via_planner.py` | Building keepout (from the pads' own areas and from KiCad's boxes) and searching for free spots for thermal vias. |
+| `pad_area.py` | `keepout.py`, `thermal_grid.py`, `template_selection.py` | The pad's own copper area, in the pad's axes — no board access. |
 | `thermal_grid.py` | `via_planner.py` | Generating thermal via positions. |
 | `spoke_layout.py` | `manual_position_calculator.py` | Template transformation for manual spokes (vias and tracks). |
 | `clone_geometry.py` | `clone_position_calculator.py` | Template transformation for cloned placements (with tracks and mirror). |
@@ -139,15 +166,28 @@ Computes absolute coordinates for an array of thermal vias under a thermal pad (
 ### 1. Building keepout and finding a free point (for thermal vias)
 
 ```python
-from kicadstamp.geometry.keepout import build_keepout, find_free_point
+from kicadstamp.geometry.keepout import Rect, find_free_point
+from kicadstamp.geometry.pad_area import pad_area_of
 from kicadstamp.domain.geometry import Vector2
 
-# Get pad bounding boxes via the adapter
-bboxes = adapter.get_bounding_boxes(pads)
-keepout = build_keepout(bboxes, clearance_mm=0.2)
+pads = adapter.get_footprint_pads(fp)              # pads already read
+clearance = int(0.2 * MM)
+
+# Obstacles: each pad's OWN area where it has one (no IPC at all, and correct
+# under any rotation of the footprint), KiCad's box only for the pads without
+# one — asked for in ONE batch.
+keepout = []
+for pad in pads:
+    area = pad_area_of(pad)
+    if area is not None:
+        keepout.append(area.inflated(clearance))
+fallback = [p for p in pads if pad_area_of(p) is None]
+for bbox in adapter.get_bounding_boxes(fallback):
+    if bbox is not None:
+        keepout.append(Rect.from_bbox(bbox, clearance))
 
 ideal = Vector2.from_xy(10_000_000, 20_000_000)
-via_radius = 0.3 * MM  # 0.3 mm in nanometres
+via_radius = 0.25 * MM  # 0.25 mm in nanometres
 
 free_point = find_free_point(ideal, keepout, via_radius, preferred_direction=(1, 0))
 if free_point is None:

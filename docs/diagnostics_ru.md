@@ -24,6 +24,7 @@ kicadstamp/diagnostics/
 ├── diagnostic_charset.py          # Поиск не-ASCII символов (гомоглифов) в Role/Cluster по всей плате [LIVE]
 ├── diagnostic_keepout.py          # Анализ keepout и пересечений [LIVE]
 ├── get_pad_bbox.py                # Bounding box пада [LIVE]
+├── pad_geometry_probe.py          # Габарит пада от KiCad против своей области пада; keepout термовиа [LIVE]
 ├── get_selected_component.py      # Детальная информация о выделенных компонентах [LIVE]
 ├── get_selection.py               # Список выделенных объектов [LIVE]
 ├── test_create_one_via.py         # Создание одной via [LIVE+WRITE]
@@ -332,6 +333,47 @@ python -m kicadstamp.diagnostics.diagnostic_keepout <config.sexp>
 
 **Зависимости:**  
 `kicadstamp.config`, `kicadstamp.kicad.adapter`, `kicadstamp.placement.planner`, `kicadstamp.geometry.keepout`.
+
+---
+
+### `pad_geometry_probe.py`
+
+**Назначение:**
+Показывает, где KiCad ГОВОРИТ, что находится пад, и где на самом деле его медь, и что из этого следует
+для одной записи `thermal_via_arrays`. Два раздела и одна строка итога.
+
+**Запуск:**
+```bash
+python -m kicadstamp.diagnostics.pad_geometry_probe profiles/3ch-awg-tia-v103/config.sexp --thermal ad_dac_via_pad
+python -m kicadstamp.diagnostics.pad_geometry_probe profiles/3ch-awg-tia-v103/config.sexp --ref IC2
+```
+
+**Что печатает:**
+- **A** — по каждому паду корпуса: номер, форма падстека, угол корпуса и СОБСТВЕННЫЙ угол пада, центр
+  габарита KiCad МИНУС центр своей области пада (`dx dy |d|` мм) и размеры обоих. Пад без своей области
+  (`custom`/`unknown`, нет `size`) помечается, и строка WARNING считает такие пады — именно их исправление
+  накрыть не может.
+- **B** (только с `--thermal`) — идеальная сетка пада этой записи, точка за точкой: занята ли она по
+  СТАРОМУ правилу (габариты KiCad как AABB-`Rect`, пересчитано внутри зонда) и по ТЕКУЩЕМУ
+  (`ViaPlanner._build_keepout`, свои области падов), а затем боевой `ViaPlanner.plan_vias` для этой ОДНОЙ
+  записи (только планирование) — расстояние от идеальной точки до поставленной для неё via и лежит ли эта
+  via на своей области термопада.
+- **Строка итога** — `old: X of N blocked; new: Y of N blocked; placed off pad: Z`. При 0° два правила
+  обязаны совпасть, а Z быть 0; при повороте на угол, не кратный 90°, ошибается именно колонка `old`.
+
+**Только чтение:** ни исполнителя, ни реестра, ни записи в плату; `plan_vias` вызывается ради результата
+планирования.
+
+**Предыстория:** замер 15.09.2026 — у корпуса, повёрнутого на 315°, KiCad вернул габарит КАЖДОГО пада этого
+корпуса сдвинутым на одни и те же 1.724 мм, тогда как позиция пада, размер его меди и угол падстека
+остались верными. Поворот через IPC на тестовой плате Linux этот сдвиг НЕ воспроизвёл (0.000 мм у всех
+падов — до записи, сразу после неё и после перечитывания), поэтому именно это число по каждому паду и
+различает стенды. Тот же габарит — это ещё и AABB вокруг ПОВЁРНУТОГО пада, и это видно в таблице как
+разница размеров: 0.813 × 0.813 мм против собственных 0.300 × 0.850 мм.
+
+**Зависимости:**
+`kicadstamp.config`, `kicadstamp.kicad.adapter`, `kicadstamp.placement.services.via_planner`,
+`kicadstamp.geometry.pad_area`, `kicadstamp.geometry.keepout`, `kicadstamp.geometry.thermal_grid`.
 
 ---
 

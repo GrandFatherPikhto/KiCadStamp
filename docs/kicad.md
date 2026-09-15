@@ -50,7 +50,7 @@ Defines the abstract base class `IBoardAdapter`, which describes the contract fo
 | `get_zone_by_name(name)` | Find a zone by name (Rule Area). |
 | `get_net_by_name(name)` | Find a net by name. |
 | `get_all_nets()` | Get all nets on the board. |
-| `get_bounding_boxes(items)` | Get bounding boxes (Box2) for a list of objects (batch request). |
+| `get_bounding_boxes(items)` | Get bounding boxes (`Box2 | None`) for a list of objects (batch request) — POSITIONALLY: one entry per item, `None` where KiCad has no box. A short batch answer is repaired with one request per item. |
 | `begin_commit()` | Start a transaction. |
 | `push_commit(commit, description)` | Commit the transaction. |
 | `drop_commit(commit)` | Roll back the transaction. |
@@ -95,6 +95,10 @@ Thus, the adapter does not prevent the crash (impossible from the client side) b
 #### 3. Batch Requests
 
 `get_bounding_boxes(items)` takes a list of objects and returns a list of `Box2` in a single call to `board.get_item_bounding_box()`. This significantly reduces the number of IPC calls when building keepout areas and checking collisions.
+
+The list is **positional**: one entry per item, `None` where KiCad has no box for that item — every caller unzips it against its own item list. That promise has to be REPAIRED rather than assumed: kipy's list form drops every `None` from the answer (`kipy/board.py` builds `item_to_bbox.get(item.id.value)` and then filters it with `if box is not None`), so one item without a box would shorten the list and push every following box onto the wrong item (a via keepout built from somebody else's pads, a collision radius taken from the neighbour, a pad probe printing another pad). When the answer comes back short, the adapter asks for the items ONE BY ONE — the single-item form returns one box or `None` and cannot shorten anything — and logs the mismatch at DEBUG. Those extra requests happen only on that mismatch, never on the happy path.
+
+**A keepout no longer has to rely on those boxes for pads** (since 2026‑09‑15): a pad whose own area can be built from the already‑read pad fields (`geometry/pad_area.py`) is measured by that area, in the pad's own axes — no IPC at all, and correct under any rotation of the footprint. `get_bounding_boxes` is still what vias, `custom`/`unknown` pads and the consumers that genuinely need an AABB (collisions, the capture region) are served with. Measured reasons: for a pad of a footprint rotated by an angle that is not a multiple of 90° the box came back shifted by one and the same offset for the whole footprint (1.724 mm in the measured session), and even an unshifted box is an axis‑aligned AABB around a ROTATED rectangle — the 0.300 × 0.850 mm signal pad reads 0.813 × 0.813 mm there, 2.6× its copper. See `docs/geometry.md` (`pad_area.py`) and `kicadstamp/diagnostics/pad_geometry_probe.py`, which prints the per‑pad shift and the blocked/placed thermal‑via counts.
 
 #### 4. Correct Handling of Selection and Groups
 
