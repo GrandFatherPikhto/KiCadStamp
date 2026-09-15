@@ -35,3 +35,18 @@ def cluster_prefix_match(candidate_cluster: str, wanted: str) -> bool:
     candidate = candidate_cluster.lower()
     wanted_l = wanted.lower()
     return candidate == wanted_l or candidate.startswith(wanted_l + '/')
+
+
+def matches_any_cluster(candidate: str | None, wanted: list[str]) -> bool:
+    """True when `candidate` matches ANY of the `wanted` cluster paths.
+
+    Moved here from apply_pipeline (2026-09-15, plan_2026_09_14_materialize_only_
+    wanted_trees P.2.1) so there is ONE matcher, not two. The materialization
+    pre-filter in placement/entity_placement.py has to narrow by the very same
+    --cluster axis the final filter (_filter_materialized_entities) uses, and it
+    cannot import apply_pipeline (which imports entity_placement) — so the single
+    implementation lives next to the string helper it is built on, and
+    apply_pipeline keeps a thin alias for its existing callers/tests."""
+    if candidate is None:
+        return False
+    return any(cluster_prefix_match(candidate, w) for w in wanted)

@@ -33,6 +33,7 @@ no entities and/or no trees the result is empty (all real profiles today).
 import logging
 from typing import TYPE_CHECKING
 
+from ..cluster_matching import matches_any_cluster
 from ..config import ClonePlacement, Entity
 from ..domain.geometry import Vector2
 from ..exceptions import ValidationError, format_fatal_error
@@ -577,9 +578,81 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
               tree_base_rot=tree_base_rot)
 
 
+def _structural_candidates(tree: LinkedTree) -> set[str]:
+    """Every identity string this tree's OWN node recursion could possibly
+    materialize — the raw material of the STRUCTURAL pre-filter below
+    (plan_2026_09_14_materialize_only_wanted_trees P.2.1).
+
+    ONE set serves BOTH selection axes, because the two identities `_to_clone`
+    derives from an Entity are `effective name = entity.name or entity.cluster`
+    (what --only matches) and `cluster = entity.cluster or entity.name` (what
+    --cluster matches) — their union is exactly {entity.name} plus
+    {entity.cluster} when that is set. An extra cluster-only string can only make
+    the pre-filter WIDER (it can never cause a needed tree to be skipped);
+    dropping one could make it narrower, which is the one thing this pre-filter
+    is forbidden to be.
+
+    Walks the EXACT recursion `_walk` materializes along — `ln.children`, at any
+    depth, for EVERY kind (a "module" or "mount" node has record None but its
+    children still carry placements) — and never into `ln.module_linked` (P.1.5:
+    `_walk` does not descend there either; a module target is itself a top-level
+    tree, so it materializes its content on its own). The `scheme_list is None`
+    condition `_walk` ALSO applies is deliberately not checked here: keeping such
+    a node's name is wider, and wider only costs time.
+
+    May name two identities for one node (name + cluster), never fewer than the
+    clone that node can produce."""
+    candidates: set[str] = set()
+
+    def walk(nodes) -> None:
+        for ln in nodes:
+            if (ln.node.kind == "placement" and ln.record is not None
+                    and isinstance(getattr(ln.record, "obj", None), Entity)):
+                entity = ln.record.obj
+                candidates.add(entity.name)
+                if entity.cluster:
+                    candidates.add(entity.cluster)
+            # Recurse unconditionally — a node without a record (module / mount /
+            # external) places nothing itself but may hold placements below.
+            walk(ln.children)
+
+    walk(tree.nodes)
+    return candidates
+
+
+def _tree_is_wanted(tree: LinkedTree, only_set: set[str] | None,
+                    cluster_paths: list[str] | None) -> bool:
+    """True when `tree` might still yield a clone surviving --only/--cluster —
+    i.e. when it must NOT be skipped before its live anchor read.
+
+    WIDER-OR-EQUAL is the whole contract (P.2.1): the axes are checked
+    independently, so a tree whose name matches --only on ONE node and whose
+    cluster matches --cluster on ANOTHER is kept rather than dropped — the exact
+    pairing is the final filter's job, not this one's.
+
+    FAIL-OPEN on any surprise (an unexpected node shape raising out of the
+    enumeration): a tree that cannot be analysed is treated as wanted. A tree
+    wrongly kept only costs one live read; a tree wrongly skipped loses its
+    placement silently."""
+    try:
+        candidates = _structural_candidates(tree)
+    except Exception:  # noqa: BLE001 — unknown shape => keep the tree
+        logger.debug("Entity materialization: tree %r candidates could not be "
+                     "enumerated; treating it as wanted", tree.name, exc_info=True)
+        return True
+    if only_set is not None and not (candidates & only_set):
+        return False
+    if cluster_paths is not None and not any(
+            matches_any_cluster(c, cluster_paths) for c in candidates):
+        return False
+    return True
+
+
 def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
                                   sheet_names=None,
-                                  position_overrides: dict | None = None
+                                  position_overrides: dict | None = None,
+                                  only: list[str] | None = None,
+                                  cluster: list[str] | None = None
                                   ) -> list[ClonePlacement]:
     """Walk cfg.trees and materialize every kind="placement" node (whose
     ref resolves to an Entity) into a transient absolute ClonePlacement.
@@ -616,13 +689,43 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     placed in any tree, is placed in more than one node, or whose entity-anchor
     chain forms a CYCLE is a CONFIG error — re-raised (_EntityAnchorError),
     fatal for the whole run, never silently skipped.
+
+    only/cluster — the caller's --only/--cluster lists (the SAME ones
+    _filter_materialized_entities narrows this result with, see
+    apply_pipeline.ApplyPipeline._resolve_order). They are used here ONLY as a
+    STRUCTURAL pre-filter: a tree whose own node recursion can provably not yield
+    any clone passing those axes is skipped BEFORE _anchor_base, so it costs not
+    a single board read (plan_2026_09_14_materialize_only_wanted_trees P.2 — the
+    forest-wide materialization is a fixed ~4.86 s per run while an applied name
+    keeps 1 of 22 clones, and three quarters of it was trees the name never
+    needed). `link_trees` still runs over the FULL forest and `forest=` below is
+    still complete: a needed tree's anchor may recurse into another tree's Entity
+    (P.2.2) — only the OUTER loop narrows. None/empty on BOTH axes = the exact
+    pre-2026-09-15 behaviour, so every existing positional caller is unchanged.
+
+    Deliberate semantic difference (P.2.3): a CONFIG error living purely in a
+    tree no applied name needs (an unresolvable anchor -> warning, an
+    entity-anchor cycle -> fatal) no longer surfaces during this run. In the
+    cascade each name gets its own run and dies in ITS turn, and
+    --only/--cluster is already an explicit narrowing, so this is intended — see
+    the plan's P.2.3 for the error classes and their static coverage.
     """
     if not cfg.entities or not cfg.trees:
         return []
     sheet_names = sheet_names or {}
     linked = link_trees(cfg, cfg.trees)
+    # Empty list == no narrowing (M4: only=[] must never mean "nothing wanted").
+    only_set = set(only) if only else None
+    cluster_paths = list(cluster) if cluster else None
+    narrowing = only_set is not None or cluster_paths is not None
     out: list[ClonePlacement] = []
     for tree in linked:
+        if narrowing and not _tree_is_wanted(tree, only_set, cluster_paths):
+            logger.debug("Entity materialization: tree %r cannot produce a clone "
+                         "matching --only %s / --cluster %s — skipped before its "
+                         "anchor read", tree.name, sorted(only_set or ()),
+                         cluster_paths or [])
+            continue
         try:
             anchor_pos, anchor_rot = _anchor_base(
                 adapter, cfg, tree, sheet_names, forest=linked)

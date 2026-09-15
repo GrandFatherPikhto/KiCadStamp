@@ -44,7 +44,7 @@ from .placement.services.clone_position_calculator import (
 from .placement.services.via_planner import thermal_anchor_id
 from .placement.services.manual_position_calculator import chain_anchor_ids
 from .placement.services.coordinate_position_calculator import build_coordinate_moves
-from .cluster_matching import cluster_prefix_match
+from .cluster_matching import matches_any_cluster
 from .constants import DEFAULT_TIMEOUT_MS
 from .placement.executor import BatchExecutor
 from .scheme_list_apply import execute_scheme_list_plans, plan_all_scheme_lists
@@ -74,10 +74,12 @@ def _split_comma_values(raw: list[str] | None) -> list[str]:
     return result
 
 
-def _matches_any_cluster(candidate: str | None, wanted: list[str]) -> bool:
-    if candidate is None:
-        return False
-    return any(cluster_prefix_match(candidate, w) for w in wanted)
+# Backward-compat alias (2026-09-15, plan_2026_09_14_materialize_only_wanted_
+# trees P.2.1): the ONE implementation of "does this cluster match any wanted
+# path" moved to cluster_matching, so placement/entity_placement.py can share
+# it (that module cannot import this one — apply_pipeline imports it). Kept as
+# a module-level name for the existing callers and tests.
+_matches_any_cluster = matches_any_cluster
 
 
 def drop_disabled_chains(cfg, _logger=None) -> "Config":
@@ -509,11 +511,19 @@ class ApplyPipeline:
         # one element may be comma-separated ("--only a,b") — split them the
         # same way the regular filters do, or "--only E1,E2" would silently
         # produce an empty materialized list (quiet data loss, 4.1-fix 2).
+        # The SAME split lists ride into the materializer, which uses them ONLY
+        # to skip trees that cannot produce a surviving clone — it never narrows
+        # the result (that stays _filter_materialized_entities below), so the
+        # pre-filter is allowed to be wider, never narrower (plan_2026_09_14_
+        # materialize_only_wanted_trees P.2/P.2.1).
+        split_only = _split_comma_values(self.only)
+        split_cluster = _split_comma_values(self.cluster)
         materialized = _filter_materialized_entities(
             materialize_entity_placements(self.adapter, self._full_cfg,
                                           sheet_names=self.sheet_names,
-                                          position_overrides=self.position_overrides),
-            _split_comma_values(self.only), _split_comma_values(self.cluster))
+                                          position_overrides=self.position_overrides,
+                                          only=split_only, cluster=split_cluster),
+            split_only, split_cluster)
         if materialized:
             logger.info(_("Materialized {count} entity placement(s) from trees "
                           "into the apply plan").format(count=len(materialized)))
