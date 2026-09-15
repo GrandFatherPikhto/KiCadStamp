@@ -19,11 +19,12 @@ Contains only selection logic with no YAML/serialization concern:
 import logging
 from typing import Any
 
-from .domain.board import Footprint, Via, Track
+from .domain.board import Footprint, Pad, Via, Track
 from .domain.geometry import Vector2
 
 from .constants import POSITION_TOLERANCE_MM, ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
+from .geometry.pad_area import PadArea, pad_area_of, warn_bbox_fallback
 from .kicad.adapter import KiCadBoardAdapter
 from .utils.units import MM
 from .i18n import _
@@ -54,19 +55,70 @@ _BBOX_EPSILON_MM = 0.001  # NOT a routing tolerance (the real bbox of via/pad
                           # against coordinate quantisation/float rounding when
                           # converting to nm, not a "how crookedly the track is
                           # attached" tolerance.
+# The same margin for a pad's own area, PER SIDE: Box2.inflate(amount) adds the
+# whole amount to the size (half of it per side), and a PadArea is grown per side
+# directly — 0.0005 mm each way, i.e. exactly what the boxes above get.
+_BBOX_EPSILON_PER_SIDE_NM = int(_BBOX_EPSILON_MM * MM) // 2
 
 
-def _inflated_boxes(adapter: KiCadBoardAdapter, items: list[Any]) -> list[Any]:
-    boxes = adapter.get_bounding_boxes(items)
-    for b in boxes:
-        if b is not None:
-            b.inflate(int(_BBOX_EPSILON_MM * MM))
-    return boxes
+def _inflated_boxes(adapter: KiCadBoardAdapter, items: list[Any],
+                    refs: list[str] | None = None) -> list[Any]:
+    """The boundary of every item, in the items' own order — one entry per item:
+    either a `PadArea` (a pad's OWN area, tested in the pad's axes) or a Box2-like
+    KiCad bounding box, both grown by the same tiny epsilon.
+
+    So "box" in this module means "whatever boundary this item has": a pad whose
+    area we can build from the already-read pad fields never reaches the adapter.
+    It must not: KiCad returns the box of every pad of a footprint rotated by an
+    angle that is not a multiple of 90° SHIFTED by one and the same offset
+    (measured 15.09.2026: 1.724 mm for all 33 pads of IC2 at 315° — Д1 of
+    plan_2026_09_15_pad_geometry_thermal_vias), and an axis-aligned box around a
+    rotated pad is too big even when it is not shifted (Д2). Either error makes a
+    track end that sits ON the pad read as "in the air" — the Extract closure then
+    drops copper the user selected, and inter-node copper loses its bridges (both
+    go through this seam; see internode_copper.find_copper_units).
+
+    Everything WITHOUT an own area — vias, custom/unknown pads, any adapter that
+    does not serve the pad's own fields — still goes to the adapter in ONE batch,
+    exactly as before; the request only shrinks. A short answer is padded with
+    None instead of being line up by a bare zip (the adapter owes a positional
+    list).
+
+    `refs` is the optional per-item refdes, used only to name the pad in the Log
+    warning that a fallback box may be shifted under a non-right angle.
+    """
+    boundaries: list[Any] = [None] * len(items)
+    wanted: list[Any] = []
+    wanted_indices: list[int] = []
+    for index, item in enumerate(items):
+        area = pad_area_of(item)
+        if area is None:
+            wanted.append(item)
+            wanted_indices.append(index)
+        else:
+            boundaries[index] = area.inflated(_BBOX_EPSILON_PER_SIDE_NM)
+    if wanted:
+        boxes = list(adapter.get_bounding_boxes(wanted))
+        if len(boxes) < len(wanted):
+            boxes += [None] * (len(wanted) - len(boxes))
+        for index, item, box in zip(wanted_indices, wanted, boxes):
+            if box is not None:
+                box.inflate(int(_BBOX_EPSILON_MM * MM))
+            if refs is not None and index < len(refs) and isinstance(item, Pad):
+                warn_bbox_fallback(logger, refs[index], item)
+            boundaries[index] = box
+    return boundaries
 
 
 def _point_in_box(point: Vector2, box) -> bool:
+    """True when `point` is inside the boundary `box` — a `PadArea` (tested in the
+    PAD's own axes, so a rotated pad is not mistaken for its axis-aligned box) or
+    a Box2-like object with pos/size (KiCad's bounding box, axis-aligned in board
+    axes, as always). None — no geometry for that item — is never inside."""
     if box is None:
         return False
+    if isinstance(box, PadArea):
+        return box.contains(point)
     return (box.pos.x <= point.x <= box.pos.x + box.size.x
             and box.pos.y <= point.y <= box.pos.y + box.size.y)
 
@@ -96,9 +148,11 @@ def _filter_tracks_and_vias_within_selection(
     exact coincidence for electrical connectivity — connectivity is about
     copper overlap within the real via/pad footprint, not coordinate to the
     micron; manual routing almost never lands exactly at the centre), but
-    rather that the endpoint falls within the REAL bounding box of the
-    corresponding pad/via (+ a small technological margin), or coincides
-    with another track's endpoint (track-to-track butt-joint). The anchor
+    rather that the endpoint falls within the REAL boundary of the
+    corresponding pad/via (+ a small technological margin) — a pad's OWN area
+    in the pad's axes where it has one (geometry/pad_area.py), KiCad's bounding
+    box otherwise (see _inflated_boxes) — or coincides with another track's
+    endpoint (track-to-track butt-joint). The anchor
     set is ONLY the kept footprints' pads — a via is never an anchor by
     itself (it is kept only when its component reaches a kept pad), so a
     track-to-track island that only ever touches other excluded material is
@@ -123,8 +177,16 @@ def _filter_tracks_and_vias_within_selection(
     capture can turn the dropped copper into boundary_nets diagnostics (copper
     that only ever touched excluded footprints).
     """
-    all_pads = [p for fp in footprints for p in adapter.get_footprint_pads(fp)]
-    pad_boxes = _inflated_boxes(adapter, all_pads)
+    # The refdes travel alongside the pads: it is what names the pad in the
+    # fallback warning (the real bounding box may be shifted under a non-right
+    # pad angle).
+    all_pads: list[Any] = []
+    pad_refs: list[str] = []
+    for fp in footprints:
+        for pad in adapter.get_footprint_pads(fp):
+            all_pads.append(pad)
+            pad_refs.append(fp.ref)
+    pad_boxes = _inflated_boxes(adapter, all_pads, refs=pad_refs)
     logger.debug(_("Kept footprints: {refs}; pad boxes: {ok} real / {total} total").format(
         refs=[fp.ref if fp.ref else "?" for fp in footprints],
         ok=sum(1 for b in pad_boxes if b is not None), total=len(pad_boxes)))
