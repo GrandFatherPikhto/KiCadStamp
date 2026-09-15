@@ -703,10 +703,20 @@ class KiCadBoardAdapter(IBoardAdapter):
     # --- Bounding boxes (for collisions — see collision.py) ---
     def get_bounding_boxes(self, items) -> list[Box2 | None]:
         """
-        Returns bounding boxes (Box2 | None) for a list of items in ONE request.
-        Board.get_item_bounding_box(list) returns List[Optional[Box2]] for a
-        sequence of items (for a single item it would return just Box2|None —
-        so we always pass a list here).
+        Returns bounding boxes (Box2 | None) for a list of items in ONE request,
+        POSITIONALLY — one entry per item, None where KiCad has no box for it.
+
+        The positional promise is not a formality (Д4 of
+        plan_2026_09_15_pad_geometry_thermal_vias): kipy's LIST form drops every
+        None from the answer (kipy/board.py builds `item_to_bbox.get(item.id.value)`
+        and then filters it with `if box is not None`), so ONE item without a box
+        silently SHORTENS the list and pushes every following box onto the WRONG
+        item — every caller has always unzipped this list against its own item
+        list. When the answer comes back short, the positions are recovered by
+        asking for the items ONE BY ONE (the single-item form answers with one box
+        or None, so it cannot shorten anything), with the mismatch logged at
+        DEBUG. Those extra requests happen only on a mismatch, never on the happy
+        path.
         """
         if not items:
             return []
@@ -714,6 +724,11 @@ class KiCadBoardAdapter(IBoardAdapter):
         # Defensive normalisation in case it's not a list
         if not isinstance(result, list):
             result = [result]
+        if len(result) != len(items):
+            logger.debug(_("Bounding boxes: {got} answer(s) for {asked} item(s) — "
+                           "re-reading them one by one to keep the positions")
+                         .format(got=len(result), asked=len(items)))
+            result = self._bounding_boxes_one_by_one(items)
         converted = []
         for box in result:
             if box is None:
@@ -722,6 +737,16 @@ class KiCadBoardAdapter(IBoardAdapter):
                 converted.append(Box2(pos=Vector2(box.pos.x, box.pos.y),
                                       size=Vector2(box.size.x, box.size.y)))
         return converted
+
+    def _bounding_boxes_one_by_one(self, items):
+        """Box2 | None per item, asked one item at a time: kipy's single-item form
+        answers with one box or None, so nothing can be dropped and the result is
+        positional by construction. Only used when the batch answer came back
+        short — see get_bounding_boxes."""
+        boxes = []
+        for item in items:
+            boxes.append(self._board.get_item_bounding_box(unwrap(item)))
+        return boxes
 
     # --- Transactions ---
     def begin_commit(self):

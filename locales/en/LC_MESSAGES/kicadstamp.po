@@ -17396,3 +17396,8 @@ msgstr ""
 #: kicadstamp/geometry/thermal_grid.py
 msgid "pad has no position"
 msgstr ""
+
+#: kicadstamp/kicad/adapter.py
+#, python-brace-format
+msgid "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one by one to keep the positions"
+msgstr ""

@@ -16061,3 +16061,8 @@ msgstr "Пад {ref}.{pad}: своей области пада нет (форм�
 #: kicadstamp/geometry/thermal_grid.py
 msgid "pad has no position"
 msgstr "у пада нет позиции"
+
+#: kicadstamp/kicad/adapter.py
+#, python-brace-format
+msgid "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one by one to keep the positions"
+msgstr "Габариты: {got} ответ(ов) на {asked} предмет(ов) — перечитываю их по одному, чтобы сохранить позиции"
