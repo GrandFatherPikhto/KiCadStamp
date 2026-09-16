@@ -3930,6 +3930,96 @@ def test_mount_node_without_role_refuses_build(main_window, tmp_path, monkeypatc
     assert any("mount node needs a Role anchor" in str(w) for w in warnings)
 
 
+# ── Copper nodes (kind "net_trace"): form + context menu ───────────────────
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.3.
+# A copper node is purely a REFERENCE to a net_traces: record — the record
+# stores the copper as offsets from its OWN anchor pad and the pipeline lays it
+# out from that live pad, so the node has no coordinates at all. The form used
+# to collect the (hidden) empty X/Y and refuse the whole operation with
+# "X is required.", which blocked a redraw that works (task Д2).
+
+def _bare_node_dialog() -> "_NodeDialog":
+    """An Add-mode node dialog with NO dock and NO config — the shape the mount
+    tests above use for pure form-level questions."""
+    return _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
+                       sheet_names={}, tree=None, parent_node=None)
+
+
+def test_node_form_build_for_copper_needs_no_coordinates(monkeypatch):
+    """С4: a net_trace node builds with EMPTY X/Y and comes out with
+    xy=None/polar=None/rotation=0.0 (no fabricated 0,0); a placement node in the
+    very same state is still refused — the copper rule is not a general
+    softening."""
+    import gui.docks.trees_dock as td_mod
+    shown = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: shown.append(a) or None)
+    dlg = _bare_node_dialog()
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("net_trace"))
+    dlg.ref_combo.setCurrentText("2v5_oa__dac_buf__pif_oa_n2v5")
+    dlg.offset_widget.x_edit.setText("")     # the fields are hidden for copper;
+    dlg.offset_widget.y_edit.setText("")     # an empty pair must not matter
+    node = dlg.build_node()
+    assert shown == []
+    assert node is not None
+    assert node.kind == "net_trace"
+    assert node.ref == "2v5_oa__dac_buf__pif_oa_n2v5"
+    assert node.xy is None and node.polar is None and node.rotation == 0.0
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.ref_combo.setCurrentText("C_OUT")
+    assert dlg.build_node() is None
+    assert shown and "is required" in str(shown[-1])
+
+
+def test_node_form_copper_rows_are_hidden_not_removed():
+    """С5: picking kind "net_trace" hides the offset row, the rotation row, the
+    coordinate-system note and the live-read row; switching back to another kind
+    shows them again. VISIBILITY is asserted (isVisibleTo — the dialog is never
+    shown offscreen), and the widgets themselves stay in place, so nothing that
+    reaches them by name can break."""
+    dlg = _bare_node_dialog()
+    assert dlg.offset_row.isVisibleTo(dlg) is True
+    assert dlg.rotation_row.isVisibleTo(dlg) is True
+    assert dlg.read_position_button.isVisibleTo(dlg) is True
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("net_trace"))
+    assert dlg.offset_row.isVisibleTo(dlg) is False
+    assert dlg.rotation_row.isVisibleTo(dlg) is False
+    assert dlg.offset_frame_label.isVisibleTo(dlg) is False
+    assert dlg.read_position_button.isVisibleTo(dlg) is False
+    # Hidden, never dropped: the same live widgets, still parented to their rows.
+    assert dlg.offset_widget.parentWidget() is dlg.offset_row
+    assert dlg.rotation_edit.parentWidget() is dlg.rotation_row
+
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    assert dlg.offset_row.isVisibleTo(dlg) is True
+    assert dlg.rotation_row.isVisibleTo(dlg) is True
+    assert dlg.read_position_button.isVisibleTo(dlg) is True
+
+
+def test_context_menu_on_copper_node_offers_redraw(main_window, tmp_path, monkeypatch):
+    """P.2.3: a copper node's "Redraw" is offered in its CONTEXT MENU, next to
+    "Select copper on board", and runs the very same _redraw_edited_node the
+    form's Redraw button uses — ONE implementation, two entry points."""
+    trees = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
+        {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0]},
+        {"ref": "2v5_oa__dac_buf__pif_oa_n2v5", "kind": "net_trace"},
+    ]}]}
+    dock, _root = _dock_with(main_window, tmp_path, trees)
+    tree_widget = dock._current_tree_widget()
+    copper_item = dock._node_items["2v5_oa__dac_buf__pif_oa_n2v5"]
+    monkeypatch.setattr(tree_widget, "itemAt", lambda pos: copper_item)
+    actions = dict(_context_menu_actions(dock, copper_item, monkeypatch))
+    assert "Select copper on board" in actions
+    assert "Redraw" in actions
+
+    redrawn = []
+    monkeypatch.setattr(dock, "_redraw_edited_node", lambda n: redrawn.append(n))
+    actions["Redraw"].trigger()
+    assert [n.ref for n in redrawn] == ["2v5_oa__dac_buf__pif_oa_n2v5"]
+
+
 def test_node_dialog_prefill_restores_mount_anchor(main_window, tmp_path):
     """Edit mode: an existing MOUNT node's anchor restores the picker's Role/
     Sheet/Cluster/Pad, and mount_anchor() returns it."""

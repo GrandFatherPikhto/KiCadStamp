@@ -2327,6 +2327,14 @@ class TreesDock(QWidget):
                 # only — the selection is editor UI state, not a board edit.
                 menu.addAction(_("Select copper on board")).triggered.connect(
                     lambda: self._on_select_copper_by_record(node))
+                # P.2.3 (2026-09-16): the SAME redraw the node form's button
+                # runs, offered where a copper node's user actually is. The
+                # form's own Redraw button is not built for a form with no
+                # fields (the row would be an empty stub), so this menu entry
+                # is the copper node's way into _redraw_edited_node — ONE
+                # implementation, two entry points, no second code path.
+                menu.addAction(_("Redraw")).triggered.connect(
+                    lambda: self._redraw_edited_node(node))
             menu.addAction(_("Reread current position")).triggered.connect(
                 lambda: self._reread_node_flow(tree, node))
             # §3.3: 'Edit node…' no longer opens the modal — a single click on
@@ -4072,8 +4080,20 @@ class NodeFormWidget(QWidget):
         # The value is shown in the BOARD frame (x right, y down); the config
         # stores it in the BASE's local frame. The conversion lives in _prefill
         # (load) and build_node (save) — nowhere else (plan_2026_09_11 §3.1).
+        #
+        # 2026-09-16 (plan_2026_09_16_copper_node_order_and_container P.2.3): the
+        # offset lives in its OWN wrapper row, because a kind "net_trace" node
+        # (inter-node copper) has no coordinates at all and must hide the whole
+        # ROW — label included. The same wrapper-row pattern AnchorFormWidget
+        # already uses for its record/role/point rows, and the widgets are only
+        # HIDDEN, never removed: every caller/test that reaches offset_widget
+        # keeps working and the row comes back on the next kind change.
         self.offset_widget = AnchorOriginWidget(modes=["xy"], polar=True)
-        form.addRow(_("Offset (board frame):"), self.offset_widget)
+        self.offset_row = QWidget()
+        offset_row_form = QFormLayout(self.offset_row)
+        offset_row_form.setContentsMargins(0, 0, 0, 0)
+        offset_row_form.addRow(_("Offset (board frame):"), self.offset_widget)
+        form.addRow(self.offset_row)
         # Why the offset/rotation fields below may be read-only (no live base).
         self.offset_frame_label = QLabel("")
         self.offset_frame_label.setWordWrap(True)
@@ -4085,9 +4105,15 @@ class NodeFormWidget(QWidget):
         # property of the TREE and is edited by AnchorFormWidget's "Tree
         # settings" group. `build_node` carries no pivot field at all.
 
+        # The rotation row is wrapped for the same reason as the offset row
+        # above: copper has no rotation to edit (P.2.3).
         self.rotation_edit = QLineEdit()
         self.rotation_edit.setPlaceholderText(_("0"))
-        form.addRow(_("Rotation (deg):"), self.rotation_edit)
+        self.rotation_row = QWidget()
+        rotation_row_form = QFormLayout(self.rotation_row)
+        rotation_row_form.setContentsMargins(0, 0, 0, 0)
+        rotation_row_form.addRow(_("Rotation (deg):"), self.rotation_edit)
+        form.addRow(self.rotation_row)
 
         # "Read current position" — resolves the typed/picked ref's CURRENT
         # live position/rotation relative to the parent base and fills the
@@ -4781,11 +4807,30 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
         is_mount = kind == "mount"
+        # A copper node (kind "net_trace") is purely a REFERENCE to a
+        # net_traces: record: the record carries the geometry as offsets from
+        # its OWN anchor pad and the pipeline lays it out from that live pad, so
+        # the node itself has no coordinates — see the row handling below (P.2.3).
+        is_copper = kind == "net_trace"
         # The "Read current position" row (a live read of a module ref — a tree,
         # not a record — is meaningless; a MOUNT node's position IS its anchor,
-        # so a read is meaningless there too).
-        self.read_position_button.setVisible(not is_module and not is_mount)
-        self.read_status_label.setVisible(not is_module and not is_mount)
+        # so a read is meaningless there too; COPPER has no position of its own
+        # to read).
+        read_row_visible = not is_module and not is_mount and not is_copper
+        self.read_position_button.setVisible(read_row_visible)
+        self.read_status_label.setVisible(read_row_visible)
+        # ── Copper: no offset row, no rotation row, no frame note (P.2.3) ────
+        # The form used to collect the (hidden for copper) empty offset and
+        # refuse the whole operation with "X is required.", which blocked a
+        # redraw that works perfectly when reached from the node's context menu
+        # (task Д2). The rows are HIDDEN, never removed — the widgets stay
+        # reachable for every caller and come back on the next kind change. The
+        # frame note is restored from its OWN text (it is only empty when the
+        # live base resolved, see _set_offset_editable).
+        self.offset_row.setVisible(not is_copper)
+        self.rotation_row.setVisible(not is_copper)
+        self.offset_frame_label.setVisible(
+            not is_copper and bool(self.offset_frame_label.text()))
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
         # and is REQUIRED there, so it switches itself to "anchor" mode.
         self.mount_anchor_widget.setVisible(is_mount)
@@ -4933,38 +4978,54 @@ class NodeFormWidget(QWidget):
                 QMessageBox.warning(self, _("Add node"), refusal)
                 return None
 
-        fields, err = self.offset_widget.build()
-        if err:
-            QMessageBox.warning(self, _("Add node"), err)
-            return None
-        # Board frame -> config frame: the save half of the pair _prefill opens.
-        # What the user typed is a board-frame offset / absolute angle; the node
-        # stores the base's LOCAL offset / RELATIVE angle. base_rot is the SAME
-        # cached value _prefill displayed — no re-resolution, no drift.
-        base_rot = self._base_rotation_deg()
-        online = base_rot is not None
-        if "radius" in fields:
-            # Polar is exact: radius untouched, angle shifted by the base.
-            polar = (fields["radius"],
-                     (board_rotation_to_local_deg(fields["angle"], base_rot)
-                      if online else fields["angle"]))
+        kind = self.kind_combo.currentData()
+        if kind == "net_trace":
+            # A copper node carries NO coordinates, and the form does not ask for
+            # any: the record stores the copper as offsets from its OWN anchor
+            # pad and the pipeline lays it out from that live pad, so the node is
+            # only a reference to the record (Д2, P.2.3). Building the offset
+            # here is what used to fail with "X is required." and block the
+            # redraw — the offset/rotation rows are hidden for this kind
+            # (_on_kind_changed) and must not be consulted either. A node that
+            # ALREADY carries stored (xy 0.0 0.0) (the workaround used before
+            # this fix) loads and redraws as-is; an Apply on it rewrites the node
+            # without them, which is the shape the grammar wants.
             xy = None
-        else:
-            xy = (board_offset_to_local_mm((fields["x"], fields["y"]), base_rot)
-                  if online else (fields["x"], fields["y"]))
             polar = None
+            rotation = 0.0
+        else:
+            fields, err = self.offset_widget.build()
+            if err:
+                QMessageBox.warning(self, _("Add node"), err)
+                return None
+            # Board frame -> config frame: the save half of the pair _prefill
+            # opens. What the user typed is a board-frame offset / absolute
+            # angle; the node stores the base's LOCAL offset / RELATIVE angle.
+            # base_rot is the SAME cached value _prefill displayed — no
+            # re-resolution, no drift.
+            base_rot = self._base_rotation_deg()
+            online = base_rot is not None
+            if "radius" in fields:
+                # Polar is exact: radius untouched, angle shifted by the base.
+                polar = (fields["radius"],
+                         (board_rotation_to_local_deg(fields["angle"], base_rot)
+                          if online else fields["angle"]))
+                xy = None
+            else:
+                xy = (board_offset_to_local_mm((fields["x"], fields["y"]), base_rot)
+                      if online else (fields["x"], fields["y"]))
+                polar = None
 
-        try:
-            rotation = float(self.rotation_edit.text()) if self.rotation_edit.text().strip() else 0.0
-        except ValueError:
-            QMessageBox.warning(self, _("Add node"), _("Rotation must be a number."))
-            return None
-        if online:
-            rotation = board_rotation_to_local_deg(rotation, base_rot)
+            try:
+                rotation = float(self.rotation_edit.text()) if self.rotation_edit.text().strip() else 0.0
+            except ValueError:
+                QMessageBox.warning(self, _("Add node"), _("Rotation must be a number."))
+                return None
+            if online:
+                rotation = board_rotation_to_local_deg(rotation, base_rot)
 
         name = self.name_edit.text().strip() or None
         group = self.group_edit.text().strip() or None
-        kind = self.kind_combo.currentData()
         # No pivot on a node any more (2026-09-11, plan §V.3): the tree's inner
         # point is edited on the tree (stage Б2.1); the widget above is hidden.
         # A mount node WITHOUT a Role anchor is a hard refusal (a mount node is
