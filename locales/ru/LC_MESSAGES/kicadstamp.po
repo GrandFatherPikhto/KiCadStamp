@@ -16116,6 +16116,11 @@ msgid "copper"
 msgstr "медь"
 
 #: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Copper ({count})"
+msgstr "Медь ({count})"
+
+#: gui/docks/trees_dock.py
 msgid "copper container name (unique in tree)"
 msgstr "имя контейнера меди (уникально в дереве)"
 

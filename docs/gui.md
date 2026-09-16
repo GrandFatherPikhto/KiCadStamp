@@ -525,6 +525,23 @@ visualisation and are never written to the config. The suspension point itself h
 construction it always lands exactly on the anchor (`resolve_module_effective_base` inverts the pivot onto
 the marker), so a second circle there would sit on top of the anchor.
 
+**UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
+tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
+VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is
+`Copper ({count})` and it is written nowhere; the copper nodes keep their own place in the file (nothing
+is moved or normalized, on load or on save) and their rows are gathered by it from wherever they lie
+(root, a legacy `kind "copper"` container, deeper). The row exists only when the tree HAS copper, it
+starts COLLAPSED, and its expanded/collapsed state is remembered per tree under its own key (next to the
+anchor's). Marking its checkbox marks every copper row, so **Redraw selected** takes exactly those
+records — the pseudo-row itself is never collected. Selecting it leaves the right-hand panel EMPTY, it
+has NO context menu at all and double-clicking it does nothing. A legacy `kind "copper"` container row is
+not drawn any more (its children are gathered like any other copper), and **Reread inter-node copper** no
+longer creates a container: fresh copper goes into an EXISTING one when the tree has it, else into the
+tree root. A copper node's own context menu is down to the three things it can act on — **Select copper
+on board** / **Redraw** / **Delete node**: it has no coordinates (its geometry lives in the record), no
+own name and no children, and its place IN THE FILE is no longer visible, so the structural actions would
+act on something the user cannot see.
+
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail panel for a selected node, and inside the modal Add dialog while no node exists
 yet: **General**

@@ -618,9 +618,11 @@ exempt from the one-ref-per-file rule, unique within its tree and not colliding 
 ref there. Two load-time fatals: at most ONE container per tree, and every DIRECT child must be
 `kind "net_trace"`. Where the container hangs is free, and `xy`/`polar`/`rotation` on it are accepted but
 never consulted. It cannot serve as a tree's inner point (a container places nothing, so it has no
-position in the layout). The inter-node-copper re-read puts freshly found copper INSIDE the container,
-creating it (named `copper`, or the first free `copper_2`, …) when the tree has none; copper nodes already
-sitting in the root are left exactly where they are.
+position in the layout). The inter-node-copper re-read puts freshly found copper INSIDE the container when
+a tree has one, and otherwise in the tree ROOT: since 2026-09-16 (plan_2026_09_16_copper_pseudo_node) the
+dock's VIEW folds every copper node under one "Copper" pseudo-row, so this path no longer CREATES a
+container — a second, data-side grouping mechanism is not wanted. Copper nodes already sitting somewhere
+are left exactly where they are, and nothing is moved or normalized on load or save.
 
 **Component node (2026-09-17, plan_2026_09_17_order_pass_and_component_node Э3).** A node may have
 `kind "component"`: it places ONE already-existing board component — no cell, no Entity, no record of any

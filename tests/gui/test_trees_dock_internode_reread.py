@@ -3,11 +3,14 @@
 (plan_2026_09_12_internode_copper_core, stage Э4; design §6).
 
 The live-board half runs on a worker and is covered by
-tests/test_internode_capture.py; what is pinned down HERE is the container
-behaviour on the UI thread:
-  * the new records become kind="net_trace" nodes INSIDE the tree's copper
-    CONTAINER, which this path creates when the tree has none (ref = identity,
-    P.2.5 — before 2026-09-16 they went to the tree ROOT);
+tests/test_internode_capture.py; what is pinned down HERE is where the new
+nodes LAND on the UI thread:
+  * the new records become kind="net_trace" nodes INSIDE the tree's EXISTING
+    copper container when it has one, and in the tree ROOT when it has none —
+    Т1.4 of plan_2026_09_16_copper_pseudo_node SUPERSEDES P.2.5: this path no
+    longer CREATES a container at all, because the VIEW folds the copper under
+    its "Copper" pseudo-node (a second, data-side grouping mechanism is no
+    longer wanted);
   * the records the re-read did not find are MARKED, not deleted, and the mark
     never touches the config;
   * the touched records are STAGED into the working set (Save persists them)
@@ -135,18 +138,15 @@ def test_finish_adds_nodes_marks_missing_and_stages(main_window, tmp_path):
         "narrowed_to_selection": True,
     })
 
-    # the new unit went INTO a freshly created copper CONTAINER (P.2.5), which
-    # is what now sits last in the tree root
-    container = tree.nodes[-1]
-    assert container.kind == "copper" and container.ref == "copper"
-    assert len([n for n in tree.nodes if n.kind == "copper"]) == 1
-    node = container.children[-1]
+    # Т1.4 (plan_2026_09_16_copper_pseudo_node): the new unit goes to the tree
+    # ROOT — exactly where it went before 2026-09-16 — and NO container is
+    # created, since the view's "Copper" pseudo-node now does the folding
+    node = tree.nodes[-1]
     assert node.kind == "net_trace" and node.ref == added_identity
     assert node.xy is None
-    # Denis' existing root-level copper node was NOT moved into the container —
-    # that would be an unrequested rewrite of his config (P.2.5)
+    assert not [n for n in tree.nodes if n.kind == "copper"]
+    # Denis' pre-existing root-level copper node was NOT touched or moved
     assert "gone__a__z" in [n.ref for n in tree.nodes]
-    assert "gone__a__z" not in [c.ref for c in container.children]
 
     # nothing was removed: the unfound record stays a node AND a record
     assert "gone__a__z" in [n.ref for n in tree.nodes]
@@ -201,11 +201,13 @@ def test_finish_uses_an_existing_container_however_it_is_named(main_window, tmp_
                                                       added_identity]
 
 
-def test_finish_picks_a_free_container_name_when_copper_is_taken(
+def test_finish_ignores_a_node_merely_named_copper(
        main_window, tmp_path, caplog):
-   """С9: the default container name is "copper"; when another node of the file
-   already owns it, the first free suffixed name is used AND the substitution is
-   logged (a silently renamed node would be untraceable in the tree)."""
+   """Т1.4 supersedes С9's name-substitution rule: this path no longer creates a
+   container at all, so a node that merely OWNS the name "copper" (here an
+   ordinary external node) is neither mistaken for one nor renamed. The fresh
+   copper goes to the ROOT, the look-alike node stays byte-for-byte as it was,
+   and nothing is logged about a name that is no longer being taken."""
    record = _record()
    nodes = [
        {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
@@ -227,13 +229,14 @@ def test_finish_picks_a_free_container_name_when_copper_is_taken(
            "plan": plan, "cfg": apply_reread_plan(dock._cfg, plan), "tree": tree,
            "added": [added_identity], "narrowed_to_selection": True})
 
-   container = next(n for n in tree.nodes if n.kind == "copper")
-   assert container.ref == "copper_2"
-   assert [c.ref for c in container.children] == [added_identity]
-   # the node that OWNED the name is untouched
+   assert not [n for n in tree.nodes if n.kind == "copper"]
+   assert tree.nodes[-1].ref == added_identity
+   # the node that OWNED the name is untouched — same ref, still the same kind
+   lookalike = next(n for n in tree.nodes if n.ref == "copper")
+   assert lookalike.kind == "external"
    assert [n.ref for n in tree.nodes].count("copper") == 1
-   assert any("Copper container name 'copper' is taken" in r.getMessage()
-              for r in caplog.records)
+   assert not any("is taken by another node" in r.getMessage()
+                  for r in caplog.records)
 
 
 def test_finish_with_nothing_changed_keeps_the_tree_and_is_clean(main_window, tmp_path):

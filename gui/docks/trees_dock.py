@@ -183,6 +183,52 @@ _REDRAWABLE_NODE_KINDS = frozenset(
 _POSITIONLESS_NODE_KINDS = frozenset({"net_trace", "copper"})
 
 
+# ── The "Copper" pseudo-node (2026-09-16, plan_2026_09_16_copper_pseudo_node) ──
+#
+# A VIEW-ONLY row (Т1.1/Т1.2): it exists in the widget tree and in NOTHING else
+# — no TreeNode, no config entry, no record, and it is deliberately absent from
+# _node_items (so it can never be collected as a checked ref). Its ONE job is to
+# gather every kind="net_trace" row of the tree into one foldable place: five
+# copper nodes lying flat in the root are pure clutter and cannot be operated on
+# (a copper node has no coordinates to edit — a record's copper is offset from
+# its OWN anchor pad).
+#
+# Its UserRole payload is therefore a MARKER OBJECT — not None (that is the
+# anchor pseudo-root, Ф1), not a str (that is a tree-navigation pseudo item) and
+# not a TreeNode (that is a real node) — and every place that decodes UserRole
+# names it explicitly.
+class _CopperGroupItem:
+    """Sentinel carried in UserRole by the "Copper" pseudo-node's row (Т1.2).
+
+    The CLASS is the identity _is_copper_group_item matches on, so a freshly
+    built marker is never mistaken for a TreeNode, a str or the anchor's None."""
+
+
+def _is_copper_group_item(data) -> bool:
+    """True when `data` (a row's UserRole payload) is the "Copper" pseudo-node
+    marker — the ONE predicate every UserRole decoder asks, so no decoder can
+    forget the marker and fall into the anchor branch (Ф1: "no UserRole" used to
+    mean "the anchor pseudo-root")."""
+    return isinstance(data, _CopperGroupItem)
+
+
+# Panel identity of the "Copper" pseudo-node's selection (Т1.2): selecting it
+# leaves the right-hand panel EMPTY, which is neither "a node's editor"
+# (_current_node_ref is a ref str) nor "the anchor form / the read-only stub"
+# (_current_node_ref is None) — so the panel state needs a value of its own, or
+# _refresh_form_panel's "same selection, keep the form" guard would confuse the
+# empty panel with the anchor form and keep the wrong one.
+_COPPER_GROUP_PANEL = object()
+
+# Node kinds that NEVER get a row in their file position any more: they are
+# drawn under the "Copper" pseudo-node instead (Т1.1) — every "net_trace" row,
+# plus the legacy kind "copper" CONTAINER row, which the pseudo-node replaces as
+# the folding mechanism (Т1.4: a container in an existing file still LOADS and
+# is still appended to, it is just not drawn — its children are shown under the
+# pseudo-node like every other copper node).
+_COPPER_ROW_KINDS = frozenset({"net_trace", "copper"})
+
+
 def _anchor_label(anchor: TreeAnchor) -> str:
     """Human-readable label for a tree's anchor pseudo-root — one branch per
     TreeAnchor mode; never renders "None" (2026-08-31, anchor-dialog GUI gap:
@@ -828,7 +874,9 @@ class TreesDock(QWidget):
         # ACTIVE page's Node tab, or None when the hint is shown. Lets the
         # selection handler skip a rebuild when the SAME node is re-selected
         # (e.g. a "Redraw selected" checkbox toggle — plan §7.1.5).
-        self._current_node_ref: Optional[str] = None
+        # Optional[object], not Optional[str]: the "Copper" pseudo-node's empty
+        # panel is a third identity of its own (_COPPER_GROUP_PANEL, Т1.2).
+        self._current_node_ref: Optional[object] = None
         # (P1/P2, 2026-09-03, plan tree_ui_state_persistence): active-tab and
         # per-tree expand/collapse state. _pending_active_name is a NAME set by
         # set_root_file (the persisted active_tab) and consumed by the next
@@ -1137,6 +1185,12 @@ class TreesDock(QWidget):
             tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             tree_widget.customContextMenuRequested.connect(self._on_context_menu)
             tree_widget.itemSelectionChanged.connect(self._on_selection_changed)
+            # «Медь» checked -> every copper row checked (Т1.2). Qt does NOT
+            # propagate a tristate parent's check state by itself (measured:
+            # diagnostics/probe_tristate_propagation.py), so the one propagation
+            # this dock promises is implemented in the handler, scoped to the
+            # pseudo-node alone — every other row keeps its old behaviour.
+            tree_widget.itemChanged.connect(self._on_item_check_changed)
             tree_widget.itemDoubleClicked.connect(self._on_node_activated)
             # (P2) itemExpanded/itemCollapsed are per-tree-widget signals, so
             # each handler is bound to ITS tree's name (the handler must know
@@ -1308,14 +1362,36 @@ class TreesDock(QWidget):
             mutate(entry)
         self._update_trees_dock_state(_fn)
 
+    def _on_item_check_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        """The "Copper" pseudo-node's checkbox marks/unmarks EVERY copper row
+        under it (Т1.2).
+
+        Qt does not do this on its own: measured offscreen (diagnostics/
+        probe_tristate_propagation.py) a checkable+tristate parent leaves its
+        children exactly as they were, and this dock had no itemChanged handler
+        at all. The propagation is therefore implemented here and ONLY for the
+        pseudo-node — every other row's checkbox behaves exactly as before.
+        Ignored while _rebuild_tabs() repopulates: those check-state writes are
+        the render itself, not a user click (the same guard every other signal
+        handler of this dock uses)."""
+        if self._rebuilding_tabs or column != 0:
+            return
+        if not _is_copper_group_item(item.data(0, Qt.ItemDataRole.UserRole)):
+            return
+        state = item.checkState(0)
+        for index in range(item.childCount()):
+            child = item.child(index)
+            if child.checkState(0) != state:
+                child.setCheckState(0, state)
+
     def _on_item_expand_changed(self, tree_name: str,
                                 item: QTreeWidgetItem) -> None:
-        """A user expanded/collapsed a node or the anchor pseudo-root -> persist
-        that tree's expansion state. Ignored while _rebuild_tabs() is
-        repopulating — those events come from APPLYING the saved state and are
-        not user actions. Pseudo navigation items ("⇐ embedded in" / "⇐
-        instance of" / "→ instance: …") carry a str in UserRole and have no
-        children — nothing to persist."""
+        """A user expanded/collapsed a node, the anchor pseudo-root or the
+        "Copper" pseudo-node -> persist that tree's expansion state. Ignored
+        while _rebuild_tabs() is repopulating — those events come from APPLYING
+        the saved state and are not user actions. Pseudo navigation items ("⇐
+        embedded in" / "⇐ instance of" / "→ instance: …") carry a str in UserRole
+        and have no children — nothing to persist."""
         if self._rebuilding_tabs:
             return
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1339,12 +1415,24 @@ class TreesDock(QWidget):
             self._update_tree_ui_state(
                 tree_name,
                 lambda entry: entry.update({"anchor_expanded": expanded}))
+        elif _is_copper_group_item(data):
+            # The "Copper" pseudo-node (Т1.2) keeps its OWN key in the same
+            # per-tree entry: "no UserRole" is what means the ANCHOR (Ф1), so
+            # sharing anchor_expanded would make the two rows flip each other.
+            expanded = bool(item.isExpanded())
+            self._update_tree_ui_state(
+                tree_name,
+                lambda entry: entry.update({"copper_expanded": expanded}))
 
     def _capture_tree_expansion(self, tree_widget: QTreeWidget) -> dict:
         """Read the CURRENT expansion of one rendered tree into the persisted
-        entry shape {anchor_expanded, expanded_refs} — the final-flush path
-        (per-event handlers cover individual changes as they happen)."""
+        entry shape {anchor_expanded, copper_expanded, expanded_refs} — the
+        final-flush path (per-event handlers cover individual changes as they
+        happen). The "Copper" pseudo-node (Т1.2) is decoded FIRST: its marker is
+        an object, but it must never reach the anchor branch, which is what
+        "no UserRole at all" means."""
         anchor_expanded = False
+        copper_expanded = False
         expanded_refs: list = []
         it = QTreeWidgetItemIterator(tree_widget)
         while it.value():
@@ -1353,10 +1441,13 @@ class TreesDock(QWidget):
                 data = item.data(0, Qt.ItemDataRole.UserRole)
                 if isinstance(data, TreeNode):
                     expanded_refs.append(data.ref)
+                elif _is_copper_group_item(data):
+                    copper_expanded = True
                 elif data is None:
                     anchor_expanded = True
             it += 1
         return {"anchor_expanded": anchor_expanded,
+                "copper_expanded": copper_expanded,
                 "expanded_refs": expanded_refs}
 
     def _good_page_splitter_sizes(self, name: str,
@@ -1422,17 +1513,21 @@ class TreesDock(QWidget):
                      saved_entry: Optional[dict] = None) -> None:
         """Read-only render: (for a generated instance) one "⇐ instance of
         {template}" pseudo-root at the very top; then a pseudo-root item for
-        the anchor and the tree's top-level nodes recursively; then "embedded
-        in X" pseudo items per module-embedding parent AND (for a template
-        tree) one "→ instance: {name}" pseudo item per tree_instances:
-        declaration that references it. Every pseudo item is non-selectable and
-        carries the target TREE NAME (a plain str) in UserRole for double-click
-        navigation.
+        the anchor and the tree's top-level nodes recursively; then the "Copper"
+        pseudo-node (Т1.1, and only when the tree HAS copper) with EVERY copper
+        node of the tree under it; then "embedded in X" pseudo items per module-
+        embedding parent AND (for a template tree) one "→ instance: {name}"
+        pseudo item per tree_instances: declaration that references it. Every
+        pseudo item is non-selectable (the anchor row and "Copper" are the two
+        SELECTABLE pseudo-rows, and each decodes its own way — see
+        _is_copper_group_item and the module comment above it) and carries the
+        target TREE NAME (a plain str) in UserRole for double-click navigation.
 
         saved_entry is the P2 per-tree expansion state from gui_state.json
-        ({anchor_expanded, expanded_refs}) — when present it is re-applied to
-        the freshly built items; when absent (new/renamed tree, first run) the
-        items keep the Qt default (collapsed), which is today's behavior."""
+        ({anchor_expanded, copper_expanded, expanded_refs}) — when present it is
+        re-applied to the freshly built items; when absent (new/renamed tree,
+        first run) the items keep the Qt default (collapsed), which is today's
+        behavior."""
         # A generated instance points back at its template (P2).
         inst = self._instance_of(tree)
         if inst is not None:
@@ -1447,6 +1542,10 @@ class TreesDock(QWidget):
         # conversion is needed (unlike ConfigTreeDock, design §1.4/§3.1).
         entry = saved_entry if isinstance(saved_entry, dict) else {}
         anchor_expanded = bool(entry.get("anchor_expanded", False))
+        # Т1.2: the "Copper" pseudo-node keeps its OWN expansion flag in the same
+        # per-tree entry — "no UserRole" already means the ANCHOR here, so the
+        # two rows must never share a key (default: collapsed).
+        copper_expanded = bool(entry.get("copper_expanded", False))
         raw_refs = entry.get("expanded_refs")
         expanded_refs = ({r for r in raw_refs if isinstance(r, str)}
                          if isinstance(raw_refs, list) else set())
@@ -1463,6 +1562,12 @@ class TreesDock(QWidget):
             self._render_node(anchor_item, node, expanded_refs,
                               dup_refs=dup_refs, dup_tooltip=dup_tooltip,
                               pivot_ref=tree.pivot_ref)
+        # The "Copper" pseudo-node (Т1.1) is the LAST row under the anchor, and
+        # only when the tree has copper at all.
+        self._render_copper_group(anchor_item, tree,
+                                 copper_expanded=copper_expanded,
+                                 expanded_refs=expanded_refs,
+                                 dup_refs=dup_refs, dup_tooltip=dup_tooltip)
         # The anchor pseudo-root is the one item that shows/hides the tree's
         # ENTIRE content — persist/restore its expansion separately from nodes.
         anchor_item.setExpanded(anchor_expanded)
@@ -1489,11 +1594,14 @@ class TreesDock(QWidget):
         single click already shows that node's editor on the master-detail Node
         tab, so the double-click is a convenience that just makes sure the node
         is selected and brings the Node tab to the front. The anchor pseudo-root
-        (no TreeNode) does nothing."""
+        (no TreeNode) and the "Copper" pseudo-node do nothing at all — the latter
+        is a fold, not a target (Т1.2)."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(data, str):
             self._switch_to_tree(data)
             return
+        if _is_copper_group_item(data):
+            return  # the "Copper" pseudo-node: nothing to open
         if not isinstance(data, TreeNode):
             return  # anchor pseudo-root
         if data.kind == "module":
@@ -1612,7 +1720,26 @@ class TreesDock(QWidget):
                      expanded_refs: Optional[set] = None,
                      dup_refs: Optional[set] = None,
                      dup_tooltip: Optional[str] = None,
-                     pivot_ref: Optional[str] = None) -> None:
+                     pivot_ref: Optional[str] = None,
+                     *, copper_rows: bool = False) -> None:
+        """Draw `node` and its subtree under `parent_item`.
+
+        A copper row is drawn ONLY under the "Copper" pseudo-node (Т1.1): the
+        walk is filtered HERE, at every level, because a net_trace node may sit
+        anywhere in the file (root, a legacy "copper" container, deeper under a
+        placement node) and Т1.1 asks for ALL of them in the one place — so a
+        file-position row is never drawn. `copper_rows=True` is how
+        _render_copper_group draws them once, under the pseudo-node."""
+        if not copper_rows and node.kind in _COPPER_ROW_KINDS:
+            # A hand-edited file may hang a child under a copper node (nothing
+            # forbids it outside a container). The row itself is not drawn here,
+            # but its CHILDREN still are, at this very position — a node must
+            # never silently disappear from the view.
+            for child in node.children:
+                self._render_node(parent_item, child, expanded_refs,
+                                  dup_refs=dup_refs, dup_tooltip=dup_tooltip,
+                                  pivot_ref=pivot_ref)
+            return
         item = QTreeWidgetItem(parent_item)
         is_handle = pivot_ref is not None and node.ref == pivot_ref
         stale = self._is_stale_net_trace(node)
@@ -1639,6 +1766,43 @@ class TreesDock(QWidget):
         if expanded_refs is None:
             expanded_refs = set()
         item.setExpanded(node.ref in expanded_refs)
+
+    def _render_copper_group(self, parent_item: QTreeWidgetItem, tree: Tree, *,
+                             copper_expanded: bool,
+                             expanded_refs: Optional[set] = None,
+                             dup_refs: Optional[set] = None,
+                             dup_tooltip: Optional[str] = None) -> None:
+        """Draw the "Copper" pseudo-node of `tree` under `parent_item` — or
+        nothing at all when the tree has no copper (Т1.1: no copper, no
+        pseudo-node; a legacy "copper" container with no children therefore
+        renders as nothing, its own row is never drawn).
+
+        The row is purely a VIEW: it holds no TreeNode (its UserRole is the
+        _CopperGroupItem marker, Т1.2), it is NOT put into _node_items (so it
+        can never be collected as a checked ref and never counts as a node), and
+        it carries the SAME checkbox flags a node with children has — checking
+        it marks every copper row (the propagation Qt does not do by itself is
+        in _on_item_check_changed). Every copper node of the tree goes under it,
+        wherever it sits in the file, in DOCUMENT order (Т1.1); the place a node
+        occupies in the file is not touched. The row is collapsed unless the
+        saved copper_expanded says otherwise (Т1.2)."""
+        copper_nodes = [n for n in _walk_nodes(tree.nodes)
+                        if n.kind == "net_trace"]
+        if not copper_nodes:
+            return
+        item = QTreeWidgetItem(parent_item)
+        item.setText(0, _("Copper ({count})").format(count=len(copper_nodes)))
+        item.setData(0, Qt.ItemDataRole.UserRole, _CopperGroupItem())
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                      | Qt.ItemFlag.ItemIsUserTristate)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
+        for node in copper_nodes:
+            self._render_node(item, node, expanded_refs, dup_refs=dup_refs,
+                              dup_tooltip=dup_tooltip,
+                              pivot_ref=tree.pivot_ref, copper_rows=True)
+        # setExpanded is only meaningful on a populated parent, so it comes
+        # after the children exist (the same order _render_node uses).
+        item.setExpanded(bool(copper_expanded))
 
     def _refresh_tree_marks(self, tree: Optional[Tree]) -> None:
         """Re-apply the informational ROW MARKS (suspension handle, duplicate
@@ -1709,6 +1873,11 @@ class TreesDock(QWidget):
             self._show_status("")
             return
         node = items[0].data(0, Qt.ItemDataRole.UserRole)
+        if _is_copper_group_item(node):
+            # The "Copper" pseudo-node is a fold over copper rows, not data of
+            # its own (Т1.2) — an empty status, exactly like the anchor row.
+            self._show_status("")
+            return
         if not isinstance(node, TreeNode):
             # The pseudo-root anchor item carries no node — show nothing.
             self._show_status("")
@@ -1882,11 +2051,17 @@ class TreesDock(QWidget):
         happens."""
         return bool(form is not None and getattr(form, "_touched", False))
 
-    def _current_panel_node_ref(self, panel: QStackedWidget) -> Optional[str]:
-        """The ref of the real node whose editor the panel currently shows, or
-        None for the anchor form / a stub / the placeholder — keeps the §7.1.5
-        rebuild guard in sync with the form actually on screen."""
-        form = self._embedded_form_of(self._panel_page(panel))
+    def _current_panel_node_ref(self, panel: QStackedWidget) -> Optional[object]:
+        """The ref of the real node whose editor the panel currently shows,
+        _COPPER_GROUP_PANEL for the "Copper" pseudo-node's empty page (Т1.2 —
+        recognised by the page's own property, so a tab round-trip cannot turn it
+        back into the anchor form), or None for the anchor form / a stub / the
+        placeholder — keeps the §7.1.5 rebuild guard in sync with the form
+        actually on screen."""
+        page = self._panel_page(panel)
+        if page is not None and bool(page.property("_copper_group_page")):
+            return _COPPER_GROUP_PANEL
+        form = self._embedded_form_of(page)
         existing = getattr(form, "_existing", None) if form is not None else None
         return existing.ref if isinstance(existing, TreeNode) else None
 
@@ -1952,10 +2127,11 @@ class TreesDock(QWidget):
         self._current_node_ref = self._fill_form_panel(panel)
         panel.setProperty("_panel_built", True)
 
-    def _fill_form_panel(self, panel: QStackedWidget) -> Optional[str]:
+    def _fill_form_panel(self, panel: QStackedWidget) -> Optional[object]:
         """Set `panel`'s content to the form the CURRENT tree + selection call
-        for; returns the ref of the node whose editor is shown (None for the
-        anchor form / the read-only stub / no tree)."""
+        for; returns the IDENTITY of what is shown — the ref of the node whose
+        editor it is, _COPPER_GROUP_PANEL for the "Copper" pseudo-node's EMPTY
+        panel, or None for the anchor form / the read-only stub / no tree."""
         tree = self._current_tree()
         if tree is None:
             return None
@@ -1965,6 +2141,12 @@ class TreesDock(QWidget):
             # tree's anchor/nodes belong to the template + the declaration.
             self._set_panel_content(panel, self._read_only_stub(inst))
             return None
+        if self._selected_copper_group(tree):
+            # Т1.2: the "Copper" pseudo-node has nothing to edit and nothing to
+            # show, so the panel is left EMPTY. It is NOT the "no node" case
+            # below: that one means the anchor row and shows the anchor form.
+            self._set_panel_content(panel, self._empty_selection_page())
+            return _COPPER_GROUP_PANEL
         node = self._selected_real_node(tree)
         if node is not None:
             self._set_panel_content(
@@ -1974,10 +2156,21 @@ class TreesDock(QWidget):
             panel, self._form_action_row(self._build_anchor_form(tree)))
         return None
 
+    @staticmethod
+    def _empty_selection_page() -> QWidget:
+        """A blank right-hand panel page — what the "Copper" pseudo-node shows
+        (Т1.2). The property is how _current_panel_node_ref recognises this page
+        when the panel is READ BACK (a tab switch) instead of re-filled, so the
+        empty panel survives like the panel's other contents do."""
+        page = QWidget()
+        page.setProperty("_copper_group_page", True)
+        return page
+
     def _selected_real_node(self, tree: Tree) -> Optional[TreeNode]:
         """The currently selected REAL TreeNode of `tree`'s widget, or None —
         pseudo-roots (anchor, "⇐ embedded in", "→ instance:") carry a str /
-        nothing and are not editable nodes."""
+        nothing and are not editable nodes, and the "Copper" pseudo-node (Т1.2)
+        carries a marker object, so it is not one either."""
         tree_widget = self._tree_widget_for(tree)
         if tree_widget is None:
             return None
@@ -1986,6 +2179,18 @@ class TreesDock(QWidget):
             return None
         node = items[0].data(0, Qt.ItemDataRole.UserRole)
         return node if isinstance(node, TreeNode) else None
+
+    def _selected_copper_group(self, tree: Tree) -> bool:
+        """True when the CURRENT selection of `tree`'s widget is the "Copper"
+        pseudo-node (Т1.2) — the one selection whose right-hand panel must stay
+        EMPTY. Asked separately from _selected_real_node because "not a real
+        node" is ALSO the anchor row, which shows the anchor form."""
+        tree_widget = self._tree_widget_for(tree)
+        if tree_widget is None:
+            return False
+        items = tree_widget.selectedItems()
+        return bool(items) and _is_copper_group_item(
+            items[0].data(0, Qt.ItemDataRole.UserRole))
 
     def _tree_widget_for(self, tree: Tree) -> Optional[QTreeWidget]:
         """The left QTreeWidget of the page whose tab index matches `tree`."""
@@ -2007,7 +2212,9 @@ class TreesDock(QWidget):
         toggle re-selects the same row and must not tear the form down (or flash
         a discard notice) on every click. The None→None case (root row / cleared
         selection) is likewise left alone, so clicking the root does not rebuild
-        the anchor form under the user.
+        the anchor form under the user. The "Copper" pseudo-node (Т1.2) is a
+        THIRD identity (_COPPER_GROUP_PANEL), not another None: it must be able
+        to flip between the empty panel and the anchor form and back.
 
         §7.1.4: a node of a generated INSTANCE tree is read-only — the panel gets
         the same stub as the instance context menu, never an editor."""
@@ -2018,9 +2225,15 @@ class TreesDock(QWidget):
         if tree is None:
             return False
         node = self._selected_real_node(tree)
-        new_ref = node.ref if node is not None else None
+        # Т1.2: "the "Copper" pseudo-node selected" is an identity of its own —
+        # it must NOT compare equal to the anchor's None (the two are different
+        # panels), hence _COPPER_GROUP_PANEL rather than a plain None.
+        if self._selected_copper_group(tree):
+            new_ref = _COPPER_GROUP_PANEL
+        else:
+            new_ref = node.ref if node is not None else None
         if new_ref == self._current_node_ref:
-            return False  # same node / still the anchor form — keep the form
+            return False  # same selection — keep the form (or the empty panel)
         discarded = self._discard_if_touched(
             self._embedded_form_of(self._panel_page(panel)))
         self._current_node_ref = self._fill_form_panel(panel)
@@ -2347,26 +2560,54 @@ class TreesDock(QWidget):
             menu.exec(tree_widget.viewport().mapToGlobal(pos))
             return
 
+        if _is_copper_group_item(node):
+            # The "Copper" pseudo-node shows NO menu at all (Т1.2): it is a fold,
+            # not a node. Without this the row would fall through to the ANCHOR
+            # menu below (it is neither a TreeNode nor a str) and offer to add
+            # nodes to a row that is not the anchor.
+            return
+
         menu = QMenu(tree_widget)
+        if isinstance(node, TreeNode) and node.kind == "net_trace":
+            # Т1.3 (2026-09-16, plan_2026_09_16_copper_pseudo_node): a copper
+            # node offers exactly the three things it can DO. Everything else the
+            # node menu offers is meaningless for it:
+            #   * Add child / Add sibling — a copper node is a REFERENCE to a
+            #     net_traces: record and its copper is offset from its OWN anchor
+            #     pad, so there is no position of its own to hang a new node from;
+            #   * Reread current position — the node carries no coordinates at
+            #     all (the geometry lives in the record), so a read would have
+            #     nothing to write;
+            #   * Edit node… / Rename… — its ref IS the record's identity, and the
+            #     form's other fields are hidden for this kind anyway;
+            #   * Move to… / Move up / Move down — a copper node's place IN THE
+            #     FILE is no longer visible (Т1.1 draws every copper row under the
+            #     "Copper" pseudo-node), so reordering it there would act on
+            #     something the user cannot see. The rows keep document order and
+            #     each record's own placement is independent of the others', so
+            #     nothing is lost by not offering it.
+            # Э2 (design §12.1): highlight THIS record's live copper. Read-only —
+            # the selection is editor UI state, not a board edit.
+            menu.addAction(_("Select copper on board")).triggered.connect(
+                lambda: self._on_select_copper_by_record(node))
+            # P.2.3 (2026-09-16): the SAME redraw the node form's button runs,
+            # offered where a copper node's user actually is. The form's own
+            # Redraw button is not built for a form with no fields (the row would
+            # be an empty stub), so this menu entry is the copper node's way into
+            # _redraw_edited_node — ONE implementation, two entry points, no
+            # second code path.
+            menu.addAction(_("Redraw")).triggered.connect(
+                lambda: self._redraw_edited_node(node))
+            menu.addAction(_("Delete node")).triggered.connect(
+                lambda: self._delete_node_flow(tree, node))
+            menu.exec(tree_widget.viewport().mapToGlobal(pos))
+            return
         if isinstance(node, TreeNode):
             # Node-level actions.
             menu.addAction(_("Add child")).triggered.connect(
                 lambda: self._add_child_flow(tree, node))
             menu.addAction(_("Add sibling")).triggered.connect(
                 lambda: self._add_sibling_flow(tree, node))
-            if node.kind == "net_trace":
-                # Э2 (design §12.1): highlight THIS record's live copper. Read-
-                # only — the selection is editor UI state, not a board edit.
-                menu.addAction(_("Select copper on board")).triggered.connect(
-                    lambda: self._on_select_copper_by_record(node))
-                # P.2.3 (2026-09-16): the SAME redraw the node form's button
-                # runs, offered where a copper node's user actually is. The
-                # form's own Redraw button is not built for a form with no
-                # fields (the row would be an empty stub), so this menu entry
-                # is the copper node's way into _redraw_edited_node — ONE
-                # implementation, two entry points, no second code path.
-                menu.addAction(_("Redraw")).triggered.connect(
-                    lambda: self._redraw_edited_node(node))
             menu.addAction(_("Reread current position")).triggered.connect(
                 lambda: self._reread_node_flow(tree, node))
             # §3.3: 'Edit node…' no longer opens the modal — a single click on
@@ -2884,55 +3125,32 @@ class TreesDock(QWidget):
         show_message(_("Reread inter-node copper failed: {error}")
                      .format(error=message), _ERROR_STYLE, logger)
 
-    def _copper_container(self, tree: Tree) -> TreeNode:
-        """The tree's kind "copper" CONTAINER, created — and appended to the tree
-        root — when the tree has none (2026-09-16, plan_2026_09_16_copper_node_
-        order_and_container P.2.5).
+    @staticmethod
+    def _copper_reread_children(tree: Tree) -> list:
+        """The node LIST a re-read's fresh copper nodes are appended to (Т1.4).
 
-        A re-read hands the tree new copper nodes, and they belong INSIDE this
-        container instead of loose in the root, where five of them are pure noise
-        (Д3: they cannot be operated on — a copper node has no coordinates to
-        edit).
+        A tree that ALREADY has a kind "copper" container keeps using it (found
+        at any depth, however it is named), so a file with one is not broken by
+        this change. A tree WITHOUT one gets its fresh copper nodes in the ROOT —
+        exactly as before 2026-09-16. The container is deliberately NOT created
+        any more: the VIEW folds the copper under the "Copper" pseudo-node (Т1.1),
+        so a second, DATA-side grouping mechanism is no longer wanted (it
+        superseded P.2.5 of plan_2026_09_16_copper_node_order_and_container, and
+        in Denis' profile the container never materialized anyway — his five
+        copper nodes sit in the root).
 
-        An EXISTING container is found first (at any depth, however it is named),
-        so a tree that already has one keeps using it. A tree without one gets a
-        container named "copper"; when that name is already taken by another node
-        of the file, the first free "copper_2"/"copper_3"/… is used and the
-        substitution is LOGGED — a silently renamed node would be untraceable in
-        the tree. Only a NEW container is ever created here: existing copper
-        nodes already sitting in the root are deliberately left exactly where
-        they are (moving them would rewrite the user's own config, which this
-        task has no permission for — P.2.5)."""
+        Existing copper nodes are never MOVED, here or anywhere else: relocating
+        them would rewrite the user's own config (Т1.4)."""
         existing = next(
             (n for n in _walk_nodes(tree.nodes) if n.kind == "copper"), None)
-        if existing is not None:
-            return existing
-        ref = "copper"
-        if ref in self._used_refs():
-            index = 2
-            while self._copper_container_candidate(ref, index) in self._used_refs():
-                index += 1
-            chosen = self._copper_container_candidate(ref, index)
-            logger.info(_("Copper container name {ref!r} is taken by another node "
-                          "— using {chosen!r} instead")
-                        .format(ref=ref, chosen=chosen))
-            ref = chosen
-        container = TreeNode(ref=ref, kind="copper", xy=None, polar=None,
-                             rotation=0.0, name=None, group=None, children=[])
-        tree.nodes.append(container)
-        return container
-
-    @staticmethod
-    def _copper_container_candidate(base: str, index: int) -> str:
-        """The nth fallback name for a copper container ("copper_2", …). ONE
-        definition, so the search and the final pick can never disagree."""
-        return "{base}_{index}".format(base=base, index=index)
+        return existing.children if existing is not None else tree.nodes
 
     def _finish_reread_internode_copper(self, result: dict) -> None:
         """The re-read's result, on the UI thread: adopt the fresh records, add
-        the tree nodes for the NEW ones (inside the tree's copper CONTAINER,
-        P.2.5), remember what was NOT found (the stale mark), stage both sections
-        and report — in the Log, never a modal."""
+        the tree nodes for the NEW ones (into the tree's existing copper
+        container when it has one, else into the root — Т1.4), remember what was
+        NOT found (the stale mark), stage both sections and report — in the Log,
+        never a modal."""
         from kicadstamp.internode_capture import reread_report_lines
 
         self._active_op = None
@@ -2941,15 +3159,14 @@ class TreesDock(QWidget):
         if self._cfg is not None:
             self._cfg = result["cfg"]
         if result["added"]:
-            # ONE container for the whole added batch: looking it up per node
-            # would re-walk the tree after every append, and a container created
-            # by the first iteration would be found again by the second.
-            container = self._copper_container(tree)
+            # ONE target list for the whole added batch: looking it up per node
+            # would re-walk the tree after every append.
+            target = self._copper_reread_children(tree)
             for identity in result["added"]:
                 # A net_trace node carries NO xy: its record stores the copper as
                 # local offsets from its OWN anchor (the same node shape the
                 # extract dialog builds), so the node is purely the reference.
-                container.children.append(
+                target.append(
                     TreeNode(ref=identity, kind="net_trace", xy=None,
                              polar=None, rotation=0.0, name=None,
                              group=None, children=[]))
