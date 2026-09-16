@@ -1164,6 +1164,11 @@ msgstr ""
 "Forest redraw: module content {name!r} has no stage-2 layout value — "
 "applied from its own record"
 
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Forest redraw: copper order edges unavailable ({error}); copper stays last, but not ordered against its own components"
+msgstr "Forest redraw: copper order edges unavailable ({error}); copper stays last, but not ordered against its own components"
+
 #: gui/docks/cascade.py:267
 #, python-brace-format
 msgid ""

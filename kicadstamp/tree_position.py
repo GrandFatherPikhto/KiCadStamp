@@ -1622,7 +1622,9 @@ def _module_content_record_refs(m: LinkedNode, kind: str | None = None) -> set[s
 
 
 def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
-                               selected_refs: set[str]) -> tuple[list[str], list[str]]:
+                               selected_refs: set[str],
+                               copper_deps: dict[str, set[str]] | None = None
+                               ) -> tuple[list[str], list[str]]:
     """Global curated-redraw order over a FOREST of linked trees: within-tree
     parent-before-child, cross-tree anchor edges, AND — when module markers are
     active (plan_2026_09_02_tree_module_embedding.md P3 п.1/1a, design P3
@@ -1653,11 +1655,23 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
       providers a cycle can appear where the old planner silently produced a
       wrong order, so the report has to say what to go and fix.
 
+    `copper_deps` (Э2 of the plan) — the optional live-board answer to "which
+    tree node places each component this piece of copper connects", as
+    `{copper ref: {node refs}}` from kicadstamp.copper_order. When given, the
+    copper provider turns them into edges, so a piece of copper is applied
+    after ITS OWN components instead of merely "after everything". Both the
+    builder and this parameter are OPTIONAL and best-effort: an end matching no
+    node of the run simply contributes no edge (Т2.1), and the coarse
+    "copper last" slot keeps working underneath for every case the edges cannot
+    express (Т2.2) — these edges refine the order, they can never make it
+    worse. None/empty means the pre-Э2 behaviour exactly.
+
     Returns (names, warnings): names is the global application order — record
     names (each record.name == its ref); module content records appear once
     through their module. point/external nodes are bases, never emitted. The
     D3 2+-parent conflict and any cycle raise ValidationError."""
-    return _plan_forest(_forest_index(linked_trees), linked_trees, selected_refs)
+    return _plan_forest(_forest_index(linked_trees), linked_trees, selected_refs,
+                        copper_deps=copper_deps)
 
 
 def curated_forest_module_content(linked_trees: list[LinkedTree],

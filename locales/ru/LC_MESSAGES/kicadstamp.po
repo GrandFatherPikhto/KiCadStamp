@@ -1167,6 +1167,11 @@ msgstr ""
 "Полная перерисовка: у module-контента {name!r} нет значения раскладки "
 "этапа 2 — применяется его собственная позиция записи"
 
+#: gui/docks/cascade.py
+#, python-brace-format
+msgid "Forest redraw: copper order edges unavailable ({error}); copper stays last, but not ordered against its own components"
+msgstr "Полная перерисовка: рёбра порядка меди недоступны ({error}); медь по-прежнему применяется последней, но без учёта её собственных компонентов"
+
 #: gui/docks/cascade.py:267
 #, python-brace-format
 msgid ""

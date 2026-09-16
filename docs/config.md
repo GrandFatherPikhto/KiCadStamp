@@ -627,7 +627,12 @@ sitting in the root are left exactly where they are.
 LIVE, so it depends on where the components ended up — while no component ever depends on copper. The
 planner defers every `net_trace` record behind every other record. Copper nodes also no longer carry the
 "will be redrawn from the current position of `<base>`" note: their base is their own anchor pad, never
-the tree parent, so the note was simply false for them.
+the tree parent, so the note was simply false for them. Since 2026-09-17 that order also has explicit
+edges: every `net_trace` record carries the ends it connects in `pads:` (`"ROLE.pad"`, e.g.
+`["AD_DAC.11", "C_OUT_BULK.1"]`), the live board says which tree node places each of those components,
+and the copper is ordered after THEM. The coarse rule above stays underneath as the safety net: a legacy
+record with no `pads:`, an end whose component no node of the run places, or a board that cannot be read
+all simply fall back to "copper last".
 
 **The order machine and its tie-breaker (2026-09-17).** The forest order is
 computed by ONE machine (`kicadstamp/order_pass.py`): a Kahn walk over the run's vertices in which every

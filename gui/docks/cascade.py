@@ -27,6 +27,7 @@ from kicadstamp.anchor_graph import build_anchor_graph, redraw_records_in_order
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.cli_common import api_error_message
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
+from kicadstamp.copper_order import copper_node_dependencies
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
@@ -262,7 +263,24 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     function behaves exactly as the pre-module forest redraw. Returns
     (run_cascade-style per-name results, the plan's warnings)."""
     linked = link_trees(cfg, trees)
-    names, warnings = curated_redraw_plan_forest(linked, selected_refs)
+
+    # Э2 (plan_2026_09_17): which tree node places each component a piece of
+    # copper connects — the record's own `pads:` ends resolved by the project's
+    # role predicate (trees.find_role_placement_matches), so no second rule of
+    # "where does this role live" is born here. PURE: no board read.
+    # Best-effort by contract (Т2.1/Т2.2): a config whose copper carries no
+    # `pads:`, or an end no node of its tree places, simply contributes no edges
+    # — the planner's "copper last" slot still holds the coarse guarantee.
+    copper_deps: Dict[str, set] = {}
+    try:
+        copper_deps = copper_node_dependencies(cfg)
+    except Exception as e:  # noqa: BLE001 — never break a redraw for edges
+        logger.warning(_("Forest redraw: copper order edges unavailable "
+                         "({error}); copper stays last, but not ordered "
+                         "against its own components").format(error=e))
+
+    names, warnings = curated_redraw_plan_forest(
+        linked, selected_refs, copper_deps=copper_deps)
     for warning in warnings:
         logger.warning(warning)
 
