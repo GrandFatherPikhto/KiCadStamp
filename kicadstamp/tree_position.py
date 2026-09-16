@@ -46,6 +46,7 @@ from .link_trees import (
     _resolve_anchor_ref,
     inline_anchor_field,
 )
+from .order_pass import EdgeProvider, run_order_pass
 from .placement.services.clone_position_calculator import ClonePositionCalculator
 from .placement.services.component_resolver import (
     ComponentResolver,
@@ -1168,106 +1169,355 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     return names, warnings
 
 
-def _forest_index(linked_trees: list[LinkedTree]):
-    """Combine every tree's node index and parent map into one forest-wide
-    index: {ref: LinkedNode} and {ref: parent_ref}. A top-level node's parent
-    is its TREE ANCHOR's ref (None for an origin anchor); a nested node's
-    parent is its enclosing node's ref. Because the anchor ref is the parent
-    of the top-level nodes, a tree whose anchor points at a node of ANOTHER
-    tree gets a cross-tree edge for free — the unified forest parent map is
-    what plan 3.2 (§9.3 cross-tree anchoring) needs."""
+def _emits_a_name(linked_node: LinkedNode) -> bool:
+    """Whether this node is a VERTEX of the redraw plan and emits a name.
+
+    ONE predicate for the whole module (plan_2026_09_17 Э1/Э3): every place
+    that used to spell the condition out by hand (`record is not None and
+    record.kind != "point"`) reads it from here, so the Э3 component node —
+    which carries NO config record at all and is planned through a transient
+    CoordPlacement — is added to the plan in ONE place instead of five.
+
+    The kinds that deliberately do NOT emit: `external` (record None, a live
+    refdes), `mount`/`copper` (record None, local names), `module` (a
+    pass-through vertex of its own), `point` (apply_only_filter has no support
+    for points at all)."""
+    if linked_node.node.kind == "component":
+        return True
+    return (linked_node.record is not None
+            and linked_node.record.kind != "point")
+
+
+def _is_copper(linked_node: LinkedNode) -> bool:
+    """A record node that carries inter-node copper (`net_traces:`)."""
+    return (linked_node.record is not None
+            and linked_node.record.kind == "net_trace")
+
+
+@dataclasses.dataclass
+class _ForestIndex:
+    """The forest-wide vertex view both order passes work on.
+
+    node_index / parent_map are ONE combined map over every tree: a top-level
+    node's parent is its TREE ANCHOR's ref (None for an origin anchor), a
+    nested node's parent is its enclosing node's ref. Because the anchor ref is
+    the parent of the top-level nodes, a tree whose anchor points at a node of
+    ANOTHER tree gets a cross-tree edge for free — the unified parent map is
+    what plan 3.2 (§9.3 cross-tree anchoring) needs.
+
+    `top_level` is the split the two PROVIDERS need (plan_2026_09_17 Э1,
+    Т1.2): a node whose parent is the tree's ANCHOR is an "anchor" edge, a node
+    whose parent is another NODE of the same tree is a "structure" edge.
+    Splitting them costs one set, and it is what lets a cycle report say WHICH
+    source to go and fix instead of naming one unnamed loop for both."""
+    node_index: dict[str, LinkedNode]
+    parent_map: dict[str, str | None]
+    top_level: set[str]
+
+
+def _forest_index(linked_trees: list[LinkedTree]) -> _ForestIndex:
     node_index: dict[str, LinkedNode] = {}
     parent_map: dict[str, str | None] = {}
+    top_level: set[str] = set()
     for tree in linked_trees:
         anchor_ref = tree.anchor.anchor.ref
 
-        def walk(nodes: list[LinkedNode], parent_ref: str | None) -> None:
+        def walk(nodes: list[LinkedNode], parent_ref: str | None,
+                 under_anchor: bool = False) -> None:
             for ln in nodes:
                 node_index[ln.node.ref] = ln
                 parent_map[ln.node.ref] = parent_ref
-                walk(ln.children, ln.node.ref)
+                if under_anchor:
+                    top_level.add(ln.node.ref)
+                walk(ln.children, ln.node.ref, under_anchor=False)
 
-        walk(tree.nodes, anchor_ref)
-    return node_index, parent_map
+        walk(tree.nodes, anchor_ref, under_anchor=True)
+    return _ForestIndex(node_index=node_index, parent_map=parent_map,
+                        top_level=top_level)
 
 
-def _plan_forest_plain(node_index: dict[str, LinkedNode],
-                       parent_map: dict[str, str | None],
-                       selected_refs: set[str]) -> tuple[list[str], list[str]]:
-    """No-module forest order — the ORIGINAL planner, kept as the fast path of
-    curated_redraw_plan_forest when no module is active in the run (design P3
-    D4: module edges are added only when a module is active).
+# ── edge providers (plan_2026_09_17 Э1, Т1.2) ─────────────────────────────────
+#
+# Every source of "parent before child" is ONE named function here. The machine
+# in order_pass.py knows nothing about trees; a provider knows exactly one
+# thing about them, and ADDING a dependency source means appending a provider —
+# never touching the queue, the sort key or the other providers.
 
-    ONE deviation from the original (2026-09-16, plan_2026_09_16_copper_node_
-    order_and_container P.2.1): records of kind "net_trace" are ordered LAST.
-    Inter-node copper is laid out from its own anchor pad LIVE, so it depends on
-    where the components ended up and must never be applied first."""
+_STRUCTURE = "structure"
+_ANCHOR = "anchor"
+_MODULE = "module"
+_COPPER = "copper"
+
+
+def _structure_provider(index: _ForestIndex) -> EdgeProvider:
+    """Nesting: a node inside another node of the same tree goes after it."""
+    def edges(vertices):
+        for ref in index.node_index:
+            if ref in index.top_level or ref not in vertices:
+                continue
+            parent = index.parent_map.get(ref)
+            if parent is not None and parent in vertices:
+                yield parent, ref
+    return EdgeProvider(_STRUCTURE, edges)
+
+
+def _anchor_provider(index: _ForestIndex) -> EdgeProvider:
+    """Anchoring: a top-level node goes after its tree's ANCHOR, when that
+    anchor names a node this run places (within-tree or cross-tree). An origin
+    anchor names nothing, so its top-level nodes stay roots."""
+    def edges(vertices):
+        for ref in index.top_level:
+            if ref not in vertices:
+                continue
+            parent = index.parent_map.get(ref)
+            if parent is not None and parent in vertices:
+                yield parent, ref
+    return EdgeProvider(_ANCHOR, edges)
+
+
+def _document_index(linked_trees: list[LinkedTree]) -> dict[object, int]:
+    """{vertex: its position in a top-down document walk} — the ONE tie-breaker
+    (plan_2026_09_17 Т1.1).
+
+    The old planners broke ties LEXICOGRAPHICALLY, which is how the copper
+    incident of 2026-09-16 happened: "2v5_…" sorts before "dac_…", so a rule
+    nobody wrote ("copper before components") fell out of the alphabet. The
+    document order has no such accidents: among independent vertices the run
+    now applies them in the order they are written, i.e. the order the GUI
+    shows, and the copper-last rule (both the edges of Э2 and the safety net)
+    is stated explicitly instead of emerging from spelling.
+
+    An active module MARKER is indexed at its own node and its content is
+    numbered right after it (recursively, nested markers included), so a marker
+    and the content it stands for stay adjacent — the same reading the module
+    precedence edges use. A content tree shared by several markers is numbered
+    once (its first marker's slot): it is one document, not one per embedding.
+
+    Vertices the walk never meets (defensive) get the fallback index inside
+    order_pass.run_order_pass, not a fabricated position here."""
+    out: dict[object, int] = {}
+    seen_content: set[int] = set()
+
+    def walk(nodes: list[LinkedNode]) -> None:
+        for ln in nodes:
+            if ln.node.kind == "module":
+                out.setdefault(id(ln), len(out))
+                if ln.module_linked is not None \
+                        and id(ln.module_linked) not in seen_content:
+                    seen_content.add(id(ln.module_linked))
+                    walk(ln.module_linked.nodes)
+            elif _emits_a_name(ln):
+                out.setdefault(ln.node.ref, len(out))
+            # A marker's OWN children are ordinary nodes of the owner tree —
+            # keep descending through them.
+            walk(ln.children)
+
+    for tree in linked_trees:
+        walk(tree.nodes)
+    return out
+
+
+def _forest_group_of(copper_refs: set[str]):
+    """The queue GROUP of a vertex (plan_2026_09_17 Т1.1): 0 ordinary records,
+    1 module pass-through vertices, 2 copper.
+
+    The module vertices sit BEFORE copper, not after: a marker emits no name of
+    its own, but its content becomes ready only once the marker has been
+    popped, so with the marker last a root-level copper record was emitted
+    BEFORE the module's content (measured 2026-09-16, guarded by
+    test_forest_module_branch_does_not_warn_about_forest_copper).
+
+    The groups are what keeps the queue TYPE-HOMOGENEOUS: a `str` vertex is
+    only ever compared with a `str` (groups 0 and 2), an `int` marker id only
+    with an `int` (group 1) — a bare comparison across them would raise
+    TypeError on the very first step of a mixed run."""
+    def group_of(vertex: object) -> int:
+        if isinstance(vertex, str):
+            return 2 if vertex in copper_refs else 0
+        return 1
+    return group_of
+
+
+def _module_placement_checks(active,
+                             selected_refs: set[str]) -> tuple[set[str], list[str]]:
+    """D3 + F-C of the module design (plan_2026_09_02 P3), moved here out of
+    curated_redraw_plan_forest by the 2026-09-17 refactor and otherwise
+    untouched.
+
+    D3 — a child tree embedded by active modules in MORE THAN ONE tree is a
+    fatal of THIS RUN (the config stays legal); a child tree with at least one
+    active module is placed ONLY through that module, and this function returns
+    the record refs the run actually applies (content_refs).
+
+    F-C — a module-placed tree whose CONTENT is also checked directly gets ONE
+    informational note: those records apply once, via the module override."""
+    warnings: list[str] = []
+    by_child: dict[str, set[str]] = {}
+    for m, owner in active:
+        child = m.module_linked.name if m.module_linked is not None else m.node.ref
+        by_child.setdefault(child, set()).add(owner)
+    for child in sorted(by_child):
+        owners = sorted(by_child[child])
+        if len(owners) > 1:
+            raise ValidationError(format_fatal_error(
+                _("redraw conflict: tree {child!r} is embedded by active "
+                  "modules in several trees ({parents}) — uncheck one of the "
+                  "module markers for this redraw")
+                .format(child=child, parents=", ".join(owners)),
+                []))
+    module_placed = set(by_child)
+
+    # stage-2 content refs an active module pulls (D2) — per child too, because
+    # the F-C note below asks whether a module-placed tree's content is ALSO
+    # checked in the tree itself.
+    child_content: dict[str, set[str]] = {child: set() for child in module_placed}
+    content_refs: set[str] = set()
+    for m, _owner in active:
+        child = m.module_linked.name if m.module_linked is not None else m.node.ref
+        child_content.setdefault(child, set()).update(_module_content_record_refs(m))
+        content_refs |= child_content[child]
+
+    for child in sorted(module_placed):
+        if child_content[child] & selected_refs:
+            warnings.append(
+                _("Tree {name!r} is placed through a module in this redraw — "
+                  "nodes checked in the tree itself are applied once via the "
+                  "module").format(name=child))
+    return content_refs, warnings
+
+
+def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
+                 selected_refs: set[str],
+                 copper_deps: dict[str, set[str]] | None = None
+                 ) -> tuple[list[str], list[str]]:
+    """The forest order — ONE implementation for every caller (plan_2026_09_17
+    Э1). The old split into a "plain fast path" (_plan_forest_plain) and a
+    "module branch" is gone: the module pass is two extra walks over the nodes
+    already in memory, and having two copies of the Kahn loop is exactly how
+    the two of them drifted apart on 2026-09-16.
+
+    Vertices: every planned record ref (`_emits_a_name`) selected this run, the
+    content records of every active module, and one pass-through vertex per
+    active module marker (its `id()`, it emits no name). Edges come from the
+    provider list; the tie-breaker is the document order (Т1.1). Copper is
+    deferred in BOTH ways: by the Э2 edges when the board can tell which
+    components a piece of copper connects, and always by the group 2 slot as a
+    safety net (Т2.2)."""
+    warnings: list[str] = []
+    markers = _module_markers(linked_trees)
+    active = _active_module_entries(markers, selected_refs)
+    content_refs: set[str] = set()
+    if active:
+        content_refs, module_warnings = _module_placement_checks(
+            active, selected_refs)
+        warnings.extend(module_warnings)
+
+    # forest-channel selected records EXCLUDING module-placed trees' own nodes'
+    # content (D3 suppression: they are represented once, through the module).
     selected: dict[str, LinkedNode] = {}
-    for ref, ln in node_index.items():
-        if ref in selected_refs and ln.record is not None \
-                and ln.record.kind != "point":
+    for ref, ln in index.node_index.items():
+        if ref in selected_refs and ref not in content_refs and _emits_a_name(ln):
             selected[ref] = ln
 
-    # parent -> children edges (within-tree AND cross-tree anchor), indegrees
-    children: dict[str, list[str]] = {}
-    indeg: dict[str, int] = {ref: 0 for ref in selected}
-    for ref in selected:
-        p = parent_map.get(ref)
-        if p is not None and p in selected:
-            children.setdefault(p, []).append(ref)
-            indeg[ref] += 1
+    # Copper (record kind "net_trace") is deferred: a net_trace record stores
+    # its geometry as offsets from its OWN anchor pad and plan_net_traces lays
+    # it out LIVE from that pad, so it DEPENDS on where the components ended up
+    # — while no component ever depends on copper. Forest copper nodes are in
+    # node_index; copper pulled in through an active module's content is not,
+    # so it is collected from the module content too.
+    copper_refs = {ref for ref, ln in index.node_index.items() if _is_copper(ln)}
+    for m, _owner in active:
+        copper_refs |= _module_content_record_refs(m, kind="net_trace")
 
-    # Copper (record kind "net_trace") goes LAST, after every other record.
-    # A net_trace record stores its geometry as offsets from its OWN anchor pad
-    # and plan_net_traces lays it out from that pad LIVE, so it DEPENDS on where
-    # the components ended up — while no component ever depends on copper. The
-    # pre-2026-09-16 lexicographic queue applied copper FIRST (a copper ref like
-    # "2v5_…"/"3v3_…" sorts before "dac_…"/"pif_…"), so the copper was laid out
-    # from the components' OLD positions and the run still reported ok.
-    copper_refs = {ref for ref, ln in selected.items()
-                   if ln.record is not None and ln.record.kind == "net_trace"}
+    providers = [_structure_provider(index), _anchor_provider(index)]
+    if active:
+        providers.append(_module_provider(active, markers))
+    deps = copper_deps or {}
+    if deps:
+        providers.append(_copper_provider(deps))
 
-    def _sort_key(ref: str) -> tuple[int, str]:
-        return (1, ref) if ref in copper_refs else (0, ref)
+    vertices = set(selected) | content_refs | {id(m) for m, _ in active}
+    order = run_order_pass(
+        vertices, providers,
+        group_of=_forest_group_of(copper_refs),
+        doc_index=_document_index(linked_trees),
+        cycle_title=_("cross-tree anchor cycle in curated redraw forest"))
+    names: list[str] = [vertex for vertex in order if isinstance(vertex, str)]
 
-    # warnings: a selected node whose parent/anchor is not redrawn (read live)
-    warnings: list[str] = []
+    # warnings: a forest selected node whose base is not applied this run.
     for ref in selected:
         if ref in copper_refs:
-            # A net_trace's base is its OWN anchor pad, never its tree parent, so
-            # "will be redrawn from the current position of <parent>" is simply
-            # false for copper — the same exemption the inline-anchor check above
-            # makes (phase D, 2026-09-01).
+            # Copper's base is its OWN anchor pad, never its tree parent — the
+            # note below is false for it (P.2.2 of the 2026-09-16 plan).
             continue
-        p = parent_map.get(ref)
+        p = index.parent_map.get(ref)
         parent_label = p if p is not None else "(origin)"
-        if p is None or p not in selected:
+        if p is None or (p not in selected and p not in content_refs):
             warnings.append(
                 _("Node {ref!r} will be redrawn from the current position of "
                   "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
                   "will land from the old point")
                 .format(ref=ref, parent=parent_label))
-
-    # Kahn's algorithm (deterministic: lexicographic queue, copper deferred —
-    # the queue is re-sorted at every step, so copper sinks to the tail as long
-    # as anything else is left; no extra dependency edges are needed).
-    queue = sorted((ref for ref in selected if indeg[ref] == 0), key=_sort_key)
-    names: list[str] = []
-    while queue:
-        ref = queue.pop(0)
-        names.append(ref)
-        for child in children.get(ref, []):
-            indeg[child] -= 1
-            if indeg[child] == 0:
-                queue.append(child)
-                queue.sort(key=_sort_key)
-    if len(names) != len(selected):
-        remaining = sorted(set(selected) - set(names))
-        raise ValidationError(format_fatal_error(
-            _("cross-tree anchor cycle in curated redraw forest"),
-            [_("these nodes form a cycle through tree anchors: {items}")
-             .format(items=", ".join(remaining))]))
     return names, warnings
+
+
+def _module_provider(active, markers) -> EdgeProvider:
+    """Module edges (design P3 D4): the marker goes after its own parent in the
+    owner tree, and its content strictly after the marker — through the marker
+    as a pass-through vertex (it emits no name of its own).
+
+    Nested markers already get their incoming edge from the enclosing content
+    flow, so only FOREST markers take the owner-side edge."""
+    forest_parent: dict[int, tuple[str, str | None]] = {
+        id(m): (owner, parent) for owner, m, parent in markers}
+
+    def edges(vertices):
+        for m, _owner in active:
+            mkey = id(m)
+            fp = forest_parent.get(mkey)
+            if fp is not None:
+                _owner, parent_ref = fp
+                if parent_ref is not None and parent_ref in vertices:
+                    yield parent_ref, mkey
+            if m.module_linked is not None:
+                yield from _flow_edges(m.module_linked.nodes, mkey)
+    return EdgeProvider(_MODULE, edges)
+
+
+def _flow_edges(nodes: list[LinkedNode], cur: object):
+    """Precedence edges from module pass-through `cur` through module content:
+    parent strictly before child. A nested module marker is a pass-through
+    vertex (its own module_linked content is flowed by its own active entry);
+    point/external bases emit nothing but their children keep the chain."""
+    for ln in nodes:
+        if ln.node.kind == "module":
+            nkey = id(ln)
+            yield cur, nkey
+            yield from _flow_edges(ln.children, nkey)
+        elif _emits_a_name(ln):
+            yield cur, ln.node.ref
+            yield from _flow_edges(ln.children, ln.node.ref)
+        else:
+            yield from _flow_edges(ln.children, cur)
+
+
+def _copper_provider(copper_deps: dict[str, set[str]]) -> EdgeProvider:
+    """Э2: inter-node copper goes after every node that places one of the
+    components its pads connect.
+
+    The edges themselves are built from the LIVE board by
+    copper_node_dependencies (the record stores roles, not tree refs), and the
+    builder is best-effort by design: an end that matches no node of this run
+    simply contributes no edge (Т2.1), and the group 2 slot keeps copper last
+    anyway (Т2.2) — these edges REFINE the order, they cannot make it worse."""
+    def edges(vertices):
+        for copper_ref, owners in copper_deps.items():
+            if copper_ref not in vertices:
+                continue
+            for owner_ref in owners:
+                if owner_ref in vertices:
+                    yield owner_ref, copper_ref
+    return EdgeProvider(_COPPER, edges)
 
 
 def _module_markers(linked_trees: list[LinkedTree]
@@ -1358,8 +1608,14 @@ def _module_content_record_refs(m: LinkedNode, kind: str | None = None) -> set[s
         if ln.node.kind == "module":
             stack.extend(ln.children)
             continue
-        if ln.record is not None and ln.record.kind != "point" \
-                and (kind is None or ln.record.kind == kind):
+        # `_emits_a_name` (not the hand-spelled record check) so a module's
+        # content pulls exactly the vertices the planner includes — the Э3
+        # component node carries no record at all and is a vertex through its
+        # transient CoordinatePlacement (plan_2026_09_17 Э3/Т3.5). `kind` still
+        # filters by RECORD kind; a record-less vertex matches only kind=None
+        # (it is nobody's net_trace).
+        if _emits_a_name(ln) and (kind is None or (ln.record is not None
+                                                   and ln.record.kind == kind)):
             refs.add(ln.node.ref)
         stack.extend(ln.children)
     return refs
@@ -1372,8 +1628,15 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
     active (plan_2026_09_02_tree_module_embedding.md P3 п.1/1a, design P3
     D2/D3/D4) — module edges over the linked module content (module_linked).
 
-    When NO module is active the behavior is exactly the classic forest
-    planner (see _plan_forest_plain). When module(s) ARE active this run:
+    Since plan_2026_09_17 Э1 this function is a THIN seam over the project's
+    ONE order machine: _forest_index builds the vertex view, _plan_forest plugs
+    in the named edge providers (structure / anchor / module / copper) and
+    order_pass.run_order_pass walks it. The hand-written Kahn loop that lived
+    here is gone, and with it the "plain fast path" _plan_forest_plain — the
+    second copy of the same algorithm that had already drifted from this one
+    once (2026-09-16, the copper-last rule).
+
+    When module(s) ARE active this run:
 
     - D2: a marker checked in selected_refs is ACTIVE and pulls its ENTIRE
       content (module_linked, stage 2) into the run; nested modules inside an
@@ -1385,184 +1648,16 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
       edges are suppressed for the run (no double placement).
     - D4: module markers are pass-through vertices (no name emitted) that
       order their content strictly after the marker, and the marker after its
-      own parent chain in the owner tree. Kahn's cycle detection sees module
-      edges too.
+      own parent chain in the owner tree. The order pass sees module edges too,
+      and a cycle names the PROVIDER of every edge in it (Т1.4) — with new
+      providers a cycle can appear where the old planner silently produced a
+      wrong order, so the report has to say what to go and fix.
 
     Returns (names, warnings): names is the global application order — record
     names (each record.name == its ref); module content records appear once
     through their module. point/external nodes are bases, never emitted. The
     D3 2+-parent conflict and any cycle raise ValidationError."""
-    node_index, parent_map = _forest_index(linked_trees)
-
-    # P3a: only when a module is ACTIVE does the planner grow module edges.
-    markers = _module_markers(linked_trees)
-    active = _active_module_entries(markers, selected_refs)
-    if not active:
-        return _plan_forest_plain(node_index, parent_map, selected_refs)
-
-    warnings: list[str] = []
-
-    # D3 — per-child priority: number of DIFFERENT parent trees placing child C
-    # through an active module this run.
-    by_child: dict[str, set[str]] = {}
-    for m, owner in active:
-        child = m.module_linked.name if m.module_linked is not None else m.node.ref
-        by_child.setdefault(child, set()).add(owner)
-    for child in sorted(by_child):
-        owners = sorted(by_child[child])
-        if len(owners) > 1:
-            raise ValidationError(format_fatal_error(
-                _("redraw conflict: tree {child!r} is embedded by active "
-                  "modules in several trees ({parents}) — uncheck one of the "
-                  "module markers for this redraw")
-                .format(child=child, parents=", ".join(owners)),
-                []))
-    # Child trees with >=1 active module are placed ONLY through that module.
-    module_placed = set(by_child)
-
-    # stage-2 content refs an active module pulls (D2).
-    child_content: dict[str, set[str]] = {child: set() for child in module_placed}
-    content_refs: set[str] = set()
-    for m, _owner in active:
-        child = m.module_linked.name if m.module_linked is not None else m.node.ref
-        child_content.setdefault(child, set()).update(_module_content_record_refs(m))
-        content_refs |= child_content[child]
-
-    # forest-channel selected records EXCLUDING module-placed trees' own nodes
-    # (D3 suppression: they are represented once, through the module).
-    selected: dict[str, LinkedNode] = {}
-    for ref, ln in node_index.items():
-        if ref in selected_refs and ref not in content_refs \
-                and ln.record is not None and ln.record.kind != "point":
-            selected[ref] = ln
-
-    # F-C: a module-placed tree whose OWN nodes are ALSO checked gets ONE
-    # informational note — they apply once, via the module override.
-    for child in sorted(module_placed):
-        if child_content[child] & selected_refs:
-            warnings.append(
-                _("Tree {name!r} is placed through a module in this redraw — "
-                  "nodes checked in the tree itself are applied once via the "
-                  "module").format(name=child))
-
-    # forest marker id -> (owner, direct parent ref) for owner-side edges.
-    forest_parent: dict[int, tuple[str, str | None]] = {
-        id(m): (owner, parent) for owner, m, parent in markers}
-
-    # Every emitted record and every active module pass-through is a vertex;
-    # pre-seed indegrees so a record WITHOUT an applied parent is still a root
-    # (mirrors _plan_forest_plain seeding every selected ref to 0).
-    records = set(selected) | content_refs
-    children: dict[object, list[object]] = {}
-    indeg: dict[object, int] = {k: 0 for k in records}
-    for m, _owner in active:
-        indeg.setdefault(id(m), 0)
-
-    def add_edge(parent: object, child: object) -> None:
-        indeg.setdefault(child, 0)
-        children.setdefault(parent, []).append(child)
-        indeg[child] += 1
-
-    def flow(nodes: list[LinkedNode], cur: object) -> None:
-        """Precedence edges from module pass-through `cur` through module
-        content: parent strictly before child. A nested module marker is a
-        pass-through vertex (its own module_linked content is flowed by its own
-        active entry); point/external bases emit nothing but children keep the
-        chain."""
-        for ln in nodes:
-            if ln.node.kind == "module":
-                nkey = id(ln)
-                add_edge(cur, nkey)
-                flow(ln.children, nkey)
-            elif ln.record is not None and ln.record.kind != "point":
-                add_edge(cur, ln.node.ref)
-                flow(ln.children, ln.node.ref)
-            else:
-                flow(ln.children, cur)
-
-    # active module markers: owner-side precedence + content edges (D4).
-    for m, _owner in active:
-        mkey = id(m)
-        fp = forest_parent.get(mkey)
-        if fp is not None:
-            _owner, parent_ref = fp
-            # marker after its parent when that parent is applied this run;
-            # nested markers already get their incoming edge from the enclosing
-            # content flow, so only FOREST markers take an owner-side edge.
-            if parent_ref is not None and \
-                    (parent_ref in selected or parent_ref in content_refs):
-                add_edge(parent_ref, mkey)
-        if m.module_linked is not None:
-            flow(m.module_linked.nodes, mkey)
-
-    # forest-channel edges (within-tree AND cross-tree anchor; D4 keeps them).
-    for ref in selected:
-        p = parent_map.get(ref)
-        if p is not None and (p in selected or p in content_refs):
-            add_edge(p, ref)
-
-    # Copper (record kind "net_trace") goes LAST — same rule and same reason as
-    # in _plan_forest_plain (P.2.1): copper is laid out LIVE from its own anchor
-    # pad, so it depends on the moved components, never the other way round.
-    # Forest copper nodes are in node_index; copper pulled in through an active
-    # module's content is not, so it is collected from the module content too.
-    copper_refs = {ref for ref, ln in node_index.items()
-                   if ln.record is not None and ln.record.kind == "net_trace"}
-    for m, _owner in active:
-        copper_refs |= _module_content_record_refs(m, kind="net_trace")
-
-    # warnings: forest selected node whose base is not applied this run.
-    for ref in selected:
-        if ref in copper_refs:
-            # Copper's base is its OWN anchor pad, never its tree parent — the
-            # note below is false for it (P.2.2).
-            continue
-        p = parent_map.get(ref)
-        parent_label = p if p is not None else "(origin)"
-        if p is None or (p not in selected and p not in content_refs):
-            warnings.append(
-                _("Node {ref!r} will be redrawn from the current position of "
-                  "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
-                  "will land from the old point")
-                .format(ref=ref, parent=parent_label))
-
-    # Kahn's algorithm over record refs (str) + module pass-through ids (int),
-    # deterministic: record refs lexicographic, module pass-through vertices
-    # next, copper LAST. Every group is TYPE-HOMOGENEOUS inside its slot — a
-    # bare tuple over a mixed str/int queue would raise TypeError on the very
-    # first comparison.
-    #
-    # The module vertices sit BEFORE copper, not after it: a marker emits no
-    # name of its own, but its content becomes a queue root only once the marker
-    # has been popped. With the marker last, a root-level copper record was
-    # emitted BEFORE the module's content (measured 2026-09-16 on the shape
-    # "tree with copper + an active module marker") — i.e. the exact "copper
-    # first" order P.2.1 is about. Normal records stay group 0, so their
-    # relative order is untouched by this choice.
-    def _sort_key(key: object):
-        if isinstance(key, str):
-            return (2, key) if key in copper_refs else (0, key)
-        return (1, key)
-
-    queue = sorted((k for k in indeg if indeg[k] == 0), key=_sort_key)
-    names: list[str] = []
-    while queue:
-        key = queue.pop(0)
-        if isinstance(key, str):
-            names.append(key)
-        for child in children.get(key, []):
-            indeg[child] -= 1
-            if indeg[child] == 0:
-                queue.append(child)
-                queue.sort(key=_sort_key)
-
-    if len(names) != len(records):
-        remaining = sorted(records - set(names))
-        raise ValidationError(format_fatal_error(
-            _("cross-tree anchor cycle in curated redraw forest"),
-            [_("these nodes form a cycle through tree anchors: {items}")
-             .format(items=", ".join(remaining))]))
-    return names, warnings
+    return _plan_forest(_forest_index(linked_trees), linked_trees, selected_refs)
 
 
 def curated_forest_module_content(linked_trees: list[LinkedTree],

@@ -6907,6 +6907,11 @@ msgstr "cross-tree anchor cycle in curated redraw forest"
 msgid "these nodes form a cycle through tree anchors: {items}"
 msgstr "these nodes form a cycle through tree anchors: {items}"
 
+#: kicadstamp/order_pass.py
+#, python-brace-format
+msgid "cycle edges by provider: {edges}"
+msgstr "cycle edges by provider: {edges}"
+
 #: kicadstamp/tree_position.py:947
 #, python-brace-format
 msgid ""

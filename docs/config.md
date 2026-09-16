@@ -629,6 +629,18 @@ planner defers every `net_trace` record behind every other record. Copper nodes 
 "will be redrawn from the current position of `<base>`" note: their base is their own anchor pad, never
 the tree parent, so the note was simply false for them.
 
+**The order machine and its tie-breaker (2026-09-17).** The forest order is
+computed by ONE machine (`kicadstamp/order_pass.py`): a Kahn walk over the run's vertices in which every
+dependency source is a NAMED provider — the tree structure (nesting), the record anchors, the active
+module markers, and the inter-node copper. Adding a new dependency source means writing one more
+provider, never touching the queue; and a cycle is reported with the provider of each of its edges
+("cycle edges by provider: X -> A1 (anchor); A1 -> 7 (module)"), so the message says which source to go
+and fix. Ties — vertices that are ready at the same moment and have no dependency between them — are
+broken by the DOCUMENT order of the tree (top-down, the order the GUI shows), never by the alphabet:
+before this, the lexical queue is exactly what silently applied copper first, and a rename could have
+changed the order of unrelated nodes. The copper-last rule described above remains on top of the new
+copper edges as a safety net.
+
 ---
 
 ## `tree_instances:` — one template tree, instantiated per schematic sheet (2026-09-02)

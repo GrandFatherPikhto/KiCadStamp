@@ -6947,6 +6947,11 @@ msgstr ""
 msgid "these nodes form a cycle through tree anchors: {items}"
 msgstr "эти узлы образуют цикл через якоря деревьев: {items}"
 
+#: kicadstamp/order_pass.py
+#, python-brace-format
+msgid "cycle edges by provider: {edges}"
+msgstr "рёбра цикла по поставщикам: {edges}"
+
 #: kicadstamp/tree_position.py:947
 #, python-brace-format
 msgid ""

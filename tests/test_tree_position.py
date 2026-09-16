@@ -2188,3 +2188,73 @@ def test_denis_style_tree_wrapped_in_a_container_plans_the_same_copper_last(tmp_
     assert names[2:] == ["2v5_oa__dac_buf__pif_oa_n2v5",
                          "3v3_avdd__dac_buf__pif_avdd"]
     assert not any("2v5_oa" in w for w in warnings)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The shared order machine — plan_2026_09_17_order_pass_and_component_node, Э1
+#
+# The two forest planners (the old plain one and the module one) are ONE
+# implementation now: _plan_forest + order_pass.run_order_pass, with a named
+# provider per dependency source and the DOCUMENT order as the tie-breaker.
+# The guards below check the three things the refactor promised:
+#   * Т1.3/С1 — without new providers the order is what it always was
+#     (the pre-existing suite above is that guard: it passes unchanged);
+#   * Т1.1/С2 — ties follow the document, not the alphabet;
+#   * Т1.4/С5 — a cycle names the provider that gave the edge.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_ties_follow_the_document_order_not_the_alphabet():
+    """С2: two INDEPENDENT nodes are applied in the order the tree declares
+    them. The refs are chosen so the ALPHABET gives the reverse order — on the
+    old lexicographic queue this test fails ("a_second" would be first)."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("z_first", record=_record("placement", "z_first")),
+        _linked_node("a_second", record=_record("placement", "a_second")),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {"z_first", "a_second"})
+    assert names == ["z_first", "a_second"]
+
+
+def test_forest_document_tie_breaker_only_decides_ties():
+    """Т1.3: structure is an EDGE, never a tie — a nested child goes after its
+    parent even though the child's ref sorts first."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("zz_parent", record=_record("placement", "zz_parent"),
+                     children=[_linked_node("aa_child",
+                                            record=_record("placement", "aa_child"))]),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {"zz_parent", "aa_child"})
+    assert names == ["zz_parent", "aa_child"]
+
+
+def test_forest_anchor_edge_beats_the_document_order():
+    """Т1.3: an ANCHOR edge is a real dependency. Tree `dep` is declared FIRST
+    but anchored on node D0 of tree `host`, declared second — D0 is applied
+    first, so the anchor provider (not the declaration order) decided."""
+    host = _linked_tree("host", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    dep = _linked_tree("dep", anchor_ref="D0", nodes=[
+        _linked_node("E", record=_record("placement", "E"))])
+    names, _warnings = curated_redraw_plan_forest([dep, host], {"D0", "E"})
+    assert names == ["D0", "E"]
+
+
+def test_forest_cycle_names_the_provider_that_gave_the_edge(tmp_path):
+    """С5 (Т1.4): the run-level cycle report says WHICH dependency source
+    closed the loop — here the anchor of tree `a` (a -> its anchor X) and the
+    module marker that embeds tree `b` (whose content holds X)."""
+    cfg = _clone_cfg(["X", "A1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "X") (kind clone) (xy 1 1)))\n'
+        '(tree (name "a") (anchor (ref "X"))\n'
+        '      (node (ref "A1") (kind clone) (xy 0 0)\n'
+        '        (node (ref "b") (kind module) (xy 2 2))))')
+    with pytest.raises(ValidationError) as exc:
+        curated_redraw_plan_forest(linked, {"b", "A1"})
+    text = str(exc.value)
+    assert "cycle edges by provider" in text
+    # The anchor edge (X must precede A1) and the module edges around it are
+    # both named, so the reader knows which two sources to go and fix.
+    assert "X -> A1 (anchor)" in text
+    assert "(module)" in text
