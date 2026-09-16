@@ -16287,3 +16287,11 @@ msgstr "два узла-компонента размещают один ком�
 #, python-brace-format
 msgid "{first} and {second}"
 msgstr "{first} и {second}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "Move down"
+msgstr "Опустить"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "Move up"
+msgstr "Поднять"

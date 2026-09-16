@@ -2381,6 +2381,21 @@ class TreesDock(QWidget):
                 lambda: self._rename_node_flow(tree, node))
             menu.addAction(_("Move to…")).triggered.connect(
                 lambda: self._move_node_flow(tree, node))
+            # Sibling ORDER (plan_2026_09_17 Э4/Т4.2): after Э1 the order of a
+            # tree's nodes is the tie-breaker the redraw reads among independent
+            # nodes, and the document order is what a run applies — so it must be
+            # editable exactly where it is visible. Structural only: the node's
+            # coordinates and its place in the tree do not change.
+            # A direction with no sibling to swap with is not OFFERED (the file's
+            # own idiom for a conditionally meaningful action, see "Select copper
+            # on board" below) — the same ONE predicate the operation itself
+            # refuses by (_has_movable_sibling), so an offered item always works.
+            if self._has_movable_sibling(tree, node, -1):
+                menu.addAction(_("Move up")).triggered.connect(
+                    lambda: self._move_node_among_siblings(tree, node, -1))
+            if self._has_movable_sibling(tree, node, +1):
+                menu.addAction(_("Move down")).triggered.connect(
+                    lambda: self._move_node_among_siblings(tree, node, +1))
         else:
             # Anchor pseudo-root: set the tree anchor, or add its first/next
             # top-level node (the only way a tree gets nodes at all — there
@@ -3399,11 +3414,12 @@ class TreesDock(QWidget):
         old_parent = self._find_parent(tree, node)
         if old_parent is new_parent:
             return False
-        siblings = tree.nodes if old_parent is None else old_parent.children
-        for index, candidate in enumerate(siblings):
-            if candidate is node:
-                del siblings[index]
-                break
+        siblings, _index = self._detach_node(tree, node)
+        if siblings is None:
+            logger.warning(
+                "Refusing to re-hang %r: it is not a node of this tree",
+                node.ref)
+            return False
         if new_parent is None:
             tree.nodes.append(node)
         else:
@@ -3414,6 +3430,91 @@ class TreesDock(QWidget):
         else:
             self._rebuild_tabs()
         return True
+
+    def _detach_node(self, tree: Tree, node: TreeNode):
+        """Remove `node` from `tree` BY IDENTITY and return (its former sibling
+        list, its index in it), or (None, -1) when the node is not in this tree.
+
+        THE one removal point of every structural edit (plan_2026_09_17 Э4/Т4.1)
+        — the re-hang (_reparent_node) and the sibling reorder
+        (_move_node_within_siblings) both go through it, so "one node, one place
+        in the tree" cannot be broken by two different removal routines. Removal
+        is by identity because TreeNode IS a dataclass with value equality: a
+        list.remove() could drop a different-but-equal sibling instead."""
+        parent = self._find_parent(tree, node)
+        siblings = tree.nodes if parent is None else parent.children
+        for index, candidate in enumerate(siblings):
+            if candidate is node:
+                del siblings[index]
+                return siblings, index
+        return None, -1
+
+    def _move_node_within_siblings(self, tree: Tree, node: TreeNode, delta: int,
+                                   *, defer_rebuild: bool = False) -> bool:
+        """Move `node` one place UP (delta -1) or DOWN (+1) among its SIBLINGS
+        (plan_2026_09_17 Э4/Т4.2) — the neighbour of _reparent_node, built on the
+        same two disciplines: the shared identity-based removal (`_detach_node`)
+        and one rebuild point.
+
+        Siblings are the node's enclosing children list, or the TREE's own
+        top-level list when it hangs at the top: the order lives in that list and
+        nowhere else. After Э1 that order is exactly what the redraw reads as the
+        tie-breaker among INDEPENDENT nodes (plan Т1.1) — which is why the
+        command exists and why it changes NOTHING else: `xy`, `polar`,
+        `rotation`, the parent and every child of the node stay byte-for-byte as
+        they were (Т4.2). Dependencies are never expressed by sibling order
+        (Р4): a node whose base is another node still follows that node whether
+        it is listed before or after it.
+
+        Returns True when the tree really changed, False when there is no sibling
+        in that direction (the menu disables the action in the same case, so the
+        two cannot disagree — `_has_movable_sibling`)."""
+        siblings = self._node_siblings(tree, node)
+        if siblings is None:
+            logger.warning("Refusing to reorder %r: it is not a node of this tree",
+                           node.ref)
+            return False
+        index = next(i for i, candidate in enumerate(siblings) if candidate is node)
+        target = index + delta
+        if target < 0 or target >= len(siblings):
+            return False
+        siblings, index = self._detach_node(tree, node)
+        if siblings is None:
+            return False
+        siblings.insert(index + delta, node)
+        self._mark_dirty()
+        if defer_rebuild:
+            QTimer.singleShot(0, self._rebuild_tabs)
+        else:
+            self._rebuild_tabs()
+        return True
+
+    def _node_siblings(self, tree: Tree, node: TreeNode) -> Optional[list[TreeNode]]:
+        """The list `node` hangs in (its parent's children, or the tree's own
+        top-level list), or None when the node is not part of this tree."""
+        parent = self._find_parent(tree, node)
+        siblings = tree.nodes if parent is None else parent.children
+        return siblings if self._in_list(node, siblings) else None
+
+    def _has_movable_sibling(self, tree: Tree, node: TreeNode, delta: int) -> bool:
+        """Whether a sibling exists in the `delta` direction — the ONE predicate
+        behind both the menu item's enabled state and
+        _move_node_within_siblings' refusal, so a click on a disabled-looking
+        action and a refusal can never disagree."""
+        siblings = self._node_siblings(tree, node)
+        if siblings is None:
+            return False
+        index = next((i for i, candidate in enumerate(siblings)
+                      if candidate is node), None)
+        if index is None:
+            return False
+        return 0 <= index + delta < len(siblings)
+
+    def _move_node_among_siblings(self, tree: Tree, node: TreeNode, delta: int) -> None:
+        """Context-menu entry point: one place up/down. Structural only — the
+        node's stored coordinates are deliberately left alone (Т4.2), which is
+        what makes this safe without asking the board anything."""
+        self._move_node_within_siblings(tree, node, delta, defer_rebuild=False)
 
     def _on_create_tree(self) -> None:
         """T1 (S.3.2, plan_2026_09_11_stale_snapshot_role_lists.md): the anchor

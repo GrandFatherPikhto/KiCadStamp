@@ -17613,3 +17613,11 @@ msgstr "two component nodes place the same component: {first!r} and {second!r} b
 #, python-brace-format
 msgid "{first} and {second}"
 msgstr "{first} and {second}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "Move down"
+msgstr "Move down"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "Move up"
+msgstr "Move up"

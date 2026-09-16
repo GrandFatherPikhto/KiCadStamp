@@ -1730,6 +1730,37 @@ def test_context_menu_on_node_offers_reread_and_edit(main_window, tmp_path, monk
     assert "Move to…" in actions
 
 
+def test_context_menu_moves_a_node_up_and_down(main_window, tmp_path, monkeypatch):
+    """Э4/С11 (plan_2026_09_17): the node context menu offers "Move up" /
+    "Move down"; triggering one swaps the node with its neighbour, the stored
+    coordinates are untouched, and the action is DISABLED at the ends — the same
+    predicate the operation itself refuses by (`_has_movable_sibling`)."""
+    trees = {"trees": [{"name": "order_tree", "anchor": {"origin": True},
+                        "nodes": [
+                            {"ref": "A_NODE", "kind": "external", "xy": [1.0, 1.0]},
+                            {"ref": "B_NODE", "kind": "external", "xy": [2.0, 2.0]},
+                            {"ref": "C_NODE", "kind": "external", "xy": [3.0, 3.0]},
+                        ]}]}
+    dock, _root = _dock_with(main_window, tmp_path, trees)
+    tree = dock._current_tree()
+    assert [n.ref for n in tree.nodes] == ["A_NODE", "B_NODE", "C_NODE"]
+
+    widget = dock._current_tree_widget()
+    first_item = dock._node_items["A_NODE"]
+    monkeypatch.setattr(widget, "itemAt", lambda pos: first_item)
+    actions = dict(_context_menu_actions(dock, first_item, monkeypatch))
+    # The first node cannot go up, so that direction is simply not offered (the
+    # same predicate the operation refuses by) — and "Move down" is.
+    assert "Move up" not in actions
+    assert "Move down" in actions
+
+    poses = {n.ref: (n.xy, n.rotation) for n in tree.nodes}
+    actions["Move down"].trigger()
+    assert [n.ref for n in tree.nodes] == ["B_NODE", "A_NODE", "C_NODE"]
+    assert {n.ref: (n.xy, n.rotation) for n in tree.nodes} == poses
+    assert dock._dirty is True
+
+
 def test_node_dialog_read_position_fills_xy_and_rotation(main_window, tmp_path, monkeypatch):
     """"Считать текущее положение" fills offset (Cartesian) + relative
     rotation from the live resolution relative to a known parent."""

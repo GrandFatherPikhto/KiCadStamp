@@ -674,7 +674,10 @@ and fix. Ties — vertices that are ready at the same moment and have no depende
 broken by the DOCUMENT order of the tree (top-down, the order the GUI shows), never by the alphabet:
 before this, the lexical queue is exactly what silently applied copper first, and a rename could have
 changed the order of unrelated nodes. The copper-last rule described above remains on top of the new
-copper edges as a safety net.
+copper edges as a safety net. The order of nodes WITHIN one parent (and of a tree's top-level nodes) is
+editable from the tree dock's context menu ("Move up" / "Move down"): it changes nothing but the list, so
+coordinates, rotation and parent stay as they were — and because that order IS the tie-breaker the redraw
+reads among independent nodes, moving a node up or down changes the order a run applies them in.
 
 ---
 
