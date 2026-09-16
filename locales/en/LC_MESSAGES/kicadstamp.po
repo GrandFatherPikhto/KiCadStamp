@@ -16819,6 +16819,35 @@ msgstr ""
 msgid "Show tree markers failed: {error}"
 msgstr ""
 
+# ── Mount node's point marker (plan_2026_09_16_mount_point_marker) ──
+#: gui/docks/trees_dock.py
+msgid "Show point on board"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Remove from board"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the figures could not be removed from the board ({error})"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed ({error})."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker was drawn, but the base square was not ({error})."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: no point is shown on the board — press “Show point on board” first."
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker is not on the board any more — the offset was not read."
+msgstr ""
+
 # ── tree_instances: a declaration's own place (plan_2026_09_12_tree_instance_own_place) ──
 #: kicadstamp/config/entries.py
 msgid "tree_instances: entry {name!r} has a non-mapping anchor:"

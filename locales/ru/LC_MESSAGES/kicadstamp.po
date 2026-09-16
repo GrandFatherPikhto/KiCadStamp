@@ -15485,6 +15485,35 @@ msgstr "Дерево {name!r}: маркер базы не нарисован —
 msgid "Show tree markers failed: {error}"
 msgstr "Показ маркеров дерева не удался: {error}"
 
+# ── Mount node's point marker (plan_2026_09_16_mount_point_marker) ──
+#: gui/docks/trees_dock.py
+msgid "Show point on board"
+msgstr "Показать точку на плате"
+
+#: gui/docks/trees_dock.py
+msgid "Remove from board"
+msgstr "Убрать с платы"
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the figures could not be removed from the board ({error})"
+msgstr "Точка mount: фигуры не удалось убрать с платы ({error})"
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed ({error})."
+msgstr "Точка mount: маркер не нарисован — слой оверлея {layer!r} не включён на этой плате, либо не удалось прочитать плату ({error})."
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker was drawn, but the base square was not ({error})."
+msgstr "Точка mount: маркер нарисован, а квадратик базы — нет ({error})."
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: no point is shown on the board — press “Show point on board” first."
+msgstr "Точка mount: на плате не показана точка — сначала нажмите «Показать точку на плате»."
+
+#: gui/docks/trees_dock.py
+msgid "Mount point: the marker is not on the board any more — the offset was not read."
+msgstr "Точка mount: маркера больше нет на плате — смещение не прочитано."
+
 # ── tree_instances: a declaration's own place (plan_2026_09_12_tree_instance_own_place) ──
 #: kicadstamp/config/entries.py
 msgid "tree_instances: entry {name!r} has a non-mapping anchor:"

@@ -591,6 +591,27 @@ an ordinary node no longer gets an empty tab at all), and a DISABLED offset/rota
 cause — the role/ref that did not resolve, also written to the Log — instead of always blaming the
 connection. "No live board connection" is shown only when there really is no board.
 
+**UPDATE 2026-09-16 (plan_2026_09_16_mount_point_marker):** that same Position tab now carries the mount
+node's own **point marker** — a mount node's offset is the one offset in the tree with nothing to drag on
+the board (a clone/placement/chain node's record IS on the board, a `points:` entry has its own circle, and
+the tree already has its anchor/base pair). **Show point on board** draws TWO overlay figures on the
+configured overlay user layer: a CIRCLE where a save would put the node's point — the node the form would
+build (`build_node`, the very validator a save runs, so unsaved field edits count) placed with
+`node_position` against the form's own base pose — and a SQUARE of the marker's own diameter at the BASE it
+is measured from. The square is deliberately NOT a second circle: "what moves" must never be confused with
+"what it is measured against". Drag the circle in KiCad, press **Read from board** (the same wording the
+Points dock uses, the same action) and the offset in the BOARD frame — the circle's centre minus the base —
+lands in the Cartesian X/Y fields; the rotation is not touched, the config is not written (only Save writes
+it), and both figures come down after a successful read. **Remove from board** takes both down without
+reading, and so do leaving the node, a root switch, changing the mount anchor (the figures were drawn from
+the OLD base, so reading them back would be a lie) and closing the node dialog. A circle the user deleted
+in KiCad is one Log line and no modal (the fields keep their values); with no live base the two buttons
+that need one are unavailable and the reason under the fields says why. The figures are drawn and read on
+the UI thread with the same `socket_busy()` refusal every direct board read in a form uses — while another
+owner holds the shared kipy socket nothing is sent, and a cleanup that arrives then leaves its keys in
+place for the whole-layer sweep. The circle radius / square size and the layer come from Settings → "Board
+overlay", like every other overlay figure.
+
 Since 2026-09-11 (plan node_form_base_frame_follows_anchor) the frame FOLLOWS the selected anchor.
 Changing the Position tab's base — switching **Relative to parent** <-> **Relative to component**, or
 editing the anchor Role/Sheet/Cluster/Pad — re-resolves the base and re-expresses the DISPLAYED offset

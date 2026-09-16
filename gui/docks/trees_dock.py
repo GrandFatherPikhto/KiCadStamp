@@ -51,6 +51,7 @@ from kicadstamp.tree_position import (
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
     mount_node_base,
+    node_position,
     rotate_offset_mm,
     tree_layout_base,
     tree_pivot_offset,
@@ -286,6 +287,33 @@ def _tree_base_key(name) -> str:
 def _tree_marker_keys(name) -> tuple:
     """BOTH overlay keys one tree's toggle owns, anchor first."""
     return (_tree_anchor_key(name), _tree_base_key(name))
+
+
+# ── The mount-point marker (plan_2026_09_16_mount_point_marker Э1) ───────────
+# A kind "mount" node's offset used to be typed as two numbers only. The pair
+# below is the third consumer of the overlay owner on this dock (after the tree
+# anchor/base circles): a DRAGGABLE circle at the node's own point and a SQUARE
+# at the base it is measured from — deliberately NOT a circle, so "what moves"
+# can never be confused with "what it is measured against" (Р2).
+#
+# The slug lives HERE, next to the tree pair, for the same reason (Ф3): the
+# consumer owns its slug, the owner only reserves the namespace.
+_MOUNT_POINT_NS = "mount-point"
+
+
+def _mount_point_key(tree_name, ref) -> str:
+    """Overlay key of the DRAGGABLE circle at mount node `ref`'s own point."""
+    return f"{_MOUNT_POINT_NS}/{tree_name}/{ref}/point"
+
+
+def _mount_base_key(tree_name, ref) -> str:
+    """Overlay key of the SQUARE marking the base the circle is measured from."""
+    return f"{_MOUNT_POINT_NS}/{tree_name}/{ref}/base"
+
+
+def _mount_marker_keys(tree_name, ref) -> tuple:
+    """BOTH overlay keys one mount node's "show" owns, point first."""
+    return (_mount_point_key(tree_name, ref), _mount_base_key(tree_name, ref))
 
 
 def _tree_marker_points(adapter, cfg, tree, sheet_names, forest) -> tuple:
@@ -1133,6 +1161,10 @@ class TreesDock(QWidget):
         # active one's Node/Anchor forms — warn when one of them holds unapplied
         # edits (non-blocking; the rebuild proceeds and the draft is lost).
         self._warn_rebuild_discard()
+        # Э3/Т3.2: the rebuild is about to drop every page widget — each form's
+        # own board figures go down with it (a `deleteLater` page runs no
+        # closeEvent, so this is the only chance).
+        self._release_page_forms()
         # (P1, 2026-09-03, plan tree_ui_state_persistence): remember the
         # CURRENT active tree by NAME before clear() so the rebuild keeps the
         # user on the same tab instead of unconditionally jumping to tab 0 (the
@@ -1964,6 +1996,25 @@ class TreesDock(QWidget):
             old.deleteLater()
         panel.addWidget(widget)
 
+    @staticmethod
+    def _release_page_form(page: Optional[QWidget]) -> None:
+        """Tell the form behind `page` that it is being replaced (Э3/Т3.2 of
+        plan_2026_09_16_mount_point_marker): whatever it drew on the board goes
+        down with it. Duck-typed on `cleanup` — NodeFormWidget owns one,
+        AnchorFormWidget has nothing to clean up and is left alone."""
+        form = TreesDock._embedded_form_of(page)
+        cleanup = getattr(form, "cleanup", None)
+        if callable(cleanup):
+            cleanup()
+
+    def _set_page_content(self, panel: QStackedWidget, widget: QWidget) -> None:
+        """_set_panel_content PLUS the ONE close hook — the single place the
+        dock swaps a panel page, so a form's own board figures can never be
+        forgotten by a new call site (the previous page is dropped without a
+        word, `deleteLater` runs no closeEvent)."""
+        self._release_page_form(self._panel_page(panel))
+        self._set_panel_content(panel, widget)
+
     def _form_action_row(self, form) -> QWidget:
         """Wrap a modal-agnostic form (NodeFormWidget/AnchorFormWidget) with
         the Apply/Redraw button row the master-detail panel needs — the forms
@@ -2079,7 +2130,7 @@ class TreesDock(QWidget):
             return
         panel = self._active_form_panel()
         if panel is not None and tree is not None:
-            self._set_panel_content(
+            self._set_page_content(
                 panel, self._form_action_row(self._build_anchor_form(tree)))
             self._current_node_ref = None
             panel.setProperty("_panel_built", True)
@@ -2094,6 +2145,15 @@ class TreesDock(QWidget):
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
+
+    def _release_page_forms(self) -> None:
+        """Every page's form learns about its own closure BEFORE
+        tree_tabs.clear() drops them (Э3/Т3.2): a rebuild replaces ALL pages at
+        once, and the active one is only a slice of them."""
+        for index in range(self.tree_tabs.count()):
+            panel = self._form_panel_of_page(self.tree_tabs.widget(index))
+            if panel is not None:
+                self._release_page_form(self._panel_page(panel))
 
     def _warn_rebuild_discard(self) -> None:
         """design §9.4/§7.1.2: _rebuild_tabs() is about to clear every page, so
@@ -2139,20 +2199,20 @@ class TreesDock(QWidget):
         if inst is not None:
             # Read-only instance (plan §7.1.4): never an editor — a generated
             # tree's anchor/nodes belong to the template + the declaration.
-            self._set_panel_content(panel, self._read_only_stub(inst))
+            self._set_page_content(panel, self._read_only_stub(inst))
             return None
         if self._selected_copper_group(tree):
             # Т1.2: the "Copper" pseudo-node has nothing to edit and nothing to
             # show, so the panel is left EMPTY. It is NOT the "no node" case
             # below: that one means the anchor row and shows the anchor form.
-            self._set_panel_content(panel, self._empty_selection_page())
+            self._set_page_content(panel, self._empty_selection_page())
             return _COPPER_GROUP_PANEL
         node = self._selected_real_node(tree)
         if node is not None:
-            self._set_panel_content(
+            self._set_page_content(
                 panel, self._form_action_row(self._build_node_form(tree, node)))
             return node.ref
-        self._set_panel_content(
+        self._set_page_content(
             panel, self._form_action_row(self._build_anchor_form(tree)))
         return None
 
@@ -2753,13 +2813,14 @@ class TreesDock(QWidget):
             lambda _result: None, lambda _message: None, adapter, uuids)
 
     def _clear_all_tree_markers(self) -> None:
-        """Drop BOTH tree-marker namespaces entirely (an actual root switch,
-        З.2.5): every key belonged to the previous project. State now, shapes
-        on a worker."""
+        """Drop the tree-marker namespaces AND the mount-point one entirely (an
+        actual root switch, З.2.5 + Э3/Т3.3 of
+        plan_2026_09_16_mount_point_marker): every key belonged to the previous
+        project. State now, shapes on a worker."""
         if getattr(self._main_window.connection, "long_op_active", False):
             return
         uuids: list = []
-        for namespace in (_TREE_ANCHOR_NS, _TREE_BASE_NS):
+        for namespace in (_TREE_ANCHOR_NS, _TREE_BASE_NS, _MOUNT_POINT_NS):
             uuids.extend(overlay_markers.owner.forget_scope(namespace))
         self._refresh_markers_button()
         adapter = self._live_adapter()
@@ -4570,6 +4631,36 @@ class NodeFormWidget(QWidget):
         self.mount_anchor_widget.set_known_sheets(list(self._sheet_names.values()))
         self.component_address_widget.set_known_sheets(list(self._sheet_names.values()))
 
+        # ── Mount point marker (plan_2026_09_16_mount_point_marker Э1) ──────
+        # The MOUNT node's offset is the only one with no live component to
+        # drag: a clone/placement/chain node's own record IS on the board, a
+        # point has its own circle, and the tree already has its anchor/base
+        # pair (Ф5). So this row exists for kind "mount" alone (Р1), and the
+        # circle it draws goes exactly where a save would put the node's point
+        # (Р3) — the same build_node + node_position the redraw uses.
+        self.mount_point_row = QWidget()
+        mount_point_row_layout = QHBoxLayout(self.mount_point_row)
+        mount_point_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.show_mount_point_button = QPushButton(_("Show point on board"))
+        self.show_mount_point_button.clicked.connect(self._on_show_mount_point)
+        self.read_mount_point_button = QPushButton(_("Read from board"))
+        self.read_mount_point_button.clicked.connect(self._on_read_mount_point)
+        self.clear_mount_point_button = QPushButton(_("Remove from board"))
+        self.clear_mount_point_button.clicked.connect(self._on_clear_mount_point)
+        for _button in (self.show_mount_point_button,
+                        self.read_mount_point_button,
+                        self.clear_mount_point_button):
+            mount_point_row_layout.addWidget(_button)
+        mount_point_row_layout.addStretch(1)
+        position_form.addRow(self.mount_point_row)
+        self.mount_point_row.setVisible(False)
+        # The overlay keys this form DREW under (Р6) — REMEMBERED, never
+        # recomputed from the ref field: a rename between "Show" and "Remove"
+        # (or between the show and the form being closed) must take the figures
+        # that really exist down, not the ones today's ref would name. None
+        # means "this form has nothing on the board".
+        self._mount_marker_keys: Optional[tuple] = None
+
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
         # The Position tab's index, for the ONE show/hide condition in
@@ -4614,6 +4705,11 @@ class NodeFormWidget(QWidget):
             self.offset_widget.x_edit.setText("0")
             self.offset_widget.y_edit.setText("0")
         self._update_read_button_state()
+        # Э1 (plan_2026_09_16_mount_point_marker): the mount-point row's state.
+        # It reads the CACHED base pose only — probing the board here would
+        # resolve (and cache) a half-loaded anchor during _prefill, which is
+        # exactly what disables the fields on a form with a perfectly good base.
+        self._update_mount_point_buttons()
         # design §9.4: after _prefill/_on_kind_changed populated the fields the
         # form is clean — _touched reflects only USER edits since the last
         # load()/Apply (the same _mark_touched signals fired by prefill must
@@ -4943,6 +5039,13 @@ class NodeFormWidget(QWidget):
         The frame the form is CURRENTLY showing is stashed once per change
         burst (after the first call the cache is already unresolved), so the
         refresh can hold the node still across the change (U.1)."""
+        # Т1.3 (plan_2026_09_16_mount_point_marker): figures drawn from the OLD
+        # base are stale the moment the anchor moves, and a point read off them
+        # would be read against a base that no longer exists. This is the ONE
+        # method every anchor change passes through (mode change, field edit,
+        # Parent combo), so the cleanup lives here; a form with nothing shown
+        # pays one None check.
+        self.cleanup()
         if self._base_resolved:
             # Keep only a REAL pose — a failed resolve (None) must not clobber a
             # good pre-change frame still waiting to be consumed.
@@ -5034,6 +5137,7 @@ class NodeFormWidget(QWidget):
             # written with a silently different meaning.
             self._last_anchor_sig = self._anchor_signature()
             self._set_offset_editable(False, reason=_("Anchor: Role is required."))
+            self._update_mount_point_buttons()
             return
         sig = self._anchor_signature()
         if sig == self._last_anchor_sig:
@@ -5053,6 +5157,7 @@ class NodeFormWidget(QWidget):
             # there really is none.
             self._set_offset_editable(
                 False, reason=self._no_live_base_reason())
+            self._update_mount_point_buttons()
             return
         if old_pose is not None and old_board_offset is not None:
             old_pos, _old_rot = old_pose
@@ -5063,6 +5168,9 @@ class NodeFormWidget(QWidget):
         # The absolute rotation shown in the field is unchanged — it is a board
         # angle, independent of the base (U.1).
         self._set_offset_editable(True)
+        # Э1/Р7: the base was (re)resolved just above, so the mount-point
+        # buttons follow it in the same tick as the fields.
+        self._update_mount_point_buttons()
 
     def _set_offset_editable(self, editable: bool, *, reason: str = "") -> None:
         """Enable/disable the offset + rotation fields as a group. Disabled
@@ -5141,6 +5249,10 @@ class NodeFormWidget(QWidget):
         # therefore a real change, and the debounced double fires are no-ops.
         self._last_anchor_sig = self._anchor_signature()
         self._base_pose_before_change = None
+        # Э1/Р7: the base pose is settled by now (the two lines above follow
+        # _base_rotation_deg's own resolve), so the mount-point buttons can be
+        # stated honestly.
+        self._update_mount_point_buttons()
 
     def _live_connection(self):
         """The live connection, reached through the owning dock — None for a
@@ -5234,6 +5346,214 @@ class NodeFormWidget(QWidget):
             self.rotation_edit.setText(
                 f"{local_rotation_to_board_deg(rotation, base_rot):.3f}")
 
+    # ── Mount point marker (Э1/Э2/Э3, plan_2026_09_16_mount_point_marker) ──
+    #
+    # A mount node's point is the ONE offset with nothing to drag on the board
+    # (Ф5), so the form draws it: a CIRCLE at the point and a SQUARE at the base
+    # it is measured from (Р2). The board is only ever touched through
+    # overlay_markers.owner and board_overlay (правило 1 двери), and every action
+    # that reaches the socket asks socket_busy() FIRST and then refuses — the
+    # documented minimum for a form living in a modal dialog (Э1 of
+    # plan_2026_09_12_ui_thread_board_reads), the same discipline
+    # _on_read_position follows.
+
+    def _mount_point_ref(self) -> str:
+        """The ref the two overlay keys are built from at DRAW time: the edited
+        node's OWN ref when there is one (its identity — the field may be
+        mid-rename), else whatever the form's ref field holds (ADD mode, where
+        no node exists yet). Removal never comes back here — see Р6."""
+        if self._existing is not None:
+            return str(self._existing.ref)
+        return self.ref_combo.currentText().strip()
+
+    def _update_mount_point_buttons(self) -> None:
+        """Visibility + enabled state of the three mount-point buttons (Т1.2).
+
+        Visibility is pure kind data (a mount node alone, Р1). The enabled state
+        is read off the CACHED base pose — deliberately NOT resolved here: this
+        is called from _on_kind_changed, which runs in the MIDDLE of _prefill
+        (the anchor fields are loaded a few lines later), and resolving there
+        would cache the still-empty anchor and then feed that stale frame to the
+        very _prefill that is loading the real one. The two places that DO
+        settle the base (_prefill, _refresh_for_new_anchor) call this straight
+        after resolving, so the buttons follow the base within the same tick.
+
+        "Read from board" additionally needs figures this form drew (Т1.2),
+        while "Remove from board" needs the remembered keys ALONE — so a form
+        whose base stopped resolving can still take its own figures down."""
+        is_mount = self.kind_combo.currentData() == "mount"
+        self.mount_point_row.setVisible(is_mount)
+        has_base = bool(self._base_resolved
+                        and self._base_pose_value is not None)
+        shown = self._mount_marker_keys is not None
+        self.show_mount_point_button.setEnabled(is_mount and has_base)
+        self.read_mount_point_button.setEnabled(is_mount and has_base and shown)
+        self.clear_mount_point_button.setEnabled(shown)
+
+    def _forget_mount_marker_keys(self) -> list:
+        """Pop the REMEMBERED keys from the owner's map and return their uuids —
+        state first, board after (the split cell_anchor_view._remove_marker_only
+        uses, so the buttons are honest before the IPC half even starts)."""
+        keys = self._mount_marker_keys
+        self._mount_marker_keys = None
+        if not keys:
+            return []
+        uuids: list = []
+        for key in keys:
+            uuid = overlay_markers.owner.forget_key(key)
+            if uuid:
+                uuids.append(uuid)
+        return uuids
+
+    def _remove_mount_marker_shapes(self, adapter, uuids: list) -> None:
+        """Delete the figures whose keys were just forgotten. Never raises: a
+        removal that fails (a shape deleted by hand, a dead socket) must not
+        break the action that asked for it — the keys are already gone and the
+        owner's reconcile reports whatever is left over."""
+        if adapter is None or not uuids:
+            return
+        try:
+            board_overlay.remove_overlay(adapter, uuids)
+        except Exception as e:  # noqa: BLE001 — a cleanup never breaks its caller
+            logger.warning(_("Mount point: the figures could not be removed "
+                             "from the board ({error})").format(error=e))
+
+    def cleanup(self) -> None:
+        """Take THIS form's mount-point figures down — the ONE close hook of the
+        form (Э3/Т3.2): the panel replacing this form, the tree tabs being
+        rebuilt, the node dialog closing (Edit's Close and Add's Cancel/OK
+        alike) and the mount anchor changing (Т1.3) all come through here.
+
+        Keys first, shapes after. While another owner holds the shared socket
+        NOTHING is dropped — not even the keys — exactly like
+        cell_anchor_view.cleanup(): the figures stay on the layer and the
+        whole-layer sweep / GUI-exit path finds them later, which is strictly
+        better than interleaving a second REQ transaction."""
+        if self._mount_marker_keys is None:
+            return
+        if socket_busy(self._live_connection()):
+            return
+        uuids = self._forget_mount_marker_keys()
+        # The buttons follow the fact at once. Safe to restate here: the anchor
+        # path reaches cleanup() from _invalidate_base BEFORE the base cache is
+        # dropped, so this can never claim "no base" while there is one.
+        self._update_mount_point_buttons()
+        self._remove_mount_marker_shapes(self._adapter, uuids)
+
+    def _on_show_mount_point(self) -> None:
+        """"Show point on board" (Т1.1): draw the circle where a SAVE would put
+        the node's point, and the square at the base it is measured from.
+
+        The point is computed the ONE way a layout computes it (Р3): the node
+        the form would build (build_node — the very validator a save runs, so a
+        node that could not be saved gets no marker either) placed with
+        node_position against the form's own base pose (_base_pose, the SAME
+        frame _prefill displayed and build_node converts back through). Unsaved
+        field edits therefore count, which is the whole point of the button."""
+        adapter = self._adapter
+        if adapter is None:
+            show_message(_("No live board connection — connect KiCad first."),
+                         _ERROR_STYLE, logger)
+            return
+        if self.kind_combo.currentData() != "mount" or self._tree is None:
+            return
+        if socket_busy(self._live_connection()):
+            return
+        pose = self._base_pose()
+        if pose is None:
+            return
+        node = self.build_node()
+        if node is None:
+            # build_node has already said what is missing (it is the save-time
+            # validator): a marker for a node that cannot be saved would show
+            # the user a point the config will never carry.
+            return
+        base_pos, base_rot = pose
+        point = node_position(node, base_pos, base_rot)
+        point_key, base_key = _mount_marker_keys(self._tree.name,
+                                                 self._mount_point_ref())
+        radius = board_overlay.overlay_marker_radius_mm()
+        # Remembered BEFORE the draw: a draw that fails half way (the circle
+        # down, the square not) still leaves the form owning those keys, so
+        # "Remove" and the close hook take down whatever really exists. The
+        # owner is idempotent by key, so pressing again MOVES the same figures
+        # instead of stacking a second pair (Т1.1).
+        self._mount_marker_keys = (point_key, base_key)
+        self._update_mount_point_buttons()
+        try:
+            overlay_markers.owner.ensure_marker(
+                adapter, point_key, point.x / MM, point.y / MM)
+        except Exception as e:  # noqa: BLE001 — a visualisation never raises
+            show_message(
+                _("Mount point: the marker was not drawn — the overlay layer "
+                  "{layer!r} is not enabled on this board, or the board read "
+                  "failed ({error}).").format(
+                      layer=board_overlay.overlay_layer_name(), error=e),
+                _ERROR_STYLE, logger)
+            return
+        try:
+            # Р2: the base is a SQUARE of the marker's own diameter, so "what
+            # moves" can never be mistaken for "what it is measured against".
+            # ensure_bbox already exists — no new primitive is invented (Ф3).
+            overlay_markers.owner.ensure_bbox(
+                adapter, base_key,
+                base_pos.x / MM - radius, base_pos.y / MM - radius,
+                base_pos.x / MM + radius, base_pos.y / MM + radius)
+        except Exception as e:  # noqa: BLE001 — the circle is already down
+            show_message(
+                _("Mount point: the marker was drawn, but the base square was "
+                  "not ({error}).").format(error=e),
+                _WARN_STYLE, logger)
+
+    def _on_read_mount_point(self) -> None:
+        """"Read from board" (Э2): the offset in the BOARD frame is the circle's
+        centre MINUS the base (Р4/Т2.1) and goes into the Cartesian fields of the
+        form — the config is NOT written (only Save writes it) and the rotation
+        is not touched. Both figures come down afterwards (Р5/Т2.2), exactly
+        like the cell anchor's "Read position"."""
+        adapter = self._adapter
+        if adapter is None:
+            show_message(_("No live board connection — connect KiCad first."),
+                         _ERROR_STYLE, logger)
+            return
+        if socket_busy(self._live_connection()):
+            return
+        if self._mount_marker_keys is None:
+            show_message(_("Mount point: no point is shown on the board — "
+                           "press “Show point on board” first."),
+                         _WARN_STYLE, logger)
+            return
+        pose = self._base_pose()
+        if pose is None:
+            return
+        point_key = self._mount_marker_keys[0]
+        xy = overlay_markers.owner.read_position(adapter, point_key)
+        if xy is None:
+            # Т2.3: the circle is gone (deleted in KiCad, swept) — a Log line,
+            # the fields untouched, the keys forgotten (there is no shape left).
+            show_message(_("Mount point: the marker is not on the board any "
+                           "more — the offset was not read."),
+                         _WARN_STYLE, logger)
+            self._forget_mount_marker_keys()
+            self._update_mount_point_buttons()
+            return
+        base_pos, _base_rot = pose
+        self.offset_widget.x_edit.setText(f"{xy[0] - base_pos.x / MM:.3f}")
+        self.offset_widget.y_edit.setText(f"{xy[1] - base_pos.y / MM:.3f}")
+        uuids = self._forget_mount_marker_keys()
+        self._update_mount_point_buttons()
+        self._remove_mount_marker_shapes(adapter, uuids)
+
+    def _on_clear_mount_point(self) -> None:
+        """"Remove from board" (Т3.1): both figures, without reading anything."""
+        if self._mount_marker_keys is None:
+            return
+        if socket_busy(self._live_connection()):
+            return
+        uuids = self._forget_mount_marker_keys()
+        self._update_mount_point_buttons()
+        self._remove_mount_marker_shapes(self._adapter, uuids)
+
     def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
         """Repopulate ref_combo with (display_text, kind, name) triples,
         preserving the current text and blocking signals (the same
@@ -5298,6 +5618,13 @@ class NodeFormWidget(QWidget):
         # COMPONENT node only (plan Э3/Т3.7) — the two are never visible at once.
         self.mount_anchor_widget.setVisible(is_mount)
         self.component_address_widget.setVisible(is_component)
+        # Э1 (plan_2026_09_16_mount_point_marker Р1): the point marker's row
+        # follows the SAME condition as the mount anchor picker — a mount node
+        # alone. Visibility is stated here (it is pure kind data); the ENABLED
+        # state is refreshed wherever the base pose is settled, see
+        # _update_mount_point_buttons.
+        self.mount_point_row.setVisible(is_mount)
+        self._update_mount_point_buttons()
         # Л.2.3: the Position tab holds ONLY those pickers, so it is shown exactly
         # when one of them is — ONE condition in ONE place, so the label can
         # never drift from its content. A tab with nothing behind it is an
@@ -5690,6 +6017,21 @@ class _NodeDialog(QDialog):
     def mount_anchor(self):
         """The form's mount_anchor() (Position-tab value, kind "mount")."""
         return self._form.mount_anchor()
+
+    def done(self, result: int) -> None:
+        """Closing the dialog takes the form's own board figures down
+        (Э3/Т3.2 of plan_2026_09_16_mount_point_marker).
+
+        `done()` is the ONE funnel every close path reaches — Close/Cancel and
+        Escape in Edit mode, Cancel and the validating OK in Add mode (the
+        latter after accept()), and a window-manager close. The form is a plain
+        QWidget without a window of its own, so it never sees a closeEvent;
+        without this hook a circle shown for a node the user then abandoned
+        would sit on the overlay layer until the next sweep."""
+        form = getattr(self, "_form", None)
+        if form is not None:
+            form.cleanup()
+        super().done(result)
 
 
 # The tree-anchor MODE TABLE (design §3.2; plan_2026_09_11_external_point_

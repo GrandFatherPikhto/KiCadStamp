@@ -45,6 +45,23 @@ T = {
     "Take name/output/param/net-template/origin-by-* from profile NAME in --profiles file (cannot combine with explicit flags)":
     "Взять name/output/param/net-template/origin-by-* из профиля NAME в файле --profiles (нельзя сочетать с явными флагами)",
 
+    # gui/docks/trees_dock.py — the mount node's point marker
+    # (plan_2026_09_16_mount_point_marker)
+    # "Read from board" is NOT here: that msgid already exists (the PointsDock
+    # button) and is translated there — the mount form reuses the same wording.
+    "Show point on board": "Показать точку на плате",
+    "Remove from board": "Убрать с платы",
+    "Mount point: the figures could not be removed from the board ({error})":
+    "Точка mount: фигуры не удалось убрать с платы ({error})",
+    "Mount point: the marker was not drawn — the overlay layer {layer!r} is not enabled on this board, or the board read failed ({error}).":
+    "Точка mount: маркер не нарисован — слой оверлея {layer!r} не включён на этой плате, либо не удалось прочитать плату ({error}).",
+    "Mount point: the marker was drawn, but the base square was not ({error}).":
+    "Точка mount: маркер нарисован, а квадратик базы — нет ({error}).",
+    "Mount point: no point is shown on the board — press “Show point on board” first.":
+    "Точка mount: на плате не показана точка — сначала нажмите «Показать точку на плате».",
+    "Mount point: the marker is not on the board any more — the offset was not read.":
+    "Точка mount: маркера больше нет на плате — смещение не прочитано.",
+
     # gui/fieldstool_window.py / main_window.py
     "Rescan": "Пересканировать",
     "Not connected": "Нет подключения",
