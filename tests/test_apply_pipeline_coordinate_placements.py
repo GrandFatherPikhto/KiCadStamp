@@ -50,7 +50,7 @@ def test_coordinate_placements_are_moved_before_phase1(monkeypatch):
     call_order = []
 
     def fake_build_coordinate_moves(adapter, coordinate_placements, points=None, sheet_names=None,
-                                    position_overrides=None):
+                                    position_overrides=None, identity_by_name=None):
         assert coordinate_placements == [cp]
         call_order.append("build_coordinate_moves")
         return [fake_move]
@@ -127,7 +127,7 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
                             angle=Angle.from_degrees(90.0), layer=BoardLayer.BL_F_Cu)
     monkeypatch.setattr("kicadstamp.apply_pipeline.build_coordinate_moves",
                         lambda adapter, coordinate_placements, points=None, sheet_names=None,
-                               position_overrides=None: [fake_move])
+                               position_overrides=None, identity_by_name=None: [fake_move])
 
     report = pipeline._dry_run()
     text = "\n".join(report)
@@ -163,3 +163,60 @@ def test_dry_run_report_omits_coordinate_placements_section_when_empty():
     text = "\n".join(report)
 
     assert "Coordinate placements" not in text
+
+
+def test_the_identity_map_reaches_both_phase0_call_sites(monkeypatch):
+    """М11 (Э4/Т4.1): the component-node identity side map must be handed to
+    BOTH build_coordinate_moves call sites — the dry run and the real Phase 0.
+    Only the dry run's omission is invisible in an ordinary config, and it is
+    exactly what makes a dry run fatal where the apply succeeds (see the U14/U15
+    guards in test_component_nodes.py): the report would then lie about the very
+    run it previews."""
+    from types import SimpleNamespace
+
+    cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R18",
+                             x_mm=10.0, y_mm=20.0, rotation_deg=0.0)
+    seen: list = []
+
+    def fake_build_coordinate_moves(adapter, coordinate_placements, points=None,
+                                    sheet_names=None, position_overrides=None,
+                                    identity_by_name=None):
+        seen.append(identity_by_name)
+        return []
+
+    monkeypatch.setattr("kicadstamp.apply_pipeline.build_coordinate_moves",
+                        fake_build_coordinate_moves)
+
+    class _FakePlanner:
+        def plan_items(self, items):
+            return []
+
+        def plan_vias(self):
+            return []
+
+        def plan_tracks(self):
+            return []
+
+    # ── the dry run ──
+    pipeline = _pipeline([cp])
+    pipeline.dry_run = True
+    pipeline.items = [SimpleNamespace(label="rule_A")]
+    pipeline.planner = _FakePlanner()
+    pipeline._component_identities = {"place_1": "U14"}
+    pipeline._dry_run()
+    assert seen[-1] == {"place_1": "U14"}
+
+    # ── the real Phase 0 ──
+    pipeline = _pipeline([cp])
+    pipeline._component_identities = {"place_1": "U14"}
+    p_exec, p_reg, p_track_reg = _patched_executors()
+    with p_exec as MockExecutorCls, p_reg as MockRegistryCls, \
+            p_track_reg as MockTrackRegistryCls:
+        MockRegistryCls.return_value.reconcile.return_value = ([], [])
+        MockTrackRegistryCls.return_value.reconcile.return_value = ([], [])
+        mock_executor = MockExecutorCls.return_value
+        mock_executor.execute_moves.return_value = []
+        mock_executor.execute_vias.return_value = []
+        mock_executor.execute_tracks.return_value = []
+        pipeline._execute()
+    assert seen[-1] == {"place_1": "U14"}

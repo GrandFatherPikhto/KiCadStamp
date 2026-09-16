@@ -13,7 +13,10 @@ The guards here pin, in order: the GRAMMAR (both formats, both addresses, the
 local-ref rules and the load-time duplicate-address rule), the MATERIALIZATION
 (one transient CoordinatePlacement at the node's pose, --only by node name, the
 config untouched), the PAD seating (numbers, not "the call happened"), the LIVE
-duplicate rule, and the rigid group (the node rides its parent's redraw).
+duplicate rule, the rigid group (the node rides its parent's redraw), and — since
+plan_2026_09_16_commit_document_and_pending_direction, Э4/Т4.1 — the IDENTITY
+SIDE MAP that carries the refdes the address found all the way to Phase 0, so the
+transient record is never re-resolved by tags (the Ф8 defect).
 """
 import logging
 from unittest.mock import MagicMock
@@ -21,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from kicadstamp.apply_pipeline import apply_only_filter
-from kicadstamp.config import Config
+from kicadstamp.config import Config, CoordinatePlacement
 from kicadstamp.config.loader import load_config
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Pad
@@ -34,6 +37,7 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
 )
 from kicadstamp.trees import load_trees, tree_from_dict, tree_to_dict
 from kicadstamp.tree_position import (
+    PositionOverride,
     apply_rigid_override,
     capture_rigid_state,
     curated_redraw_plan_forest,
@@ -45,19 +49,30 @@ F_CU = BoardLayer.BL_F_Cu
 
 class _Board:
     """Live board double: real Footprint/Pad objects, the two custom fields read
-    through the adapter exactly as the real one is."""
+    through the adapter exactly as the real one is.
 
-    def __init__(self, components):
+    sheet_paths — {ref: (uuid, ...)} for the footprint's hierarchical path, the
+    LAST uuid being the component's own. The default ("sheet",) is the
+    one-segment path every older guard wants: its resolved leaf is empty, exactly
+    like a board whose sheet dictionary is empty (_fp_on_sheet then matches
+    nothing and narrows nothing — see sheet_names.resolve_sheet_path_names).
+    selection — the refs the role resolver's LAST narrowing step sees as selected;
+    empty (a headless run) by default."""
+
+    def __init__(self, components, sheet_paths=None, selection=None):
         # components: {ref: (role, cluster, (x_mm, y_mm), angle_deg, [pads])}
         self._fields = {}
         self._fps = []
         self._pads = {}
+        self._selection = list(selection or [])
+        paths = sheet_paths or {}
         for ref, (role, cluster, xy, angle, pads) in components.items():
             self._fields[ref] = {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}
             self._fps.append(Footprint(
                 ref=ref, uuid=ref,
                 position=Vector2.from_xy(int(xy[0] * MM), int(xy[1] * MM)),
-                angle_deg=angle, layer=F_CU, sheet_path_uuids=("sheet",)))
+                angle_deg=angle, layer=F_CU,
+                sheet_path_uuids=tuple(paths.get(ref, ("sheet",)))))
             self._pads[ref] = [
                 Pad(number=num, net_name="N",
                     position=Vector2.from_xy(int(px * MM), int(py * MM)))
@@ -83,8 +98,8 @@ class _Board:
 
     def get_selected_items(self):
         """The role resolver's LAST narrowing step reads the selection; an empty
-        selection is what a headless run sees."""
-        return []
+        selection is what a headless run sees (the default)."""
+        return [fp for fp in self._fps if fp.ref in self._selection]
 
 
 def _cfg(*trees):
@@ -307,6 +322,30 @@ def test_two_different_addresses_on_one_footprint_is_fatal():
 
 # ── С10: the rigid group ─────────────────────────────────────────────────────
 
+def test_resolve_order_hands_the_identity_map_to_the_pipeline(monkeypatch):
+    """Т4.1 wiring — the same class of hole Э3's В3 closed for the copper
+    provider: the map the materializer fills must become THE PIPELINE'S OWN
+    field. If it were collected into a throwaway dict, Phase 0 would receive an
+    empty map and fall back to the tags, i.e. Ф8 would come back while every
+    unit guard above stays green."""
+    from kicadstamp import apply_pipeline as ap
+    from kicadstamp.apply_pipeline import ApplyPipeline
+
+    cfg = _one_node_tree(_component_node(ref="place_1", anchor={"ref": "U14"}))
+    board = _u14_u15_board()
+    # The Entity half of the same step is not this guard's subject (it has its
+    # own suite) — only the component-node wiring is.
+    monkeypatch.setattr(ap, "materialize_entity_placements", lambda *a, **kw: [])
+
+    pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg)
+    pipeline._full_cfg = cfg
+    pipeline.adapter = board
+    pipeline._resolve_order()
+
+    assert pipeline._component_identities == {"place_1": "U14"}
+    assert [c.name for c in pipeline.cfg.coordinate_placements] == ["place_1"]
+
+
 def test_a_component_node_rides_the_rigid_group_of_its_parent(monkeypatch):
     """С10/Р2: a component node is a FULL member of the rigid group — the capture
     records its offset from the parent's live frame and the apply re-projects it
@@ -437,3 +476,173 @@ def test_a_component_node_is_a_vertex_of_the_plan():
     # The one note is the ordinary "your parent is not in the selection" for a
     # top-level node of an ORIGIN-anchored tree — nothing component-specific.
     assert len(warnings) == 1 and "will be redrawn from the current position" in warnings[0]
+
+
+# ── Э4/Т4.1: the identity side map (plan_2026_09_16, Ф8 defect) ──────────────
+# A transient component-node record used to reach Phase 0 with nothing but its
+# TAGS, and Phase 0 resolved it a SECOND time by (role, cluster) plus a sheet
+# narrowed to the LEAF of the footprint's path. On the very cases an address
+# exists for — twins sharing Role/Cluster on same-named sheets of different
+# instances, or components with no tags at all — that second search is ambiguous
+# and the run died with a false "fix the tagging" fatal (the tags were right).
+# The refdes the address already found now travels in a side map, and Phase 0
+# takes the footprint by it.
+
+def _u14_u15_board():
+    """Ф8's board: two buffers with the SAME Role/Cluster on same-named sheets of
+    two DIFFERENT instances — the leaf segment is identical ('Out_A')."""
+    return _Board(
+        {"U14": ("BUF_SCHMITT", "SIG_OUT", (0.0, 0.0), 0.0, []),
+         "U15": ("BUF_SCHMITT", "SIG_OUT", (10.0, 0.0), 0.0, [])},
+        sheet_paths={"U14": ("hp0", "out_a", "u14"),
+                     "U15": ("hp1", "out_a", "u15")})
+
+
+_U14_SHEETS = {"hp0": "HP_Channel_0", "hp1": "HP_Channel_1", "out_a": "Out_A"}
+
+
+def test_a_refdes_address_survives_to_phase_0_through_the_identity_map():
+    """Т4.2 п.1 (Ф8): (ref "U14") where U14 and U15 share Role, Cluster AND the
+    leaf sheet segment. Step 1 finds U14 by its address; with the map Phase 0
+    moves U14. WITHOUT the map the very same call dies on the tag search — that
+    is the proof this guard catches the defect (М9 turns it red)."""
+    cfg = _one_node_tree(_component_node(ref="place_1", xy=[5.0, 7.0],
+                                         anchor={"ref": "U14"}))
+    board = _u14_u15_board()
+    ids: dict[str, str] = {}
+    coords = materialize_component_nodes(board, cfg, _U14_SHEETS,
+                                         identity_out=ids)
+    assert ids == {"place_1": "U14"}
+    assert coords[0].sheet == "Out_A"          # the leaf, as Ф8 measured
+    assert coords[0].role == "BUF_SCHMITT" and coords[0].cluster == "SIG_OUT"
+
+    moves = build_coordinate_moves(board, coords, points={},
+                                   sheet_names=_U14_SHEETS, identity_by_name=ids)
+    assert [m.ref for m in moves] == ["U14"]
+    assert moves[0].position.x / MM == pytest.approx(5.0, abs=1e-6)
+    assert moves[0].position.y / MM == pytest.approx(7.0, abs=1e-6)
+
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(board, coords, points={}, sheet_names=_U14_SHEETS)
+
+
+def test_an_untagged_component_survives_to_phase_0_through_the_identity_map():
+    """Т4.2 п.2 (Ф8): a (ref "J6") address on components with NO Role/Cluster at
+    all. The address is the ONLY identity there is — the tag search has nothing
+    to match and fatals ("Role=None, Cluster=None … fix the tagging")."""
+    cfg = _one_node_tree(_component_node(ref="place_1", xy=[3.0, 4.0],
+                                         anchor={"ref": "J6"}))
+    board = _Board({"J6": (None, None, (0.0, 0.0), 0.0, []),
+                    "J5": (None, None, (1.0, 0.0), 0.0, [])})
+    ids: dict[str, str] = {}
+    coords = materialize_component_nodes(board, cfg, {}, identity_out=ids)
+    assert ids == {"place_1": "J6"}
+    assert coords[0].role is None and coords[0].cluster is None
+
+    moves = build_coordinate_moves(board, coords, points={}, sheet_names={},
+                                   identity_by_name=ids)
+    assert [m.ref for m in moves] == ["J6"]
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(board, coords, points={}, sheet_names={})
+
+
+def test_a_role_address_narrowed_by_selection_reaches_phase_0_unchanged():
+    """Т4.2 п.3: step 1 narrowed two same-Role/same-Cluster candidates by the
+    BOARD SELECTION, which Phase 0 does not read at all. The map is filled for a
+    ROLE address exactly as for a refdes one (М10 — "only the refdes branch
+    fills the map" — turns this red), so Phase 0 moves the footprint the
+    selection picked."""
+    cfg = _one_node_tree(_component_node(ref="place_1", xy=[8.0, 0.0],
+                                         anchor={"role": "OP_AMP"}))
+    board = _Board({"A1": ("OP_AMP", "CH_A", (0.0, 0.0), 0.0, []),
+                    "A2": ("OP_AMP", "CH_A", (1.0, 0.0), 0.0, [])},
+                   selection=["A2"])
+    ids: dict[str, str] = {}
+    coords = materialize_component_nodes(board, cfg, {}, identity_out=ids)
+    assert ids == {"place_1": "A2"}
+
+    moves = build_coordinate_moves(board, coords, points={}, sheet_names={},
+                                   identity_by_name=ids)
+    assert [m.ref for m in moves] == ["A2"]
+    # …and the tag search alone genuinely cannot tell A1 from A2 here.
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(board, coords, points={}, sheet_names={})
+
+
+def test_a_rigid_override_and_the_identity_map_coexist_on_a_component_node():
+    """Т4.2 п.4: a HARD redraw (`position_overrides` keyed by the node's name) in
+    the U14/U15 scenario must not fatal and must move U14. The override supplies
+    the POSE, the map supplies the IDENTITY — the footprint lookup runs before
+    the override is read, so before Т4.1 the override path died here too."""
+    cfg = _one_node_tree(_component_node(ref="place_1", anchor={"ref": "U14"}))
+    board = _u14_u15_board()
+    ids: dict[str, str] = {}
+    coords = materialize_component_nodes(board, cfg, _U14_SHEETS,
+                                         identity_out=ids)
+    override = PositionOverride(
+        position=Vector2.from_xy(int(1.0 * MM), int(2.0 * MM)), rotation_deg=90.0)
+    overrides = {"place_1": override}
+
+    moves = build_coordinate_moves(board, coords, points={},
+                                   sheet_names=_U14_SHEETS,
+                                   position_overrides=overrides,
+                                   identity_by_name=ids)
+    assert [m.ref for m in moves] == ["U14"]
+    assert moves[0].position.x / MM == pytest.approx(1.0, abs=1e-6)
+    assert moves[0].position.y / MM == pytest.approx(2.0, abs=1e-6)
+    assert moves[0].angle.degrees == pytest.approx(90.0)
+
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(board, coords, points={},
+                               sheet_names=_U14_SHEETS,
+                               position_overrides=overrides)
+
+
+def test_a_coordinate_record_outside_the_map_keeps_the_old_tag_search():
+    """Т4.2 п.5 ("byte-for-byte the old behaviour"): every ORDINARY coordinate
+    placement has no map entry and is still resolved by its tags — a unique one
+    resolves, an ambiguous one is the same fatal as before."""
+    cp = CoordinatePlacement(cluster="SIG_OUT", role="BUF_SCHMITT",
+                             x_mm=1.0, y_mm=2.0, rotation_deg=0.0, name="an_entry")
+    # A map that names OTHER records must not shadow the tag search.
+    other_map = {"place_1": "U15"}
+
+    single = _Board({"U15": ("BUF_SCHMITT", "SIG_OUT", (0.0, 0.0), 0.0, [])})
+    moves = build_coordinate_moves(single, [cp], points={}, sheet_names={},
+                                   identity_by_name=other_map)
+    assert [m.ref for m in moves] == ["U15"]
+
+    with pytest.raises(ValidationError, match="expected exactly one"):
+        build_coordinate_moves(_u14_u15_board(), [cp], points={}, sheet_names={},
+                               identity_by_name=other_map)
+
+
+def test_a_refdes_that_left_the_board_between_step1_and_phase0_is_a_fatal():
+    """Т4.2 п.6: the map names a footprint that is no longer on the board (the
+    user deleted or renamed it after materialization). A fatal naming BOTH the
+    node and the refdes — never a silent fallback to the tag search, which would
+    move whatever else carries those tags."""
+    cp = CoordinatePlacement(cluster="SIG_OUT", role="BUF_SCHMITT",
+                             x_mm=1.0, y_mm=2.0, rotation_deg=0.0,
+                             name="place_1")
+    board = _Board({"U14": ("BUF_SCHMITT", "SIG_OUT", (0.0, 0.0), 0.0, [])})
+    with pytest.raises(ValidationError) as exc:
+        build_coordinate_moves(board, [cp], points={}, sheet_names={},
+                               identity_by_name={"place_1": "U99"})
+    text = str(exc.value)
+    assert "place_1" in text and "U99" in text
+
+
+def test_the_identity_map_is_narrowed_with_the_records():
+    """Т4.1: an --only run gets a map describing exactly the records it returns —
+    a dropped record leaves no entry behind, so Phase 0 can never be handed a
+    name the run does not apply."""
+    cfg = _one_node_tree(
+        _component_node(ref="keep_me", anchor={"ref": "U14"}),
+        _component_node(ref="drop_me", anchor={"ref": "U15"}))
+    board = _u14_u15_board()
+    ids: dict[str, str] = {}
+    coords = materialize_component_nodes(board, cfg, _U14_SHEETS, only=["keep_me"],
+                                         identity_out=ids)
+    assert [c.name for c in coords] == ["keep_me"]
+    assert ids == {"keep_me": "U14"}

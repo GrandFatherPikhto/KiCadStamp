@@ -288,6 +288,123 @@ def test_a_template_without_mounts_expands_as_before():
     assert {e["name"] for e in out["entities"]} >= {"E1", "E1__tpl_a"}
 
 
+# ── В.6.3b: a COMPONENT node inside a template ──────────────────────────────
+# plan_2026_09_16_commit_document_and_pending_direction, Э4/Т4.3. The component
+# node's expansion was added in 2026-09-17 and mirrored the mount rules, but had
+# NO test at all: a mutation turning its refdes fatal off (or dropping the sheet
+# substitution, or suffixing the local ref) survived. Same three rules as the
+# mount node — the ref is LOCAL, the (role ...) address follows the instance
+# sheet together with the declaration's cluster, a foreign sheet is kept
+# verbatim, a sheetless role address and a (ref ...) address are fatals — plus
+# the component-specific reason for the refdes fatal: the SAME physical
+# component cannot be claimed by every instance.
+
+def _first_component(tree: dict) -> dict:
+    """The first kind "component" node of a generated tree (depth-first)."""
+    stack = list(tree.get("nodes") or [])
+    while stack:
+        node = stack.pop(0)
+        if node.get("kind") == "component":
+            return node
+        stack = list(node.get("children") or []) + stack
+    raise AssertionError("no component node in the generated tree")
+
+
+def _auto_template_with_component(address: dict) -> dict:
+    """A minimal AUTO-anchored template (one top-level placement node) with a
+    component node `C1` (its raw `address`) wrapping `E1`, plus one
+    tree_instances declaration — the component mirror of
+    _auto_template_with_mount."""
+    return {
+        "trees": [{
+            "name": "tpl",
+            "nodes": [{
+                "ref": "ROOT", "kind": "placement", "xy": [0.0, 0.0],
+                "children": [{
+                    "ref": "C1", "kind": "component", "xy": [2.0, 0.0],
+                    "anchor": dict(address),
+                    "children": [{"ref": "E1", "kind": "placement",
+                                  "xy": [1.0, 0.0]}],
+                }],
+            }],
+        }],
+        "entities": [{"name": "ROOT", "cell": "c", "sheet": "Own"},
+                     {"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a",
+                            "cluster": "CL"}],
+    }
+
+
+def test_component_node_ref_is_not_suffixed_but_its_children_are():
+    """Т4.3 п.6 (М14): a component node's ref is a LOCAL name, unique per TREE, so
+    it must NOT get the __{instance} suffix — while its ordinary placement
+    children do, exactly like under a mount node."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "AD_DAC", "sheet": "Own"}))
+    tree = _tree(out, "tpl_a")
+    assert tree["nodes"][0]["ref"] == "ROOT__tpl_a"     # placed node: suffixed
+    component = _first_component(tree)
+    assert component["ref"] == "C1"                    # component: NOT suffixed
+    assert component["children"][0]["ref"] == "E1__tpl_a"
+
+
+def test_component_node_role_address_takes_the_instance_sheet():
+    """Т4.3 п.1/п.2 (М13): a (role ...) address whose sheet IS the template's own
+    takes the instance sheet, and — only with it — the declaration's cluster. By
+    VALUE, not merely "no exception"."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "AD_DAC", "sheet": "Own", "cluster": "GRP"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "AD_DAC", "sheet": "Own_a", "cluster": "CL"}
+
+
+def test_component_node_cluster_follows_the_sheet_only():
+    """Т4.3 п.2: for a FOREIGN sheet the declaration's cluster is NOT substituted
+    — the address is a board-wide reference and stays untouched. This is the
+    other half of the "only together with the sheet" rule above: a template
+    address outside the template must not be narrowed by an instance."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "FOREIGN", "sheet": "Shared", "cluster": "GRP"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "FOREIGN", "sheet": "Shared", "cluster": "GRP"}
+
+
+def test_a_foreign_sheet_component_address_is_kept_verbatim_and_info_logged(caplog):
+    """Т4.3 п.3: the kept-verbatim half says so in the log — the user's
+    board-wide reference is legal, and silently "fixing" it would move the
+    component to a sheet nobody named."""
+    with caplog.at_level(logging.INFO):
+        out = expand_tree_instances(_auto_template_with_component(
+            {"role": "FOREIGN", "sheet": "Shared"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "FOREIGN", "sheet": "Shared"}
+    assert "Shared" in caplog.text and "kept verbatim" in caplog.text
+
+
+def test_a_refdes_address_in_a_template_component_node_is_a_fatal():
+    """Т4.3 п.4 (М12): a (ref ...) address names ONE physical component, so it
+    cannot be parameterized per sheet — the SAME component would be claimed by
+    every instance. Refused at EXPANSION with the template and the node named,
+    not later by the materializer (which blames the generated tree)."""
+    with pytest.raises(ValidationError) as exc:
+        expand_tree_instances(_auto_template_with_component({"ref": "IC7"}))
+    text = str(exc.value)
+    assert "addresses its component by refdes" in text
+    assert "tpl" in text and "C1" in text
+
+
+def test_a_sheetless_role_address_in_a_template_component_node_is_a_fatal():
+    """Т4.3 п.5: without a sheet the role would be ambiguous across the
+    instances' sheets — the "all three channels to channel 0" trap, refused with
+    the template and the node named."""
+    with pytest.raises(ValidationError) as exc:
+        expand_tree_instances(_auto_template_with_component({"role": "AD_DAC"}))
+    text = str(exc.value)
+    assert "no sheet in its anchor" in text
+    assert "tpl" in text and "C1" in text
+
+
 # ── В.6.4: inheritance and pivot_ref ───────────────────────────────────────
 
 def test_instance_inherits_pivot_rotation_and_shift():

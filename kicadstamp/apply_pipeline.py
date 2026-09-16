@@ -197,11 +197,11 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     requested = set(only_names)
     # component nodes (2026-09-17, plan_2026_09_17 Э3): a kind "component" tree
     # node is an --only identity — its placement materializes as a TRANSIENT
-    # CoordinatePlacement whose effective name IS the node's ref (see
-    # _filter_materialized_coordinates), created after this filter runs. Like an
-    # Entity name (below) it is recognized HERE so `--only <node name>` does not
-    # fatal, and it narrows nothing in the config sections because the node
-    # exists in none of them yet.
+    # CoordinatePlacement whose effective name IS the node's ref, created after
+    # this filter runs (narrowed by materialize_component_nodes' own only/cluster
+    # arguments, Э4/Т4.4). Like an Entity name (below) it is recognized HERE so
+    # `--only <node name>` does not fatal, and it narrows nothing in the config
+    # sections because the node exists in none of them yet.
     component_node_names = _component_node_names(cfg)
     matched_chains = [c for c in cfg.chains if chain_effective_name(c) in requested]
     matched_clones = [c for c in cfg.clone_placements
@@ -404,26 +404,17 @@ def _filter_materialized_entities(clones, only: list[str] | None,
     return clones
 
 
-def _filter_materialized_coordinates(coords, only: list[str] | None,
-                                     cluster: list[str] | None) -> list:
-    """Apply --only/--cluster to the TRANSIENT coordinate placements
-    materialized from kind "component" tree nodes (plan_2026_09_17 Э3).
-
-    The same two-axis narrowing _filter_materialized_entities applies to
-    materialized clones, for the same reason: these records are created AFTER
-    apply_only_filter/apply_cluster_filter ran, so nothing else can narrow them.
-    --only matches the record's effective name (== the node's ref, which is what
-    a redraw passes), --cluster its live Cluster tag."""
-    if not coords:
-        return coords
-    if only:
-        wanted = set(only)
-        coords = [c for c in coords
-                  if coordinate_placement_effective_name(c) in wanted]
-    if cluster:
-        coords = [c for c in coords if c.cluster is not None
-                  and _matches_any_cluster(c.cluster, cluster)]
-    return coords
+# _filter_materialized_coordinates lived here until Э4/Т4.4 of
+# plan_2026_09_16_commit_document_and_pending_direction: it narrowed the
+# transient component-node records by --only/--cluster, and
+# materialize_component_nodes (which CREATES them) already did exactly the same
+# with the same two axes — the same predicate, the same effective name. A
+# mutation disabling this pass changed nothing observable, which is what "dead
+# weight" means here. The materializer's own narrowing is the one kept: it is
+# where the records are born (its docstring promises the narrowing there), it is
+# what tests/test_component_nodes.py exercises, and it is where the identity map
+# of Т4.1 is narrowed together with the records, so the map cannot describe a
+# record the run dropped.
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -494,6 +485,14 @@ class ApplyPipeline:
         self.planner: PlacementPlanner | None = None
         self.items = None
         self.all_anchor_ids: set[str] = set()
+        # {transient record name (== the tree node's ref): footprint refdes} for
+        # the records materialized from kind "component" tree nodes in
+        # _resolve_order (Э4/Т4.1). Phase 0 takes those records' footprints by
+        # this refdes instead of searching the board again by tags — the same
+        # side-map shape position_overrides already uses. {} for a pipeline that
+        # never runs _resolve_order (unit-built ones calling _execute/_dry_run
+        # directly), which is byte-for-byte the pre-Т4.1 behaviour.
+        self._component_identities: dict[str, str] = {}
         # П.8: populated by _dry_run() — a structured, printable report that
         # the CLI layer prints and a future GUI panel could render. The
         # library itself never prints to stdout; it only produces this.
@@ -585,11 +584,18 @@ class ApplyPipeline:
         # PHASE — the same phase (and the same reason) every coordinate
         # placement uses: the zero phase runs before the first so an anchor of a
         # chain or clone sees the component's FINAL position (Р3).
-        component_coords = _filter_materialized_coordinates(
-            materialize_component_nodes(self.adapter, self._full_cfg,
-                                        sheet_names=self.sheet_names,
-                                        only=split_only, cluster=split_cluster),
-            split_only, split_cluster)
+        # --only/--cluster are applied by the MATERIALIZER, not by a second pass
+        # here (Э4/Т4.4): the two narrowings were identical, so the pipeline-side
+        # _filter_materialized_coordinates was dead weight — and the materializer
+        # is where the records are born, where its own docstring promises the
+        # narrowing, and where the identity map below is narrowed with them.
+        # _component_identities is the identity side map (Э4/Т4.1) — Phase 0
+        # must not re-resolve a component-node record by tags.
+        self._component_identities = {}
+        component_coords = materialize_component_nodes(
+            self.adapter, self._full_cfg, sheet_names=self.sheet_names,
+            only=split_only, cluster=split_cluster,
+            identity_out=self._component_identities)
         if component_coords:
             logger.info(_("Materialized {count} component node placement(s) "
                           "from trees into the apply plan")
@@ -634,10 +640,16 @@ class ApplyPipeline:
         ``self.dry_run_report`` so library callers can grab the report
         without going through stdout at all.
         """
+        # The identity side map rides along (Э4/Т4.1/М11): the dry run must
+        # resolve a component-node record the SAME way the real Phase 0 does —
+        # by the refdes its address found — or a dry run of the U14/U15 case
+        # would fatal where the apply succeeds, i.e. the report would lie about
+        # the very run it previews.
         coordinate_moves = (build_coordinate_moves(
                                 self.adapter, self.cfg.coordinate_placements,
                                 points=self.cfg.points, sheet_names=self.sheet_names,
-                                position_overrides=self.position_overrides)
+                                position_overrides=self.position_overrides,
+                                identity_by_name=self._component_identities)
                            if self.cfg.coordinate_placements else [])
         # NOTE (2026-08-12, Group 2 review): a dry run does NOT apply Phase 0 —
         # build_coordinate_moves only COMPUTES MoveCommands, nothing moves on
@@ -792,7 +804,8 @@ class ApplyPipeline:
             coordinate_moves = build_coordinate_moves(
                 self.adapter, self.cfg.coordinate_placements,
                 points=self.cfg.points, sheet_names=self.sheet_names,
-                position_overrides=self.position_overrides)
+                position_overrides=self.position_overrides,
+                identity_by_name=self._component_identities)
             logger.info(_("Coordinate placements: {count} moves").format(count=len(coordinate_moves)))
             coordinate_failed = executor.execute_moves(
                 coordinate_moves,

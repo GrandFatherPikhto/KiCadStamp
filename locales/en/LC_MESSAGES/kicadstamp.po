@@ -17665,3 +17665,7 @@ msgstr "{refs} .{field}: schematic {old!r} -> board {new!r}"
 #, python-brace-format
 msgid "⚠ {count} value(s) on the board are empty — the schematic value(s) will be CLEARED."
 msgstr "⚠ {count} value(s) on the board are empty — the schematic value(s) will be CLEARED."
+
+#: kicadstamp/placement/services/coordinate_position_calculator.py
+msgid "this record was materialized from a tree's component node, whose address named this refdes when the run started — the footprint has left the board (deleted or renamed) since"
+msgstr "this record was materialized from a tree's component node, whose address named this refdes when the run started — the footprint has left the board (deleted or renamed) since"

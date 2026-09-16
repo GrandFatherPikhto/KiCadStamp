@@ -223,6 +223,7 @@ def _build_footprint_index(adapter) -> dict[tuple[str, str], list[Footprint]]:
 def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacement],
                            points=None, sheet_names=None,
                            position_overrides: dict[str, "PositionOverride"] | None = None,
+                           identity_by_name: dict[str, str] | None = None,
                            ) -> list[MoveCommand]:
     """The whole module in one call — CoordinatePlacement entries in,
     MoveCommands out, ready for MoveExecutor.execute_moves() (no new
@@ -238,7 +239,20 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
     (plan_2026_08_29_tree_live_rigid_redraw.md, handoff …step0.md §3-§4): a
     record with an override is moved to the computed position+rotation,
     bypassing its own anchor/absolute resolution entirely. Non-persistent —
-    only the physical move; the record's config is untouched."""
+    only the physical move; the record's config is untouched.
+
+    identity_by_name — the IDENTITY side map (Э4/Т4.1): {record name: footprint
+    refdes}, produced by entity_placement.materialize_component_nodes for the
+    TRANSIENT records a kind "component" tree node creates. A record with an
+    entry is taken by that refdes, and the (Role, Cluster) index + sheet
+    narrowing below are NOT used for it: the node's address already resolved the
+    footprint with its full cascade, and searching again from the tags alone is
+    a second, poorer answer — a false "fix the tagging" fatal whenever twins
+    share Role/Cluster on same-named sheets of different instances (U14/U15 on
+    HP_Channel_0/Out_A and HP_Channel_1/Out_A) or when the component is untagged
+    (J6/J5). Keyed by the record's effective name — the same identity
+    position_overrides uses. Absent/None/empty = every record resolves exactly
+    as it always did."""
     moves = []
     # One board scan into a (Role, Cluster) index, then O(1) lookups per entry
     # (2026-08-12, Group 4) — same exact-match + fatal-if-not-unique messages
@@ -246,15 +260,28 @@ def build_coordinate_moves(adapter, coordinate_placements: list[CoordinatePlacem
     index = _build_footprint_index(adapter)
     for cp in coordinate_placements:
         label = coordinate_placement_effective_name(cp)
-        field_matches = {ROLE_FIELD_NAME: cp.role, CLUSTER_FIELD_NAME: cp.cluster}
-        candidates = index.get((cp.role, cp.cluster), [])
-        # Own-identity sheet (2026-08-15): OPTIONAL narrowing to one physical
-        # instance of a reused/cloned sheet where Cluster alone is identical
-        # across copies — same convention as resolve_footprint_by_cluster_role.
-        # sheet_names is ALREADY a parameter of this function (used for
-        # anchor-relative narrowing below) — reused here, no new parameter.
-        candidates = narrow_candidates_by_sheet(candidates, cp.sheet, sheet_names or {})
-        fp = match_unique_footprint_by_fields(candidates, field_matches, label)
+        refdes = (identity_by_name or {}).get(label)
+        if refdes is not None:
+            # Identity FIRST (Э4/Т4.1, see the docstring): the record's role/
+            # cluster/sheet are its own tags, they never re-address it. A refdes
+            # that has meanwhile left the board is a fatal naming the node and
+            # the refdes — never a silent fallback to the tag search.
+            fp = resolve_footprint_by_ref(
+                adapter, refdes, label,
+                not_found_hint=_(
+                    "this record was materialized from a tree's component node, "
+                    "whose address named this refdes when the run started — the "
+                    "footprint has left the board (deleted or renamed) since"))
+        else:
+            field_matches = {ROLE_FIELD_NAME: cp.role, CLUSTER_FIELD_NAME: cp.cluster}
+            candidates = index.get((cp.role, cp.cluster), [])
+            # Own-identity sheet (2026-08-15): OPTIONAL narrowing to one physical
+            # instance of a reused/cloned sheet where Cluster alone is identical
+            # across copies — same convention as resolve_footprint_by_cluster_role.
+            # sheet_names is ALREADY a parameter of this function (used for
+            # anchor-relative narrowing below) — reused here, no new parameter.
+            candidates = narrow_candidates_by_sheet(candidates, cp.sheet, sheet_names or {})
+            fp = match_unique_footprint_by_fields(candidates, field_matches, label)
         override = (position_overrides or {}).get(label)
         if override:
             origin = override.position

@@ -529,7 +529,9 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
 
 def _materialize_component_node(adapter, node, pos: Vector2, rot_deg: float,
                                 sheet_names,
-                                component_seen: dict | None) -> CoordinatePlacement:
+                                component_seen: dict | None,
+                                component_refs: dict | None = None
+                                ) -> CoordinatePlacement:
     """One kind "component" node -> its TRANSIENT CoordinatePlacement (Э3/Т3.4).
 
     The node's ADDRESS (component_address) names the live footprint; the node's
@@ -540,14 +542,25 @@ def _materialize_component_node(adapter, node, pos: Vector2, rot_deg: float,
     into the node's point"), and `name` == the node's ref — which is what
     `--only` and the rigid-redraw PositionOverride key on.
 
-    TWO details keep the transient record re-resolvable by Phase 0: its
-    role/cluster are the LIVE footprint's OWN field values (read here, NOT taken
-    from the address), because the address SELECTS a component while the
-    placement is re-resolved later by those tags — a partially written address
-    (role only) would otherwise resolve to nothing, and a stale cluster in the
-    address could resolve to a DIFFERENT component; and its `sheet` is the
-    address's sheet or, failing that, the leaf of the footprint's own path, so a
-    board-wide (role, cluster) pair still narrows to this instance.
+    IDENTITY travels in `component_refs`, not in the record (Э4/Т4.1): the map
+    {node ref: refdes} is filled here with the footprint the ADDRESS just
+    resolved to, and Phase 0 takes the footprint by that refdes
+    (build_coordinate_moves(identity_by_name=...)). Re-resolving the record by
+    its tags instead — which is what Phase 0 used to do — is a SECOND search
+    with strictly poorer evidence: the tags may be shared by twins on
+    same-named sheets of different instances (U14/U15 on HP_Channel_0/Out_A and
+    HP_Channel_1/Out_A) or absent altogether (J6/J5 untagged), and the sheet is
+    narrowed to the leaf of the footprint's path, never the full path. Those are
+    exactly the cases the address exists for, and they died with a false "fix
+    the tagging" fatal — the tags were right. A refdes that has left the board
+    between the two steps is a fatal naming the node and the refdes, never a
+    silent fallback.
+
+    role/cluster/sheet are therefore no longer what RE-IDENTIFIES the record:
+    they are its own tags, kept for `--cluster` narrowing and the logs. They are
+    still read from the LIVE footprint, never from the address (the address
+    SELECTS a component, these are its current field values — the values a
+    legacy, map-less record is still resolved by).
 
     `component_seen` is the LIVE half of the duplicate rule (Т3.6): the first
     node to claim a footprint owns it, and a SECOND, DIFFERENT node claiming the
@@ -566,6 +579,8 @@ def _materialize_component_node(adapter, node, pos: Vector2, rot_deg: float,
                 [_("a component is placed by exactly one node — give one of "
                    "them its own address, or delete it")]))
         component_seen[fp.ref] = label
+    if component_refs is not None:
+        component_refs[label] = fp.ref
     return CoordinatePlacement(
         cluster=adapter.get_field_value(fp, CLUSTER_FIELD_NAME),
         role=adapter.get_field_value(fp, ROLE_FIELD_NAME),
@@ -585,7 +600,8 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
           plain_tree=None, tree_base_pos: Vector2 | None = None,
           tree_base_rot: float = 0.0,
           component_out: list | None = None,
-          component_seen: dict | None = None) -> None:
+          component_seen: dict | None = None,
+          component_refs: dict | None = None) -> None:
     """Depth-first over LinkedNode children. A node's absolute position =
     node_position(node, parent_pos, parent_rot) (parent + offset rotated into
     the parent's frame); its own rotation feeds its children's frame as
@@ -613,7 +629,13 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
     its behaviour is unchanged bit for bit.
     component_seen — {footprint ref: node ref}, shared across the WHOLE run, for
     the live duplicate check (Т3.6, live half): two DIFFERENT component nodes
-    resolving to the same footprint are a fatal naming both."""
+    resolving to the same footprint are a fatal naming both.
+    component_refs — {node ref: footprint ref}, shared across the WHOLE run, the
+    IDENTITY side map (Э4/Т4.1): the refdes each component node's address
+    resolved to, which Phase 0 takes the footprint by instead of searching the
+    board again by tags (_materialize_component_node explains why). None = this
+    walk fills no map (the Entity path's own caller), so its behaviour is
+    unchanged bit for bit."""
     for ln in linked_nodes:
         node = ln.node
         # Mount node: its base is its anchor's position (internal or live), not
@@ -638,7 +660,8 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
             # Phase 0 by its effective name (== the node's ref) — applying it in
             # two places could only disagree with itself.
             component_out.append(_materialize_component_node(
-                adapter, node, pos, rot, sheet_names, component_seen))
+                adapter, node, pos, rot, sheet_names, component_seen,
+                component_refs=component_refs))
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity) \
                 and ln.record.obj.scheme_list is None:
@@ -657,7 +680,8 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
               adapter=adapter, cfg=cfg, sheet_names=sheet_names,
               plain_tree=plain_tree, tree_base_pos=tree_base_pos,
               tree_base_rot=tree_base_rot,
-              component_out=component_out, component_seen=component_seen)
+              component_out=component_out, component_seen=component_seen,
+              component_refs=component_refs)
 
 
 def _structural_candidates(tree: LinkedTree) -> set[str]:
@@ -843,7 +867,8 @@ def _has_component_node(nodes) -> bool:
 
 def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
                                 only: list[str] | None = None,
-                                cluster: list[str] | None = None
+                                cluster: list[str] | None = None,
+                                identity_out: dict[str, str] | None = None
                                 ) -> list[CoordinatePlacement]:
     """Walk cfg.trees and materialize every kind "component" node into a
     TRANSIENT absolute CoordinatePlacement (plan_2026_09_17 Э3/Т3.4).
@@ -873,7 +898,19 @@ def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
     resolved live is skipped with a warning (a board condition, not a config
     error). The opposite case — two DIFFERENT nodes addressing ONE component —
     is a config error and fatal for the whole run, never a skip (a silent skip
-    would drop a placement the user explicitly asked for)."""
+    would drop a placement the user explicitly asked for).
+
+    identity_out — the identity SIDE MAP (Э4/Т4.1), filled in place with
+    {record name (== the node's ref): footprint refdes} for exactly the records
+    this call RETURNS (the only/cluster narrowing below is applied first, so a
+    filtered-out record is not left in the map). The caller hands it to Phase 0
+    (build_coordinate_moves(identity_by_name=...)), which then takes each
+    transient record's footprint by that refdes instead of searching the board
+    again by tags — see _materialize_component_node for the defect that closes.
+    An OUT-parameter rather than a second return value is this module's existing
+    shape for exactly this (see _walk's component_out/component_seen), and it
+    keeps every existing caller's unpacking untouched; None = the map is not
+    collected, behaviour unchanged bit for bit."""
     if not cfg.trees:
         return []
     sheet_names = sheet_names or {}
@@ -883,6 +920,10 @@ def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
     out: list[CoordinatePlacement] = []
     # {footprint ref: node ref} for the WHOLE run — the live duplicate rule.
     seen: dict[str, str] = {}
+    # {node ref: footprint ref} for the WHOLE run — the identity side map (Т4.1).
+    # The local dict is always built (the walk fills it unconditionally for a
+    # component node); only the COPY into the caller's identity_out is optional.
+    refs: dict[str, str] = {}
     for tree in linked:
         if not _has_component_node(tree.nodes):
             continue
@@ -903,7 +944,7 @@ def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
               adapter=adapter, cfg=cfg, sheet_names=sheet_names,
               plain_tree=_plain_tree(cfg, tree.name),
               tree_base_pos=base_pos, tree_base_rot=base_rot,
-              component_out=tree_out, component_seen=seen)
+              component_out=tree_out, component_seen=seen, component_refs=refs)
         out.extend(tree_out)
 
     if only_set is not None:
@@ -912,4 +953,11 @@ def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
     if cluster_paths is not None:
         out = [cp for cp in out if cp.cluster is not None
                and matches_any_cluster(cp.cluster, cluster_paths)]
+    if identity_out is not None:
+        # Exactly the records this call RETURNS — the narrowing above may have
+        # dropped some, and a map entry with no record is dead weight at best
+        # (an --only run would hand Phase 0 a name it never looks up).
+        surviving = {coordinate_placement_effective_name(cp) for cp in out}
+        identity_out.update({name: ref for name, ref in refs.items()
+                             if name in surviving})
     return out
