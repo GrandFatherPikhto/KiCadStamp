@@ -1183,9 +1183,14 @@ def _forest_index(linked_trees: list[LinkedTree]):
 def _plan_forest_plain(node_index: dict[str, LinkedNode],
                        parent_map: dict[str, str | None],
                        selected_refs: set[str]) -> tuple[list[str], list[str]]:
-    """No-module forest order — the ORIGINAL planner, kept VERBATIM as the
-    fast path of curated_redraw_plan_forest when no module is active in the
-    run (design P3 D4: module edges are added only when a module is active)."""
+    """No-module forest order — the ORIGINAL planner, kept as the fast path of
+    curated_redraw_plan_forest when no module is active in the run (design P3
+    D4: module edges are added only when a module is active).
+
+    ONE deviation from the original (2026-09-16, plan_2026_09_16_copper_node_
+    order_and_container P.2.1): records of kind "net_trace" are ordered LAST.
+    Inter-node copper is laid out from its own anchor pad LIVE, so it depends on
+    where the components ended up and must never be applied first."""
     selected: dict[str, LinkedNode] = {}
     for ref, ln in node_index.items():
         if ref in selected_refs and ln.record is not None \
@@ -1201,9 +1206,28 @@ def _plan_forest_plain(node_index: dict[str, LinkedNode],
             children.setdefault(p, []).append(ref)
             indeg[ref] += 1
 
+    # Copper (record kind "net_trace") goes LAST, after every other record.
+    # A net_trace record stores its geometry as offsets from its OWN anchor pad
+    # and plan_net_traces lays it out from that pad LIVE, so it DEPENDS on where
+    # the components ended up — while no component ever depends on copper. The
+    # pre-2026-09-16 lexicographic queue applied copper FIRST (a copper ref like
+    # "2v5_…"/"3v3_…" sorts before "dac_…"/"pif_…"), so the copper was laid out
+    # from the components' OLD positions and the run still reported ok.
+    copper_refs = {ref for ref, ln in selected.items()
+                   if ln.record is not None and ln.record.kind == "net_trace"}
+
+    def _sort_key(ref: str) -> tuple[int, str]:
+        return (1, ref) if ref in copper_refs else (0, ref)
+
     # warnings: a selected node whose parent/anchor is not redrawn (read live)
     warnings: list[str] = []
     for ref in selected:
+        if ref in copper_refs:
+            # A net_trace's base is its OWN anchor pad, never its tree parent, so
+            # "will be redrawn from the current position of <parent>" is simply
+            # false for copper — the same exemption the inline-anchor check above
+            # makes (phase D, 2026-09-01).
+            continue
         p = parent_map.get(ref)
         parent_label = p if p is not None else "(origin)"
         if p is None or p not in selected:
@@ -1213,8 +1237,10 @@ def _plan_forest_plain(node_index: dict[str, LinkedNode],
                   "will land from the old point")
                 .format(ref=ref, parent=parent_label))
 
-    # Kahn's algorithm (deterministic: lexicographic queue)
-    queue = sorted(ref for ref in selected if indeg[ref] == 0)
+    # Kahn's algorithm (deterministic: lexicographic queue, copper deferred —
+    # the queue is re-sorted at every step, so copper sinks to the tail as long
+    # as anything else is left; no extra dependency edges are needed).
+    queue = sorted((ref for ref in selected if indeg[ref] == 0), key=_sort_key)
     names: list[str] = []
     while queue:
         ref = queue.pop(0)
@@ -1223,7 +1249,7 @@ def _plan_forest_plain(node_index: dict[str, LinkedNode],
             indeg[child] -= 1
             if indeg[child] == 0:
                 queue.append(child)
-                queue.sort()
+                queue.sort(key=_sort_key)
     if len(names) != len(selected):
         remaining = sorted(set(selected) - set(names))
         raise ValidationError(format_fatal_error(
@@ -1301,12 +1327,17 @@ def _active_module_entries(markers, selected_refs: set[str]
     return entries
 
 
-def _module_content_record_refs(m: LinkedNode) -> set[str]:
+def _module_content_record_refs(m: LinkedNode, kind: str | None = None) -> set[str]:
     """refs of every record node inside m.module_linked's content (stage 2,
     design P3 D2 — an active module pulls its whole content). Module markers
     contribute no ref, but their OWN children (stage-1 records of the content
     tree) do; a nested marker's referenced tree is counted through that nested
-    marker's own active entry, not here."""
+    marker's own active entry, not here.
+
+    `kind` (optional, 2026-09-16 copper ordering): when set, only records of
+    THAT kind are collected — the redraw planner needs the "net_trace" refs of
+    the content to defer copper behind everything else (P.2.1). None keeps the
+    original "every record of the content" behaviour."""
     refs: set[str] = set()
     if m.module_linked is None:
         return refs
@@ -1316,7 +1347,8 @@ def _module_content_record_refs(m: LinkedNode) -> set[str]:
         if ln.node.kind == "module":
             stack.extend(ln.children)
             continue
-        if ln.record is not None and ln.record.kind != "point":
+        if ln.record is not None and ln.record.kind != "point" \
+                and (kind is None or ln.record.kind == kind):
             refs.add(ln.node.ref)
         stack.extend(ln.children)
     return refs
@@ -1458,8 +1490,22 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
         if p is not None and (p in selected or p in content_refs):
             add_edge(p, ref)
 
+    # Copper (record kind "net_trace") goes LAST — same rule and same reason as
+    # in _plan_forest_plain (P.2.1): copper is laid out LIVE from its own anchor
+    # pad, so it depends on the moved components, never the other way round.
+    # Forest copper nodes are in node_index; copper pulled in through an active
+    # module's content is not, so it is collected from the module content too.
+    copper_refs = {ref for ref, ln in node_index.items()
+                   if ln.record is not None and ln.record.kind == "net_trace"}
+    for m, _owner in active:
+        copper_refs |= _module_content_record_refs(m, kind="net_trace")
+
     # warnings: forest selected node whose base is not applied this run.
     for ref in selected:
+        if ref in copper_refs:
+            # Copper's base is its OWN anchor pad, never its tree parent — the
+            # note below is false for it (P.2.2).
+            continue
         p = parent_map.get(ref)
         parent_label = p if p is not None else "(origin)"
         if p is None or (p not in selected and p not in content_refs):
@@ -1470,9 +1516,22 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
                 .format(ref=ref, parent=parent_label))
 
     # Kahn's algorithm over record refs (str) + module pass-through ids (int),
-    # deterministic: record refs lexicographic, module vertices after.
+    # deterministic: record refs lexicographic, module pass-through vertices
+    # next, copper LAST. Every group is TYPE-HOMOGENEOUS inside its slot — a
+    # bare tuple over a mixed str/int queue would raise TypeError on the very
+    # first comparison.
+    #
+    # The module vertices sit BEFORE copper, not after it: a marker emits no
+    # name of its own, but its content becomes a queue root only once the marker
+    # has been popped. With the marker last, a root-level copper record was
+    # emitted BEFORE the module's content (measured 2026-09-16 on the shape
+    # "tree with copper + an active module marker") — i.e. the exact "copper
+    # first" order P.2.1 is about. Normal records stay group 0, so their
+    # relative order is untouched by this choice.
     def _sort_key(key: object):
-        return (0, key) if isinstance(key, str) else (1, key)
+        if isinstance(key, str):
+            return (2, key) if key in copper_refs else (0, key)
+        return (1, key)
 
     queue = sorted((k for k in indeg if indeg[k] == 0), key=_sort_key)
     names: list[str] = []

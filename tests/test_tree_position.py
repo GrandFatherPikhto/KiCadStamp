@@ -1973,3 +1973,108 @@ def test_board_frame_offset_is_the_node_position_delta(base_rot):
     got = node_position(node, base, base_rot)
     assert abs(got.x - round((10.0 + bx) * MM)) <= 1
     assert abs(got.y - round((20.0 + by) * MM)) <= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Copper (record kind "net_trace") is applied LAST — 2026-09-16, plan
+# plan_2026_09_16_copper_node_order_and_container, P.2.1/P.2.2.
+#
+# A net_trace record stores its geometry as offsets from its OWN anchor pad and
+# plan_net_traces lays it out from that pad LIVE, so copper DEPENDS on where the
+# components ended up — while no component ever depends on copper. The
+# pre-2026-09-16 lexicographic queue broke that: Denis' five copper records
+# ("2v5_…"/"3v3_…", lexicographically FIRST) were applied before dac_buf/pif
+# had moved, the copper landed from the components' OLD positions and the run
+# still reported "11/11 ok" (task Д1).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _copper(ref: str) -> LinkedNode:
+    """A LinkedNode whose RECORD is inter-node copper. The planner keys the
+    copper rule off `record.kind` (the record is what carries `net_traces:`),
+    never off the node's ref/name, so this pins the real discriminator."""
+    return _linked_node(ref, record=_record("net_trace", ref))
+
+
+def _marker_ln(ref: str, content: LinkedTree) -> LinkedNode:
+    """An ACTIVE-capable module marker: kind "module" node (no record) whose
+    module_linked content is a hand-built LinkedTree. Mirrors what link_trees
+    builds for `(node (ref "ch0") (kind module))`, without needing a real
+    config/tree file."""
+    return LinkedNode(node=_node_dc(ref=ref, kind="module"), record=None,
+                      is_external=False, children=[], module_tree=None,
+                      module_linked=content)
+
+
+def test_forest_copper_is_applied_after_every_component():
+    """С1: a lexicographically-FIRST copper ref (the live shape: "2v5_…" and
+    "3v3_…" sort BEFORE "dac_…"/"pif_…") still comes last. On the old
+    lexicographic queue this test fails — the copper is emitted first."""
+    t = _linked_tree("ch0_dac_buf", is_origin=True, nodes=[
+        _copper("2v5_oa__dac_buf__pif_oa_n2v5"),
+        _copper("3v3_dvdd__dac_buf__pif_dvdd"),
+        _linked_node("dac_buf_channel_0",
+                     record=_record("placement", "dac_buf_channel_0")),
+        _linked_node("pif_dvdd_channel_0",
+                     record=_record("placement", "pif_dvdd_channel_0")),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {n.node.ref for n in t.nodes})
+    assert names == [
+        "dac_buf_channel_0", "pif_dvdd_channel_0",
+        "2v5_oa__dac_buf__pif_oa_n2v5", "3v3_dvdd__dac_buf__pif_dvdd",
+    ]
+
+
+def test_forest_copper_does_not_warn_about_its_base():
+    """С3: copper's base is its OWN anchor pad, never its tree parent, so the
+    "will be redrawn from the current position of …" note is FALSE for it and
+    must not be emitted; a component in the very same position still warns."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _copper("2v5_oa__x"),
+        _linked_node("dac_buf_channel_0",
+                     record=_record("placement", "dac_buf_channel_0")),
+    ])
+    _names, warnings = curated_redraw_plan_forest(
+        [t], {"2v5_oa__x", "dac_buf_channel_0"})
+    assert len(warnings) == 1
+    assert "dac_buf_channel_0" in warnings[0]
+    assert "will be redrawn from the current position" in warnings[0]
+    assert not any("2v5_oa__x" in w for w in warnings)
+
+
+def test_forest_module_branch_defers_copper_and_keeps_the_mixed_queue_sortable():
+    """С2: the same copper-last rule in the MODULE-aware branch, with a
+    genuinely MIXED queue — a checked top-level record is a `str` vertex while
+    the active module marker is an `int` one (id()). The sort groups must stay
+    type-homogeneous inside their slot, or the tuple comparison raises
+    TypeError on the first comparison of a str with an int."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _copper("2v5_oa__dac_buf__pif_oa_n2v5"),
+        _linked_node("D0", record=_record("placement", "D0")),
+    ])
+    t = _linked_tree("ch0_dac_buf", is_origin=True, nodes=[
+        _linked_node("PA", record=_record("placement", "PA")),
+        _marker_ln("ch0", content),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"PA", "ch0"})
+    assert set(names) == {"PA", "D0", "2v5_oa__dac_buf__pif_oa_n2v5"}
+    assert names[-1] == "2v5_oa__dac_buf__pif_oa_n2v5"
+    assert names.index("PA") < names.index("D0")
+    # PA is a top-level forest record (its base is the origin anchor) -> exactly
+    # that one note; the module marker and the copper stay silent.
+    assert len(warnings) == 1 and "PA" in warnings[0]
+    assert not any("2v5_oa" in w for w in warnings)
+
+
+def test_forest_module_branch_does_not_warn_about_forest_copper():
+    """С3 (module branch): a CHECKED forest copper node also stays silent about
+    its base, and still lands behind the module content."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _copper("2v5_oa__x"),
+        _marker_ln("ch0", content),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"2v5_oa__x", "ch0"})
+    assert set(names) == {"2v5_oa__x", "D0"}
+    assert names.index("D0") < names.index("2v5_oa__x")
+    assert warnings == []
