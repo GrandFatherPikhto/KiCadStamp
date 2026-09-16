@@ -134,6 +134,9 @@ _KIND_TAGS = {
     # REFERENCE — it places nothing itself; its children hang from the live
     # component its anchor names.
     "mount": _("mount"),
+    # A node that places ONE live component by its own address (2026-09-17, plan
+    # Э3): the tag is the kind name, as for every other kind.
+    "component": _("component"),
     # Copper container (2026-09-16, plan_2026_09_16_copper_node_order_and_
     # container P.2.4): a folding node for a tree's inter-node copper. It places
     # nothing of its own, so the tag simply says what it is.
@@ -160,8 +163,13 @@ _KIND_TAGS = {
 # buttons can never drift out of sync (found live 2026-09-07: the
 # master-detail button had no guard at all — clicking Redraw on a module node
 # crashed run_single_node_redraw_worker with "--only: names not found").
+# "component" (2026-09-17, plan Э3/Т3.7) IS redrawable, and through the plain
+# --only path: the node materializes a transient CoordinatePlacement whose
+# effective name IS the node's ref, so `--only <node name>` resolves it — no
+# special case needed here at all.
 _REDRAWABLE_NODE_KINDS = frozenset(
-    {"placement", "clone", "chain", "rule", "coordinate", "net_trace", "module"})
+    {"placement", "clone", "chain", "rule", "coordinate", "net_trace", "module",
+     "component"})
 
 # Node kinds that carry NO coordinates, so the node form neither collects nor
 # asks for any (2026-09-16, plan_2026_09_16_copper_node_order_and_container
@@ -2213,7 +2221,10 @@ class TreesDock(QWidget):
 
     @staticmethod
     def _collect_refs(node: TreeNode, into: set[str]) -> None:
-        if node.kind not in ("module", "copper"):
+        # "component" is a LOCAL name like "mount"/"copper" (its ref never
+        # resolves against the config), so it must not mark a name as "used" —
+        # otherwise the form would refuse a name the loader accepts.
+        if node.kind not in ("module", "copper", "component"):
             into.add(node.ref)
         for child in node.children:
             TreesDock._collect_refs(child, into)
@@ -4220,12 +4231,26 @@ class NodeFormWidget(QWidget):
         self.mount_anchor_widget.setVisible(False)
         self.mount_anchor_widget.set_known_roles(
             self._role_candidates, self._cluster_candidates)
+        # COMPONENT node (2026-09-17, plan Э3/Т3.7): the address of the component
+        # the node places. THE SAME shared widget (build_role_anchor_fields) as the
+        # mount picker, with show_ref=True — the widget already enforces the task's
+        # grammar itself ("Anchor: set Ref or Role." / "Ref and Role are mutually
+        # exclusive"), so no second address grammar is invented here.
+        self.component_address_widget = AnchorOriginWidget(
+            modes=("parent", "anchor"), anchor_fields=("sheet", "cluster", "pad"),
+            show_ref=True,
+            mode_labels={"anchor": _("Component address (ref or role)")})
+        position_form.addRow(self.component_address_widget)
+        self.component_address_widget.setVisible(False)
+        self.component_address_widget.set_known_roles(
+            self._role_candidates, self._cluster_candidates)
         # J.3 (2026-09-10): the Sheet combo is fed from the CONFIG's sheet map
         # (RuntimeContext.sheet_names, built from the schematics), exactly like
         # AnchorFormWidget does — NOT from the ~2s board snapshot, whose
         # Selected.sheet was empty for every footprint (measured: 325
         # footprints, 0 sheet names), leaving this combo permanently blank.
         self.mount_anchor_widget.set_known_sheets(list(self._sheet_names.values()))
+        self.component_address_widget.set_known_sheets(list(self._sheet_names.values()))
 
         self.tabs.addTab(general_widget, _("General"))
         self.tabs.addTab(position_widget, _("Position"))
@@ -4344,6 +4369,31 @@ class NodeFormWidget(QWidget):
         if not fields.get("role"):
             # An incomplete mount anchor (no Role yet) counts as "no anchor" —
             # build_node turns it into a refusal, never a silently-filled one.
+            return None
+        return TreeAnchor(
+            role=fields["role"], is_origin=False,
+            anchor_sheet=fields.get("sheet"),
+            anchor_cluster=fields.get("cluster"),
+            anchor_pad=fields.get("pad"),
+        )
+
+    def component_address(self) -> TreeAnchor | None:
+        """The COMPONENT node's address (plan_2026_09_17 Э3/Т3.1): None when the
+        address picker is not in "anchor" mode or its validation failed, else the
+        filled TreeAnchor — (ref ...) or (role ...) with the optional
+        sheet/cluster narrowing and the "seat by this pad" pad. Meaningful ONLY
+        for kind == "component"; build_node requires it there.
+
+        The Ref/Role exclusivity and the "one of them must be set" rule are the
+        SHARED widget's own (build_role_anchor_fields / AnchorOriginWidget.build)
+        — the same messages the tree-anchor form shows, so the two cannot drift."""
+        fields, err = self.component_address_widget.build()
+        if err or not fields or fields.get("mode") != "anchor":
+            return None
+        if fields.get("ref"):
+            return TreeAnchor(ref=fields["ref"], is_origin=False,
+                              anchor_pad=fields.get("pad"))
+        if not fields.get("role"):
             return None
         return TreeAnchor(
             role=fields["role"], is_origin=False,
@@ -4715,8 +4765,9 @@ class NodeFormWidget(QWidget):
             self.kind_combo.setCurrentIndex(kind_idx)
         self._on_kind_changed()
         self.ref_combo.setCurrentText(existing.ref)
-        # Position tab: restore a MOUNT node's anchor (every other kind's base
-        # is its parent, so the picker stays in its empty "parent" mode).
+        # Position tab: restore a MOUNT node's anchor or a COMPONENT node's
+        # address (every other kind's base is its parent, so the picker stays in
+        # its empty "parent" mode).
         if existing.kind == "mount" and existing.anchor is not None:
             self.mount_anchor_widget.load(
                 mode="anchor", role=existing.anchor.role,
@@ -4725,6 +4776,16 @@ class NodeFormWidget(QWidget):
                 pad=existing.anchor.anchor_pad or "")
         else:
             self.mount_anchor_widget.load(mode="parent")
+        if existing.kind == "component" and existing.anchor is not None:
+            self.component_address_widget.load(
+                mode="anchor",
+                ref=existing.anchor.ref or "",
+                role=existing.anchor.role or "",
+                sheet=existing.anchor.anchor_sheet or "",
+                cluster=existing.anchor.anchor_cluster or "",
+                pad=existing.anchor.anchor_pad or "")
+        else:
+            self.component_address_widget.load(mode="parent")
         # Board frame (plan §3): the form shows the offset/rotation in the BOARD
         # frame, the config stores them in the base's local frame. The
         # conversion happens HERE (load) and in build_node (save) — twice,
@@ -4879,6 +4940,10 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
         is_mount = kind == "mount"
+        # A COMPONENT node (2026-09-17, plan Э3/Т3.7) HAS coordinates of its own
+        # (the node's offset says where the component goes), so its rows behave
+        # like an ordinary node's — only the ADDRESS row is extra.
+        is_component = kind == "component"
         # Kinds with NO coordinates of their own (_POSITIONLESS_NODE_KINDS): a
         # "net_trace" node is purely a REFERENCE to a net_traces: record (the
         # record carries the geometry as offsets from its OWN anchor pad) and a
@@ -4888,8 +4953,12 @@ class NodeFormWidget(QWidget):
         # The "Read current position" row (a live read of a module ref — a tree,
         # not a record — is meaningless; a MOUNT node's position IS its anchor,
         # so a read is meaningless there too; a positionless kind has no position
-        # at all to read).
-        read_row_visible = not is_module and not is_mount and not is_positionless
+        # at all to read; a COMPONENT node's read would have to resolve the
+        # ADDRESS and diff it against the parent's frame — a feature of its own,
+        # deliberately not invented here (Т3.7 asks for the address fields, the
+        # offset and the rotation — nothing about a live read).
+        read_row_visible = (not is_module and not is_mount
+                            and not is_positionless and not is_component)
         self.read_position_button.setVisible(read_row_visible)
         self.read_status_label.setVisible(read_row_visible)
         # ── No coordinates: hide the offset row, the rotation row and the ────
@@ -4906,21 +4975,27 @@ class NodeFormWidget(QWidget):
         self.offset_frame_label.setVisible(
             not is_positionless and bool(self.offset_frame_label.text()))
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
-        # and is REQUIRED there, so it switches itself to "anchor" mode.
+        # and is REQUIRED there, so it switches itself to "anchor" mode. The
+        # component ADDRESS picker is the same widget's other instance, for a
+        # COMPONENT node only (plan Э3/Т3.7) — the two are never visible at once.
         self.mount_anchor_widget.setVisible(is_mount)
-        # Л.2.3: the Position tab holds ONLY that picker, so it is shown exactly
-        # when the picker is — ONE condition in ONE place, so the label can
+        self.component_address_widget.setVisible(is_component)
+        # Л.2.3: the Position tab holds ONLY those pickers, so it is shown exactly
+        # when one of them is — ONE condition in ONE place, so the label can
         # never drift from its content. A tab with nothing behind it is an
         # interface defect (the user opens it and gets nothing); the tab is
         # HIDDEN, never removed, so its index stays stable for every caller and
         # test that walks the tabs by index.
-        self.tabs.setTabVisible(self._position_tab_index, is_mount)
-        if not is_mount and self.tabs.currentIndex() == self._position_tab_index:
+        address_tab_visible = is_mount or is_component
+        self.tabs.setTabVisible(self._position_tab_index, address_tab_visible)
+        if not address_tab_visible and self.tabs.currentIndex() == self._position_tab_index:
             # Never leave a hidden tab as the CURRENT one — Qt would otherwise
             # keep a tab the user cannot see active.
             self.tabs.setCurrentIndex(0)
         if is_mount and self.mount_anchor_widget.mode != "anchor":
             self.mount_anchor_widget.load(mode="anchor")
+        if is_component and self.component_address_widget.mode != "anchor":
+            self.component_address_widget.load(mode="anchor")
         if kind == "module":
             # Ref = a child TREE NAME (not a record) — the dialog's separate
             # tree-name candidate list, minus self/dups/cycle risks.
@@ -4942,6 +5017,14 @@ class NodeFormWidget(QWidget):
             self.ref_combo.clear()
             self.ref_combo.setPlaceholderText(
                 _("copper container name (unique in tree)"))
+            return
+        if kind == "component":
+            # A component node's ref is a LOCAL NAME as well (plan Э3/Т3.2) —
+            # free text. The COMPONENT it places is named by the address picker
+            # on the Position tab, never by this ref.
+            self.ref_combo.clear()
+            self.ref_combo.setPlaceholderText(
+                _("component node name (unique in tree)"))
             return
         if kind == "external":
             self.ref_combo.clear()
@@ -5120,6 +5203,22 @@ class NodeFormWidget(QWidget):
                 QMessageBox.warning(
                     self, _("Add node"),
                     _("A mount node needs a Role anchor."))
+                return None
+        elif kind == "component":
+            # The ADDRESS is part of the node's identity: without it the node
+            # places nothing and its name could not be resolved by a redraw. The
+            # shared address widget's own message comes first (Ref/Role
+            # exclusivity, "set Ref or Role"), so the two forms never word the
+            # same rule differently.
+            fields, err = self.component_address_widget.build()
+            if err:
+                QMessageBox.warning(self, _("Add node"), err)
+                return None
+            node_anchor = self.component_address()
+            if node_anchor is None:
+                QMessageBox.warning(
+                    self, _("Add node"),
+                    _("A component node needs an address — Ref or Role."))
                 return None
         else:
             node_anchor = None

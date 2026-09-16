@@ -33,6 +33,7 @@ import logging
 
 from .anchor_graph import Record, build_records
 from .cell_frame import CellFrame, rotate_ydown_mm
+from .component_address import resolve_component_footprint
 from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .geometry.cell_anchor import cell_mount_offset
 from .i18n import _
@@ -1026,7 +1027,7 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
     captures: dict[str, RigidCapture] = {}
     for name in names:
         ln = index.get(name)
-        if ln is None or ln.record is None:
+        if ln is None or (ln.record is None and ln.node.kind != "component"):
             continue  # external/point never emit names; defensive only
         parent_ref, parent_record, parent_is_anchor = parent_map[name]
         # A kind "mount" PARENT (plan_2026_09_14 Э2): its base is its OWN
@@ -1039,9 +1040,22 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
         mount_parent = (parent_ln.node if parent_ln is not None
                         and parent_ln.node.kind == "mount" else None)
         try:
-            child_pos_old = resolve_base_live_position(adapter, cfg, ln.node.ref, ln.record,
-                                                       resolved_points, sheet_names)
-            child_rot_old = _base_rotation_or_zero(adapter, cfg, ln.node.ref, ln.record, sheet_names)
+            if ln.node.kind == "component":
+                # A component node (plan_2026_09_17 Э3/Р2/Т3.5) is a FULL member
+                # of the rigid group: its live pose is the pose of the component
+                # its ADDRESS names (component_address — the project's own
+                # resolver), and the capture/apply pair then re-projects it into
+                # its parent's frame exactly like every other node. The apply
+                # half needs no branch at all: the override reaches the
+                # transient CoordinatePlacement by the node's ref
+                # (apply_pipeline's Phase 0 position_overrides lookup).
+                fp = resolve_component_footprint(adapter, ln.node, sheet_names)
+                child_pos_old = fp.position
+                child_rot_old = float(fp.angle_deg)
+            else:
+                child_pos_old = resolve_base_live_position(adapter, cfg, ln.node.ref, ln.record,
+                                                           resolved_points, sheet_names)
+                child_rot_old = _base_rotation_or_zero(adapter, cfg, ln.node.ref, ln.record, sheet_names)
             if mount_parent is not None:
                 parent_pos_old, parent_rot_old = _mount_parent_base_pose(
                     adapter, cfg, mount_parent, plain_tree, sheet_names)
@@ -1147,8 +1161,7 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                   "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
                   "will land from the old point")
                 .format(ref=ref, parent=parent_label))
-        if (is_selected and linked_node.record is not None
-                and linked_node.record.kind != "point"):
+        if is_selected and _emits_a_name(linked_node):
             conflict_field = inline_anchor_field(linked_node.record)
             # A net_trace's anchor_role/anchor_pad is its INTRINSIC placement
             # (the copper is stored relative to it) — not a competing persistent
@@ -1159,7 +1172,9 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
                       "(non-tree) Apply/Redraw keeps using it; this tree redraw "
                       "moves it TEMPORARILY, without touching the record")
                     .format(ref=ref, field=conflict_field))
-            names.append(linked_node.record.name)
+            # A component node (Э3) owns no record — its name is its own ref.
+            names.append(linked_node.record.name if linked_node.record is not None
+                         else linked_node.node.ref)
         for child in linked_node.children:
             walk(child, parent_in_sel=is_selected, parent_label=ref)
 

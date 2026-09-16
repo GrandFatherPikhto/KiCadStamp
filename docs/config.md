@@ -622,6 +622,36 @@ position in the layout). The inter-node-copper re-read puts freshly found copper
 creating it (named `copper`, or the first free `copper_2`, …) when the tree has none; copper nodes already
 sitting in the root are left exactly where they are.
 
+**Component node (2026-09-17, plan_2026_09_17_order_pass_and_component_node Э3).** A node may have
+`kind "component"`: it places ONE already-existing board component — no cell, no Entity, no record of any
+kind — which is exactly what you want when the component must stand somewhere the cell machinery has
+nothing to say about:
+
+```sexp
+(tree (name "ch0") (anchor (origin))
+      (node (ref "adc_1") (kind component)
+            (anchor (role "AD_DAC") (sheet "Channel_0") (cluster "DAC_BUF") (pad "11"))
+            (xy 12.5 40.0) (rotation 90))
+      (node (ref "ram_1") (kind component) (anchor (ref "IC7")) (xy 1 2)))
+```
+
+The ADDRESS lives in the node's own nested `(anchor ...)`: `(role "..." [(sheet "...") (cluster "...")])`
+— resolved by the same Role search the rest of the project uses, with the same sheet/cluster narrowing —
+or `(ref "IC7")` by refdes. `(pad "...")` means "seat the component BY THIS PAD into the node's point"
+(with no pad, the component's origin lands there). `xy`/`polar`/`rotation` are the node's own placement in
+the tree, composed exactly like any other node's (parent frame, accumulative rotation). The node's `ref` is
+a NAME (like a mount node's): never resolved against the config, and unique WITHIN its tree.
+
+A component node is a FULL member of its tree: it follows the layout, rides the rigid group of a redraw
+(moving its parent moves it), emits its own name into the redraw plan, and `Redraw` on it works through
+`--only <node name>`. Its placement is applied in the same ZERO phase every coordinate placement uses, as a
+TRANSIENT record — nothing is ever written back into `coordinate_placements:`. Two load-time/run-time rules
+guard it: two component nodes of one tree with the same address are a load-time fatal, and two DIFFERENT
+addresses that resolve to the same physical component are a fatal naming both nodes (the run never lets
+"whoever came last" move a component). Inside a `tree_instances:` template the address's `(sheet ...)` is
+re-sheeted per instance (a refdes address is refused there: one physical component cannot be instantiated
+per sheet).
+
 **Order within one forest redraw (same plan, 2026-09-16).** Inter-node copper is always applied LAST: a
 `net_trace` record stores its geometry as offsets from its OWN anchor pad and is laid out from that pad
 LIVE, so it depends on where the components ended up — while no component ever depends on copper. The

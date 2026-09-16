@@ -16151,3 +16151,139 @@ msgstr "дерево {tree!r}: у контейнера меди {container!r} е
 #: kicadstamp/trees.py
 msgid "a kind \"copper\" container may hold only kind \"net_trace\" (inter-node copper) nodes"
 msgstr "контейнер вида \"copper\" может содержать только узлы вида \"net_trace\" (межузловая медь)"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "A component node needs an address — Ref or Role."
+msgstr "Узлу-компоненту нужен адрес — Ref или Role."
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "Component address (ref or role)"
+msgstr "Адрес компонента (ref или role)"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "Component materialization: tree {tree!r} skipped — {error}"
+msgstr "Материализация компонентов: дерево {tree!r} пропущено — {error}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "Materialized {count} component node placement(s) from trees into the apply plan"
+msgstr "Материализовано размещений узлов-компонентов из деревьев в план применения: {count}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "Tree node {ref!r} is not a component node (or has no address)"
+msgstr "Узел дерева {ref!r} не является узлом-компонентом (или у него нет адреса)"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "a component is placed by exactly one node — give one of them its own address"
+msgstr "компонент размещается ровно одним узлом — дайте одному из них собственный адрес"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "a component is placed by exactly one node — give one of them its own address, or delete it"
+msgstr "компонент размещается ровно одним узлом — дайте одному из них собственный адрес или удалите его"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "a component node needs an (anchor (ref ...)) or an (anchor (role ...)) — the node itself places nothing else"
+msgstr "узлу-компоненту нужен (anchor (ref ...)) или (anchor (role ...)) — сам узел больше ничего не размещает"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "a refdes names ONE physical component on the board, so it cannot be instantiated per sheet — address the component by (role ...) (sheet ...) instead, or take this node out of the template"
+msgstr "refdes называет ОДИН физический компонент на плате, поэтому его нельзя размножить по листам — адресуйте компонент через (role ...) (sheet ...) или уберите этот узел из шаблона"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "add (sheet ...) to this component node's address so it can be parameterized per instance — without a sheet the role is ambiguous across the instances' sheets"
+msgstr "добавьте (sheet ...) в адрес этого узла-компонента, чтобы его можно было параметризовать по инстансам — без листа роль неоднозначна между листами инстансов"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "component"
+msgstr "узел-компонент"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+msgid "component node name (unique in tree)"
+msgstr "имя узла-компонента (уникально в дереве)"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: anchor must be a mapping"
+msgstr "узел-компонент {ref!r}: anchor должен быть отображением"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: anchor supports only (ref ...) or (role ...) — origin/point/external/self/shift are tree-anchor-only"
+msgstr "узел-компонент {ref!r}: anchor поддерживает только (ref ...) или (role ...) — origin/point/external/self/shift относятся только к якорю дерева"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: anchor supports only ref or role — {keys} are tree-anchor-only"
+msgstr "узел-компонент {ref!r}: anchor поддерживает только ref или role — {keys} относятся только к якорю дерева"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: needs a (anchor ...) with the ADDRESS of the component it places — (ref \"...\") or (role \"...\")"
+msgstr "узел-компонент {ref!r}: нужен (anchor ...) с АДРЕСОМ размещаемого компонента — (ref \"...\") или (role \"...\")"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: needs an address — (ref \"...\") or (role \"...\")"
+msgstr "узел-компонент {ref!r}: нужен адрес — (ref \"...\") или (role \"...\")"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: needs an address — ref or role"
+msgstr "узел-компонент {ref!r}: нужен адрес — ref или role"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: needs an anchor mapping with the ADDRESS of the component it places — ref or role"
+msgstr "узел-компонент {ref!r}: нужен anchor-отображение с АДРЕСОМ размещаемого компонента — ref или role"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: the address must be (ref ...) OR (role ...), not both"
+msgstr "узел-компонент {ref!r}: адрес должен быть (ref ...) ИЛИ (role ...), но не оба"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "component node {ref!r}: the address must be ref OR role, not both"
+msgstr "узел-компонент {ref!r}: адрес должен быть ref ИЛИ role, но не оба"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: component node ref(s) {refs} are not unique — a component node's ref is the name the redraw applies it by and must identify exactly one node in the tree"
+msgstr "дерево {tree!r}: ref узлов-компонентов {refs} не уникальны — ref узла-компонента это имя, по которому его применяет перерисовка, и он должен указывать ровно один узел дерева"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: component node ref(s) {refs} collide with a positioned node of the same tree — component node refs must be distinct so a node can be named unambiguously"
+msgstr "дерево {tree!r}: ref узлов-компонентов {refs} совпадают с позиционированным узлом того же дерева — ref узлов-компонентов должны быть различны, чтобы узел назывался однозначно"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: two component nodes carry the same address: {pairs}"
+msgstr "дерево {tree!r}: два узла-компонента несут один и тот же адрес: {pairs}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree_instance {name!r}: component node {ref!r} addresses sheet {sheet!r}, not the template's {old!r} — kept verbatim"
+msgstr "tree_instance {name!r}: узел-компонент {ref!r} адресует лист {sheet!r}, а не лист шаблона {old!r} — оставлено дословно"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree_instance: template {template!r} component node {ref!r} addresses its component by refdes"
+msgstr "tree_instance: узел-компонент {ref!r} шаблона {template!r} адресует компонент по refdes"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "tree_instance: template {template!r} component node {ref!r} has no sheet in its anchor"
+msgstr "tree_instance: в anchor узла-компонента {ref!r} шаблона {template!r} нет листа"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "two component nodes place the same component: {first!r} and {second!r} both address {ref}"
+msgstr "два узла-компонента размещают один компонент: {first!r} и {second!r} оба адресуют {ref}"
+
+#: kicadstamp/component_address.py kicadstamp/trees.py
+#, python-brace-format
+msgid "{first} and {second}"
+msgstr "{first} и {second}"

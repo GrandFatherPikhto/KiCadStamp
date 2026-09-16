@@ -21,9 +21,12 @@ Resolution rules (all fatal via ValidationError, formatted AFTER _()):
   - node with no kind: auto-search the 4 placeable sections
     (clone/rule/coordinate/point), fatal on 0 or 2+ matches
   - node with kind "external": record = None, never touches config
-  - node with kind "module" / "mount" / "copper": record = None — all three refs
-    are NAMES (another tree / a local mount name / a local container name),
-    never config records
+  - node with kind "module" / "mount" / "copper" / "component": record = None —
+    all four refs are NAMES (another tree / a local mount name / a local
+    container name / a local component-node name), never config records. A
+    component node's ADDRESS lives in its own nested (anchor ...) child and is
+    resolved against the LIVE board at materialization time
+    (kicadstamp/component_address.py), not here.
   - anchor with is_origin: record = None, not "external"
   - anchor otherwise: auto-search; 1 match -> record; 0 -> SILENT external
     (anchors may legally point at live-board components, mirroring the
@@ -48,8 +51,12 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # ref is a local NAME — same exemption as module. copper (2026-09-16, plan
 # plan_2026_09_16_copper_node_order_and_container P.2.4) is a pure CONTAINER:
 # it places nothing, owns no record and its ref is a local NAME too.
+# component (2026-09-17, plan_2026_09_17_order_pass_and_component_node Э3) DOES
+# place a component, but owns no config record either: its ref is a local NAME
+# and the component it places is named by its own nested (anchor ...) address,
+# resolved against the live board later — never by a config record lookup here.
 _PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module", "mount",
-                                 "copper"}
+                                 "copper", "component"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).
@@ -67,7 +74,9 @@ class LinkedAnchor:
 @dataclass
 class LinkedNode:
     node: TreeNode                 # original node, as-is
-    record: Record | None          # None ONLY when node.kind == "external" / "module" / "mount" / "copper"
+    record: Record | None          # None for kind "external"/"module"/"mount"/
+                                   # "copper"/"component" (none of them owns a
+                                   # config record)
     is_external: bool
     children: list["LinkedNode"]
     # kind=="module": the referenced Tree (resolved by name, never a record).
@@ -139,6 +148,15 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         # A mount node is a POINT OF REFERENCE (plan_2026_09_11_tree_mount_nodes
         # §Y.1): its ref is a local NAME and it places nothing, so — exactly like
         # a module node's tree name — it is never resolved against the config.
+        return None, False
+
+    if node.kind == "component":
+        # A component node (2026-09-17, plan Э3/Т3.2) places a LIVE component,
+        # but owns no config record: its ref is a LOCAL name (like mount's) and
+        # the component it places is named by the node's own nested (anchor ...)
+        # ADDRESS. That address is resolved against the board — never here, so a
+        # tree loads (and saves) without a live connection, exactly like every
+        # other kind.
         return None, False
 
     if node.kind == "copper":

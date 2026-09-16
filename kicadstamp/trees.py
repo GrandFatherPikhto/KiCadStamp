@@ -72,18 +72,40 @@ from .i18n import _
 # most ONE per tree and children only of kind "net_trace" (both load-time
 # fatals, see _validate_copper_container); the layout and the redraw planner
 # skip it because its record is None.
+#
+# "component" — 2026-09-17 (plan_2026_09_17_order_pass_and_component_node Э3):
+# a node that places ONE already-existing component directly — no cell, no
+# Entity, no config record at all. Its ADDRESS lives in its own nested
+# (anchor ...) child, in the mount-node shape with two differences
+# (_parse_component_anchor): a (ref "...") base IS allowed, and (pad ...) means
+# "seat the component BY THIS PAD into the node's own point":
+#
+#     (node (ref "adc_1") (kind component)
+#           (anchor (role "AD_DAC") (sheet "Channel_0") (cluster "DAC_BUF") (pad "11"))
+#           (xy 12.5 40.0) (rotation 90))
+#     (node (ref "ram_1") (kind component) (anchor (ref "IC7")) (xy 1 2))
+#
+# Its ref is a LOCAL NAME (unique within its tree, like mount's and copper's),
+# so it is exempt from the file-wide "a record has exactly one node" rule and
+# the same name may appear in two different trees. A component node is a FULL
+# participant of its tree: it follows the layout, rides the rigid group of a
+# redraw and emits its own name into the redraw plan (Э3/Р2) — the placement
+# itself is materialized as a TRANSIENT CoordinatePlacement (zero phase), never
+# written into the config.
 KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point",
-         "external", "module", "mount", "copper")
+         "external", "module", "mount", "copper", "component")
 
 # Kinds whose ref is a NAME local to the trees file instead of a config record,
 # so they are EXEMPT from rule 2 (a record's node appears at most once in the
 # whole file): "module" -> another TREE's name, "mount" -> a point-of-reference
-# name, "copper" -> a container name. Each is unique WITHIN its tree instead: a
-# module ref is guarded by link_trees' per-parent duplicate rule, mount and
-# copper by _validate_local_refs below. ONE list, read by BOTH node parsers
-# (_parse_node for s-expr, _dict_node for the dict bridge) — a second copy of it
-# is exactly how the two shapes drift apart.
-_LOCAL_REF_KINDS = ("module", "mount", "copper")
+# name, "copper" -> a container name, "component" -> the LOCAL NAME of a node
+# that places a live component (its address lives in its own anchor, not in its
+# ref — Э3/Т3.2). Each is unique WITHIN its tree instead: a module ref is
+# guarded by link_trees' per-parent duplicate rule, the other three by
+# _validate_local_refs below. ONE list, read by BOTH node parsers (_parse_node
+# for s-expr, _dict_node for the dict bridge) — a second copy of it is exactly
+# how the two shapes drift apart.
+_LOCAL_REF_KINDS = ("module", "mount", "copper", "component")
 
 # Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
 # with kind "rule" (the old record kind) are still accepted at parse time (a
@@ -382,6 +404,94 @@ def _parse_mount_anchor(ref: str, anchor_node) -> TreeAnchor:
     )
 
 
+def _parse_component_anchor(ref: str, anchor_node) -> TreeAnchor:
+    """A kind "component" node's nested (anchor ...) child — the ADDRESS of the
+    live component this node places (plan_2026_09_17 Э3/Т3.1). The SHAPE is a
+    mount node's (`_parse_mount_anchor`), with the two differences the task
+    names:
+
+      * a (ref "...") base IS allowed — a component addressed by its refdes
+        instead of by Role;
+      * (pad ...) keeps its place in the grammar but changes MEANING: it says
+        "seat the component BY THIS PAD into the node's own point", where a
+        mount node's pad says "measure the base from that pad" (a component node
+        IS the placement, so there is no base to measure from).
+
+    (origin)/(point ...)/(external)/(self ...)/(shift x y) stay tree-anchor-only
+    concepts — hard fatal, exactly like a mount node's anchor. Exactly ONE base
+    (ref or role) is required: an addressless component node places nothing and
+    its name could not be resolved by the redraw."""
+    if (child(anchor_node, "origin") is not None
+            or atom(anchor_node, "point") is not None
+            or child(anchor_node, "external") is not None
+            or child(anchor_node, "self") is not None
+            or child(anchor_node, "shift") is not None):
+        _fatal(_("component node {ref!r}: anchor supports only (ref ...) or "
+                 "(role ...) — origin/point/external/self/shift are "
+                 "tree-anchor-only").format(ref=ref))
+    raw_ref = atom(anchor_node, "ref")
+    role = atom(anchor_node, "role")
+    if raw_ref is not None and role is not None:
+        _fatal(_("component node {ref!r}: the address must be (ref ...) OR "
+                 "(role ...), not both").format(ref=ref))
+    if raw_ref is None and not role:
+        _fatal(_("component node {ref!r}: needs an address — (ref \"...\") or "
+                 "(role \"...\")").format(ref=ref))
+    if raw_ref is not None:
+        return TreeAnchor(ref=sval(raw_ref), is_origin=False)
+    return TreeAnchor(
+        role=sval(role),
+        is_origin=False,
+        anchor_sheet=_opt_sval(atom(anchor_node, "sheet")),
+        anchor_cluster=_opt_sval(atom(anchor_node, "cluster")),
+        anchor_pad=_opt_sval(atom(anchor_node, "pad")),
+    )
+
+
+def _component_address_key(anchor: TreeAnchor | None):
+    """The IDENTITY of a component node's address for the load-time duplicate
+    check (Т3.6, structural half): the whole address, not just the role — two
+    nodes asking for the same role but a different pad are different addresses
+    (whether they turn out to be the same FOOTPRINT is the LIVE half's question,
+    see component_nodes.materialize_component_nodes)."""
+    if anchor is None:
+        return None
+    if anchor.ref is not None:
+        return ("ref", anchor.ref)
+    return ("role", anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
+            anchor.anchor_pad)
+
+
+def _validate_component_addresses(nodes: list[TreeNode], tree_name: str) -> None:
+    """Load-time rule for kind "component" (plan_2026_09_17 Э3/Т3.6): TWO nodes
+    of one tree may not carry the same address.
+
+    The reason is not tidiness: both would materialize a placement for the same
+    component and the run would apply whichever came last, silently. The tree
+    owns components in exactly one place, so the same address twice is a config
+    error — reported with BOTH node names, because the fix is a choice between
+    them, not a typo hunt."""
+    seen: dict[object, str] = {}
+    duplicates: list[str] = []
+    for node in _walk_nodes(nodes):
+        if node.kind != "component":
+            continue
+        key = _component_address_key(node.anchor)
+        if key is None:
+            continue
+        if key in seen:
+            duplicates.append(_("{first} and {second}").format(
+                first=seen[key], second=node.ref))
+        else:
+            seen[key] = node.ref
+    if duplicates:
+        _fatal(_("tree {tree!r}: two component nodes carry the same address: "
+                 "{pairs}").format(tree=tree_name, pairs="; ".join(duplicates))
+               + " " +
+               _("a component is placed by exactly one node — give one of them "
+                 "its own address"))
+
+
 def _walk_nodes(nodes: list[TreeNode]):
     """Every node of a tree, depth-first (the local-ref uniqueness helper)."""
     for n in nodes:
@@ -392,7 +502,8 @@ def _walk_nodes(nodes: list[TreeNode]):
 # The per-kind texts of _validate_local_refs: {kind: (not_unique, collides)}.
 # The "mount" pair is VERBATIM what these messages have always been (they are
 # user-facing and must not drift); "copper" gets the same two checks worded for
-# a container. A kind listed here IS a local-name kind (see _LOCAL_REF_KINDS).
+# a container, "component" for a node that places a live component. A kind
+# listed here IS a local-name kind (see _LOCAL_REF_KINDS).
 _LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
     "mount": (
         _("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
@@ -406,6 +517,14 @@ _LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
           "copper container's ref must identify exactly one node in the tree"),
         _("tree {tree!r}: copper node ref(s) {refs} collide with a "
           "positioned node of the same tree — copper refs must be "
+          "distinct so a node can be named unambiguously"),
+    ),
+    "component": (
+        _("tree {tree!r}: component node ref(s) {refs} are not unique — a "
+          "component node's ref is the name the redraw applies it by and must "
+          "identify exactly one node in the tree"),
+        _("tree {tree!r}: component node ref(s) {refs} collide with a "
+          "positioned node of the same tree — component node refs must be "
           "distinct so a node can be named unambiguously"),
     ),
 }
@@ -735,9 +854,11 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
                    .format(location=location, ref=ref))
         seen_refs.add(ref)
 
-    # A nested (anchor ...) belongs to a kind "mount" node ONLY (2026-09-11,
-    # plan Y.1). On any other kind it IS the removed own_anchor grammar: fatal
-    # with a pointer to the converter, never an AttributeError (plan Y.9.1.7).
+    # A nested (anchor ...) belongs to a kind "mount" node (2026-09-11, plan
+    # Y.1) or a kind "component" node (2026-09-17, plan Э3/Т3.1 — the ADDRESS of
+    # the component it places). On any other kind it IS the removed own_anchor
+    # grammar: fatal with a pointer to the converter, never an AttributeError
+    # (plan Y.9.1.7).
     anchor_node = child(node, "anchor")
     if kind == "mount":
         if anchor_node is None:
@@ -745,6 +866,12 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
                      "node is a point of reference and places nothing itself")
                    .format(ref=ref))
         node_anchor = _parse_mount_anchor(ref, anchor_node)
+    elif kind == "component":
+        if anchor_node is None:
+            _fatal(_("component node {ref!r}: needs a (anchor ...) with the "
+                     "ADDRESS of the component it places — (ref \"...\") or "
+                     "(role \"...\")").format(ref=ref))
+        node_anchor = _parse_component_anchor(ref, anchor_node)
     else:
         if anchor_node is not None:
             _fatal(_("node {ref!r}: a nested (anchor ...) is only valid on a "
@@ -977,6 +1104,7 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
                     for n in top_nodes]
     _validate_local_refs(parsed_nodes, name)
     _validate_copper_container(parsed_nodes, name)
+    _validate_component_addresses(parsed_nodes, name)
     # A self (ref ...) names a node of THIS tree — validated with the nodes in
     # hand (the anchor is parsed before them).
     _validate_self_ref(name, parsed_nodes, anchor)
@@ -1039,9 +1167,14 @@ def _node_to_sexp(node: TreeNode) -> list:
         # with the SAME role shape as a tree-level role anchor (plan §Y.1.1) —
         # written explicitly (not via _anchor_to_sexp) so a hand-built non-role
         # anchor can never leak an origin/ref/point/external shape into a node
-        # (the parser fatals on it).
+        # (the parser fatals on it). A kind "component" node's anchor is the same
+        # shape PLUS the ref form (Э3/Т3.1) — one writer, chosen by the node's
+        # own kind, so neither kind can serialize the other's shape.
         a = node.anchor
-        anchor_sexp = [sym("anchor"), [sym("role"), a.role]]
+        if node.kind == "component" and a.ref is not None:
+            anchor_sexp = [sym("anchor"), [sym("ref"), a.ref]]
+        else:
+            anchor_sexp = [sym("anchor"), [sym("role"), a.role]]
         if a.anchor_sheet is not None:
             anchor_sexp.append([sym("sheet"), a.anchor_sheet])
         if a.anchor_cluster is not None:
@@ -1206,8 +1339,13 @@ def _node_to_dict(node: TreeNode) -> dict:
         # (mirror of the s-expr (anchor ...) child of a node), written
         # explicitly so a hand-built non-role anchor can never leak a
         # ref/origin/point shape into the config dict (the parser fatals on it).
+        # A kind "component" node may address by ref instead (Э3/Т3.1) — the
+        # shape follows the node's own kind, exactly like the s-expr writer.
         a = node.anchor
-        anchor_dict: dict = {"role": a.role}
+        if node.kind == "component" and a.ref is not None:
+            anchor_dict: dict = {"ref": a.ref}
+        else:
+            anchor_dict = {"role": a.role}
         if a.anchor_sheet is not None:
             anchor_dict["sheet"] = a.anchor_sheet
         if a.anchor_cluster is not None:
@@ -1405,6 +1543,37 @@ def _dict_mount_anchor(ref: str, anchor_data: dict) -> TreeAnchor:
     )
 
 
+def _dict_component_anchor(ref: str, anchor_data: dict) -> TreeAnchor:
+    """The dict-bridge mirror of _parse_component_anchor (a kind "component"
+    node's "anchor" mapping): exactly one of ref/role, pad allowed (its
+    "seat by this pad" meaning), the tree-anchor-only bases fatal."""
+    if not isinstance(anchor_data, dict):
+        _fatal(_("component node {ref!r}: anchor must be a mapping").format(ref=ref))
+    forbidden = [k for k in ("origin", "point", "external", "self", "shift")
+                 if anchor_data.get(k) is not None]
+    if forbidden:
+        _fatal(_("component node {ref!r}: anchor supports only ref or role — "
+                 "{keys} are tree-anchor-only").format(
+                     ref=ref, keys=", ".join(forbidden)))
+    anchor_ref = anchor_data.get("ref")
+    role = anchor_data.get("role")
+    if anchor_ref is not None and role is not None:
+        _fatal(_("component node {ref!r}: the address must be ref OR role, not "
+                 "both").format(ref=ref))
+    if anchor_ref is None and not role:
+        _fatal(_("component node {ref!r}: needs an address — ref or role")
+               .format(ref=ref))
+    if anchor_ref is not None:
+        return TreeAnchor(ref=anchor_ref, is_origin=False)
+    return TreeAnchor(
+        role=role,
+        is_origin=False,
+        anchor_sheet=anchor_data.get("sheet"),
+        anchor_cluster=anchor_data.get("cluster"),
+        anchor_pad=anchor_data.get("pad"),
+    )
+
+
 def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     """Parse one dict node (the config-dict shape), recursing into nested
     children. seen_refs enforces the "a ref appears in at most one node"
@@ -1437,6 +1606,12 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
                      "mount node is a point of reference and places nothing "
                      "itself").format(ref=ref))
         node_anchor = _dict_mount_anchor(ref, anchor_data)
+    elif raw_kind == "component":
+        if anchor_data is None:
+            _fatal(_("component node {ref!r}: needs an anchor mapping with the "
+                     "ADDRESS of the component it places — ref or role")
+                   .format(ref=ref))
+        node_anchor = _dict_component_anchor(ref, anchor_data)
     else:
         if anchor_data is not None:
             _fatal(_("node {ref!r}: a nested anchor mapping is only valid on a "
@@ -1605,6 +1780,7 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
                     for n in data.get("nodes") or []]
     _validate_local_refs(parsed_nodes, name)
     _validate_copper_container(parsed_nodes, name)
+    _validate_component_addresses(parsed_nodes, name)
     _validate_self_ref(name, parsed_nodes, anchor)
     # The tree's OWN inner point + angle (plan §V.1/§V.2) — the dict mirror of
     # tree_from_sexp's tail.

@@ -36,7 +36,8 @@ from .domain.board import Footprint
 from .placement.commands import MoveCommand
 from .placement.planner import PlacementPlanner
 from .placement.dependency_order import resolve_execution_order
-from .placement.entity_placement import materialize_entity_placements
+from .placement.entity_placement import (materialize_component_nodes,
+                                         materialize_entity_placements)
 from .placement.services.clone_position_calculator import (
     clone_anchor_id,
     entity_anchor_id,
@@ -49,6 +50,7 @@ from .constants import DEFAULT_TIMEOUT_MS
 from .placement.executor import BatchExecutor
 from .scheme_list_apply import execute_scheme_list_plans, plan_all_scheme_lists
 from .exceptions import PlacerError
+from .trees import _walk_nodes as _walk_tree_nodes
 from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_path_for_config,
                        TrackRegistry, track_registry_path_for_config,
@@ -193,6 +195,14 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     if not only_names:
         return cfg
     requested = set(only_names)
+    # component nodes (2026-09-17, plan_2026_09_17 Э3): a kind "component" tree
+    # node is an --only identity — its placement materializes as a TRANSIENT
+    # CoordinatePlacement whose effective name IS the node's ref (see
+    # _filter_materialized_coordinates), created after this filter runs. Like an
+    # Entity name (below) it is recognized HERE so `--only <node name>` does not
+    # fatal, and it narrows nothing in the config sections because the node
+    # exists in none of them yet.
+    component_node_names = _component_node_names(cfg)
     matched_chains = [c for c in cfg.chains if chain_effective_name(c) in requested]
     matched_clones = [c for c in cfg.clone_placements
                       if clone_placement_effective_name(c) in requested]
@@ -225,7 +235,8 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                    # a net name is a legal --only spelling for net_traces (see
                    # above) — count it as found, the match itself is the record
                    | {nt.net for nt in matched_nets}
-                   | {entity_effective_name(e) for e in cfg.entities if not e.retired})
+                   | {entity_effective_name(e) for e in cfg.entities if not e.retired}
+                   | component_node_names)
     missing = requested - found_names
     if missing:
         all_names = sorted(
@@ -239,6 +250,7 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
             # so they must be suggested when a name is not found
             | {nt.net for nt in cfg.net_traces if not nt.retired}
             | {entity_effective_name(e) for e in cfg.entities if not e.retired}
+            | component_node_names
         )
         lines = []
         for name in sorted(missing):
@@ -333,6 +345,22 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                                net_traces=matched_nets)
 
 
+def _component_node_names(cfg) -> set[str]:
+    """The refs of every kind "component" tree node (plan_2026_09_17 Э3).
+
+    A component node's ref is a LOCAL NAME, so it is not a record in any config
+    section — but it IS an --only identity, because its transient
+    CoordinatePlacement carries exactly that name. Recognising it here keeps
+    `--only <node name>` (the per-node Redraw button's own call) from being
+    rejected as "not found" before the record even exists."""
+    names: set[str] = set()
+    for tree in (getattr(cfg, "trees", None) or []):
+        for node in _walk_tree_nodes(tree.nodes):
+            if node.kind == "component":
+                names.add(node.ref)
+    return names
+
+
 # ── Compute helper ────────────────────────────────────────────────────────────
 
 def _compute_all_anchor_ids(cfg) -> set[str]:
@@ -374,6 +402,28 @@ def _filter_materialized_entities(clones, only: list[str] | None,
     if cluster:
         clones = [c for c in clones if _matches_any_cluster(c.cluster, cluster)]
     return clones
+
+
+def _filter_materialized_coordinates(coords, only: list[str] | None,
+                                     cluster: list[str] | None) -> list:
+    """Apply --only/--cluster to the TRANSIENT coordinate placements
+    materialized from kind "component" tree nodes (plan_2026_09_17 Э3).
+
+    The same two-axis narrowing _filter_materialized_entities applies to
+    materialized clones, for the same reason: these records are created AFTER
+    apply_only_filter/apply_cluster_filter ran, so nothing else can narrow them.
+    --only matches the record's effective name (== the node's ref, which is what
+    a redraw passes), --cluster its live Cluster tag."""
+    if not coords:
+        return coords
+    if only:
+        wanted = set(only)
+        coords = [c for c in coords
+                  if coordinate_placement_effective_name(c) in wanted]
+    if cluster:
+        coords = [c for c in coords if c.cluster is not None
+                  and _matches_any_cluster(c.cluster, cluster)]
+    return coords
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -529,6 +579,25 @@ class ApplyPipeline:
                           "into the apply plan").format(count=len(materialized)))
             self.cfg = dataclasses.replace(
                 self.cfg, clone_placements=list(self.cfg.clone_placements) + materialized)
+        # Component nodes (plan_2026_09_17 Э3): a kind "component" tree node
+        # places ONE live component with no record of any kind, so it
+        # materializes as a TRANSIENT CoordinatePlacement and rides the ZERO
+        # PHASE — the same phase (and the same reason) every coordinate
+        # placement uses: the zero phase runs before the first so an anchor of a
+        # chain or clone sees the component's FINAL position (Р3).
+        component_coords = _filter_materialized_coordinates(
+            materialize_component_nodes(self.adapter, self._full_cfg,
+                                        sheet_names=self.sheet_names,
+                                        only=split_only, cluster=split_cluster),
+            split_only, split_cluster)
+        if component_coords:
+            logger.info(_("Materialized {count} component node placement(s) "
+                          "from trees into the apply plan")
+                        .format(count=len(component_coords)))
+            self.cfg = dataclasses.replace(
+                self.cfg,
+                coordinate_placements=list(self.cfg.coordinate_placements)
+                + component_coords)
         # Scheme List placements (plan_2026_09_05_scheme_list.md §4): the
         # scheme_list-based Entities never materialize into clones (_walk skips
         # them); their plans are built here over the FULL cfg (only narrowed)

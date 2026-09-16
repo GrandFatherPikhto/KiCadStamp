@@ -460,6 +460,80 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
     return gen
 
 
+def _expand_component_node(node: dict, instance_name: str, sheet: str,
+                           entities_by_name: dict, net_traces_by_name: dict,
+                           generated_entities: list, generated_net_traces: list,
+                           template_name: str, old_sheet: str | None,
+                           cluster: str | None, params: dict[str, str] | None,
+                           anchor_cluster: str | None,
+                           ref_map: dict[str, str]) -> dict:
+    """Expand ONE kind "component" template node (2026-09-17, plan_2026_09_17
+    Э3, mirroring the mount node's v1.5 rules).
+
+    A component node PLACES a live component itself, so what has to follow the
+    instance is its ADDRESS, not just its ref:
+
+    (a) its ref is NOT suffixed with __{instance}: a component node's ref is a
+        LOCAL name, unique per TREE (trees.py::_validate_local_refs) and every
+        generated instance is its own tree (the mount/copper rule);
+    (б) a (role ...) address whose `sheet` equals the template's own sheet (the
+        SAME inside/outside test a mount anchor uses) takes the instance sheet,
+        and — only together with it — the declaration's `cluster:` narrowing; a
+        DIFFERENT sheet is a board-wide reference and is kept VERBATIM
+        (info-logged); a role address with NO sheet is a fatal, because the role
+        would be ambiguous across the instances' sheets — the same "all three
+        channels to channel 0" trap the mount rule refuses;
+    (в) a (ref "...") address has nothing to parameterize: the SAME physical
+        component would be claimed by every instance, which the materializer
+        would (correctly) refuse later. Refused HERE instead, naming the
+        template and the node — the failure belongs to the template, not to the
+        generated tree;
+    (г) children go through the ordinary recursion."""
+    orig_ref = node.get('ref')
+    gen = copy.deepcopy(node)
+    ref_map[orig_ref] = orig_ref          # (a) unchanged — maps to itself
+    anchor = gen.get('anchor')
+    if isinstance(anchor, dict):
+        if anchor.get('ref'):
+            raise ValidationError(format_fatal_error(
+                _("tree_instance: template {template!r} component node {ref!r} "
+                  "addresses its component by refdes").format(
+                      template=template_name, ref=orig_ref),
+                [_("a refdes names ONE physical component on the board, so it "
+                   "cannot be instantiated per sheet — address the component by "
+                   "(role ...) (sheet ...) instead, or take this node out of the "
+                   "template")]))
+        anchor_sheet = anchor.get('sheet')
+        if not anchor_sheet:
+            raise ValidationError(format_fatal_error(
+                _("tree_instance: template {template!r} component node {ref!r} "
+                  "has no sheet in its anchor").format(template=template_name,
+                                                       ref=orig_ref),
+                [_("add (sheet ...) to this component node's address so it can "
+                   "be parameterized per instance — without a sheet the role is "
+                   "ambiguous across the instances' sheets")]))
+        if anchor_sheet == old_sheet:
+            anchor['sheet'] = sheet
+            if anchor_cluster is not None:
+                anchor['cluster'] = anchor_cluster
+        else:
+            logger.info(_("tree_instance {name!r}: component node {ref!r} "
+                          "addresses sheet {sheet!r}, not the template's {old!r} "
+                          "— kept verbatim").format(name=instance_name,
+                                                   ref=orig_ref,
+                                                   sheet=anchor_sheet,
+                                                   old=old_sheet))
+    children = node.get('children') or []
+    if children:
+        gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
+                                        net_traces_by_name, generated_entities,
+                                        generated_net_traces, template_name,
+                                        old_sheet, cluster, params, ref_map,
+                                        anchor_cluster)
+                           for c in children]
+    return gen
+
+
 def _rewrite_pivot_ref(gen: dict, template_name: str, instance_name: str,
                        ref_map: dict[str, str]) -> None:
     """Follow the node renames for a template's `pivot_ref` (v1.5, Б3.2 §В.4).
@@ -566,6 +640,12 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     node places nothing, so it has no Entity copy; its ref is NOT suffixed and
     its anchor's sheet decides whether it follows the instance.
 
+    kind=component (2026-09-17, plan_2026_09_17_order_pass_and_component_node Э3):
+    delegated to _expand_component_node — a component node places a live
+    component directly, so its ADDRESS (not just its ref) has to follow the
+    instance: a (role ...) (sheet ...) address is re-sheeted, a refdes address
+    is a fatal, and the local ref is never suffixed.
+
     kind=copper (2026-09-16, plan_2026_09_16_copper_node_order_and_container
     P.2.6): delegated to _expand_copper_node — a copper CONTAINER places
     nothing either, has no anchor and no record, so the whole expansion is "copy
@@ -601,6 +681,12 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                                    net_traces_by_name, generated_entities,
                                    generated_net_traces, template_name, old_sheet,
                                    cluster, params, anchor_cluster, ref_map)
+    if kind == 'component':
+        return _expand_component_node(node, instance_name, sheet,
+                                      entities_by_name, net_traces_by_name,
+                                      generated_entities, generated_net_traces,
+                                      template_name, old_sheet, cluster, params,
+                                      anchor_cluster, ref_map)
     if kind == 'net_trace':
         # The record is found by its IDENTITY — name:, else a legacy record's
         # net: (config/models.py::net_trace_effective_name). That is the same

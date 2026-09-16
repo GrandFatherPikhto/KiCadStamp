@@ -34,7 +34,15 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..cluster_matching import matches_any_cluster
-from ..config import ClonePlacement, Entity
+from ..component_address import (
+    component_address_label,
+    component_anchor,
+    component_sheet_hint,
+    resolve_component_footprint,
+)
+from ..config import ClonePlacement, CoordinatePlacement, Entity
+from ..config.models import coordinate_placement_effective_name
+from ..constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from ..domain.geometry import Vector2
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
@@ -519,11 +527,65 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
     )
 
 
+def _materialize_component_node(adapter, node, pos: Vector2, rot_deg: float,
+                                sheet_names,
+                                component_seen: dict | None) -> CoordinatePlacement:
+    """One kind "component" node -> its TRANSIENT CoordinatePlacement (Э3/Т3.4).
+
+    The node's ADDRESS (component_address) names the live footprint; the node's
+    own pose says where the component must GO. The record is therefore an
+    ABSOLUTE Cartesian CoordinatePlacement: x_mm/y_mm from the node's pose in
+    the tree, rotation_deg from the accumulated frame, `anchor='pad'` plus the
+    address's pad when the address carries one ("seat the component BY ITS PAD
+    into the node's point"), and `name` == the node's ref — which is what
+    `--only` and the rigid-redraw PositionOverride key on.
+
+    TWO details keep the transient record re-resolvable by Phase 0: its
+    role/cluster are the LIVE footprint's OWN field values (read here, NOT taken
+    from the address), because the address SELECTS a component while the
+    placement is re-resolved later by those tags — a partially written address
+    (role only) would otherwise resolve to nothing, and a stale cluster in the
+    address could resolve to a DIFFERENT component; and its `sheet` is the
+    address's sheet or, failing that, the leaf of the footprint's own path, so a
+    board-wide (role, cluster) pair still narrows to this instance.
+
+    `component_seen` is the LIVE half of the duplicate rule (Т3.6): the first
+    node to claim a footprint owns it, and a SECOND, DIFFERENT node claiming the
+    same one is a fatal naming both — "whoever came last moved it" is exactly
+    the silent choice the task forbids."""
+    anchor = component_anchor(node)
+    label = component_address_label(node)
+    fp = resolve_component_footprint(adapter, node, sheet_names)
+    if component_seen is not None:
+        previous = component_seen.get(fp.ref)
+        if previous is not None and previous != label:
+            raise ValidationError(format_fatal_error(
+                _("two component nodes place the same component: {first!r} and "
+                  "{second!r} both address {ref}").format(
+                      first=previous, second=label, ref=fp.ref),
+                [_("a component is placed by exactly one node — give one of "
+                   "them its own address, or delete it")]))
+        component_seen[fp.ref] = label
+    return CoordinatePlacement(
+        cluster=adapter.get_field_value(fp, CLUSTER_FIELD_NAME),
+        role=adapter.get_field_value(fp, ROLE_FIELD_NAME),
+        sheet=component_sheet_hint(fp, anchor, sheet_names),
+        name=label,
+        x_mm=pos.x / MM,
+        y_mm=pos.y / MM,
+        rotation_deg=float(rot_deg),
+        anchor='pad' if (anchor is not None and anchor.anchor_pad) else 'center',
+        anchor_pad=anchor.anchor_pad if anchor is not None else None,
+    )
+
+
 def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[ClonePlacement],
           position_overrides: dict | None = None, *,
           adapter=None, cfg=None, sheet_names=None,
           plain_tree=None, tree_base_pos: Vector2 | None = None,
-          tree_base_rot: float = 0.0) -> None:
+          tree_base_rot: float = 0.0,
+          component_out: list | None = None,
+          component_seen: dict | None = None) -> None:
     """Depth-first over LinkedNode children. A node's absolute position =
     node_position(node, parent_pos, parent_rot) (parent + offset rotated into
     the parent's frame); its own rotation feeds its children's frame as
@@ -541,7 +603,17 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
     walking from the STRUCTURAL pos/rot — a rigid redraw applies one node per
     run (only=[name]) and the override node is the only one that survives
     _filter_materialized_entities, so the child frame is never observed in
-    that scenario; a full apply passes no overrides at all."""
+    that scenario; a full apply passes no overrides at all.
+
+    component_out — list[CoordinatePlacement] (kind "component" nodes, plan_
+    2026_09_17 Э3/Т3.4): the SAME walk frames a component node, because such a
+    node is positioned exactly like any other node (the address names the
+    COMPONENT, the node's own offset says where it goes). None = this walk does
+    not materialize component nodes at all (the Entity path's own caller), so
+    its behaviour is unchanged bit for bit.
+    component_seen — {footprint ref: node ref}, shared across the WHOLE run, for
+    the live duplicate check (Т3.6, live half): two DIFFERENT component nodes
+    resolving to the same footprint are a fatal naming both."""
     for ln in linked_nodes:
         node = ln.node
         # Mount node: its base is its anchor's position (internal or live), not
@@ -558,6 +630,15 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
                 adapter, cfg, sheet_names)
         pos = node_position(node, base_pos, base_rot)
         rot = base_rot + node.rotation
+        if node.kind == "component" and component_out is not None:
+            # A component node places a live component from its own ADDRESS at
+            # this node's pose (plan_2026_09_17 Э3/Т3.4). Deliberately NOT
+            # applying position_overrides here: the transient record IS a
+            # CoordinatePlacement, so a rigid-redraw override reaches it in
+            # Phase 0 by its effective name (== the node's ref) — applying it in
+            # two places could only disagree with itself.
+            component_out.append(_materialize_component_node(
+                adapter, node, pos, rot, sheet_names, component_seen))
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity) \
                 and ln.record.obj.scheme_list is None:
@@ -575,7 +656,8 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
         _walk(ln.children, pos, rot, out, position_overrides,
               adapter=adapter, cfg=cfg, sheet_names=sheet_names,
               plain_tree=plain_tree, tree_base_pos=tree_base_pos,
-              tree_base_rot=tree_base_rot)
+              tree_base_rot=tree_base_rot,
+              component_out=component_out, component_seen=component_seen)
 
 
 def _structural_candidates(tree: LinkedTree) -> set[str]:
@@ -746,4 +828,88 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
                              "{error}").format(tree=tree.name, error=e))
             continue
         out.extend(tree_clones)
+    return out
+
+
+def _has_component_node(nodes) -> bool:
+    """Whether this subtree contains a kind "component" node (plan Э3) — the
+    cheap pre-check that keeps trees without one from costing a live anchor
+    read, exactly like _structural_candidates does for the Entity path."""
+    for ln in nodes:
+        if ln.node.kind == "component" or _has_component_node(ln.children):
+            return True
+    return False
+
+
+def materialize_component_nodes(adapter, cfg: "Config", sheet_names=None, *,
+                                only: list[str] | None = None,
+                                cluster: list[str] | None = None
+                                ) -> list[CoordinatePlacement]:
+    """Walk cfg.trees and materialize every kind "component" node into a
+    TRANSIENT absolute CoordinatePlacement (plan_2026_09_17 Э3/Т3.4).
+
+    A component node places ONE live component, with no cell, no Entity and no
+    record of any kind (see trees.py's KINDS note). Its placement is applied in
+    the pipeline's ZERO PHASE — the same phase every coordinate placement uses
+    (Р3): the zero phase deliberately runs before the first, so an anchor of a
+    chain or clone sees the FINAL position of a coordinate-placed component.
+
+    Purely in-memory: the caller appends the result to its own run-local
+    coordinate_placements list; the saved config is never rewritten (the plan's
+    moratorium on the coordinate_placements SECTION does not cover transient
+    records).
+
+    The frames come from the SAME walk the Entity path uses (_walk), so a
+    component node under a mount node, inside a module's content or beside any
+    other node is posed identically to everything else — there is no second
+    layout rule.
+
+    only/cluster — the caller's --only/--cluster lists, applied HERE because
+    these records are created after the config filters ran: --only matches the
+    node's ref (the record's effective name), --cluster its live Cluster tag —
+    the same two axes _filter_materialized_entities narrows clones by.
+
+    Per-tree tolerance is the Entity path's: a tree whose ANCHOR cannot be
+    resolved live is skipped with a warning (a board condition, not a config
+    error). The opposite case — two DIFFERENT nodes addressing ONE component —
+    is a config error and fatal for the whole run, never a skip (a silent skip
+    would drop a placement the user explicitly asked for)."""
+    if not cfg.trees:
+        return []
+    sheet_names = sheet_names or {}
+    linked = link_trees(cfg, cfg.trees)
+    only_set = set(only) if only else None
+    cluster_paths = list(cluster) if cluster else None
+    out: list[CoordinatePlacement] = []
+    # {footprint ref: node ref} for the WHOLE run — the live duplicate rule.
+    seen: dict[str, str] = {}
+    for tree in linked:
+        if not _has_component_node(tree.nodes):
+            continue
+        try:
+            base_pos, base_rot = _anchor_base(adapter, cfg, tree, sheet_names,
+                                              forest=linked)
+        except _EntityAnchorError:
+            raise
+        except ValidationError as e:
+            logger.warning(_("Component materialization: tree {tree!r} skipped "
+                             "— {error}").format(tree=tree.name, error=e))
+            continue
+        tree_out: list[CoordinatePlacement] = []
+        # The Entity list ("out") is a throwaway here: this walk exists for its
+        # component nodes, and _to_clone is pure (no board access), so producing
+        # and discarding the clones costs nothing observable.
+        _walk(tree.nodes, base_pos, base_rot, [], None,
+              adapter=adapter, cfg=cfg, sheet_names=sheet_names,
+              plain_tree=_plain_tree(cfg, tree.name),
+              tree_base_pos=base_pos, tree_base_rot=base_rot,
+              component_out=tree_out, component_seen=seen)
+        out.extend(tree_out)
+
+    if only_set is not None:
+        out = [cp for cp in out
+               if coordinate_placement_effective_name(cp) in only_set]
+    if cluster_paths is not None:
+        out = [cp for cp in out if cp.cluster is not None
+               and matches_any_cluster(cp.cluster, cluster_paths)]
     return out

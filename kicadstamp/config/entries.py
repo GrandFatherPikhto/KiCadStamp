@@ -1764,12 +1764,25 @@ _TREE_NODE_KNOWN_KEYS = {"ref", "kind", "xy", "polar", "rotation", "name", "grou
                          # "unknown fields" error. trees.py::_dict_node raises it.
                          "pivot_xy", "pivot_polar", "pivot_ref",
                          # 2026-09-11 (plan_2026_09_11_tree_mount_nodes §Y.1): a
-                         # kind "mount" node carries its (role ...) anchor here.
+                         # kind "mount" node carries its (role ...) anchor here;
+                         # 2026-09-17 (plan_2026_09_17 Э3): so does a kind
+                         # "component" node — its component ADDRESS.
                          "anchor"}
-# A mount node's anchor is role-only — origin/ref/external/point are
-# tree-anchor-only and are rejected here as unknown keys (the parse-side fatal
-# in trees.py::_dict_mount_anchor mirrors the same rule for the sexp shape).
-_TREE_NODE_ANCHOR_KNOWN_KEYS = {"role", "sheet", "cluster", "pad"}
+# A node's OWN anchor, per KIND — because the two kinds that carry one mean
+# different things by it:
+#   * "mount" — a point of reference, role-only: origin/ref/external/point are
+#     tree-anchor-only and are rejected here as unknown keys (the parse-side
+#     fatal in trees.py::_dict_mount_anchor mirrors the same rule for s-expr);
+#   * "component" — the ADDRESS of the component the node places, which may be a
+#     (ref "IC7") instead (plan_2026_09_17 Э3/Т3.1), so the refdes key IS legal.
+# A node whose kind has no entry here (no kind at all, or a kind that must not
+# carry an anchor) is left to the PARSE-side fatal, which names the real problem
+# ("a nested anchor mapping is only valid on a kind mount node") instead of a
+# generic unknown-key one.
+_TREE_NODE_ANCHOR_KNOWN_KEYS: dict[str, set[str]] = {
+    "mount": {"role", "sheet", "cluster", "pad"},
+    "component": {"ref", "role", "sheet", "cluster", "pad"},
+}
 
 
 def _check_tree_node_keys(data: Any, label: str) -> None:
@@ -1782,9 +1795,11 @@ def _check_tree_node_keys(data: Any, label: str) -> None:
                        _("unknown fields in {label}").format(label=label))
     node_anchor = data.get("anchor")
     if isinstance(node_anchor, dict):
-        check_unknown_keys(node_anchor, _TREE_NODE_ANCHOR_KNOWN_KEYS,
-                           _("unknown fields in {label} own anchor")
-                           .format(label=label))
+        allowed = _TREE_NODE_ANCHOR_KNOWN_KEYS.get(data.get("kind"))
+        if allowed is not None:
+            check_unknown_keys(node_anchor, allowed,
+                               _("unknown fields in {label} own anchor")
+                               .format(label=label))
     for child in data.get("children", []) or []:
         _check_tree_node_keys(child, f"{label} node")
 

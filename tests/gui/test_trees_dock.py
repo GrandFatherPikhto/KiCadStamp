@@ -3930,6 +3930,91 @@ def test_mount_node_without_role_refuses_build(main_window, tmp_path, monkeypatc
     assert any("mount node needs a Role anchor" in str(w) for w in warnings)
 
 
+# ── Component nodes (kind "component", plan_2026_09_17 Э3/Т3.7) ─────────────
+# A component node places ONE live component named by its own ADDRESS; the form
+# shows the same shared address widget as the mount picker (with the Ref field
+# enabled), plus the ordinary offset/rotation rows.
+
+def test_node_dialog_hides_the_component_address_picker_for_ordinary_nodes(
+        main_window, tmp_path):
+    """The address picker belongs to a kind "component" node only — hidden for
+    every other kind, and the Position tab with it (Л.2.3: a tab is shown
+    exactly when its content is)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)
+    assert dlg.component_address_widget.isHidden() is True
+    assert dlg.component_address() is None
+    assert dlg.tabs.isTabVisible(1) is False
+
+
+def test_component_address_returns_either_the_role_or_the_ref(main_window, tmp_path):
+    """Т3.1/Т3.7: the address picker is shown for kind "component" and yields the
+    filled address — a (role ...) form with its sheet/cluster/pad, or a
+    (ref ...) form with its pad; the two are mutually exclusive (the shared
+    widget's own rule)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    dlg = _build_dialog(dock, dock._current_tree(), None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    assert dlg.component_address_widget.isHidden() is False
+    assert dlg.tabs.isTabVisible(1) is True
+    # A component node HAS coordinates of its own — the ordinary rows come back.
+    assert dlg.offset_row.isVisibleTo(dlg) is True
+    assert dlg.rotation_row.isVisibleTo(dlg) is True
+
+    widget = dlg.component_address_widget
+    widget.anchor_role_edit.setCurrentText("AD_DAC")
+    widget.anchor_sheet_edit.setCurrentText("Channel_0")
+    widget.anchor_cluster_edit.setCurrentText("DAC_BUF")
+    widget.anchor_pad_edit.setText("11")
+    assert dlg.component_address() == TreeAnchor(
+        role="AD_DAC", is_origin=False, anchor_sheet="Channel_0",
+        anchor_cluster="DAC_BUF", anchor_pad="11")
+
+    widget.anchor_role_edit.setCurrentText("")
+    widget.anchor_ref_edit.setText("IC7")
+    assert dlg.component_address() == TreeAnchor(ref="IC7", is_origin=False,
+                                                 anchor_pad="11")
+
+
+def test_component_node_without_an_address_refuses_build(main_window, tmp_path,
+                                                         monkeypatch):
+    """The address is part of the node: with neither Ref nor Role filled,
+    build_node refuses with the shared widget's own message (and never builds a
+    node that could not be resolved by a redraw)."""
+    import gui.docks.trees_dock as td_mod
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None)
+    dlg.ref_combo.setCurrentText("place_1")
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.offset_widget.x_edit.setText("1.0")
+    dlg.offset_widget.y_edit.setText("2.0")
+    assert dlg.build_node() is None
+    assert any("set Ref or Role" in str(w) for w in warnings)
+
+
+def test_a_component_node_builds_with_its_address_and_coordinates(main_window,
+                                                                 tmp_path):
+    """Т3.7 end of the form: the built node carries the address AND the
+    coordinates — a component node is positioned like any other node."""
+    dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None)
+    dlg.ref_combo.setCurrentText("place_1")
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.component_address_widget.anchor_ref_edit.setText("IC7")
+    dlg.offset_widget.x_edit.setText("12.5")
+    dlg.offset_widget.y_edit.setText("40.0")
+    dlg.rotation_edit.setText("90")
+    node = dlg.build_node()
+    assert node is not None
+    assert node.kind == "component" and node.ref == "place_1"
+    assert node.xy == (12.5, 40.0) and node.rotation == 90.0
+    assert node.anchor == TreeAnchor(ref="IC7", is_origin=False)
+
+
 # ── Copper nodes (kind "net_trace"): form + context menu ───────────────────
 # 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.3.
 # A copper node is purely a REFERENCE to a net_traces: record — the record
