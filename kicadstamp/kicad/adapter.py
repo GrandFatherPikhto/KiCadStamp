@@ -6,7 +6,16 @@ from contextlib import contextmanager
 from typing import Any
 import kipy
 from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
+from kipy.common_types import Commit
 from kipy.geometry import Vector2 as KipyVector2, Angle as KipyAngle
+from kipy.proto.common.commands.editor_commands_pb2 import (
+    BeginCommit,
+    BeginCommitResponse,
+    CommitAction,
+    EndCommit,
+    EndCommitResponse,
+)
+from kipy.proto.common.types.base_types_pb2 import ItemHeader
 
 from ..domain.geometry import BoardLayer, Box2, Vector2
 from kipy.proto.board import board_commands_pb2
@@ -43,6 +52,60 @@ from ..i18n import _
 from . import pynng_safety  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+
+# Field numbers of the DOCUMENT header inside the transaction commands, as
+# KiCad 10.0.7 introduced them (api/proto/common/commands/editor_commands.proto,
+# branch 10.0, commit f3105844c6 "API: add document specifier for
+# BeginCommit/EndCommit"): BeginCommit.header = 1, EndCommit.header = 4.
+# kipy does not know the field yet (0.7.1 has NO fields on BeginCommit and only
+# id/action/message on EndCommit; PyPI's latest 0.8.0 is the same — measured
+# 16.09.2026), so _attach_document_header writes it by hand for those two; the
+# numbers are useless for any command whose descriptor already has `header`,
+# where the field is filled natively (Р2).
+_BEGIN_COMMIT_HEADER_FIELD = 1
+_END_COMMIT_HEADER_FIELD = 4
+
+
+def _encode_varint(value: int) -> bytes:
+    """protobuf's base-128 varint, written out here on purpose: the alternative
+    is google.protobuf.internal.* (an internal API this project does not use)."""
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(byte | 0x80)
+        else:
+            out.append(byte)
+            return bytes(out)
+
+
+def _attach_document_header(command, field_number: int, document) -> None:
+    """Tell KiCad WHICH document a transaction command belongs to.
+
+    KiCad 10.0.7 requires it: a headerless BeginCommit is refused as soon as
+    more than one editor is open ("BeginCommit without a document specified is
+    not allowed when multiple editors are open") — which is exactly how a user
+    works, pcbnew and eeschema side by side. Older KiCad simply ignores an
+    unknown field, so sending it is safe everywhere (proto3 parser behaviour).
+
+    Two paths, one decision made by the DESCRIPTOR rather than by a version
+    check (Р2): a command whose generated class already has `header` gets it
+    filled through the normal API; everything else gets the field encoded by
+    hand and merged into the message — a field the descriptor does not know
+    still survives serialization (and Pack into an Any), which is what puts it
+    on the wire, and it is therefore invisible through the generated API (the
+    tests read it back off the wire)."""
+    if "header" in command.DESCRIPTOR.fields_by_name:
+        command.header.document.CopyFrom(document)
+        return
+    header = ItemHeader()
+    header.document.CopyFrom(document)
+    payload = header.SerializeToString()
+    raw = (_encode_varint((field_number << 3) | 2)
+           + _encode_varint(len(payload)) + payload)
+    command.MergeFromString(raw)
 
 
 def _is_all_ids_stale_error(error: Exception) -> bool:
@@ -749,18 +812,40 @@ class KiCadBoardAdapter(IBoardAdapter):
         return boxes
 
     # --- Transactions ---
+    #
+    # These three no longer delegate to kipy's Board.begin_commit/push_commit/
+    # drop_commit (kipy/board.py:310-339) but build the very same commands here,
+    # byte for byte — the ONLY difference is the document header KiCad 10.0.7
+    # needs and kipy cannot send yet (see _attach_document_header). The document
+    # is read from the CURRENT self._board at call time (refresh_board replaces
+    # the handle), and the client is taken from the same public property, so no
+    # extra request is added anywhere (door rule 3: still one command per call).
     def begin_commit(self):
         logger.debug(_("Beginning transaction"))
-        return self._board.begin_commit()
+        command = BeginCommit()
+        _attach_document_header(command, _BEGIN_COMMIT_HEADER_FIELD,
+                                self._board.document)
+        return Commit(self._board.client.send(command, BeginCommitResponse).id)
 
     def push_commit(self, commit, description: str):
         logger.debug(_("Committing transaction: {desc}").format(desc=description))
-        self._board.push_commit(commit, description)
+        command = EndCommit()
+        command.id.CopyFrom(commit.id)
+        command.action = CommitAction.CMA_COMMIT
+        command.message = description
+        _attach_document_header(command, _END_COMMIT_HEADER_FIELD,
+                                self._board.document)
+        self._board.client.send(command, EndCommitResponse)
         logger.info(_("Transaction committed: {desc}").format(desc=description))
 
     def drop_commit(self, commit):
         logger.warning(_("Rolling back transaction"))
-        self._board.drop_commit(commit)
+        command = EndCommit()
+        command.id.CopyFrom(commit.id)
+        command.action = CommitAction.CMA_DROP
+        _attach_document_header(command, _END_COMMIT_HEADER_FIELD,
+                                self._board.document)
+        self._board.client.send(command, EndCommitResponse)
 
     def check_write_crash_risk(self):
         """

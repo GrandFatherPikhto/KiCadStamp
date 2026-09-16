@@ -14,9 +14,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kipy.board_types import Field
+from kipy.proto.common.commands.editor_commands_pb2 import (
+    BeginCommit,
+    BeginCommitResponse,
+    CommitAction,
+    EndCommit,
+)
 
 from kicadstamp.kicad import KiCadBoardAdapter, IBoardAdapter
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter
+from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
 
 
 def test_import():
@@ -338,6 +345,19 @@ class TestSetFieldValuesBulk:
         adapter = Adapter.__new__(Adapter)
         adapter._board = MagicMock()
         adapter._write_risk_checked = True  # skip check_write_crash_risk's own IPC call
+        # The transaction COMMANDS are built by the adapter itself since
+        # plan_2026_09_16_commit_document_and_pending_direction Э1: KiCad 10.0.7
+        # needs the document inside BeginCommit/EndCommit and kipy cannot send it
+        # (kicadstamp/kicad/adapter.py::_attach_document_header), so the commands
+        # go out through board.client.send instead of board.begin_commit()/
+        # push_commit(). The two pieces a REAL board hands over must therefore be
+        # real protos here, not Mock attributes: a document to serialise and a
+        # response whose id is a KIID the EndCommit copies. Everything these
+        # tests are ABOUT (the touched list, the retry) is untouched by that.
+        adapter._board.document = DocumentSpecifier()
+        response = BeginCommitResponse()
+        response.id.value = "11111111-2222-3333-4444-555555555555"
+        adapter._board.client.send.return_value = response
         return adapter
 
     def test_touched_list_has_each_footprint_once_even_with_two_fields_set(self):
@@ -366,11 +386,27 @@ class TestSetFieldValuesBulk:
         """commit_with_retry() calls work() again on a transient failure —
         touched used to live in the enclosing function, so a retried batch
         carried over every previous attempt's entries on top of the
-        per-field duplication above, compounding it further."""
+        per-field duplication above, compounding it further.
+
+        The failure is injected at the SEND of the push command — the seam the
+        adapter's own transaction methods use since Э1 (see _adapter above)."""
         adapter = self._adapter()
         fp = _fp_with_fields(Role="OLD_ROLE", Cluster="OLD_CLUSTER")
         updates = [(fp, "Role", "NEW_ROLE"), (fp, "Cluster", "NEW_CLUSTER")]
-        adapter._board.push_commit.side_effect = [Exception("not ready"), None]
+        good_response = adapter._board.client.send.return_value
+        pushed = []
+
+        def _send(command, response_type):
+            if isinstance(command, BeginCommit):
+                return good_response
+            if (isinstance(command, EndCommit)
+                    and command.action == CommitAction.CMA_COMMIT):
+                pushed.append(command)
+                if len(pushed) == 1:
+                    raise Exception("not ready")
+            return None
+
+        adapter._board.client.send.side_effect = _send
 
         adapter.set_field_values_bulk(updates, "test")
 

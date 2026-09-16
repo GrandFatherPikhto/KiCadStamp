@@ -28,6 +28,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from kipy.board_types import BoardText, Field
+from kipy.proto.common.commands.editor_commands_pb2 import BeginCommitResponse
+from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -84,10 +86,23 @@ class _StubKipyFootprint:
 
 def _adapter(kipy_footprints):
     """Adapter wired to a stubbed board that serves `kipy_footprints` — the
-    live-object side of a normal get_footprints()/refresh_board() cycle."""
+    live-object side of a normal get_footprints()/refresh_board() cycle.
+
+    Two of the stub's attributes must be REAL protos rather than Mock children
+    since plan_2026_09_16_commit_document_and_pending_direction Э1: the
+    transaction commands are built by the adapter itself (KiCad 10.0.7 needs the
+    document inside BeginCommit/EndCommit, kicadstamp/kicad/adapter.py::
+    _attach_document_header), so a write goes through board.client.send and the
+    board must hand over a document to serialise and a response whose id is a
+    KIID. Nothing this file is ABOUT — the field map and its cache generation —
+    is affected by that."""
     adapter = Adapter.__new__(Adapter)
     adapter._board = MagicMock()
     adapter._board.get_footprints.return_value = list(kipy_footprints)
+    adapter._board.document = DocumentSpecifier()
+    _response = BeginCommitResponse()
+    _response.id.value = "11111111-2222-3333-4444-555555555555"
+    adapter._board.client.send.return_value = _response
     adapter._footprints_cache = None
     adapter._field_values_cache = None
     adapter._write_risk_checked = True  # skip check_write_crash_risk's IPC call
