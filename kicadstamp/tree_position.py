@@ -1520,11 +1520,13 @@ def _copper_provider(copper_deps: dict[str, set[str]]) -> EdgeProvider:
     """Э2: inter-node copper goes after every node that places one of the
     components its pads connect.
 
-    The edges themselves are built from the LIVE board by
-    copper_node_dependencies (the record stores roles, not tree refs), and the
-    builder is best-effort by design: an end that matches no node of this run
-    simply contributes no edge (Т2.1), and the group 2 slot keeps copper last
-    anyway (Т2.2) — these edges REFINE the order, they cannot make it worse."""
+    The edges themselves are built from the CONFIG by copper_node_dependencies
+    (kicadstamp/copper_order.py — pure by construction: no board, no adapter;
+    the record stores roles, not tree refs, and those roles are resolved against
+    the config's own trees). The builder is best-effort by design: an end that
+    matches no node of this run simply contributes no edge (Т2.1), and the
+    group 2 slot keeps copper last anyway (Т2.2) — these edges REFINE the
+    order, they cannot make it worse."""
     def edges(vertices):
         for copper_ref, owners in copper_deps.items():
             if copper_ref not in vertices:
@@ -1670,9 +1672,11 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
       providers a cycle can appear where the old planner silently produced a
       wrong order, so the report has to say what to go and fix.
 
-    `copper_deps` (Э2 of the plan) — the optional live-board answer to "which
+    `copper_deps` (Э2 of the plan) — the optional CONFIG-only answer to "which
     tree node places each component this piece of copper connects", as
-    `{copper ref: {node refs}}` from kicadstamp.copper_order. When given, the
+    `{copper ref: {node refs}}` from kicadstamp.copper_order (the roles of the
+    record's `pads:` ends resolved against the config's own trees; no board is
+    read, and the copper is deferred by that alone). When given, the
     copper provider turns them into edges, so a piece of copper is applied
     after ITS OWN components instead of merely "after everything". Both the
     builder and this parameter are OPTIONAL and best-effort: an end matching no

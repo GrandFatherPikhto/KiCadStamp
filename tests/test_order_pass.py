@@ -76,10 +76,34 @@ def test_a_repeated_edge_is_counted_once_per_yield():
 def test_an_edge_outside_the_vertex_set_is_dropped():
     """A provider naturally produces "parent not in this run" edges (the
     planner's own warning case). Such an edge must neither crash the pass nor
-    silently ADD a vertex that nobody planned."""
+    silently ADD a vertex that nobody planned.
+
+    NOTE this goes through `_pairs`, which filters the pairs by `vertices`
+    BEFORE the machine ever sees them — so it pins the HELPER's contract, not
+    the machine's own drop. The machine's drop is pinned separately by
+    test_the_machine_itself_drops_an_edge_outside_the_vertex_set below (В2 of
+    plan_2026_09_16: with only this test, mutating the drop to `if False:`
+    stayed green)."""
     order = _run(["A"], [_pairs("structure", ("OUTSIDE", "A"))],
                  _groups({0: {"A"}}), _doc("A"))
     assert order == ["A"]
+
+
+def test_the_machine_itself_drops_an_edge_outside_the_vertex_set():
+    """В2 (Э3 of plan_2026_09_16): the drop is the MACHINE's own job, in both
+    directions of the pair — a provider is allowed to yield raw edges (that is
+    the natural shape of "for each planned node, look up its parent").
+
+    A parent outside the run must not hold the child back, and must not add a
+    vertex nobody planned; a child outside the run must not be counted at all
+    (its indegree would be a KeyError). Both branches were measured: with the
+    drop turned into `if False:` the first case reports a cycle and the second
+    raises KeyError — only this guard turns red."""
+    raw_parent = EdgeProvider("raw", lambda vertices: [("OUTSIDE", "A")])
+    assert _run(["A"], [raw_parent], _groups({0: {"A"}}), _doc("A")) == ["A"]
+
+    raw_child = EdgeProvider("raw", lambda vertices: [("A", "OUTSIDE")])
+    assert _run(["A"], [raw_child], _groups({0: {"A"}}), _doc("A")) == ["A"]
 
 
 def test_document_order_is_the_tie_breaker_not_the_alphabet():

@@ -2258,3 +2258,81 @@ def test_forest_cycle_names_the_provider_that_gave_the_edge(tmp_path):
     # both named, so the reader knows which two sources to go and fix.
     assert "X -> A1 (anchor)" in text
     assert "(module)" in text
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Wiring guards — plan_2026_09_16_commit_document_and_pending_direction, Э3
+#
+# Four rules of the order machine that had been holding by ACCIDENT: each one
+# survived a mutation (В1-В4 of that plan) because no test built the case where
+# the rule and the fallback answer differently. The behaviour of the machine,
+# of the copper edges and of the layout is NOT changed by these guards — they
+# only make the rules non-deletable.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_forest_structure_edges_are_plugged_in_alongside_the_anchor_edges():
+    """В1: the STRUCTURE provider must be connected (the mutation keeps only
+    `[_anchor_provider(index)]`).
+
+    Nesting X -> Y is the only thing that decides the order here: tree `dep` is
+    declared FIRST (so the document walk numbers X and Y before D0) and `dep` is
+    anchored on D0 of `host`. With the structure provider the anchor edge
+    (D0 -> X) and the nesting edge (X -> Y) chain into D0, X, Y; without it X
+    and Y are both roots and the document order applies them before their own
+    base D0 — the child before the parent, which is the drift the plan refused."""
+    host = _linked_tree("host", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    dep = _linked_tree("dep", anchor_ref="D0", nodes=[
+        _linked_node("X", record=_record("placement", "X"), children=[
+            _linked_node("Y", record=_record("placement", "Y"))])])
+    names, _warnings = curated_redraw_plan_forest([dep, host], {"D0", "X", "Y"})
+    assert names == ["D0", "X", "Y"]
+
+
+def test_forest_planner_plugs_the_copper_provider_only_when_deps_arrive(monkeypatch):
+    """В3: the PLANNER must append the copper provider when `copper_deps` is
+    non-empty (the mutation turns `if deps:` into `if False:`).
+
+    The provider's own edges are covered by the С1/С2 copper guards and by
+    test_copper_order.py, which is why the wiring stayed unobserved: the coarse
+    "copper last" group yields the same order with and without those edges, so
+    only the provider LIST tells the two apart. The machine is replaced by a spy
+    for exactly that — the order this guard reads is a by-product."""
+    from kicadstamp import tree_position as tp
+
+    seen: list[list[str]] = []
+
+    def _spy(vertices, providers, *, group_of, doc_index, cycle_title):
+        seen.append([p.name for p in providers])
+        return sorted(vertices,
+                      key=lambda v: (group_of(v), doc_index.get(v, 0), str(v)))
+
+    monkeypatch.setattr(tp, "run_order_pass", _spy)
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("A", record=_record("placement", "A")),
+        _linked_node("C", record=_record("net_trace", "C")),
+    ])
+    curated_redraw_plan_forest([t], {"A", "C"})
+    assert seen[-1] == ["structure", "anchor"]
+
+    curated_redraw_plan_forest([t], {"A", "C"}, copper_deps={"C": {"A"}})
+    assert seen[-1] == ["structure", "anchor", "copper"]
+
+
+def test_forest_module_content_ties_follow_its_own_document_order():
+    """В4: the document walk must descend through a module marker into its
+    module_linked content and number THOSE nodes in their own declaration order
+    (the mutation skips `ln.module_linked.nodes`).
+
+    Two independent content nodes whose refs sort the wrong way: with the walk
+    they are numbered z_first(0), a_second(1) and applied in that order; without
+    it both fall back to the `str()` tie-breaker and `a_second` wins — the
+    alphabet deciding again, which is the exact accident Т1.1 removed."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _linked_node("z_first", record=_record("placement", "z_first")),
+        _linked_node("a_second", record=_record("placement", "a_second")),
+    ])
+    t = _linked_tree("t", is_origin=True, nodes=[_marker_ln("ch0", content)])
+    names, _warnings = curated_redraw_plan_forest([t], {"ch0"})
+    assert names == ["z_first", "a_second"]
