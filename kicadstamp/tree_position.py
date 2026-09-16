@@ -518,7 +518,12 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     the mount's parent frame. adapter/cfg/sheet_names stay OPTIONAL: a mount
     whose base still needs the board (a live role, or an internal one with a
     pad) is a ValidationError when they are absent, never a silent wrong
-    position. Mount nodes place no record and are NOT in the returned map."""
+    position. Mount nodes place no record and are NOT in the returned map.
+
+    A kind "copper" CONTAINER (2026-09-16, plan_2026_09_16_copper_node_order_
+    and_container P.2.4) is not in the map either: it places nothing (`Node` it
+    holds are net_trace nodes, whose own geometry lives in their records), so it
+    must never be resolvable as a tree's inner point."""
     out: dict[str, tuple[Vector2, float]] = {}
     forest = dict(forest or {})
     stack: list[str] = []
@@ -549,7 +554,13 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                 lay(child.nodes, eff_pos, eff_rot, child, eff_pos, eff_rot)
                 stack.pop()
                 continue
-            if n.kind != "mount":
+            # A kind "copper" CONTAINER (2026-09-16, plan_2026_09_16_copper_node_
+            # order_and_container P.2.4) places nothing of its own and owns no
+            # record: it is a folding node for a tree's net_trace nodes. Giving
+            # it an entry in the map would hand tree_pivot_offset a "position"
+            # for a name that means nothing (its children still get theirs, the
+            # ordinary recursion below). Same treatment as a mount node.
+            if n.kind not in ("mount", "copper"):
                 out[n.ref] = (abs_pos, abs_rot)
             lay(n.children, abs_pos, abs_rot, cur_tree, tbl_pos, tbl_rot)
 

@@ -21,13 +21,14 @@ Syntactic rules enforced here (fatal via ValidationError):
   2. a flat record (ref ...) may appear in AT MOST ONE node across the whole
      file (a record's position source is exactly one); the same ref MAY be
      reused as a tree `anchor` (an anchor is a base, not something the tree
-     "places"); kind "module" and kind "mount" refs are NAMES, not records, so
-     they are exempt from this file-wide rule — mount refs must still be unique
-     WITHIN their tree and must not collide with a positioned node's ref there
-     (see _validate_mount_refs)
+     "places"); the refs of the LOCAL kinds (kind "module" — another tree's
+     name, kind "mount" — a point-of-reference name, kind "copper" — a container
+     name) are NAMES, not records, so they are exempt from this file-wide rule —
+     a mount/copper ref must still be unique WITHIN its tree and must not
+     collide with a positioned node's ref there (see _validate_local_refs)
   3. xy / polar are mutually exclusive, each exactly 2 numbers
   4. kind, if present, is one of clone/placement/chain/coordinate/net_trace/
-     point/external/module/mount (see KINDS)
+     point/external/module/mount/copper (see KINDS)
   5. cycles are impossible by construction (nested s-expr structure)
   6. a nested (anchor (role ...)) is valid ONLY on a kind "mount" node; on any
      other kind it is the removed own_anchor grammar and is a load-time fatal
@@ -61,8 +62,28 @@ from .i18n import _
 # that anchor's live frame (the one base rule: a node's base is its PARENT, no
 # exceptions). Its ref is a NAME unique within the tree (like module), never a
 # config record — deliberately NOT auto-searched: see link_trees._PLACEABLE_KINDS.
+# "copper" — 2026-09-16 (plan_2026_09_16_copper_node_order_and_container P.2.4):
+# a pure CONTAINER. It exists so a tree's inter-node copper nodes (kind
+# "net_trace") can be folded under one node instead of cluttering the tree root,
+# where they are unoperable: a copper node has no coordinates to edit, so the
+# root list of five of them is noise. The container places nothing and owns no
+# record; its ref is a local NAME (like mount's), never a config record —
+# deliberately NOT auto-searched: see link_trees._PLACEABLE_KINDS. Rules: at
+# most ONE per tree and children only of kind "net_trace" (both load-time
+# fatals, see _validate_copper_container); the layout and the redraw planner
+# skip it because its record is None.
 KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point",
-         "external", "module", "mount")
+         "external", "module", "mount", "copper")
+
+# Kinds whose ref is a NAME local to the trees file instead of a config record,
+# so they are EXEMPT from rule 2 (a record's node appears at most once in the
+# whole file): "module" -> another TREE's name, "mount" -> a point-of-reference
+# name, "copper" -> a container name. Each is unique WITHIN its tree instead: a
+# module ref is guarded by link_trees' per-parent duplicate rule, mount and
+# copper by _validate_local_refs below. ONE list, read by BOTH node parsers
+# (_parse_node for s-expr, _dict_node for the dict bridge) — a second copy of it
+# is exactly how the two shapes drift apart.
+_LOCAL_REF_KINDS = ("module", "mount", "copper")
 
 # Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
 # with kind "rule" (the old record kind) are still accepted at parse time (a
@@ -145,7 +166,7 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module"/"mount", or None (auto)
+    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module"/"mount"/"copper", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
@@ -362,39 +383,109 @@ def _parse_mount_anchor(ref: str, anchor_node) -> TreeAnchor:
 
 
 def _walk_nodes(nodes: list[TreeNode]):
-    """Every node of a tree, depth-first (the mount-ref uniqueness helper)."""
+    """Every node of a tree, depth-first (the local-ref uniqueness helper)."""
     for n in nodes:
         yield n
         yield from _walk_nodes(n.children)
 
 
-def _validate_mount_refs(nodes: list[TreeNode], tree_name: str) -> None:
-    """Per-tree ref uniqueness for kind "mount" (plan §Y.1.3). A mount node's
-    ref is a local NAME: it must be unique among the tree's mount nodes AND must
-    not collide with any positioned node's ref of the same tree, or the design's
-    later stages (the tree's own inner point) could not say which node is meant.
-    Both checks are load-time fatals (reported separately — they mean different
-    things)."""
-    counts: dict[str, int] = {}
-    mount_refs: set[str] = set()
-    placed_refs: set[str] = set()
-    for n in _walk_nodes(nodes):
-        if n.kind == "mount":
-            counts[n.ref] = counts.get(n.ref, 0) + 1
-            mount_refs.add(n.ref)
-        else:
-            placed_refs.add(n.ref)
-    duplicates = sorted(ref for ref, count in counts.items() if count > 1)
-    if duplicates:
-        _fatal(_("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
-                 "mount node's ref must identify exactly one node in the tree")
-               .format(tree=tree_name, refs=", ".join(duplicates)))
-    collisions = sorted(mount_refs & placed_refs)
-    if collisions:
-        _fatal(_("tree {tree!r}: mount node ref(s) {refs} collide with a "
-                 "positioned node of the same tree — mount refs must be "
-                 "distinct so a node can be named unambiguously")
-               .format(tree=tree_name, refs=", ".join(collisions)))
+# The per-kind texts of _validate_local_refs: {kind: (not_unique, collides)}.
+# The "mount" pair is VERBATIM what these messages have always been (they are
+# user-facing and must not drift); "copper" gets the same two checks worded for
+# a container. A kind listed here IS a local-name kind (see _LOCAL_REF_KINDS).
+_LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
+    "mount": (
+        _("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
+          "mount node's ref must identify exactly one node in the tree"),
+        _("tree {tree!r}: mount node ref(s) {refs} collide with a "
+          "positioned node of the same tree — mount refs must be "
+          "distinct so a node can be named unambiguously"),
+    ),
+    "copper": (
+        _("tree {tree!r}: copper node ref(s) {refs} are not unique — a "
+          "copper container's ref must identify exactly one node in the tree"),
+        _("tree {tree!r}: copper node ref(s) {refs} collide with a "
+          "positioned node of the same tree — copper refs must be "
+          "distinct so a node can be named unambiguously"),
+    ),
+}
+
+
+def _validate_local_refs(nodes: list[TreeNode], tree_name: str) -> None:
+    """Per-tree ref uniqueness for the LOCAL-NAME kinds (plan §Y.1.3 for mount;
+    plan_2026_09_16_copper_node_order_and_container P.2.4 for copper). A local
+    ref is a NAME, not a config record: it must be unique among the tree's local
+    refs of its own kind AND must not collide with any positioned node's ref of
+    the same tree, or the design's later stages (the tree's own inner point, the
+    copper container lookup) could not say which node is meant. Both checks are
+    load-time fatals, reported separately — they mean different things.
+
+    ONE walk per kind, with per-kind texts, so the mount messages stay verbatim
+    while copper gets wording that says "container". "module" is deliberately
+    NOT here: a module's ref is another tree's NAME and the "same tree embedded
+    twice under one parent" case is guarded by link_trees' own duplicate rule.
+    """
+    for kind, (not_unique, collides) in _LOCAL_REF_MESSAGES.items():
+        counts: dict[str, int] = {}
+        local_refs: set[str] = set()
+        placed_refs: set[str] = set()
+        for n in _walk_nodes(nodes):
+            if n.kind == kind:
+                counts[n.ref] = counts.get(n.ref, 0) + 1
+                local_refs.add(n.ref)
+            else:
+                placed_refs.add(n.ref)
+        duplicates = sorted(ref for ref, count in counts.items() if count > 1)
+        if duplicates:
+            _fatal(not_unique.format(tree=tree_name,
+                                     refs=", ".join(duplicates)))
+        collisions = sorted(local_refs & placed_refs)
+        if collisions:
+            _fatal(collides.format(tree=tree_name, refs=", ".join(collisions)))
+
+
+def _validate_copper_container(nodes: list[TreeNode], tree_name: str) -> None:
+    """Load-time rules for the kind "copper" CONTAINER (2026-09-16,
+    plan_2026_09_16_copper_node_order_and_container P.2.4):
+
+      * at most ONE container per tree — a second one is a fatal: there is one
+        home for a tree's inter-node copper, and with two of them "which one
+        takes the next record" would be anyone's guess;
+      * every DIRECT child of the container must be a kind "net_trace" node —
+        anything else is a fatal, because the container's whole meaning is "the
+        copper of this tree lives here" and a component inside it would be a lie
+        (the GUI never creates one either).
+
+    The container's own ref is a LOCAL name and is covered by
+    _validate_local_refs. WHERE the container hangs is NOT restricted: it places
+    nothing, emits nothing into the redraw plan and is skipped by the layout, so
+    a container nested under another node behaves exactly like a top-level one.
+
+    Deliberately NOT checked here: xy/polar/rotation on the container. The
+    grammar accepts them on every node, the container's own values are never
+    consulted anywhere, and a fatal for them would reject a config that hand
+    editing can legitimately produce."""
+    containers = [n for n in _walk_nodes(nodes) if n.kind == "copper"]
+    if len(containers) > 1:
+        _fatal(_("tree {tree!r}: {count} kind \"copper\" containers — a tree may "
+                 "have at most one, it is the single home of that tree's "
+                 "inter-node copper nodes").format(tree=tree_name,
+                                                    count=len(containers)) +
+               " " +
+               _("keep one container and move the remaining copper nodes under "
+                 "it"))
+    for container in containers:
+        wrong = [n for n in container.children if n.kind != "net_trace"]
+        if wrong:
+            listed = ", ".join(
+                "{ref} (kind {kind})".format(ref=n.ref, kind=n.kind or "auto")
+                for n in wrong)
+            _fatal(_("tree {tree!r}: copper container {container!r} has child(ren) "
+                     "that are not copper: {refs}").format(
+                         tree=tree_name, container=container.ref, refs=listed) +
+                   " " +
+                   _("a kind \"copper\" container may hold only kind "
+                     "\"net_trace\" (inter-node copper) nodes"))
 
 
 _PLACEMENT_KINDS = ("placement", "clone")
@@ -628,14 +719,16 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
     ref = sval(ref)
 
-    # kind read BEFORE the seen_refs check: a module node's ref is another
-    # TREE's name and a mount node's ref is a local NAME — neither is a record,
-    # so rule 2 (a record ref appears in at most one node of the file) does not
-    # apply to them (the same tree may be embedded by several different
-    # parents; per-parent duplicates are guarded in link_trees; mount ref
-    # uniqueness is per-TREE, see _validate_mount_refs).
+    # kind read BEFORE the seen_refs check: the LOCAL kinds' refs (module -> a
+    # TREE's name, mount -> a point-of-reference name, copper -> a container
+    # name) are not records, so rule 2 (a record ref appears in at most one node
+    # of the file) does not apply to them (the same tree may be embedded by
+    # several different parents; per-parent duplicates are guarded in
+    # link_trees; mount/copper ref uniqueness is per-TREE, see
+    # _validate_local_refs). ONE list (_LOCAL_REF_KINDS) shared with the dict
+    # parser, so the two shapes cannot drift apart.
     kind = _parse_kind(node)
-    if kind not in ("module", "mount"):
+    if kind not in _LOCAL_REF_KINDS:
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
                      "file — a record's position source must be exactly one")
@@ -756,16 +849,17 @@ def _pivot_ref_rejection(target: TreeNode, nodes: list[TreeNode]) -> str | None:
 
     * "external" — a bare live refdes with no config record, so hanging the
       handle on it would cost the WHOLE tree its portability (plan §V.1.3);
-    * "module" / "mount" — absent from layout_tree_from_base's returned map (a
-      module node places no record of its own; a mount node's base is LIVE), so
-      tree_pivot_offset could not resolve them;
+    * "module" / "mount" / "copper" — absent from layout_tree_from_base's
+      returned map (a module node places no record of its own; a mount node's
+      base is LIVE; a copper container places nothing and is skipped by the
+      layout, 2026-09-16), so tree_pivot_offset could not resolve them;
     * a node hanging under a mount node at ANY depth — its base is pinned to a
       LIVE component (mount_node_base), so it does NOT move when the tree moves
       — physically not a handle (plan_2026_09_11_pivot_ref_mount_ancestor
       §P.1.3)."""
     if target.kind == "external":
         return "external"
-    if target.kind in ("module", "mount"):
+    if target.kind in ("module", "mount", "copper"):
         return target.kind
     if _mount_ancestor_of(target, nodes) is not None:
         return "mount-ancestor"
@@ -816,12 +910,13 @@ def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a "
                  "live refdes is not portable, so it cannot be the tree's inner "
                  "point").format(name=tree_name, ref=pivot_ref))
-    # kind "module" / "mount" themselves: absent from layout_tree_from_base's map,
-    # so tree_pivot_offset could not resolve them — it would raise at apply time
-    # instead of here. Rejecting at LOAD keeps the failure early and explicit.
-    # Opening a mount node up needs a real decision about the FRAME its live base
-    # is expressed in.
-    if reason in ("module", "mount"):
+    # kind "module" / "mount" / "copper" themselves: absent from
+    # layout_tree_from_base's map, so tree_pivot_offset could not resolve them —
+    # it would raise at apply time instead of here. Rejecting at LOAD keeps the
+    # failure early and explicit. Opening a mount node up needs a real decision
+    # about the FRAME its live base is expressed in; a copper CONTAINER places
+    # nothing at all, so it can never be a handle.
+    if reason in ("module", "mount", "copper"):
         _fatal(_("tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which "
                  "the layout cannot resolve yet (it places no record of its own) — "
                  "use a record-backed node of this tree as the inner point")
@@ -880,7 +975,8 @@ def tree_from_sexp(tree_node, seen_names: set[str], seen_refs: set[str],
     top_nodes = children(tree_node, "node")
     parsed_nodes = [_parse_node(n, seen_refs, f"{location}:tree {name!r}")
                     for n in top_nodes]
-    _validate_mount_refs(parsed_nodes, name)
+    _validate_local_refs(parsed_nodes, name)
+    _validate_copper_container(parsed_nodes, name)
     # A self (ref ...) names a node of THIS tree — validated with the nodes in
     # hand (the anchor is parsed before them).
     _validate_self_ref(name, parsed_nodes, anchor)
@@ -1322,11 +1418,12 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
     # Mirror of the s-expr _parse_node: a module node's ref is a TREE name and a
-    # mount node's ref is a local NAME — neither is a record, so exempt them
-    # from the file-wide seen_refs (rule 2) check here too (the same tree may be
-    # embedded by several different parents; mount ref uniqueness is per-TREE,
-    # see _validate_mount_refs).
-    if raw_kind not in ("module", "mount"):
+    # mount/copper node's ref is a local NAME — none of them is a record, so
+    # exempt them from the file-wide seen_refs (rule 2) check here too (the same
+    # tree may be embedded by several different parents; mount/copper ref
+    # uniqueness is per-TREE, see _validate_local_refs) — the SAME list the
+    # s-expr parser reads.
+    if raw_kind not in _LOCAL_REF_KINDS:
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
                      "config — a record's position source must be exactly one")
@@ -1506,7 +1603,8 @@ def tree_from_dict(data: dict, seen_refs: set[str] | None = None) -> Tree:
     anchor = anchor_from_dict(data.get("anchor") or {}, name)
     parsed_nodes = [_dict_node(n, seen_refs, f"tree {name!r}")
                     for n in data.get("nodes") or []]
-    _validate_mount_refs(parsed_nodes, name)
+    _validate_local_refs(parsed_nodes, name)
+    _validate_copper_container(parsed_nodes, name)
     _validate_self_ref(name, parsed_nodes, anchor)
     # The tree's OWN inner point + angle (plan §V.1/§V.2) — the dict mirror of
     # tree_from_sexp's tail.

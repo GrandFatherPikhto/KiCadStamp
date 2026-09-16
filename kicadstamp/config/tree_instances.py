@@ -130,10 +130,12 @@ anchor its template has, especially when it too gets embedded as a module.
 v1.5 (2026-09-11, plan_2026_09_11_tree_instances_and_converter_safety §В.3/§В.4):
 MOUNT nodes are expandable in a template, and a template's `pivot_ref` follows
 the node renames. (a) A mount node's ref is a LOCAL name, unique per TREE and
-never resolved against the config (trees.py::_validate_mount_refs), so it is
+never resolved against the config (trees.py::_validate_local_refs), so it is
 NOT suffixed with __{instance} — every instance is its own tree and the same
 mount name there is unambiguous (suffixing would only hurt readability and
-make a template pivot_ref pointing at it unresolvable). (б) The mount anchor's
+make a template pivot_ref pointing at it unresolvable). The SAME holds for a
+kind "copper" container's ref (2026-09-16, plan_2026_09_16_copper_node_order_
+and_container P.2.6 — see _expand_copper_node). (б) The mount anchor's
 `sheet` decides "inside/outside" STRUCTURALLY: equal to the template's own
 sheet (old_sheet) -> replaced by the instance sheet, and — ONLY together with
 that — the declaration's `cluster:` (the same external-search narrowing the
@@ -362,6 +364,43 @@ def _template_root_entity_ref(template: dict) -> str | None:
     return top.get('ref')
 
 
+def _expand_copper_node(node: dict, instance_name: str, sheet: str,
+                        entities_by_name: dict, net_traces_by_name: dict,
+                        generated_entities: list, generated_net_traces: list,
+                        template_name: str, old_sheet: str | None,
+                        cluster: str | None, params: dict[str, str] | None,
+                        anchor_cluster: str | None,
+                        ref_map: dict[str, str]) -> dict:
+    """Expand ONE kind "copper" template node (2026-09-16, plan_2026_09_16_
+    copper_node_order_and_container P.2.6).
+
+    A copper node is a CONTAINER (P.2.4): it places nothing, owns no record and
+    carries no anchor, so there is no Entity copy and no copper of its own to
+    rewrite. Two rules:
+
+    (a) its ref is NOT suffixed with __{instance}: a container ref is a LOCAL
+        name, unique per TREE (`trees.py::_validate_local_refs`), and every
+        generated instance is its own tree — the same container name there is
+        unambiguous (exactly the mount rule, v1.5 §В.3);
+    (б) children go through the ordinary recursion, so each net_trace child takes
+        the same path it would take at the top level of the template tree (a
+        named record gets the __{instance} rename, a legacy literal-net record
+        the leading-sheet substitution) — the container decides where the copper
+        hangs, never how it is expanded."""
+    orig_ref = node.get('ref')
+    gen = copy.deepcopy(node)
+    ref_map[orig_ref] = orig_ref          # (a) unchanged — maps to itself
+    children = node.get('children') or []
+    if children:
+        gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
+                                        net_traces_by_name, generated_entities,
+                                        generated_net_traces, template_name,
+                                        old_sheet, cluster, params, ref_map,
+                                        anchor_cluster)
+                           for c in children]
+    return gen
+
+
 def _expand_mount_node(node: dict, instance_name: str, sheet: str,
                        entities_by_name: dict, net_traces_by_name: dict,
                        generated_entities: list, generated_net_traces: list,
@@ -375,7 +414,7 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
     is no Entity copy and no net to rewrite. Three rules:
 
     (a) its ref is NOT suffixed with __{instance}: a mount ref is a LOCAL name,
-        unique per TREE (`trees.py::_validate_mount_refs`), and every generated
+        unique per TREE (`trees.py::_validate_local_refs`), and every generated
         instance is its own tree — the same mount name there is unambiguous.
     (б) the anchor's `sheet` decides whether it looks INSIDE the template or
         OUT at the board: equal to old_sheet (the template's own sheet) -> the
@@ -527,6 +566,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     node places nothing, so it has no Entity copy; its ref is NOT suffixed and
     its anchor's sheet decides whether it follows the instance.
 
+    kind=copper (2026-09-16, plan_2026_09_16_copper_node_order_and_container
+    P.2.6): delegated to _expand_copper_node — a copper CONTAINER places
+    nothing either, has no anchor and no record, so the whole expansion is "copy
+    the node, do NOT suffix its ref, and expand the children (net_trace nodes)
+    exactly as the ordinary recursion would". Without this branch a template
+    tree carrying a container would die on the "unsupported node kind" fatal
+    below.
+
     ref_map (v1.5, Б3.2 §В.4): old ref -> new ref for every expanded node, so
     _expand_template can rewrite the tree's pivot_ref through the SAME renames.
 
@@ -549,6 +596,11 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                                   net_traces_by_name, generated_entities,
                                   generated_net_traces, template_name, old_sheet,
                                   cluster, params, anchor_cluster, ref_map)
+    if kind == 'copper':
+        return _expand_copper_node(node, instance_name, sheet, entities_by_name,
+                                   net_traces_by_name, generated_entities,
+                                   generated_net_traces, template_name, old_sheet,
+                                   cluster, params, anchor_cluster, ref_map)
     if kind == 'net_trace':
         # The record is found by its IDENTITY — name:, else a legacy record's
         # net: (config/models.py::net_trace_effective_name). That is the same

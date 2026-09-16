@@ -21,8 +21,9 @@ Resolution rules (all fatal via ValidationError, formatted AFTER _()):
   - node with no kind: auto-search the 4 placeable sections
     (clone/rule/coordinate/point), fatal on 0 or 2+ matches
   - node with kind "external": record = None, never touches config
-  - node with kind "module" / "mount": record = None — both refs are NAMES
-    (another tree / a local mount name), never config records
+  - node with kind "module" / "mount" / "copper": record = None — all three refs
+    are NAMES (another tree / a local mount name / a local container name),
+    never config records
   - anchor with is_origin: record = None, not "external"
   - anchor otherwise: auto-search; 1 match -> record; 0 -> SILENT external
     (anchors may legally point at live-board components, mirroring the
@@ -44,8 +45,11 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # a net_trace node's ref is a net name that could collide with another section's
 # name, so it requires an explicit kind (resolved via by_key "net_trace:<net>").
 # mount (2026-09-11, plan_2026_09_11_tree_mount_nodes) places nothing and its
-# ref is a local NAME — same exemption as module.
-_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module", "mount"}
+# ref is a local NAME — same exemption as module. copper (2026-09-16, plan
+# plan_2026_09_16_copper_node_order_and_container P.2.4) is a pure CONTAINER:
+# it places nothing, owns no record and its ref is a local NAME too.
+_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module", "mount",
+                                 "copper"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).
@@ -63,7 +67,7 @@ class LinkedAnchor:
 @dataclass
 class LinkedNode:
     node: TreeNode                 # original node, as-is
-    record: Record | None          # None ONLY when node.kind == "external" / "module" / "mount"
+    record: Record | None          # None ONLY when node.kind == "external" / "module" / "mount" / "copper"
     is_external: bool
     children: list["LinkedNode"]
     # kind=="module": the referenced Tree (resolved by name, never a record).
@@ -135,6 +139,14 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         # A mount node is a POINT OF REFERENCE (plan_2026_09_11_tree_mount_nodes
         # §Y.1): its ref is a local NAME and it places nothing, so — exactly like
         # a module node's tree name — it is never resolved against the config.
+        return None, False
+
+    if node.kind == "copper":
+        # A copper node is a CONTAINER (2026-09-16, plan_2026_09_16_copper_node_
+        # order_and_container P.2.4): its ref is a local NAME, it places nothing
+        # and it owns no record, so it is never resolved against the config
+        # either. Its children are ordinary net_trace nodes and ARE resolved —
+        # the container only decides where they hang in the tree.
         return None, False
 
     if node.kind is not None:

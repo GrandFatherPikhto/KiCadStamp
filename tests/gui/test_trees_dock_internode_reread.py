@@ -5,12 +5,15 @@
 The live-board half runs on a worker and is covered by
 tests/test_internode_capture.py; what is pinned down HERE is the container
 behaviour on the UI thread:
-  * the new records become TOP-LEVEL kind="net_trace" nodes (ref = identity);
+  * the new records become kind="net_trace" nodes INSIDE the tree's copper
+    CONTAINER, which this path creates when the tree has none (ref = identity,
+    P.2.5 — before 2026-09-16 they went to the tree ROOT);
   * the records the re-read did not find are MARKED, not deleted, and the mark
     never touches the config;
   * the touched records are STAGED into the working set (Save persists them)
     while the untouched ones and the missing one stay exactly as they were.
 """
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -24,9 +27,19 @@ from gui.docks.trees_dock import _STALE_NET_TRACE_TAG, TreesDock
 
 # ── fixtures ──────────────────────────────────────────────────────────────
 
-def _root(tmp_path, record):
+def _root(tmp_path, record, nodes=None):
     """A minimal, loadable root config: a cell, two entities (clusters A/B), a
-    tree with a placement node for each and ONE net_trace node."""
+    tree with a placement node for each and ONE net_trace node.
+
+    `nodes` overrides the tree's node list (the copper-CONTAINER tests need
+    their own shape — P.2.5); None keeps the pre-container tree Denis runs
+    today, which is exactly what the compatibility guards want."""
+    if nodes is None:
+        nodes = [
+            {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
+            {"ref": "e_b", "kind": "placement", "xy": [0.0, 0.0]},
+            {"ref": record["name"], "kind": "net_trace"},
+        ]
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({
         "cells": {"c": {"components": [{"role": "R", "offset_along_mm": 0.0,
@@ -34,11 +47,7 @@ def _root(tmp_path, record):
         "entities": [{"name": "e_a", "cell": "c", "cluster": "A"},
                      {"name": "e_b", "cell": "c", "cluster": "B"}],
         "net_traces": [record],
-        "trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
-            {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
-            {"ref": "e_b", "kind": "placement", "xy": [0.0, 0.0]},
-            {"ref": record["name"], "kind": "net_trace"},
-        ]}],
+        "trees": [{"name": "t", "anchor": {"origin": True}, "nodes": nodes}],
     }), encoding="utf-8")
     return root
 
@@ -126,10 +135,18 @@ def test_finish_adds_nodes_marks_missing_and_stages(main_window, tmp_path):
         "narrowed_to_selection": True,
     })
 
-    # the new unit became a TOP-LEVEL net_trace node (ref = the identity, no xy)
-    node = tree.nodes[-1]
+    # the new unit went INTO a freshly created copper CONTAINER (P.2.5), which
+    # is what now sits last in the tree root
+    container = tree.nodes[-1]
+    assert container.kind == "copper" and container.ref == "copper"
+    assert len([n for n in tree.nodes if n.kind == "copper"]) == 1
+    node = container.children[-1]
     assert node.kind == "net_trace" and node.ref == added_identity
     assert node.xy is None
+    # Denis' existing root-level copper node was NOT moved into the container —
+    # that would be an unrequested rewrite of his config (P.2.5)
+    assert "gone__a__z" in [n.ref for n in tree.nodes]
+    assert "gone__a__z" not in [c.ref for c in container.children]
 
     # nothing was removed: the unfound record stays a node AND a record
     assert "gone__a__z" in [n.ref for n in tree.nodes]
@@ -151,6 +168,72 @@ def test_finish_adds_nodes_marks_missing_and_stages(main_window, tmp_path):
     assert fresh["tracks"][0]["net_from_role"] == "A"
     assert "net" not in fresh["tracks"][0]
     assert dock._dirty is True
+
+
+def test_finish_uses_an_existing_container_however_it_is_named(main_window, tmp_path):
+   """С9: a tree that ALREADY has a container keeps using it — the new copper
+   node goes inside THAT one (found at any depth) and no second container is
+   created."""
+   record = _record()
+   nodes = [
+       {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
+       {"ref": "e_b", "kind": "placement", "xy": [0.0, 0.0]},
+       {"ref": "my_copper", "kind": "copper", "children": [
+           {"ref": record["name"], "kind": "net_trace"}]},
+   ]
+   root = _root(tmp_path, record, nodes=nodes)
+   dock = TreesDock(main_window)
+   dock.set_root_file(root)
+   tree = dock._trees[0]
+   board, fps, items = _board()
+   plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+                                area_footprints=fps)
+   assert len(plan.added) == 1
+   added_identity = plan.added[0].identity
+
+   dock._finish_reread_internode_copper({
+       "plan": plan, "cfg": apply_reread_plan(dock._cfg, plan), "tree": tree,
+       "added": [added_identity], "narrowed_to_selection": True})
+
+   containers = [n for n in tree.nodes if n.kind == "copper"]
+   assert [c.ref for c in containers] == ["my_copper"]   # no second one
+   assert [c.ref for c in containers[0].children] == [record["name"],
+                                                      added_identity]
+
+
+def test_finish_picks_a_free_container_name_when_copper_is_taken(
+       main_window, tmp_path, caplog):
+   """С9: the default container name is "copper"; when another node of the file
+   already owns it, the first free suffixed name is used AND the substitution is
+   logged (a silently renamed node would be untraceable in the tree)."""
+   record = _record()
+   nodes = [
+       {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
+       {"ref": "e_b", "kind": "placement", "xy": [0.0, 0.0]},
+       # an ordinary (external) node already OWNS the name "copper"
+       {"ref": "copper", "kind": "external", "xy": [0.0, 0.0]},
+   ]
+   root = _root(tmp_path, record, nodes=nodes)
+   dock = TreesDock(main_window)
+   dock.set_root_file(root)
+   tree = dock._trees[0]
+   board, fps, items = _board()
+   plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+                                area_footprints=fps)
+   added_identity = plan.added[0].identity
+
+   with caplog.at_level(logging.INFO):
+       dock._finish_reread_internode_copper({
+           "plan": plan, "cfg": apply_reread_plan(dock._cfg, plan), "tree": tree,
+           "added": [added_identity], "narrowed_to_selection": True})
+
+   container = next(n for n in tree.nodes if n.kind == "copper")
+   assert container.ref == "copper_2"
+   assert [c.ref for c in container.children] == [added_identity]
+   # the node that OWNED the name is untouched
+   assert [n.ref for n in tree.nodes].count("copper") == 1
+   assert any("Copper container name 'copper' is taken" in r.getMessage()
+              for r in caplog.records)
 
 
 def test_finish_with_nothing_changed_keeps_the_tree_and_is_clean(main_window, tmp_path):

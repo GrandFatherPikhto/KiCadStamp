@@ -16100,3 +16100,44 @@ msgstr "у пада нет позиции"
 #, python-brace-format
 msgid "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one by one to keep the positions"
 msgstr "Габариты: {got} ответ(ов) на {asked} предмет(ов) — перечитываю их по одному, чтобы сохранить позиции"
+
+#: gui/docks/trees_dock.py
+msgid "copper"
+msgstr "медь"
+
+#: gui/docks/trees_dock.py
+msgid "copper container name (unique in tree)"
+msgstr "имя контейнера меди (уникально в дереве)"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Copper container name {ref!r} is taken by another node — using {chosen!r} instead"
+msgstr "Имя контейнера меди {ref!r} занято другим узлом — используется {chosen!r}"
+
+#: kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: copper node ref(s) {refs} are not unique — a copper container's ref must identify exactly one node in the tree"
+msgstr "дерево {tree!r}: ref узла(ов) меди {refs} не уникальны — ref контейнера меди обязан указывать ровно на один узел дерева"
+
+#: kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: copper node ref(s) {refs} collide with a positioned node of the same tree — copper refs must be distinct so a node can be named unambiguously"
+msgstr "дерево {tree!r}: ref узла(ов) меди {refs} совпадают с ref позиционированного узла того же дерева — ref меди должны различаться, чтобы узел можно было назвать однозначно"
+
+#: kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: {count} kind \"copper\" containers — a tree may have at most one, it is the single home of that tree's inter-node copper nodes"
+msgstr "дерево {tree!r}: контейнеров вида \"copper\" — {count}; в дереве допустим не более одного, он единственный дом для межузловых узлов меди этого дерева"
+
+#: kicadstamp/trees.py
+msgid "keep one container and move the remaining copper nodes under it"
+msgstr "оставь один контейнер, а остальные узлы меди перенеси внутрь него"
+
+#: kicadstamp/trees.py
+#, python-brace-format
+msgid "tree {tree!r}: copper container {container!r} has child(ren) that are not copper: {refs}"
+msgstr "дерево {tree!r}: у контейнера меди {container!r} есть дети, которые не являются медью: {refs}"
+
+#: kicadstamp/trees.py
+msgid "a kind \"copper\" container may hold only kind \"net_trace\" (inter-node copper) nodes"
+msgstr "контейнер вида \"copper\" может содержать только узлы вида \"net_trace\" (межузловая медь)"

@@ -337,3 +337,84 @@ def test_pivot_ref_on_the_auto_templates_root_follows_the_suffix():
     tree = _tree(out, "tpl_a")
     assert tree["pivot_ref"] == "ROOT__tpl_a"
     tree_from_dict(tree)
+
+
+# ── В.6.5 / P.2.6: a copper CONTAINER inside a template ────────────────────
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.6. Without the
+# _expand_copper_node branch the FIRST attempt to multiply a tree carrying a
+# container died on "unsupported node kind 'copper'" — so these two guards are
+# the fence the plan asks for, one per net_trace path (legacy literal-net and
+# named (role, pad)).
+
+def _copper_template(child_node: dict, net_traces: list) -> dict:
+    """A role-anchored template (sheet "Own") whose SECOND node is a copper
+    container holding `child_node`, plus the `net_traces:` records and ONE
+    tree_instances declaration for sheet Own_a."""
+    return {
+        "trees": [{
+            "name": "tpl",
+            "anchor": {"role": "HOST", "sheet": "Own"},
+            "nodes": [
+                {"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "copper", "kind": "copper", "children": [child_node]},
+            ],
+        }],
+        "entities": [{"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "net_traces": net_traces,
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a"}],
+    }
+
+
+def _copper_node(tree: dict) -> dict:
+    return next(n for n in tree["nodes"] if n.get("kind") == "copper")
+
+
+def test_copper_container_expands_unsuffixed_legacy_net_trace_child():
+    """С10 (legacy path A): the container is copied WITH its children, its own
+    ref is NOT suffixed with __tpl_a (a local name, exactly like a mount ref) and
+    its legacy literal-net child follows the leading-sheet substitution.
+
+    The expansion APPENDS the generated copies to the config's own record lists
+    (the template's record stays as it is), so the fresh copy is the LAST one."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "/Own/GRP/N", "kind": "net_trace"},
+        [{"net": "/Own/GRP/N", "anchor_role": "H", "anchor_sheet": "Own"}]))
+    tree = _tree(out, "tpl_a")
+    copper = _copper_node(tree)
+    assert copper["ref"] == "copper"
+    assert copper["children"][0]["ref"] == "/Own_a/GRP/N"
+    assert len(out["net_traces"]) == 2
+    assert out["net_traces"][-1]["net"] == "/Own_a/GRP/N"
+    assert out["net_traces"][0]["net"] == "/Own/GRP/N"   # template untouched
+    tree_from_dict(tree)            # the generated tree LOADS (P.2.4 rules)
+
+
+def test_copper_container_expands_unsuffixed_named_net_trace_child():
+    """С10 (named path B): the container ref stays unsuffixed while its NAMED
+    net_trace child takes the __tpl_a rename — the container decides where the
+    copper hangs, never how it expands."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "bridge", "kind": "net_trace"},
+        [{"net": "N", "name": "bridge", "anchor_role": "H",
+          "anchor_sheet": "Own"}]))
+    tree = _tree(out, "tpl_a")
+    copper = _copper_node(tree)
+    assert copper["ref"] == "copper"
+    assert copper["children"][0]["ref"] == "bridge__tpl_a"
+    assert len(out["net_traces"]) == 2
+    assert out["net_traces"][-1]["name"] == "bridge__tpl_a"
+    assert out["net_traces"][0]["name"] == "bridge"      # template untouched
+    tree_from_dict(tree)
+
+
+def test_the_template_tree_itself_is_left_untouched():
+    """Fence: expansion never rewrites the TEMPLATE — its container and its
+    child keep their own names (the copy is what carries the instance's)."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "bridge", "kind": "net_trace"},
+        [{"net": "N", "name": "bridge", "anchor_role": "H",
+          "anchor_sheet": "Own"}]))
+    template = _tree(out, "tpl")
+    assert _copper_node(template)["ref"] == "copper"
+    assert _copper_node(template)["children"][0]["ref"] == "bridge"

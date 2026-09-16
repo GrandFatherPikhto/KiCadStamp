@@ -28,6 +28,7 @@ from kicadstamp.config import (
     Config,
     CoordinatePlacement,
     Entity,
+    NetTrace,
     TemplateComponentSlot,
 )
 from kicadstamp.constants import ROLE_FIELD_NAME
@@ -35,7 +36,8 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.geometry.spoke_layout import local_to_absolute
 from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree, link_trees
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode, load_trees
+from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, load_trees,
+                              tree_from_dict)
 from kicadstamp.tree_position import (
     apply_rigid_override,
     capture_rigid_state,
@@ -2078,3 +2080,111 @@ def test_forest_module_branch_does_not_warn_about_forest_copper():
     assert set(names) == {"2v5_oa__x", "D0"}
     assert names.index("D0") < names.index("2v5_oa__x")
     assert warnings == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Copper CONTAINER (kind "copper") — transparent to both consumers
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.4.
+# The container folds a tree's net_trace nodes under one node. It owns no
+# record, places nothing and emits nothing: every existing traversal that keys
+# off `record is None` skips it BY ITSELF (P.2.4 explicitly forbids adding
+# special branches where it already passes through transparently).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_copper_container_is_transparent_to_the_plan():
+    """С8: the container emits no name into the redraw plan (it has no record),
+    while its net_trace CHILDREN are planned exactly as if they hung in the
+    root, and copper keeps its place at the tail."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("copper", record=None, children=[_copper("2v5_oa__x")]),
+        _linked_node("D0", record=_record("placement", "D0")),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"copper", "2v5_oa__x", "D0"})
+    assert set(names) == {"2v5_oa__x", "D0"}
+    assert "copper" not in names
+    assert names.index("D0") < names.index("2v5_oa__x")
+    # D0's own base is the tree anchor (not in the selection) -> that one note;
+    # the container's child stays silent (it is copper, see P.2.2).
+    assert len(warnings) == 1 and "D0" in warnings[0]
+
+
+def test_copper_container_holds_no_position_in_the_layout():
+    """С8: the container is absent from layout_tree_from_base's map, so it can
+    never enter a rigid group as a positioned member nor be resolved as a tree's
+    inner point (trees.py bars the pivot-ref separately). Its children ARE laid
+    out — the container changes where copper hangs, not whether it does."""
+    tree = tree_from_dict({"name": "t", "anchor": {"origin": True}, "nodes": [
+        {"ref": "copper", "kind": "copper", "children": [
+            {"ref": "2v5_oa__x", "kind": "net_trace"}]},
+        {"ref": "D0", "kind": "placement", "xy": [1.0, 2.0]}]})
+    laid = layout_tree_from_base(tree, _ORIGIN, 0.0, None)
+    assert "copper" not in laid
+    assert "D0" in laid and "2v5_oa__x" in laid
+    # The container is transparent to the FRAME too: the copper node inside it is
+    # laid out at exactly the position a root-level net_trace node gets (both
+    # carry no offset, both see the tree's own frame).
+    root_laid = layout_tree_from_base(
+        tree_from_dict({"name": "t", "anchor": {"origin": True}, "nodes": [
+            {"ref": "2v5_oa__x", "kind": "net_trace", "xy": [0.0, 0.0]}]}),
+        _ORIGIN, 0.0, None)
+    assert laid["2v5_oa__x"] == root_laid["2v5_oa__x"]
+
+
+def test_denis_style_tree_with_root_level_copper_plans_copper_last(tmp_path):
+    """С11 (compatibility): the tree shape Denis runs TODAY — inter-node copper
+    nodes sitting DIRECTLY in the tree root, no container — still loads, links
+    against the config and plans, with the copper in the tail. This is the
+    end-to-end path (link_trees + curated_redraw_plan_forest), not the
+    hand-built LinkedNode shortcut the С1/С2 guards use."""
+    cfg = Config(
+        clone_placements=[
+            ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0))
+            for n in ("dac_buf_channel_0", "pif_avdd_channel_0")],
+        net_traces=[
+            NetTrace(net=n, anchor_role="FPGA")
+            for n in ("2v5_oa__dac_buf__pif_oa_n2v5",
+                      "3v3_avdd__dac_buf__pif_avdd")])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0_dac_buf") (anchor (origin))\n'
+        '      (node (ref "2v5_oa__dac_buf__pif_oa_n2v5") (kind net_trace))\n'
+        '      (node (ref "3v3_avdd__dac_buf__pif_avdd") (kind net_trace))\n'
+        '      (node (ref "dac_buf_channel_0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "pif_avdd_channel_0") (kind clone) (xy 2 2)))')
+    selected = {"2v5_oa__dac_buf__pif_oa_n2v5", "3v3_avdd__dac_buf__pif_avdd",
+                "dac_buf_channel_0", "pif_avdd_channel_0"}
+    names, warnings = curated_redraw_plan_forest(linked, selected)
+    assert names[:2] == ["dac_buf_channel_0", "pif_avdd_channel_0"]
+    assert names[2:] == ["2v5_oa__dac_buf__pif_oa_n2v5",
+                         "3v3_avdd__dac_buf__pif_avdd"]
+    assert not any("2v5_oa" in w for w in warnings)
+    assert not any("3v3_avdd" in w for w in warnings)
+
+
+def test_denis_style_tree_wrapped_in_a_container_plans_the_same_copper_last(tmp_path):
+    """С11/P.2.4 end to end: the SAME tree with its copper folded into a
+    container plans identically — the container is transparent through the real
+    link path too."""
+    cfg = Config(
+        clone_placements=[
+            ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0))
+            for n in ("dac_buf_channel_0", "pif_avdd_channel_0")],
+        net_traces=[
+            NetTrace(net=n, anchor_role="FPGA")
+            for n in ("2v5_oa__dac_buf__pif_oa_n2v5",
+                      "3v3_avdd__dac_buf__pif_avdd")])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0_dac_buf") (anchor (origin))\n'
+        '      (node (ref "copper") (kind copper)\n'
+        '        (node (ref "2v5_oa__dac_buf__pif_oa_n2v5") (kind net_trace))\n'
+        '        (node (ref "3v3_avdd__dac_buf__pif_avdd") (kind net_trace)))\n'
+        '      (node (ref "dac_buf_channel_0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "pif_avdd_channel_0") (kind clone) (xy 2 2)))')
+    selected = {"copper", "2v5_oa__dac_buf__pif_oa_n2v5",
+                "3v3_avdd__dac_buf__pif_avdd",
+                "dac_buf_channel_0", "pif_avdd_channel_0"}
+    names, warnings = curated_redraw_plan_forest(linked, selected)
+    assert "copper" not in names
+    assert names[:2] == ["dac_buf_channel_0", "pif_avdd_channel_0"]
+    assert names[2:] == ["2v5_oa__dac_buf__pif_oa_n2v5",
+                         "3v3_avdd__dac_buf__pif_avdd"]
+    assert not any("2v5_oa" in w for w in warnings)

@@ -134,6 +134,10 @@ _KIND_TAGS = {
     # REFERENCE — it places nothing itself; its children hang from the live
     # component its anchor names.
     "mount": _("mount"),
+    # Copper container (2026-09-16, plan_2026_09_16_copper_node_order_and_
+    # container P.2.4): a folding node for a tree's inter-node copper. It places
+    # nothing of its own, so the tag simply says what it is.
+    "copper": _("copper"),
 }
 
 # Node kinds the per-node Redraw button can actually act on. Most of these
@@ -148,7 +152,9 @@ _KIND_TAGS = {
 # worker with selected_refs={node.ref} instead — scoping the SAME mechanism
 # to just this one marker, so only ITS content moves (nothing else in the
 # owning tree is touched). external/point nodes stay excluded: they are
-# live-board-only bases with no content of their own to activate.
+# live-board-only bases with no content of their own to activate. "copper" (a
+# CONTAINER) is excluded for the same reason: it owns no record, so --only has
+# nothing to resolve — its net_trace CHILDREN carry the redraw buttons.
 # Shared by _NodeDialog._update_redraw_state (modal Edit) and
 # TreesDock._form_action_row (master-detail Node tab) so the two Redraw
 # buttons can never drift out of sync (found live 2026-09-07: the
@@ -156,6 +162,17 @@ _KIND_TAGS = {
 # crashed run_single_node_redraw_worker with "--only: names not found").
 _REDRAWABLE_NODE_KINDS = frozenset(
     {"placement", "clone", "chain", "rule", "coordinate", "net_trace", "module"})
+
+# Node kinds that carry NO coordinates, so the node form neither collects nor
+# asks for any (2026-09-16, plan_2026_09_16_copper_node_order_and_container
+# P.2.3 for "net_trace", P.2.4 for "copper"):
+#   * "net_trace" — the record stores the copper as offsets from its OWN anchor
+#     pad, so the node is purely a reference to it;
+#   * "copper" — a pure CONTAINER: it places nothing and owns no record.
+# ONE set read by BOTH halves of the contract — build_node (what to build) and
+# _on_kind_changed (which rows to hide) — so they cannot drift apart and leave
+# a visible field that build_node ignores, or the other way round.
+_POSITIONLESS_NODE_KINDS = frozenset({"net_trace", "copper"})
 
 
 def _anchor_label(anchor: TreeAnchor) -> str:
@@ -2183,7 +2200,11 @@ class TreesDock(QWidget):
         TREE NAME, not a record, and multiple parents may embed the same child
         tree (design §2.3) — module refs must never be flagged "(used)" or
         auto-numbered; the narrow within-one-parent duplicate is guarded by
-        link_trees at Save (P1 п.3), not by this set."""
+        link_trees at Save (P1 п.3), not by this set. kind=="copper" refs are
+        excluded for the SAME reason (2026-09-16, P.2.4): a container ref is a
+        LOCAL name, unique per TREE, so two trees may both have one called
+        "copper" — flagging it "(used)" here would make the GUI refuse a config
+        the loader accepts (trees.py::_LOCAL_REF_KINDS)."""
         used: set[str] = set()
         for tree in self._trees:
             for node in tree.nodes:
@@ -2192,7 +2213,7 @@ class TreesDock(QWidget):
 
     @staticmethod
     def _collect_refs(node: TreeNode, into: set[str]) -> None:
-        if node.kind != "module":
+        if node.kind not in ("module", "copper"):
             into.add(node.ref)
         for child in node.children:
             TreesDock._collect_refs(child, into)
@@ -2837,10 +2858,55 @@ class TreesDock(QWidget):
         show_message(_("Reread inter-node copper failed: {error}")
                      .format(error=message), _ERROR_STYLE, logger)
 
+    def _copper_container(self, tree: Tree) -> TreeNode:
+        """The tree's kind "copper" CONTAINER, created — and appended to the tree
+        root — when the tree has none (2026-09-16, plan_2026_09_16_copper_node_
+        order_and_container P.2.5).
+
+        A re-read hands the tree new copper nodes, and they belong INSIDE this
+        container instead of loose in the root, where five of them are pure noise
+        (Д3: they cannot be operated on — a copper node has no coordinates to
+        edit).
+
+        An EXISTING container is found first (at any depth, however it is named),
+        so a tree that already has one keeps using it. A tree without one gets a
+        container named "copper"; when that name is already taken by another node
+        of the file, the first free "copper_2"/"copper_3"/… is used and the
+        substitution is LOGGED — a silently renamed node would be untraceable in
+        the tree. Only a NEW container is ever created here: existing copper
+        nodes already sitting in the root are deliberately left exactly where
+        they are (moving them would rewrite the user's own config, which this
+        task has no permission for — P.2.5)."""
+        existing = next(
+            (n for n in _walk_nodes(tree.nodes) if n.kind == "copper"), None)
+        if existing is not None:
+            return existing
+        ref = "copper"
+        if ref in self._used_refs():
+            index = 2
+            while self._copper_container_candidate(ref, index) in self._used_refs():
+                index += 1
+            chosen = self._copper_container_candidate(ref, index)
+            logger.info(_("Copper container name {ref!r} is taken by another node "
+                          "— using {chosen!r} instead")
+                        .format(ref=ref, chosen=chosen))
+            ref = chosen
+        container = TreeNode(ref=ref, kind="copper", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None, children=[])
+        tree.nodes.append(container)
+        return container
+
+    @staticmethod
+    def _copper_container_candidate(base: str, index: int) -> str:
+        """The nth fallback name for a copper container ("copper_2", …). ONE
+        definition, so the search and the final pick can never disagree."""
+        return "{base}_{index}".format(base=base, index=index)
+
     def _finish_reread_internode_copper(self, result: dict) -> None:
         """The re-read's result, on the UI thread: adopt the fresh records, add
-        the tree nodes for the NEW ones, remember what was NOT found (the stale
-        mark), stage both sections and report — in the Log, never a modal."""
+        the tree nodes for the NEW ones (inside the tree's copper CONTAINER,
+        P.2.5), remember what was NOT found (the stale mark), stage both sections
+        and report — in the Log, never a modal."""
         from kicadstamp.internode_capture import reread_report_lines
 
         self._active_op = None
@@ -2848,13 +2914,19 @@ class TreesDock(QWidget):
         plan = result["plan"]
         if self._cfg is not None:
             self._cfg = result["cfg"]
-        for identity in result["added"]:
-            # A net_trace node carries NO xy: its record stores the copper as
-            # local offsets from its OWN anchor (the same node shape the extract
-            # dialog builds), so the node is purely the reference.
-            tree.nodes.append(TreeNode(ref=identity, kind="net_trace", xy=None,
-                                       polar=None, rotation=0.0, name=None,
-                                       group=None, children=[]))
+        if result["added"]:
+            # ONE container for the whole added batch: looking it up per node
+            # would re-walk the tree after every append, and a container created
+            # by the first iteration would be found again by the second.
+            container = self._copper_container(tree)
+            for identity in result["added"]:
+                # A net_trace node carries NO xy: its record stores the copper as
+                # local offsets from its OWN anchor (the same node shape the
+                # extract dialog builds), so the node is purely the reference.
+                container.children.append(
+                    TreeNode(ref=identity, kind="net_trace", xy=None,
+                             polar=None, rotation=0.0, name=None,
+                             group=None, children=[]))
         self._stale_net_traces = set(plan.missing)
         self._stage_net_traces(plan.records)
         for line in reread_report_lines(tree.name, plan):
@@ -4807,30 +4879,32 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         is_module = kind == "module"
         is_mount = kind == "mount"
-        # A copper node (kind "net_trace") is purely a REFERENCE to a
-        # net_traces: record: the record carries the geometry as offsets from
-        # its OWN anchor pad and the pipeline lays it out from that live pad, so
-        # the node itself has no coordinates — see the row handling below (P.2.3).
-        is_copper = kind == "net_trace"
+        # Kinds with NO coordinates of their own (_POSITIONLESS_NODE_KINDS): a
+        # "net_trace" node is purely a REFERENCE to a net_traces: record (the
+        # record carries the geometry as offsets from its OWN anchor pad) and a
+        # "copper" node is a pure CONTAINER that places nothing. Neither has a
+        # position to show, edit or read.
+        is_positionless = kind in _POSITIONLESS_NODE_KINDS
         # The "Read current position" row (a live read of a module ref — a tree,
         # not a record — is meaningless; a MOUNT node's position IS its anchor,
-        # so a read is meaningless there too; COPPER has no position of its own
-        # to read).
-        read_row_visible = not is_module and not is_mount and not is_copper
+        # so a read is meaningless there too; a positionless kind has no position
+        # at all to read).
+        read_row_visible = not is_module and not is_mount and not is_positionless
         self.read_position_button.setVisible(read_row_visible)
         self.read_status_label.setVisible(read_row_visible)
-        # ── Copper: no offset row, no rotation row, no frame note (P.2.3) ────
-        # The form used to collect the (hidden for copper) empty offset and
-        # refuse the whole operation with "X is required.", which blocked a
-        # redraw that works perfectly when reached from the node's context menu
-        # (task Д2). The rows are HIDDEN, never removed — the widgets stay
-        # reachable for every caller and come back on the next kind change. The
-        # frame note is restored from its OWN text (it is only empty when the
-        # live base resolved, see _set_offset_editable).
-        self.offset_row.setVisible(not is_copper)
-        self.rotation_row.setVisible(not is_copper)
+        # ── No coordinates: hide the offset row, the rotation row and the ────
+        # ── coordinate-system note (P.2.3 for net_trace, P.2.4 for copper) ────
+        # The form used to collect the (hidden) empty offset and refuse the whole
+        # operation with "X is required.", which blocked a redraw that works
+        # perfectly when reached from the node's context menu (task Д2). The rows
+        # are HIDDEN, never removed — the widgets stay reachable for every caller
+        # and come back on the next kind change. The frame note is restored from
+        # its OWN text (it is only empty when the live base resolved, see
+        # _set_offset_editable).
+        self.offset_row.setVisible(not is_positionless)
+        self.rotation_row.setVisible(not is_positionless)
         self.offset_frame_label.setVisible(
-            not is_copper and bool(self.offset_frame_label.text()))
+            not is_positionless and bool(self.offset_frame_label.text()))
         # The mount anchor picker belongs to a MOUNT node only (plan §Y.1/Y.2)
         # and is REQUIRED there, so it switches itself to "anchor" mode.
         self.mount_anchor_widget.setVisible(is_mount)
@@ -4860,6 +4934,14 @@ class NodeFormWidget(QWidget):
             # a config record — free text, like external (plan §Y.1.3).
             self.ref_combo.clear()
             self.ref_combo.setPlaceholderText(_("mount node name (unique in tree)"))
+            return
+        if kind == "copper":
+            # A copper CONTAINER's ref is a local NAME too (P.2.4) — free text,
+            # exactly like a mount node's, and normally created by the re-read
+            # rather than typed by hand.
+            self.ref_combo.clear()
+            self.ref_combo.setPlaceholderText(
+                _("copper container name (unique in tree)"))
             return
         if kind == "external":
             self.ref_combo.clear()
@@ -4979,17 +5061,18 @@ class NodeFormWidget(QWidget):
                 return None
 
         kind = self.kind_combo.currentData()
-        if kind == "net_trace":
-            # A copper node carries NO coordinates, and the form does not ask for
-            # any: the record stores the copper as offsets from its OWN anchor
-            # pad and the pipeline lays it out from that live pad, so the node is
-            # only a reference to the record (Д2, P.2.3). Building the offset
-            # here is what used to fail with "X is required." and block the
-            # redraw — the offset/rotation rows are hidden for this kind
-            # (_on_kind_changed) and must not be consulted either. A node that
-            # ALREADY carries stored (xy 0.0 0.0) (the workaround used before
-            # this fix) loads and redraws as-is; an Apply on it rewrites the node
-            # without them, which is the shape the grammar wants.
+        if kind in _POSITIONLESS_NODE_KINDS:
+            # A net_trace node carries NO coordinates and a copper container has
+            # none either, and the form does not ask for any: the net_trace
+            # record stores the copper as offsets from its OWN anchor pad (the
+            # pipeline lays it out from that live pad), while the container places
+            # nothing at all. Building the offset here is what used to fail with
+            # "X is required." and block the redraw (Д2, P.2.3/P.2.4) — the
+            # offset/rotation rows are hidden for these kinds (_on_kind_changed)
+            # and must not be consulted either. A node that ALREADY carries
+            # stored (xy 0.0 0.0) (the workaround used before this fix) loads and
+            # redraws as-is; an Apply on it rewrites the node without them, which
+            # is the shape the grammar wants.
             xy = None
             polar = None
             rotation = 0.0

@@ -854,6 +854,152 @@ def test_mount_ref_colliding_with_a_positioned_node_is_fatal(tmp_path):
         load_trees(_write(tmp_path, text))
 
 
+# ── Copper CONTAINER (kind "copper") ───────────────────────────────────────
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.4. A container
+# folds a tree's inter-node copper nodes (kind "net_trace", which have no
+# coordinates to edit) under ONE node, so they stop cluttering the tree root.
+# It places nothing, owns no record, and its ref is a LOCAL name (unique per
+# TREE, exactly like a mount node's) — so it is exempt from the file-wide
+# "a record has exactly one node" rule.
+
+COPPER_TREE_SEXP = """(kicadstamp-trees
+  (tree (name "t1") (anchor (origin))
+    (node (ref "copper") (kind copper)
+      (node (ref "2v5_oa__x") (kind net_trace))
+      (node (ref "3v3_avdd__y") (kind net_trace))))
+  (tree (name "t2") (anchor (origin))
+    (node (ref "copper") (kind copper)
+      (node (ref "dvdd__z") (kind net_trace)))))"""
+
+
+def test_copper_container_loads_with_net_trace_children_sexp(tmp_path):
+    """С6 (s-expr): a container with net_trace children loads, and its ref is
+    exempt from the file-wide seen_refs rule — TWO trees in ONE file may each
+    have a container called "copper" (a local name, not a record)."""
+    trees = load_trees(_write(tmp_path, COPPER_TREE_SEXP))
+    copper = trees[0].nodes[0]
+    assert copper.kind == "copper" and copper.ref == "copper"
+    assert copper.xy is None                       # a container has no position
+    assert [c.ref for c in copper.children] == ["2v5_oa__x", "3v3_avdd__y"]
+    assert [c.kind for c in copper.children] == ["net_trace", "net_trace"]
+    # the SECOND tree's container of the same name is legal
+    assert trees[1].nodes[0].kind == "copper"
+    assert trees[1].nodes[0].ref == "copper"
+
+
+def test_copper_container_roundtrips_through_the_dict_bridge():
+    """С6 (dict bridge): the same shape parses from the config-dict form, shares
+    ONE seen_refs set across trees (the config-wide invariant), and round-trips."""
+    d1 = {"name": "t1", "anchor": {"origin": True}, "nodes": [
+        {"ref": "copper", "kind": "copper", "children": [
+            {"ref": "2v5_oa__x", "kind": "net_trace"},
+            {"ref": "3v3_avdd__y", "kind": "net_trace"}]}]}
+    d2 = {"name": "t2", "anchor": {"origin": True}, "nodes": [
+        {"ref": "copper", "kind": "copper", "children": [
+            {"ref": "dvdd__z", "kind": "net_trace"}]}]}
+    shared: set[str] = set()
+    tree = tree_from_dict(d1, shared)
+    tree_from_dict(d2, shared)          # same container name, other tree: legal
+    assert [c.kind for c in tree.nodes[0].children] == ["net_trace", "net_trace"]
+    back = tree_to_dict(tree)
+    assert back["nodes"][0]["kind"] == "copper"
+    assert [c["kind"] for c in back["nodes"][0]["children"]] == ["net_trace",
+                                                                 "net_trace"]
+    assert tree_from_dict(back) == tree
+
+
+def test_two_copper_containers_in_one_tree_is_fatal(tmp_path):
+    """С7: a SECOND container in one tree is a fatal — and the message says so
+    in words (the count AND the single-home rule), not just by raising."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "copper") (kind copper))
+    (node (ref "copper_b") (kind copper))))"""
+    with pytest.raises(ValidationError) as exc:
+        load_trees(_write(tmp_path, text))
+    assert "2 kind \"copper\" containers" in str(exc.value)
+    assert "at most one" in str(exc.value)
+    assert "move the remaining copper nodes" in str(exc.value)
+
+
+def test_two_copper_containers_dict_is_fatal():
+    """С7 (dict bridge): the same fatal on the dict path — one validator, both
+    parsers."""
+    d = {"name": "t", "anchor": {"origin": True}, "nodes": [
+        {"ref": "copper", "kind": "copper"},
+        {"ref": "copper_b", "kind": "copper"}]}
+    with pytest.raises(ValidationError) as exc:
+        tree_from_dict(d)
+    assert "at most one" in str(exc.value)
+
+
+def test_copper_container_child_of_another_kind_is_fatal(tmp_path):
+    """С7: a container may hold ONLY net_trace children — a component inside it
+    is a fatal NAMING the offending child and its kind."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "copper") (kind copper)
+      (node (ref "2v5_oa__x") (kind net_trace))
+      (node (ref "E1") (kind placement) (xy 0 0)))))"""
+    with pytest.raises(ValidationError) as exc:
+        load_trees(_write(tmp_path, text))
+    assert "are not copper: E1 (kind placement)" in str(exc.value)
+    assert "may hold only kind \"net_trace\"" in str(exc.value)
+
+
+def test_copper_ref_colliding_with_a_positioned_node_is_fatal(tmp_path):
+    """A container ref equal to a POSITIONED node's ref of the same tree is a
+    fatal with the copper wording (the mount check, same walk, own message)."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "E1") (kind placement) (xy 0 0))
+    (node (ref "E1") (kind copper))))"""
+    with pytest.raises(ValidationError) as exc:
+        load_trees(_write(tmp_path, text))
+    assert "copper node ref(s) E1 collide" in str(exc.value)
+    assert "copper refs must be distinct" in str(exc.value)
+
+
+def test_a_mount_ref_is_still_validated_by_its_own_message(tmp_path):
+    """The two per-kind checks live in ONE walk with per-kind texts: this fence
+    pins that adding copper did NOT reword the mount messages (they are
+    user-facing and must stay verbatim)."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin))
+    (node (ref "m1") (kind mount) (anchor (role "A")))
+    (node (ref "m1") (kind mount) (anchor (role "B")))))"""
+    with pytest.raises(ValidationError) as exc:
+        load_trees(_write(tmp_path, text))
+    assert ("tree 't': mount node ref(s) m1 are not unique — a mount node's ref "
+            "must identify exactly one node in the tree") in str(exc.value)
+
+
+def test_copper_container_cannot_be_the_tree_pivot_ref(tmp_path):
+    """A container places nothing and is absent from the layout map, so it can
+    never be a tree's inner point — a LOAD-time fatal, not an apply-time
+    surprise (the same rule module/mount nodes already have)."""
+    text = """(kicadstamp-trees
+  (tree (name "t") (anchor (origin)) (pivot-ref "copper")
+    (node (ref "copper") (kind copper)
+      (node (ref "2v5_oa__x") (kind net_trace)))))"""
+    with pytest.raises(ValidationError) as exc:
+        load_trees(_write(tmp_path, text))
+    assert "pivot-ref 'copper' is a kind 'copper' node" in str(exc.value)
+    assert "cannot resolve" in str(exc.value)
+    # The picker agrees with the validator (one predicate, two consumers): the
+    # CONTAINER is not offered. Its net_trace child still is — a net_trace node
+    # has been a legal pivot-ref since phase D and this task deliberately leaves
+    # that alone (its position resolves to its parent frame, meaningless but
+    # pre-existing; narrowing it is a separate decision).
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[
+        TreeNode(ref="copper", kind="copper", xy=None, polar=None, rotation=0.0,
+                 name=None, group=None,
+                 children=[TreeNode(ref="2v5_oa__x", kind="net_trace", xy=None,
+                                    polar=None, rotation=0.0, name=None,
+                                    group=None, children=[])])])
+    assert tree_pivot_ref_candidates(tree) == ["2v5_oa__x"]
+
+
 def test_mount_node_dict_bridge_roundtrips():
     """The config-dict shape round-trips a mount node (nested "anchor" key,
     role-only) — tree_from_dict(tree_to_dict(x)) == x."""
