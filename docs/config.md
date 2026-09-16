@@ -609,6 +609,26 @@ nor any node hanging under one at any depth: such a node's base is pinned to a L
 does not follow the tree when the tree moves — it is not a handle (fatal at load; `pivot-xy` remains the
 alternative).
 
+**Copper container (2026-09-16, plan_2026_09_16_copper_node_order_and_container).** A node may have
+`kind "copper"`: a pure CONTAINER that folds a tree's inter-node copper nodes (`kind "net_trace"`, whose
+geometry lives in their `net_traces:` records and which therefore have no coordinates to edit) under ONE
+node instead of leaving them loose in the tree root. It places nothing, owns no record and emits nothing
+into the redraw plan; its `ref` is a NAME (like a mount node's) — never resolved against the config,
+exempt from the one-ref-per-file rule, unique within its tree and not colliding with a positioned node's
+ref there. Two load-time fatals: at most ONE container per tree, and every DIRECT child must be
+`kind "net_trace"`. Where the container hangs is free, and `xy`/`polar`/`rotation` on it are accepted but
+never consulted. It cannot serve as a tree's inner point (a container places nothing, so it has no
+position in the layout). The inter-node-copper re-read puts freshly found copper INSIDE the container,
+creating it (named `copper`, or the first free `copper_2`, …) when the tree has none; copper nodes already
+sitting in the root are left exactly where they are.
+
+**Order within one forest redraw (same plan, 2026-09-16).** Inter-node copper is always applied LAST: a
+`net_trace` record stores its geometry as offsets from its OWN anchor pad and is laid out from that pad
+LIVE, so it depends on where the components ended up — while no component ever depends on copper. The
+planner defers every `net_trace` record behind every other record. Copper nodes also no longer carry the
+"will be redrawn from the current position of `<base>`" note: their base is their own anchor pad, never
+the tree parent, so the note was simply false for them.
+
 ---
 
 ## `tree_instances:` — one template tree, instantiated per schematic sheet (2026-09-02)
