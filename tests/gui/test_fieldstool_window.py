@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from PyQt6.QtWidgets import QDialog, QListWidget
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget
 
 from gui import fieldstool_window as fieldstool_window_mod
 from gui.docks.pending import PendingEdit
@@ -543,6 +543,80 @@ def test_confirm_apply_returns_false_on_cancel(fieldstool_window, monkeypatch):
     confirmed = fieldstool_window._confirm_apply(_report(1))
 
     assert confirmed is False
+
+
+def _capture_apply_dialog(fieldstool_window, monkeypatch, report):
+    """Runs _confirm_apply with QDialog.exec stubbed out and returns the dialog
+    it built, so the guards below can read its widgets headlessly (no modal
+    event loop)."""
+    captured = []
+
+    def fake_exec(self):
+        captured.append(self)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    fieldstool_window._confirm_apply(report)
+    assert captured, "the dialog was never built"
+    return captured[0]
+
+
+def _dialog_texts(dialog):
+    return " ".join(lbl.text() for lbl in dialog.findChildren(QLabel))
+
+
+def test_confirm_apply_names_the_direction_and_advises_f8(fieldstool_window, monkeypatch):
+    """Т2.3/п.4 (plan_2026_09_16... Э2): the dialog must say that Apply
+    REPLACES the schematic values with the board ones — the old wording
+    ("About to write N change(s)") said nothing about direction, which is
+    exactly how a single OK reverted an edited schematic. The rows name both
+    sides too, instead of a bare "old -> new"."""
+    dialog = _capture_apply_dialog(fieldstool_window, monkeypatch, _report(1))
+
+    texts = _dialog_texts(dialog)
+    assert "REPLACES the values in the SCHEMATIC with the values from the BOARD" in texts
+    assert "Update PCB from Schematic (F8)" in texts
+    row = dialog.findChild(QListWidget).item(0).text()
+    assert "schematic" in row and "board" in row
+
+
+def test_confirm_apply_warns_when_a_board_value_is_empty(fieldstool_window, monkeypatch):
+    """Т2.3/п.2: an empty BOARD value means Apply CLEARS the schematic value
+    (the live case measured 16.09 — the board was empty and one OK wiped the
+    Role/Cluster of every such component). The line must be there, with the
+    count."""
+    report = _report(1)
+    report[0].new_value = ""
+    dialog = _capture_apply_dialog(fieldstool_window, monkeypatch, report)
+
+    texts = _dialog_texts(dialog)
+    assert "1 value(s) on the board are empty" in texts
+    assert "CLEARED" in texts
+
+
+def test_confirm_apply_omits_the_erase_line_without_empty_board_values(
+        fieldstool_window, monkeypatch):
+    """Same guard, negative half: no empty board value — no erase line (the
+    dialog must not cry wolf on an ordinary apply)."""
+    dialog = _capture_apply_dialog(fieldstool_window, monkeypatch, _report(2))
+
+    texts = _dialog_texts(dialog)
+    assert "empty" not in texts
+    assert "CLEARED" not in texts
+
+
+def test_confirm_apply_cancel_is_the_default_button(fieldstool_window, monkeypatch):
+    """Т2.3/п.3: Enter must write nothing — the safe answer to this dialog is
+    "no" far more often than "yes", so Cancel carries the default role and OK
+    must not steal it back through Qt's autoDefault."""
+    dialog = _capture_apply_dialog(fieldstool_window, monkeypatch, _report(1))
+
+    box = dialog.findChild(QDialogButtonBox)
+    cancel = box.button(QDialogButtonBox.StandardButton.Cancel)
+    ok = box.button(QDialogButtonBox.StandardButton.Ok)
+    assert cancel.isDefault() is True
+    assert ok.isDefault() is False
+    assert ok.autoDefault() is False
 
 
 # ── shared-connection public hooks ──────────────────────────────────────────

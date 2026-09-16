@@ -223,8 +223,20 @@ class PendingChangesDock(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.table = QTableWidget(0, 4)
+        # The two value columns are named by SIDE, never by "current"/"new"
+        # (2026-09-16, plan_2026_09_16_commit_document_and_pending_direction
+        # Э2/Т2.1, Р3): the dock compares the schematic on disk with the live
+        # board and CANNOT know which side is newer — "current"/"new" claimed a
+        # direction that does not exist, and on a board that lags behind the
+        # schematic (the normal state while Role/Cluster are being edited in
+        # eeschema) that claim read as "the board is already right".
         self.table.setHorizontalHeaderLabels(
-            [_("Ref"), _("Field"), _("Schematic (current)"), _("Board (new)")])
+            [_("Ref"), _("Field"), _("Schematic"), _("Board")])
+        # The same honest statement where the user looks for it — one sentence,
+        # no extra widget (Р5: nothing growing on a small screen).
+        self.table.horizontalHeader().setToolTip(
+            _("The table shows only WHAT differs between the schematic and the "
+              "board — not which side is newer."))
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # Row click -> component selection (2026-09-05, plan
@@ -243,6 +255,12 @@ class PendingChangesDock(QWidget):
 
         button_row = QHBoxLayout()
         self.apply_button = QPushButton(_("Apply..."))
+        # Direction, stated on the button itself (Т2.1): Apply writes the BOARD
+        # value INTO the schematic, so the schematic's own value is replaced —
+        # the one thing a user editing the schematic must know before clicking.
+        self.apply_button.setToolTip(
+            _("Writes the BOARD values into the SCHEMATIC (the schematic's "
+              "values are replaced)."))
         self.apply_button.clicked.connect(lambda: self.on_apply_clicked and self.on_apply_clicked())
         button_row.addWidget(self.apply_button)
         # Always enabled (unlike Apply, which needs a live diff) — this
@@ -262,6 +280,9 @@ class PendingChangesDock(QWidget):
         # workaround. Enabled only when at least one NON-mismatched edit
         # exists (mismatched edits have nothing safe to sync — see set_edits).
         self.sync_button = QPushButton(_("Sync from schematic..."))
+        self.sync_button.setToolTip(
+            _("Writes the SCHEMATIC values onto the live BOARD — the same as "
+              "Update PCB from Schematic does for these fields."))
         self.sync_button.clicked.connect(
             lambda: self.on_sync_clicked and self.on_sync_clicked())
         button_row.addWidget(self.sync_button)

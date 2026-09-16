@@ -772,16 +772,48 @@ class MainWindow(QMainWindow):
         buttons off-screen. The summary lives in a height-capped QListWidget
         instead — it gets its own scrollbar once the list outgrows that cap,
         so the dialog itself (and its buttons) stays a sane, fixed size
-        regardless of how many refs are being applied."""
+        regardless of how many refs are being applied.
+
+        DIRECTION, stated in the dialog itself (2026-09-16,
+        plan_2026_09_16_commit_document_and_pending_direction Э2/Т2.2, Р3/Р4):
+        Apply writes the BOARD value INTO the schematic, so the schematic's own
+        value is REPLACED. The old dialog said only "About to write N change(s)"
+        and listed `'old' -> 'new'` — on a board that lags behind the schematic
+        (the normal state while Role/Cluster are being edited in eeschema;
+        measured 16.09 on profile hipims-generator-v099: 42 rows where the
+        schematic was right and the board stale) one OK silently reverted the
+        schematic AND cleared the Role/Cluster of every component the board had
+        empty. Hence three changes, none of them a new window (Р4): the header
+        line names the direction, rows read "schematic … -> board …", and an
+        empty BOARD value gets its own line saying the schematic value will be
+        CLEARED — such rows are still applied (clearing the board and then
+        applying is a legitimate flow, Т2.2).
+
+        CANCEL is the default button here: an Enter press must not write
+        anything, because the safe answer to this dialog is "no" far more often
+        than "yes". The summary list keeps its height cap, so the new lines do
+        not grow the dialog (Р5)."""
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Confirm apply"))
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(_("About to write {count} change(s):").format(count=len(report))))
+        layout.addWidget(QLabel(
+            _("This REPLACES the values in the SCHEMATIC with the values from the "
+              "BOARD ({count} change(s)).").format(count=len(report))))
+        layout.addWidget(QLabel(
+            _("If you edited Role/Cluster in the schematic editor, press Cancel and "
+              "run Update PCB from Schematic (F8) instead.")))
+        erased = [r for r in report if not r.new_value]
+        if erased:
+            layout.addWidget(QLabel(
+                _("⚠ {count} value(s) on the board are empty — the schematic "
+                  "value(s) will be CLEARED.").format(count=len(erased))))
 
         summary_list = QListWidget()
         for r in report:
             summary_list.addItem(
-                f"{','.join(r.refs)} .{r.field}: {r.old_value!r} -> {r.new_value!r}")
+                _("{refs} .{field}: schematic {old!r} -> board {new!r}").format(
+                    refs=",".join(r.refs), field=r.field,
+                    old=r.old_value, new=r.new_value))
         summary_list.setMaximumHeight(300)
         layout.addWidget(summary_list)
 
@@ -789,6 +821,15 @@ class MainWindow(QMainWindow):
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
+        # Cancel is the DEFAULT (see the docstring): Enter must cancel, and the
+        # OK button must not steal the default role back (Qt's autoDefault
+        # gives the first AcceptRole button the default otherwise).
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        ok_button.setDefault(False)
+        ok_button.setAutoDefault(False)
+        cancel_button.setDefault(True)
+        cancel_button.setAutoDefault(True)
         layout.addWidget(buttons)
 
         return dialog.exec() == QDialog.DialogCode.Accepted

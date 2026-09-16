@@ -17621,3 +17621,42 @@ msgstr "Move down"
 #: kicadstamp/component_address.py kicadstamp/trees.py
 msgid "Move up"
 msgstr "Move up"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Board"
+msgstr "Board"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "If you edited Role/Cluster in the schematic editor, press Cancel and run Update PCB from Schematic (F8) instead."
+msgstr "If you edited Role/Cluster in the schematic editor, press Cancel and run Update PCB from Schematic (F8) instead."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Schematic"
+msgstr "Schematic"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "The table shows only WHAT differs between the schematic and the board — not which side is newer."
+msgstr "The table shows only WHAT differs between the schematic and the board — not which side is newer."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "This REPLACES the values in the SCHEMATIC with the values from the BOARD ({count} change(s))."
+msgstr "This REPLACES the values in the SCHEMATIC with the values from the BOARD ({count} change(s))."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Writes the BOARD values into the SCHEMATIC (the schematic's values are replaced)."
+msgstr "Writes the BOARD values into the SCHEMATIC (the schematic's values are replaced)."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Writes the SCHEMATIC values onto the live BOARD — the same as Update PCB from Schematic does for these fields."
+msgstr "Writes the SCHEMATIC values onto the live BOARD — the same as Update PCB from Schematic does for these fields."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{refs} .{field}: schematic {old!r} -> board {new!r}"
+msgstr "{refs} .{field}: schematic {old!r} -> board {new!r}"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "⚠ {count} value(s) on the board are empty — the schematic value(s) will be CLEARED."
+msgstr "⚠ {count} value(s) on the board are empty — the schematic value(s) will be CLEARED."

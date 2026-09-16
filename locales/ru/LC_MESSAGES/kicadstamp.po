@@ -16295,3 +16295,42 @@ msgstr "Опустить"
 #: kicadstamp/component_address.py kicadstamp/trees.py
 msgid "Move up"
 msgstr "Поднять"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Board"
+msgstr "Плата"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "If you edited Role/Cluster in the schematic editor, press Cancel and run Update PCB from Schematic (F8) instead."
+msgstr "Если вы правили Role/Cluster в редакторе схемы, нажмите Cancel и вместо этого выполните Update PCB from Schematic (F8)."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Schematic"
+msgstr "Схема"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "The table shows only WHAT differs between the schematic and the board — not which side is newer."
+msgstr "Таблица показывает только ТО, ЧЕМ схема и плата различаются, — а не то, какая сторона новее."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "This REPLACES the values in the SCHEMATIC with the values from the BOARD ({count} change(s))."
+msgstr "Это ЗАМЕНИТ значения в СХЕМЕ значениями с ПЛАТЫ (изменений: {count})."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Writes the BOARD values into the SCHEMATIC (the schematic's values are replaced)."
+msgstr "Записывает значения ПЛАТЫ в СХЕМУ (значения схемы при этом заменяются)."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+msgid "Writes the SCHEMATIC values onto the live BOARD — the same as Update PCB from Schematic does for these fields."
+msgstr "Записывает значения СХЕМЫ на живую ПЛАТУ — то же, что делает Update PCB from Schematic для этих полей."
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{refs} .{field}: schematic {old!r} -> board {new!r}"
+msgstr "{refs} .{field}: в схеме {old!r} -> на плате {new!r}"
+
+#: gui/docks/pending.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "⚠ {count} value(s) on the board are empty — the schematic value(s) will be CLEARED."
+msgstr "⚠ {count} значений на плате пусты — значения в схеме будут СТЁРТЫ."

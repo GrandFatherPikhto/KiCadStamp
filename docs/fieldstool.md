@@ -213,6 +213,15 @@ above:
   Refresh (its automatic ~2s tick is a deliberate no-op once connected, so it is NOT a refresh
   source — this paragraph used to claim it was) — never stored, so it can't go stale relative to
   the board.
+- **Direction, stated on both surfaces** (2026-09-16). The diff itself has no direction — the dock
+  cannot know which side is *newer*, only that the two disagree — so its two value columns are named
+  by SIDE (**Schematic** / **Board**, no more "(current)"/"(new)"), and each button says which way it
+  writes: Apply reads the board and rewrites the schematic, Sync from schematic does the opposite.
+  The Apply confirmation repeats the direction in its own words ("REPLACES the values in the
+  SCHEMATIC with the values from the BOARD"), shows every row as `schematic … -> board …`, adds a
+  separate line when a BOARD value is empty (that row *clears* the schematic value), and makes
+  **Cancel** the default button: on a board that lags behind the schematic — the normal state while
+  Role/Cluster are being edited in eeschema — the safe answer is "no" far more often than "yes".
 - Checks for a running KiCad process — if found, shows an **instruction** dialog ("save your work
   and close KiCad, then Apply again"). This is never automated (see [Why this write pipeline stays
   separate](#why-this-write-pipeline-stays-separate-from-kicadstampguis)).

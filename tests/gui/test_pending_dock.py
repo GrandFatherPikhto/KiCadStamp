@@ -132,6 +132,36 @@ def test_edits_to_fields_cfg_groups_by_ref():
 
 # ── PendingChangesDock — the Qt wrapper, fed by set_edits() ─────────────────
 
+# ── Direction-neutral headers (plan_2026_09_16_commit_document_and_pending_
+#    direction Э2/Т2.1, checked by Т2.3 п.1)
+
+def test_table_headers_name_the_sides_not_current_and_new(qapp, main_window):
+    """The dock compares the schematic on disk with the live board and cannot
+    know which side is newer, so the two value columns are named by SIDE: the
+    old "Schematic (current)" / "Board (new)" claimed a direction that does not
+    exist (the normal state is the board LAGGING behind the schematic while the
+    schematic editor is being used). Checked on the source English strings, and
+    a tooltip carries the honest one-sentence statement."""
+    dock = PendingChangesDock(main_window)
+    headers = [dock.table.horizontalHeaderItem(i).text()
+               for i in range(dock.table.columnCount())]
+
+    assert headers == ["Ref", "Field", "Schematic", "Board"]
+    assert not any("current" in h.lower() or "new" in h.lower() for h in headers)
+    tooltip = dock.table.horizontalHeader().toolTip()
+    assert "what differs" in tooltip.lower()
+    assert "not which side is newer" in tooltip
+
+
+def test_the_two_action_buttons_state_their_direction(qapp, main_window):
+    """Т2.1: Apply writes the BOARD values into the schematic, Sync writes the
+    SCHEMATIC values onto the board — each button says so in its tooltip."""
+    dock = PendingChangesDock(main_window)
+
+    assert "BOARD values into the SCHEMATIC" in dock.apply_button.toolTip()
+    assert "SCHEMATIC values onto the live BOARD" in dock.sync_button.toolTip()
+
+
 def test_set_edits_populates_table(qapp, main_window):
     dock = PendingChangesDock(main_window)
     dock.set_edits([PendingEdit("R1", "Role", "OLD", "NEW")])
