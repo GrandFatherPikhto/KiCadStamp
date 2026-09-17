@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional
 
 from .config import load_chain, load_manual_spoke
+from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError
 from .i18n import _
 
@@ -289,6 +290,54 @@ def chain_assignment(spokes, cells, pools_by_cluster, anchor_pad_numbers
         except ValidationError as exc:                        # pool dry / unknown role
             return assignment, str(exc).strip()
     return assignment, None
+
+
+class OrderedPool:
+    """ComponentPool's contract — pop(role, pad) + remaining_count(role) — over a
+    plain {role: [refs in pool order]} map.
+
+    Why it exists: a pool is built from the BOARD (ComponentPool reads the Role /
+    Cluster fields and the pad nets), so it can only be read on the worker thread
+    — but the dialog must answer "which pair will this spoke get" for every pad,
+    cell and chain the user can still pick, without a second board read per click.
+    The worker reads the pools ONCE and hands their ORDER over as data; this class
+    replays exactly that consumption on the UI thread, and chain_assignment /
+    pool_outcome cannot tell it from the real thing (tests/test_spoke_extraction
+    .py's parity guard pins the replay against a real ComponentPool, natural
+    refdes order included)."""
+    def __init__(self, refs_by_role: Mapping[str, Iterable[str]],
+                 net_name: str = ""):
+        self.net_name = net_name
+        self._left = {str(role): [str(ref) for ref in refs]
+                      for role, refs in (refs_by_role or {}).items()}
+
+    def pop(self, role, spoke_pad) -> str:
+        # The refusals repeat ComponentPool's own msgids WORD FOR WORD (net name
+        # included): the same shortage must read the same to the user, whoever
+        # noticed it — and one situation gets one translation, not two.
+        candidates = self._left.get(role)
+        if candidates is None:
+            raise ValidationError(
+                _("\nCell (pad {pad}) requires role {role!r}, "
+                  "but the pool for net {net!r} does not know this role at all "
+                  "(check the list of roles passed when building the pool).")
+                .format(pad=spoke_pad, role=role, net=self.net_name))
+        if not candidates:
+            raise ValidationError(
+                _("\nNot enough components with role {role!r} on net {net!r} "
+                  "for spoke on pad {pad} — pool exhausted. "
+                  "Check the {field!r} field in the schematic: perhaps you forgot "
+                  "to mark another component, or it is not physically on this net.")
+                .format(role=role, net=self.net_name, pad=spoke_pad,
+                        field=ROLE_FIELD_NAME))
+        return candidates.pop(0)
+
+    def remaining_count(self, role) -> int:
+        return len(self._left.get(role, []))
+
+    def order(self) -> dict:
+        """The order as plain data — what the worker serializes for the dialog."""
+        return {role: list(refs) for role, refs in self._left.items()}
 
 
 def pool_capacity(pool, roles: Iterable[str]) -> int:

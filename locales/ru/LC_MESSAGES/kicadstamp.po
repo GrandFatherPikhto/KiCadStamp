@@ -16696,3 +16696,21 @@ msgstr "в кластере {cluster} не осталось свободной �
 
 msgid "pad {pad} already has a spoke (cell {cell}) — replacing it needs the explicit “Replace” confirmation"
 msgstr "на паде {pad} уже есть спица (ячейка {cell}) — для замены нужна явная галочка «Replace»"
+
+msgid "chain {name} anchor unresolved — {error}"
+msgstr "якорь цепочки {name} не разрешился — {error}"
+
+msgid "chain {name} anchor {ref} has no pad on the net"
+msgstr "у якоря {ref} цепочки {name} нет пада на этой цепи"
+
+msgid "chain {name} is anchored to a point — a spoke needs a component's pads, so it is not offered"
+msgstr "цепочка {name} привязана к точке — спице нужны пады компонента, поэтому она не предлагается"
+
+msgid "the board selection changed since this dialog was read ({was} -> {now}) — nothing was written; read the selection again and repeat"
+msgstr "выделение на плате изменилось с момента чтения диалога ({was} -> {now}) — ничего не записано; прочитайте выделение заново и повторите"
+
+msgid "the cell {cell!r} could not be extracted from the selection — nothing was written"
+msgstr "ячейку {cell!r} не удалось извлечь из выделения — ничего не записано"
+
+msgid "this cell's instance stands MIRRORED, and a spoke has no mirror field — extract the cell as a NEW one from this pair instead"
+msgstr "экземпляр этой ячейки стоит ЗЕРКАЛЬНО, а у спицы нет поля зеркала — извлеките ячейку как НОВУЮ из этой пары"

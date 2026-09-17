@@ -18022,3 +18022,21 @@ msgstr ""
 
 msgid "pad {pad} already has a spoke (cell {cell}) — replacing it needs the explicit “Replace” confirmation"
 msgstr ""
+
+msgid "chain {name} anchor unresolved — {error}"
+msgstr ""
+
+msgid "chain {name} anchor {ref} has no pad on the net"
+msgstr ""
+
+msgid "chain {name} is anchored to a point — a spoke needs a component's pads, so it is not offered"
+msgstr ""
+
+msgid "the board selection changed since this dialog was read ({was} -> {now}) — nothing was written; read the selection again and repeat"
+msgstr ""
+
+msgid "the cell {cell!r} could not be extracted from the selection — nothing was written"
+msgstr ""
+
+msgid "this cell's instance stands MIRRORED, and a spoke has no mirror field — extract the cell as a NEW one from this pair instead"
+msgstr ""
