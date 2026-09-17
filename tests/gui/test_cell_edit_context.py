@@ -6,12 +6,17 @@ note_2026_09_08_cell_anchor_selection_and_coordinate_converter.md).
 Covers:
   * gui/cell_edit_context.py — the gui_state.json round-trip (per-root scoping,
     "last used" overwrite, silent degradation on missing/malformed state) and
-    the live-board resolution helpers (cluster_present_on_board /
-    resolve_context_footprints);
+    the live-board resolution helper (resolve_context_footprints);
   * the IDENTIFIED refs of that instance (2026-09-17, stage 1 of the spoke work):
     remember_cell_instance / remembered_cell_refs, and the rule that ANY context
     write without refs erases them (plan_2026_09_17_spoke_s1_identify_by_selection
     Р5, guard С8);
+  * the OPENING of the page (2026-09-17, stage 1а of the spoke work,
+    plan_2026_09_17_spoke_s1a_fixes): the prefill never reads the board — the judge
+    is the snapshot the page already holds, and with nothing to judge the
+    remembered pair is a HINT — so a busy socket can no longer empty the
+    Sheet/Cluster fields while the refs survive. Guards С1а–С5а at the end of
+    this file;
   * the cell-anchor page (gui/docks/cell_anchor_view.py) — opening a cell
     prefills the working Sheet/Cluster combos from the remembered context, and
     "Read from selection" overwrites it with the cluster it just read;
@@ -34,7 +39,6 @@ import gui.docks.cell_editor as cell_editor_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
-    cluster_present_on_board,
     remember_cell_edit_context,
     remember_cell_instance,
     remembered_cell_edit_context,
@@ -179,16 +183,11 @@ def test_remember_noop_cases_write_nothing(tmp_path):
 
 
 # ── Live-board resolution helpers ─────────────────────────────────────────
-
-def test_cluster_present_on_board():
-    """cluster_present_on_board gates prefill: present cluster -> True; stale /
-    offline / empty -> False, never raising."""
-    adapter = _cluster_adapter("PIF_3V3_VDD")
-    assert cluster_present_on_board(adapter, "PIF_3V3_VDD") is True
-    assert cluster_present_on_board(adapter, "PIF_NOPE") is False
-    assert cluster_present_on_board(None, "PIF_3V3_VDD") is False
-    assert cluster_present_on_board(adapter, "") is False
-
+#
+# cluster_present_on_board was the prefill gate until 2026-09-17 (stage 1а): a
+# board read on the UI thread, swallowing every exception, which reported a busy
+# socket as "the cluster is gone". It is gone itself now — the prefill judges the
+# snapshot the page already holds (guards С1а/С4а at the end of this file).
 
 def test_resolve_context_footprints_cluster_gate():
     """Without a Sheet the context resolves to every footprint of the cluster
@@ -266,14 +265,23 @@ def test_view_prefills_remembered_context_and_narrows(main_window, tmp_path):
 
 def test_view_stale_remembered_cluster_leaves_fields_empty(main_window,
                                                            tmp_path):
-    """THE Phase-E acceptance criterion: a remembered cluster that does NOT
-    exist on the current board leaves both working-context fields empty and
-    raises nothing — the rest of the page still works."""
-    adapter = FakeAdapter()          # no footprint carries the remembered cluster
-    remember_cell_edit_context(tmp_path / "root.sexp", "cell1",
-                               "PIF_3V3_VDD", "FPGA")
+    """THE Phase-E acceptance criterion: a remembered cluster that is NOT on the
+    board leaves both working-context fields empty and raises nothing — the rest
+    of the page still works.
 
-    view, _ = _make_view(main_window, tmp_path, adapter=adapter)
+    The judge is the page's OWN snapshot (2026-09-17, stage 1а): the page is fed a
+    board read (refresh_known_roles — what DockHub.push_snapshot does on every
+    ~2s tick) that does not carry the remembered cluster, so the pair is provably
+    stale. An empty snapshot is the OTHER case: nothing has been read yet, so the
+    pair is kept as a hint (the next test)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "FPGA")
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.refresh_known_roles([SimpleNamespace(role="C1", cluster="AD_DAC/IC2")])
+    view.load_entry("cell1", root)
 
     assert view._cluster_combo.currentText().strip() == ""
     assert view._sheet_combo.currentText().strip() == ""
@@ -489,21 +497,24 @@ def test_offline_prefill_applies_the_remembered_context(main_window, tmp_path):
     assert view._cluster_combo.currentText() == "PIF_3V3_VDD"
 
 
-def test_live_prefill_drops_a_stale_remembered_cluster(main_window, tmp_path):
-    """The §E.5 behaviour is unchanged WITH a live board: a cluster that is not
-    on it is silently dropped, never a fatal."""
-    adapter = FakeAdapter()
-    adapter.footprints = []
+def test_live_prefill_keeps_the_hint_when_no_snapshot_was_fed_yet(main_window,
+                                                                 tmp_path):
+    """Р2 (stage 1а): with a live board but NO board read fed to the page yet —
+    the first tick after a connect — an empty snapshot says nothing, so the
+    remembered pair is applied as a HINT instead of being dropped. This test used
+    to assert the opposite, on a fresh adapter read of the live board; that read
+    is exactly what stage 1а removed (two UI-thread reads, one of them failing,
+    were how the fields came up empty on reopen — guards С1а/С4а)."""
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
-    remember_cell_edit_context(root, "cell1", "GONE", None)
-    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
+    main_window.connection.board = SimpleNamespace(adapter=FakeAdapter())
 
     view = CellAnchorView(main_window, connection=main_window.connection)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
-    assert view._cluster_combo.currentText() == ""
+    assert view._cluster_combo.currentText() == "PIF_3V3_VDD"
 
 
 # ── Identified refs (2026-09-17, stage 1 of the spoke work) ───────────────
@@ -706,3 +717,226 @@ def test_c17_select_cluster_error_is_never_a_modal(main_window, tmp_path,
 
     assert "KiCad IPC exploded" in caplog.text
     assert dock._active_op is None
+
+
+# ── С1а–С5а: the prefill of the working context (2026-09-17, stage 1а) ─────
+#
+# The bug Denis hit live: after closing and reopening the editor the Sheet and
+# Cluster fields came up EMPTY while Refs stayed put ("pick the working Cluster
+# first" from the marker circle). The cause is that the prefill was gated on a
+# LIVE BOARD READ taken on the UI thread (cluster_present_on_board): any failing
+# read — the shared socket owned by the ~400ms selection tick — reads as "the
+# cluster is gone", and that early return skips BOTH fields (plan §1.3 Д1).
+#
+# From here on the judge is the SNAPSHOT the page already holds
+# (refresh_known_roles -> self._snapshot), and when there is nothing to judge the
+# remembered pair is a HINT, not a stale value — the same semantics the offline
+# case has had since G.3.
+
+class _RecordingAdapter:
+    """Records EVERY board read and answers nothing useful.
+
+    The guards below assert that this list stays EMPTY. A spy that merely blew up
+    would not do: the pre-2026 code catches `Exception` inside
+    cluster_present_on_board, the traceback would be swallowed and the guard would
+    have to read the fields to fail — i.e. fail for the wrong reason (plan §1.3 Д2)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def _rec(self, name):
+        self.calls.append(name)
+        return []
+
+    def get_footprints(self):
+        return self._rec("get_footprints")
+
+    def get_field_value(self, fp, name):
+        return self._rec(f"get_field_value:{name}") or None
+
+    def get_selected_items(self):
+        return self._rec("get_selected_items")
+
+    def get_footprint(self, ref):
+        return self._rec(f"get_footprint:{ref}") or None
+
+    def get_tracks(self):
+        return self._rec("get_tracks")
+
+    def get_vias(self):
+        return self._rec("get_vias")
+
+    def select_items(self, items):
+        self.calls.append("select_items")
+
+    def refresh_board(self):
+        self.calls.append("refresh_board")
+
+
+class _FailingAdapter(FakeAdapter):
+    """A live board whose every read blows up — the occupied-socket shape
+    ("Error receiving reply from KiCad: Operation canceled")."""
+
+    _BROKEN = "Error receiving reply from KiCad: Operation canceled"
+
+    def get_footprints(self):
+        raise RuntimeError(self._BROKEN)
+
+    def get_field_value(self, fp, field_name):
+        raise RuntimeError(self._BROKEN)
+
+
+def _sheet_names_map(*names):
+    """A `load_config` stand-in whose ctx.sheet_names VALUES are `names` — the
+    Sheet combo is filled from the VALUES (the existing pattern of
+    test_sheet_combo_shows_names_not_uuid_keys); zero names models a profile whose
+    sheet list is not known yet.
+
+    The cfg is the REAL one read from the file, because the dispatch path needs its
+    cells — only the sheet map is replaced, and it is replaced for every caller of
+    the module's `load_config` (prefill, `_context`, `_dispatch`)."""
+    real = view_mod.load_config
+
+    def _load(path):
+        cfg, _ctx = real(path)
+        return cfg, SimpleNamespace(sheet_names={
+            f"{i:024x}/{i:024x}": name for i, name in enumerate(names)})
+
+    return _load
+
+
+def test_c1a_a_failing_board_read_does_not_wipe_the_remembered_context(
+        main_window, tmp_path, monkeypatch):
+    """С1а/М1а: Ф3 — the shape of the live bug. A board is there and its reads
+    FAIL; opening the cell must still bring back Sheet, Cluster and Refs."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_instance(root, "cell1", _identification(
+        cluster="PIF_3V3_VDD", sheet="MCU", refs={"C1": "C74", "C2": "C58"}))
+    main_window.connection.board = SimpleNamespace(adapter=_FailingAdapter())
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU", "FPGA"))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+    assert view._sheet_combo.currentText().strip() == "MCU"
+    assert view._refs_edit.text() == "C74, C58"
+
+
+def test_c2a_a_sheet_that_cannot_be_checked_yet_is_still_applied(
+        main_window, tmp_path, monkeypatch):
+    """С2а/М2а: Ф4 — the config's sheet list is unknown at the moment the cell is
+    opened (the profile carries no schematic path, so ctx.sheet_names is empty).
+    An EMPTY list is "nothing to judge", so the remembered Sheet is applied; only
+    a NON-EMPTY list that lacks it makes it stale."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map())
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+    assert view._sheet_combo.currentText().strip() == "MCU"
+
+
+def test_c2a_a_sheet_the_list_does_not_know_is_dropped(
+        main_window, tmp_path, monkeypatch):
+    """The other half of С2а: a NON-EMPTY sheet list that does not carry the
+    remembered name is the §E.5 stale case — the field stays empty (the list
+    knows better than the hint)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "GONE_SHEET")
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU", "FPGA"))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+    assert view._sheet_combo.currentText().strip() == ""
+
+
+def test_c3a_a_snapshot_tick_does_not_wipe_the_prefilled_cluster(
+        main_window, tmp_path, monkeypatch):
+    """С3а/М3а: Ф5 — the tick's combo refill must not clear a cluster that came
+    from the remembered context, even when the (sheet-narrowed) list does not
+    carry it: "Fill, never restrict" is the combo's own contract."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+
+    view.refresh_known_roles([SimpleNamespace(cluster="ANOTHER_BANK", role="C1")])
+
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+
+
+def test_c4a_opening_and_context_never_reach_the_adapter_on_the_ui_thread(
+        main_window, tmp_path, monkeypatch):
+    """С4а/М4а: П3.1 — the prefill, the form reload and `_context()` collect their
+    inputs from the interface state alone. The adapter is a RECORDER: the list of
+    calls must stay empty (see _RecordingAdapter for why a raising spy is wrong)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
+    adapter = _RecordingAdapter()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+    view._reload_form()
+    ctx = view._context()
+
+    assert adapter.calls == [], f"the UI thread read the board: {adapter.calls}"
+    assert ctx is not None
+    assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
+
+
+def test_c5a_identified_refs_make_the_working_cluster_optional(
+        main_window, tmp_path, monkeypatch, caplog):
+    """С5а/М5а: Ф6/Р5 — with an identified pair the Cluster is not a prerequisite:
+    "Show bbox" must dispatch the frame worker WITH the refs instead of refusing
+    with "pick the working Cluster first" (the exact WARNING Denis saw after
+    reopening the editor)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _cell_data())
+    remember_cell_instance(root, "cell1", _identification(
+        cluster="PIF_3V3_VDD", refs={"C1": "C74", "C2": "C58"}))
+    main_window.connection.board = SimpleNamespace(adapter=_RecordingAdapter())
+    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
+
+    view = CellAnchorView(main_window, connection=main_window.connection)
+    view.set_root_path(root)
+    view.load_entry("cell1", root)
+    # Model the lost cluster of the live session: the combo is EMPTY while the
+    # refs are remembered (a manual clear, or a stale-context drop).
+    view._loading = True
+    try:
+        view._cluster_combo.setCurrentText("")
+    finally:
+        view._loading = False
+
+    started = []
+    monkeypatch.setattr(view_mod, "start_long_op",
+                        lambda *args, **kwargs: started.append(args) or object())
+    caplog.clear()
+
+    view._on_show_bbox()
+
+    assert started, ("the frame worker must start from the remembered refs — a "
+                     "cluster is not required when the pair is identified")
+    assert started[0][-1] == {"C1": "C74", "C2": "C58"}
+    assert "working Cluster" not in caplog.text

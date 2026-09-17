@@ -26,10 +26,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from gui.cell_edit_context import remembered_cell_refs
-from gui.cell_identification import SelectionRecord, identify_cell_instance
+import gui.docks.cell_editor as cell_editor_mod
+from gui.cell_edit_context import remember_cell_instance, remembered_cell_refs
+from gui.cell_identification import (
+    Identification,
+    SelectionRecord,
+    identify_cell_instance,
+)
+from gui.docks import cell_anchor_view as view_mod
 from gui.docks import live_position
 from gui.docks.cell_anchor_view import CellAnchorView
+from gui.docks.cell_editor import CellDock
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
@@ -818,3 +825,84 @@ def test_c18_the_reread_flows_never_touch_the_identification():
     for method in ("_on_refresh_geometry", "_run_refresh_geometry",
                    "_on_import_vias_tracks", "_run_import_vias_tracks"):
         assert "refs" not in _method_source(editor, method), method
+
+
+# ── С6а–С8а: the WIRING of the remembered refs (2026-09-17, stage 1а) ──────
+#
+# Stage 1's guards proved the LOGIC of the refs path (С1–С18) and every worker's
+# own signature (С9), but three links between them were held by nothing at all:
+# the page's dispatch, the Cell dialog's button payload, and the refusal an
+# unusable map meets before it reaches the reference slot. Three mutations of the
+# Claude reconciliation run survived on 3bd9c6a for exactly that reason (C3, D2,
+# A4), so these guards are written against THOSE mutations: they are green on the
+# code as it stands and must die when the wiring is broken.
+
+def test_c6a_dispatch_hands_the_remembered_refs_to_the_worker(
+        main_window, tmp_path, monkeypatch):
+    """С6а/C3: the anchor page's own `_dispatch` must carry the identified refs to
+    the overlay worker. С9 pins the three worker functions, but nothing pinned the
+    CALL: with `None` in place of the refs (mutation C3) every overlay falls back
+    to the cluster search — i.e. draws nothing at all on a spoke — and no test
+    noticed."""
+    root = _cell_config(tmp_path)
+    remember_cell_instance(root, "fpga_pwr_bank", Identification(
+        cluster=CLUSTER, sheet=None,
+        role_to_ref={BULK: "C69", BYPASS: "C53"}, kind="spoke"))
+    main_window.connection.board = SimpleNamespace(adapter=SimpleNamespace())
+    view = _view_for(main_window, root)
+    assert view._cluster_combo.currentText() == CLUSTER
+
+    started = []
+    monkeypatch.setattr(view_mod, "start_long_op",
+                        lambda *args, **kwargs: started.append(args) or object())
+
+    view._on_show_bbox()
+
+    assert started, "the bbox worker must be dispatched"
+    assert started[0][-1] == {BULK: "C69", BYPASS: "C53"}, \
+        "the identified refs must travel as the LAST positional argument"
+
+
+def test_c7a_the_select_cluster_button_payload_carries_the_remembered_refs(
+        main_window, tmp_path, monkeypatch):
+    """С7а/D2: the Cell dialog's "Select cluster of this cell on the board" reads
+    the identified refs out of the state and puts them into the worker payload.
+    С10/С16 cover the worker, but they BUILD the payload by hand — so a payload
+    built with an empty map (mutation D2) went unnoticed and the button silently
+    went back to selecting the whole spoke cluster (50 components)."""
+    root = _cell_config(tmp_path)
+    remember_cell_instance(root, "fpga_pwr_bank", Identification(
+        cluster=CLUSTER, sheet=None,
+        role_to_ref={BULK: "C69", BYPASS: "C53"}, kind="spoke"))
+    main_window.connection.board = SimpleNamespace(adapter=SimpleNamespace())
+    dock = CellDock(main_window)
+    dock.set_root_path(root)
+    dock.load_entry("fpga_pwr_bank", root)
+
+    started = []
+    monkeypatch.setattr(cell_editor_mod, "start_long_op",
+                        lambda *args, **kwargs: started.append(args) or object())
+
+    dock._on_select_cluster_on_board()
+
+    assert started, "the selection worker must be dispatched"
+    payload = started[0][-1]
+    assert payload["refs"] == {BULK: "C69", BYPASS: "C53"}
+    assert payload["cluster"] == CLUSTER
+
+
+def test_c8a_refs_of_another_cell_are_refused_as_stale_not_as_a_crash():
+    """С8а/A4: a remembered map that shares NO role with this cell must come back
+    as the honest "stale" refusal — never as an AttributeError from an empty map
+    reaching the reference slot. Mutation A4 removed that refusal and the crash
+    stayed invisible: no test ever asked for a map that resolves nothing."""
+    adapter = _SpokeAdapter(pairs=2)
+
+    with pytest.raises(ValidationError) as ei:
+        live_position._live_cluster_frame(
+            adapter, _spoke_cell(), CLUSTER, "", {},
+            {"C_MCU_BULK": "C69"})       # no role of this cell
+
+    message = str(ei.value)
+    assert "stale" in message
+    assert "identify the instance again" in message

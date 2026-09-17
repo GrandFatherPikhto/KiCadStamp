@@ -48,13 +48,17 @@ carry stale paths from before project renames), so every reader degrades
 SILENTLY — a remembered Cluster/Sheet that no longer resolves on the current
 live board leaves the UI fields empty / does nothing, never a fatal.
 
-Live-resolution helpers live here too (shared by the two consumers):
-  - cluster_present_on_board(...) — the prefill gate (cell_anchor_view);
+Live-resolution helpers live here too:
   - resolve_context_footprints(...) — the actual board footprints of the
     remembered (Cluster, Sheet) instance, gathered through the SAME
     role_narrowing cascade the whole project uses for (Sheet, Cluster)
     addressing (no second terminology), used by CellDock's "Select cluster on
     the board" button.
+    NOT by the cell-anchor page's prefill any more: that one now judges the
+    remembered cluster against the snapshot the page has already been fed, never
+    against the adapter (2026-09-17, stage 1а of the spoke work — a board read on
+    the UI thread that failed used to empty the Sheet/Cluster fields on reopen,
+    and cluster_present_on_board, which swallowed every exception, was that read).
 """
 import logging
 from typing import Optional
@@ -190,24 +194,6 @@ def remembered_cell_edit_context(root_path, cell_name: str) -> tuple[
                 str(sheet) if sheet else None)
     except Exception:  # noqa: BLE001 — best-effort read, never fatal
         return (None, None)
-
-
-def cluster_present_on_board(adapter, cluster: str) -> bool:
-    """True when at least one LIVE footprint carries `cluster` in its Cluster
-    field (cluster_prefix_match). The prefill gate (§E.5): a remembered cluster
-    that no longer exists on the current board must leave the UI fields empty.
-    False when the adapter is unavailable (offline — nothing can "resolve") or
-    the scan fails; never raises."""
-    if adapter is None or not cluster:
-        return False
-    try:
-        for fp in adapter.get_footprints():
-            fp_cluster = adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or ""
-            if cluster_prefix_match(fp_cluster, cluster):
-                return True
-    except Exception:  # noqa: BLE001 — best-effort gate, never fatal
-        return False
-    return False
 
 
 def resolve_context_footprints(adapter, footprints, cluster: str, sheet,

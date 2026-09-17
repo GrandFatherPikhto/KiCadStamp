@@ -86,7 +86,6 @@ from kicadstamp.utils.units import MM
 # (the module itself reads the overlay map through overlay_markers.owner).
 from .. import board_overlay, overlay_markers, settings  # noqa: F401
 from ..cell_edit_context import (
-    cluster_present_on_board,
     remember_cell_edit_context,
     remember_cell_instance,
     remembered_cell_edit_context,
@@ -1072,17 +1071,25 @@ class CellAnchorView(QWidget):
         Sheet) this cell was last created/edited in — the page opens already
         narrowed to the Role combo, with no click on the board.
 
-        Strict §E.5 hint semantics: a remembered cluster that does NOT resolve
-        on the current live board (renamed/deleted/other board), or a missing
-        record, leaves BOTH fields empty — exactly the pre-Phase-E "ask again"
-        state. A stale Sheet (not among the current config's sheet names) is
-        dropped too. Never a fatal, never an exception.
+        THE JUDGE IS THE PAGE'S OWN SNAPSHOT, never the board (2026-09-17, stage
+        1а). Until then this prefill asked the ADAPTER whether the remembered
+        cluster still existed (cell_edit_context.cluster_present_on_board), on the
+        UI thread; a read that failed — the shared socket held by the ~400ms
+        selection tick, "Error receiving reply from KiCad: Operation canceled" —
+        was swallowed and reported as "the cluster is gone", and that early return
+        left BOTH fields empty while the refs survived. Denis hit exactly that
+        live: reopening the editor showed a blank Sheet/Cluster and the marker
+        circle refused with "pick the working Cluster first". The snapshot the page
+        already holds (refresh_known_roles -> self._snapshot) answers the same
+        question without touching the board (door rules 3 and 6).
 
-        G.3: "unresolvable" only applies when the board IS connected. With no
-        adapter the remembered cluster is a HINT we simply cannot confirm (not a
-        stale one), so it is applied as-is — cluster_present_on_board() returns
-        False for a missing adapter, which used to throw a perfectly good
-        remembered context away offline."""
+        Hint semantics (G.3 §E.5, unchanged in spirit): a remembered cluster the
+        SNAPSHOT does not carry is dropped (renamed / deleted / another board), but
+        an EMPTY snapshot means nothing has been read yet (the first poll tick
+        after a connect) — there is nothing to judge, so the remembered pair is
+        applied as a HINT, exactly like the offline case. The Sheet follows the
+        same rule against the combo's list of sheet names. Never a fatal, never an
+        exception."""
         # A reused view must not leak the PREVIOUS cell's working context, and
         # this prefill must never persist anything itself (G.3).
         self._loading = True
@@ -1097,19 +1104,44 @@ class CellAnchorView(QWidget):
             self._root_path, self._cell_name)
         if not cluster:
             return
-        adapter = self._adapter()
-        if adapter is not None and not cluster_present_on_board(adapter, cluster):
-            return                      # live board, cluster gone -> stay empty
+        if self._cluster_known_gone(cluster):
+            return                      # the snapshot says it is not on the board
+        if sheet and self._sheet_known_gone(sheet):
+            sheet = None                # the sheet list knows better than the hint
         self._loading = True
         try:
             self._cluster_combo.setCurrentText(cluster)
             if sheet:
-                sheets = {self._sheet_combo.itemText(i)
-                          for i in range(self._sheet_combo.count())}
-                if sheet in sheets:
-                    self._sheet_combo.setCurrentText(sheet)
+                self._sheet_combo.setCurrentText(sheet)
         finally:
             self._loading = False
+
+    def _cluster_known_gone(self, cluster: str) -> bool:
+        """True when this page's own snapshot PROVES `cluster` is not on the board:
+        the snapshot is non-empty, and no footprint carries that cluster tag
+        (cluster_prefix_match — the same rule the removed adapter gate used).
+
+        An EMPTY snapshot proves nothing (nothing has been read yet), so it returns
+        False and the caller keeps the remembered cluster as a hint. UI thread only,
+        and only from data already read — the adapter is never called here."""
+        snapshot = self._snapshot or self._resolved_snapshot
+        if not snapshot:
+            return False
+        return not any(getattr(s, "cluster", None)
+                       and cluster_prefix_match(s.cluster, cluster)
+                       for s in snapshot)
+
+    def _sheet_known_gone(self, sheet: str) -> bool:
+        """True when the Sheet combo's list is non-empty and does NOT carry
+        `sheet` — the §E.5 stale case, where the list knows better than the hint.
+
+        An EMPTY list means the project's sheet map is not known yet (a profile
+        without a schematic path, or an open arriving before set_root_path), which
+        says nothing about the remembered sheet and must not throw it away: the
+        combo is editable, so the value is kept as a hint (fill, never restrict)."""
+        known = {self._sheet_combo.itemText(i)
+                 for i in range(self._sheet_combo.count())}
+        return bool(known) and sheet not in known
 
     # ── Overlay keys (the map itself is owned by gui/overlay_markers) ─────
 
@@ -1356,9 +1388,12 @@ class CellAnchorView(QWidget):
         roles_for_cluster (Э3, plan_2026_09_14_ui_thread_offenders). Empty until
         the first successful connect, which the hint tolerates by design.
 
-        Deliberately NOT `self._snapshot`: that one is this PAGE's own list of the
-        CELL's components, and the hint is exactly about what the rest of the board
-        carries on the working Cluster — a different question, a different list."""
+        Deliberately NOT `self._snapshot`: that copy is the page's own, fed by
+        DockHub.push_snapshot (refresh_known_roles), while the Role hint has always
+        read the shared connection's copy directly. Both carry the same whole-board
+        data; the prefill's presence check is the other way round on purpose — it
+        uses this page's OWN snapshot, the copy the page knows it was fed (see
+        _cluster_known_gone)."""
         return getattr(self._connection, "snapshot", None) or ()
 
     # ── Component tab handlers ────────────────────────────────────────────
@@ -1709,17 +1744,27 @@ class CellAnchorView(QWidget):
         """(cfg, sheet_names, cluster, sheet) for the overlay's live frame, or
         None with a message shown when the working context can't be resolved.
 
-        Purely UI-thread validation: the project root, the loaded cell and the
-        working Cluster must be set. Everything that touches the board — and
-        therefore the whole frame derivation — happens on the WORKER thread
-        (_live_cluster_frame / _dispatch)."""
+        Purely UI-thread validation: the project root, the loaded cell and — while
+        the instance is NOT identified — the working Cluster must be set.
+        Everything that touches the board — and therefore the whole frame
+        derivation — happens on the WORKER thread (_live_cluster_frame /
+        _dispatch).
+
+        Р5 (2026-09-17, stage 1а): with identified refs the Cluster is NOT a
+        prerequisite. The pair IS the instance — the refs path of
+        _live_cluster_frame never searches the cluster — so an empty combo must not
+        stop the marker/bbox work: that refusal is exactly what Denis saw live
+        ("pick the working Cluster first") right after reopening an editor whose
+        remembered refs were still there. Without refs the requirement and the
+        message are unchanged, and a non-empty cluster is still passed through (the
+        workers use it for the label and the honest "occurs N times" refusal)."""
         if self._root_path is None or self._cell_name is None:
             show_message(_("Marker needs a project root — open a project "
                            "first."), _WARN_STYLE, logger)
             return None
         cluster = self._cluster_combo.currentText().strip()
         sheet = self._sheet_combo.currentText().strip()
-        if not cluster:
+        if not cluster and not self._remembered_refs():
             show_message(_("Marker: pick the working Cluster first (Source "
                            "tab)."), _WARN_STYLE, logger)
             return None

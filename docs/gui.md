@@ -1975,6 +1975,19 @@ It is a HINT, never a source of truth: a remembered cluster/sheet that no longer
 current board (renamed / deleted / another board) leaves the fields empty and selects nothing — no
 fatal, no hard dependency (stale remembered values are the norm, not an edge case).
 
+Since 2026-09-17 (stage 1а of the spoke work) that prefill NO LONGER READS THE BOARD. It used to ask
+the live adapter whether the remembered cluster still existed — on the UI thread, swallowing every
+exception — so a shared socket that happened to be busy (the ~400 ms selection tick) was reported as
+"the cluster is gone", and BOTH fields came up empty whenever the editor was reopened while the refs
+stayed: exactly the state in which the marker circle answers "Marker: pick the working Cluster
+first". The judge is now the snapshot the page already holds from the ~2 s poll: a non-empty snapshot
+that does not carry the cluster still drops it, but an EMPTY one (nothing read yet — the first tick
+after a connect) proves nothing, so the remembered pair is applied as a hint, exactly like the
+offline case. The Sheet follows the same rule against the combo's list of sheet names. And with an
+identified pair (see "Identifying the instance" above) the working Cluster is not required at all:
+the refs pin the instance, so the frame, the marker and **Read position** work with an empty Cluster
+field.
+
 Two Phase C gaps in the same page are fixed in this phase: the **Sheet** combo lists the project's
 readable sheet names (the `ctx.sheet_names` VALUES, not the uuid-path keys), and the working
 **Cluster** combo is now populated from the live-board snapshot via `DockHub.push_snapshot` (an
