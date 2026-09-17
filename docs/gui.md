@@ -1951,7 +1951,11 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   fieldstool writes) and says: press **Fill from selection** on the Source tab to pin this instance —
   the refs are NOT remembered automatically, because right after a write KiCad may still hand back the
   OLD field value over IPC. The tab's cell editors are DELEGATES, not widgets attached to cells: Qt
-  creates the editor when a cell is opened and owns it (see `gui/docks/cell_refs_tab.py`).
+  creates the editor when a cell is opened and owns it (see `gui/docks/cell_refs_tab.py`). The delegate
+  hints and the status/Write-to-board state are recomputed on EVERY render, including the ones that skip
+  rebuilding the table itself (stage 2а, `plan_2026_09_17_spoke_s2a_fixes.md`): a Role added to the cell
+  in the editor appears in the Role dropdown at once, without reopening the cell, and a board that
+  connects late turns **Write to board** on for the table already on screen.
 - **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
   graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
   the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all
