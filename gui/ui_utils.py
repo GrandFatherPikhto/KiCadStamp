@@ -18,13 +18,13 @@ import logging
 from contextlib import contextmanager
 from typing import Iterable, Optional
 
-import PyQt6.sip as sip
 from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (QAbstractScrollArea, QApplication, QFrame,
                              QScrollArea, QSizePolicy, QWidget)
 
 from . import settings
+from .worker import qt_object_gone
 
 logger = logging.getLogger(__name__)
 
@@ -250,8 +250,42 @@ class _DialogSizeSaver(QObject):
     attention to sleep: at the PYTHON level this wrapper outlives the dialog's
     C++ object, because Qt delivers Hide from the dialog's own destruction
     path while `self._dialog` (a strong reference to the dialog's Python
-    wrapper) keeps that wrapper alive. save() therefore has to ask whether the
-    C++ object is still there before touching it — see its own comment."""
+    wrapper) keeps that wrapper alive.
+
+    THREE states, all of them measured — the first two at the dialog version of
+    this defect, the third one class over on `SplitterSizeKeeper`, which is the
+    same cycle and the same abort (see
+    done/done_2026_09_17_splitter_keeper_crash.md §3; that report left state 3
+    HERE as its next visit, and plan_2026_09_17_dialog_saver_and_cell_dialog_test.md
+    is that visit):
+
+    1. the dialog's C++ object is gone — `width()` raises `RuntimeError` (step 1
+       of the diagnosis in diagnostics/probe_deleted_dialog_hide_filter.py: the
+       filter is asked about Hide with `sip.isdeleted(dialog) == True`);
+    2. this filter's OWN C++ half is gone, because its QObject parent is that
+       very dialog. `_DialogSizeSaver.eventFilter` never calls
+       `super().eventFilter(...)`, so — unlike `SplitterSizeKeeper`, whose
+       `super()` call is the second door — this state cannot raise here. Checked,
+       not assumed: the class returns `False` itself;
+    3. the collector has ALREADY CLEARED this instance's `__dict__` — it clears
+       a cycle member before destroying it — so `self._dialog` and `self._key`
+       are simply NOT THERE and the raise is an `AttributeError`, not the
+       `RuntimeError` the 2026-09-13 guard answers
+       (diagnostics/probe_dialog_size_saver_cleared_dict.py prints it; the saver
+       and its dialog ARE that cycle, so this is the normal end of a session).
+
+    Why "an exception in the log" is the optimistic reading: eventFilter() runs
+    from INSIDE Qt's C++ event dispatch, so an exception raised there has no
+    Python caller left to propagate to — `sip` cannot pass it into Qt and calls
+    qFatal, which ABORTS THE WHOLE PROCESS. Measured twice: 2026-09-13 aborted 4
+    runs of 5 on pytest tests/gui/test_phase3_wiring.py, and on 2026-09-17 the
+    guard for state 3, run against the UNFIXED source, ended the pytest process
+    with exit code 0xC0000409 and no test summary at all.
+
+    Everything here is therefore read through `getattr(..., default)`, and every
+    liveness question goes to the shared predicate `gui.worker.qt_object_gone`
+    (one definition instead of a second `sip.isdeleted`; it also tolerates plain
+    Python stand-ins) BEFORE anything is touched."""
 
     def __init__(self, dialog: QWidget, key: str):
         super().__init__(dialog)
@@ -260,9 +294,17 @@ class _DialogSizeSaver(QObject):
         dialog.installEventFilter(self)
 
     def eventFilter(self, obj, event) -> bool:
+        """Store the size on Hide/Close — and never swallow the event.
+
+        Nothing may be thrown from here (class docstring): with a collaborator
+        already gone — the dialog, or this filter's own C++ half — the answer is
+        `False`, which is what QObject's own eventFilter returns, so
+        short-circuiting to it keeps the "observe, never swallow" contract while
+        touching nothing dead."""
+        if qt_object_gone(self) or qt_object_gone(obj):
+            return False
         if event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
             self.save()
-        # Never swallow the event — this filter only observes.
         return False
 
     def save(self) -> None:
@@ -270,34 +312,33 @@ class _DialogSizeSaver(QObject):
 
         eventFilter() is called from INSIDE Qt's C++ event dispatch, so an
         exception raised here has no Python caller left to propagate to: Qt
-        answers with abort(). That is not theory — measured on 2026-09-13,
-        pytest tests/gui/test_phase3_wiring.py aborted in 4 runs of 5 with
-        "wrapped C/C++ object of type CellDialog has been deleted" raised from
-        this very method. So nothing may leave save(), and it must not be
-        done with one broad try/except: a wide catch would ALSO swallow real
-        failures of settings.state.set() (which we want to see) and would hide
-        the dead-object case the guard below exists for.
+        answers with abort() (class docstring; measured twice). So nothing may
+        leave save(), and it must not be done with one broad try/except: a wide
+        catch would ALSO swallow real failures of settings.state.set() (which we
+        want to see) and would hide the dead collaborator the guards below exist
+        for.
         """
-        # Qt's ~QWidget sends Hide while the dialog is being DESTROYED: the
-        # C++ object is already gone, the Python wrapper is not (step 1 of the
-        # diagnosis in diagnostics/probe_deleted_dialog_hide_filter.py: the
-        # filter is asked about Hide with sip.isdeleted(dialog) == True).
-        # sip.isdeleted() answers exactly "is the C++ object still alive?" and
-        # nothing else — it is the same state that makes QWidget.width() raise
-        # RuntimeError, so checking it here cannot mask an unrelated failure.
-        if sip.isdeleted(self._dialog):
+        # Both halves of the remembered pair are read defensively: state 3 has
+        # no attributes at all, so a direct `self._dialog` is the AttributeError
+        # that aborts the process.
+        dialog = getattr(self, "_dialog", None)
+        key = getattr(self, "_key", None)
+        # The liveness question comes BEFORE width(): `sip.isdeleted()` answers
+        # exactly "is the C++ object still alive?" and nothing else — it is the
+        # same state that makes QWidget.width() raise RuntimeError, so asking it
+        # here cannot mask an unrelated failure.
+        if dialog is None or key is None or qt_object_gone(dialog):
             return
-        size = [self._dialog.width(), self._dialog.height()]
+        size = [dialog.width(), dialog.height()]
         try:
-            settings.state.set(self._key, size)
+            settings.state.set(key, size)
         except Exception:
             # The other half of the same contract: gui/settings.py already
             # logs its own read/write failures, but the rest (a JSON payload
             # it cannot serialise, a corrupt file it cannot decode at all)
             # would still travel straight into Qt's C++ stack. Logged, not
             # swallowed — the size is simply not remembered this once.
-            logger.exception("Cannot remember the size of dialog key %s",
-                             self._key)
+            logger.exception("Cannot remember the size of dialog key %s", key)
 
 
 def persist_dialog_size(dialog: QWidget, *, key: Optional[str] = None) -> None:

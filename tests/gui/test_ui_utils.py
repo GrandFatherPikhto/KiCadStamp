@@ -7,7 +7,13 @@ container from squeezing the form inside it: wrap_in_scroll_area() and
 resize_dialog_within_screen(). The remembered-dialog-size pair lives here too,
 so since 2026-09-13 (plan_2026_09_13_dialog_size_saver_crash.md) this file also
 guards its event filter against Qt delivering Hide AFTER the dialog's C++ object
-is gone — the case that used to abort the process."""
+is gone — the case that used to abort the process. Since 2026-09-17 (plan
+plan_2026_09_17_dialog_saver_and_cell_dialog_test.md) the guard covers the THIRD
+state as well, the one the splitter keeper taught us: the collector has already
+cleared the filter's own __dict__, so `self._dialog` / `self._key` are not there
+at all and the raise is an AttributeError (the two tests at the end of the file;
+the standalone measurement is
+diagnostics/probe_dialog_size_saver_cleared_dict.py)."""
 import logging
 
 import PyQt6.sip as sip
@@ -284,6 +290,15 @@ def test_size_saver_still_stores_a_live_dialogs_size(qapp):
     assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
     assert settings.state.get("dialog_size:_Dialog") == expected
 
+    # Close is the other half of the pair the filter watches (the X of a
+    # non-modal dialog hides without ever emitting finished()), so it is pinned
+    # too: "never save anything" must not pass as a fix on either event.
+    dialog.resize(700, 520)
+    qapp.processEvents()
+    changed = [dialog.width(), dialog.height()]
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Close)) is False
+    assert settings.state.get("dialog_size:_Dialog") == changed
+
 
 def test_size_saver_observes_without_swallowing_other_events(qapp):
     """The filter observes only: it returns False for everything (it has no
@@ -341,3 +356,58 @@ def test_size_saver_survives_a_failing_settings_write(qapp, monkeypatch, caplog)
         "the failed settings write was swallowed silently — it must be LOGGED "
         "(logger.exception), or 'log instead of abort' becomes 'pass instead "
         "of abort': " + repr([r.getMessage() for r in caplog.records]))
+
+
+# ── state 3: a __dict__ the collector already cleared (2026-09-17) ──────────
+#
+# The mine the splitter keeper taught us to split into three states
+# (done/done_2026_09_17_splitter_keeper_crash.md §3): the collector clears a
+# cycle member's __dict__ BEFORE destroying it, so the attribute is simply not
+# there and the raise is an AttributeError — not the RuntimeError the 2026-09-13
+# guard answers. The saver and its dialog are exactly such a cycle (the saver is
+# parented to the dialog AND holds a strong reference to it), so this state is
+# the normal end of a session, not a corner case. Δ5 of that report left it here
+# on purpose; plan_2026_09_17_dialog_saver_and_cell_dialog_test.md is the visit
+# that closes it.
+
+def test_size_saver_survives_a_dict_the_collector_already_cleared(qapp):
+    """The saver's own __dict__ is gone (what tp_clear does to a cycle member):
+    eventFilter() and save() must both be silent no-ops.
+
+    Pre-fix this is the RED guard: `self._dialog` raises AttributeError, which is
+    the exception Qt answers with abort() — measured, not reasoned
+    (diagnostics/probe_dialog_size_saver_cleared_dict.py prints it)."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    persist_dialog_size(dialog)
+    saver = dialog._dialog_size_saver
+    dialog.resize(640, 480)
+    dialog.show()
+    qapp.processEvents()
+
+    saver.__dict__.clear()
+
+    assert saver.eventFilter(dialog, QEvent(QEvent.Type.Hide)) is False
+    assert saver.save() is None
+    assert settings.state.get("dialog_size:_Dialog") is None
+
+
+# ── the remembered size is a wish, the screen wins (Р5, 2026-09-17) ─────────
+
+def test_restore_dialog_size_caps_a_remembered_size_bigger_than_the_screen(
+        qapp, monkeypatch):
+    """A remembered size LARGER than the screen comes back CLIPPED, not as
+    stored.
+
+    The cap itself is older than the remembered-size feature (Э3.2, "the
+    remembered size is a wish, the screen wins"), so this is not a bug fix — it
+    is the guard that PINS the rule with exact numbers. The twin guard through
+    the real CellDialog (tests/gui/test_cell_dialog.py) cannot assert an exact
+    clipped value: a SHOWN dialog's width is floored by minimumSizeHint() (1310
+    px on Windows until fb5103e), while here the dialog is never shown and the
+    values are exact."""
+    monkeypatch.setattr(ui_utils, "_primary_screen",
+                        lambda: _FakeScreen(1024, 600))
+    settings.state.set("dialog_size:_Dialog", [5000, 5000])
+    dialog = _Dialog(None)      # dialog.screen() is None -> the seam is used
+    restore_dialog_size(dialog, 720, 600)
+    assert (dialog.width(), dialog.height()) == (1024, 600)
