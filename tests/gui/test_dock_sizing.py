@@ -18,10 +18,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6 import sip
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import (QFrame, QScrollArea, QSizePolicy, QTreeWidget,
-                             QWidget)
+from PyQt6.QtWidgets import (QFrame, QScrollArea, QSizePolicy, QSplitter,
+                             QTreeWidget, QWidget)
 
 from gui import settings
 from gui.docks._common import SplitterSizeKeeper
@@ -277,6 +278,84 @@ def test_keeper_allows_a_declared_collapsed_pane_when_collapsible():
     is not the "hidden widget" all-zero report and must be kept."""
     keeper = SplitterSizeKeeper(_StubSplitter([0, 300], collapsible=True))
     assert keeper.capture() == [0, 300]
+
+
+# ── the keeper must survive its OWN splitter (2026-09-17) ──────────────────
+# The keeper is parented to its splitter AND holds a strong reference to it, so
+# the two form a cycle; the collector dismantles it with the C++ splitter going
+# first while the Python wrapper stays alive and Qt keeps delivering events to
+# it. Both doors into the dead object — eventFilter (Qt's C++ dispatch) and the
+# splitterMoved slot — have no Python caller to catch an exception, and sip turns
+# an escaping RuntimeError into qFatal, i.e. the WHOLE PROCESS aborting
+# (measured 2026-09-17 while running the full suite). Guard С1/С2 of
+# plan_2026_09_17_splitter_keeper_crash.md §Э2.
+
+def test_keeper_survives_a_splitter_whose_cpp_object_is_gone(qapp):
+    """Guard С1: with the C++ splitter destroyed, capture() returns the last
+    good value and eventFilter() returns False — NO exception, neither way."""
+    splitter = QSplitter()
+    splitter.addWidget(QWidget())
+    splitter.addWidget(QWidget())
+    splitter.resize(400, 200)
+    splitter.setSizes([120, 180])
+    keeper = SplitterSizeKeeper(splitter)
+    good = keeper.capture()
+    # setSizes() clamps to the children's minimums, so read back what the
+    # splitter actually holds instead of assuming the requested pair.
+    assert good == list(splitter.sizes())
+    assert all(size > 0 for size in good), good
+
+    splitter.deleteLater()
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert sip.isdeleted(splitter)      # the C++ object really is gone
+
+    # The event Qt still delivers to the filter, and the capture() the
+    # splitterMoved slot calls — neither may raise, and the filter keeps its
+    # "observe, never swallow" contract.
+    assert keeper.eventFilter(splitter, QEvent(QEvent.Type.Hide)) is False
+    assert keeper.capture() == good
+
+
+def test_keeper_survives_a_dict_the_collector_already_cleared(qapp):
+    """Guard С1b — the state that SURVIVED the first two guards.
+
+    The collector clears a cycle member's `__dict__` before destroying it, so
+    the events Qt keeps delivering arrive at an instance whose `_splitter` is not
+    there at all: an AttributeError, and the process aborts exactly like the
+    RuntimeError did (measured 2026-09-17 by instrumenting eventFilter — it was
+    the abort that outlived both liveness checks). `__dict__.clear()` IS what
+    tp_clear does to a cycle member, so it is emulated directly here; scheduling
+    a real collection while Qt still delivers events is the thing being
+    protected against, not something a test can arrange."""
+    splitter = QSplitter()
+    splitter.addWidget(QWidget())
+    splitter.addWidget(QWidget())
+    splitter.resize(400, 200)
+    splitter.setSizes([120, 180])
+    keeper = SplitterSizeKeeper(splitter)
+    assert keeper.capture() is not None
+
+    keeper.__dict__.clear()          # what the collector does to a cycle member
+
+    assert keeper.eventFilter(splitter, QEvent(QEvent.Type.Hide)) is False
+    assert keeper.capture() is None
+
+
+def test_keeper_still_captures_a_live_splitter_and_never_swallows(qapp):
+    """Guard С2 (the opposite direction): the liveness check must not switch the
+    keeper off — a live splitter is still read, and eventFilter still returns
+    False for it."""
+    splitter = QSplitter()
+    splitter.addWidget(QWidget())
+    splitter.addWidget(QWidget())
+    splitter.resize(400, 200)
+    splitter.setSizes([150, 250])
+    keeper = SplitterSizeKeeper(splitter)
+
+    live = list(splitter.sizes())
+    assert keeper.capture() == live
+    assert all(size > 0 for size in live), live
+    assert keeper.eventFilter(splitter, QEvent(QEvent.Type.Resize)) is False
 
 
 def test_config_persist_keeps_the_last_good_size_when_hidden(main_window,

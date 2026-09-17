@@ -35,6 +35,7 @@ from kicadstamp.config_writer import (
     upsert_entity, upsert_entity_placement, upsert_list_entry)
 
 from .. import settings
+from ..worker import qt_object_gone
 
 logger = logging.getLogger(__name__)
 
@@ -445,7 +446,39 @@ class SplitterSizeKeeper(QObject):
     unit test): correct arity, and at least one non-zero entry when the splitter
     is `childrenCollapsible()` (a user MAY legally collapse one pane to zero);
     when it is NOT collapsible no pane may legally be zero, so every entry must
-    be positive."""
+    be positive.
+
+    The Python wrapper OUTLIVES the C++ object, and that is not a corner case —
+    it is the normal end of a session. The keeper is parented to its splitter
+    AND keeps a strong reference to it (`self._splitter`), so the two form a
+    reference cycle; when the garbage collector dismantles that cycle the C++
+    splitter is destroyed while this wrapper stays alive and Qt still delivers
+    events to the filter. `capture()` is called from two places that have no
+    Python caller left to catch an exception — Qt's C++ event dispatch
+    (eventFilter) and the C++-invoked `splitterMoved` slot — so touching the
+    dead object there is not "an error in the log": `sip` cannot propagate the
+    RuntimeError into Qt and calls qFatal, which ABORTS THE WHOLE PROCESS
+    (measured 2026-09-17 while running the full test suite; the same class of
+    defect as the 2026-09-13 `_DialogSizeSaver` one, see
+    plan_2026_09_17_splitter_keeper_crash.md). Hence the liveness checks: with
+    the C++ object gone there is nothing to read, and the remembered value is
+    the right answer.
+
+    THREE states, not one, all of them measured on 2026-09-17 while chasing
+    this:
+
+    1. the C++ splitter is gone (`RuntimeError` from `sizes()`);
+    2. the keeper's OWN C++ half is gone too, because its QObject parent is that
+       very splitter — so `super().eventFilter(...)` raises as well (found by
+       guard С1 the day it was written);
+    3. the collector has ALREADY CLEARED this instance's `__dict__` — it clears
+       a cycle member before destroying it — so `self._splitter` does not exist
+       at all and the raise is an `AttributeError`, not a `RuntimeError` (found
+       by instrumenting eventFilter when the first two guards were already in
+       place, and it was the abort that survived them).
+
+    Everything here is therefore read through `getattr(..., default)` and every
+    liveness question is asked before touching anything."""
 
     def __init__(self, splitter: QSplitter) -> None:
         super().__init__(splitter)
@@ -455,19 +488,33 @@ class SplitterSizeKeeper(QObject):
         splitter.installEventFilter(self)
 
     def _is_good(self, sizes: List[int]) -> bool:
-        if len(sizes) != self._splitter.count() or not sizes:
+        # The splitter is read defensively for the same reason as everywhere
+        # else in this class (docstring, state 3): a cleared __dict__ has no
+        # `_splitter`, and an unreadable splitter has nothing good to report.
+        splitter = getattr(self, "_splitter", None)
+        if splitter is None or not sizes or len(sizes) != splitter.count():
             return False
         # Empty tabs/hidden pages report all-zero; a collapsible splitter may
         # legitimately hold a single zero pane, a non-collapsible one may not
         # hold any.
-        if self._splitter.childrenCollapsible():
+        if splitter.childrenCollapsible():
             return any(size > 0 for size in sizes)
         return all(size > 0 for size in sizes)
 
     def capture(self) -> Optional[List[int]]:
         """Store the splitter's CURRENT sizes when they are good; always return
-        the last good value (or None when none was ever seen)."""
-        sizes = list(self._splitter.sizes())
+        the last good value (or None when none was ever seen).
+
+        Nothing here may raise: this runs from Qt's C++ event dispatch (see
+        eventFilter) and from the `splitterMoved` slot, and an exception
+        escaping either of them aborts the process (class docstring). A
+        splitter that cannot be read — its C++ object gone, or this instance's
+        `__dict__` already cleared by the collector — is therefore a no-op, and
+        the remembered value (when one is still readable) is what callers want."""
+        splitter = getattr(self, "_splitter", None)
+        if splitter is None or qt_object_gone(splitter):
+            return getattr(self, "_last_good", None)
+        sizes = list(splitter.sizes())
         if self._is_good(sizes):
             self._last_good = sizes
         return self._last_good
@@ -475,9 +522,20 @@ class SplitterSizeKeeper(QObject):
     def eventFilter(self, obj, event) -> bool:
         """Refresh the remembered size whenever the splitter is laid out — a
         Resize/Show is the moment a real geometry exists, Hide is the last
-        chance to read one before Qt zeroes a hidden widget's sizes."""
-        if obj is self._splitter and event.type() in (
-                QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide):
+        chance to read one before Qt zeroes a hidden widget's sizes.
+
+        Nothing may be thrown from here, and a DYING splitter is exactly when Qt
+        calls it (class docstring: all three states, including the `__dict__`
+        the collector has already cleared). False is what QObject's own
+        eventFilter answers, so short-circuiting to it keeps the "observe, never
+        swallow" contract while touching nothing dead."""
+        if qt_object_gone(self) or qt_object_gone(obj):
+            return False
+        splitter = getattr(self, "_splitter", None)
+        if (splitter is not None and obj is splitter
+                and not qt_object_gone(splitter)
+                and event.type() in (QEvent.Type.Resize, QEvent.Type.Show,
+                                     QEvent.Type.Hide)):
             self.capture()
         return super().eventFilter(obj, event)
 

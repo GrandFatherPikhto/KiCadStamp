@@ -494,16 +494,21 @@ median and 77.5 ms at p90 (measured 2026-09-14,
 socket almost always while staying invisible to the user."""
 
 
-def _qt_object_gone(obj: Any) -> bool:
+def qt_object_gone(obj: Any) -> bool:
     """True when the Qt object behind `obj` no longer exists (a plain Python
     stand-in — a test double that is not a QObject — has no C++ side to
     outlive, so it counts as alive).
 
-    Used by :func:`refresh_snapshot_then_with_retry`'s retry: the ``QTimer``
-    outlives the widget, and running the continuation against a deleted
-    dock/dialog would raise ``RuntimeError`` in the middle of an event-loop
-    callback — the same class of bug as the live ``abort()`` of 2026-09-13
-    (``_DialogSizeSaver``)."""
+    Two callers, one question. :func:`refresh_snapshot_then_with_retry`'s retry
+    needs it because the ``QTimer`` outlives the widget: running the
+    continuation against a deleted dock/dialog would raise ``RuntimeError`` in
+    the middle of an event-loop callback. `SplitterSizeKeeper.capture()`
+    (gui/docks/_common.py) needs it for the harsher version of the same thing —
+    its ``eventFilter`` runs from INSIDE Qt's C++ dispatch while the collector
+    dismantles the keeper <-> splitter cycle, so a raise there is not an error
+    in the log but the whole process aborting (measured 2026-09-17; the second
+    instance of the 2026-09-13 ``_DialogSizeSaver`` defect). Public on purpose:
+    one definition, one answer, shared."""
     try:
         return bool(sip.isdeleted(obj))
     except (TypeError, RuntimeError):
@@ -562,7 +567,7 @@ def refresh_snapshot_then_with_retry(
     def _gone() -> bool:
         candidates = [owner] if owner is not None else []
         candidates.extend(widget_list)
-        return any(_qt_object_gone(c) for c in candidates)
+        return any(qt_object_gone(c) for c in candidates)
 
     def _exhausted() -> None:
         if on_still_busy is not None:
@@ -629,7 +634,7 @@ def defer_while_socket_busy(
     def _gone() -> bool:
         candidates = [owner] if owner is not None else []
         candidates.extend(widget_list)
-        return any(_qt_object_gone(c) for c in candidates)
+        return any(qt_object_gone(c) for c in candidates)
 
     def _retry() -> None:
         if _gone():
