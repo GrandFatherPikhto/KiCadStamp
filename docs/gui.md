@@ -1922,6 +1922,36 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   snapshot the GUI already holds, through the same rules, so a typo is refused in the Log); changing
   Cluster or Sheet by hand forgets the refs, and **Select cluster of this cell on the board** in the
   Cell dialog then selects exactly the identified pair instead of the whole bank.
+- **"Refs" tab — the role table** (2026-09-17, stage 2 of
+  `plan_2026_09_17_spoke_s2_role_table.md`): the SECOND tab of the same cell editor, for the moment the
+  roles do not exist YET. A pair of decoupling capacitors is routed first and the roles are invented
+  afterwards — and until the components carry a Role, "Fill from selection" on the Source tab has
+  nothing to identify (exactly the situation above). The Role/Cluster panel cannot help either: its
+  "Tag selected" writes ONE role into EVERY selected component. This tab writes a DIFFERENT Role per
+  component, plus the cluster, in ONE `set_field_values_bulk` commit — one Ctrl+Z in KiCad takes the
+  whole table back. **Take selection** fills the table from the board selection, **Add selection**
+  appends the components the table does not have yet (a ref already there keeps its row, and the user's
+  edits in it), a refdes can also be typed into the last, empty row (checked against the board read the
+  GUI already holds — no board access), and rows can be dropped (**Remove row** or Delete) or emptied
+  (**Clear**). Three columns: **Ref**, **Role** and **Cluster to write** — both to-write cells are
+  pre-filled with the board's own values, **bold** when they differ from the board, grey and locked
+  when the footprint has no such field at all (on the live board H1–H4 have no Role field and R37 has
+  no Cluster field; the field-existence facts come from the same board read). "Cluster to write:"
+  above the table plus **Apply to all rows** is the group fill: it puts the chosen cluster into every
+  row that can take it and names the rows that cannot. Nothing that already matches the board is
+  written, and an EMPTIED Role means "leave it alone" (erasing roles is Role/Cluster "Clear all", not
+  this table). The status strip warns without blocking — one role on two rows is fine for tagging
+  several spoke pairs at once but will not identify as ONE instance, a role that is not the cell's, a
+  cell role left unassigned, clusters that disagree across rows — and **Write to board** is active only
+  when something genuinely differs. The last table the user typed is remembered per cell in
+  `gui_state.json` under its OWN key (`cell_role_table`), so the Source tab's Cluster/Sheet pick, which
+  deliberately erases the identified refs, cannot erase the table; the board's columns and the cluster
+  suggestions always come from the snapshot the page holds. After a write the page refreshes the
+  snapshot (so Pending changes and the other docks see it immediately, like the Role/Cluster tree and
+  fieldstool writes) and says: press **Fill from selection** on the Source tab to pin this instance —
+  the refs are NOT remembered automatically, because right after a write KiCad may still hand back the
+  OLD field value over IPC. The tab's cell editors are DELEGATES, not widgets attached to cells: Qt
+  creates the editor when a cell is opened and owns it (see `gui/docks/cell_refs_tab.py`).
 - **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
   graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
   the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all

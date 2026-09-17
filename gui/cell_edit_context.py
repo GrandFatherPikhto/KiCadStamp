@@ -19,6 +19,21 @@ gui_state.json layout (settings.state, key "cell_edit_context"):
         }
     }
 
+... and, since 2026-09-17 (stage 2 of the spoke work), the cell editor's "Refs"
+tab keeps the last role table the user filled in under its OWN key — a table of
+user input only, the board's columns being the snapshot's business:
+
+    "cell_role_table": {
+        "<abs path of the root config>": {
+            "<cell name>": {"cluster": "FPGA_PWR_BANK",
+                            "rows": [{"ref": "C74", "role": "C_FPGA_BULK",
+                                      "cluster": "FPGA_PWR_BANK"}]}
+        }
+    }
+
+A separate key on purpose: ANY context write without refs erases the identified
+refs (the stage-1 rule), and that must not touch a table the user just typed.
+
 ... and, since 2026-09-17 (stage 1 of the spoke work), an entry may also carry the
 IDENTIFIED refs of that instance:
 
@@ -74,12 +89,18 @@ logger = logging.getLogger(__name__)
 # The gui_state.json key holding the per-(root, cell) remembered contexts.
 CELL_EDIT_CONTEXT_KEY = "cell_edit_context"
 
+# The gui_state.json key holding the last table the user filled in on the cell
+# editor's "Refs" tab (2026-09-17, stage 2 of the spoke work). Deliberately a
+# SEPARATE key from the context above: a context write without refs ERASES the
+# identified refs (stage 1 rule), and the user's typed table must survive that.
+CELL_ROLE_TABLE_KEY = "cell_role_table"
 
-def _state() -> dict:
-    """The current cell_edit_context map (or {} when absent/malformed) —
+
+def _state(key: str = CELL_EDIT_CONTEXT_KEY) -> dict:
+    """The current stored map under `key` (or {} when absent/malformed) —
     never raises."""
     try:
-        raw = settings.state.get(CELL_EDIT_CONTEXT_KEY, {})
+        raw = settings.state.get(key, {})
     except Exception:  # noqa: BLE001 — a state read must never break a caller
         return {}
     return raw if isinstance(raw, dict) else {}
@@ -170,6 +191,93 @@ def remembered_cell_refs(root_path, cell_name: str) -> Optional[dict]:
         cleaned = {str(role): str(ref) for role, ref in refs.items()
                    if role and ref}
         return cleaned or None
+    except Exception:  # noqa: BLE001 — best-effort read, never fatal
+        return None
+
+
+def remember_role_table(root_path, cell_name: str, table) -> None:
+    """Record the LAST table filled in on the cell editor's "Refs" tab, under
+    `cell_name` / `root_path` (2026-09-17, stage 2; design Р2б).
+
+    `table` is the model's own state shape — {"cluster": str, "rows": [{"ref",
+    "role", "cluster"}]} (gui/role_table_model.table_to_state) — and only what
+    the USER typed belongs in it: the board's own values are the snapshot's
+    business and are deliberately NOT stored here (they rot; a remembered copy
+    would be shown as if the user had typed it). An empty row list means "the
+    user cleared the table", so the entry is REMOVED rather than stored empty —
+    otherwise the rows would come back on the next open.
+
+    Best-effort and never raises, like every other writer here: a state write
+    must never break the button that produced it.
+
+    Separate key, separate concern (Р2б): this is NOT a field of
+    cell_edit_context, so the stage-1 rule "a context write without refs erases
+    the identified refs" — a manual Cluster/Sheet pick on the Source tab, say —
+    cannot erase the table the user is working with."""
+    if not cell_name or root_path is None:
+        return
+    try:
+        state = _state(CELL_ROLE_TABLE_KEY)
+        per_root = state.setdefault(str(root_path), {})
+        rows = []
+        if isinstance(table, dict):
+            for entry in (table.get("rows") or ()):
+                if not isinstance(entry, dict):
+                    continue
+                ref = str(entry.get("ref") or "").strip()
+                if not ref:
+                    continue
+                rows.append({"ref": ref,
+                             "role": str(entry.get("role") or ""),
+                             "cluster": str(entry.get("cluster") or "")})
+        if rows:
+            per_root[cell_name] = {
+                "cluster": str((table or {}).get("cluster") or ""),
+                "rows": rows,
+            }
+        else:
+            per_root.pop(cell_name, None)
+            if not per_root:
+                state.pop(str(root_path), None)
+        settings.state.set(CELL_ROLE_TABLE_KEY, state)
+    except Exception:  # noqa: BLE001 — state is a hint; never fatal
+        logger.warning("Failed to remember the role table of %r — state write "
+                       "skipped", cell_name)
+
+
+def remembered_role_table(root_path, cell_name: str) -> Optional[dict]:
+    """The table last filled in on the "Refs" tab of `cell_name` under
+    `root_path`, or None when there is none (nothing recorded, an emptied table,
+    a malformed entry). Never raises.
+
+    A non-empty result is STILL only the user's own input: the board's columns
+    of every row come from the snapshot the page holds
+    (role_table_model.rows_from_state), never from here."""
+    if root_path is None or not cell_name:
+        return None
+    try:
+        per_root = _state(CELL_ROLE_TABLE_KEY).get(str(root_path)) or {}
+        if not isinstance(per_root, dict):
+            return None
+        entry = per_root.get(cell_name)
+        if not isinstance(entry, dict):
+            return None
+        rows = entry.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return None
+        cleaned = []
+        for raw in rows:
+            if not isinstance(raw, dict):
+                continue
+            ref = str(raw.get("ref") or "").strip()
+            if not ref:
+                continue
+            cleaned.append({"ref": ref,
+                            "role": str(raw.get("role") or ""),
+                            "cluster": str(raw.get("cluster") or "")})
+        if not cleaned:
+            return None
+        return {"cluster": str(entry.get("cluster") or ""), "rows": cleaned}
     except Exception:  # noqa: BLE001 — best-effort read, never fatal
         return None
 

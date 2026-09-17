@@ -39,10 +39,13 @@ import gui.docks.cell_editor as cell_editor_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
+    CELL_ROLE_TABLE_KEY,
     remember_cell_edit_context,
     remember_cell_instance,
+    remember_role_table,
     remembered_cell_edit_context,
     remembered_cell_refs,
+    remembered_role_table,
     resolve_context_footprints,
 )
 from gui.cell_identification import Identification
@@ -940,3 +943,87 @@ def test_c5a_identified_refs_make_the_working_cluster_optional(
                      "cluster is not required when the pair is identified")
     assert started[0][-1] == {"C1": "C74", "C2": "C58"}
     assert "working Cluster" not in caplog.text
+
+
+# ── The "Refs" tab's table in gui_state.json (2026-09-17, stage 2) ─────────
+#
+# The table the user types on the Refs tab is remembered under its OWN key
+# (cell_role_table), NOT inside cell_edit_context. That is what makes it survive
+# the stage-1 rule "a context write WITHOUT refs erases the identified refs"
+# (С2и): a manual Cluster/Sheet pick on the Source tab must not wipe a table
+# the user has just filled in.
+
+def _table(refs_roles, cluster="FPGA_PWR_BANK"):
+    """A saved-table dict: {cluster, rows:[{ref, role, cluster}]}."""
+    return {"cluster": cluster,
+            "rows": [{"ref": ref, "role": role, "cluster": ""}
+                     for ref, role in refs_roles]}
+
+
+def test_c2zh_role_table_round_trip_is_scoped_by_root_and_cell(tmp_path):
+    """С2ж: the table survives a restart — and, like the working context, it is
+    scoped per root config (a cell name is a cluster-tag slug, so the same name
+    in two profiles means two different boards)."""
+    root_a = tmp_path / "a.sexp"
+    root_b = tmp_path / "b.sexp"
+    table = _table([("C74", "C_FPGA_BULK"), ("C58", "")])
+
+    remember_role_table(root_a, "fpga_pwr_bank", table)
+
+    assert remembered_role_table(root_a, "fpga_pwr_bank") == table
+    assert remembered_role_table(root_b, "fpga_pwr_bank") is None
+    assert remembered_role_table(root_a, "other_cell") is None
+
+
+def test_c2zh_clearing_the_table_forgets_it(tmp_path):
+    """«Clear» empties the table: the remembered copy goes with it, otherwise the
+    rows the user deleted would come back on the next open."""
+    root = tmp_path / "root.sexp"
+    remember_role_table(root, "cell1", _table([("C41", "C_BULK")]))
+
+    remember_role_table(root, "cell1", {"cluster": "", "rows": []})
+
+    assert remembered_role_table(root, "cell1") is None
+
+
+def test_c2zh_a_missing_or_malformed_table_reads_as_none(tmp_path):
+    """State is a hint everywhere in this project: nothing recorded, a state
+    replaced by a string and a cell entry replaced by a string all read as
+    "no table", never an exception."""
+    root = tmp_path / "root.sexp"
+    assert remembered_role_table(root, "cell1") is None
+    assert remembered_role_table(None, "cell1") is None
+
+    settings.state.set(CELL_ROLE_TABLE_KEY, "not-a-dict")
+    assert remembered_role_table(root, "cell1") is None
+    settings.state.set(CELL_ROLE_TABLE_KEY, {str(root): {"cell1": "nope"}})
+    assert remembered_role_table(root, "cell1") is None
+
+
+def test_c2z_the_stored_table_holds_only_what_the_user_typed(tmp_path):
+    """С2з: the state write adds nothing of its own — the board's values are the
+    snapshot's business, and a stale copy of them here would be shown as if the
+    user had typed it."""
+    root = tmp_path / "root.sexp"
+    table = _table([("C74", "C_FPGA_BULK")], cluster="FPGA_PWR_BANK")
+
+    remember_role_table(root, "cell1", table)
+
+    assert settings.state.get(CELL_ROLE_TABLE_KEY)[str(root)]["cell1"] == table
+
+
+def test_c2i_a_context_write_without_refs_keeps_the_table(tmp_path):
+    """С2и — the reason for the separate key. Picking another Cluster/Sheet on
+    the Source tab erases the IDENTIFIED refs of the instance (stage 1, on
+    purpose), and a fresh identification with nobody selected writes nothing.
+    Neither may touch the role table."""
+    root = tmp_path / "root.sexp"
+    table = _table([("C41", "C_BULK")], cluster="")
+    remember_role_table(root, "cell1", table)
+
+    remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
+    remember_cell_instance(root, "cell1",
+                           _identification(cluster="PIF_3V3_VDD", refs={}))
+
+    assert remembered_cell_refs(root, "cell1") is None      # the refs are gone
+    assert remembered_role_table(root, "cell1") == table    # the table is not
