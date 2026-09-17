@@ -21,13 +21,22 @@ The step ORDER is deliberately the stage-5 diagnostic's own
 (kicadstamp/diagnostics/probe_extract_spoke_from_selection.py, Ф1 of the plan):
 that probe is the "before / after" ruler Denis re-runs on the live board, so the
 dialog and the probe must agree by construction, not by coincidence.
+
+The WRITE side lives here too (spoke_entry / chain_with_new_spoke /
+stage_spoke_write / new_chain_dict): building the spoke entry and splicing it
+into its chain is pure as well, and both are validated through the config loader
+BEFORE the caller touches a file. That is what keeps the dialog's OK a thin
+"write these two dicts", and what makes a chain no anchor can resolve refuse
+itself instead of landing in the config.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional
 
+from .config import load_chain, load_manual_spoke
 from .exceptions import ValidationError
 from .i18n import _
 
@@ -385,3 +394,145 @@ def pool_outcome(assignment: Mapping[str, dict], target_pad, selected_refs, *,
         kind=OUTCOME_OTHER_PAIR, ok=False, needs_swap_confirm=True,
         assigned=assigned, selected_refs=wanted, owner_chain=owner_chain,
         owner_pad=owner_pad, message=message)
+
+
+# ── step 7: what OK writes (plan Р4/Р5) ────────────────────────────────────
+
+def spoke_entry(pad, cell, offset: SpokeOffset, cluster: Optional[str] = None
+                ) -> dict:
+    """The `chains:` spoke entry for one identified pair: pad, cell, cluster and
+    the geometry read off the board (spoke_offset).
+
+    A zero shift and a zero rotation are LEFT OUT — the same convention the
+    Chain dock's own pad form uses (`_build_spoke_dict`: ManualSpoke defaults
+    them to 0.0), so an extracted spoke and a hand-typed one are identical when
+    there is nothing to store."""
+    entry: dict = {"pad": str(pad), "cell": str(cell)}
+    if offset.shift_x_mm:
+        entry["shift_x_mm"] = float(offset.shift_x_mm)
+    if offset.shift_y_mm:
+        entry["shift_y_mm"] = float(offset.shift_y_mm)
+    if offset.rotation_deg:
+        entry["rotation_deg"] = float(offset.rotation_deg)
+    if cluster:
+        entry["cluster"] = str(cluster)
+    return entry
+
+
+def _spoke_index_on_pad(chain, pad) -> Optional[int]:
+    """The index of the spoke written for `pad`, or None. ANY spoke counts —
+    retired included: the pad is taken either way, and two entries on one pad
+    would be planned as two spokes placing two pairs on the same pin."""
+    wanted = str(pad)
+    for index, spoke in enumerate((_field(chain, "spokes") or ())):
+        if str(_field(spoke, "pad")) == wanted:
+            return index
+    return None
+
+
+def chain_with_new_spoke(chain, spoke, *, replace: bool = False
+                         ) -> tuple[Optional[dict], list[str], bool]:
+    """(chain_with_the_spoke, problems, replaced) — the chain entry with the new
+    spoke spliced in, or (None, problems, False) when it must not be.
+
+    A pad that is FREE gets the spoke APPENDED at the end: the pool is consumed
+    in chain order, and that is the order pool_outcome's verdict was computed
+    for. A pad that already carries a spoke is REFUSED unless the caller says
+    `replace=True` (the dialog's explicit "Replace" checkbox) — silently writing
+    a second spoke onto a pin would place two pairs there (plan С7). A confirmed
+    replacement lands at the SAME index, so the spokes before it keep the
+    components the pool gives them.
+
+    Nothing is written here: the returned dict is handed to load_chain by
+    stage_spoke_write, and only the caller owns the file.
+    """
+    pad = str(_field(spoke, "pad"))
+    index = _spoke_index_on_pad(chain, pad)
+    if index is not None and not replace:
+        occupant = (_field(chain, "spokes") or ())[index]
+        return None, [_("pad {pad} already has a spoke (cell {cell}) — replacing "
+                        "it needs the explicit “Replace” confirmation").format(
+                            pad=pad, cell=_field(occupant, "cell"))], False
+    merged = copy.deepcopy(dict(chain))
+    spokes = list(merged.get("spokes") or ())
+    if index is None:
+        spokes.append(dict(spoke))
+        replaced = False
+    else:
+        spokes[index] = dict(spoke)
+        replaced = True
+    merged["spokes"] = spokes
+    return merged, [], replaced
+
+
+@dataclass(frozen=True)
+class SpokeWritePlan:
+    """What one OK writes: the whole chain entry (with the spoke in place), the
+    spoke entry itself, which pad it is on, and whether an existing spoke was
+    replaced. `chain` is ready for `upsert_list_entry(path, "chains", ...)`."""
+    chain: dict
+    spoke: dict
+    pad: str
+    replaced: bool
+
+
+def stage_spoke_write(chain, spoke, *, replace: bool = False
+                      ) -> tuple[Optional[SpokeWritePlan], list[str]]:
+    """Validate and stage the write — (plan, problems), nothing is written.
+
+    The order is the point: the spoke is checked as a ManualSpoke FIRST (one
+    position mode, pad and cell present), then the splice, then the WHOLE chain
+    through load_chain — so a chain the loader would reject (no net, no anchor,
+    an invalid sibling) is refused here, while the files are still untouched
+    (tests/test_spoke_write.py's round trip is the same sequence the dialog runs).
+    """
+    net = str(_field(chain, "net") or "")
+    if not net:
+        # load_chain does NOT require a net (a chain is identified by it, but the
+        # loader only complains about a MISSING ANCHOR — measured 2026-09-17), so
+        # an entry written without one would be unpickable by --only and
+        # unnameable in the tree. The Chain dock refuses it the same way.
+        return None, [_("Net is required.")]
+    try:
+        load_manual_spoke(dict(spoke), net)
+    except ValidationError as exc:
+        return None, [str(exc).strip()]
+    merged, problems, replaced = chain_with_new_spoke(chain, spoke,
+                                                      replace=replace)
+    if merged is None:
+        return None, problems
+    try:
+        load_chain(merged)
+    except ValidationError as exc:
+        return None, [str(exc).strip()]
+    return SpokeWritePlan(chain=merged, spoke=dict(spoke),
+                          pad=str(_field(spoke, "pad")), replaced=replaced), []
+
+
+def new_chain_dict(net, *, anchor_ref: Optional[str] = None,
+                   anchor_role: Optional[str] = None,
+                   anchor_sheet: Optional[str] = None,
+                   anchor_cluster: Optional[str] = None) -> dict:
+    """A brand-new `chains:` entry for a pair whose net has no chain yet (plan
+    Р3: "нет цепочки" → create `{net, anchor_role}`), with the anchor taken from
+    the nearest FOREIGN pad on that net.
+
+    No anchor is invented here: an anchorless chain is a fatal at load
+    (config/entries.py's `_load_chain` — "a spoke chain must have an anchor"),
+    and stage_spoke_write reports exactly that, so the caller must name the
+    anchor component it resolved on the board.
+
+    Exactly ONE of anchor_ref / anchor_role is expected — the loader's own rule
+    (they are mutually exclusive). Preferring the role is the durable choice (it
+    survives a re-annotation), with anchor_cluster/anchor_sheet narrowing it;
+    passing both is reported by stage_spoke_write like any other invalid chain."""
+    entry: dict = {"net": str(net), "spokes": []}
+    if anchor_ref:
+        entry["anchor_ref"] = str(anchor_ref)
+    if anchor_role:
+        entry["anchor_role"] = str(anchor_role)
+    if anchor_sheet:
+        entry["anchor_sheet"] = str(anchor_sheet)
+    if anchor_cluster:
+        entry["anchor_cluster"] = str(anchor_cluster)
+    return entry

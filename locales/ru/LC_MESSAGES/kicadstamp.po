@@ -16693,3 +16693,6 @@ msgstr "на перерисовке эта спица получит {got}, а �
 
 msgid "No free pair left in cluster {cluster} for one more spoke ({pairs} pairs, {spokes} spokes)"
 msgstr "в кластере {cluster} не осталось свободной пары для ещё одной спицы ({pairs} пар, {spokes} спиц)"
+
+msgid "pad {pad} already has a spoke (cell {cell}) — replacing it needs the explicit “Replace” confirmation"
+msgstr "на паде {pad} уже есть спица (ячейка {cell}) — для замены нужна явная галочка «Replace»"

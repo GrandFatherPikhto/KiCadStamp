@@ -18019,3 +18019,6 @@ msgstr ""
 
 msgid "No free pair left in cluster {cluster} for one more spoke ({pairs} pairs, {spokes} spokes)"
 msgstr ""
+
+msgid "pad {pad} already has a spoke (cell {cell}) — replacing it needs the explicit “Replace” confirmation"
+msgstr ""
