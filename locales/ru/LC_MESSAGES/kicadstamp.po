@@ -16372,3 +16372,138 @@ msgstr "⚠ {count} значений на плате пусты — значен
 #: kicadstamp/placement/services/coordinate_position_calculator.py
 msgid "this record was materialized from a tree's component node, whose address named this refdes when the run started — the footprint has left the board (deleted or renamed) since"
 msgstr "эта запись материализована из узла-компонента дерева, чей адрес назвал этот refdes на момент старта прогона — с тех пор компонент покинул плату (удалён или переименован)"
+
+msgid "C43, C44"
+msgstr "C43, C44"
+
+msgid "Fill from selection"
+msgstr "Заполнить по выделению"
+
+msgid "Fill from selection failed: {message}"
+msgstr "Заполнение по выделению не удалось: {message}"
+
+msgid "Identification needs a project root — open a project first."
+msgstr "Для идентификации нужен корень проекта — сначала откройте проект."
+
+msgid "Identification: failed to load the project config: {error}"
+msgstr "Идентификация: не удалось загрузить конфиг проекта: {error}"
+
+msgid "Identified instance"
+msgstr "Идентифицированный экземпляр"
+
+msgid "Identify ONE placed instance of this cell from the components selected on the board: fills Sheet, Cluster and the refs of that pair (a spoke is identified by one pair)."
+msgstr "Определить ОДИН поставленный экземпляр этой ячейки по выделенным на плате компонентам: заполняет «Лист», «Кластер» и рефы этой пары (спица идентифицируется одной парой)."
+
+msgid "No remembered cluster for cell {name!r} — extract it from a board cluster, or remember one via the cell-anchor page’s “Fill from selection”."
+msgstr "Для ячейки {name!r} нет запомненного кластера — извлеките её из кластера на плате или запомните через «Заполнить по выделению» на странице якоря ячейки."
+
+msgid "Refs:"
+msgstr "Рефы:"
+
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Refresh geometry from selection”."
+msgstr "На плате выделено {count} идентифицированных компонент(ов) этой ячейки — готово для «Обновить геометрию по выделению»."
+
+msgid "The refdes of the identified components, in the order of the cell's roles — editable by hand (comma or space separated). They are checked against the board every time they are used; a changed or missing component is reported as a stale identification."
+msgstr "Рефы идентифицированных компонентов, в порядке ролей ячейки — можно править руками (через запятую или пробел). Они проверяются по плате при каждом использовании; изменившийся или пропавший компонент сообщается как устаревшая идентификация."
+
+msgid "a spoke cell is identified by exactly ONE pair; an ordinary cluster can be identified from any part of it"
+msgstr "спица идентифицируется ровно ОДНОЙ парой; обычный кластер можно идентифицировать по любой его части"
+
+msgid "a spoke needs exactly one component per cell role: missing {missing}"
+msgstr "спице нужен ровно один компонент на каждую роль ячейки: не хватает {missing}"
+
+msgid "a spoke repeats the cell's roles inside one cluster, so the cluster alone cannot say WHICH pair is edited; identifying the pair pins the editor to exactly those components"
+msgstr "спица повторяет роли ячейки внутри одного кластера, поэтому кластер сам не скажет, КАКАЯ пара правится; идентификация пары привязывает редактор ровно к этим компонентам"
+
+msgid "cell {cell!r} has roles: {roles}"
+msgstr "у ячейки {cell!r} есть роли: {roles}"
+
+msgid "cluster {cluster!r} stands on several sheets ({sheets}) — the selection mixes two instances"
+msgstr "кластер {cluster!r} стоит на нескольких листах ({sheets}) — в выделении смешаны два экземпляра"
+
+msgid "identified as a SPOKE: role {role!r} occurs {count} times in cluster {cluster!r} — this pair is pinned: {refs}"
+msgstr "идентифицировано как СПИЦА: роль {role!r} встречается в кластере {cluster!r} {count} раз — эта пара закреплена: {refs}"
+
+msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
+msgstr "идентифицирована ячейка {cell!r} в кластере {cluster!r}: {refs}"
+
+msgid "no Cluster on {refs} — the instance cannot be told from another one of the same cell"
+msgstr "у {refs} нет поля Cluster — экземпляр не отличить от другого экземпляра той же ячейки"
+
+msgid "no Role on {refs} — every selected component must be tagged with a Role before the instance can be identified"
+msgstr "у {refs} нет поля Role — каждый выделенный компонент должен быть размечен ролью, прежде чем экземпляр можно будет идентифицировать"
+
+msgid "no live board read yet — connect to KiCad (or press Refresh) before typing refs by hand"
+msgstr "живая плата ещё не прочитана — подключитесь к KiCad (или нажмите «Обновить»), прежде чем вписывать рефы руками"
+
+msgid "none of the remembered refs of {label} is a role of this cell — the identification is stale, identify the instance again"
+msgstr "ни один из запомненных рефов {label} не является ролью этой ячейки — идентификация устарела, идентифицируйте экземпляр заново"
+
+msgid "nothing is selected on the board — select the components of ONE instance of cell {cell!r}"
+msgstr "на плате ничего не выделено — выделите компоненты ОДНОГО экземпляра ячейки {cell!r}"
+
+msgid "ref {ref!r} for role {role!r} is not on the live board — the identification is stale, identify the instance again"
+msgstr "рефа {ref!r} для роли {role!r} нет на живой плате — идентификация устарела, идентифицируйте экземпляр заново"
+
+msgid "ref {ref} now has Role {actual!r}, the cell expects {expected!r} — the identification is stale, identify the instance again"
+msgstr "у рефа {ref} теперь роль {actual!r}, а ячейка ожидает {expected!r} — идентификация устарела, идентифицируйте экземпляр заново"
+
+msgid "refdes of the identified instance — filled by “Fill from selection”, editable by hand"
+msgstr "рефы идентифицированного экземпляра — заполняются кнопкой «Заполнить по выделению», можно править руками"
+
+msgid "role {role!r} occurs {count} times in cluster {cluster!r} — this is a spoke cell: select one pair and use “Fill from selection” on the Source tab"
+msgstr "роль {role!r} встречается в кластере {cluster!r} {count} раз — это ячейка-спица: выделите одну пару и нажмите «Заполнить по выделению» на вкладке «Источник»"
+
+msgid "role → refdes of the identified instance: {pairs}"
+msgstr "роль → рефы идентифицированного экземпляра: {pairs}"
+
+msgid "select ONE pair of this cell on the board (the repeated roles make the cluster ambiguous), then identify again"
+msgstr "выделите ОДНУ пару этой ячейки на плате (повторяющиеся роли делают кластер неоднозначным) и идентифицируйте заново"
+
+msgid "select the components of ONE sheet instance, then identify again"
+msgstr "выделите компоненты ОДНОГО листа-экземпляра и идентифицируйте заново"
+
+msgid "select the components of a single cluster instance, then identify again"
+msgstr "выделите компоненты одного экземпляра кластера и идентифицируйте заново"
+
+msgid "select the components of this cell instance on the board, then press “Fill from selection” on the Source tab"
+msgstr "выделите компоненты этого экземпляра ячейки на плате и нажмите «Заполнить по выделению» на вкладке «Источник»"
+
+msgid "tag the component with its Cluster on the board first"
+msgstr "сначала разметьте компонент его кластером на плате"
+
+msgid "tag the component with its Role on the board (Tools → Role/cluster tree, or the role table), then identify again"
+msgstr "разметьте компонент его ролью на плате (Инструменты → дерево роль/кластер или таблица ролей) и идентифицируйте заново"
+
+msgid "the board is busy (another operation is reading it) — try again in a moment"
+msgstr "плата занята (другая операция её читает) — попробуйте через момент"
+
+msgid "the cluster has no component for these role(s) of the cell: {roles} — they stay unpinned until a pair is tagged"
+msgstr "в кластере нет компонента для этих ролей ячейки: {roles} — они останутся незакреплёнными, пока не будет размечена пара"
+
+msgid "the refs {refs} are not in the last board read — press Refresh, or check the refdes"
+msgstr "рефов {refs} нет в последнем чтении платы — нажмите «Обновить» или проверьте реф"
+
+msgid "the remembered refs are stale ({reasons}) — nothing was selected; identify the instance again with “Fill from selection” on the cell-anchor page"
+msgstr "запомненные рефы устарели ({reasons}) — ничего не выделено; идентифицируйте экземпляр заново кнопкой «Заполнить по выделению» на странице якоря ячейки"
+
+msgid "the same Role is selected twice ({roles}) — select exactly one component per Role"
+msgstr "одна и та же роль выделена дважды ({roles}) — выделите ровно один компонент на роль"
+
+msgid "the selection spans several clusters ({clusters}) — an instance belongs to ONE cluster"
+msgstr "выделение попадает в несколько кластеров ({clusters}) — экземпляр принадлежит ОДНОМУ кластеру"
+
+msgid "two components of one Role say nothing about WHICH component is the anchor of this instance"
+msgstr "два компонента одной роли не говорят, КАКОЙ именно компонент — якорь этого экземпляра"
+
+msgid "{ref} has Role {role!r} which is not in cell {cell!r}"
+msgstr "у {ref} роль {role!r}, которой нет в ячейке {cell!r}"
+
+msgid "{ref} is no longer on the board"
+msgstr "рефа {ref} больше нет на плате"
+
+msgid "{ref} now has Role {role!r}"
+msgstr "у рефа {ref} теперь роль {role!r}"
+
+msgid "{selected} of {total} components of cluster {cluster!r} selected — Source filled; “Update cell from selection” will need all of them"
+msgstr "выделено {selected} из {total} компонентов кластера {cluster!r} — вкладка «Источник» заполнена; для «Обновить ячейку из выделения» понадобятся все"

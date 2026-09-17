@@ -20,11 +20,13 @@ computes). Raises the same fatal ValidationError the underlying resolvers
 raise on none/ambiguous — the "never guess silently" principle — and the GUI
 handler turns it into a QMessageBox warning."""
 import logging
+from collections import Counter
 from dataclasses import dataclass
 
 from kicadstamp.cell_frame import CellFrame, fit_cell_frame, reference_relative_pairs
+from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config import clone_placement_effective_name
-from kicadstamp.constants import CLUSTER_FIELD_NAME
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
@@ -241,6 +243,82 @@ def _world_pos_to_cell_local_offset(adapter, cfg, clone, sheet_names,
         origin_read.position, origin_read.rotation_deg, is_mirror, world_pos)
 
 
+def role_multiplicity_in_cluster(adapter, cluster: str, roles) -> Counter:
+    """{role: how many LIVE footprints carry it inside `cluster`} — the "is this
+    a spoke cluster?" question of stage 1 (design_2026_09_17_spoke_cell_editing.md
+    §1: a spoke is a cluster where some role of the cell occurs more than once).
+
+    ONE pass over the cached footprint list, counted in memory — the same shape
+    the diagnostic probe measures with
+    (probe_spoke_cell_identification.role_multiplicity), and the reason the
+    check costs nothing next to the frame read it guards.
+
+    The Cluster comparison is cluster_prefix_match, NOT the exact equality
+    resolve_footprint_by_cluster_role uses for the frame: "how many of this role
+    live in this cluster tag" is the same prefix-tolerant (Cluster, Sheet)
+    addressing question resolve_context_footprints asks, while "which footprint
+    IS the instance" stays exact (that lookup is untouched)."""
+    counts: Counter = Counter()
+    wanted = {role for role in roles if role}
+    if not cluster or not wanted:
+        return counts
+    for fp in adapter.get_footprints():
+        role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if role not in wanted:
+            continue
+        fp_cluster = adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or ""
+        if cluster_prefix_match(fp_cluster, cluster):
+            counts[role] += 1
+    return counts
+
+
+def _role_to_fp_by_refs(adapter, cell, role_to_ref: dict[str, str], label: str
+                        ) -> dict:
+    """The role -> live footprint map of ONE IDENTIFIED instance (R1 of
+    plan_2026_09_17_spoke_s1_identify_by_selection.md): each role is read BY
+    REF, and the working cluster is never searched.
+
+    Both failures mean the same thing to the user — the identification no longer
+    matches the board, so editing it would silently move the WRONG pair — and
+    both are fatal with the word "stale" plus the names involved:
+      * the ref is not on the board any more (deleted or renamed refdes);
+      * the ref exists but its Role field is no longer the role the cell expects.
+    A role absent from `role_to_ref` is simply left out (the caller decides);
+    an EMPTY map can only mean the refs belong to another cell, which is stale
+    too — never a crash on an empty reference slot."""
+    role_to_fp: dict = {}
+    for slot in cell.components:
+        ref = role_to_ref.get(slot.role)
+        if not ref:
+            continue
+        fp = adapter.get_footprint(ref)
+        if fp is None:
+            raise ValidationError(format_fatal_error(
+                _("ref {ref!r} for role {role!r} is not on the live board — the "
+                  "identification is stale, identify the instance again")
+                .format(ref=ref, role=slot.role),
+                [_("select the components of this cell instance on the board, "
+                   "then press “Fill from selection” on the Source tab")]))
+        live_role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if live_role != slot.role:
+            raise ValidationError(format_fatal_error(
+                _("ref {ref} now has Role {actual!r}, the cell expects "
+                  "{expected!r} — the identification is stale, identify the "
+                  "instance again")
+                .format(ref=ref, actual=live_role, expected=slot.role),
+                [_("select the components of this cell instance on the board, "
+                   "then press “Fill from selection” on the Source tab")]))
+        role_to_fp[slot.role] = fp
+    if not role_to_fp:
+        raise ValidationError(format_fatal_error(
+            _("none of the remembered refs of {label} is a role of this cell — "
+              "the identification is stale, identify the instance again")
+            .format(label=label),
+            [_("select the components of this cell instance on the board, then "
+               "press “Fill from selection” on the Source tab")]))
+    return role_to_fp
+
+
 def _reference_slot(cell, role_to_ref: dict[str, str]):
     """The cell slot to re-derive the origin from: cell.anchor_role's slot
     when that role resolved, else the first slot with a resolved ref."""
@@ -254,7 +332,8 @@ def _reference_slot(cell, role_to_ref: dict[str, str]):
     return None
 
 
-def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
+def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
+                        role_to_ref: dict[str, str] | None = None):
     """(mount, rotation_deg, mirror) of ONE cell EXACTLY as it stands on the
     board right now — derived from the LIVE CLUSTER alone (2026-09-10, plan
     overlay_frame_from_cluster).
@@ -282,9 +361,20 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
     деревьям быть не должно"), so a cell that has just been extracted — with an
     Entity but no tree node yet — gets an overlay like any other.
 
+    `role_to_ref` (2026-09-17, stage 1 of the spoke work) — the OPTIONAL
+    "role -> refdes" map of an IDENTIFIED instance. When it is given, each role
+    is read from ITS ref and the cluster is not searched at all; a ref that left
+    the board or changed Role is a "stale identification" fatal. That is the one
+    link a spoke cell needs replaced (design §2.1: everything below this lookup
+    reproduced the spoke frame to 0.0000 mm), so ordinary cells and spokes share
+    this single path. When it is None (a context remembered before this stage,
+    R5) the historical cluster search runs and a role that occurs more than once
+    there is reported as a spoke — with the count — instead of the false
+    "no footprint".
+
     Raises ValidationError with an HONEST message — "cluster X is not on the
-    live board" / "role Y of this cell has no footprint in cluster X" — never
-    the old "place the cell first".
+    live board" / "role Y occurs N times in cluster X" / "role Y of this cell
+    has no footprint in cluster X" — never the old "place the cell first".
 
     2026-09-10 (plan stale_board_snapshot K.1): the board is REFRESHED first.
     The GUI's automatic poll tick is a deliberate no-op while connected, so
@@ -299,38 +389,76 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names):
     adapter.refresh_board()
     label = _("cell {cell!r} on cluster {cluster!r}").format(
         cell=getattr(cell, "name", "?"), cluster=cluster)
-    role_to_fp: dict = {}
-    for slot in cell.components:
-        try:
-            role_to_fp[slot.role] = resolve_footprint_by_cluster_role(
-                adapter, cluster, slot.role, label, sheet=sheet or None,
-                sheet_names=sheet_names)
-        except ValidationError:
-            # This role is not uniquely present in the working cluster (absent,
-            # or a tagging ambiguity) — it simply cannot be the reference slot.
-            continue
-    if not role_to_fp:
-        on_board = {adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
-                    for fp in adapter.get_footprints()}
-        if cluster not in on_board:
+    if role_to_ref is not None:
+        # IDENTIFIED BY REFS (2026-09-17, stage 1 of the spoke work): the pair
+        # the user picked on the board IS the instance. A spoke cluster holds the
+        # cell's roles many times over, so the cluster search below cannot be
+        # used there at all — and when refs ARE known, the cluster's opinion
+        # does not matter, which is what makes this ONE path for ordinary cells
+        # and spokes alike.
+        role_to_fp = _role_to_fp_by_refs(adapter, cell, role_to_ref, label=label)
+    else:
+        # The historical cluster search — kept ONLY for a context remembered
+        # before this stage (no refs, R5/Р2).
+        # Only the roles that FAILED to resolve are counted (see the except
+        # below): a role that resolved uniquely says nothing about the cluster,
+        # so a cluster whose roles all resolve pays nothing for this check —
+        # and, more importantly, a resolver that is PINNED to specific refs (the
+        # diagnostic probe's way of asking "what would the frame be for THIS
+        # pair?") is not short-circuited by a count that no longer describes it.
+        role_to_fp: dict = {}
+        unresolved: list = []
+        for slot in cell.components:
+            try:
+                role_to_fp[slot.role] = resolve_footprint_by_cluster_role(
+                    adapter, cluster, slot.role, label, sheet=sheet or None,
+                    sheet_names=sheet_names)
+            except ValidationError:
+                # Absent, or ambiguous (several footprints carry it — a spoke).
+                # The COUNT tells the two apart; that is what the check below is
+                # for, and why this role list is kept at all.
+                unresolved.append(slot.role)
+                continue
+        counts = role_multiplicity_in_cluster(adapter, cluster, set(unresolved))
+        repeated = sorted((role, n) for role, n in counts.items() if n > 1)
+        if repeated:
+            # A repeated role IS a spoke cluster, and "no footprint" would be a
+            # flat lie: the footprints are there, there are just several of
+            # them. The count is said out loud and the fix is named.
+            role, occurrences = repeated[0]
             raise ValidationError(format_fatal_error(
-                _("cluster {cluster!r} is not on the live board")
-                .format(cluster=cluster),
-                [_("check the working Cluster on the Source tab, or place the "
-                   "cluster on this board")]))
-        first_role = cell.components[0].role if cell.components else "?"
-        raise ValidationError(format_fatal_error(
-            _("role {role!r} of this cell has no footprint in cluster "
-              "{cluster!r}").format(role=first_role, cluster=cluster),
-            [_("the cell's roles must be the components tagged with the working "
-               "Cluster on the board")]))
+                _("role {role!r} occurs {count} times in cluster {cluster!r} — "
+                  "this is a spoke cell: select one pair and use “Fill from "
+                  "selection” on the Source tab")
+                .format(role=role, count=occurrences, cluster=cluster),
+                [_("a spoke repeats the cell's roles inside one cluster, so the "
+                   "cluster alone cannot say WHICH pair is edited; identifying "
+                   "the pair pins the editor to exactly those components")]))
+        if not role_to_fp:
+            on_board = {adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
+                        for fp in adapter.get_footprints()}
+            if cluster not in on_board:
+                raise ValidationError(format_fatal_error(
+                    _("cluster {cluster!r} is not on the live board")
+                    .format(cluster=cluster),
+                    [_("check the working Cluster on the Source tab, or place "
+                       "the cluster on this board")]))
+            first_role = cell.components[0].role if cell.components else "?"
+            raise ValidationError(format_fatal_error(
+                _("role {role!r} of this cell has no footprint in cluster "
+                  "{cluster!r}").format(role=first_role, cluster=cluster),
+                [_("the cell's roles must be the components tagged with the "
+                   "working Cluster on the board")]))
     slot = _reference_slot(cell, role_to_fp)
     fp = role_to_fp[slot.role]
     # Mirror comes from the LIVE footprint's side against the cell's own layer
     # (clone_geometry's rule) — not from clone.mirror.
     mirror = (fp.layer == BoardLayer.BL_B_Cu) != (cell.layer == "B.Cu")
-    role_to_ref = {role: live_fp.ref for role, live_fp in role_to_fp.items()}
-    resolved_mount = resolve_pad_mount(adapter, cell, role_to_ref, label)
+    # resolve_pad_mount takes the role -> ref map of the RESOLVED instance (the
+    # same shape the identification stores): built here from the live footprints
+    # so the roles verified above are exactly the ones used.
+    refs_by_role = {role: live_fp.ref for role, live_fp in role_to_fp.items()}
+    resolved_mount = resolve_pad_mount(adapter, cell, refs_by_role, label)
     if resolved_mount is None:
         ax_mm, ay_mm = cell_mount_offset(cell)
     else:

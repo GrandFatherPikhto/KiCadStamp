@@ -1904,6 +1904,24 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   `anchor_xy` (GUARD 1 — so the live pad resolution actually runs). Role-only = the component's stored
   centre (offline — the live board is needed ONLY for Read from selection; picking Role/Pad by hand
   and saving works with no board, proven by test).
+- **Identifying the instance** (2026-09-17, stage 1 of
+  `plan_2026_09_17_spoke_s1_identify_by_selection.md`): the Source tab's **Fill from selection** button
+  and the one-line **Refs** field beside the working context. They exist because a SPOKE cell's cluster
+  holds the same Role many times over (measured live on 3CH-AWG-TIA-v103: `FPGA_PWR_BANK` carries
+  `C_FPGA_BULK` ×25 and `C_FPGA_BYPASS` ×25 — one pair per power pin), so (Cluster, Sheet) alone cannot
+  say WHICH pair is being edited, and the editor used to report a flat lie about it ("role
+  'C_FPGA_BULK' of this cell has no footprint in cluster 'FPGA_PWR_BANK'"). Select one pair (a spoke)
+  or any part of an ordinary cluster on the board, press **Fill from selection**: Sheet, Cluster and
+  **Refs** are filled, and the roles the user did not click are found in the cluster's own instance.
+  From then on the frame, the marker and **Read position** work on THAT pair without any selection —
+  the refs are the identification. They live in `gui_state.json` next to the remembered (Cluster,
+  Sheet) (`cell_edit_context`, key `refs`) and are checked against the board on every use: a ref that
+  changed Role or left the board is reported as a **stale identification** ("identify the instance
+  again"), never silently swapped for another pair. Refdes are NEVER written to a cell, a spoke or the
+  config. The Refs field is editable by hand (comma/space separated — resolved against the board
+  snapshot the GUI already holds, through the same rules, so a typo is refused in the Log); changing
+  Cluster or Sheet by hand forgets the refs, and **Select cluster of this cell on the board** in the
+  Cell dialog then selects exactly the identified pair instead of the whole bank.
 - **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
   graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
   the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all

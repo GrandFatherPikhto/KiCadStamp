@@ -79,6 +79,7 @@ from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
+from kicadstamp.sheet_names import resolve_sheet_path_names
 from kicadstamp.utils.units import MM
 
 # `settings` is imported for the tests that reach `view_mod.settings.state`
@@ -87,9 +88,16 @@ from .. import board_overlay, overlay_markers, settings  # noqa: F401
 from ..cell_edit_context import (
     cluster_present_on_board,
     remember_cell_edit_context,
+    remember_cell_instance,
     remembered_cell_edit_context,
+    remembered_cell_refs,
 )
-from ..worker import start_long_op
+from ..cell_identification import (
+    KIND_SPOKE,
+    SelectionRecord,
+    identify_cell_instance,
+)
+from ..worker import socket_busy, start_long_op
 from ._cell_identity import CellIdentityWidget
 from ._common import (
     ERROR_STYLE as _ERROR_STYLE,
@@ -497,15 +505,20 @@ def overlay_world_bbox_mm(entry: dict, origin: Vector2, rotation_deg: float,
 
 
 def _ensure_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
-                        key, layer_name) -> Optional[str]:
+                        key, layer_name, role_to_ref=None) -> Optional[str]:
     """Idempotently make `key` own exactly ONE bbox rectangle over the LIVE
     cluster's instance of this cell — returns the created rectangle's uuid (or
     None when the cell has no geometry). The frame is read from the cluster
     standing on the board (_live_cluster_frame), never from a placement; the
     owner (gui/overlay_markers) replaces this key's previous rectangle inside
-    the same call (E.2.2), so no stale bbox can survive at the old position."""
+    the same call (E.2.2), so no stale bbox can survive at the old position.
+
+    `role_to_ref` (LAST, optional — the existing positional callers/tests stay
+    valid) is the IDENTIFIED instance's role -> refdes map: when the working
+    context carries one, the frame is pinned to that pair, which is the ONE path
+    ordinary cells and spoke cells share (2026-09-17, stage 1 of the spoke work)."""
     origin, rotation, mirror = _live_cluster_frame(
-        adapter, cell, cluster, sheet, sheet_names)
+        adapter, cell, cluster, sheet, sheet_names, role_to_ref)
     box = overlay_world_bbox_mm(_cell_to_entry(cell), origin, rotation, mirror)
     if box is None:
         return None
@@ -515,13 +528,16 @@ def _ensure_bbox_worker(adapter, cell, cluster, sheet, sheet_names,
 
 
 def _ensure_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                          key, layer_name) -> Optional[str]:
+                          key, layer_name, role_to_ref=None) -> Optional[str]:
     """Idempotently make `key` own exactly ONE draggable marker circle at the
     cell's CURRENT anchor (the live cluster's mount) or, when the cell has no
     anchor, at the centre of its bbox — returns the created circle's uuid (or
-    None when the cell has no geometry)."""
+    None when the cell has no geometry).
+
+    `role_to_ref` (LAST, optional, same contract as _ensure_bbox_worker) pins the
+    marker to the IDENTIFIED pair when the working context carries one."""
     origin, rotation, mirror = _live_cluster_frame(
-        adapter, cell, cluster, sheet, sheet_names)
+        adapter, cell, cluster, sheet, sheet_names, role_to_ref)
     entry = _cell_to_entry(cell)
     ax, ay = _cell_entry_mount_offset(entry)
     if ax or ay:
@@ -537,22 +553,125 @@ def _ensure_marker_worker(adapter, cell, cluster, sheet, sheet_names,
 
 
 def _read_marker_worker(adapter, cell, cluster, sheet, sheet_names,
-                        key) -> Optional[tuple[float, float]]:
+                        key, role_to_ref=None) -> Optional[tuple[float, float]]:
     """Read the (user-dragged) marker's world position for `key` and convert it
     into the cell's own bbox-frame anchor (anchor_xy) — the world->local
     inversion uses the SAME live-cluster frame the marker was placed from
     (world_pos_to_cell_local_offset, live_position.py — one implementation); the
     result is the ABSOLUTE bbox offset (the current mount + the offset relative
-    to it). None when the marker is no longer on the board."""
+    to it). None when the marker is no longer on the board.
+
+    `role_to_ref` (LAST, optional, same contract as _ensure_bbox_worker) — the
+    conversion must invert the SAME frame the marker was placed from, so it
+    follows the identification too."""
     pos = overlay_markers.owner.read_position(adapter, key)
     if pos is None:
         return None
     origin, rotation, mirror = _live_cluster_frame(
-        adapter, cell, cluster, sheet, sheet_names)
+        adapter, cell, cluster, sheet, sheet_names, role_to_ref)
     world = Vector2.from_xy(int(round(pos[0] * MM)), int(round(pos[1] * MM)))
     rel = world_pos_to_cell_local_offset(origin, rotation, mirror, world)
     a0, a1 = cell_mount_offset(cell)
     return (round(a0 + rel[0], 9), round(a1 + rel[1], 9))
+
+
+# ── Source tab: the "Refs" field and the identification worker (2026-09-17,
+#    stage 1 of the spoke work) ──────────────────────────────────────────────
+#
+# The refs are the ONE thing that names a SPOKE cell's instance: its cluster
+# holds the same role many times, so (Cluster, Sheet) cannot say which pair is
+# being edited. They live in the interface state (gui_state.json) and are checked
+# against the board on every use, never written to the config.
+
+def parse_refs_field(text: str) -> list:
+    """The refdes typed into the "Refs" field: comma and/or whitespace separated
+    (and semicolons), in the order given, duplicates dropped — "C43, C44",
+    "C43 C44" and "C43,C44" all mean the same pair."""
+    out: list = []
+    for token in text.replace(",", " ").replace(";", " ").split():
+        if token not in out:
+            out.append(token)
+    return out
+
+
+def refs_field_text(role_to_ref, roles_in_order=()) -> str:
+    """"C43, C44" — the Refs field's text. The cell's own component order first
+    (stable across reloads, and the same order the tooltip explains), then any
+    role the map carries that the cell does not know."""
+    ordered = [role_to_ref[r] for r in roles_in_order if r in role_to_ref]
+    ordered += sorted(ref for role, ref in role_to_ref.items()
+                      if role not in tuple(roles_in_order))
+    return ", ".join(ordered)
+
+
+def refs_tooltip(role_to_ref, roles_in_order=()) -> str:
+    """The role -> refdes mapping, spelled out — the bare "C43, C44" cannot say
+    which ref belongs to which role, and for a spoke that is the whole point."""
+    if not role_to_ref:
+        return _("refdes of the identified instance — filled by “Fill from "
+                 "selection”, editable by hand")
+    pairs = ["{role} → {ref}".format(role=role, ref=role_to_ref[role])
+             for role in roles_in_order if role in role_to_ref]
+    pairs += ["{role} → {ref}".format(role=role, ref=role_to_ref[role])
+              for role in sorted(role_to_ref) if role not in tuple(roles_in_order)]
+    return _("role → refdes of the identified instance: {pairs}").format(
+        pairs=", ".join(pairs))
+
+
+def _resolved_sheet_chain(fp, sheet_names) -> tuple:
+    """The footprint's sheet chain with readable names — the project's ONE
+    resolution (kicadstamp.sheet_names.resolve_sheet_path_names). A resolution
+    failure is not fatal here: an empty chain narrows nothing, exactly like a
+    stale Sheet everywhere else in the (Sheet, Cluster) cascade."""
+    if not sheet_names:
+        return tuple(getattr(fp, "sheet_path_uuids", None) or ())
+    try:
+        return tuple(resolve_sheet_path_names(fp, sheet_names) or ())
+    except Exception:  # noqa: BLE001 — a best-effort chain, never fatal
+        return ()
+
+
+def read_identification_worker(payload: dict) -> dict:
+    """start_long_op worker: read the LIVE board selection plus the members of
+    the clusters it names — the raw material identify_cell_instance decides on
+    (Т1.7 of plan_2026_09_17_spoke_s1_identify_by_selection.md).
+
+    Everything that touches the board happens HERE (П3.1). The board is REFRESHED
+    first (K.1 discipline: the poll tick is a no-op while connected, so a member
+    list read from an old cache could miss a component added in KiCad — and the
+    role multiplicity that decides "is this a spoke?" would then be wrong in the
+    one direction that matters). The selection is read and, in the SAME pass,
+    every footprint of the clusters the selection names: those members give both
+    the multiplicity and the refs of the roles the user did not click.
+
+    Returns plain records; the pure identification runs on the UI thread."""
+    adapter = payload["adapter"]
+    sheet_names = dict(payload.get("sheet_names") or {})
+    adapter.refresh_board()
+    footprints = [item for item in (adapter.get_selected_items() or ())
+                  if isinstance(item, Footprint)]
+    if not footprints:
+        raise ValidationError(format_fatal_error(
+            _("nothing is selected on the board — select the components of ONE "
+              "instance of cell {cell!r}")
+            .format(cell=payload.get("cell_name") or "?"),
+            [_("a spoke cell is identified by exactly ONE pair; an ordinary "
+               "cluster can be identified from any part of it")]))
+
+    def record(fp):
+        return SelectionRecord(
+            ref=fp.ref,
+            role=adapter.get_field_value(fp, ROLE_FIELD_NAME),
+            cluster=adapter.get_field_value(fp, CLUSTER_FIELD_NAME),
+            sheet=_resolved_sheet_chain(fp, sheet_names))
+
+    selected = [record(fp) for fp in footprints]
+    clusters = {r.cluster for r in selected if r.cluster}
+    members = [record(fp) for fp in adapter.get_footprints()
+               if (adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or "")
+               in clusters]
+    return {"selected": selected, "members": members,
+            "sheet_names": sheet_names}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -629,6 +748,39 @@ class CellAnchorView(QWidget):
             _("(Cluster, Sheet) set the working context for the other tabs — "
               "they decide which placed instance of this cell is edited."))
         source_layout.addWidget(self._identity)
+
+        # ── Identification of the instance (2026-09-17, stage 1 of the spoke ──
+        # work). ONE button and ONE line of refdes — deliberately no table and no
+        # extra tab (design Р2: a table would be "никому не нужная хрень" and the
+        # 12" Linux screen has no room for one). The refs are shown because they
+        # are the thing that pins a SPOKE cell: its cluster holds the same role
+        # many times, so (Cluster, Sheet) alone cannot say which pair is edited.
+        ident_box = QGroupBox(_("Identified instance"))
+        ident_form = QFormLayout(ident_box)
+        ident_row = QHBoxLayout()
+        self._fill_selection_button = QPushButton(_("Fill from selection"))
+        self._fill_selection_button.setToolTip(
+            _("Identify ONE placed instance of this cell from the components "
+              "selected on the board: fills Sheet, Cluster and the refs of that "
+              "pair (a spoke is identified by one pair)."))
+        self._fill_selection_button.clicked.connect(self._on_fill_from_selection)
+        ident_row.addWidget(self._fill_selection_button)
+        ident_form.addRow(ident_row)
+
+        self._refs_edit = QLineEdit()
+        self._refs_edit.setPlaceholderText(_("C43, C44"))
+        self._refs_edit.setToolTip(refs_tooltip({}, ()))
+        self._refs_edit.editingFinished.connect(self._on_refs_edited)
+        ident_form.addRow(_("Refs:"), self._refs_edit)
+        ident_note = QLabel(_("The refdes of the identified components, in the "
+                              "order of the cell's roles — editable by hand "
+                              "(comma or space separated). They are checked "
+                              "against the board every time they are used; a "
+                              "changed or missing component is reported as a "
+                              "stale identification."))
+        ident_note.setWordWrap(True)
+        ident_form.addRow(ident_note)
+        source_layout.addWidget(ident_box)
         source_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
 
@@ -861,6 +1013,7 @@ class CellAnchorView(QWidget):
             return
         self._refill_cluster_choices()
         self._remember_working_context()
+        self._reload_refs_field()
         self._reload_identity()
 
     def _remember_working_context(self) -> None:
@@ -869,15 +1022,29 @@ class CellAnchorView(QWidget):
         Best-effort and never raises (remember_cell_edit_context swallows
         everything internally); guarded by _loading so prefill / snapshot
         refills never write over fresh data, and an empty cluster writes
-        nothing (also guaranteed inside the callee)."""
+        nothing (also guaranteed inside the callee).
+
+        NOTHING is written when the pair is ALREADY the remembered one
+        (2026-09-17). This is not an optimisation but the rule the identified
+        refs depend on: a plain context write ERASES them, and the combos are
+        ALSO set programmatically (prefill on open, an identification filling
+        them in). The _loading flag alone cannot carry that weight — the nested
+        fills inside _reload_identity / _refill_cluster_choices clear it — so
+        "do not write what is already there" is what keeps reopening a cell from
+        silently forgetting its pair. A GENUINE change (the user picks another
+        Cluster/Sheet, or an identification moves to another instance) still
+        writes, and still erases."""
         if self._loading or self._cell_name is None:
             return
         cluster = self._cluster_combo.currentText().strip()
         if not cluster:
             return
+        sheet = self._sheet_combo.currentText().strip() or None
+        if remembered_cell_edit_context(self._root_path, self._cell_name) == \
+                (cluster, sheet):
+            return
         remember_cell_edit_context(
-            self._root_path, self._cell_name, cluster,
-            self._sheet_combo.currentText().strip() or None)
+            self._root_path, self._cell_name, cluster, sheet)
 
     def load_entry(self, name: str, file_path) -> None:
         """Open the requested cell for anchor editing — (name, owning file),
@@ -1123,6 +1290,7 @@ class CellAnchorView(QWidget):
             self._set_anchor_button.setEnabled(False)
             self._clear_anchor_button.setEnabled(False)
             self._read_selection_button.setEnabled(False)
+            self._fill_selection_button.setEnabled(False)
             self._role_combo.clear()
             self._pad_edit.clear()
             for b in (self._place_marker_button, self._read_marker_button,
@@ -1139,6 +1307,7 @@ class CellAnchorView(QWidget):
             self._set_anchor_button.setEnabled(False)
             self._clear_anchor_button.setEnabled(False)
             self._read_selection_button.setEnabled(False)
+            self._fill_selection_button.setEnabled(False)
             return
 
         roles = sorted({c.get("role") for c in entry.get("components", [])
@@ -1150,6 +1319,10 @@ class CellAnchorView(QWidget):
         self._pad_edit.setText(str(entry.get("anchor_pad") or ""))
 
         self._read_selection_button.setEnabled(True)
+        self._fill_selection_button.setEnabled(True)
+        # The remembered refs are shown here as well as after an identification:
+        # reopening the page must bring them back (acceptance item 7).
+        self._reload_refs_field()
         self._set_anchor_button.setEnabled(True)
         self._clear_anchor_button.setEnabled(True)
         self._place_marker_button.setEnabled(True)
@@ -1194,6 +1367,10 @@ class CellAnchorView(QWidget):
         # G.3: a manual Cluster pick persists the working context (guarded by
         # _loading, so programmatic refills/prefill never write).
         self._remember_working_context()
+        # Р8: a manual Cluster/Sheet pick FORGETS the identified refs (see
+        # _remember_working_context), and the field must show that — otherwise
+        # the user keeps looking at a pair that is no longer identified.
+        self._reload_refs_field()
         if self._cell_name is None:
             return
         entry = self._current_entry()
@@ -1253,6 +1430,205 @@ class CellAnchorView(QWidget):
               "{cluster!r}) — press “Set as anchor” to store it.")
             .format(what=what, role=read["role"], cluster=read["cluster"]),
             _SUCCESS_STYLE, logger)
+
+    # ── Source tab: identifying the instance (2026-09-17, stage 1) ────────
+
+    def _identification_context(self):
+        """(cfg, sheet_names) for an identification, or None with a message.
+
+        Deliberately NOT _context(): the identification DISCOVERS the working
+        Cluster and Sheet from the selection, so requiring them here would be
+        circular. Purely UI-thread validation — the project root, the loaded cell
+        and the config; everything that touches the board happens in the worker."""
+        if self._root_path is None or self._cell_name is None:
+            show_message(_("Identification needs a project root — open a project "
+                           "first."), _WARN_STYLE, logger)
+            return None
+        try:
+            cfg, ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError) as e:
+            show_message(_("Identification: failed to load the project config: "
+                           "{error}").format(error=e), _ERROR_STYLE, logger)
+            return None
+        if cfg.cells.get(self._cell_name) is None:
+            show_message(_("cell {cell!r} not found in config")
+                         .format(cell=self._cell_name), _ERROR_STYLE, logger)
+            return None
+        return cfg, dict(ctx.sheet_names or {})
+
+    def _snapshot_records(self) -> list:
+        """The whole board snapshot as SelectionRecords — the SHEET-RESOLVED copy
+        when the snapshot carries raw handles (a live Board's own chains are
+        all-None until refresh_known_roles re-resolves them), so the sheet rule
+        and the role multiplicity get the same data the worker would read."""
+        snapshot = self._resolved_snapshot or self._board_snapshot()
+        return [SelectionRecord(
+            ref=str(getattr(s, "ref", "")), role=getattr(s, "role", None),
+            cluster=getattr(s, "cluster", None),
+            sheet=tuple(getattr(s, "sheet", None) or ())) for s in snapshot]
+
+    def _cell_role_order(self) -> list:
+        entry = self._current_entry()
+        if entry is None:
+            return []
+        return [c.get("role") for c in entry.get("components", [])
+                if c.get("role")]
+
+    def _reload_refs_field(self) -> None:
+        """Show the remembered refs (display only, never a write). The tooltip
+        carries the role -> refdes mapping the bare "C43, C44" cannot express."""
+        refs = self._remembered_refs() or {}
+        roles = self._cell_role_order()
+        self._refs_edit.setText(refs_field_text(refs, roles))
+        self._refs_edit.setToolTip(refs_tooltip(refs, roles))
+
+    def _on_fill_from_selection(self) -> None:
+        """Button action: identify ONE instance of this cell from the board
+        selection (П3.1 — the selection is read in the WORKER, the pure
+        identification runs here, on the UI thread, on the data it returns)."""
+        ctx = self._identification_context()
+        if ctx is None:
+            return
+        cfg, sheet_names = ctx
+        adapter = self._adapter_required()
+        if adapter is None:
+            return
+        # П3.2: the shared socket has exactly one owner. Another long op (or the
+        # ~400ms selection tick) holding it means refuse and SAY so — never queue
+        # a second request onto the same REQ socket.
+        if socket_busy(self._connection):
+            show_message(
+                _("the board is busy (another operation is reading it) — try "
+                  "again in a moment"), _WARN_STYLE, logger)
+            return
+        if self._cell_name is None or self._root_path is None:
+            return
+        payload = {"adapter": adapter, "sheet_names": sheet_names,
+                   "cell_name": self._cell_name}
+        self._active_op = start_long_op(
+            self._connection, (self._fill_selection_button,),
+            read_identification_worker,
+            lambda result: self._finish_fill_from_selection(result, cfg),
+            self._on_fill_failed, payload)
+
+    def _finish_fill_from_selection(self, result, cfg) -> None:
+        """UI thread (worker finished): run the PURE identification on the data
+        the worker read, then store it and show it."""
+        self._active_op = None
+        cell = cfg.cells.get(self._cell_name)
+        try:
+            ident = identify_cell_instance(
+                cell, result.get("selected") or (), result.get("members") or (),
+                entities=getattr(cfg, "entities", ()) or (),
+                sheet_names=result.get("sheet_names") or {})
+        except ValidationError as e:
+            show_message(str(e), _ERROR_STYLE, logger)
+            return
+        self._apply_identification(ident, cell, result.get("selected") or ())
+
+    def _on_fill_failed(self, message: str) -> None:
+        self._active_op = None
+        show_message(_("Fill from selection failed: {message}")
+                     .format(message=message), _ERROR_STYLE, logger)
+
+    def _on_refs_edited(self) -> None:
+        """The hand-typed Refs field: resolve the refdes against the snapshot the
+        GUI already has (no board read on the UI thread) and pass them through the
+        SAME identification rules as the button, so a typo is refused in the Log
+        and the refs are NOT remembered."""
+        if self._loading or self._cell_name is None or self._root_path is None:
+            return
+        ctx = self._identification_context()
+        if ctx is None:
+            return
+        cfg, sheet_names = ctx
+        cell = cfg.cells.get(self._cell_name)
+        text = self._refs_edit.text().strip()
+        if not text:
+            # Clearing the field forgets the refs — the same "a context write
+            # without refs erases them" rule the manual Cluster/Sheet pick has.
+            cluster = self._cluster_combo.currentText().strip()
+            if cluster:
+                remember_cell_edit_context(
+                    self._root_path, self._cell_name, cluster,
+                    self._sheet_combo.currentText().strip() or None)
+            return
+        records = self._snapshot_records()
+        if not records:
+            show_message(_("no live board read yet — connect to KiCad (or press "
+                           "Refresh) before typing refs by hand"),
+                         _ERROR_STYLE, logger)
+            return
+        by_ref = {r.ref: r for r in records}
+        missing = [ref for ref in parse_refs_field(text) if ref not in by_ref]
+        if missing:
+            show_message(
+                _("the refs {refs} are not in the last board read — press "
+                  "Refresh, or check the refdes").format(
+                      refs=", ".join(missing)), _ERROR_STYLE, logger)
+            return
+        selected = [by_ref[ref] for ref in parse_refs_field(text)]
+        try:
+            ident = identify_cell_instance(
+                cell, selected, records,
+                entities=getattr(cfg, "entities", ()) or (),
+                sheet_names=sheet_names)
+        except ValidationError as e:
+            show_message(str(e), _ERROR_STYLE, logger)
+            return
+        self._apply_identification(ident, cell, selected)
+
+    def _apply_identification(self, ident, cell, selected) -> None:
+        """Remember the identification and show it on the Source tab — the ONE
+        place both the button and the hand-typed Refs field end in."""
+        if self._root_path is None or self._cell_name is None:
+            return
+        cell_roles = {getattr(c, "role", None)
+                      for c in (getattr(cell, "components", None) or ())} - {None}
+        refs = ", ".join(ident.role_to_ref.get(r, "?")
+                         for r in self._cell_role_order()
+                         if r in ident.role_to_ref)
+        # The combos FIRST, the identification LAST: moving the working context
+        # is a genuine change, so the nested handlers may write a ref-less context
+        # on the way (that is exactly what "another instance" means) — the refs of
+        # the identification being applied must be the ones left standing.
+        self._loading = True
+        try:
+            self._cluster_combo.setCurrentText(ident.cluster)
+            self._sheet_combo.setCurrentText(ident.sheet or "")
+        finally:
+            self._loading = False
+        remember_cell_instance(self._root_path, self._cell_name, ident)
+        if ident.kind == KIND_SPOKE:
+            role, occurrences = ident.repeated_roles[0] if ident.repeated_roles \
+                else ("?", 0)
+            show_message(
+                _("identified as a SPOKE: role {role!r} occurs {count} times in "
+                  "cluster {cluster!r} — this pair is pinned: {refs}")
+                .format(role=role, count=occurrences, cluster=ident.cluster,
+                        refs=refs), _SUCCESS_STYLE, logger)
+        else:
+            selected_refs = {getattr(s, "ref", None) for s in selected}
+            picked = [m for m in ident.members if m in selected_refs]
+            if ident.members and len(picked) < len(ident.members):
+                show_message(
+                    _("{selected} of {total} components of cluster {cluster!r} "
+                      "selected — Source filled; “Update cell from selection” "
+                      "will need all of them")
+                    .format(selected=len(picked), total=len(ident.members),
+                            cluster=ident.cluster), _WARN_STYLE, logger)
+            else:
+                show_message(_("identified {cell!r} on cluster {cluster!r}: "
+                               "{refs}").format(cell=self._cell_name,
+                                                cluster=ident.cluster, refs=refs),
+                             _SUCCESS_STYLE, logger)
+        absent = sorted(cell_roles - set(ident.role_to_ref))
+        if absent:
+            show_message(
+                _("the cluster has no component for these role(s) of the cell: "
+                  "{roles} — they stay unpinned until a pair is tagged")
+                .format(roles=", ".join(absent)), _WARN_STYLE, logger)
+        self._reload_form()
 
     def _on_set_component_anchor(self) -> None:
         """Write anchor_role (+ anchor_pad) and REMOVE anchor_xy (else Phase
@@ -1364,19 +1740,37 @@ class CellAnchorView(QWidget):
             return None
         return adapter
 
+    def _remembered_refs(self) -> Optional[dict]:
+        """The IDENTIFIED refs of this cell's instance (gui_state.json), or None
+        — the role -> refdes map the Source tab's "Fill from selection" wrote.
+
+        Read on the UI thread from state only (never the board); when present,
+        EVERY overlay read of this page is pinned to that pair, so a spoke cell
+        behaves exactly like an ordinary one. A map whose refs are gone from the
+        board is NOT repaired here: the worker refuses it as a stale
+        identification, which is what the user must see."""
+        if self._root_path is None or self._cell_name is None:
+            return None
+        return remembered_cell_refs(self._root_path, self._cell_name)
+
     def _dispatch(self, fn, on_success, on_error, *extra_args):
         """Resolve the working context + live adapter and dispatch one overlay
         worker function on the worker thread via start_long_op (inputs
         collected on the UI thread, the live-cluster frame + all IPC on the
         worker, completion back on the UI thread).
 
+        The IDENTIFIED refs (when this cell has them) travel as the LAST
+        positional argument — the workers take them as `role_to_ref`, and both
+        their signature order and this call keep every existing positional
+        caller/test working (2026-09-17, stage 1 of the spoke work).
+
         The worker takes the loaded CELL plus the working (Cluster, Sheet) and
         derives its frame from the LIVE CLUSTER (2026-09-10, plan
         overlay_frame_from_cluster): no placement lookup, no
         materialize_entity_placements, no _NO_CLONE sentinel and no "place the
         cell first" hint. An honest ValidationError from it (cluster not on the
-        board / role not in the cluster) travels the normal failure path and is
-        shown verbatim."""
+        board / role not in the cluster / a stale identification) travels the
+        normal failure path and is shown verbatim."""
         adapter = self._adapter_required()
         if adapter is None:
             return
@@ -1394,7 +1788,8 @@ class CellAnchorView(QWidget):
                    self._hide_bbox_button, self._remove_overlay_button]
         self._active_op = start_long_op(
             self._connection, widgets, fn, on_success, on_error,
-            adapter, cell, cluster, sheet, sheet_names, *extra_args)
+            adapter, cell, cluster, sheet, sheet_names, *extra_args,
+            self._remembered_refs())
 
     def _dispatch_draw(self, worker_fn, key, ok, on_error):
         """Dispatch a DRAW overlay op for `key` — the worker receives the key

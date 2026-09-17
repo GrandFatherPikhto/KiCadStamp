@@ -17698,3 +17698,138 @@ msgstr "⚠ {count} value(s) on the board are empty — the schematic value(s) w
 #: kicadstamp/placement/services/coordinate_position_calculator.py
 msgid "this record was materialized from a tree's component node, whose address named this refdes when the run started — the footprint has left the board (deleted or renamed) since"
 msgstr "this record was materialized from a tree's component node, whose address named this refdes when the run started — the footprint has left the board (deleted or renamed) since"
+
+msgid "C43, C44"
+msgstr ""
+
+msgid "Fill from selection"
+msgstr ""
+
+msgid "Fill from selection failed: {message}"
+msgstr ""
+
+msgid "Identification needs a project root — open a project first."
+msgstr ""
+
+msgid "Identification: failed to load the project config: {error}"
+msgstr ""
+
+msgid "Identified instance"
+msgstr ""
+
+msgid "Identify ONE placed instance of this cell from the components selected on the board: fills Sheet, Cluster and the refs of that pair (a spoke is identified by one pair)."
+msgstr ""
+
+msgid "No remembered cluster for cell {name!r} — extract it from a board cluster, or remember one via the cell-anchor page’s “Fill from selection”."
+msgstr ""
+
+msgid "Refs:"
+msgstr ""
+
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Refresh geometry from selection”."
+msgstr ""
+
+msgid "The refdes of the identified components, in the order of the cell's roles — editable by hand (comma or space separated). They are checked against the board every time they are used; a changed or missing component is reported as a stale identification."
+msgstr ""
+
+msgid "a spoke cell is identified by exactly ONE pair; an ordinary cluster can be identified from any part of it"
+msgstr ""
+
+msgid "a spoke needs exactly one component per cell role: missing {missing}"
+msgstr ""
+
+msgid "a spoke repeats the cell's roles inside one cluster, so the cluster alone cannot say WHICH pair is edited; identifying the pair pins the editor to exactly those components"
+msgstr ""
+
+msgid "cell {cell!r} has roles: {roles}"
+msgstr ""
+
+msgid "cluster {cluster!r} stands on several sheets ({sheets}) — the selection mixes two instances"
+msgstr ""
+
+msgid "identified as a SPOKE: role {role!r} occurs {count} times in cluster {cluster!r} — this pair is pinned: {refs}"
+msgstr ""
+
+msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
+msgstr ""
+
+msgid "no Cluster on {refs} — the instance cannot be told from another one of the same cell"
+msgstr ""
+
+msgid "no Role on {refs} — every selected component must be tagged with a Role before the instance can be identified"
+msgstr ""
+
+msgid "no live board read yet — connect to KiCad (or press Refresh) before typing refs by hand"
+msgstr ""
+
+msgid "none of the remembered refs of {label} is a role of this cell — the identification is stale, identify the instance again"
+msgstr ""
+
+msgid "nothing is selected on the board — select the components of ONE instance of cell {cell!r}"
+msgstr ""
+
+msgid "ref {ref!r} for role {role!r} is not on the live board — the identification is stale, identify the instance again"
+msgstr ""
+
+msgid "ref {ref} now has Role {actual!r}, the cell expects {expected!r} — the identification is stale, identify the instance again"
+msgstr ""
+
+msgid "refdes of the identified instance — filled by “Fill from selection”, editable by hand"
+msgstr ""
+
+msgid "role {role!r} occurs {count} times in cluster {cluster!r} — this is a spoke cell: select one pair and use “Fill from selection” on the Source tab"
+msgstr ""
+
+msgid "role → refdes of the identified instance: {pairs}"
+msgstr ""
+
+msgid "select ONE pair of this cell on the board (the repeated roles make the cluster ambiguous), then identify again"
+msgstr ""
+
+msgid "select the components of ONE sheet instance, then identify again"
+msgstr ""
+
+msgid "select the components of a single cluster instance, then identify again"
+msgstr ""
+
+msgid "select the components of this cell instance on the board, then press “Fill from selection” on the Source tab"
+msgstr ""
+
+msgid "tag the component with its Cluster on the board first"
+msgstr ""
+
+msgid "tag the component with its Role on the board (Tools → Role/cluster tree, or the role table), then identify again"
+msgstr ""
+
+msgid "the board is busy (another operation is reading it) — try again in a moment"
+msgstr ""
+
+msgid "the cluster has no component for these role(s) of the cell: {roles} — they stay unpinned until a pair is tagged"
+msgstr ""
+
+msgid "the refs {refs} are not in the last board read — press Refresh, or check the refdes"
+msgstr ""
+
+msgid "the remembered refs are stale ({reasons}) — nothing was selected; identify the instance again with “Fill from selection” on the cell-anchor page"
+msgstr ""
+
+msgid "the same Role is selected twice ({roles}) — select exactly one component per Role"
+msgstr ""
+
+msgid "the selection spans several clusters ({clusters}) — an instance belongs to ONE cluster"
+msgstr ""
+
+msgid "two components of one Role say nothing about WHICH component is the anchor of this instance"
+msgstr ""
+
+msgid "{ref} has Role {role!r} which is not in cell {cell!r}"
+msgstr ""
+
+msgid "{ref} is no longer on the board"
+msgstr ""
+
+msgid "{ref} now has Role {role!r}"
+msgstr ""
+
+msgid "{selected} of {total} components of cluster {cluster!r} selected — Source filled; “Update cell from selection” will need all of them"
+msgstr ""

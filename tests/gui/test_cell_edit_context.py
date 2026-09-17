@@ -8,12 +8,20 @@ Covers:
     "last used" overwrite, silent degradation on missing/malformed state) and
     the live-board resolution helpers (cluster_present_on_board /
     resolve_context_footprints);
+  * the IDENTIFIED refs of that instance (2026-09-17, stage 1 of the spoke work):
+    remember_cell_instance / remembered_cell_refs, and the rule that ANY context
+    write without refs erases them (plan_2026_09_17_spoke_s1_identify_by_selection
+    Р5, guard С8);
   * the cell-anchor page (gui/docks/cell_anchor_view.py) — opening a cell
     prefills the working Sheet/Cluster combos from the remembered context, and
     "Read from selection" overwrites it with the cluster it just read;
   * the Cell editor (gui/docks/cell_editor.py) — the "Select cluster of this
     cell on the board" worker selects exactly the remembered (Cluster, Sheet)
-    footprints, and a stale context selects nothing (never a fatal).
+    footprints, and a stale context selects nothing (never a fatal). Since
+    2026-09-17 IDENTIFIED refs win over the cluster (Р7 of
+    plan_2026_09_17_spoke_s1_identify_by_selection): the pair is selected
+    instead of the whole spoke cluster, a stale map selects nothing and is
+    reported, and the failure path is a Log line, never a modal.
 
 Headless and board-mutation-free, same reasoning as test_cell_anchor_view.py /
 test_cell_editor.py — selection/resolution run against fake adapters.
@@ -22,14 +30,18 @@ from types import SimpleNamespace
 
 import gui.cell_edit_context as ctx_mod
 import gui.docks.cell_anchor_view as view_mod
+import gui.docks.cell_editor as cell_editor_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
     cluster_present_on_board,
     remember_cell_edit_context,
+    remember_cell_instance,
     remembered_cell_edit_context,
+    remembered_cell_refs,
     resolve_context_footprints,
 )
+from gui.cell_identification import Identification
 from gui.docks.cell_anchor_view import CellAnchorView
 from gui.docks.cell_editor import CellDock
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -85,6 +97,11 @@ class FakeAdapter:
 
     def get_footprint_pads(self, fp):
         return []
+
+    def get_footprint(self, ref):
+        """The by-refdes read the identified-refs selection uses (Р7)."""
+        return next((fp for fp in self.footprints
+                     if getattr(fp, "ref", None) == ref), None)
 
     def get_selected_items(self):
         return []
@@ -487,3 +504,205 @@ def test_live_prefill_drops_a_stale_remembered_cluster(main_window, tmp_path):
     view.load_entry("cell1", root)
 
     assert view._cluster_combo.currentText() == ""
+
+
+# ── Identified refs (2026-09-17, stage 1 of the spoke work) ───────────────
+#
+# The (Cluster, Sheet) pair cannot name WHICH pair of components of a spoke cell
+# is being edited; the identification gives a role -> refdes map, and this key
+# remembers it. It is a hint checked against the board on every use, and it is
+# ERASED by any context write that carries no refs.
+
+def _identification(cluster="FPGA_PWR_BANK", sheet=None, refs=None):
+    return Identification(
+        cluster=cluster, sheet=sheet,
+        role_to_ref=refs if refs is not None
+        else {"C_FPGA_BULK": "C69", "C_FPGA_BYPASS": "C53"},
+        kind="spoke")
+
+
+def test_identified_instance_round_trips_cluster_sheet_and_refs(tmp_path):
+    """One write remembers all three: the working context AND the pair."""
+    root = tmp_path / "root.sexp"
+
+    remember_cell_instance(root, "fpga_pwr_bank",
+                           _identification(sheet="FPGA"))
+
+    assert remembered_cell_edit_context(root, "fpga_pwr_bank") == \
+        ("FPGA_PWR_BANK", "FPGA")
+    assert remembered_cell_refs(root, "fpga_pwr_bank") == \
+        {"C_FPGA_BULK": "C69", "C_FPGA_BYPASS": "C53"}
+
+
+def test_c8_a_context_write_without_refs_erases_them(tmp_path):
+    """С8/М8: the manual Cluster/Sheet pick (and every other plain context write)
+    must ERASE the remembered refs — a leftover map belongs to another instance
+    and is exactly the stale data the live reader would have to refuse."""
+    root = tmp_path / "root.sexp"
+    remember_cell_instance(root, "fpga_pwr_bank", _identification())
+    assert remembered_cell_refs(root, "fpga_pwr_bank")
+
+    remember_cell_edit_context(root, "fpga_pwr_bank", "FPGA_PWR_BANK", None)
+
+    assert remembered_cell_refs(root, "fpga_pwr_bank") is None
+    assert remembered_cell_edit_context(root, "fpga_pwr_bank") == \
+        ("FPGA_PWR_BANK", None)
+
+
+def test_an_identification_without_refs_writes_none(tmp_path):
+    """An empty map is not a memory: the entry behaves exactly like a plain
+    context write (the caller then falls back to the honest spoke message)."""
+    root = tmp_path / "root.sexp"
+
+    remember_cell_instance(root, "fpga_pwr_bank", _identification(refs={}))
+
+    assert remembered_cell_edit_context(root, "fpga_pwr_bank") == \
+        ("FPGA_PWR_BANK", None)
+    assert remembered_cell_refs(root, "fpga_pwr_bank") is None
+
+
+def test_refs_are_never_a_fatal_on_missing_or_malformed_state(tmp_path):
+    """§E.5 discipline: every reader degrades silently. Missing entry, a
+    non-dict entry, a non-dict/empty/malformed refs map and a missing root all
+    read as None."""
+    root = tmp_path / "root.sexp"
+
+    assert remembered_cell_refs(root, "ghost") is None
+    assert remembered_cell_refs(None, "x") is None
+    assert remembered_cell_refs(root, "") is None
+
+    settings.state.set(CELL_EDIT_CONTEXT_KEY, "not-a-dict")
+    assert remembered_cell_refs(root, "x") is None
+    settings.state.set(CELL_EDIT_CONTEXT_KEY, {str(root): {"cell1": "nope"}})
+    assert remembered_cell_refs(root, "cell1") is None
+    settings.state.set(CELL_EDIT_CONTEXT_KEY,
+                       {str(root): {"cell1": {"refs": "nope"}}})
+    assert remembered_cell_refs(root, "cell1") is None
+    settings.state.set(CELL_EDIT_CONTEXT_KEY,
+                       {str(root): {"cell1": {"refs": {"role": None}}}})
+    assert remembered_cell_refs(root, "cell1") is None
+
+
+def test_remember_instance_without_a_cluster_writes_nothing(tmp_path):
+    """Best-effort, never fatal, and never a half-entry: no cluster means there
+    is nothing to scope the refs to."""
+    root = tmp_path / "root.sexp"
+
+    remember_cell_instance(root, "cell1", _identification(cluster=""))
+    remember_cell_instance(None, "cell1", _identification())
+
+    assert settings.state.get(CELL_EDIT_CONTEXT_KEY) in (None, {})
+
+
+# ── The identified refs win over the whole cluster (Р7, С10/С16) ──────────
+#
+# For a spoke cell the cluster holds the same Role many times, so selecting "the
+# cluster" means selecting 25 pairs where the user asked for one. When the refs
+# are identified they ARE the answer — and because they are a cache, they are
+# checked against the board on every use.
+
+def _spoke_adapter():
+    """Three components of one cluster: the identified pair (C68/C52) plus a
+    SECOND bulk cap (C69) the cluster path would have swept in."""
+    a, b, c = _fp("fp1", "C68"), _fp("fp2", "C52"), _fp("fp3", "C69")
+    adapter = FakeAdapter([a, b, c])
+    for fp, role in ((a, "C_FPGA_BULK"), (b, "C_FPGA_BYPASS"),
+                     (c, "C_FPGA_BULK")):
+        adapter.set_field(fp, CLUSTER_FIELD_NAME, "FPGA_PWR_BANK")
+        adapter.set_field(fp, ROLE_FIELD_NAME, role)
+    return adapter
+
+
+def _spoke_payload(board, root):
+    return {
+        "board": board,
+        "root_path": str(root),
+        "cell_name": "cell1",
+        "cluster": "FPGA_PWR_BANK",
+        "sheet": None,
+        "refs": {"C_FPGA_BULK": "C68", "C_FPGA_BYPASS": "C52"},
+    }
+
+
+def test_c10_identified_refs_win_over_the_whole_cluster(main_window, tmp_path):
+    """С10/М10: the button selects EXACTLY the identified pair — not the three
+    components of the cluster, not the 50 of the live spoke bank."""
+    adapter = _spoke_adapter()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    dock, root = _make_cell_dock(main_window, tmp_path)
+
+    result = dock._run_select_cluster_on_board(_spoke_payload(
+        main_window.connection.board, root))
+
+    assert result["selected"] == 2
+    assert result.get("identified") is True
+    assert len(adapter.selected) == 1
+    assert {fp.uuid for fp in adapter.selected[0]} == {"fp1", "fp2"}
+
+
+def test_c16_stale_refs_select_nothing_and_say_so(main_window, tmp_path):
+    """С16/М15: a ref whose Role changed makes the map stale — NOTHING is
+    selected (never a fallback to the whole cluster) and the reason travels back
+    to the finish handler."""
+    adapter = _spoke_adapter()
+    adapter.set_field(adapter.footprints[0], ROLE_FIELD_NAME, "C_SHUNT")
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    dock, root = _make_cell_dock(main_window, tmp_path)
+
+    result = dock._run_select_cluster_on_board(_spoke_payload(
+        main_window.connection.board, root))
+
+    assert result["stale"]
+    assert "C68" in result["stale"][0]
+    assert adapter.selected == []
+
+
+def test_c16_a_ref_that_left_the_board_is_stale_too(main_window, tmp_path):
+    """С16: the same verdict when the refdes is gone (renamed/deleted)."""
+    adapter = _spoke_adapter()
+    adapter.footprints = [fp for fp in adapter.footprints if fp.ref != "C52"]
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    dock, root = _make_cell_dock(main_window, tmp_path)
+
+    result = dock._run_select_cluster_on_board(_spoke_payload(
+        main_window.connection.board, root))
+
+    assert result["stale"]
+    assert "C52" in result["stale"][0]
+    assert adapter.selected == []
+
+
+def test_c16_finish_reports_a_stale_identification_as_a_hint(main_window,
+                                                             tmp_path, caplog):
+    """The UI half of С16: the stale verdict becomes one WARNING Log line that
+    names the fix, and nothing is written anywhere."""
+    dock, _root = _make_cell_dock(main_window, tmp_path)
+    caplog.clear()
+
+    dock._finish_select_cluster_on_board({"stale": ["C68 now has Role 'C_SHUNT'"]})
+
+    assert "stale" in caplog.text.lower()
+    assert "C68" in caplog.text
+
+
+# ── С17/М16 — the failure path is a Log line, never a modal ──────────────
+
+def _no_boxes(*args, **kwargs):
+    """Stand-in for QMessageBox.warning that FAILS the test if called — the
+    strongest form of "this state error must not open a dialog"."""
+    raise AssertionError("a selection failure must not open a QMessageBox")
+
+
+def test_c17_select_cluster_error_is_never_a_modal(main_window, tmp_path,
+                                                   monkeypatch, caplog):
+    """С17/М16: this stage converts the last modal of the select-cluster path
+    (the worker's error branch) into a Log line — the same rule the rest of the
+    GUI already follows (plan_2026_09_11_no_modals_and_busy_kicad)."""
+    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning", _no_boxes)
+    dock, _root = _make_cell_dock(main_window, tmp_path)
+    caplog.clear()
+
+    dock._finish_select_cluster_on_board({"error": "KiCad IPC exploded"})
+
+    assert "KiCad IPC exploded" in caplog.text
+    assert dock._active_op is None

@@ -19,6 +19,21 @@ gui_state.json layout (settings.state, key "cell_edit_context"):
         }
     }
 
+... and, since 2026-09-17 (stage 1 of the spoke work), an entry may also carry the
+IDENTIFIED refs of that instance:
+
+            "<cell name>": {"cluster": "FPGA_PWR_BANK", "sheet": null,
+                            "refs": {"C_FPGA_BULK": "C69", "C_FPGA_BYPASS": "C53"}}
+
+Why the refs live here and not in the config: a spoke's cluster holds the same
+Role many times, so (Cluster, Sheet) cannot name WHICH pair the user is editing —
+the selection can, and what it yields is a role -> refdes map. That map is an
+INTERFACE cache, checked against the board on every use (the live frame reader
+refuses a ref whose Role changed or which left the board as "stale"); refdes are
+never written to a cell, a spoke or the config. The rule that keeps it honest:
+ANY write of a context WITHOUT refs (a manual Cluster/Sheet pick, a re-read that
+brings a fresh cluster) ERASES them — see remember_cell_edit_context's docstring.
+
 - The per-root-config scope is REQUIRED: the cell name is a slug of its
   Cluster tag (gui/docks/reead.py's _slugify), so the same pif_3v3_vdd in two
   profiles points at DIFFERENT boards. The per-root scope copies the existing
@@ -70,7 +85,13 @@ def remember_cell_edit_context(root_path, cell_name: str, cluster, sheet) -> Non
     """Record the last-used (Cluster, Sheet) of `cell_name` under the root
     config `root_path`. Best-effort and never raises (a state write must never
     break a Save / cell creation). An empty cluster or missing cell name/root
-    writes nothing."""
+    writes nothing.
+
+    This write ERASES any identified `refs` of that cell (2026-09-17): a manual
+    Cluster/Sheet pick — or a read that brings a DIFFERENT cluster — says nothing
+    about which pair of components is meant, and a leftover map from another
+    instance is exactly the stale data the "stale identification" refusal exists
+    for. The entry is rewritten whole, so nothing has to be cleaned up by hand."""
     if not cell_name or not cluster or root_path is None:
         return
     try:
@@ -84,6 +105,69 @@ def remember_cell_edit_context(root_path, cell_name: str, cluster, sheet) -> Non
     except Exception:  # noqa: BLE001 — state is a hint; never fatal
         logger.warning("Failed to remember cell %r (cluster %r) — state write "
                        "skipped", cell_name, cluster)
+
+
+def remember_cell_instance(root_path, cell_name: str, identification) -> None:
+    """Record an IDENTIFIED instance of `cell_name`: its (Cluster, Sheet) AND the
+    role -> refdes map that pins the pair down (2026-09-17, design Р2: "if the
+    cluster is identified, the refs must be written down automatically").
+
+    `identification` is gui.cell_identification.Identification (duck-typed: a
+    .cluster/.sheet/.role_to_ref shape). Best-effort and never raises — a state
+    write must never break the button that produced it. An identification without
+    a cluster, or with an empty map, writes no refs at all (the entry then behaves
+    exactly like one written by remember_cell_edit_context)."""
+    if not cell_name or root_path is None or identification is None:
+        return
+    cluster = getattr(identification, "cluster", None)
+    if not cluster:
+        return
+    sheet = getattr(identification, "sheet", None)
+    refs = {str(role): str(ref)
+            for role, ref in (getattr(identification, "role_to_ref", None) or {}).items()
+            if role and ref}
+    try:
+        state = _state()
+        per_root = state.setdefault(str(root_path), {})
+        entry = {
+            "cluster": str(cluster),
+            "sheet": str(sheet) if sheet else None,
+        }
+        if refs:
+            entry["refs"] = refs
+        per_root[cell_name] = entry
+        settings.state.set(CELL_EDIT_CONTEXT_KEY, state)
+    except Exception:  # noqa: BLE001 — state is a hint; never fatal
+        logger.warning("Failed to remember the identified instance of %r "
+                       "(cluster %r) — state write skipped", cell_name, cluster)
+
+
+def remembered_cell_refs(root_path, cell_name: str) -> Optional[dict]:
+    """The role -> refdes map remembered for `cell_name`, or None when there is
+    none (no entry, no refs key, an empty/malformed map).
+
+    Never raises — like every other reader here, "nothing remembered" is the
+    everyday case (a cell that was only ever hand-picked, or a context written
+    before this stage). A non-empty result is STILL only a hint: whether those
+    refs are on the board with the expected Roles is decided by the live frame
+    reader, which refuses a stale map instead of drawing someone else's pair."""
+    if root_path is None or not cell_name:
+        return None
+    try:
+        per_root = _state().get(str(root_path)) or {}
+        if not isinstance(per_root, dict):
+            return None
+        entry = per_root.get(cell_name)
+        if not isinstance(entry, dict):
+            return None
+        refs = entry.get("refs")
+        if not isinstance(refs, dict) or not refs:
+            return None
+        cleaned = {str(role): str(ref) for role, ref in refs.items()
+                   if role and ref}
+        return cleaned or None
+    except Exception:  # noqa: BLE001 — best-effort read, never fatal
+        return None
 
 
 def remembered_cell_edit_context(root_path, cell_name: str) -> tuple[

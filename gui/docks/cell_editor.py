@@ -92,6 +92,7 @@ from kicadstamp.cell_geometry_refresh import (
     build_refresh_plan,
 )
 from kicadstamp.cell_placement_copy import build_placement_copy_plan, donor_candidates_for
+from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
                                load_template_track, load_template_via)
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -108,6 +109,7 @@ from ..board_layers import (
 from ..worker import start_long_op
 from ..cell_edit_context import (
     remembered_cell_edit_context,
+    remembered_cell_refs,
     resolve_context_footprints,
 )
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -271,6 +273,43 @@ def import_preview_rows(plan) -> List[List[str]]:
     for record in plan.new_track_records:
         rows.append([_("Track"), _record_position(record, "track"), _net_display(record)])
     return rows
+
+
+def select_identified_refs(adapter, refs: Dict[str, str]) -> Dict[str, Any]:
+    """Select EXACTLY the identified refs of ONE instance on the live board —
+    the pair of a spoke cell, or the full component set of an ordinary cluster
+    (2026-09-17, Р7 of plan_2026_09_17_spoke_s1_identify_by_selection.md).
+
+    The refs are an INTERFACE CACHE (gui_state.json), so they are checked here,
+    on the worker thread, against the board as it is NOW: a ref that is gone, or
+    whose Role is no longer the one the map claims, makes the identification
+    STALE. Then NOTHING is selected and the reasons travel back — never a
+    fallback to the whole cluster, which on the spoke FPGA_PWR_BANK would hand
+    the user 50 components he did not ask for (and would then let "Refresh
+    geometry from selection" rewrite a cell from the wrong pair).
+
+    Pure data in / data out (no widget, no Qt) so the GUI test can drive it
+    against a fake adapter. Returns
+    {"selected": n, "identified": True} or {"stale": [reason, ...]}."""
+    stale: List[str] = []
+    footprints = []
+    for role in sorted(refs):
+        ref = refs[role]
+        fp = adapter.get_footprint(ref)
+        if fp is None:
+            stale.append(_("{ref} is no longer on the board").format(ref=ref))
+            continue
+        live_role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
+        if live_role != role:
+            stale.append(_("{ref} now has Role {role!r}").format(
+                ref=ref, role=live_role))
+            continue
+        footprints.append(fp)
+    if stale:
+        return {"stale": stale}
+    if footprints:
+        adapter.select_items(footprints)
+    return {"selected": len(footprints), "identified": True}
 
 
 class _ImportPreviewDialog(QDialog):
@@ -2119,17 +2158,22 @@ class CellDock(QWidget):
     # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
 
     def _on_select_cluster_on_board(self) -> None:
-        """Button action: highlight the WHOLE placed cluster instance this cell
-        was last created/edited in — the remembered (Cluster, Sheet) context —
-        so "Refresh geometry from selection" / "Import vias/tracks from
+        """Button action: highlight the placed instance this cell was last
+        created/edited in — the remembered (Cluster, Sheet) context — so
+        "Refresh geometry from selection" / "Import vias/tracks from
         selection" (which fatal on any role missing from the selection) have
         the fully-selected cluster without the user hunting for it by hand.
 
+        2026-09-17 (Р7 of plan_2026_09_17_spoke_s1_identify_by_selection.md):
+        when the cell also has IDENTIFIED refs, those win — the button selects
+        exactly that pair instead of the whole cluster, which for the spoke
+        FPGA_PWR_BANK used to mean 50 components the user did not ask for.
+
         The remembered context is a HINT (§E.5): when it no longer resolves on
         the current board the button reports it and selects NOTHING (never a
-        fatal). Board IPC (footprint scan + select_items) runs on the worker
-        thread via start_long_op — no synchronous adapter call on the UI
-        thread."""
+        fatal, and never a fallback to the whole cluster). Board IPC (footprint
+        reads + select_items) runs on the worker thread via start_long_op — no
+        synchronous adapter call on the UI thread."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
@@ -2146,12 +2190,13 @@ class CellDock(QWidget):
         if self._active_op is not None:
             return
         cell_name = self.name_edit.text().strip()
+        refs = remembered_cell_refs(self._root_path, cell_name) or {}
         cluster, sheet = remembered_cell_edit_context(self._root_path, cell_name)
-        if not cluster:
+        if not cluster and not refs:
             self._show_message(
                 _("No remembered cluster for cell {name!r} — extract it from a "
                   "board cluster, or remember one via the cell-anchor page’s "
-                  "“Read from selection”.").format(name=cell_name),
+                  "“Fill from selection”.").format(name=cell_name),
                 _ERROR_STYLE)
             return
         payload = {
@@ -2160,6 +2205,7 @@ class CellDock(QWidget):
             "cell_name": cell_name,
             "cluster": cluster,
             "sheet": sheet,
+            "refs": refs,
         }
         self._active_op = start_long_op(
             connection, (self.select_cluster_button,),
@@ -2168,13 +2214,19 @@ class CellDock(QWidget):
             self._on_select_cluster_failed, payload)
 
     def _run_select_cluster_on_board(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Worker thread: resolve the remembered (Cluster, Sheet) footprints on
-        the live board and set the KiCad GUI selection to them — never touches
-        a widget. Returns {"selected": n, "cluster": ..., "sheet": ...}. The
-        stale-context (no footprints) case is NOT an error: nothing is selected
-        and the finish handler reports it as a hint."""
+        """Worker thread: set the KiCad GUI selection to the remembered
+        INSTANCE — never touches a widget.
+
+        With identified refs (Р7) that instance is exactly those refs, checked on
+        the live board by select_identified_refs; a stale map selects NOTHING.
+        Without them, the remembered (Cluster, Sheet) footprints, as before.
+        Returns {"selected": n, ...} / {"stale": [...]} / {"error": ...}; a stale
+        context is NOT an error — the finish handler reports it as a hint."""
         try:
             adapter = payload["board"].adapter
+            refs = payload.get("refs") or {}
+            if refs:
+                return select_identified_refs(adapter, refs)
             from kicadstamp.config import load_config
             _cfg, ctx = load_config(payload["root_path"])
             footprints = resolve_context_footprints(
@@ -2188,16 +2240,32 @@ class CellDock(QWidget):
                 "sheet": payload["sheet"]}
 
     def _finish_select_cluster_on_board(self, result: Dict[str, Any]) -> None:
-        """UI thread (worker finished): report how many footprints of the
-        remembered cluster got selected, or — when none did (stale context) —
-        tell the user to pick the cluster by hand. A stale context is never a
-        fatal."""
+        """UI thread (worker finished): report what got selected, or — when
+        nothing did — say why. A stale context (and a stale identification, Р7)
+        is never a fatal and never a modal: this stage's rule is "no modal
+        windows", and the error path here used to be the last QMessageBox.warning
+        of the three live flows of this dock (X.1.3 test_cell_editor_live_flows…)."""
         self._active_op = None
         if result.get("error"):
-            QMessageBox.warning(
-                self, _("Select cluster on the board"), result["error"])
+            self._show_message(
+                _("Select cluster failed: {error}").format(error=result["error"]),
+                _ERROR_STYLE)
             return
-        if result["selected"]:
+        if result.get("stale"):
+            self._show_message(
+                _("the remembered refs are stale ({reasons}) — nothing was "
+                  "selected; identify the instance again with “Fill from "
+                  "selection” on the cell-anchor page")
+                .format(reasons="; ".join(result["stale"])),
+                _WARN_STYLE)
+            return
+        if result.get("identified"):
+            self._show_message(
+                _("Selected the {count} identified footprint(s) of this cell on "
+                  "the board — ready for “Refresh geometry from selection”.")
+                .format(count=result["selected"]),
+                _SUCCESS_STYLE)
+        elif result["selected"]:
             self._show_message(
                 _("Selected {count} footprint(s) of cluster {cluster!r} on the "
                   "board — ready for “Refresh geometry from selection”.")
