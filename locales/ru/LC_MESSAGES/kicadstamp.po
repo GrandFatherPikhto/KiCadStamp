@@ -16666,3 +16666,30 @@ msgstr "На плате выделено {count} идентифицирован�
 
 msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry”."
 msgstr "На плате выделено {count} футпринтов кластера {cluster!r} — кластер готов для «Перечитать геометрию»."
+
+msgid "nothing is selected on the board — select the pair of components of ONE spoke (with its copper, if you want the copper in the cell)"
+msgstr "на плате ничего не выделено — выделите пару компонентов ОДНОЙ спицы (вместе с её медью, если медь должна попасть в ячейку)"
+
+msgid "no Role on {refs} — every component of the pair must be tagged with a Role"
+msgstr "у {refs} нет роли — каждый компонент пары должен быть размечен ролью"
+
+msgid "the selection spans several clusters ({clusters}) — a spoke belongs to ONE cluster"
+msgstr "выделение захватывает несколько кластеров ({clusters}) — спица принадлежит ОДНОМУ кластеру"
+
+msgid "no Cluster on {refs} — the spoke's cluster is the one the pair stands in"
+msgstr "у {refs} нет поля Cluster — кластером спицы считается тот, в котором стоит пара"
+
+msgid "no component pool for cluster {cluster}"
+msgstr "для кластера {cluster} нет пула компонентов"
+
+msgid "On redraw this spoke will get {refs}"
+msgstr "на перерисовке эта спица получит {refs}"
+
+msgid "On redraw this spoke will get {got}, NOT the selected pair: {selected} is already taken by the spoke on pad {pad} of chain {chain}. The selected pair will be moved off this pad."
+msgstr "на перерисовке эта спица получит {got}, а НЕ выделенную пару: {selected} уже занята спицей на паде {pad} цепочки {chain}. Выделенная пара уедет с этого пада."
+
+msgid "On redraw this spoke will get {got}, NOT the selected pair: {selected} is not claimed by any chain on this net — the selected pair will be moved off this pad."
+msgstr "на перерисовке эта спица получит {got}, а НЕ выделенную пару: {selected} не занята ни одной цепочкой на этой цепи — выделенная пара уедет с этого пада."
+
+msgid "No free pair left in cluster {cluster} for one more spoke ({pairs} pairs, {spokes} spokes)"
+msgstr "в кластере {cluster} не осталось свободной пары для ещё одной спицы ({pairs} пар, {spokes} спиц)"

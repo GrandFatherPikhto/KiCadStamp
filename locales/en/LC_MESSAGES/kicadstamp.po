@@ -17992,3 +17992,30 @@ msgstr ""
 
 msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry”."
 msgstr ""
+
+msgid "nothing is selected on the board — select the pair of components of ONE spoke (with its copper, if you want the copper in the cell)"
+msgstr ""
+
+msgid "no Role on {refs} — every component of the pair must be tagged with a Role"
+msgstr ""
+
+msgid "the selection spans several clusters ({clusters}) — a spoke belongs to ONE cluster"
+msgstr ""
+
+msgid "no Cluster on {refs} — the spoke's cluster is the one the pair stands in"
+msgstr ""
+
+msgid "no component pool for cluster {cluster}"
+msgstr ""
+
+msgid "On redraw this spoke will get {refs}"
+msgstr ""
+
+msgid "On redraw this spoke will get {got}, NOT the selected pair: {selected} is already taken by the spoke on pad {pad} of chain {chain}. The selected pair will be moved off this pad."
+msgstr ""
+
+msgid "On redraw this spoke will get {got}, NOT the selected pair: {selected} is not claimed by any chain on this net — the selected pair will be moved off this pad."
+msgstr ""
+
+msgid "No free pair left in cluster {cluster} for one more spoke ({pairs} pairs, {spokes} spokes)"
+msgstr ""
