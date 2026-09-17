@@ -563,7 +563,8 @@ def _cell_config(tmp_path, name="fpga_pwr_bank",
 
 
 def _view_for(main_window, root, name="fpga_pwr_bank"):
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry(name, root)
     return view

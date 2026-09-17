@@ -567,7 +567,8 @@ def _make_view(main_window, tmp_path, data=None):
     target = tmp_path / "root.sexp"
     target.write_text(dict_to_sexp(data if data is not None else _cell_data()),
                       encoding="utf-8")
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(target)
     view.load_entry("cell1", target)
     return view, target
@@ -1008,7 +1009,8 @@ def _view_with_placements(main_window, tmp_path, placements):
     }}, "clone_placements": placements}
     target = tmp_path / "root.sexp"
     target.write_text(dict_to_sexp(data), encoding="utf-8")
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(target)
     view.load_entry("cell1", target)
     view._cluster_combo.setCurrentText("CL1")

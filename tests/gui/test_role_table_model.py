@@ -350,6 +350,64 @@ def test_c2z_a_restored_row_takes_its_board_columns_from_the_snapshot():
     assert back[0].role == "TYPED"
 
 
+# ── The rule "only the user's own input goes into gui_state.json" (plan 2а Р5)
+# Guards С4 and С5. Both behaviours are CORRECT on the base: these tests are the
+# mutation guards the plan 2а §1.3 asked for, not a red-first fix.
+
+def test_x3_an_untouched_row_prefilled_from_the_board_keeps_no_board_values():
+    """С4 / mutation X3 (plan 2а §1.3). A row taken from the board and NEVER
+    touched carries the board's own values in its to-write cells and in its
+    board columns — and NONE of them may reach gui_state.json.
+
+    Stored, they would freeze a value that ages: the board is retagged elsewhere
+    (fieldstool + F8) and the reopening table would show the OLD role from the
+    state, bold (it differs from the board now) and ready to be written back —
+    the exact silent revert X3 would bring back."""
+    rows = replace_rows([_rec("C41", role="C_BULK", cluster="FPGA_PWR_BANK")])
+
+    state = table_to_state(rows, "")
+
+    assert state["rows"] == [{"ref": "C41", "role": "", "cluster": ""}]
+    assert "C_BULK" not in repr(state)
+    assert "FPGA_PWR_BANK" not in repr(state)
+
+
+def test_x3_a_role_changed_on_the_board_comes_back_new_not_stale():
+    """С4 / mutation X3 — the live danger of §1.3, end to end: the table was
+    never typed into, the role on the board then changed, and the reopened table
+    must carry the NEW role with nothing left to write.
+
+    With X3 in place the state holds the old role, it wins over the snapshot, the
+    row opens bold and "Write to board" sends the stale role back to the board."""
+    rows = replace_rows([_rec("C41", role="OLD_ROLE", cluster="BANK")])
+    state = table_to_state(rows, "")            # the user typed nothing at all
+
+    back, _cluster = rows_from_state(
+        state, [_rec("C41", role="NEW_ROLE", cluster="BANK")])
+
+    assert back[0].role == "NEW_ROLE"           # the board's own, not the state's
+    assert back[0].board_role == "NEW_ROLE"
+    assert build_tag_updates(back).updates == []
+
+
+def test_x10_an_empty_saved_role_and_cluster_are_restored_from_the_snapshot():
+    """С5 / mutation X10 (plan 2а §1.3): an empty saved value means "the user
+    typed nothing here", so the snapshot fills the cell — for the Role AND the
+    cluster (Р2б: the board values are never stored, they are read again).
+
+    With X10 in place the cell comes back empty even though the footprint on the
+    board carries both values."""
+    state = {"cluster": "",
+             "rows": [{"ref": "C41", "role": "", "cluster": ""}]}
+
+    rows, _cluster = rows_from_state(
+        state, [_rec("C41", role="C_BULK", cluster="FPGA_PWR_BANK")])
+
+    assert rows[0].role == "C_BULK"
+    assert rows[0].cluster == "FPGA_PWR_BANK"
+    assert build_tag_updates(rows).updates == []
+
+
 def test_c2k_an_unknown_ref_in_the_state_is_shown_but_not_writable():
     """A cell remembered under another board: the rows are still displayed (the
     table is a hint), but the write cannot reach them."""

@@ -229,7 +229,8 @@ def _make_view(main_window, tmp_path, adapter=None, data=None):
     _write(root, data if data is not None else _cell_data())
     if adapter is not None:
         main_window.connection.board = SimpleNamespace(adapter=adapter)
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     return view, root
@@ -281,7 +282,8 @@ def test_view_stale_remembered_cluster_leaves_fields_empty(main_window,
     _write(root, _cell_data())
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "FPGA")
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.refresh_known_roles([SimpleNamespace(role="C1", cluster="AD_DAC/IC2")])
     view.load_entry("cell1", root)
@@ -315,7 +317,8 @@ def test_view_opening_another_cell_drops_previous_context(main_window,
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
@@ -359,7 +362,8 @@ def test_sheet_combo_shows_names_not_uuid_keys(main_window, tmp_path,
     })
     monkeypatch.setattr(view_mod, "load_config", lambda path: (object(), ctx))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
 
     items = [view._sheet_combo.itemText(i)
@@ -493,7 +497,8 @@ def test_offline_prefill_applies_the_remembered_context(main_window, tmp_path):
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
     assert main_window.connection.board is None
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -513,7 +518,8 @@ def test_live_prefill_keeps_the_hint_when_no_snapshot_was_fed_yet(main_window,
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
     main_window.connection.board = SimpleNamespace(adapter=FakeAdapter())
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -819,7 +825,8 @@ def test_c1a_a_failing_board_read_does_not_wipe_the_remembered_context(
     main_window.connection.board = SimpleNamespace(adapter=_FailingAdapter())
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU", "FPGA"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -839,7 +846,8 @@ def test_c2a_a_sheet_that_cannot_be_checked_yet_is_still_applied(
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map())
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -857,7 +865,8 @@ def test_c2a_a_sheet_the_list_does_not_know_is_dropped(
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "GONE_SHEET")
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU", "FPGA"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -875,7 +884,8 @@ def test_c3a_a_snapshot_tick_does_not_wipe_the_prefilled_cluster(
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
@@ -897,7 +907,8 @@ def test_c4a_opening_and_context_never_reach_the_adapter_on_the_ui_thread(
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     view._reload_form()
@@ -921,7 +932,8 @@ def test_c5a_identified_refs_make_the_working_cluster_optional(
     main_window.connection.board = SimpleNamespace(adapter=_RecordingAdapter())
     monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     # Model the lost cluster of the live session: the combo is EMPTY while the

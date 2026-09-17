@@ -339,6 +339,70 @@ def test_c11_the_role_cells_offer_the_cells_roles_in_the_cells_order(
                                                               "C_BULK"]
 
 
+# ── Р3/Р4 of plan 2а: the hints and the status do not ride on the rebuild ──
+# Guards С2 and С3. Both are RED on the base: _render exits on an unchanged
+# signature BEFORE set_choices and _refresh_status, so a cell-role edit leaves
+# stale hints and a late adapter leaves the write button off.
+
+def test_m3_the_role_hints_follow_a_cell_role_added_while_the_table_stands(
+        main_window):
+    """С2 / mutation М3 (plan 2а §1.2): the ROWS did not move, only the cell's
+    own roles did — the Role editor must offer the new role right away, without
+    reopening the cell."""
+    tab = _tab(main_window, roles=["R_A", "R_B"],
+               records=_records(("C41", None, None)))
+    assert tab._role_combo_items() == ["R_A", "R_B"]
+
+    tab.set_cell_roles(["R_A", "R_B", "R_NEW"])
+
+    assert tab._role_combo_items() == ["R_A", "R_B", "R_NEW"]
+
+
+def test_m3_the_role_hints_follow_the_roles_of_a_form_reload(main_window):
+    """С2 / mutation М3, the PRODUCTION path: the cell entry was edited, the
+    editor reloaded the form and fed the tab the new roles through set_context
+    (cell_anchor_view._reload_form -> _sync_refs_tab) with the SAME board read —
+    only the hints change, the table itself stays exactly as the user left it."""
+    tab = _tab(main_window, roles=["R_A", "R_B"],
+               records=_records(("C41", None, None)))
+
+    tab.set_context("test-root", "cell1", ["R_A", "R_B", "R_NEW"],
+                    tab._records, sheet_names={})
+
+    assert tab._role_combo_items() == ["R_A", "R_B", "R_NEW"]
+
+
+def test_m4_the_write_button_follows_an_adapter_that_arrives_later(main_window,
+                                                                  tmp_path):
+    """С3 / mutation М4 (plan 2а Р4): the button needs a live board, and the
+    board can appear while the table stands (KiCad connected late, or the editor
+    reloaded the form). The rows must NOT have to be rebuilt for the button to
+    wake up — the status and the button are recomputed on every render.
+
+    The typed role comes from the SAVED table, not from a mid-test keystroke: a
+    cell edit does not re-render (see _on_item_changed), so typing here would
+    leave a stale signature cached and the rebuild would happen after the
+    adapter arrived, testing the wrong thing."""
+    root = tmp_path / "root.sexp"
+    remember_role_table(root, "cell1", {
+        "cluster": "",
+        "rows": [{"ref": "C41", "role": "C_BYPASS", "cluster": ""}],
+    })
+    # The board still carries the OLD role, so the saved table has something to
+    # write — and the table itself is already rendered and cached.
+    records = _records(("C41", "C_BULK", None))
+    tab = _tab(main_window, root=root, records=records)
+    assert tab.row_refs() == ["C41"]
+    assert tab.write_button_enabled() is False       # no adapter yet
+
+    main_window.connection.board = SimpleNamespace(adapter=FakeAdapter())
+    # An unchanged table, re-fed through the production path (the form reloaded
+    # with the cell's roles) — the rows and their board columns are identical.
+    tab.set_context(root, "cell1", ["C_BULK"], records, sheet_names={})
+
+    assert tab.write_button_enabled() is True
+
+
 def test_c6_a_duplicate_role_warns_in_the_status_but_the_write_still_runs(
         main_window, monkeypatch):
     c41, c43 = _fp("C41"), _fp("C43")
@@ -548,7 +612,9 @@ def test_c10_opening_the_editor_restores_the_table_without_reading_the_board(
     adapter = _RecordingAdapter()
     main_window.connection.board = SimpleNamespace(adapter=adapter)
 
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 
@@ -565,7 +631,9 @@ def test_c2k_fill_from_selection_fills_an_empty_table_and_never_a_filled_one(
     typed into is theirs."""
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
     view.refresh_known_roles([
@@ -590,7 +658,9 @@ def test_c2k_fill_from_selection_fills_an_empty_table_and_never_a_filled_one(
 def test_the_tab_is_the_second_tab_of_the_editor(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
-    view = CellAnchorView(main_window, connection=main_window.connection)
+    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
+    view = CellAnchorView(main_window, connection=main_window.connection,
+                          parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
 

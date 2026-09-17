@@ -637,50 +637,73 @@ class RefsTabWidget(QWidget):
         return item
 
     def _render_signature(self) -> tuple:
-        """Everything a rendered cell shows. An UNCHANGED signature means the
-        table already looks right, so the rebuild is skipped — the same
+        """Everything a rendered CELL shows. An UNCHANGED signature means the
+        table itself already looks right, so the REBUILD is skipped — the same
         "early exit on unchanged input" idea the combo refills use, and the
         cheapest way to keep the Python heap quiet on a project with hundreds of
-        components (the GUI pushes a snapshot every ~2s)."""
+        components (the GUI pushes a snapshot every ~2s).
+
+        It governs the rebuild ONLY. The delegate hints and the status line are
+        deliberately kept out of this signature and refreshed on every render —
+        see _render."""
         return tuple(
             (r.ref, r.role, r.cluster, r.board_role, r.board_cluster,
              r.role_field_exists, r.cluster_field_exists, r.on_board)
             for r in self._rows)
 
     def _render(self) -> None:
-        """Rebuild the table from the rows, then the placeholder row.
+        """Rebuild the table from the rows, then the placeholder row — and, on
+        EVERY call, the two things that live OUTSIDE the table: the delegate
+        hints and the status/write-button line (Р3, plan 2а §1.2).
+
+        The signature decides the REBUILD only, and skipping an unchanged rebuild
+        is not just an optimisation: it is what keeps a snapshot tick from
+        deleting the editor the user is typing into (stage 2 Δ9) on a project
+        where the GUI pushes a whole-board snapshot every ~2s.
+
+        The hints and the status must NOT ride on that signature. Two everyday
+        cases leave the rows untouched, so no rebuild ever happens — yet both
+        have to be visible at once:
+          * the cell's OWN ROLES changed (the entry was edited and the form
+            reloaded, which feeds set_context the new roles), and the Role editor
+            must offer them without reopening the cell;
+          * the ADAPTER appeared (KiCad connected late), and "Write to board" must
+            follow the board it now has.
+        Both are guarded (С2/С3), and both were live bugs before this change.
 
         The cell editors are DELEGATES (see _ComboDelegate): the table holds no
         Python-owned widget, so nothing here can be destroyed by a garbage
         collection — which is what used to abort the interpreter under the full
         GUI run."""
         signature = self._render_signature()
-        if signature == self._render_signature_cached:
-            return
-        self._render_signature_cached = signature
-        row_count_changed = self._table.rowCount() != len(self._rows) + 1
-        self._loading = True
-        try:
-            self._table.clearContents()
-            self._table.setRowCount(len(self._rows) + 1)
-            for index, row in enumerate(self._rows):
-                self._table.setItem(index, COL_REF, self._ref_item(row))
-                self._table.setItem(index, COL_ROLE, self._to_write_item(
-                    row, row.role, row.role_field_exists, row.role_differs))
-                self._table.setItem(index, COL_CLUSTER, self._to_write_item(
-                    row, row.cluster, row.cluster_field_exists,
-                    row.cluster_differs))
-            self._table.setItem(len(self._rows), COL_REF,
-                                self._placeholder_item())
-        finally:
-            self._loading = False
-        # The delegate offers what the columns know; the values themselves live
-        # in the items (the model), which is the one source of truth.
+        if signature != self._render_signature_cached:
+            self._render_signature_cached = signature
+            row_count_changed = self._table.rowCount() != len(self._rows) + 1
+            self._loading = True
+            try:
+                self._table.clearContents()
+                self._table.setRowCount(len(self._rows) + 1)
+                for index, row in enumerate(self._rows):
+                    self._table.setItem(index, COL_REF, self._ref_item(row))
+                    self._table.setItem(index, COL_ROLE, self._to_write_item(
+                        row, row.role, row.role_field_exists, row.role_differs))
+                    self._table.setItem(index, COL_CLUSTER,
+                                        self._to_write_item(
+                                            row, row.cluster,
+                                            row.cluster_field_exists,
+                                            row.cluster_differs))
+                self._table.setItem(len(self._rows), COL_REF,
+                                    self._placeholder_item())
+            finally:
+                self._loading = False
+            if row_count_changed:
+                self._table.resizeColumnsToContents()
+        # Outside the signature on purpose (Р3): what the columns OFFER, and
+        # whether the batch can be written at all. The values themselves live in
+        # the items (the model), which is the one source of truth.
         self._role_delegate.set_choices(self._role_choices)
         self._cluster_delegate.set_choices(self._cluster_values())
         self._refresh_status()
-        if row_count_changed:
-            self._table.resizeColumnsToContents()
 
     def _refresh_status(self) -> None:
         """The Р4 warnings (status strip + Log are one action: _show) and the
