@@ -121,3 +121,28 @@ def test_pending_dock_is_injected_into_fieldstool_window(real_main_window):
     left tab page AND what the embedded fieldstool window pushes edits to."""
     hub = real_main_window._dock_hub
     assert hub.fieldstool_dock.window.pending_dock is hub.pending_dock
+
+
+def test_c2_the_pending_tab_title_carries_the_count(main_window, qapp):
+    """С2/М2 (2026-09-17, plan ..._spoke_s3_roles_reminder: Р1/Р6): the reminder
+    is the tab TITLE — no new widget anywhere (Ф5: nothing growing on a small
+    screen). Zero keeps the plain title, a non-zero count is bracketed, and the
+    title follows the panel's own signal (Р2: the same list set_edits already
+    receives, no second board/schematic diff)."""
+    dock, pending, _right = _make_master_dock(main_window)
+    tabs = dock._left_tabs
+    index = tabs.indexOf(pending)
+
+    assert tabs.tabText(index) == "Pending changes"
+
+    pending.set_edits([PendingEdit("R1", "Role", "A", "B"),
+                       PendingEdit("R1", "Cluster", "A", "B"),
+                       PendingEdit("R2", "Role", "A", "B"),
+                       PendingEdit("R3", "Refdes/symbol mismatch", "s", "b",
+                                   mismatched=True)])
+
+    # С1 at the wiring level too: the mismatched row is not a pending value.
+    assert tabs.tabText(index) == "Pending changes (3)"
+
+    pending.set_edits([])
+    assert tabs.tabText(index) == "Pending changes"

@@ -300,6 +300,16 @@ splitter. Selecting a component — clicking a tree leaf/group in either mode, o
 changes** row — switches the fieldstool pane to that component (its target + Role/Cluster
 prefills).
 
+Since 2026-09-17 (`plan_2026_09_17_spoke_s3_roles_reminder`) that tab's own **title** carries the
+reminder that Role/Cluster values currently live on the BOARD only: it reads **Pending changes (N)**,
+N being the Role/Cluster values Apply would carry into the schematic (mismatched "Refdes/symbol
+mismatch" rows are excluded — Apply drops them). A clean state reads plain **Pending changes**, with
+no brackets. The Log gets **one** line when N appears or grows (never one per poll tick), saying to
+run Pending changes → **Apply** before the next F8 (Update PCB from Schematic), which would overwrite
+those values from the schematic; a separate one-off line reports the Refdes/symbol mismatch rows,
+which Apply cannot carry at all. Both the count and both lines come from the diff the tab was already
+fed — no extra board or schematic read.
+
 ## Cells tab
 
 A flat list of Cell names read from whatever file is assigned the **Cells** role in Files (see

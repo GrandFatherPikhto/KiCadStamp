@@ -1,6 +1,8 @@
 # tests/gui/test_pending_dock.py
 from gui.docks.pending import (PendingChangesDock, PendingEdit,
-                                compute_pending_edits, edits_to_fields_cfg)
+                                compute_pending_edits, edits_to_fields_cfg,
+                                mismatch_log_line, pending_reminder_state,
+                                reminder_log_line)
 from gui.schema_model import SchematicComponent, SchematicInstance
 from kicadstamp.explore import Selected
 
@@ -366,3 +368,147 @@ def test_field_present_but_empty_still_emits_edit():
     edits = compute_pending_edits(comps, snapshot)
 
     assert edits == [PendingEdit("R1", "Cluster", "CL_A", "")]
+
+
+# ── Reminder state and Log transitions (2026-09-17, plan
+#    plan_2026_09_17_spoke_s3_roles_reminder — Р1–Р8, С1–С7) ─────────────────
+#
+# Board Role/Cluster values the schematic does not have yet: the next F8
+# (Update PCB from Schematic) silently overwrites them and only Pending
+# changes -> Apply carries them over. F8 cannot be intercepted (it is KiCad's),
+# so the condition stays VISIBLE — a count in the tab title — and the Log gets
+# ONE line per transition, never one per ~2s poll tick (Ф5: nothing growing on
+# a small screen, and no flooding).
+
+def test_c1_state_counts_only_role_and_cluster_edits():
+    """С1/М1: a "Refdes/symbol mismatch" row is NOT a pending value — Apply
+    drops it (edits_to_fields_cfg), so it must not inflate the count the tab
+    shows. It gets its own reminder instead (С7), which is the second half of
+    the same state."""
+    edits = [PendingEdit("R1", "Role", "A", "B"),
+             PendingEdit("R1", "Cluster", "C", "D"),
+             PendingEdit("R2", "Refdes/symbol mismatch", "sch: u1", "board: u2",
+                         mismatched=True)]
+
+    assert pending_reminder_state(edits) == (2, 1)
+
+
+def test_c1_state_is_zero_for_an_empty_diff():
+    assert pending_reminder_state([]) == (0, 0)
+
+
+def test_c3_c4_c5_the_count_line_warns_on_growth_only():
+    """С3 (0→3) and С5 (3→5) warn; С4 (3→3 — the same poll tick repeated)
+    stays silent. A decrease is silent too: Apply or a revert on the board
+    removed something, there is nothing new to warn about."""
+    assert reminder_log_line(0, 3) is not None
+    assert reminder_log_line(3, 3) is None
+    assert reminder_log_line(3, 5) is not None
+    assert reminder_log_line(5, 3) is None
+    assert reminder_log_line(0, 0) is None
+
+
+def test_the_count_line_names_the_count_and_the_way_out():
+    """One actionable sentence: how many values, and what to press."""
+    line = reminder_log_line(0, 3)
+
+    assert "3 " in line
+    assert "Pending changes" in line
+    assert "(F8)" in line
+
+
+def test_c7_the_mismatch_line_warns_once_on_appearance():
+    """С7/М7: appearance only (Р4/Р8) — the same mismatches on the next tick
+    stay silent, and a GROWTH of mismatches stays silent too (the bad news is
+    already on screen); the line returns only after the condition cleared and
+    came back."""
+    assert mismatch_log_line(0, 2) is not None
+    assert mismatch_log_line(2, 2) is None
+    assert mismatch_log_line(2, 3) is None
+    assert mismatch_log_line(0, 1) is not None
+    assert mismatch_log_line(0, 0) is None
+
+
+def test_the_mismatch_line_says_apply_cannot_carry_these():
+    """Р4 wording: the fact (different symbols) and the consequence (Apply
+    skips them), never a guessed cause like "re-annotation"."""
+    line = mismatch_log_line(0, 2)
+
+    assert "2 " in line
+    assert "Refdes/symbol mismatch" in line
+    assert "Apply skips them" in line
+
+
+def test_c3_c4_c5_set_edits_logs_the_reminder_on_transitions_only(
+        qapp, main_window, caplog):
+    """The dock half of С3/С4/С5 (Р3): the first list warns, pushing the SAME
+    list again does not, a bigger list warns again. Counting is done on
+    records this dock logged, not on caplog's whole content."""
+    dock = PendingChangesDock(main_window)
+    three = [PendingEdit(f"R{i}", "Role", "A", "B") for i in range(3)]
+
+    caplog.clear()
+    dock.set_edits(three)
+    first = [r.message for r in caplog.records
+             if "Role/Cluster value(s)" in r.message]
+
+    dock.set_edits(three)                      # the same ~2s tick repeated
+    second = [r.message for r in caplog.records
+              if "Role/Cluster value(s)" in r.message]
+
+    dock.set_edits(three + [PendingEdit("R9", "Cluster", "A", "B"),
+                            PendingEdit("R10", "Cluster", "A", "B")])
+    third = [r.message for r in caplog.records
+             if "Role/Cluster value(s)" in r.message]
+
+    assert len(first) == 1
+    assert len(second) == 1                    # С4: no repeat
+    assert len(third) == 2                     # С5: one more on growth
+    assert "5 Role/Cluster" in third[-1]
+
+
+def test_c7_set_edits_logs_the_mismatch_line_once(qapp, main_window, caplog):
+    """С7 at the dock level: the same mismatched list twice is one line."""
+    dock = PendingChangesDock(main_window)
+    one = [PendingEdit("R2", "Refdes/symbol mismatch", "sch: u1", "board: u2",
+                       mismatched=True)]
+
+    caplog.clear()
+    dock.set_edits(one)
+    dock.set_edits(one)
+    lines = [r.message for r in caplog.records
+             if "Refdes/symbol mismatch" in r.message]
+
+    assert len(lines) == 1
+
+
+def test_pending_count_changed_is_emitted_with_the_count(qapp, main_window):
+    """Р6: the panel's ONLY channel to the tab that hosts it — the same list
+    set_edits already receives, no second diff (Р2)."""
+    dock = PendingChangesDock(main_window)
+    seen = []
+    dock.pending_count_changed.connect(seen.append)
+
+    dock.set_edits([PendingEdit("R1", "Role", "A", "B"),
+                    PendingEdit("R1", "Cluster", "A", "B"),
+                    PendingEdit("R2", "Refdes/symbol mismatch", "s", "b",
+                                mismatched=True)])
+    dock.set_edits([])
+
+    assert seen == [2, 0]
+
+
+def test_c6_set_edits_never_touches_the_board(qapp, main_window):
+    """С6/М6 (door П3.1): the reminder is computed from the list it is handed.
+    A read from the live board here would be a design violation, so a board
+    handle that blows up on ANY attribute access must go unnoticed."""
+    class _ExplodingBoard:
+        def __getattr__(self, name):
+            raise AssertionError(f"the reminder touched the board: {name}")
+
+    main_window.connection.board = _ExplodingBoard()
+    dock = PendingChangesDock(main_window)
+
+    dock.set_edits([PendingEdit("R1", "Role", "A", "B")])
+
+    assert dock.table.rowCount() == 1

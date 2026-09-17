@@ -27,7 +27,10 @@ in KiCad works immediately after an edit).
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -173,14 +176,77 @@ def edits_to_fields_cfg(edits: List[PendingEdit]) -> Dict[str, Dict[str, str]]:
     return cfg
 
 
+# ── Reminder: Role/Cluster values living on the board only ─────────────────
+#
+# 2026-09-17 (plan_2026_09_17_spoke_s3_roles_reminder; design
+# design_2026_09_17_spoke_cell_editing Р5/Р6). Role/Cluster written onto the
+# BOARD (Tag selected, the Refs table, Clear all) take effect immediately but
+# live ONLY on the board: the next F8 (Update PCB from Schematic) with field
+# updates silently overwrites them with the schematic's values, and only
+# Pending changes -> Apply carries them into the schematic. F8 cannot be
+# intercepted (it is KiCad's), so the reminder must stay VISIBLE while the
+# condition holds — a count in the "Pending changes" tab title — plus ONE Log
+# line per transition, never one per ~2s poll tick (which would drown the Log;
+# and no growing widget anywhere: the user's screen is small).
+#
+# Both numbers come from the list set_edits() already receives (the two
+# already-cached sides compute_pending_edits compared), so nothing here reads
+# the board: door П3.1 forbids it, and the text below says as much.
+
+# The two fields Apply actually transfers. A "Refdes/symbol mismatch" row is
+# deliberately NOT one of them — Apply drops it (see edits_to_fields_cfg).
+_REMINDER_FIELDS = (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)
+
+
+def pending_reminder_state(edits: List[PendingEdit]) -> Tuple[int, int]:
+    """(count, mismatches) — the two independent reminders, from one list.
+
+    count — the Role/Cluster edits Apply would transfer, i.e. exactly what
+    edits_to_fields_cfg() turns into its config, so the number the tab shows
+    and the number Apply acts on can never disagree. mismatches — the
+    "Refdes/symbol mismatch" rows, kept apart on purpose (Р1/Р4): they never
+    travel through Apply, so folding them into `count` would promise a
+    transfer that cannot happen."""
+    count = 0
+    mismatches = 0
+    for e in edits:
+        if e.mismatched:
+            mismatches += 1
+        elif e.field in _REMINDER_FIELDS:
+            count += 1
+    return count, mismatches
+
+
+def reminder_log_line(prev_count: int, count: int) -> Optional[str]:
+    """The ONE Log line for the pending count, or None when this update must
+    stay silent (Р3/Р8). Growth only: 0->3 warns, 3->5 warns again (a NEW
+    value landed on the board after the previous reminder), 3->3 and 5->3 are
+    silent — otherwise every ~2s poll tick would repeat the same sentence
+    forever. The caller owns the previous state (PendingChangesDock keeps it);
+    a decrease means Apply or a revert on the board removed something, which
+    is news the user already wanted."""
+    if count <= prev_count or count <= 0:
+        return None
+    return _("{count} Role/Cluster value(s) are on the board but not in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)").format(count=count)
+
+
+def mismatch_log_line(prev_mismatches: int, mismatches: int) -> Optional[str]:
+    """The ONE Log line about "Refdes/symbol mismatch" rows, or None (Р4/Р8).
+    Appearance only: 0->2 warns once, a repeated tick and a GROWTH (2->3) stay
+    silent — this is not "more work to do", it is the same bad news already on
+    screen, and these rows never travel through Apply anyway. The line comes
+    back only after the condition cleared and reappeared."""
+    if prev_mismatches > 0 or mismatches <= 0:
+        return None
+    return _("{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts").format(count=mismatches)
+
+
 try:
     from PyQt6.QtCore import pyqtSignal
     from PyQt6.QtGui import QColor
     from PyQt6.QtWidgets import (QAbstractItemView, QHBoxLayout,
                                  QPushButton, QTableWidget, QTableWidgetItem,
                                  QVBoxLayout, QWidget)
-
-    from kicadstamp.i18n import _
 except ImportError:  # pragma: no cover — the functions above are usable without PyQt6
     QWidget = object
     pyqtSignal = object
@@ -208,6 +274,14 @@ class PendingChangesDock(QWidget):
     # on a diff-table row — DockHub loads that ref into the embedded
     # fieldstool pane and reveals it in the Components tree.
     ref_activated = pyqtSignal(str)
+
+    # 2026-09-17 (plan_2026_09_17_spoke_s3_roles_reminder Р6): the pending
+    # count from pending_reminder_state(), for whoever hosts this panel as a
+    # tab — RoleClusterTreeDock renders it into the "Pending changes" title.
+    # A signal rather than a direct call: the panel knows nothing about its
+    # host, and this is the channel already used right above (ref_activated).
+    # Emitted on every set_edits(); the host only rewrites a title.
+    pending_count_changed = pyqtSignal(int)
 
     def __init__(self, main_window):
         super().__init__(main_window)
@@ -288,6 +362,11 @@ class PendingChangesDock(QWidget):
         button_row.addWidget(self.sync_button)
         layout.addLayout(button_row)
 
+        # (count, mismatches) of the LAST list set_edits() saw — the Log
+        # reminder is emitted on TRANSITIONS only, so the previous state has
+        # to live here (Р3/Р4: a line on every update would flood the Log).
+        self._reminder_state = (0, 0)
+
         self.set_edits([])
 
     def _on_cell_clicked(self, row: int, _col: int) -> None:
@@ -324,3 +403,20 @@ class PendingChangesDock(QWidget):
         syncable = [e for e in edits if not e.mismatched]
         self.apply_button.setEnabled(bool(edits))
         self.sync_button.setEnabled(bool(syncable))
+        self._update_reminder(edits)
+
+    def _update_reminder(self, edits: List[PendingEdit]) -> None:
+        """The reminder half of set_edits() (2026-09-17, plan
+        plan_2026_09_17_spoke_s3_roles_reminder Р1–Р4/Р6): count what Apply can
+        carry — and what it cannot — from the SAME list the table was just
+        built from, write ONE Log line per transition, and tell the host tab
+        the new count. Reads neither the board nor the schematic: the two
+        sources are the ones compute_pending_edits already compared (П3.1)."""
+        count, mismatches = pending_reminder_state(edits)
+        prev_count, prev_mismatches = self._reminder_state
+        self._reminder_state = (count, mismatches)
+        for line in (reminder_log_line(prev_count, count),
+                     mismatch_log_line(prev_mismatches, mismatches)):
+            if line:
+                logger.warning(line)
+        self.pending_count_changed.emit(count)

@@ -105,6 +105,20 @@ _INVALID_REGEX_STYLE = "background-color: #ffcccc;"
 _MAX_SKIPPED_REFS_SHOWN = 10
 
 
+def _pending_tab_text(count: int) -> str:
+    """The "Pending changes" tab title (2026-09-17, plan
+    plan_2026_09_17_spoke_s3_roles_reminder Р1). The title doubles as the
+    reminder that Role/Cluster values are sitting on the BOARD only: the next
+    F8 (Update PCB from Schematic) would overwrite them, and only Apply moves
+    them into the schematic. `count` is what Apply can transfer (see
+    pending.pending_reminder_state). Zero keeps a plain, unbracketed title, so
+    a clean state shows nothing at all — nothing extra appears on the small
+    screen (Ф5)."""
+    if count <= 0:
+        return _("Pending changes")
+    return _("Pending changes ({count})").format(count=count)
+
+
 @dataclass
 class _Row:
     ref: str
@@ -291,7 +305,15 @@ class RoleClusterTreeDock(QWidget):
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.North)
         self._left_tabs.addTab(self._tree_page, _("Components"))
         if self._pending_panel is not None:
-            self._left_tabs.addTab(self._pending_panel, _("Pending changes"))
+            self._left_tabs.addTab(self._pending_panel, _pending_tab_text(0))
+            # Р6 (plan_2026_09_17_spoke_s3_roles_reminder): the panel reports
+            # its own count (Р2 — computed from the SAME list its set_edits()
+            # already receives, no second diff). getattr, not a hard type
+            # check: callers may inject any QWidget as the page.
+            count_signal = getattr(self._pending_panel,
+                                   "pending_count_changed", None)
+            if count_signal is not None:
+                count_signal.connect(self._on_pending_count_changed)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(self._left_tabs)
@@ -303,6 +325,16 @@ class RoleClusterTreeDock(QWidget):
         # with this dock hidden (tabbed behind Config/Trees) cannot persist the
         # [0, 0] Qt reports for a hidden splitter.
         self._splitter_sizes = SplitterSizeKeeper(self.splitter)
+
+    def _on_pending_count_changed(self, count: int) -> None:
+        """Render the panel's pending count into the left tab's title (Р1,
+        plan_2026_09_17_spoke_s3_roles_reminder). Only the TITLE changes — no
+        widget is added, nothing moves or grows (Ф5)."""
+        if self._left_tabs is None or self._pending_panel is None:
+            return
+        index = self._left_tabs.indexOf(self._pending_panel)
+        if index >= 0:
+            self._left_tabs.setTabText(index, _pending_tab_text(count))
 
     # ── Master-detail UI-state persistence (2026-09-05, plan
     #    components_fieldstool_master_detail) ───────────────────────────────

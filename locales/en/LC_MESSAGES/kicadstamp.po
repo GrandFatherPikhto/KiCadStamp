@@ -2642,6 +2642,21 @@ msgstr "{action} net trace {net!r} in {path}"
 msgid "Pending changes"
 msgstr "Pending changes"
 
+#: gui/docks/role_cluster_tree.py:119
+#, python-brace-format
+msgid "Pending changes ({count})"
+msgstr "Pending changes ({count})"
+
+#: gui/docks/pending.py:230
+#, python-brace-format
+msgid "{count} Role/Cluster value(s) are on the board but not in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
+msgstr "{count} Role/Cluster value(s) are on the board but not in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
+
+#: gui/docks/pending.py:241
+#, python-brace-format
+msgid "{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts"
+msgstr "{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts"
+
 #: gui/docks/pending.py:214 gui/docks/placer.py:941 gui/docks/tools.py:84
 msgid "Ref"
 msgstr "Ref"

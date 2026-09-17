@@ -2671,6 +2671,21 @@ msgstr "{action} трассировку сети {net!r} в {path}"
 msgid "Pending changes"
 msgstr "Ожидающие изменения"
 
+#: gui/docks/role_cluster_tree.py:119
+#, python-brace-format
+msgid "Pending changes ({count})"
+msgstr "Ожидающие изменения ({count})"
+
+#: gui/docks/pending.py:230
+#, python-brace-format
+msgid "{count} Role/Cluster value(s) are on the board but not in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
+msgstr "{count} значений Role/Cluster есть на плате, но нет в схеме — Pending changes → Apply до следующего Update PCB from Schematic (F8)"
+
+#: gui/docks/pending.py:241
+#, python-brace-format
+msgid "{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts"
+msgstr "У {count} реф(ов) плата и схема означают РАЗНЫЕ символы (Refdes/symbol mismatch) — Apply их не переносит, Role/Cluster у них в схему не попадут; проверьте аннотацию этих компонентов"
+
 #: gui/docks/pending.py:214 gui/docks/placer.py:941 gui/docks/tools.py:84
 msgid "Ref"
 msgstr "Поз.обозначение"
