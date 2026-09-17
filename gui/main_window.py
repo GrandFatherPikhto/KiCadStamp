@@ -500,6 +500,16 @@ class MainWindow(QMainWindow):
         self.add_spoke_action.triggered.connect(
             lambda: self._dock_hub.add_spoke())
         tools_menu.addAction(self.add_spoke_action)
+        # "Extract spoke..." (2026-09-17, stage 5 of the spoke work): a spoke is
+        # ONE cell placed many times inside one cluster, so "Extract cluster..."
+        # cannot create it — this entry takes ONE selected pair with its copper,
+        # finds the chain and the anchor pad, and writes the cell (if new) plus
+        # the spoke with the geometry read off the board. Non-modal: the board
+        # read behind it runs on a worker thread.
+        self.extract_spoke_action = QAction(_("Extract spoke..."), self)
+        self.extract_spoke_action.triggered.connect(
+            lambda: self._dock_hub.extract_spoke())
+        tools_menu.addAction(self.extract_spoke_action)
         self.delete_chain_action = QAction(_("Delete net..."), self)
         self.delete_chain_action.triggered.connect(
             lambda: self._dock_hub.delete_selected_chain())

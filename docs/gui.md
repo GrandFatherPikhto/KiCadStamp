@@ -1629,6 +1629,25 @@ chain via `upsert_list_entry` (a pad is not a standalone record).
 - **Add spoke...** — opens it in pad mode, appending to the chain currently SELECTED in the Config
   tree (a message in the Log dock asks to pick one first if none is selected).
 - **Delete net...** — deletes the currently SELECTED chain from its file (timestamped backup).
+- **Extract spoke...** (2026-09-17, stage 5 of the spoke work) — the way to a spoke CELL without the
+  command line. **Extract cluster...** cannot create one: a spoke's cluster holds the same Role many
+  times over (measured live: `FPGA_PWR_BANK` = `C_FPGA_BULK` ×25 + `C_FPGA_BYPASS` ×25), so it can
+  never be "fully selected" in the sense that dialog requires. This one takes ONE selected pair (with
+  its copper, if you want the copper in the cell), finds the chain on the pair's net and the anchor's
+  NEAREST pad, and says what the component POOL will give the new spoke:
+  - **exactly the selected pair** — OK is free;
+  - **another pair** — OK needs the explicit **Components may swap** tick, and the sentence names both
+    pairs and the spoke that owns the selected one (chain + pad): the swap is legal — every pair of the
+    pool carries the same roles and nets — but it MOVES components that are already routed;
+  - **nothing at all** (the pool is drained) — OK is refused outright, and no tick helps: a spoke the
+    pool can never fill is a lie in the config.
+  A pad that already carries a spoke needs the explicit **Replace**. For a NEW cell the dialog picks the
+  origin (Role, optionally its Pad); for an EXISTING one it reads the frame of the pair's PLACED
+  instance — a MIRRORED instance is refused by name, because `chains:` spokes have no mirror field. The
+  cell is written to the root config's `cells:`, the spoke into its chain's own file (each with a
+  timestamped backup), and the identified pair is remembered so the cell editor opens on it. Non-modal:
+  the board read behind it runs on the worker thread, and a busy socket refuses instead of interleaving.
+  The CLI `kicadstamp extract` is unchanged (see [docs/commands.md](commands.md#extract)).
 
 ## Net traces
 

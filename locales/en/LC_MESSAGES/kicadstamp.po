@@ -18040,3 +18040,84 @@ msgstr ""
 
 msgid "this cell's instance stands MIRRORED, and a spoke has no mirror field — extract the cell as a NEW one from this pair instead"
 msgstr ""
+
+msgid "Extract spoke"
+msgstr ""
+
+msgid "Extract spoke..."
+msgstr ""
+
+msgid "Chain:"
+msgstr ""
+
+msgid "Components may swap"
+msgstr ""
+
+msgid "Origin pad:"
+msgstr ""
+
+msgid "Origin role:"
+msgstr ""
+
+msgid "Replace the spoke on pad {pad} (cell {cell})"
+msgstr ""
+
+msgid "Spoke on pad {pad} written to chain {chain} (cell {cell})"
+msgstr ""
+
+msgid "automatic (the cell's own origin)"
+msgstr ""
+
+msgid "component centre"
+msgstr ""
+
+msgid "extracting the spoke"
+msgstr ""
+
+msgid "give the new cell a name"
+msgstr ""
+
+msgid "new chain on {net} — anchor {ref} [{role}]"
+msgstr ""
+
+msgid "new: {name}"
+msgstr ""
+
+msgid "nothing to extract as a spoke here — use “Extract cluster…” for this selection"
+msgstr ""
+
+msgid "pad {pad}"
+msgstr ""
+
+msgid "pad {pad} already has a spoke — tick “Replace” to overwrite it"
+msgstr ""
+
+msgid "pick a chain and a pad"
+msgstr ""
+
+msgid "reading the board…"
+msgstr ""
+
+msgid "role(s) {roles} repeat inside cluster {cluster} — extracting as a spoke"
+msgstr ""
+
+msgid "spoke here (cell {cell})"
+msgstr ""
+
+msgid "the board is busy — press “Refresh” in a moment"
+msgstr ""
+
+msgid "the board is busy — try again in a moment"
+msgstr ""
+
+msgid "the roles are unique inside cluster {cluster} — this is an ordinary cluster: use “Extract cluster…”"
+msgstr ""
+
+msgid "{name} — unusable: {why}"
+msgstr ""
+
+msgid "{net} — chain {name} (anchor {ref})"
+msgstr ""
+
+msgid "{summary} — the spoke that was there was replaced"
+msgstr ""

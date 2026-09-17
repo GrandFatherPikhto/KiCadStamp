@@ -16714,3 +16714,84 @@ msgstr "ячейку {cell!r} не удалось извлечь из выдел
 
 msgid "this cell's instance stands MIRRORED, and a spoke has no mirror field — extract the cell as a NEW one from this pair instead"
 msgstr "экземпляр этой ячейки стоит ЗЕРКАЛЬНО, а у спицы нет поля зеркала — извлеките ячейку как НОВУЮ из этой пары"
+
+msgid "Extract spoke"
+msgstr "Извлечь спицу"
+
+msgid "Extract spoke..."
+msgstr "Извлечь спицу…"
+
+msgid "Chain:"
+msgstr "Цепочка:"
+
+msgid "Components may swap"
+msgstr "Компоненты могут поменяться местами"
+
+msgid "Origin pad:"
+msgstr "Пад начала:"
+
+msgid "Origin role:"
+msgstr "Роль начала:"
+
+msgid "Replace the spoke on pad {pad} (cell {cell})"
+msgstr "Заменить спицу на паде {pad} (ячейка {cell})"
+
+msgid "Spoke on pad {pad} written to chain {chain} (cell {cell})"
+msgstr "Спица на паде {pad} записана в цепочку {chain} (ячейка {cell})"
+
+msgid "automatic (the cell's own origin)"
+msgstr "автоматически (начало самой ячейки)"
+
+msgid "component centre"
+msgstr "центр компонента"
+
+msgid "extracting the spoke"
+msgstr "извлекаю спицу"
+
+msgid "give the new cell a name"
+msgstr "задайте имя новой ячейке"
+
+msgid "new chain on {net} — anchor {ref} [{role}]"
+msgstr "новая цепочка на {net} — якорь {ref} [{role}]"
+
+msgid "new: {name}"
+msgstr "новая: {name}"
+
+msgid "nothing to extract as a spoke here — use “Extract cluster…” for this selection"
+msgstr "здесь нечего извлекать как спицу — для этого выделения используйте «Извлечь кластер…»"
+
+msgid "pad {pad}"
+msgstr "пад {pad}"
+
+msgid "pad {pad} already has a spoke — tick “Replace” to overwrite it"
+msgstr "на паде {pad} уже есть спица — поставьте галочку «Replace», чтобы перезаписать"
+
+msgid "pick a chain and a pad"
+msgstr "выберите цепочку и пад"
+
+msgid "reading the board…"
+msgstr "читаю плату…"
+
+msgid "role(s) {roles} repeat inside cluster {cluster} — extracting as a spoke"
+msgstr "роль(и) {roles} повторяются в кластере {cluster} — извлекаю как спицу"
+
+msgid "spoke here (cell {cell})"
+msgstr "спица здесь (ячейка {cell})"
+
+msgid "the board is busy — press “Refresh” in a moment"
+msgstr "плата занята — нажмите «Refresh» через момент"
+
+msgid "the board is busy — try again in a moment"
+msgstr "плата занята — попробуйте через момент"
+
+msgid "the roles are unique inside cluster {cluster} — this is an ordinary cluster: use “Extract cluster…”"
+msgstr "роли в кластере {cluster} уникальны — это обычный кластер: используйте «Извлечь кластер…»"
+
+msgid "{name} — unusable: {why}"
+msgstr "{name} — непригодна: {why}"
+
+msgid "{net} — chain {name} (anchor {ref})"
+msgstr "{net} — цепочка {name} (якорь {ref})"
+
+msgid "{summary} — the spoke that was there was replaced"
+msgstr "{summary} — спица, что была на этом паде, заменена"

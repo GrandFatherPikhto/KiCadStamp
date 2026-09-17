@@ -56,6 +56,7 @@ from kicadstamp.template_extraction import extract_template_from_selection
 from kicadstamp.utils.safe_write import backup_file
 from kicadstamp.utils.units import MM
 
+from ..cell_identification import KIND_SPOKE, Identification
 from .live_position import _live_cluster_frame
 from .rename import collect_chains_by_net
 
@@ -129,6 +130,7 @@ class ChainChoice:
 class ForeignPad:
     """A pad of another footprint on the pair's net — what a brand-new chain
     anchors to when the net has no chain at all (plan Р3)."""
+    net: str
     ref: str
     role: Optional[str]
     cluster: Optional[str]
@@ -136,6 +138,17 @@ class ForeignPad:
     pad: str
     x_mm: float
     y_mm: float
+
+
+@dataclass(frozen=True)
+class OrphanNet:
+    """A net of the pair that has NO chain yet: the foreign pads it could anchor
+    to (nearest first) plus the pool order that chain would consume — read here
+    so the dialog can answer "what pair would this spoke get" for a chain that
+    does not exist yet, with the same honesty as for one that does."""
+    net: str
+    pads: tuple = ()
+    pools: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -147,7 +160,7 @@ class SpokeContext:
     pair: tuple = ()              # PairComponent per selected footprint
     cells: tuple = ()             # CellChoice, the new-cell row first
     chains: tuple = ()            # ChainChoice
-    foreign: tuple = ()           # ForeignPad, nearest first
+    orphans: tuple = ()           # OrphanNet — nets with no chain yet
     planes: tuple = ()            # ((net, members), ...) dropped as planes
     notes: tuple = ()             # informational lines (skipped chains, ...)
 
@@ -326,7 +339,7 @@ def read_spoke_context(adapter, cfg, sheet_names, root_path) -> SpokeContext:
                 continue
             member_refs[pad.net_name].add(fp.ref)
             foreign_pads[pad.net_name].append(ForeignPad(
-                ref=fp.ref, role=fp_role, cluster=fp_cluster,
+                net=pad.net_name, ref=fp.ref, role=fp_role, cluster=fp_cluster,
                 sheet=fp_sheet[0] if fp_sheet else None, pad=str(pad.number),
                 x_mm=pad.position.x / MM, y_mm=pad.position.y / MM))
     kept, planes = split_plane_nets(
@@ -336,7 +349,7 @@ def read_spoke_context(adapter, cfg, sheet_names, root_path) -> SpokeContext:
 
     chains: list = []
     notes: list = []
-    foreign: list = []
+    orphans: list = []
     resolver = ComponentResolver(adapter, cfg, sheet_names)
     for net in kept:
         entries = collect_chains_by_net(root_path, net) if root_path else []
@@ -344,10 +357,15 @@ def read_spoke_context(adapter, cfg, sheet_names, root_path) -> SpokeContext:
                         if not (entry or {}).get("retired")]
         if not live_entries:
             # No chain on this net yet: the dialog offers to create one, anchored
-            # to the nearest FOREIGN pad.
-            foreign.extend(sorted(
-                foreign_pads[net],
-                key=lambda p: (p.x_mm - centre_x) ** 2 + (p.y_mm - centre_y) ** 2))
+            # to the nearest FOREIGN pad — with the pool order such a chain would
+            # consume, so its verdict is as honest as an existing chain's.
+            orphans.append(OrphanNet(
+                net=net,
+                pads=tuple(sorted(
+                    foreign_pads[net],
+                    key=lambda p: (p.x_mm - centre_x) ** 2 + (p.y_mm - centre_y) ** 2)),
+                pools=_pool_orders(adapter, cfg, net,
+                                   set(selection.role_to_ref), {cluster})))
             continue
         for path, entry in live_entries:
             anchor_role = entry.get("anchor_role")
@@ -386,8 +404,23 @@ def read_spoke_context(adapter, cfg, sheet_names, root_path) -> SpokeContext:
 
     return SpokeContext(problems=(), selection=selection, repeated=repeated,
                         pair=pair, cells=tuple(cells), chains=tuple(chains),
-                        foreign=tuple(foreign), planes=tuple(planes),
+                        orphans=tuple(orphans), planes=tuple(planes),
                         notes=tuple(notes))
+
+
+def spoke_identification(data: Optional[SpokeContext]) -> Optional[Identification]:
+    """The stage-1 identification of the pair this dialog was read from (Р8).
+
+    kind="spoke" with the repeated roles as the EVIDENCE, and the role -> refdes
+    map of the selection: that is what makes the cell editor open on THIS pair
+    instead of complaining that a role of the cell has no footprint in the
+    cluster. Refdes still reach nothing but gui_state.json (design §1)."""
+    if data is None or data.selection is None:
+        return None
+    return Identification(cluster=data.selection.cluster, sheet=None,
+                          role_to_ref=dict(data.selection.role_to_ref),
+                          kind=KIND_SPOKE,
+                          repeated_roles=tuple(sorted(data.repeated.items())))
 
 
 # ── the write ──────────────────────────────────────────────────────────────
@@ -403,6 +436,7 @@ class SpokeWriteResult:
     replaced: bool = False
     chain_written: bool = False
     stale: bool = False
+    pad: str = ""
 
 
 def write_spoke_extraction(adapter, *, root_path: Path, cell_name: str,
@@ -478,4 +512,5 @@ def write_spoke_extraction(adapter, *, root_path: Path, cell_name: str,
 
     load_chain(plan.chain)                     # the round-trip check
     return SpokeWriteResult(ok=True, cell_name=cell_name, cell_new=cell_is_new,
-                            replaced=plan.replaced, chain_written=True)
+                            replaced=plan.replaced, chain_written=True,
+                            pad=plan.pad)

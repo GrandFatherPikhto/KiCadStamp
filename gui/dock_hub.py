@@ -222,6 +222,12 @@ class DockHub:
         # keep-alive too, but the dock keeps the returned controller for
         # inspection/idempotency, the same shape as the docks' _active_op).
         self._scheme_active_op = None
+        # Tools -> "Extract spoke..." (stage 5 of the spoke work): ONE live
+        # non-modal dialog (the ToolsDialog pattern — reopening raises it) and
+        # the request its OK was built from, so the success line can name the
+        # chain the spoke landed in.
+        self._spoke_dialog = None
+        self._spoke_request: Optional[Dict[str, Any]] = None
         # Project (2026-09-01, plan project_settings_dialogs): RootMetadataDock
         # is no longer a Detail dock page — it is hosted in the standalone
         # non-modal ProjectDialog (File > "Project...", see
@@ -2486,6 +2492,121 @@ class DockHub:
                 _("Entity {name!r} saved to {path} (cell {cell!r} already "
                   "existed).")
                 .format(name=ent["name"], cell=cell_name, path=root_path))
+
+    # ── Tools → "Extract spoke..." (stage 5 of the spoke work) ──────────────
+    # Three steps, and each keeps the door rules: the dialog is non-modal and
+    # owns no board access (П3.1), the read and the write BOTH run on the worker
+    # through start_long_op (П3.1/П3.2), a busy socket refuses instead of
+    # interleaving on the shared kipy socket (П3.3), and nothing here opens a
+    # modal error box (П3.5 — the dialog's status line plus the Log carry every
+    # message).
+
+    def extract_spoke(self) -> None:
+        """Main menu "Tools -> Extract spoke..." (Р1): open (or raise) the ONE
+        live dialog and fill it from the current board selection."""
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        root_path = self.root_metadata_dock.root_path
+        if adapter is None:
+            show_message(_("Not connected."), _ERROR_STYLE, logger)
+            return
+        if root_path is None:
+            show_message(_("Set the project root first."), _ERROR_STYLE, logger)
+            return
+        if self._spoke_dialog is None:
+            from .docks.extract_spoke_dialog import ExtractSpokeDialog
+            self._spoke_dialog = ExtractSpokeDialog(
+                self.main_window, connection, root_path, parent=self.main_window)
+            self._spoke_dialog.refresh_requested.connect(self._read_spoke_context)
+            self._spoke_dialog.write_requested.connect(self._write_extracted_spoke)
+        else:
+            self._spoke_dialog.set_root_path(root_path)
+        self._spoke_dialog.show()
+        self._spoke_dialog.raise_()
+        self._read_spoke_context()
+
+    def _read_spoke_context(self) -> None:
+        """The dialog's ONE board read (П3.1): worker thread, socket checked."""
+        dialog = self._spoke_dialog
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        root_path = self.root_metadata_dock.root_path
+        if dialog is None or adapter is None or root_path is None:
+            return
+        from .worker import socket_busy, start_long_op
+        if socket_busy(connection):
+            dialog.show_status(_("the board is busy — press “Refresh” in a "
+                                 "moment"), error=True)
+            return
+        from kicadstamp.config import load_config
+        try:
+            cfg, ctx = load_config(str(root_path))
+        except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
+            dialog.show_status(_("Failed to load config: {error}").format(error=e),
+                               error=True)
+            return
+        from .docks.extract_spoke import read_spoke_context
+        start_long_op(connection, [dialog.refresh_button], read_spoke_context,
+                      lambda data: dialog.set_context(data, cfg),
+                      lambda message: dialog.show_status(message, error=True),
+                      adapter, cfg, dict(ctx.sheet_names or {}), root_path,
+                      busy_text=_("reading the board"))
+
+    def _write_extracted_spoke(self) -> None:
+        """OK of the dialog -> the write, also on the worker (П3.2)."""
+        dialog = self._spoke_dialog
+        request = dialog.write_request() if dialog is not None else None
+        if request is None:
+            return
+        connection = self.main_window.connection
+        board = getattr(connection, "board", None)
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            dialog.show_status(_("Not connected."), error=True)
+            return
+        from .worker import socket_busy, start_long_op
+        if socket_busy(connection):
+            dialog.show_status(_("the board is busy — try again in a moment"),
+                               error=True)
+            return
+        from .docks.extract_spoke import write_spoke_extraction
+        self._spoke_request = request
+        start_long_op(connection, [dialog.refresh_button],
+                      lambda: write_spoke_extraction(adapter, **request),
+                      self._finish_spoke_write,
+                      lambda message: dialog.show_status(message, error=True),
+                      busy_text=_("extracting the spoke"))
+
+    def _finish_spoke_write(self, result) -> None:
+        """UI thread: report, remember the identified pair (Р8), refresh."""
+        dialog = self._spoke_dialog
+        if not result.ok:
+            message = "; ".join(result.messages) or _("nothing was written")
+            if dialog is not None:
+                dialog.show_status(message, error=True)
+            show_message(message, _ERROR_STYLE, logger)
+            return
+        root_path = self.root_metadata_dock.root_path
+        if result.cell_name and dialog is not None and root_path is not None:
+            identification = dialog.identification()
+            if identification is not None:
+                from .cell_edit_context import remember_cell_instance
+                remember_cell_instance(root_path, result.cell_name, identification)
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        request = self._spoke_request or {}
+        chain_name = entry_effective_name("chains", request.get("chain_entry") or {})
+        summary = _("Spoke on pad {pad} written to chain {chain} (cell {cell})").format(
+            pad=result.pad, chain=chain_name, cell=result.cell_name)
+        if result.replaced:
+            summary = _("{summary} — the spoke that was there was replaced").format(
+                summary=summary)
+        if dialog is not None:
+            dialog.show_success(summary)
+            dialog.accept()
+        show_message(summary, "", logger)
 
     def _open_tools_dialog(self) -> None:
         """Show/raise the ONE live Tools dialog — non-modal, so the user can

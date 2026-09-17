@@ -221,6 +221,13 @@ python kicadstamp_cli.py undo --verbose
 
 ## `extract` – extract a template from the current selection
 
+**GUI path (2026-09-17, stage 5):** a selected spoke pair can be extracted from
+the interface too — **Tools → Extract spoke...**: the dialog finds the chain and
+the anchor pad itself, creates the cell when it is missing and appends the spoke
+with the shift and rotation read off the board. The `extract` command stays: it
+is what scripts use, and it is the only way to extract something that is not a
+spoke.
+
 Creates a spoke template from the current selection in the PCB editor. Each selected component must have a unique `Role` field. Supports extraction of **tracks** and **vias** together with components. When the GUI's **"Keep only one Cluster"** filter is active (or the caller narrows `footprints` before invoking `extract_template_from_selection`), only components of the kept Cluster are taken — and this now propagates to connectivity as well: a track/via is included only if its connected component (via coincident endpoints, track-to-track joints, or touching a via) reaches a pad of a KEPT footprint. A track/via whose component only touches excluded-cluster material is dropped as a whole with a warning, instead of surviving via local track-to-track "mutual validation" (2026-08-16 fix — see `kicadstamp/template_selection.py`).
 
 ### Syntax
