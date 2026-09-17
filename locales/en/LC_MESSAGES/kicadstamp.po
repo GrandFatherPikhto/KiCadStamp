@@ -17977,3 +17977,18 @@ msgstr ""
 
 msgid "{ref} is not in the last board read — press Refresh, or check the refdes"
 msgstr ""
+
+msgid "Import copper"
+msgstr ""
+
+msgid "Refresh geometry"
+msgstr ""
+
+msgid "Select cluster"
+msgstr ""
+
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Refresh geometry”."
+msgstr ""
+
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry”."
+msgstr ""

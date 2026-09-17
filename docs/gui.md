@@ -1920,8 +1920,8 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   again"), never silently swapped for another pair. Refdes are NEVER written to a cell, a spoke or the
   config. The Refs field is editable by hand (comma/space separated — resolved against the board
   snapshot the GUI already holds, through the same rules, so a typo is refused in the Log); changing
-  Cluster or Sheet by hand forgets the refs, and **Select cluster of this cell on the board** in the
-  Cell dialog then selects exactly the identified pair instead of the whole bank.
+  Cluster or Sheet by hand forgets the refs, and **Select cluster** in the Cell dialog (its tooltip
+  spells the action out in full) then selects exactly the identified pair instead of the whole bank.
 - **"Refs" tab — the role table** (2026-09-17, stage 2 of
   `plan_2026_09_17_spoke_s2_role_table.md`): the SECOND tab of the same cell editor, for the moment the
   roles do not exist YET. A pair of decoupling capacitors is routed first and the roles are invented
@@ -2002,9 +2002,9 @@ Cluster-tag slug, so the same name in two profiles means different boards). Two 
   - the **Cell anchor...** page prefills its working **Sheet/Cluster** from that context when the
     cell is opened, so the Role combo is already narrowed to the cluster the cell was last worked
     in — no click on the board required;
-  - the Cell dialog gains a **Select cluster of this cell on the board** button next to
-    Refresh geometry / Import vias/tracks: it highlights the whole remembered (Cluster, Sheet)
-    instance on the live board, so those whole-cluster operations no longer need a manual hunt.
+  - the Cell dialog gains a **Select cluster** button next to Refresh geometry / Import copper: it
+    highlights the whole remembered (Cluster, Sheet) instance on the live board, so those
+    whole-cluster operations no longer need a manual hunt.
 It is a HINT, never a source of truth: a remembered cluster/sheet that no longer resolves on the
 current board (renamed / deleted / another board) leaves the fields empty and selects nothing — no
 fatal, no hard dependency (stale remembered values are the norm, not an edge case).
@@ -2027,8 +2027,23 @@ readable sheet names (the `ctx.sheet_names` VALUES, not the uuid-path keys), and
 **Cluster** combo is now populated from the live-board snapshot via `DockHub.push_snapshot` (an
 editable picker — fill, never restrict, so a typed cluster not in the list still works).
 
-**Refresh geometry from selection** (2026-09-03) — a button in the Cell dialog AND a
-right-click **Update from selection...** action on a Cell leaf in the Config tree's Cells category
+**Short button captions in the Cell dialog** (2026-09-17) — the three whole-cell buttons are captioned
+in two or three words: **Refresh geometry**, **Import copper** and **Select cluster**. The full phrase
+each one used to carry — "Refresh geometry from selection", "Import vias/tracks from selection",
+"Select cluster of this cell on the board" — is its TOOLTIP now. The reason is width, not taste: named
+in full, these three captions sat in ONE row and summed to a 1290 px minimum, which forced the whole
+dialog to 1310 px. Qt never lays a widget out below its minimum, so neither a resize nor the screen cap
+could help, and on a 1366x768 laptop the dialog hung over the edge with part of its buttons
+unreachable. Dialogs and docks are limited to 1000 px (leaving room for the window frame and the
+taskbar), and `tests/gui/test_dialog_min_width.py` guards that in BOTH catalogues, because the Russian
+captions are longer. Measured on the day: 1310 → **578 px** (en), 1226 → **654 px** (ru). The
+right-click menu items in the Config tree (**Update from selection...**, **Import from selection...**)
+keep their long names — they are not in that row.
+
+**Refresh geometry from selection** (2026-09-03; captioned **Refresh geometry** in the Cell dialog since
+2026-09-17 — see "Short button captions" above, and the Log hints name that caption) — a button in the
+Cell dialog AND a right-click **Update from selection...** action on a Cell leaf in the Config tree's
+Cells category
 (one click from the tree — no need to open the dialog and hunt for the button first). It re-reads an
 ALREADY-saved cell's geometry (Components' offsets/angle, Vias' offsets, Tracks' start/end/width)
 from the CURRENT board selection and writes it back into the cell — the way to pull a geometry
@@ -2085,8 +2100,9 @@ updated, M via/track record(s) added, K record(s) removed. Save to write the cha
 that already matches reports "Nothing changed". Mutation/autostage go through the same path as a manual
 row Update/Add. **"Edit cell..." still opens its dialog** — that is that action's own purpose.
 
-**Import vias/tracks from selection** (2026-09-03) — the additive counterpart of Refresh: a button
-right next to it in the Cell dialog AND a right-click **Import from selection...** action on a Cell leaf
+**Import vias/tracks from selection** (2026-09-03; captioned **Import copper** in the Cell dialog since
+2026-09-17) — the additive counterpart of Refresh: a button right next to it in the Cell dialog AND a
+right-click **Import from selection...** action on a Cell leaf
 in the Config tree's Cells category. It backfills an EXISTING cell with NEW via/track records for live
 copper the cell's current records do not describe — the way to add vias/tracks that were missing from
 the original extraction (e.g. not yet routed when the cell was extracted, the `fpga_oscill` case)

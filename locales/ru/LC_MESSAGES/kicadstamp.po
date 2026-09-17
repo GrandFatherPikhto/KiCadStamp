@@ -16651,3 +16651,18 @@ msgstr "{ref} уже есть в таблице"
 
 msgid "{ref} is not in the last board read — press Refresh, or check the refdes"
 msgstr "рефа {ref} нет в последнем чтении платы — нажмите «Обновить» или проверьте реф"
+
+msgid "Import copper"
+msgstr "Импорт меди"
+
+msgid "Refresh geometry"
+msgstr "Перечитать геометрию"
+
+msgid "Select cluster"
+msgstr "Выделить кластер"
+
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Refresh geometry”."
+msgstr "На плате выделено {count} идентифицированных компонент(ов) этой ячейки — готово для «Перечитать геометрию»."
+
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Refresh geometry”."
+msgstr "На плате выделено {count} футпринтов кластера {cluster!r} — кластер готов для «Перечитать геометрию»."

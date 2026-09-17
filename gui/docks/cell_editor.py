@@ -497,8 +497,21 @@ class CellDock(QWidget):
         # adapter is present AND the loaded cell has components (the actual
         # empty-selection case is reported at run time — CellDock receives no
         # selection feed to gate on, see _update_refresh_enabled).
+        #
+        # THE THREE CAPTIONS BELOW ARE DELIBERATELY SHORT (2026-09-17, plan
+        # plan_2026_09_17_cell_dialog_min_width.md). They sit in ONE QHBoxLayout;
+        # named in full they added up to a 1290 px minimum, and that forced the
+        # whole Cell dialog to 1310 px — wider than a 1366x768 laptop screen, so
+        # the dialog hung over the edge and part of the buttons was unreachable
+        # (measured with kicadstamp/diagnostics/probe_gui_min_sizes.py; the tabs
+        # need only 502 px, so they were never to blame). The full phrase each
+        # button used to be named with is its TOOLTIP now: same msgid, so the
+        # catalogs need no new entry for the tooltip, and the meaning stays one
+        # hover away. The words are Denis's (2026-09-17); the width limit and the
+        # bilingual guard live in tests/gui/test_dialog_min_width.py.
         refresh_row = QHBoxLayout()
-        self.refresh_geometry_button = QPushButton(
+        self.refresh_geometry_button = QPushButton(_("Refresh geometry"))
+        self.refresh_geometry_button.setToolTip(
             _("Refresh geometry from selection"))
         self.refresh_geometry_button.clicked.connect(self._on_refresh_geometry)
         self.refresh_geometry_button.setEnabled(False)
@@ -509,7 +522,8 @@ class CellDock(QWidget):
         # copper the cell's current records don't describe, and NEVER edits/
         # removes an existing one. Same activity gate, same worker pattern
         # (see _update_refresh_enabled, which gates BOTH buttons).
-        self.import_vias_tracks_button = QPushButton(
+        self.import_vias_tracks_button = QPushButton(_("Import copper"))
+        self.import_vias_tracks_button.setToolTip(
             _("Import vias/tracks from selection"))
         self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
         self.import_vias_tracks_button.setEnabled(False)
@@ -519,7 +533,8 @@ class CellDock(QWidget):
         # need the WHOLE placed cluster instance selected — this button picks it
         # from the remembered (Cluster, Sheet) the cell was last extracted in,
         # removing the manual hunt before every re-read. Same activity gate.
-        self.select_cluster_button = QPushButton(
+        self.select_cluster_button = QPushButton(_("Select cluster"))
+        self.select_cluster_button.setToolTip(
             _("Select cluster of this cell on the board"))
         self.select_cluster_button.clicked.connect(self._on_select_cluster_on_board)
         self.select_cluster_button.setEnabled(False)
@@ -2259,16 +2274,21 @@ class CellDock(QWidget):
                 .format(reasons="; ".join(result["stale"])),
                 _WARN_STYLE)
             return
+        # Р6 of plan_2026_09_17_cell_dialog_min_width: these two lines send the
+        # user to a button, so they name it as it is CAPTIONED now — a message
+        # pointing at a caption that is no longer on screen is exactly the kind of
+        # untruth the caption change was made to remove. The captions here must
+        # match self.refresh_geometry_button's ("Refresh geometry").
         if result.get("identified"):
             self._show_message(
                 _("Selected the {count} identified footprint(s) of this cell on "
-                  "the board — ready for “Refresh geometry from selection”.")
+                  "the board — ready for “Refresh geometry”.")
                 .format(count=result["selected"]),
                 _SUCCESS_STYLE)
         elif result["selected"]:
             self._show_message(
                 _("Selected {count} footprint(s) of cluster {cluster!r} on the "
-                  "board — ready for “Refresh geometry from selection”.")
+                  "board — ready for “Refresh geometry”.")
                 .format(count=result["selected"], cluster=result["cluster"]),
                 _SUCCESS_STYLE)
         else:
