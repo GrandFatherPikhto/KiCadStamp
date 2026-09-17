@@ -16507,3 +16507,147 @@ msgstr "у рефа {ref} теперь роль {role!r}"
 
 msgid "{selected} of {total} components of cluster {cluster!r} selected — Source filled; “Update cell from selection” will need all of them"
 msgstr "выделено {selected} из {total} компонентов кластера {cluster!r} — вкладка «Источник» заполнена; для «Обновить ячейку из выделения» понадобятся все"
+
+msgid "Add a component by its refdes — checked against the last board read, no board access needed."
+msgstr "Добавить компонент по рефу — проверяется по последнему чтению платы, обращение к плате не требуется."
+
+msgid "Add selection"
+msgstr "Добавить выделение"
+
+msgid "Apply to all rows"
+msgstr "Применить ко всем строкам"
+
+msgid "Cluster to write"
+msgstr "Кластер к записи"
+
+msgid "Cluster to write:"
+msgstr "Кластер к записи:"
+
+msgid "Drop the selected rows from the table (Delete does the same). The board and the identified refs are not touched."
+msgstr "Убрать выделенные строки из таблицы (Delete делает то же). Плата и идентифицированные рефы не затрагиваются."
+
+msgid "Empty the whole table."
+msgstr "Очистить всю таблицу."
+
+msgid "Fill the cluster above into every row of the table that has a Cluster field."
+msgstr "Подставить кластер сверху во все строки таблицы, у которых есть поле Cluster."
+
+msgid "No live board — {what} needs KiCad."
+msgstr "Нет живой платы — для «{what}» нужен KiCad."
+
+msgid "Read the components selected on the board and APPEND the ones the table does not have yet."
+msgstr "Прочитать выделенные на плате компоненты и ДОПИСАТЬ те, которых в таблице ещё нет."
+
+msgid "Read the components selected on the board and REPLACE the table with them (their Role and Cluster come from the board)."
+msgstr "Прочитать выделенные на плате компоненты и ЗАМЕНИТЬ ими таблицу (их Role и Cluster берутся с платы)."
+
+msgid "Tag roles from a board selection: take the selection, give every component its Role, write the batch to the board in one undo step."
+msgstr "Разметка ролей по выделению: взять выделение, дать каждому компоненту свою роль, записать пачкой на плату — одним шагом отмены."
+
+msgid "Tag roles on {count} component(s)"
+msgstr "Разметка ролей на {count} компонент(ах)"
+
+msgid "Take selection"
+msgstr "Взять выделение"
+
+msgid "The cluster to write onto the rows below. “Apply to all rows” puts it into every row that can take it; an empty field leaves the cluster alone."
+msgstr "Кластер, который нужно записать в строки ниже. «Применить ко всем строкам» подставит его во все строки, которые его примут; пустое поле оставляет кластер как есть."
+
+msgid "Write every value that differs from the board in ONE commit — a single Ctrl+Z in KiCad takes the whole table back."
+msgstr "Записать все значения, отличающиеся от платы, ОДНИМ коммитом — одно Ctrl+Z в KiCad откатывает всю таблицу."
+
+msgid "Write to board"
+msgstr "Записать на плату"
+
+msgid "added {count} component(s) to the table"
+msgstr "в таблицу добавлено компонент(ов): {count}"
+
+msgid "cell role {roles} is not assigned"
+msgstr "роль ячейки {roles} не назначена"
+
+msgid "check the Role on the “Refs” tab of this cell — it lists this cell's own roles"
+msgstr "проверьте роль на вкладке «Refs» этой ячейки — там перечислены собственные роли ячейки"
+
+msgid "cluster on board: {cluster}"
+msgstr "кластер на плате: {cluster}"
+
+msgid "no Cluster field"
+msgstr "нет поля Cluster"
+
+msgid "no Cluster field on this footprint — the cluster will not be written"
+msgstr "у этого футпринта нет поля Cluster — кластер не запишется"
+
+msgid "no Role field"
+msgstr "нет поля Role"
+
+msgid "no Role field on this footprint — cannot be tagged"
+msgstr "у этого футпринта нет поля Role — разметить нельзя"
+
+msgid "not on the board"
+msgstr "нет на плате"
+
+msgid "not on the board snapshot — press Refresh"
+msgstr "нет в последнем чтении платы — нажмите «Обновить»"
+
+msgid "nothing is selected on the board — select the components to tag"
+msgstr "на плате ничего не выделено — выделите компоненты для разметки"
+
+msgid "nothing to write — the roles and the cluster already match the board"
+msgstr "писать нечего — роли и кластер уже совпадают с платой"
+
+msgid "reading the selection"
+msgstr "чтение выделения"
+
+msgid "role on board: {role}"
+msgstr "роль на плате: {role}"
+
+msgid "role {role} is not a role of cell {cell!r}"
+msgstr "роль {role} — не роль ячейки {cell!r}"
+
+msgid "role {role} on {refs} — this selection will not identify as ONE instance of cell {cell!r} (fine for tagging several spoke pairs at once)"
+msgstr "роль {role} у {refs} — такое выделение не опознается как ОДИН экземпляр ячейки {cell!r} (это нормально, если размечаете несколько спиц сразу)"
+
+msgid "roles written — press “Fill from selection” on the Source tab to pin this instance"
+msgstr "роли записаны — нажмите «Заполнить по выделению» на вкладке «Источник», чтобы закрепить этот экземпляр"
+
+msgid "select the components of one instance (a spoke pair, say) in the PCB editor, then press the button again"
+msgstr "выделите в редакторе платы компоненты одного экземпляра (например, пару спицы) и нажмите кнопку снова"
+
+msgid "set the Cluster on the board — the “Refs” tab of this cell writes one cluster onto the whole table — then identify again"
+msgstr "проставьте кластер на плате — вкладка «Refs» этой ячейки записывает один кластер на всю таблицу — и идентифицируйте заново"
+
+msgid "sheet: {sheet}"
+msgstr "лист: {sheet}"
+
+msgid "skipped: {refs}"
+msgstr "пропущено: {refs}"
+
+msgid "tag the components on the board — the “Refs” tab of this cell writes a Role per component in one go — then identify again"
+msgstr "разметьте компоненты на плате — вкладка «Refs» этой ячейки записывает роль каждому компоненту за один раз — и идентифицируйте заново"
+
+msgid "the cluster differs across rows ({clusters}) — press “Apply to all rows” to tag one cluster"
+msgstr "кластер у строк разный ({clusters}) — нажмите «Применить ко всем строкам», чтобы разметить одним кластером"
+
+msgid "the table is empty"
+msgstr "таблица пуста"
+
+msgid "took {count} component(s) from the selection"
+msgstr "из выделения взято компонент(ов): {count}"
+
+msgid "type a refdes first"
+msgstr "сначала введите реф"
+
+msgid "writing to the board"
+msgstr "запись на плату"
+
+msgid "{count} components tagged"
+msgstr "размечено компонент(ов): {count}"
+
+msgid "{count} rows have no Cluster field and were not filled: {refs}"
+msgstr "у {count} строк нет поля Cluster — не заполнены: {refs}"
+
+msgid "{ref} is already in the table"
+msgstr "{ref} уже есть в таблице"
+
+msgid "{ref} is not in the last board read — press Refresh, or check the refdes"
+msgstr "рефа {ref} нет в последнем чтении платы — нажмите «Обновить» или проверьте реф"

@@ -166,8 +166,8 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
             _("no Role on {refs} — every selected component must be tagged with "
               "a Role before the instance can be identified").format(
                   refs=_refs(untagged)),
-            [_("tag the component with its Role on the board (Tools → Role/"
-               "cluster tree, or the role table), then identify again")]))
+            [_("tag the components on the board — the “Refs” tab of this cell "
+               "writes a Role per component in one go — then identify again")]))
 
     duplicated = sorted(role for role, count in Counter(
         s.role for s in selected).items() if count > 1)
@@ -191,7 +191,9 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
         raise ValidationError(format_fatal_error(
             _("no Cluster on {refs} — the instance cannot be told from another "
               "one of the same cell").format(refs=_refs(selected)),
-            [_("tag the component with its Cluster on the board first")]))
+            [_("set the Cluster on the board — the “Refs” tab of this cell "
+               "writes one cluster onto the whole table — then identify "
+               "again")]))
 
     # The sheet: the project's ONE grouping of a selection by (Cluster, sheet
     # instance), so a cluster tag standing on two sheets (cloned sheets) is
@@ -216,7 +218,9 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
                 ref=first.ref, role=first.role, cell=_cell_name(cell)),
             [_("cell {cell!r} has roles: {roles}").format(
                 cell=_cell_name(cell),
-                roles=", ".join(sorted(cell_roles)) or _("none"))]))
+                roles=", ".join(sorted(cell_roles)) or _("none")),
+             _("check the Role on the “Refs” tab of this cell — it lists this "
+               "cell's own roles")]))
 
     members = [m for m in (cluster_members or ())
                if _member_in_cluster(m, cluster) and _member_on_sheet(m, sheet)]

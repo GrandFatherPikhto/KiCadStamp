@@ -96,6 +96,7 @@ from ..cell_identification import (
     SelectionRecord,
     identify_cell_instance,
 )
+from ..role_table_model import records_from_items
 from ..worker import socket_busy, start_long_op
 from ._cell_identity import CellIdentityWidget
 from ._common import (
@@ -108,6 +109,7 @@ from ._common import (
     set_combo_items,
     show_message,
 )
+from .cell_refs_tab import RefsTabWidget
 from .live_position import (
     _live_cluster_frame,
     _reference_slot,
@@ -708,6 +710,12 @@ class CellAnchorView(QWidget):
         # widget only asks it for KEY presence (never a uuid), and every draw
         # goes through the owner's idempotent ensure_* operations.
         self._overlay = overlay_markers.owner
+        # The "Refs" tab's write reaches the board (2026-09-17, stage 2 of the
+        # spoke work). DockHub wires this to MainWindow.request_refresh — the
+        # same out-of-cycle refresh hook the Role/Cluster tree and fieldstool
+        # carry, without which a written Role stays invisible to Pending changes
+        # until the user clicks Refresh.
+        self.on_board_written = None
 
         self._build_ui()
         self._reload_form()
@@ -749,11 +757,13 @@ class CellAnchorView(QWidget):
         source_layout.addWidget(self._identity)
 
         # ── Identification of the instance (2026-09-17, stage 1 of the spoke ──
-        # work). ONE button and ONE line of refdes — deliberately no table and no
-        # extra tab (design Р2: a table would be "никому не нужная хрень" and the
-        # 12" Linux screen has no room for one). The refs are shown because they
-        # are the thing that pins a SPOKE cell: its cluster holds the same role
-        # many times, so (Cluster, Sheet) alone cannot say which pair is edited.
+        # work). ONE button and ONE line of refdes HERE: the refs are the thing
+        # that pins a SPOKE cell — its cluster holds the same role many times, so
+        # (Cluster, Sheet) alone cannot say which pair is edited. The role TABLE
+        # lives on its own "Refs" tab (stage 2, same day): the old note here said
+        # "no table and no extra tab", which described the design where the table
+        # would have crowded THIS page — Денис moved it to a tab of its own, and
+        # this page stays the one-button, one-line one it was.
         ident_box = QGroupBox(_("Identified instance"))
         ident_form = QFormLayout(ident_box)
         ident_row = QHBoxLayout()
@@ -782,6 +792,17 @@ class CellAnchorView(QWidget):
         source_layout.addWidget(ident_box)
         source_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
+
+        # ── Tab 2 — Refs: the role table (2026-09-17, stage 2 of the spoke ────
+        # work). Its own page, deliberately NOT a section of Source: the table
+        # would crowd the one-button identification block, and the 12" Linux
+        # screen has no room for both. This is the tool for the moment the roles
+        # do not exist yet — a pair is routed and THEN tagged — see the module
+        # docstring of gui/docks/cell_refs_tab.py.
+        self._refs_tab = RefsTabWidget(self._main_window,
+                                       connection=self._connection)
+        self._refs_tab.on_board_written = self._on_refs_written
+        self._tabs.addTab(self._refs_tab, _("Refs"))
 
         # ── Tab 2 — Role anchor (the old "Component" tab) ─────────────────
         comp_page = QWidget()
@@ -945,6 +966,9 @@ class CellAnchorView(QWidget):
         self._refill_cluster_choices()
         if self._cell_name is not None:
             self._reload_form()
+        # A different project means a different gui_state.json scope for the
+        # Refs table too (the saved table is keyed by root AND cell).
+        self._sync_refs_tab()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Feed the live-board snapshot into the working-context Cluster combo
@@ -974,6 +998,9 @@ class CellAnchorView(QWidget):
         else:
             self._resolved_snapshot = list(self._snapshot)
         self._refill_cluster_choices()
+        # The Refs tab's board columns and cluster suggestions come from the
+        # same snapshot — fed here, never read from the board by the tab itself.
+        self._sync_refs_tab()
 
     def _refill_cluster_choices(self) -> None:
         """Refill the Cluster combo from the sheet-resolved snapshot, narrowed by
@@ -1329,6 +1356,7 @@ class CellAnchorView(QWidget):
                       self._remove_marker_button, self._show_bbox_button,
                       self._hide_bbox_button, self._remove_overlay_button):
                 b.setEnabled(False)
+            self._sync_refs_tab()
             return
 
         self._title.setText(_("Cell {name!r}").format(name=self._cell_name))
@@ -1340,6 +1368,7 @@ class CellAnchorView(QWidget):
             self._clear_anchor_button.setEnabled(False)
             self._read_selection_button.setEnabled(False)
             self._fill_selection_button.setEnabled(False)
+            self._sync_refs_tab()
             return
 
         roles = sorted({c.get("role") for c in entry.get("components", [])
@@ -1367,6 +1396,10 @@ class CellAnchorView(QWidget):
         self._hide_bbox_button.setEnabled(has_bbox)
         self._remove_overlay_button.setEnabled(has_marker or has_bbox)
         self._refresh_overlay_layer_note()
+        # The Refs tab follows the same form reload as every other page: its
+        # roles come from this cell's entry, its board columns from the page's
+        # snapshot — never from the board (door rule 6).
+        self._sync_refs_tab()
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()
@@ -1502,6 +1535,40 @@ class CellAnchorView(QWidget):
             cluster=getattr(s, "cluster", None),
             sheet=tuple(getattr(s, "sheet", None) or ())) for s in snapshot]
 
+    # ── The "Refs" tab: the page's half of the wiring (2026-09-17, stage 2) ─
+
+    def _refs_snapshot_records(self) -> list:
+        """The page's own snapshot as role-table records — the SHEET-RESOLVED
+        copy when it carries raw handles (a live Board's own chains are all-None
+        until refresh_known_roles re-resolves them). The tab needs the two
+        field-existence flags, which SelectionRecord does not carry, so the
+        records come from the Selected items themselves."""
+        return records_from_items(self._resolved_snapshot or self._board_snapshot())
+
+    def _sync_refs_tab(self) -> None:
+        """Hand the "Refs" tab the context this page already holds — the root,
+        the cell, the cell's own roles and the board snapshot.
+
+        UI thread only, and only data already read (door rules 3 and 6): the tab
+        answers "what does the board say about this row" from the snapshot the
+        page was fed, so no board access is needed to render it. A moved cell /
+        root rebuilds its rows (the tab's own rule: saved table, else the
+        identified refs, else empty); any other call only re-reads the board
+        columns."""
+        roles = self._cell_role_order() if self._cell_name else []
+        self._refs_tab.set_context(
+            self._root_path, self._cell_name, roles,
+            self._refs_snapshot_records(), sheet_names=self._sheet_names)
+
+    def _on_refs_written(self) -> None:
+        """The "Refs" tab wrote Roles/Cluster to the board (Р6): rebuild this
+        page from the current entry and hand the news on — DockHub wires
+        `on_board_written` to MainWindow.request_refresh, so Pending changes and
+        the other docks see the write without waiting for a manual Refresh."""
+        self._reload_form()
+        if self.on_board_written:
+            self.on_board_written()
+
     def _cell_role_order(self) -> list:
         entry = self._current_entry()
         if entry is None:
@@ -1634,6 +1701,10 @@ class CellAnchorView(QWidget):
         finally:
             self._loading = False
         remember_cell_instance(self._root_path, self._cell_name, ident)
+        # Show the identified pair on the Refs tab as a table — but only into an
+        # empty one (Р2): a table the user filled in is theirs, and the
+        # identification knows nothing about it.
+        self._refs_tab.fill_from_refs(ident.role_to_ref)
         if ident.kind == KIND_SPOKE:
             role, occurrences = ident.repeated_roles[0] if ident.repeated_roles \
                 else ("?", 0)

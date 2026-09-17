@@ -281,6 +281,13 @@ class DockHub:
         self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
         self._cell_anchor_page = self.config_tree_dock.add_right_page(
             self.cell_anchor_view)
+        # The cell editor's "Refs" tab writes Roles/Cluster straight to the board
+        # (2026-09-17, stage 2 of the spoke work), so it needs the same
+        # out-of-cycle refresh hook the Role/Cluster tree and fieldstool got
+        # above: the ~2s poll never refreshes once connected, and without this
+        # the write would stay invisible to Pending changes until a manual
+        # Refresh. request_refresh is resolved earlier in this same __init__.
+        self.cell_anchor_view.on_board_written = request_refresh
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,

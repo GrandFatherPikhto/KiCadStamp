@@ -17833,3 +17833,147 @@ msgstr ""
 
 msgid "{selected} of {total} components of cluster {cluster!r} selected — Source filled; “Update cell from selection” will need all of them"
 msgstr ""
+
+msgid "Add a component by its refdes — checked against the last board read, no board access needed."
+msgstr ""
+
+msgid "Add selection"
+msgstr ""
+
+msgid "Apply to all rows"
+msgstr ""
+
+msgid "Cluster to write"
+msgstr ""
+
+msgid "Cluster to write:"
+msgstr ""
+
+msgid "Drop the selected rows from the table (Delete does the same). The board and the identified refs are not touched."
+msgstr ""
+
+msgid "Empty the whole table."
+msgstr ""
+
+msgid "Fill the cluster above into every row of the table that has a Cluster field."
+msgstr ""
+
+msgid "No live board — {what} needs KiCad."
+msgstr ""
+
+msgid "Read the components selected on the board and APPEND the ones the table does not have yet."
+msgstr ""
+
+msgid "Read the components selected on the board and REPLACE the table with them (their Role and Cluster come from the board)."
+msgstr ""
+
+msgid "Tag roles from a board selection: take the selection, give every component its Role, write the batch to the board in one undo step."
+msgstr ""
+
+msgid "Tag roles on {count} component(s)"
+msgstr ""
+
+msgid "Take selection"
+msgstr ""
+
+msgid "The cluster to write onto the rows below. “Apply to all rows” puts it into every row that can take it; an empty field leaves the cluster alone."
+msgstr ""
+
+msgid "Write every value that differs from the board in ONE commit — a single Ctrl+Z in KiCad takes the whole table back."
+msgstr ""
+
+msgid "Write to board"
+msgstr ""
+
+msgid "added {count} component(s) to the table"
+msgstr ""
+
+msgid "cell role {roles} is not assigned"
+msgstr ""
+
+msgid "check the Role on the “Refs” tab of this cell — it lists this cell's own roles"
+msgstr ""
+
+msgid "cluster on board: {cluster}"
+msgstr ""
+
+msgid "no Cluster field"
+msgstr ""
+
+msgid "no Cluster field on this footprint — the cluster will not be written"
+msgstr ""
+
+msgid "no Role field"
+msgstr ""
+
+msgid "no Role field on this footprint — cannot be tagged"
+msgstr ""
+
+msgid "not on the board"
+msgstr ""
+
+msgid "not on the board snapshot — press Refresh"
+msgstr ""
+
+msgid "nothing is selected on the board — select the components to tag"
+msgstr ""
+
+msgid "nothing to write — the roles and the cluster already match the board"
+msgstr ""
+
+msgid "reading the selection"
+msgstr ""
+
+msgid "role on board: {role}"
+msgstr ""
+
+msgid "role {role} is not a role of cell {cell!r}"
+msgstr ""
+
+msgid "role {role} on {refs} — this selection will not identify as ONE instance of cell {cell!r} (fine for tagging several spoke pairs at once)"
+msgstr ""
+
+msgid "roles written — press “Fill from selection” on the Source tab to pin this instance"
+msgstr ""
+
+msgid "select the components of one instance (a spoke pair, say) in the PCB editor, then press the button again"
+msgstr ""
+
+msgid "set the Cluster on the board — the “Refs” tab of this cell writes one cluster onto the whole table — then identify again"
+msgstr ""
+
+msgid "sheet: {sheet}"
+msgstr ""
+
+msgid "skipped: {refs}"
+msgstr ""
+
+msgid "tag the components on the board — the “Refs” tab of this cell writes a Role per component in one go — then identify again"
+msgstr ""
+
+msgid "the cluster differs across rows ({clusters}) — press “Apply to all rows” to tag one cluster"
+msgstr ""
+
+msgid "the table is empty"
+msgstr ""
+
+msgid "took {count} component(s) from the selection"
+msgstr ""
+
+msgid "type a refdes first"
+msgstr ""
+
+msgid "writing to the board"
+msgstr ""
+
+msgid "{count} components tagged"
+msgstr ""
+
+msgid "{count} rows have no Cluster field and were not filled: {refs}"
+msgstr ""
+
+msgid "{ref} is already in the table"
+msgstr ""
+
+msgid "{ref} is not in the last board read — press Refresh, or check the refdes"
+msgstr ""
