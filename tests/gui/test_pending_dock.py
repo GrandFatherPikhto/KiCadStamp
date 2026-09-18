@@ -143,12 +143,15 @@ def test_table_headers_name_the_sides_not_current_and_new(qapp, main_window):
     old "Schematic (current)" / "Board (new)" claimed a direction that does not
     exist (the normal state is the board LAGGING behind the schematic while the
     schematic editor is being used). Checked on the source English strings, and
-    a tooltip carries the honest one-sentence statement."""
+    a tooltip carries the honest one-sentence statement.
+
+    2026-09-18 (Т4): the third value column is "Ours" — our stored value, in
+    force even when it agrees with neither of the other two."""
     dock = PendingChangesDock(main_window)
     headers = [dock.table.horizontalHeaderItem(i).text()
                for i in range(dock.table.columnCount())]
 
-    assert headers == ["Ref", "Field", "Schematic", "Board"]
+    assert headers == ["Ref", "Field", "Schematic", "Ours", "Board"]
     assert not any("current" in h.lower() or "new" in h.lower() for h in headers)
     tooltip = dock.table.horizontalHeader().toolTip()
     assert "what differs" in tooltip.lower()
@@ -172,7 +175,8 @@ def test_set_edits_populates_table(qapp, main_window):
     assert dock.table.item(0, 0).text() == "R1"
     assert dock.table.item(0, 1).text() == "Role"
     assert dock.table.item(0, 2).text() == "OLD"
-    assert dock.table.item(0, 3).text() == "NEW"
+    assert dock.table.item(0, 3).text() == ""      # no record of ours
+    assert dock.table.item(0, 4).text() == "NEW"
     assert dock.apply_button.isEnabled()
 
 

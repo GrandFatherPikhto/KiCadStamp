@@ -122,6 +122,13 @@ class MainWindow(QMainWindow):
         # compute_pending_edits). Empty until the first poll tick.
         self._live_snapshot: List[Selected] = []
         self._pending_edits: List[PendingEdit] = []
+        # OUR stored values (kicadstamp.field_overrides.FieldOverrides) for the
+        # profile of the project currently open — the THIRD side of the diff
+        # (plan_2026_09_18_field_overrides_store Т4). Pushed in by
+        # FieldsToolDock.set_root_path, which is the one place that knows both
+        # the project and this window (see set_overrides_store below). None until
+        # a project is open, which is exactly the pre-store behaviour.
+        self._overrides = None
         # Set by gui/docks/fieldstool_dock.py when the window is embedded
         # as the fieldstool tab (the only way it runs in production — the
         # standalone fieldstool_gui.py entry point was retired 2026-08-02;
@@ -241,6 +248,39 @@ class MainWindow(QMainWindow):
 
         self._rescan()
 
+    def set_overrides_store(self, store) -> None:
+        """Install the override store of the CURRENT project (Т4), or None when
+        there is none (no project open, or no store file yet).
+
+        The object is HELD, not re-read: a tiny JSON next to the profile could be
+        re-read on every ~2s poll tick, but a stale-cache bug (mtime granularity!)
+        would then silently show values nobody wrote, and the poll path belongs to
+        the board, not to our own files. Whoever WRITES the store says so with
+        reload_overrides() instead — see the Refs table (Т5).
+
+        Then the diff is recomputed at once: the Ours column must be right the
+        moment the project opens, not after the next poll tick."""
+        self._overrides = store
+        self._recompute_pending()
+
+    @property
+    def overrides(self):
+        """Read-only access to the store in force for this window (tests, and
+        the Refs table that writes into it)."""
+        return self._overrides
+
+    def reload_overrides(self) -> None:
+        """Re-read the store from its own file — called after a WRITE (Т5's Refs
+        table / Stage), never on the poll tick (see set_overrides_store)."""
+        store = self._overrides
+        if store is None:
+            return
+        path = getattr(store, "path", None)
+        if path is None:
+            return
+        from kicadstamp.field_overrides import load_field_overrides
+        self.set_overrides_store(load_field_overrides(str(path)))
+
     def set_project_root_sheet(self, path: Optional[Path]) -> None:
         """Public — wired to FieldsToolDock.set_root_path, itself wired to
         RootMetadataDock's root_changed (see gui/dock_hub.py). path is the
@@ -342,9 +382,10 @@ class MainWindow(QMainWindow):
 
     def _recompute_pending(self) -> None:
         """Recomputes the schematic-vs-board diff and pushes it to
-        pending_dock — cheap (no new IPC/file reads, both inputs are
+        pending_dock — cheap (no new IPC/file reads, the inputs are
         already-cached: self._components from the last Rescan,
-        self._live_snapshot from the last poll tick), so this can safely
+        self._live_snapshot from the last poll tick and self._overrides
+        from the project's own store, held in memory), so this can safely
         run on every trigger (Rescan, or a fresh live snapshot) without
         the "expensive work belongs behind an explicit action" concern
         that applies to the reads themselves. Also the single place that
@@ -354,7 +395,8 @@ class MainWindow(QMainWindow):
         tick/Stage write changes which refs are pending, not just Rescan/
         Apply), not just the two call sites that used to fire it directly."""
         self._pending_edits = compute_pending_edits(
-            self._components, self._live_snapshot, self._path_index)
+            self._components, self._live_snapshot, self._path_index,
+            self._overrides)
         self.pending_dock.set_edits(self._pending_edits)
         # Refreshes the pending indicator for whatever is CURRENTLY selected
         # on every trigger (a fresh poll tick right after Stage, not just a

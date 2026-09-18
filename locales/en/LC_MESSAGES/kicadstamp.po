@@ -18240,3 +18240,24 @@ msgstr "{count} Role/Cluster value(s) came from the override store, not from the
 #: kicadstamp/diagnostics/test_create_one_via.py
 msgid "create_board_adapter(...)"
 msgstr "create_board_adapter(...)"
+
+#: gui/docks/pending.py
+msgid "Ours"
+msgstr ""
+
+#: gui/docks/pending.py
+msgid "The board has moved away from both the schematic and OUR stored value — Apply still writes OUR value."
+msgstr ""
+
+#: gui/docks/pending.py
+msgid "The table shows only WHAT differs between the schematic, OUR stored value and the board — not which side is newer."
+msgstr ""
+
+#: gui/docks/pending.py
+msgid "Writes the BOARD values into the SCHEMATIC (the schematic's values are replaced) — except where WE have a stored value: that one wins and is written instead."
+msgstr ""
+
+#: gui/docks/pending.py
+#, python-brace-format
+msgid "{count} Role/Cluster value(s) would change in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
+msgstr ""

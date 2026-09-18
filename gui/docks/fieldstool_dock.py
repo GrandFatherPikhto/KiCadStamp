@@ -41,7 +41,9 @@ from typing import List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from kicadstamp.utils.paths import resolve_config_relative_path
+from kicadstamp.field_overrides import load_field_overrides
+from kicadstamp.utils.paths import (overrides_path_for_config,
+                                    resolve_config_relative_path)
 
 from .. import config_io
 from ..fieldstool_window import MainWindow as FieldsToolMainWindow
@@ -118,7 +120,17 @@ class FieldsToolDock(QObject):
         _populate() uses) rather than going through the full config.loader
         pipeline, since that would run whole-project validation just to read
         one scalar. Resolved relative to the root file itself, same
-        convention as every other path field there."""
+        convention as every other path field there.
+
+        The project's OVERRIDE STORE rides along (plan_2026_09_18_field_overrides_
+        store Т4): it hangs off the config file, so the same root_changed that
+        re-points root_sheet re-points the store — one push instead of a second
+        wiring in dock_hub, and a project switch can never keep the previous
+        project's overrides. A missing file is an EMPTY store, which is the
+        pre-store world exactly (Т7). No store file is written here, ever: the
+        diff view only reads."""
         root_sheet = (config_io.load_data(path) or {}).get("root_sheet") if path else None
         resolved = Path(resolve_config_relative_path(path.parent, root_sheet)) if root_sheet else None
         self.window.set_project_root_sheet(resolved)
+        self.window.set_overrides_store(
+            load_field_overrides(overrides_path_for_config(str(path))) if path else None)

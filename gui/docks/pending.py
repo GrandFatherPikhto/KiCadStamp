@@ -49,6 +49,19 @@ class PendingEdit:
     # schematic symbol (see recon in
     # techdocs/handoff/deepseek/handoff_2026_08_08_symbol_uuid_recon.md).
     mismatched: bool = False
+    # The THIRD side (plan_2026_09_18_field_overrides_store Т4): OUR stored
+    # value for this (symbol uuid, field), or None when we have no record.
+    # None is NOT the same as "": with no record the board's value is what
+    # Apply writes (the pre-store rule, unchanged); with a record OUR value is
+    # what Apply writes (С16), because that is the value the resolver acts on.
+    our_value: Optional[str] = None
+    # The CONFLICT marker (Т4), and deliberately NOT `mismatched` above: this one
+    # means "the board has moved away from BOTH the schematic and our value"
+    # (our A, board B, schematic C) — the same symbol on all sides, so applying
+    # is safe and В3 allows it. `mismatched` would have made Apply DROP the row
+    # (edits_to_fields_cfg), which would silently lose the edit — hence a field
+    # of its own, shown in the table and carried by Apply.
+    board_moved: bool = False
 
 
 def _board_symbol_uuid(s) -> str | None:
@@ -86,7 +99,45 @@ def _board_full_path(s) -> tuple | None:
         return None
 
 
-def compute_pending_edits(components, snapshot, path_index=None) -> List[PendingEdit]:
+def _store_value(store, symbol_uuid, field) -> Optional[str]:
+    """Our stored value for this (symbol uuid, field), or None when there is no
+    store, no uuid to key it by, or no record. None means "we have nothing to
+    say", never an empty value — an empty stored value is a real instruction
+    ("this component has no Role") and comes back as ""."""
+    if store is None or not symbol_uuid:
+        return None
+    return store.get(symbol_uuid, field)
+
+
+def _emit_side(edits: List[PendingEdit], ref: str, field: str, sch_value,
+               board_value, board_has_field: bool, symbol_uuid, store) -> None:
+    """ONE side's row, if it earns one. The rule, with the three sides s (schematic),
+    b (board) and o (ours, None when we have no record):
+
+      * no record — the two-sided rule of the pre-store code, byte for byte: a row
+        iff the board HAS the field and its value differs from the schematic. The
+        `board_has_field` gate is the 2026-08-27 fix (a physically absent field is
+        "not comparable yet", not a pending change);
+      * record — ALSO a row when the schematic still disagrees with OUR value: Apply
+        writes ours (С16), so the schematic is about to change even when the board
+        and the schematic agree with each other and only we disagree;
+      * the board moved (all three pairwise different) — flagged, never hidden and
+        never dropped: the user decides, В3 allows applying (С4/С17)."""
+    sch = sch_value or ""
+    board = board_value or ""
+    ours = _store_value(store, symbol_uuid, field)
+    if ours is None:
+        if board_has_field and sch != board:
+            edits.append(PendingEdit(ref, field, sch, board))
+        return
+    if sch == ours and not (board_has_field and sch != board):
+        return
+    moved = sch != ours and board != ours and board != sch
+    edits.append(PendingEdit(ref, field, sch, board, False, ours, moved))
+
+
+def compute_pending_edits(components, snapshot, path_index=None,
+                          store=None) -> List[PendingEdit]:
     """components: List[gui.schema_model.SchematicComponent] (from
     load_schematic_components(), i.e. the schematic's last Rescan).
     snapshot: List[kicadstamp.explore.Selected] (BoardConnection.snapshot,
@@ -118,7 +169,17 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
     among them, the two sides disagree about what this refdes IS (re-annotation
     / revision desync). Emit a single mismatched PendingEdit for the ref instead
     of a Role/Cluster diff — visible in the table, excluded from Apply. When
-    either side lacks uuid info the check is skipped (no false positives)."""
+    either side lacks uuid info the check is skipped (no false positives).
+
+    store (Optional[kicadstamp.field_overrides.FieldOverrides]): OUR values, the
+    third side (plan_2026_09_18_field_overrides_store Т4). It is keyed by SYMBOL
+    UUID — the same identity the per-instance join uses — so a re-annotated board
+    (F8) cannot attach our value to a different component. store=None is the
+    pre-store diff, byte for byte: every call site that doesn't pass one keeps
+    today's behaviour (Т7), and so does an EMPTY store, because a side with no
+    record adds nothing to the comparison. Note what this function does NOT do:
+    it never decides who wins — the resolver does that (Т2); this is the diff
+    view, and it shows all three sides as they are."""
     by_ref = {c.ref: c for c in components}
     edits: List[PendingEdit] = []
     handled: set[int] = set()
@@ -129,10 +190,13 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
             if inst is None:
                 continue
             handled.add(i)
-            if (s.role or "") != (inst.role or "") and s.role_field_exists:
-                edits.append(PendingEdit(inst.ref, "Role", inst.role or "", s.role or ""))
-            if (s.cluster or "") != (inst.cluster or "") and s.cluster_field_exists:
-                edits.append(PendingEdit(inst.ref, "Cluster", inst.cluster or "", s.cluster or ""))
+            # The symbol uuid IS the last hop of the full path the index is keyed
+            # by (see schema_model._full_key) — the same key our store uses.
+            symbol_uuid = p[-1] if p else None
+            _emit_side(edits, inst.ref, ROLE_FIELD_NAME, inst.role, s.role,
+                       s.role_field_exists, symbol_uuid, store)
+            _emit_side(edits, inst.ref, CLUSTER_FIELD_NAME, inst.cluster, s.cluster,
+                       s.cluster_field_exists, symbol_uuid, store)
     for i, s in enumerate(snapshot):
         if i in handled:
             continue
@@ -141,6 +205,9 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
             continue
         board_uuid = _board_symbol_uuid(s)
         if board_uuid and c.symbol_uuids and board_uuid not in c.symbol_uuids:
+            # A mismatched ref never consults the store: this row is about which
+            # SYMBOL the refdes means, not about values, and its Ours cell stays
+            # empty on purpose (there is no "ours" for an unknown identity).
             edits.append(PendingEdit(
                 s.ref,
                 "Refdes/symbol mismatch",
@@ -155,11 +222,12 @@ def compute_pending_edits(components, snapshot, path_index=None) -> List[Pending
         # pending change, it's "not comparable yet" (same "only refs present on
         # BOTH sides are comparable" principle this function's docstring states,
         # extended from ref-level to field-level). The field's VALUE may still
-        # be None/empty (exists but cleared) — that is a real diff, kept.
-        if (s.role or "") != (c.role or "") and s.role_field_exists:
-            edits.append(PendingEdit(s.ref, "Role", c.role or "", s.role or ""))
-        if (s.cluster or "") != (c.cluster or "") and s.cluster_field_exists:
-            edits.append(PendingEdit(s.ref, "Cluster", c.cluster or "", s.cluster or ""))
+        # be None/empty (exists but cleared) — that is a real diff, kept. OUR
+        # value needs no such gate: it lives in a file, not on the board.
+        _emit_side(edits, s.ref, ROLE_FIELD_NAME, c.role, s.role,
+                   s.role_field_exists, board_uuid, store)
+        _emit_side(edits, s.ref, CLUSTER_FIELD_NAME, c.cluster, s.cluster,
+                   s.cluster_field_exists, board_uuid, store)
     return sorted(edits, key=lambda e: (e.ref, e.field))
 
 
@@ -167,12 +235,21 @@ def edits_to_fields_cfg(edits: List[PendingEdit]) -> Dict[str, Dict[str, str]]:
     """refdes -> {field: value} — the shape
     kicadstamp.schematic_set_fields.plan_set_edits_for_root() consumes.
     Identity-mismatch edits (PendingEdit.mismatched) are dropped — applying
-    them would write the board value into the WRONG schematic symbol."""
+    them would write the board value into the WRONG schematic symbol.
+
+    With a record of ours, OUR value is what goes into the schematic (С16), not
+    the board's: that is the value the resolver acts on ("note R_FB, press
+    apply" must write R_FB), and it is what makes a record retirable at all
+    (В4/Т6 — a record leaves when the schematic matches it, which can never
+    happen while Apply writes the board's older value). A row where the board
+    moved (PendingEdit.board_moved) is NOT dropped: the symbol is the same, so
+    В3 allows applying."""
     cfg: Dict[str, Dict[str, str]] = {}
     for e in edits:
         if e.mismatched:
             continue
-        cfg.setdefault(e.ref, {})[e.field] = e.new_value
+        cfg.setdefault(e.ref, {})[e.field] = (
+            e.new_value if e.our_value is None else e.our_value)
     return cfg
 
 
@@ -196,6 +273,16 @@ def edits_to_fields_cfg(edits: List[PendingEdit]) -> Dict[str, Dict[str, str]]:
 # The two fields Apply actually transfers. A "Refdes/symbol mismatch" row is
 # deliberately NOT one of them — Apply drops it (see edits_to_fields_cfg).
 _REMINDER_FIELDS = (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)
+
+# Row tints (Т4, 2026-09-18). Two DIFFERENT statements, so two colours — never
+# one for both: a mismatch row is "Apply will NOT carry this" (a refusal, red),
+# a moved-board row is "Apply WILL carry this, and the board has moved away"
+# (a heads-up, amber). Reusing the red for our conflict would tell the user the
+# opposite of what happens.
+_ROW_COLOURS = {
+    "mismatch": "#ffdddd",
+    "board_moved": "#ffe9b8",
+}
 
 
 def pending_reminder_state(edits: List[PendingEdit]) -> Tuple[int, int]:
@@ -224,10 +311,17 @@ def reminder_log_line(prev_count: int, count: int) -> Optional[str]:
     silent — otherwise every ~2s poll tick would repeat the same sentence
     forever. The caller owns the previous state (PendingChangesDock keeps it);
     a decrease means Apply or a revert on the board removed something, which
-    is news the user already wanted."""
+    is news the user already wanted.
+
+    2026-09-18 (Т4): the sentence no longer says the values "are on the board
+    but not in the schematic". Since the store (Т1/Т2) the count also covers rows
+    where the schematic and the board AGREE and only our stored value differs —
+    those values are in neither place, and the old wording would have described
+    them wrongly. What is true in every case is that the SCHEMATIC is about to
+    change when Apply runs (that is what edits_to_fields_cfg writes, С16)."""
     if count <= prev_count or count <= 0:
         return None
-    return _("{count} Role/Cluster value(s) are on the board but not in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)").format(count=count)
+    return _("{count} Role/Cluster value(s) would change in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)").format(count=count)
 
 
 def mismatch_log_line(prev_mismatches: int, mismatches: int) -> Optional[str]:
@@ -253,13 +347,17 @@ except ImportError:  # pragma: no cover — the functions above are usable witho
 
 
 class PendingChangesDock(QWidget):
-    """Read-only table of the current schematic-vs-board diff (see
-    compute_pending_edits above) + an Apply button MainWindow wires (see
-    gui/fieldstool_window.py) — Apply itself needs the root_sheet path and
-    the KiCad-running guard, which this dock deliberately doesn't know
+    """Read-only table of the current THREE-sided diff — schematic / OUR stored
+    value / board (see compute_pending_edits above) + an Apply button MainWindow
+    wires (see gui/fieldstool_window.py) — Apply itself needs the root_sheet path
+    and the KiCad-running guard, which this dock deliberately doesn't know
     about. Fed wholesale by set_edits() every time either side of the diff
     changes (Rescan, or the main GUI's ~2s poll) — never mutated in place,
     same "just show me the latest" discipline as the rest of this GUI.
+
+    The store reaches compute_pending_edits through the window that owns it (see
+    gui/fieldstool_window.py's set_overrides_store): this dock is a view, it
+    never loads a file and never touches the board.
 
     2026-09-05 (plan components_fieldstool_master_detail): no longer a
     QDockWidget docked at the main window's bottom — the shared single
@@ -296,21 +394,27 @@ class PendingChangesDock(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self.table = QTableWidget(0, 4)
-        # The two value columns are named by SIDE, never by "current"/"new"
+        self.table = QTableWidget(0, 5)
+        # The value columns are named by SIDE, never by "current"/"new"
         # (2026-09-16, plan_2026_09_16_commit_document_and_pending_direction
         # Э2/Т2.1, Р3): the dock compares the schematic on disk with the live
         # board and CANNOT know which side is newer — "current"/"new" claimed a
         # direction that does not exist, and on a board that lags behind the
         # schematic (the normal state while Role/Cluster are being edited in
         # eeschema) that claim read as "the board is already right".
+        # Since Т4 (2026-09-18) there is a THIRD side: OUR stored value. The
+        # column is ALWAYS present, never hidden when the store is empty — a
+        # conditional column would need a guard of its own ("hidden exactly when
+        # the store has no records, not when there is no conflict") and it raises
+        # the question "where did the column go?". One empty column on a clean
+        # profile is cheaper than that.
         self.table.setHorizontalHeaderLabels(
-            [_("Ref"), _("Field"), _("Schematic"), _("Board")])
+            [_("Ref"), _("Field"), _("Schematic"), _("Ours"), _("Board")])
         # The same honest statement where the user looks for it — one sentence,
         # no extra widget (Р5: nothing growing on a small screen).
         self.table.horizontalHeader().setToolTip(
-            _("The table shows only WHAT differs between the schematic and the "
-              "board — not which side is newer."))
+            _("The table shows only WHAT differs between the schematic, OUR "
+              "stored value and the board — not which side is newer."))
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # Row click -> component selection (2026-09-05, plan
@@ -332,9 +436,12 @@ class PendingChangesDock(QWidget):
         # Direction, stated on the button itself (Т2.1): Apply writes the BOARD
         # value INTO the schematic, so the schematic's own value is replaced —
         # the one thing a user editing the schematic must know before clicking.
+        # Since Т4 the exception our store introduced is stated right there too:
+        # where WE have a value, OURS is what gets written (С16).
         self.apply_button.setToolTip(
             _("Writes the BOARD values into the SCHEMATIC (the schematic's "
-              "values are replaced)."))
+              "values are replaced) — except where WE have a stored value: that "
+              "one wins and is written instead."))
         self.apply_button.clicked.connect(lambda: self.on_apply_clicked and self.on_apply_clicked())
         button_row.addWidget(self.apply_button)
         # Always enabled (unlike Apply, which needs a live diff) — this
@@ -379,21 +486,33 @@ class PendingChangesDock(QWidget):
     def set_edits(self, edits: List[PendingEdit]) -> None:
         self.table.setRowCount(len(edits))
         for row, e in enumerate(edits):
+            row_values = [e.ref, e.field, e.old_value,
+                          "" if e.our_value is None else e.our_value,
+                          e.new_value]
+            items = [QTableWidgetItem(text) for text in row_values]
             if e.mismatched:
                 # The same refdes means different symbols on the two sides —
                 # visually distinct and never auto-applied (edits_to_fields_cfg
                 # drops these). The row shows the two symbol UUIDs so the user
-                # can see WHY the ref is not applied.
-                row_values = [e.ref, e.field, e.old_value, e.new_value]
-                for col in range(4):
-                    item = QTableWidgetItem(row_values[col])
-                    item.setBackground(QColor("#ffdddd"))
-                    self.table.setItem(row, col, item)
-            else:
-                self.table.setItem(row, 0, QTableWidgetItem(e.ref))
-                self.table.setItem(row, 1, QTableWidgetItem(e.field))
-                self.table.setItem(row, 2, QTableWidgetItem(e.old_value))
-                self.table.setItem(row, 3, QTableWidgetItem(e.new_value))
+                # can see WHY the ref is not applied. Its Ours cell stays empty:
+                # a mismatched row is about identity, not about values, so there
+                # is no "ours" to show for it.
+                for item in items:
+                    item.setBackground(QColor(_ROW_COLOURS["mismatch"]))
+            elif e.board_moved:
+                # Т4's conflict marker: the board moved away from BOTH the
+                # schematic and our value. A colour of its own, NOT the mismatch
+                # one — this row still travels through Apply (С17), so it must
+                # not read as "Apply will not carry this". The tooltip says who
+                # wins, because that is exactly what the user cannot tell from
+                # three disagreeing columns.
+                for item in items:
+                    item.setBackground(QColor(_ROW_COLOURS["board_moved"]))
+                items[0].setToolTip(_(
+                    "The board has moved away from both the schematic and OUR "
+                    "stored value — Apply still writes OUR value."))
+            for col, item in enumerate(items):
+                self.table.setItem(row, col, item)
         # Apply: any pending edit at all (including mismatched, whose row is
         # shown but which Apply drops — Apply's own enablement is unchanged).
         # Sync from schematic: only NON-mismatched edits have something safe

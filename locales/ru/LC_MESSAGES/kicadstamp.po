@@ -16914,3 +16914,24 @@ msgstr "{count} значений Role/Cluster взяты из хранилища
 #: kicadstamp/diagnostics/test_create_one_via.py
 msgid "create_board_adapter(...)"
 msgstr "create_board_adapter(...)"
+
+#: gui/docks/pending.py
+msgid "Ours"
+msgstr "Наше"
+
+#: gui/docks/pending.py
+msgid "The board has moved away from both the schematic and OUR stored value — Apply still writes OUR value."
+msgstr "Плата уехала и от схемы, и от НАШЕГО сохранённого значения — Apply всё равно запишет НАШЕ значение."
+
+#: gui/docks/pending.py
+msgid "The table shows only WHAT differs between the schematic, OUR stored value and the board — not which side is newer."
+msgstr "Таблица показывает только то, ЧЕМ отличаются схема, НАШЕ сохранённое значение и плата — а не то, какая сторона свежее."
+
+#: gui/docks/pending.py
+msgid "Writes the BOARD values into the SCHEMATIC (the schematic's values are replaced) — except where WE have a stored value: that one wins and is written instead."
+msgstr "Пишет значения ПЛАТЫ в СХЕМУ (значения схемы заменяются) — кроме тех, для которых у НАС есть сохранённое значение: оно главнее и записывается вместо платы."
+
+#: gui/docks/pending.py
+#, python-brace-format
+msgid "{count} Role/Cluster value(s) would change in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
+msgstr "Значений Role/Cluster, которые изменятся в схеме: {count} — Pending changes → Apply до следующего Update PCB from Schematic (F8)"

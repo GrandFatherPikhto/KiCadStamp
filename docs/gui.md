@@ -346,6 +346,22 @@ those values from the schematic; a separate one-off line reports the Refdes/symb
 which Apply cannot carry at all. Both the count and both lines come from the diff the tab was already
 fed — no extra board or schematic read.
 
+Since 2026-09-18 (`plan_2026_09_18_field_overrides_store`, Т4) the diff has a **third side**: **Ours** —
+the value stored for this project (`overrides/<profile>.fields.json`, see
+[config.md](config.md)); its resolver priority is the subject of that plan, this tab only SHOWS it.
+The table reads **Ref | Field | Schematic | Ours | Board**, and the **Ours** column is always there,
+empty store or not: a column hidden "while the store is empty" would need a guard of its own and
+raises the question where it went. A row now appears for one more reason than before — when the
+schematic still disagrees with OUR stored value, because **Apply would change the schematic** and
+that must be visible. Apply writes OUR value where we have one (the board's otherwise, exactly as
+before), and a row where **the board has moved away** from both the schematic and our value is tinted
+apart, with a tooltip saying that ours still wins: that is a heads-up, not a refusal — the same
+symbol is on all three sides, so Apply carries it (unlike the red "Refdes/symbol mismatch" rows,
+which stay dropped). For the same reason the reminder line was reworded: its count is no longer
+"values on the board but not in the schematic", but "values that would change in the schematic".
+The store is pushed in by `FieldsToolDock.set_root_path` — the same `root_changed` that re-points
+`root_sheet` — so a project switch can never keep the previous project's overrides.
+
 ## Cells tab
 
 A flat list of Cell names read from whatever file is assigned the **Cells** role in Files (see
