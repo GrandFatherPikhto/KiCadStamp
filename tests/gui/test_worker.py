@@ -13,7 +13,11 @@ off the UI thread:
   * results/errors come back through signals on the UI thread;
   * while the flag is set, the main window's polling ticks skip their socket
     work (_poll / _poll_board_selection), so the op is the socket's only
-    active owner for its whole lifetime.
+    active owner for its whole lifetime;
+  * the worker QObject is destroyed ON THE UI THREAD, and only after its own
+    thread has stopped (the 2026-09-18 GIL-vs-Qt-mutex freeze —
+    plan_2026_09_18_worker_delete_deadlock; see the "Worker teardown" section
+    at the end of this file for why measuring that took two instruments).
 
 The QThread tests deliberately avoid touching controller._thread after the
 event loop has been pumped (its finished->deleteLater chain may already have
@@ -24,7 +28,12 @@ because the completion handler has already run (posting quit()) by then.
 import logging
 import threading
 import time
+import weakref
 from types import SimpleNamespace
+
+import pytest
+from PyQt6 import sip
+from PyQt6.QtCore import QEvent, Qt
 
 import gui.worker as worker_mod
 from gui.worker import LongOpController, start_long_op
@@ -503,3 +512,243 @@ def test_real_window_busy_label_follows_a_long_op(real_main_window, qapp):
     assert thread.wait(2000), "worker thread did not finish"
 
     assert window.busy_label.text() == ""
+
+
+# ── Worker teardown (2026-09-18, plan_2026_09_18_worker_delete_deadlock) ─────
+#
+# The defect these tests pin is not "a dialog opened slowly". `finished` is
+# emitted INSIDE the worker thread (Qt's QThreadPrivate::finish), so
+# `finished.connect(worker.deleteLater)` was a DIRECT call: deleteLater posted a
+# DeferredDelete event into the worker's own queue, and `finish` drains exactly
+# that queue right after. The Python-subclassed QObject was therefore destroyed
+# on a foreign thread, where sip takes the GIL, while the UI thread held the GIL
+# and waited for a Qt signal/slot mutex — the live freeze of 2026-09-18
+# (diagnostics/freeze_2026_09_18_boundary_dialog_pyspy.txt).
+#
+# Watching it took TWO instruments, because they answer in different cases —
+# both measured in diagnostics/probe_worker_teardown_instrument.py:
+#
+#   * `QObject.destroyed` fires only when Qt itself deletes the C++ object (the
+#     broken path). Connected with DirectConnection it runs IN THE THREAD DOING
+#     THE DELETION — on the base commit it named a thread that was not the UI
+#     thread;
+#   * a weakref callback runs when the Python wrapper is deallocated, i.e. in
+#     the thread whose sip dealloc runs `~QObject`. That is the ONLY instrument
+#     that sees the fixed path: on the refcount path PyQt does not call Python
+#     slots for `destroyed` at all.
+#
+# A test must NOT hold a strong reference to the worker it watches — that
+# reference would itself be the reason the object is still alive — so the
+# weakref is taken inside the worker's own __init__.
+_TEARDOWN: list = []
+_TEARDOWN_REFS: list = []
+
+
+def _record_teardown(instrument: str) -> None:
+    """(instrument, thread ident) of one observed destruction."""
+    _TEARDOWN.append((instrument, threading.get_ident()))
+
+
+def _on_worker_destroyed(*_args) -> None:
+    _record_teardown("destroyed")
+
+
+def _on_worker_collected(_ref) -> None:
+    _record_teardown("weakref")
+
+
+class _SpyWorker(worker_mod._LongOpWorker):
+    """A `_LongOpWorker` that reports its own destruction, whichever way it
+    happens. It is installed by the `teardown_watch` fixture, so every op the
+    test starts is watched; the production class stays untouched."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.destroyed.connect(_on_worker_destroyed,
+                               Qt.ConnectionType.DirectConnection)
+        _TEARDOWN_REFS.append(weakref.ref(self, _on_worker_collected))
+
+
+@pytest.fixture
+def teardown_watch(monkeypatch):
+    """[(instrument, thread ident)] of every worker destruction this test
+    observes — see the section comment above for the two instruments."""
+    _TEARDOWN.clear()
+    _TEARDOWN_REFS.clear()
+    monkeypatch.setattr(worker_mod, "_LongOpWorker", _SpyWorker)
+    yield _TEARDOWN
+    _TEARDOWN.clear()
+    _TEARDOWN_REFS.clear()
+
+
+def _drain(app) -> None:
+    """Let DeferredDelete through, then settle.
+
+    `finished -> thread.deleteLater` (the QThread's own teardown, kept
+    deliberately) and the worker's release both complete only while an
+    outermost event loop — or this explicit pass — delivers what was posted;
+    tests/gui/conftest._pump deliberately does not, so a test that measures the
+    END state has to ask for it."""
+    app.processEvents()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
+def test_the_worker_is_destroyed_on_the_ui_thread_after_a_successful_op(
+        qapp, teardown_watch):
+    """С2 of the plan. On the base commit the worker was destroyed in the
+    worker thread itself (`destroyed` names a foreign thread here); the fix
+    drops the last Python reference on the UI thread instead.
+
+    A foreign-thread destruction is not a nitpick: that is the thread that then
+    takes the GIL while holding a Qt signal/slot mutex — the freeze."""
+    connection = SimpleNamespace(long_op_active=False)
+    results = []
+    controller = start_long_op(connection, (), lambda: "done",
+                               results.append, results.append)
+    _pump(qapp, lambda: results and
+          controller not in worker_mod._ACTIVE_CONTROLLERS)
+    _drain(qapp)
+
+    assert teardown_watch, (
+        "the worker was never destroyed after the operation completed — "
+        "something still holds a reference to it (a kept reference is a leak, "
+        "not a fix)")
+    foreign = [obs for obs in teardown_watch if obs[1] != threading.get_ident()]
+    assert foreign == [], (
+        "the worker QObject was destroyed on a thread that is not the UI "
+        "thread: " + ", ".join(f"{name}@thread{ident}"
+                               for name, ident in foreign) +
+        " — that is the 2026-09-18 GIL-vs-Qt-mutex deadlock (С2)")
+    assert controller._worker is None, (
+        "the controller still holds the per-op worker after the operation")
+
+
+def _busy_kicad():
+    """A board-STATE failure (the live shape: KiCad busy) — i.e. the ApiError
+    branch of _LongOpWorker.run.
+
+    Why the failure-path teardown tests must fail THIS way and not with a bare
+    exception, measured the hard way: the generic branch logs
+    `logger.exception`, tests/gui/conftest's autouse _capture_dock_logs fixture
+    captures that record at INFO, and a traceback KEEPS ITS FRAMES — run()'s
+    frame holds `self`, the worker. The captured record therefore keeps the
+    whole worker alive for the duration of the test, so such a test measures the
+    logging harness instead of the teardown (and `caplog.clear()` does not
+    release every copy pytest keeps for its own report — tried, still retained).
+    The ApiError branch keeps its traceback at DEBUG, below what the fixture
+    captures, so nothing retains the worker and the destruction under test is
+    the only one observed."""
+    from kipy.errors import ApiError, ApiStatusCode
+
+    raise ApiError("KiCad returned error: KiCad is busy and cannot respond to "
+                   "API requests right now", code=ApiStatusCode.AS_BUSY)
+
+
+def test_the_worker_is_destroyed_on_the_ui_thread_after_a_failed_op(
+        qapp, teardown_watch):
+    """The failure path tears down exactly like the success path — a failed op
+    must not leave the worker to the worker thread either (see _busy_kicad for
+    why this failure is an ApiError and not a bare exception)."""
+    connection = SimpleNamespace(long_op_active=False)
+    errors = []
+    controller = start_long_op(connection, (), _busy_kicad,
+                               lambda _r: None, errors.append)
+    _pump(qapp, lambda: errors and
+          controller not in worker_mod._ACTIVE_CONTROLLERS)
+    _drain(qapp)
+
+    assert errors and "KiCad is busy" in errors[0]
+    assert teardown_watch, "the failed worker was never destroyed"
+    foreign = [obs for obs in teardown_watch if obs[1] != threading.get_ident()]
+    assert foreign == [], (
+        "the failed worker QObject was destroyed off the UI thread: " + ", ".join(
+            f"{name}@thread{ident}" for name, ident in foreign))
+
+
+def test_the_payload_is_delivered_before_the_worker_is_destroyed(
+        qapp, teardown_watch):
+    """С3 of the plan. The order the callers depend on, unchanged: the
+    controller's finished/failed first (with the payload verbatim), the worker
+    still alive at that instant, thread_stopped afterwards — and only then the
+    destruction.
+
+    The "still alive" half is what forbids the tempting shortcut of dropping the
+    reference in _release(): that runs while the `succeeded` payload is being
+    delivered, and `run()` — the worker's own slot — can still be on the worker
+    thread's stack there (its emit is the last statement)."""
+    connection = SimpleNamespace(long_op_active=False)
+    events = []
+    worker_alive_at_delivery = []
+    destroyed_at_delivery = []
+
+    def on_success(result):
+        events.append(("finished", result))
+        worker_alive_at_delivery.append(controller._worker is not None)
+        destroyed_at_delivery.append(list(teardown_watch))
+
+    controller = start_long_op(connection, (), lambda: "done", on_success,
+                               lambda message: events.append(("failed", message)))
+    controller.thread_stopped.connect(
+        lambda: events.append(("thread_stopped", None)))
+    _pump(qapp, lambda: len(events) >= 2)
+    _drain(qapp)
+
+    assert events == [("finished", "done"), ("thread_stopped", None)]
+    assert worker_alive_at_delivery == [True]
+    assert destroyed_at_delivery == [[]], (
+        "the worker was already destroyed while the result was being delivered")
+    assert teardown_watch, (
+        "the worker outlived the operation — thread_stopped is the point the "
+        "keep-alive registry already treats as 'the thread has genuinely "
+        "stopped', and teardown belongs there")
+
+
+def test_the_failure_payload_is_delivered_before_the_worker_is_destroyed(
+        qapp, teardown_watch):
+    """Same order on the failing path, with the human message verbatim (an
+    ApiError, for the retention reason spelled out in _busy_kicad)."""
+    from kicadstamp.cli_common import api_error_message
+    from kipy.errors import ApiError, ApiStatusCode
+
+    connection = SimpleNamespace(long_op_active=False)
+    events = []
+    worker_alive_at_delivery = []
+
+    def on_error(message):
+        events.append(("failed", message))
+        worker_alive_at_delivery.append(controller._worker is not None)
+
+    controller = start_long_op(connection, (), _busy_kicad,
+                               lambda _r: None, on_error)
+    controller.thread_stopped.connect(
+        lambda: events.append(("thread_stopped", None)))
+    _pump(qapp, lambda: len(events) >= 2)
+    _drain(qapp)
+
+    expected = api_error_message(ApiError(
+        "KiCad returned error: KiCad is busy and cannot respond to API "
+        "requests right now", code=ApiStatusCode.AS_BUSY))
+    assert events == [("failed", expected), ("thread_stopped", None)]
+    assert "KiCad is busy" in events[0][1]
+    assert worker_alive_at_delivery == [True]
+    assert teardown_watch
+
+
+def test_the_qthread_is_still_deleted_by_finished_delete_later(qapp):
+    """С4 of the plan: the NEIGHBOURING line stays. `QThread` objects belong to
+    the thread that created them, so `finished -> self._thread.deleteLater` was
+    never the problem (Ф5) and removing it "for symmetry" would leak a QThread
+    per operation — this test is what makes that mistake loud."""
+    connection = SimpleNamespace(long_op_active=False)
+    results = []
+    controller = start_long_op(connection, (), lambda: "done",
+                               results.append, results.append)
+    thread = controller._thread
+    _pump(qapp, lambda: results and
+          controller not in worker_mod._ACTIVE_CONTROLLERS)
+    _drain(qapp)
+
+    assert sip.isdeleted(thread), (
+        "the QThread was not deleted — the finished -> deleteLater chain is "
+        "gone and every long operation now leaks its thread")

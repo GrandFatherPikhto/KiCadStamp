@@ -283,7 +283,24 @@ class LongOpController(QObject):
         self._thread.started.connect(self._worker.run)
         self._worker.succeeded.connect(self._on_worker_succeeded)
         self._worker.failed.connect(self._on_worker_failed)
-        self._thread.finished.connect(self._worker.deleteLater)
+        # The worker is destroyed by DROPPING THE LAST REFERENCE on the UI
+        # thread (self._worker = None in _on_thread_finished) — never by
+        # `finished.connect(self._worker.deleteLater)`, which is what froze the
+        # GUI for good on 2026-09-18. `finished` is emitted INSIDE the worker
+        # thread (Qt's QThreadPrivate::finish), so that connect() is a DIRECT
+        # call: deleteLater posts a DeferredDelete event into the WORKER's own
+        # queue, and `finish` drains exactly that queue right after — so the
+        # Python-subclassed QObject is destroyed on a foreign thread, where sip
+        # takes the GIL. In the live dump
+        # (diagnostics/freeze_2026_09_18_boundary_dialog_pyspy.txt) the UI thread
+        # held the GIL and waited for QBasicMutex::lockInternal while that
+        # thread held the signal/slot mutex and waited for the GIL; neither
+        # side could move. Full plan: plan_2026_09_18_worker_delete_deadlock.
+        #
+        # Connected FIRST, before the two deleteLater lines below: queued events
+        # on the UI thread are delivered in the order they were posted, so the
+        # worker dies before its QThread releases the thread data it belonged to.
+        self._thread.finished.connect(self._on_thread_finished)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.finished.connect(self.thread_stopped)
         self._thread.start()
@@ -339,6 +356,28 @@ class LongOpController(QObject):
     def _on_worker_failed(self, message: str) -> None:
         self._release()
         self.failed.emit(message)
+
+    @pyqtSlot()
+    def _on_thread_finished(self) -> None:
+        """THE one place the per-op worker is destroyed — and it runs on the UI
+        thread, which is the whole point (see the comment in :meth:`start`).
+
+        Deliberately NOT `self._worker.deleteLater()`: Qt posts a DeferredDelete
+        event into the OBJECT'S thread, and this object's thread is the one that
+        has just finished, so nothing would ever drain it — measured in
+        diagnostics/probe_worker_move_back.py (case B3: the object is never
+        destroyed), and if the event did arrive before Qt finished tearing the
+        thread down, the destruction would land back in the worker thread — the
+        very deadlock being fixed.
+
+        Deliberately NOT in _release() either: _release() runs while the
+        `succeeded`/`failed` payload is still being delivered, and `run()` — the
+        worker's own slot — can be on the worker thread's stack at that moment
+        (the emit is its last statement). `finished` is the first point at which
+        the object is provably idle, and it is also the point the caller's
+        keep-alive registry already treats as "the thread has genuinely
+        stopped"."""
+        self._worker = None
 
 
 # Module-level keep-alive set (2026-08-03 fix — see below). LongOpController
@@ -750,6 +789,12 @@ class PollWorkerHandle(QObject):
         self._thread = QThread(self)
         self._worker = PollWorker()
         self._worker.moveToThread(self._thread)
+        # NO `self._thread.finished.connect(self._worker.deleteLater)` here, and
+        # none anywhere else: a worker that lives in another thread must not be
+        # destroyed from that thread either (the same GIL-vs-Qt-mutex hazard the
+        # per-op worker had — see LongOpController.start). This worker is built
+        # WITH the handle and dies WITH it, on the main thread, which is why the
+        # persistent poll thread needs no teardown of its own.
         self.taskRequested.connect(self._worker.run_task)
         self._worker.resultReady.connect(self._on_result)
         self._thread.start()

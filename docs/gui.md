@@ -112,6 +112,39 @@ socket that is busy at that moment gets ONE deferred retry (120 ms) before the s
 The cell-anchor page's Role narrowing left the board entirely in the same change: it is a HINT and
 reads the board snapshot the GUI already holds, so it costs no IPC at all.
 
+## Worker teardown (2026-09-18)
+
+**The worker of a long operation is destroyed on the UI thread, and never by
+`finished.connect(worker.deleteLater)`.** That line is what froze the GUI for good on 2026-09-18: `finished`
+is emitted INSIDE the worker thread (Qt's own `QThreadPrivate::finish`), so the connection is a direct call —
+`deleteLater` posts its DeferredDelete event into the WORKER's queue, and `finish` drains exactly that queue
+right after. The Python-subclassed `QObject` was therefore destroyed on a foreign thread, where sip takes the
+GIL, while the UI thread held the GIL and waited for a Qt signal/slot mutex (`QBasicMutex::lockInternal` in
+`diagnostics/freeze_2026_09_18_boundary_dialog_pyspy.txt`). Neither thread could move. Qt takes those mutexes
+from a pool keyed by address, so unrelated objects collided — a brand-new `QComboBox` against the dying
+worker — which is why it looked random and rare.
+
+`LongOpController._on_thread_finished` (connected FIRST among the `finished` slots, so the worker dies before
+its `QThread` releases the thread data) drops the last Python reference; sip deletes the C++ object right
+there, on the UI thread. Deliberately NOT in `_release()`: that runs while the `succeeded`/`failed` payload is
+still being delivered and `run()` can be on the worker thread's stack. Deliberately NOT `deleteLater` from the
+main thread either: the event goes into the finished thread's queue and the object is simply never destroyed
+(measured, `diagnostics/probe_worker_move_back.py` — which also shows Qt REFUSING the plan's other idea, moving
+the object back to the main thread first: `Cannot move to target thread`, affinity unchanged, both while the
+thread runs and after it finished). The neighbouring `finished -> thread.deleteLater` STAYS: a `QThread`
+belongs to the thread that created it, so it was never part of the problem.
+
+The persistent poll worker (`PollWorkerHandle`) is the opposite case by design: it is built WITH the handle,
+holds no `deleteLater` connection at all and dies with the handle at shutdown, on the main thread.
+
+Guards: `tests/gui/test_worker.py` (the worker is destroyed on the UI thread on both the success and the failure
+path, the payload is delivered while the worker is still alive, the `QThread` is still deleted) and the
+structural ast tripwire `tests/gui/test_no_worker_deleted_in_foreign_thread.py`. Mutations М1–М5:
+`diagnostics/mutate_worker_delete_deadlock.py`. Note for whoever measures this next: when a Python-subclassed
+`QObject` dies by refcount (the fixed path), PyQt does NOT call Python slots for `destroyed` — the teardown
+thread is observed through a `weakref` callback instead
+(`diagnostics/probe_worker_teardown_instrument.py`).
+
 ## Widget height and scrolling (2026-09-12)
 
 **A field's height is not cosmetics.** Qt computes the height of a `QComboBox`,
