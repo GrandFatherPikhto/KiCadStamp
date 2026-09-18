@@ -184,6 +184,11 @@ class DockHub:
         # make the Refs table re-read the file (and vice versa, wired further
         # down where the cell editor is built).
         self.fieldstool_dock.window.on_overrides_written = self._on_overrides_written
+        # The Components tree is the THIRD writer of that store (Т5б): its Tag
+        # selected records, and its Delete selected/Clear all drop records — the
+        # window's in-memory copy has to hear about both, or the three-sided
+        # diff the user reads would still show values that are no longer there.
+        self.tree_dock.on_overrides_written = self._on_overrides_written
 
         # Placer / NetTrace (2026-09-05, plan config_qview_placer_nettrace):
         # ConfigTreeDock is now a master-detail — the Config tree on the left

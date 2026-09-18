@@ -58,6 +58,10 @@ SOURCE_CELL_TABLE = "cell_table"
 SOURCE_IMPRINT_TABLE = "imprint_table"
 SOURCE_FIELDSTOOL = "fieldstool"
 SOURCE_CLI = "cli"
+# Т5б (plan_2026_09_18_field_overrides_store): the Components tree's own
+# authoring row ("Tag selected") — the SET-side sibling of the cell editor's
+# Refs table, so it needs its own name here rather than borrowing one.
+SOURCE_ROLE_CLUSTER_TREE = "role_cluster_tree"
 
 # В2: the store carries Role/Cluster and NOTHING else. `Value`, `Reference`,
 # `Datasheet` and `Footprint` are read by FOREIGN tools (BOM, assembly), and an

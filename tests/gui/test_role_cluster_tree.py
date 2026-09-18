@@ -1,4 +1,5 @@
 # tests/gui/test_role_cluster_tree.py
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from PyQt6.QtCore import QItemSelectionModel
@@ -22,10 +23,25 @@ def _diverged(ref, role, cluster):
                     sheet=[], nets={}, fp=None)
 
 
+class _Fp:
+    """A footprint-shaped stand-in: a refdes plus the SYMBOL uuid, which is the
+    store's key (Т5б) — same shape tests/gui/test_cell_refs_tab.py builds.
+
+    A plain class rather than SimpleNamespace on purpose: SimpleNamespace is
+    UNHASHABLE, and FakeAdapter keys its "missing field" map by footprint."""
+
+    def __init__(self, ref, symbol_uuid):
+        self.ref = ref
+        self.sheet_path = SimpleNamespace(path=[SimpleNamespace(value=symbol_uuid)])
+
+
 class FakeSelected:
-    def __init__(self, ref, role, cluster):
+    def __init__(self, ref, role, cluster, symbol_uuid=None):
         self.ref, self.role, self.cluster = ref, role, cluster
-        self.fp = object()
+        # A real footprint carries the key; a component WITHOUT one can still be
+        # shown, clicked and cleared on the board — it just cannot be RECORDED
+        # under a key it does not have (С12), which is its own case below.
+        self.fp = _Fp(ref, symbol_uuid or f"uuid-{ref}")
 
 
 class FakeAdapter:
@@ -69,6 +85,44 @@ def _run_sync(connection, widgets, fn, on_success, on_error, *args):
     result = fn(*args)
     on_success(result)
     return "fake-controller"
+
+
+class _StoreHolder:
+    """The window-shaped holder this dock resolves the store through (Т5б):
+    fieldstool_dock.window.overrides plus the reload hook the dock calls before
+    every write — exactly what the embedded fieldstool window provides in
+    production (see RoleClusterTreeDock._overrides_window)."""
+
+    def __init__(self, store):
+        self.overrides = store
+
+    def reload_overrides(self) -> None:
+        from kicadstamp.field_overrides import load_field_overrides
+        self.overrides = load_field_overrides(str(self.overrides.path))
+
+
+def _store_for(main_window, tmp_path, records=()):
+    """Wire a real PROJECT store into the dock the way production does: a file
+    next to a throwaway profile, held by the fieldstool window."""
+    from kicadstamp.field_overrides import FieldOverrides
+    from kicadstamp.utils.paths import overrides_path_for_config
+    profile = tmp_path / "prof.sexp"
+    profile.write_text("", encoding="utf-8")
+    store = FieldOverrides(overrides_path_for_config(str(profile)))
+    for symbol_uuid, ref, field, value in records:
+        store.set(symbol_uuid, ref, field, value, "test")
+    store.save()
+    holder = _StoreHolder(store)
+    main_window.fieldstool_dock = SimpleNamespace(window=holder)
+    return holder
+
+
+def _stored(holder):
+    """The store's records AS THEY ARE ON DISK — the dock re-reads the file
+    before writing, so the holder's own object may be a fresh copy."""
+    from kicadstamp.field_overrides import load_field_overrides
+    return {(r.symbol_uuid, r.field): r.value
+            for r in load_field_overrides(str(holder.overrides.path)).records()}
 
 
 def test_group_by_persists_across_restart(main_window):
@@ -515,6 +569,65 @@ def test_clear_all_success_fires_on_board_written_callback(main_window, monkeypa
     assert calls == [1]
 
 
+# ── Т5б/С22: clearing ALSO drops our records ──────────────────────────────
+
+def test_c22_delete_selected_also_drops_the_stored_record(
+        main_window, monkeypatch, tmp_path, caplog):
+    """Т5б/С22: blanking the BOARD alone would be a lie once a record exists —
+    our value outranks the board (Т2), so the erased Role would come straight
+    back ("удалил, а оно есть"). The record for the SELECTED component goes; a
+    component outside the selection keeps its own, and the board half still runs
+    (the 2026-08-03 promise is untouched)."""
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    holder = _store_for(main_window, tmp_path, records=[
+        ("uuid-C1", "C1", "Role", "C_IN"),
+        ("uuid-C1", "C1", "Cluster", "Channel_1"),
+        ("uuid-C2", "C2", "Role", "OTHER"),
+    ])
+    board = FakeBoard()
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1, c2 = (FakeSelected("C1", "C_IN", "Channel_1"),
+              FakeSelected("C2", "OTHER", "Channel_9"))
+    dock.set_footprints([c1, c2])
+
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    dock._on_delete_selected()
+
+    assert _stored(holder) == {("uuid-C2", "Role"): "OTHER"}
+    updates, _description = board.adapter.calls[0]
+    assert set(updates) == {(c1.fp, "Role", ""), (c1.fp, "Cluster", "")}
+    assert any("Dropped 2 stored override" in r.message for r in caplog.records)
+
+
+def test_c22_the_record_goes_even_where_the_board_had_to_skip(
+        main_window, monkeypatch, tmp_path):
+    """The С22 trap in its sharpest form: the board half SKIPS a footprint with
+    no Cluster field (the pre-existing "one missing field rolls back the whole
+    batch" rule), and exactly that footprint's record is the one that would
+    resurrect the erased value — so the store half must cover it anyway."""
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+    holder = _store_for(main_window, tmp_path,
+                        records=[("uuid-FB15", "FB15", "Role", "OUT_AMP")])
+    missing_fp = _Fp("FB15", "uuid-FB15")
+    board = FakeBoard()
+    board.adapter._missing_fields = {missing_fp: {"Cluster"}}
+    main_window.connection.board = board
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    c1 = FakeSelected("C1", "C_IN", "Channel_1")
+    c2 = FakeSelected("FB15", None, None)
+    c2.fp = missing_fp
+    dock.set_footprints([c1, c2])
+
+    monkeypatch.setattr(role_cluster_tree_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    dock._on_clear_all()
+
+    assert _stored(holder) == {}
+    updates, _description = board.adapter.calls[0]
+    assert {fp for fp, _field, _value in updates} == {c1.fp}  # FB15 skipped, as before
+
+
 def test_clear_all_with_nothing_on_board_shows_message(main_window, monkeypatch, caplog):
     board = FakeBoard()
     main_window.connection.board = board
@@ -612,8 +725,15 @@ def _set_tag_values(dock, role="", cluster=""):
     dock.tag_cluster_combo.setCurrentText(cluster)
 
 
-def test_tag_selected_writes_role_and_cluster(main_window, monkeypatch, caplog):
-    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+def test_c21_tag_selected_records_role_and_cluster_in_the_store(
+        main_window, tmp_path, caplog):
+    """Т5б/С21 — REWRITTEN. This test used to pin the OPPOSITE ("write the typed
+    value onto every footprint in ONE set_field_values_bulk commit"). With a
+    store in force a board tag is invisible (our value outranks the board, Т2),
+    so for exactly the components the user had already noted "tagged" would
+    silently mean nothing. The typed value goes into the store instead, and the
+    board is not touched at all."""
+    holder = _store_for(main_window, tmp_path)
     board = FakeBoard()
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
@@ -628,17 +748,22 @@ def test_tag_selected_writes_role_and_cluster(main_window, monkeypatch, caplog):
 
     dock._on_tag_selected()
 
-    assert len(board.adapter.calls) == 1
-    updates, _description = board.adapter.calls[0]
-    assert set(updates) == {
-        (c1.fp, "Role", "OUT_AMP"), (c1.fp, "Cluster", "Channel_9"),
-        (c2.fp, "Role", "OUT_AMP"), (c2.fp, "Cluster", "Channel_9"),
+    assert _stored(holder) == {
+        ("uuid-C1", "Role"): "OUT_AMP", ("uuid-C1", "Cluster"): "Channel_9",
+        ("uuid-C2", "Role"): "OUT_AMP", ("uuid-C2", "Cluster"): "Channel_9",
     }
-    assert any("Tagged Role and Cluster on 2 component" in r.message for r in caplog.records)
+    assert board.adapter.calls == []  # the board is NOT written
+    assert any("2 component(s): Role and Cluster noted for this project"
+               in r.message for r in caplog.records)
 
 
-def test_tag_selected_role_only_does_not_touch_cluster(main_window, monkeypatch, caplog):
-    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+def test_tag_selected_role_only_leaves_the_cluster_record_alone(
+        main_window, tmp_path, caplog):
+    """Empty field = "don't touch it", still true after the move to the store:
+    a Role-only tag must leave an existing CLUSTER record exactly where it is
+    (and, as before, must not blank the board's cluster either)."""
+    holder = _store_for(main_window, tmp_path,
+                        records=[("uuid-C1", "C1", "Cluster", "Channel_1")])
     board = FakeBoard()
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
@@ -649,28 +774,27 @@ def test_tag_selected_role_only_does_not_touch_cluster(main_window, monkeypatch,
 
     dock._on_tag_selected()
 
-    assert len(board.adapter.calls) == 1
-    updates, _description = board.adapter.calls[0]
-    assert updates == [(c1.fp, "Role", "OUT_AMP")]  # Cluster untouched, not blanked
-    assert any("Tagged Role on 1 component" in r.message for r in caplog.records)
+    assert _stored(holder) == {("uuid-C1", "Cluster"): "Channel_1",
+                               ("uuid-C1", "Role"): "OUT_AMP"}
+    assert board.adapter.calls == []
+    assert any("1 component(s): Role noted for this project" in r.message
+               for r in caplog.records)
 
 
-def test_tag_selected_skips_footprint_missing_target_field(main_window, monkeypatch, caplog):
-    """A footprint lacking a field we're about to write must be skipped
-    (reported), not sent — same "one missing field rolls back the whole
-    batch" protection Clear all already has (found live 2026-08-03)."""
-    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
-    ok_fp = Mock()
-    missing_fp = Mock()
-    missing_fp.ref = "FB15"
+def test_c12_a_target_without_a_symbol_uuid_is_refused_by_name(
+        main_window, tmp_path, caplog):
+    """Т5б REWROTE the old "skips a footprint missing the target field". The
+    store needs NO field on the footprint, so a missing field can no longer
+    refuse anything — what refuses a target now is having no KEY (С12, the same
+    discipline as Т5's tables). The rest of the selection is still recorded:
+    one unkeyable target never rolls the batch back."""
+    holder = _store_for(main_window, tmp_path)
     board = FakeBoard()
-    board.adapter._missing_fields = {missing_fp: {"Role"}}  # FB15 has no Role field
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
     c1 = FakeSelected("C1", "C_IN", "Channel_1")
-    c1.fp = ok_fp
     c2 = FakeSelected("FB15", None, None)
-    c2.fp = missing_fp
+    c2.fp = Mock()  # a footprint the last board read cannot key
     dock.set_footprints([c1, c2])
 
     _select_item(dock, _find_item(dock.tree.model(), "C1"))
@@ -679,12 +803,12 @@ def test_tag_selected_skips_footprint_missing_target_field(main_window, monkeypa
 
     dock._on_tag_selected()
 
-    assert len(board.adapter.calls) == 1
-    updates, _description = board.adapter.calls[0]
-    touched_fps = {fp for fp, _field, _value in updates}
-    assert touched_fps == {ok_fp}  # FB15 excluded up front
-    assert any("Tagged Role and Cluster on 1 component" in r.message for r in caplog.records)
-    assert any("Skipped 1 missing a Role/Cluster field: FB15" in r.message for r in caplog.records)
+    assert _stored(holder) == {("uuid-C1", "Role"): "OUT_AMP",
+                               ("uuid-C1", "Cluster"): "Channel_9"}
+    assert any("1 component(s): Role and Cluster noted" in r.message for r in caplog.records)
+    assert any("Skipped 1 — no symbol uuid in the last board read: FB15" in r.message
+               for r in caplog.records)
+    assert board.adapter.calls == []
 
 
 def test_tag_selected_empty_both_fields_is_noop(main_window, caplog):
@@ -729,83 +853,109 @@ def test_combo_suggestions_reflect_live_board_values(main_window):
     assert cluster_items == ["Channel_1"]
 
 
-def test_tag_selected_not_connected_shows_message(main_window, caplog):
-    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
-    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
-    _select_item(dock, _find_item(dock.tree.model(), "C1"))
-    _set_tag_values(dock, role="OUT_AMP")
-
-    dock._on_tag_selected()  # main_window.connection.board is None by default
-
-    assert any("Not connected" in r.message for r in caplog.records)
-
-
-def test_tag_selected_success_fires_on_board_written_callback(main_window, monkeypatch):
-    """Parity with _finish_clear: Pending changes' diff must pick up a Tag
-    write immediately via the on_board_written hook, not on the next manual
-    Refresh (the automatic poll never refreshes once connected)."""
-    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _run_sync)
+def test_tag_selected_without_a_project_refuses_by_name(main_window, caplog):
+    """Т5б REWROTE the old "Not connected" refusal. A tag needs a STORE, not a
+    live socket — nothing is written to the board any more, and with no project
+    profile there is nowhere for the value to land. Note the setup: the board IS
+    connected here, so this is genuinely about the missing store."""
     board = FakeBoard()
     main_window.connection.board = board
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
     dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
     _select_item(dock, _find_item(dock.tree.model(), "C1"))
-    calls = []
-    dock.on_board_written = lambda: calls.append(1)
+    _set_tag_values(dock, role="OUT_AMP")
+    caplog.clear()
+
+    dock._on_tag_selected()
+
+    assert any("Open a project first" in r.message for r in caplog.records)
+    assert board.adapter.calls == []
+
+
+def test_tag_selected_needs_no_connection_only_a_snapshot(main_window, tmp_path):
+    """The other half of that rewrite: with a store in place a dead connection
+    is no obstacle at all — the KEYS come from the last board READ
+    (set_footprints), exactly as Stage's do (Т5). The tag is about a file, and
+    the file does not care whether KiCad is running."""
+    holder = _store_for(main_window, tmp_path)
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _set_tag_values(dock, role="OUT_AMP")
+
+    dock._on_tag_selected()  # main_window.connection.board is None
+
+    assert _stored(holder) == {("uuid-C1", "Role"): "OUT_AMP"}
+
+
+def test_tag_selected_fires_the_store_hook_and_never_the_board_one(
+        main_window, tmp_path):
+    """One record, ONE owner to tell (the same distinction Т5 drew for Stage):
+    the store hook makes the other holder re-read the file and recompute the
+    three-sided diff, while on_board_written would spend a real IPC refresh on a
+    board nobody changed."""
+    holder = _store_for(main_window, tmp_path)
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    store_fired, board_fired = [], []
+    dock.on_overrides_written = lambda: store_fired.append(1)
+    dock.on_board_written = lambda: board_fired.append(1)
     _set_tag_values(dock, role="OUT_AMP")
 
     dock._on_tag_selected()
 
-    assert calls == [1]
+    assert _stored(holder) == {("uuid-C1", "Role"): "OUT_AMP"}
+    assert store_fired == [1]
+    assert board_fired == []
 
 
-def test_tag_op_surfaces_validation_error_from_adapter(main_window, caplog):
-    class _FailingAdapter:
-        def has_field(self, fp, field_name):
-            return True
+def test_a_store_save_failure_is_reported_and_the_file_stays_the_truth(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Т5б REWROTE the old "surfaces a validation error from the adapter" — the
+    adapter is no longer in this path at all, so the failure that matters now is
+    the STORE write. It must be named (never swallowed), and the other holder
+    must be told to re-read the file rather than keep a copy that is ahead of
+    it."""
+    from kicadstamp.field_overrides import FieldOverrides
 
-        def set_field_values_bulk(self, updates, description):
-            raise ValidationError("boom: missing field")
-
-    class _FailingBoard:
-        adapter = _FailingAdapter()
-
-    main_window.connection.board = _FailingBoard()
+    _store_for(main_window, tmp_path)
     dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
     dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
-
-    dock._do_tag([FakeSelected("C1", "C_IN", "Channel_1").fp], "OUT_AMP", "Channel_9")
-
-    assert any("boom" in r.message for r in caplog.records)
-
-
-def test_on_tag_selected_dispatches_to_worker(main_window, monkeypatch):
-    """The Tag button must not block the UI thread — collect/validate on the
-    UI thread, hand off to start_long_op (parity with _on_delete_selected)."""
-    board = FakeBoard()
-    main_window.connection.board = board
-    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
-    c1 = FakeSelected("C1", "C_IN", "Channel_1")
-    dock.set_footprints([c1])
     _select_item(dock, _find_item(dock.tree.model(), "C1"))
+    _set_tag_values(dock, role="OUT_AMP")
+    fired = []
+    dock.on_overrides_written = lambda: fired.append(1)
+    caplog.clear()
 
-    captured = {}
+    def _boom(self):
+        raise OSError("disk full")
+    monkeypatch.setattr(FieldOverrides, "save", _boom)
 
-    def _fake_start(connection, widgets, fn, on_success, on_error, *args):
-        captured["connection"] = connection
-        captured["widgets"] = widgets
-        captured["args"] = args
-        return "fake-controller"
+    dock._on_tag_selected()
 
-    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _fake_start)
+    assert any("Could not save the override store" in r.message for r in caplog.records)
+    assert fired == [1]
 
+
+def test_tag_selected_needs_no_worker(main_window, tmp_path, monkeypatch):
+    """Т5б REWROTE "dispatches to worker" into its opposite, on purpose: there
+    is no worker to dispatch to. Nothing in this path touches the socket, so the
+    click records synchronously — and if a start_long_op ever appears here
+    again, the shared REQ socket is being asked for something nobody needs."""
+    holder = _store_for(main_window, tmp_path)
+
+    def _no_worker(*a, **k):
+        raise AssertionError("Tag must not start a long op — it writes a file")
+    monkeypatch.setattr(role_cluster_tree_mod, "start_long_op", _no_worker)
+
+    dock = RoleClusterTreeDock(main_window, connection=main_window.connection)
+    dock.set_footprints([FakeSelected("C1", "C_IN", "Channel_1")])
+    _select_item(dock, _find_item(dock.tree.model(), "C1"))
     _set_tag_values(dock, role="OUT_AMP", cluster="Channel_9")
+
     dock._on_tag_selected()
 
-    assert dock._active_op == "fake-controller"
-    assert captured["connection"] is main_window.connection
-    assert captured["widgets"] == (dock.tag_selected_button,)
-    assert captured["args"][0]["footprints"] == [c1.fp]
-    assert captured["args"][0]["role_value"] == "OUT_AMP"
-    assert captured["args"][0]["cluster_value"] == "Channel_9"
-    assert board.adapter.calls == []  # not actually run — dispatch only
+    assert _stored(holder) == {("uuid-C1", "Role"): "OUT_AMP",
+                               ("uuid-C1", "Cluster"): "Channel_9"}
+    assert dock._active_op is None

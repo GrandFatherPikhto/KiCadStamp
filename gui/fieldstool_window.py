@@ -168,6 +168,12 @@ class MainWindow(QMainWindow):
         # Separate from on_board_written, which is about the BOARD changing —
         # DockHub wires both, and neither is allowed to stand in for the other.
         self.on_overrides_written: Optional[Callable[[], None]] = None
+        # Symbol uuids whose stored records a "Sync from schematic" run is about
+        # to drop (Т5б/С23, the same act as forgetting them by hand). Collected
+        # before the confirmation — the user must be warned about the loss
+        # BEFORE it happens — and consumed once the board half succeeded: the
+        # board write runs on a worker, the store half on the UI thread.
+        self._sync_store_keys: List[str] = []
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -723,19 +729,28 @@ class MainWindow(QMainWindow):
     # Pending changes' diff picks the write up on the next poll tick without a
     # manual Refresh.
     #
-    # Open question for Denis (reported with Т5, not decided here): with the
-    # store in force this write is INVISIBLE to the resolver — the store keeps
-    # overriding the value it writes. Either this flow moves to the store too,
-    # or it stays a deliberately board-only operation and needs to be named as
-    # explicitly as Т5а's own button will be. Nothing was changed here on my own
-    # initiative.
+    # Т5б (2026-09-18) answered the open question this comment used to ask: with
+    # the store in force the board write alone is INVISIBLE — the record keeps
+    # overriding exactly what was written — so this flow now ALSO DROPS our
+    # records for the same components. That is what the button was always
+    # saying: "my notes give way to the schematic". The board write stays, and
+    # it is now the half that makes the schematic actually win: with the record
+    # gone, the schematic value has to reach the board, or the diff would merely
+    # move from "ours differs" to "board differs" and nothing would be resolved.
+    # Both halves are stated to the user up front, in the confirmation.
 
     def _on_sync_from_schematic(self) -> None:
-        """Sync handler — writes the SCHEMATIC's current value back onto the
-        live board for every non-mismatched pending edit. Mismatched edits
-        (refdes/symbol mismatch) are never touched — same exclusion
-        edits_to_fields_cfg() already applies for Apply, for the same reason
-        (the refdes doesn't identify the same symbol on both sides)."""
+        """Sync handler — makes the SCHEMATIC win for every non-mismatched
+        pending edit: writes its value back onto the live board AND drops OUR
+        records for the same components (Т5б, С23 — the store would otherwise
+        keep overriding the write, which is the whole reason this flow needed
+        the second half). Mismatched edits (refdes/symbol mismatch) are never
+        touched — same exclusion edits_to_fields_cfg() already applies for
+        Apply, for the same reason (the refdes doesn't identify the same symbol
+        on both sides).
+
+        Both halves are collected BEFORE the confirmation: the loss of our notes
+        is announced first, never discovered afterwards."""
         syncable = [e for e in self._pending_edits if not e.mismatched]
         if not syncable:
             return
@@ -746,24 +761,33 @@ class MainWindow(QMainWindow):
             return
         if self.connection.long_op_active:
             return
-        if not self._confirm_sync(syncable):
+        keys, stored = self._stored_keys_for_refs({e.ref for e in syncable})
+        if not self._confirm_sync(syncable, stored):
             return
+        self._sync_store_keys = keys
         payload = {"edits": [(e.ref, e.field, e.old_value) for e in syncable]}
         self._active_sync_op = start_long_op(
             self.connection, (self.pending_dock.sync_button,),
             self._run_sync_from_schematic, self._finish_sync_from_schematic,
             self._on_sync_from_schematic_failed, payload)
 
-    def _confirm_sync(self, edits: List[PendingEdit]) -> bool:
+    def _confirm_sync(self, edits: List[PendingEdit], stored_records: int = 0) -> bool:
         """Same height-capped QListWidget summary pattern as _confirm_apply
         (Apply), direction reversed: board's CURRENT value -> what's about to
-        be written (the schematic's value)."""
+        be written (the schematic's value). Т5б adds the SECOND half in words
+        when there is something to lose — the stored records this action drops
+        for the same components."""
         dialog = QDialog(self)
         dialog.setWindowTitle(_("Confirm sync from schematic"))
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel(
             _("About to write {count} field(s) on the LIVE BOARD, reverting "
               "them to match the schematic:").format(count=len(edits))))
+        if stored_records:
+            layout.addWidget(QLabel(
+                _("This also DROPS {count} of your stored value(s) for the same "
+                  "components — your notes give way to the schematic.").format(
+                      count=stored_records)))
         summary_list = QListWidget()
         for e in edits:
             summary_list.addItem(f"{e.ref}.{e.field}: {e.new_value!r} -> {e.old_value!r}")
@@ -834,13 +858,88 @@ class MainWindow(QMainWindow):
                 self, _("Some targets were not found"),
                 _("These refs are not currently on the live board — nothing was "
                   "written for them:\n{refs}").format(refs="\n".join(not_found)))
+        # Т5б/С23 — the second half, and the one that makes this action mean
+        # anything with a store in force: our records for the same components
+        # go. It runs AFTER the board part succeeded (a failed board write
+        # leaves everything as it was, and retrying is the expected move), and
+        # it re-reads the FILE first, because the Refs table is the other holder
+        # of the same store.
+        keys, self._sync_store_keys = self._sync_store_keys, []
+        dropped, store_error = self._drop_stored_records(keys)
+        if store_error:
+            show_message(store_error, _ERROR_STYLE, logger)
+        elif dropped:
+            show_message(_("Dropped {count} stored override(s) for the same components — "
+                           "your notes gave way to the schematic.").format(count=dropped),
+                         _SUCCESS_STYLE, logger)
+        if dropped and self.on_overrides_written:
+            self.on_overrides_written()
         # Same "Pending changes never sees a write until told" fix as Stage
         # (2026-08-03) — the automatic poll tick never refreshes on its own
         # once already connected.
         if self.on_board_written:
             self.on_board_written()
 
+    def _stored_keys_for_refs(self, refs) -> tuple:
+        """(keys that hold a record, how many records those keys hold) for these
+        refs (Т5б/С23).
+
+        Keys are the symbol uuids of the LAST board read, which is where Stage
+        takes its keys too. A ref the snapshot does not know has no key and is
+        left ALONE: its record, if any, is Т6's "forget" business, by name —
+        never a guessed key (the invention С12 forbids)."""
+        store = self._overrides
+        if store is None:
+            return ([], 0)
+        by_ref = {s.ref: s for s in self._live_snapshot}
+        keys = []
+        records = 0
+        for ref in sorted(set(refs)):
+            selected = by_ref.get(ref)
+            symbol_uuid = symbol_uuid_of(selected.fp) if selected is not None else None
+            if not symbol_uuid:
+                continue
+            held = [f for f in (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)
+                    if store.get(symbol_uuid, f) is not None]
+            if held:
+                keys.append(symbol_uuid)
+                records += len(held)
+        return (keys, records)
+
+    def _drop_stored_records(self, keys) -> tuple:
+        """Forget OUR records for these keys; answers (how many went, error or "").
+
+        The FILE is re-read first — the Refs table is the other holder of the
+        same store and may have recorded since this window last looked (Т5).
+        Both fields are forgotten, matching what the board half touches; a
+        component whose record is not named here keeps it, which is the point of
+        naming the keys so precisely."""
+        if not keys:
+            return (0, "")
+        self.reload_overrides()
+        store = self._overrides
+        if store is None:
+            return (0, "")
+        dropped = 0
+        for symbol_uuid in keys:
+            for field in (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME):
+                dropped += store.forget(symbol_uuid, field)
+        if not dropped:
+            return (0, "")
+        try:
+            store.save()
+        except (OSError, ValidationError) as e:
+            if self.on_overrides_written:
+                # Re-read the file rather than leave the in-memory copy ahead
+                # of it behind an error line.
+                self.on_overrides_written()
+            return (0, _("Could not save the override store: {error}").format(error=e))
+        return (dropped, "")
+
     def _on_sync_from_schematic_failed(self, message: str) -> None:
+        # The op failed as a whole, so nothing was written to the board and
+        # nothing is dropped from the store — clear the plan, it is stale now.
+        self._sync_store_keys = []
         QMessageBox.critical(self, _("Could not sync fields"), message)
 
     # ── Live connection (Sync from schematic writes the board; Stage records

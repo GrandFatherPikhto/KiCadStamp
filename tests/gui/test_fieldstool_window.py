@@ -788,7 +788,7 @@ def test_sync_from_schematic_writes_old_value_to_the_live_board(
     fieldstool_window._set_root_sheet(root)
     board = _connect_board(fieldstool_window, monkeypatch)
     fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
-    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits, stored=0: True)
 
     fieldstool_window._on_sync_from_schematic()
 
@@ -808,7 +808,7 @@ def test_sync_from_schematic_skips_mismatched_edits(
         PendingEdit("R1", "Role", "OLD", "NEW"),
         PendingEdit("R2", "Role", "A", "B", mismatched=True),
     ]
-    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits, stored=0: True)
 
     fieldstool_window._on_sync_from_schematic()
 
@@ -829,7 +829,7 @@ def test_sync_from_schematic_fires_on_board_written_callback(
     fieldstool_window._set_root_sheet(root)
     _connect_board(fieldstool_window, monkeypatch)
     fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
-    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: True)
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits, stored=0: True)
     calls = []
     fieldstool_window.on_board_written = lambda: calls.append(1)
 
@@ -867,11 +867,126 @@ def test_sync_from_schematic_confirm_cancelled_writes_nothing(
     fieldstool_window._set_root_sheet(root)
     board = _connect_board(fieldstool_window, monkeypatch)
     fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
-    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits: False)
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync", lambda edits, stored=0: False)
 
     fieldstool_window._on_sync_from_schematic()
 
     assert board.adapter.calls == []
+
+
+# ── Т5б/С23: Sync from schematic ALSO drops our records ───────────────────
+
+def _capture_sync_dialog(fieldstool_window, monkeypatch, edits, stored):
+    """Runs _confirm_sync with QDialog.exec stubbed out and returns the dialog it
+    built, so these guards can read its widgets headlessly (no modal event loop)
+    — same pattern as _capture_apply_dialog above."""
+    captured = []
+
+    def fake_exec(self):
+        captured.append(self)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    fieldstool_window._confirm_sync(edits, stored)
+    assert captured, "the dialog was never built"
+    return captured[0]
+
+
+def test_c23_the_confirmation_names_the_records_it_is_about_to_drop(
+        fieldstool_window, monkeypatch):
+    """Т5б/С23: the loss of our notes is announced BEFORE the write, never
+    discovered afterwards — the plan's own words are "это потеря намеченного",
+    and a loss nobody was told about is not a decision, it is an accident."""
+    edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    dialog = _capture_sync_dialog(fieldstool_window, monkeypatch, edits, 2)
+
+    assert "DROPS 2 of your stored value(s)" in _dialog_texts(dialog)
+
+
+def test_c23_the_confirmation_stays_quiet_when_there_is_nothing_to_lose(
+        fieldstool_window, monkeypatch):
+    """Negative half: no records for these components — no scary line. A dialog
+    that cries wolf on an ordinary sync teaches the user to click through."""
+    edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    dialog = _capture_sync_dialog(fieldstool_window, monkeypatch, edits, 0)
+
+    assert "DROPS" not in _dialog_texts(dialog)
+
+
+def test_c23_sync_drops_the_records_of_the_components_it_touched(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Т5б/С23, the substance: with a store in force the board write alone is
+    invisible (the record keeps overriding exactly what was written), so the
+    records for the SAME components go — and only those. R2 is untouched by the
+    diff, so its note stays."""
+    root = _write_root(tmp_path, symbol_block(["R1", "R2"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    _connect_board(fieldstool_window, monkeypatch)
+    store = _store_for(fieldstool_window, tmp_path)
+    store.set("uuid-R1", "R1", ROLE_FIELD_NAME, "NEW", "test")
+    store.set("uuid-R2", "R2", ROLE_FIELD_NAME, "NEW", "test")
+    store.save()
+    fieldstool_window.set_live_snapshot([
+        _selected("R1", "NEW", None, symbol_uuid="uuid-R1"),
+        _selected("R2", "NEW", None, symbol_uuid="uuid-R2")])
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync",
+                        lambda edits, stored=0: True)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert [(r.symbol_uuid, r.field, r.value)
+            for r in _recorded(fieldstool_window)] == [
+        ("uuid-R2", ROLE_FIELD_NAME, "NEW")]
+
+
+def test_c23_sync_fires_both_hooks(fieldstool_window, tmp_path, monkeypatch):
+    """Two different pieces of news, and both are true here (unlike Stage, where
+    only the store changed): the BOARD changed, so the diff must be recomputed,
+    and the STORE changed, so the Refs table must re-read the file it holds in
+    memory."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    _connect_board(fieldstool_window, monkeypatch)
+    store = _store_for(fieldstool_window, tmp_path)
+    store.set("uuid-R1", "R1", ROLE_FIELD_NAME, "NEW", "test")
+    store.save()
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="uuid-R1")])
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync",
+                        lambda edits, stored=0: True)
+    store_hook, board_hook = [], []
+    fieldstool_window.on_overrides_written = lambda: store_hook.append(1)
+    fieldstool_window.on_board_written = lambda: board_hook.append(1)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert store_hook == [1]
+    assert board_hook == [1]
+
+
+def test_c23_a_component_the_snapshot_cannot_key_keeps_its_record(
+        fieldstool_window, tmp_path, monkeypatch):
+    """The key is the symbol uuid of the LAST BOARD READ, never a guess. A ref
+    the snapshot cannot key may well carry a record, and this flow must leave it
+    alone — forgetting by NAME is Т6's business, not a blind delete here (the
+    same discipline С12 imposes on the recording side)."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    _connect_board(fieldstool_window, monkeypatch)
+    store = _store_for(fieldstool_window, tmp_path)
+    store.set("uuid-OLD-R1", "R1", ROLE_FIELD_NAME, "NEW", "test")
+    store.save()
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])  # no uuid
+    fieldstool_window._pending_edits = [PendingEdit("R1", "Role", "OLD", "NEW")]
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync",
+                        lambda edits, stored=0: True)
+
+    fieldstool_window._on_sync_from_schematic()
+
+    assert [(r.symbol_uuid, r.field) for r in _recorded(fieldstool_window)] == [
+        ("uuid-OLD-R1", ROLE_FIELD_NAME)]
 
 
 def test_sync_skip_reports_missing_field_separately(

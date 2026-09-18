@@ -51,24 +51,44 @@ through gui/worker.py's start_long_op like every other board-writing
 action in this codebase (Placer's Redraw, Extract) — never a bespoke
 synchronous board write.
 
+Since Т5б (2026-09-18, plan_2026_09_18_field_overrides_store) they ALSO drop
+OUR store records for the same components (see _forget_store_records). Blanking
+the board alone would be a lie: our value outranks the board (Т2), so a record
+left behind brings the erased Role straight back — "удалил, а оно есть", which
+is worse than "не удалилось". The store half covers EVERY affected component,
+INCLUDING the ones the board half had to skip for a missing field: those are
+exactly the ones whose record would otherwise resurrect. A hard board error
+leaves the store untouched — the whole operation failed and a retry is
+expected; half-doing it would change the effective value behind an error
+message.
+
 Tag selected (2026-09-08, plan role_cluster_selection_tagging) — the SET-side
 mirror of Delete selected/Clear all, so authoring Role/Cluster no longer needs
 an offline fieldstool/.kicad_sch round-trip: a second row (two editable combo
-boxes + one button) writes a typed Role and/or Cluster value onto every
-footprint in the current tree selection in ONE set_field_values_bulk commit.
-Both fields are independently optional (empty field = "don't touch it", NOT
-"erase it" — erasure stays Clear all's job), which covers both "one Cluster for
-a whole group" and "narrowed subgroup, one Role". Combo suggestions are
-repopulated from the Role/Cluster values already visible in the live snapshot
-— no separate fixed vocabulary to maintain, the board is its own source of
-known values. Same has_field skip protection as _run_clear, but PER-FIELD:
-a footprint missing only the field we're actually writing is skipped, a
-footprint missing an unrelated field is not.
+boxes + one button) SETS a typed Role and/or Cluster value on every component
+in the current tree selection. Both fields are independently optional (empty
+field = "don't touch it", NOT "erase it" — erasure stays Clear all's job),
+which covers both "one Cluster for a whole group" and "narrowed subgroup, one
+Role". Combo suggestions are repopulated from the Role/Cluster values already
+visible in the live snapshot — no separate fixed vocabulary to maintain.
+
+Т5б moved its ADDRESS from the board to the project's OVERRIDE STORE — the same
+authoring act the cell editor's Refs table performs, entered another way. A
+board tag would be invisible the moment the store holds a record (Т2), so
+"tagged" would silently mean nothing for precisely the components that already
+have a note. It records the typed value for every selected component whose
+footprint gives a symbol uuid — the store's key — and refuses the rest BY NAME
+(С12), the same discipline as Т5's tables. Unlike a TABLE, a tag is an explicit
+act carrying a typed value, so it is NOT sparse: the user just typed this value
+for these components, and "I tagged it, why is there no record?" is not a
+question worth inventing. No worker and no socket either: the store is a file,
+and the only thing Tag needs from the board is the LAST READ (where the keys
+come from), never a live connection.
 """
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from PyQt6.QtCore import QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
@@ -79,11 +99,13 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLineEdit,
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.explore import Selected
+from kicadstamp.field_overrides import SOURCE_ROLE_CLUSTER_TREE, symbol_uuid_of
 from kicadstamp.i18n import _
 
 from .. import settings
 from ..worker import start_long_op
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
+                      WARN_STYLE as _WARN_STYLE,
                       highlight_stylesheet_for, show_message, SplitterSizeKeeper)
 
 logger = logging.getLogger(__name__)
@@ -186,6 +208,13 @@ class RoleClusterTreeDock(QWidget):
         # automatic poll tick never refreshes on its own once already
         # connected, see MainWindow._poll's docstring).
         self.on_board_written: Optional[Callable[[], None]] = None
+        # ... and the STORE half of the same news (Т5б): fired when this dock
+        # records into (Tag selected) or drops records from (Delete selected/
+        # Clear all) the project's override store, so the other holder re-reads
+        # the FILE and the three-sided diff is rebuilt from the truth.
+        # Deliberately separate from on_board_written — dock_hub wires both, and
+        # neither is allowed to stand in for the other.
+        self.on_overrides_written: Optional[Callable[[], None]] = None
         # Master-detail collaborators + state (2026-09-05, plan
         # components_fieldstool_master_detail): pending_panel is the shared
         # Pending page (a QWidget) and fieldstool_window is the embedded
@@ -569,6 +598,39 @@ class RoleClusterTreeDock(QWidget):
         and may legitimately be absent."""
         return getattr(self._main_window, "fieldstool_dock", None)
 
+    def _overrides_window(self):
+        """The window that HOLDS this project's override store — the embedded
+        fieldstool MainWindow, resolved lazily exactly like _fieldstool() (this
+        dock is built before fieldstool_dock, and direct-construction tests have
+        no such window at all)."""
+        if self._fieldstool_window is not None:
+            return self._fieldstool_window
+        return getattr(self._fieldstool(), "window", None)
+
+    def _overrides(self):
+        """The CURRENT project's override store, or None (Т5б).
+
+        Taken THROUGH that window on purpose: it is the one holder the project's
+        root_changed already pushes the store into (FieldsToolDock.set_root_path,
+        Т4), so a project switch can never leave a stale store here and dock_hub
+        needs no second wiring. None simply means "no project / no store yet" —
+        there is then nothing to record into and nothing to forget from."""
+        window = self._overrides_window()
+        return getattr(window, "overrides", None) if window is not None else None
+
+    def _reload_overrides(self):
+        """Re-read the store from ITS FILE and answer with the fresh object (Т5б).
+
+        Called BEFORE every write: the cell editor's Refs table is the other
+        holder of the same file and may have recorded since this dock last
+        looked, and "the file is the truth" must not depend on who wrote last.
+        The window's reload also recomputes the three-sided Pending diff."""
+        window = self._overrides_window()
+        if window is None:
+            return None
+        window.reload_overrides()
+        return self._overrides()
+
     def _rebuild(self) -> None:
         """Called on every poll tick while in live mode (via set_footprints),
         on group-by/mode toggle, and on every search-box keystroke — a
@@ -897,10 +959,16 @@ class RoleClusterTreeDock(QWidget):
             except ValidationError as e:
                 return {"error": str(e)}
         return {"count": len(usable), "message_template": payload["message_template"],
-                "skipped_refs": skipped_refs}
+                "skipped_refs": skipped_refs,
+                # EVERY ref we were asked about, skipped ones included — the
+                # store half must cover them too (Т5б/С22): a footprint the
+                # board cannot take the write for is exactly the one whose
+                # record would otherwise resurrect the erased value.
+                "refs": [fp.ref for fp in footprints if fp.ref]}
 
     def _finish_clear(self, result: dict) -> None:
-        """UI thread: reflect the worker's result into the message label."""
+        """UI thread: reflect the worker's result into the message label, then
+        drop OUR records for the same components (Т5б/С22)."""
         if result.get("error"):
             self._show_message(result["error"], _ERROR_STYLE)
             return
@@ -912,22 +980,81 @@ class RoleClusterTreeDock(QWidget):
                 shown += _(" and {more} more").format(more=len(skipped) - _MAX_SKIPPED_REFS_SHOWN)
             message += " " + _("Skipped {count} without Role/Cluster field: {refs}").format(
                 count=len(skipped), refs=shown)
-        self._show_message(message, _SUCCESS_STYLE)
+        dropped, store_error = self._forget_store_records(result.get("refs") or [])
+        if store_error:
+            # The board part DID happen; say what did not, in the same line, so
+            # the user is never left with a message that hides half the truth.
+            message += " " + store_error
+        elif dropped:
+            message += " " + _("Dropped {count} stored override(s) too — a record left "
+                              "behind would bring the value straight back.").format(count=dropped)
+        self._show_message(message, _WARN_STYLE if store_error else _SUCCESS_STYLE)
         if self.on_board_written:
             self.on_board_written()
+        if dropped and self.on_overrides_written:
+            # The window holds the store in memory; without this its copy (and
+            # the three-sided diff built from it) would still show the records
+            # we just dropped — the diff, not the board, is what the user reads.
+            self.on_overrides_written()
 
     def _on_clear_failed(self, message: str) -> None:
         self._show_message(_("Clear failed: {error}").format(error=message), _ERROR_STYLE)
 
-    # ── Tag selected (2026-09-08, plan role_cluster_selection_tagging) ────
+    def _forget_store_records(self, refs: Iterable[str]) -> tuple:
+        """Drop OUR stored records for these components (Т5б/С22).
+
+        Answers (how many records went, error message or ""). Keys come from the
+        live snapshot — the store is keyed by symbol uuid, so a ref with no
+        footprint there has no key and is left ALONE: its record, if any, is
+        Т6's "forget" business, named in the Log rather than guessed at (the
+        invention С12 forbids). No store (no project open) means there is
+        nothing to clean — there are no records to resurrect anything.
+
+        A record belongs to a component and a FIELD; Role and Cluster are
+        forgotten explicitly, matching exactly the two fields the board half
+        blanks, so this cannot grow a surprising blast radius later."""
+        store = self._overrides()
+        if store is None or not refs:
+            return (0, "")
+        by_ref = {s.ref: s for s in self._selected}
+        dropped = 0
+        for ref in sorted(set(refs)):
+            selected = by_ref.get(ref)
+            symbol_uuid = symbol_uuid_of(selected.fp) if selected is not None else None
+            if not symbol_uuid:
+                continue
+            for field in (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME):
+                dropped += store.forget(symbol_uuid, field)
+        if not dropped:
+            return (0, "")
+        try:
+            store.save()
+        except (OSError, ValidationError) as e:
+            # The in-memory copy is now ahead of the file; hand the truth back
+            # to its owner (which re-reads the FILE) instead of leaving the two
+            # disagreeing behind an error line.
+            if self.on_overrides_written:
+                self.on_overrides_written()
+            return (0, _("Could not save the override store: {error}").format(error=e))
+        return (dropped, "")
+
+    # ── Tag selected (2026-09-08; the ADDRESS moved to the store in Т5б) ──
     #
     # The SET-side mirror of Delete selected/Clear all above: instead of
-    # blanking Role/Cluster, write the typed Role and/or Cluster value(s) onto
-    # every footprint in the current selection. Same worker pattern
-    # (start_long_op + _run_/ _finish_/ _failed_ trio), same
-    # set_field_values_bulk one-commit path, same has_field skip protection —
-    # but PER-FIELD rather than per-footprint (see _run_tag), because here an
-    # empty value legitimately means "don't touch this field".
+    # blanking Role/Cluster, SET the typed Role and/or Cluster value(s) on every
+    # component in the current selection. Both fields are independently optional
+    # (empty = "don't touch this field", NOT "erase it"), which covers both "one
+    # Cluster for a whole group" and "narrowed subgroup, one Role".
+    #
+    # Since Т5б it RECORDS INTO THE PROJECT'S OVERRIDE STORE instead of writing
+    # the board. A board tag would be invisible the moment a record exists (our
+    # value outranks the board, Т2) — so for exactly the components the user had
+    # already noted, "tagged" would silently mean nothing, and this one button
+    # would work or not depending on state the user cannot see. No worker and no
+    # socket either: the store is a file, and the only thing taken from the board
+    # is the LAST READ, where the symbol uuids (the store's key) come from. The
+    # board write itself has not gone away — Т5а gives it an explicit button and
+    # a CLI key of its own.
 
     @staticmethod
     def _add_combo_item_if_missing(combo: QComboBox, value: str) -> None:
@@ -957,10 +1084,10 @@ class RoleClusterTreeDock(QWidget):
             combo.blockSignals(False)
 
     def _on_tag_selected(self) -> None:
+        """Collect the targets on the UI thread and hand them with the typed
+        value(s) to _record_tag — no start_long_op: nothing here touches the
+        socket, so there is nothing to keep off it."""
         self._show_message("")
-        if self._connection.board is None:
-            self._show_message(_("Not connected."), _ERROR_STYLE)
-            return
         role_value = self.tag_role_combo.currentText().strip()
         cluster_value = self.tag_cluster_combo.currentText().strip()
         if not role_value and not cluster_value:
@@ -970,100 +1097,98 @@ class RoleClusterTreeDock(QWidget):
         if not refs:
             self._show_message(_("Nothing selected."), _ERROR_STYLE)
             return
-        footprints = [s.fp for s in self._selected if s.ref in refs]
-        self._start_tag_op(footprints, role_value, cluster_value)
+        self._record_tag(refs, role_value, cluster_value)
 
-    def _start_tag_op(self, footprints: List[Any], role_value: str, cluster_value: str) -> None:
-        payload = {"footprints": footprints, "role_value": role_value,
-                   "cluster_value": cluster_value}
-        self._active_op = start_long_op(
-            self._connection, (self.tag_selected_button,),
-            self._run_tag, self._finish_tag, self._on_tag_failed, payload)
+    def _do_tag(self, refs: Iterable[str], role_value: str, cluster_value: str) -> None:
+        """Synchronous convenience for the ONE path the button takes — kept for
+        tests and any caller that must not return until the record is written
+        (same shape as _do_clear). Takes REFDES, not footprints: a tag needs a
+        KEY, and the key comes from the snapshot's footprint for that refdes, so
+        accepting footprints would only invite keying by something else."""
+        self._record_tag(refs, role_value, cluster_value)
 
-    def _do_tag(self, footprints: List[Any], role_value: str, cluster_value: str) -> None:
-        """Synchronous composition of run + finish — the same behaviour the
-        async button path would produce, kept for tests and any caller that
-        must not return until the tag is complete (same shape as PlacerDock's
-        _do_redraw / this dock's own _do_clear)."""
-        result = self._run_tag({"footprints": footprints, "role_value": role_value,
-                                "cluster_value": cluster_value})
-        self._finish_tag(result)
+    def _record_tag(self, refs: Iterable[str], role_value: str,
+                    cluster_value: str) -> None:
+        """Record the typed value(s) for every ref that HAS a key, then report.
 
-    def _run_tag(self, payload: dict) -> dict:
-        """Worker thread: board IPC only — never touches a widget. Writes the
-        requested non-empty Role and/or Cluster value onto the selected
-        footprints in ONE commit via set_field_values_bulk — same "batch undo
-        in one Ctrl+Z" reasoning as _run_clear.
-
-        Footprints missing a field we actually intend to write are skipped
-        BEFORE the batch is built, not sent — set_field_value is fatal on a
-        missing field, and set_field_values_bulk wraps the whole batch in one
-        commit, so a single such footprint would otherwise roll back every
-        other footprint in the batch too (the exact live bug _run_clear
-        guards against, found 2026-08-03). The check is PER-FIELD here (not
-        _run_clear's per-footprint "needs both" check): a footprint without a
-        Cluster field is only a problem when we're actually writing Cluster —
-        writing Role alone must not skip it."""
-        footprints = payload["footprints"]
-        role_value = payload["role_value"]
-        cluster_value = payload["cluster_value"]
-        adapter = self._connection.board.adapter
-        usable = []
-        skipped_refs = []
-        for fp in footprints:
-            missing_role = bool(role_value) and not adapter.has_field(fp, ROLE_FIELD_NAME)
-            missing_cluster = bool(cluster_value) and not adapter.has_field(fp, CLUSTER_FIELD_NAME)
-            if missing_role or missing_cluster:
-                skipped_refs.append(fp.ref if fp.ref else "?")
+        The store is re-read from its FILE first ("the file is the truth": the
+        Refs table is the other holder and may have recorded since this dock last
+        looked), and refused BY NAME when the project has no store — the old
+        fallback, silently writing the board instead, is exactly what Т5б
+        removes. A ref with no footprint in the last board read has no symbol
+        uuid, so no key: it is reported by name (С12), never recorded under an
+        invented one."""
+        store = self._reload_overrides()
+        if store is None:
+            self._show_message(_("Open a project first — the override store lives next "
+                                 "to its profile config."), _ERROR_STYLE)
+            return
+        by_ref = {s.ref: s for s in self._selected}
+        records = []
+        skipped = []
+        for ref in sorted(set(refs)):
+            selected = by_ref.get(ref)
+            symbol_uuid = symbol_uuid_of(selected.fp) if selected is not None else None
+            if not symbol_uuid:
+                skipped.append(ref)
                 continue
-            usable.append(fp)
-
-        updates = []
-        for fp in usable:
             if role_value:
-                updates.append((fp, ROLE_FIELD_NAME, role_value))
+                records.append((symbol_uuid, ref, ROLE_FIELD_NAME, role_value))
             if cluster_value:
-                updates.append((fp, CLUSTER_FIELD_NAME, cluster_value))
-        if updates:
+                records.append((symbol_uuid, ref, CLUSTER_FIELD_NAME, cluster_value))
+        for symbol_uuid, ref, field, value in records:
+            store.set(symbol_uuid, ref, field, value, SOURCE_ROLE_CLUSTER_TREE)
+        if records:
             try:
-                adapter.set_field_values_bulk(
-                    updates, _("Tag Role/Cluster on {count} component(s)").format(count=len(usable)))
-            except ValidationError as e:
-                return {"error": str(e)}
-        return {"count": len(usable), "role_value": role_value, "cluster_value": cluster_value,
-                "skipped_refs": skipped_refs}
+                store.save()
+            except (OSError, ValidationError) as e:
+                self._show_message(_("Could not save the override store: {error}").format(
+                    error=e), _ERROR_STYLE)
+                if self.on_overrides_written:
+                    # Hand the truth back to the file's owner instead of leaving
+                    # its in-memory copy ahead of the file behind an error line.
+                    self.on_overrides_written()
+                return
+        self._finish_tag({"count": len({ref for _, ref, _, _ in records}),
+                          "records": len(records), "skipped": skipped,
+                          "role_value": role_value, "cluster_value": cluster_value})
 
     def _finish_tag(self, result: dict) -> None:
-        """UI thread: reflect the worker's result into the Log dock, then
-        make the just-written value(s) available as combo suggestions for the
-        next tag (immediately — no waiting for the next poll to refresh the
-        snapshot) and fire on_board_written() exactly like _finish_clear
-        does."""
-        if result.get("error"):
-            self._show_message(result["error"], _ERROR_STYLE)
-            return
-        if result["role_value"] and result["cluster_value"]:
-            message = _("Tagged Role and Cluster on {count} component(s).").format(count=result["count"])
-        elif result["role_value"]:
-            message = _("Tagged Role on {count} component(s).").format(count=result["count"])
+        """UI thread: report, keep the typed value among the combo suggestions
+        (the snapshot that feeds them will not know about the record until Т5г
+        makes the snapshot store-aware), and let the store's other holder re-read
+        the file."""
+        if result["count"]:
+            if result["role_value"] and result["cluster_value"]:
+                message = _("{count} component(s): Role and Cluster noted for this project — "
+                            "they win over the board and survive an F8").format(
+                                count=result["count"])
+            elif result["role_value"]:
+                message = _("{count} component(s): Role noted for this project — it wins "
+                            "over the board and survives an F8").format(count=result["count"])
+            else:
+                message = _("{count} component(s): Cluster noted for this project — it wins "
+                            "over the board and survives an F8").format(count=result["count"])
         else:
-            message = _("Tagged Cluster on {count} component(s).").format(count=result["count"])
-        skipped = result.get("skipped_refs") or []
+            message = _("nothing was recorded — none of the selected components is in the "
+                        "last board read")
+        skipped = result.get("skipped") or []
         if skipped:
             shown = ", ".join(skipped[:_MAX_SKIPPED_REFS_SHOWN])
             if len(skipped) > _MAX_SKIPPED_REFS_SHOWN:
                 shown += _(" and {more} more").format(more=len(skipped) - _MAX_SKIPPED_REFS_SHOWN)
-            message += " " + _("Skipped {count} missing a Role/Cluster field: {refs}").format(
-                count=len(skipped), refs=shown)
-        self._show_message(message, _SUCCESS_STYLE)
-        # The just-written value may not be in the CURRENT snapshot yet (the
-        # poll that picks it up runs after this), so add it straight to the
-        # combo item lists; the next _refresh_tag_combo_suggestions() keeps
-        # whatever's on the board as the source of truth from then on.
+            message += " " + _("Skipped {count} — no symbol uuid in the last board read: "
+                              "{refs}").format(count=len(skipped), refs=shown)
+        self._show_message(message, _SUCCESS_STYLE if result["count"] else _WARN_STYLE)
+        # The just-recorded value is not in the CURRENT snapshot (the snapshot
+        # still reflects the board), so add it straight to the combo item lists;
+        # the next _refresh_tag_combo_suggestions() keeps the board as the source
+        # of suggestions until Т5г makes the snapshot store-aware too.
         self._add_combo_item_if_missing(self.tag_role_combo, result["role_value"])
         self._add_combo_item_if_missing(self.tag_cluster_combo, result["cluster_value"])
-        if self.on_board_written:
-            self.on_board_written()
-
-    def _on_tag_failed(self, message: str) -> None:
-        self._show_message(_("Tag failed: {error}").format(error=message), _ERROR_STYLE)
+        # NOT on_board_written: the board did not change here (the same line Т5
+        # drew for Stage). The STORE hook is what makes the other holder re-read
+        # the file — and the window's own reload recomputes the three-sided
+        # Pending diff, which is what the user must see next.
+        if self.on_overrides_written:
+            self.on_overrides_written()

@@ -283,20 +283,35 @@ The grouping choice and the live/schematic toggle are both remembered across res
 matches ref/role/cluster in either mode; **regex** switches from substring to a case-insensitive
 regex (an invalid pattern just flags the field red, it doesn't crash or hide everything).
 
-**Writing Role/Cluster from the live board (live mode only — the write row is disabled in the
+**Writing Role/Cluster from the Components tree (live mode only — the write row is disabled in the
 "Not yet applied" schematic mode, which has no real footprint to write to).** Between the tree and
-the mode checkbox sit three controls. **Delete selected** and **Clear all** (2026-08-03) blank out
-Role AND Cluster on the board footprints — Delete selected on whatever the tree currently has
-selected (a leaf or a whole group), Clear all on every footprint in the live snapshot behind a
-confirmation dialog (its blast radius is the whole board). **Tag selected** (2026-09-08, plan
-role_cluster_selection_tagging) is the SET-side counterpart: type a Role and/or a Cluster value
-(two editable combo boxes, either independently optional — an empty field means "don't touch it",
-NOT "erase it"; if both are empty the button does nothing) and write it onto every footprint in the
-current tree selection. Both fields in one click become ONE commit, so KiCad's Ctrl+Z undoes the
-whole batch; a footprint missing a field you're actually writing is skipped and reported, it never
-rolls back the batch. The combo boxes offer as suggestions the sorted unique Role/Cluster values
-already present in the live snapshot — there is no separate fixed vocabulary, the board is its own
-source of known values, and a value you just typed stays on the board and in the suggestions. Those
+the mode checkbox sit three controls, and since 2026-09-18 (`plan_2026_09_18_field_overrides_store`
+Т5б) they no longer all have the same address.
+
+**Tag selected** (2026-09-08, plan role_cluster_selection_tagging) RECORDS into the project's
+**override store** — authoring, the same act the cell editor's Refs tab performs: type a Role and/or
+a Cluster value (two editable combo boxes, either independently optional — an empty field means
+"don't touch it", NOT "erase it"; if both are empty the button does nothing) and every component in
+the current tree selection gets it, recorded under its symbol uuid. A target the last board read
+cannot key is refused **by name** and the rest is still recorded. The record is what the resolver
+acts on at once (our value outranks the board) and it survives an F8; putting the values ONTO the
+board is Т5а's separate action. No connection is needed — only a project, because the store is a
+file next to its profile config, and all Tag takes from the board is the LAST READ (where the keys
+come from).
+
+**Delete selected** and **Clear all** (2026-08-03) blank out Role AND Cluster on the board
+footprints — Delete selected on whatever the tree currently has selected (a leaf or a whole group),
+Clear all on every footprint in the live snapshot behind a confirmation dialog (its blast radius is
+the whole board). Both fields in one click become ONE commit, so KiCad's Ctrl+Z undoes the whole
+batch; a footprint missing a field you're actually writing is skipped and reported, it never rolls
+back the batch. Since Т5б they ALSO **drop our stored records** for the same components — blanking
+the board alone would be a lie, because our value outranks the board and a leftover record brings
+the erased Role straight back ("удалил, а оно есть"), which is worse than "не удалилось". The record
+goes for the skipped footprints too: those are exactly the ones a leftover record would resurrect.
+
+The combo boxes offer as suggestions the sorted unique Role/Cluster values already present in the
+live snapshot — there is no separate fixed vocabulary, the board is its own source of known values,
+and a value you just recorded stays in the suggestions. Those
 suggestion lists (every dock's Role/Cluster combos, the working-context Cluster combo, the tree
 dialog candidates) are re-read from a board snapshot REBUILT on the worker thread at the point of use
 — switching a Config right-QView page, or opening a Tree node/anchor dialog (2026-09-11,

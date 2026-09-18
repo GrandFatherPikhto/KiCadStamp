@@ -18313,3 +18313,42 @@ msgstr ""
 #, python-brace-format
 msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them onto the board is a separate action"
 msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Dropped {count} stored override(s) for the same components — your notes gave way to the schematic."
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Dropped {count} stored override(s) too — a record left behind would bring the value straight back."
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Skipped {count} — no symbol uuid in the last board read: {refs}"
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "This also DROPS {count} of your stored value(s) for the same components — your notes give way to the schematic."
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+msgid "nothing was recorded — none of the selected components is in the last board read"
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Cluster noted for this project — it wins over the board and survives an F8"
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Role and Cluster noted for this project — they win over the board and survive an F8"
+msgstr ""
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Role noted for this project — it wins over the board and survives an F8"
+msgstr ""

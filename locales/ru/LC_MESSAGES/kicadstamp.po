@@ -16987,3 +16987,42 @@ msgstr "Записано значений для этого проекта: {cou
 #, python-brace-format
 msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them onto the board is a separate action"
 msgstr "Записано значений для этого проекта: {count} — они главнее платы и переживают F8; записать их на плату — отдельное действие"
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Dropped {count} stored override(s) for the same components — your notes gave way to the schematic."
+msgstr "Убрано записей из хранилища: {count} для тех же компонентов — наметки уступили схеме."
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Dropped {count} stored override(s) too — a record left behind would bring the value straight back."
+msgstr "Заодно убрано записей из хранилища: {count} — оставленная запись вернула бы значение обратно."
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Skipped {count} — no symbol uuid in the last board read: {refs}"
+msgstr "Пропущено: {count} — нет symbol uuid в последнем чтении платы: {refs}"
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "This also DROPS {count} of your stored value(s) for the same components — your notes give way to the schematic."
+msgstr "Одновременно будет УБРАНО ваших записей из хранилища: {count} (для тех же компонентов) — наметки уступают схеме."
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+msgid "nothing was recorded — none of the selected components is in the last board read"
+msgstr "ничего не записано — ни одного из выбранных компонентов нет в последнем чтении платы"
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Cluster noted for this project — it wins over the board and survives an F8"
+msgstr "Отмечено компонентов для этого проекта: {count} — Cluster главнее платы и переживает F8"
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Role and Cluster noted for this project — they win over the board and survive an F8"
+msgstr "Отмечено компонентов для этого проекта: {count} — Role и Cluster главнее платы и переживают F8"
+
+#: gui/docks/role_cluster_tree.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} component(s): Role noted for this project — it wins over the board and survives an F8"
+msgstr "Отмечено компонентов для этого проекта: {count} — Role главнее платы и переживает F8"

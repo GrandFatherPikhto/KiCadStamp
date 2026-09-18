@@ -234,6 +234,13 @@ above:
   separate line when a BOARD value is empty (that row *clears* the schematic value), and makes
   **Cancel** the default button: on a board that lags behind the schematic — the normal state while
   Role/Cluster are being edited in eeschema — the safe answer is "no" far more often than "yes".
+- **Sync from schematic with a store in force** (2026-09-18, `plan_2026_09_18_field_overrides_store`
+  Т5б). Its meaning is "my notes give way to the schematic" — and with our values outranking the board
+  (Т2) the board write ALONE would be invisible: the record would keep overriding exactly what was
+  just written, and the diff would stay open forever. So it now writes the schematic's value onto the
+  board AND drops our stored records for the same components, and the confirmation says the loss out
+  loud BEFORE anything happens ("This also DROPS N of your stored value(s)..."). A component the last
+  board read cannot key keeps its record — forgetting by name stays a separate, explicit action.
 - Checks for a running KiCad process — if found, shows an **instruction** dialog ("save your work
   and close KiCad, then Apply again"). This is never automated (see [Why this write pipeline stays
   separate](#why-this-write-pipeline-stays-separate-from-kicadstampguis)).
