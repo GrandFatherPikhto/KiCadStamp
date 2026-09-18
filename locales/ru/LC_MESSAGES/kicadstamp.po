@@ -16822,3 +16822,56 @@ msgstr "{net} — цепочка {name} (якорь {ref})"
 
 msgid "{summary} — the spoke that was there was replaced"
 msgstr "{summary} — спица, что была на этом паде, заменена"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "Failed to read the Role/Cluster override store {path}: not an object — treating it as empty"
+msgstr "не удалось прочитать хранилище значений Role/Cluster {path}: это не объект — считаю его пустым"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "Failed to read the Role/Cluster override store {path}: {type}: {e} — treating it as empty"
+msgstr "не удалось прочитать хранилище значений Role/Cluster {path}: {type}: {e} — считаю его пустым"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "Ignoring a malformed record in the Role/Cluster override store {path}"
+msgstr "пропускаю испорченную запись в хранилище значений Role/Cluster {path}"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "Ignoring a record for field {field!r} in the Role/Cluster override store {path} — only {names} are overridable"
+msgstr "пропускаю запись для поля {field!r} в хранилище значений Role/Cluster {path} — накладывать можно только {names}"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "Ignoring a record without a symbol uuid in the Role/Cluster override store {path}"
+msgstr "пропускаю запись без symbol uuid в хранилище значений Role/Cluster {path}"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+msgid "cannot store a Role/Cluster override without a symbol uuid"
+msgstr "нельзя записать значение Role/Cluster без symbol uuid"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "cannot store {field!r} in the Role/Cluster override store"
+msgstr "нельзя записать {field!r} в хранилище значений Role/Cluster"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "only {names} may be stored here: Value/Reference/Datasheet are read by foreign tools (BOM, assembly), and an override over them would be corruption nobody could trace back to KiCadStamp"
+msgstr "здесь можно хранить только {names}: Value/Reference/Datasheet читают посторонние инструменты (BOM, сборка), и накладка над ними была бы порчей, которую никто не свяжет с KiCadStamp"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "role_cluster_source says which side the resolver reads Role/Cluster from: {names}. Omit the key entirely for the default ({default})"
+msgstr "role_cluster_source говорит, с какой стороны резолвер читает Role/Cluster: {names}. Чтобы получить умолчание ({default}), ключ лучше не писать вовсе"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+msgid "the symbol uuid is the store's key — a refdes-keyed value would arrive at a FOREIGN component after re-annotation (F8). Resolve the symbol uuid first: refusing loudly is better than guessing"
+msgstr "symbol uuid — это ключ хранилища: значение, ключёванное по refdes, после переаннотации (F8) приехало бы ЧУЖОМУ компоненту. Сначала получите symbol uuid: отказать вслух лучше, чем угадать"
+
+#: kicadstamp/field_overrides.py kicadstamp/config/loader.py
+#, python-brace-format
+msgid "unknown role_cluster_source {value!r}"
+msgstr "неизвестный role_cluster_source {value!r}"

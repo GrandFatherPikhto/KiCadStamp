@@ -53,5 +53,19 @@ DEFAULT_TIMEOUT_MS = 5000
 DEFAULT_RECONNECT_INTERVAL_MS = 5000
 DEFAULT_LOG_DIR = "logs"
 
+# --- Role/Cluster source (2026-09-18, plan_2026_09_18_field_overrides_store) ---
+# Which side the resolver reads Role/Cluster from. "registry" is the DEFAULT and
+# means OUR override store wins over the live board (design §0 of
+# design_2026_09_18_field_overrides_store.md); "board" is the pre-store
+# behaviour, kept as an explicit and VISIBLE escape hatch for the question "is
+# it our store that is lying?". The values are user-facing (written into the
+# profile config, shown in RootMetadataDock), so they are plain lowercase words,
+# not an enum. The switch lives in the profile config rather than in
+# gui_state.json on purpose: a GUI-only switch would be invisible to the CLI,
+# and one profile would resolve differently in the GUI and in the CLI.
+ROLE_CLUSTER_SOURCE_REGISTRY = "registry"
+ROLE_CLUSTER_SOURCE_BOARD = "board"
+ROLE_CLUSTER_SOURCES = (ROLE_CLUSTER_SOURCE_REGISTRY, ROLE_CLUSTER_SOURCE_BOARD)
+
 # --- Registry ---
 SPOKE_LEVEL_ROLE_PLACEHOLDER = "__spoke__"

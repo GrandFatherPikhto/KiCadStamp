@@ -62,6 +62,23 @@ def track_registry_path_for_config(config_path: str) -> str:
     return str(p.parent / "tracks" / (p.stem + ".tracks.registry.json"))
 
 
+def overrides_path_for_config(config_path: str) -> str:
+    """<config>.sexp -> <config-dir>/overrides/<config-stem>.fields.json.
+
+    The Role/Cluster override store (2026-09-18, plan_2026_09_18_field_
+    overrides_store.md Т1) sits NEXT TO the copper registries and follows the
+    same discipline as :func:`registry_path_for_config`: one file per config
+    stem, in its own subfolder, derived from the config path alone.
+
+    Like the registry, this is MACHINE data, never a config: it is not reachable
+    through ``include:``, and it is not meant to travel — to another machine or
+    onto another board it would start lying (its key is the symbol uuid of THIS
+    board's schematic, and the values are what a human typed for it).
+    """
+    p = Path(config_path)
+    return str(p.parent / "overrides" / (p.stem + ".fields.json"))
+
+
 def default_log_file_for_config(config_path: str) -> str:
     """<config>.yaml -> <config-dir>/logs/actions.log."""
     p = Path(config_path)

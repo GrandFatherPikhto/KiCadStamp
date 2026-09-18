@@ -12,6 +12,7 @@ continues to work exactly as before.
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..constants import ROLE_CLUSTER_SOURCE_REGISTRY
 from ..trees import Tree
 from .points import Point
 
@@ -1247,6 +1248,17 @@ class Config:
     # Windows/Linux machines. Unlike every other string field above this is NOT
     # a path — deliberately not resolved relative to the YAML.
     board_name: str | None = None
+    # Which side the resolver reads Role/Cluster from (2026-09-18, design
+    # design_2026_09_18_field_overrides_store.md §2.3, plan Т3): "registry" —
+    # the DEFAULT — means our own override store (kicadstamp.field_overrides)
+    # wins over the live board, whatever the board says; "board" restores the
+    # pre-store behaviour completely, as an explicit escape hatch. Deliberately
+    # a field of the PROFILE CONFIG rather than a GUI setting: a switch living
+    # in gui_state.json would be invisible to the CLI, and one profile would
+    # then resolve differently in the GUI and in the CLI. The vocabulary is in
+    # constants.ROLE_CLUSTER_SOURCES; an unknown value is fatal at load, never a
+    # silent fallback to the board.
+    role_cluster_source: str = ROLE_CLUSTER_SOURCE_REGISTRY
     @property
     def anchor_refs(self) -> set:
         """All anchor refs in the config: spoke chains + thermal via arrays."""

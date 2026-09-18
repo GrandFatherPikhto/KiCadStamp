@@ -20,6 +20,7 @@ import difflib
 import logging
 from pathlib import Path
 
+from ..constants import ROLE_CLUSTER_SOURCES, ROLE_CLUSTER_SOURCE_REGISTRY
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..trees import check_mount_anchor_drift
@@ -529,6 +530,21 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # unrelated directory trees.
     board_name = data.get('board_name')
 
+    # role_cluster_source (2026-09-18, plan_2026_09_18_field_overrides_store Т3):
+    # which side the resolver reads Role/Cluster from. An ABSENT key reads as
+    # "registry" — the default — so every profile written before this change
+    # keeps loading exactly as before (the migration guard, Т7). An UNKNOWN
+    # value is FATAL: a typo must never silently fall back to the board, because
+    # that would look precisely like "our override store stopped working".
+    role_cluster_source = data.get('role_cluster_source', ROLE_CLUSTER_SOURCE_REGISTRY)
+    if role_cluster_source not in ROLE_CLUSTER_SOURCES:
+        raise ValidationError(format_fatal_error(
+            _("unknown role_cluster_source {value!r}").format(value=role_cluster_source),
+            [_("role_cluster_source says which side the resolver reads Role/"
+               "Cluster from: {names}. Omit the key entirely for the default "
+               "({default})").format(names=", ".join(ROLE_CLUSTER_SOURCES),
+                                      default=ROLE_CLUSTER_SOURCE_REGISTRY)]))
+
     # sheet_names + the resolved path fields are runtime-computed data (NOT
     # part of the YAML schema), so they are threaded via RuntimeContext rather
     # than stored on Config — keeping Config a pure description of the YAML
@@ -569,6 +585,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         log_file=log_file,
         operation_log_dir=operation_log_dir,
         board_name=board_name,
+        role_cluster_source=role_cluster_source,
     )
     # Load-time drift guard (plan §Y.3): a live base — a kind "mount" node's
     # anchor or the tree's own (role ...) anchor — must never name a role the
