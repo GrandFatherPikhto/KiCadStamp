@@ -96,6 +96,9 @@ from ..cell_identification import (
     SelectionRecord,
     identify_cell_instance,
 )
+from kicadstamp.field_overrides import load_field_overrides
+from kicadstamp.utils.paths import overrides_path_for_config
+
 from ..role_table_model import records_from_items
 from ..worker import socket_busy, start_long_op
 from ._cell_identity import CellIdentityWidget
@@ -716,6 +719,12 @@ class CellAnchorView(QWidget):
         # carry, without which a written Role stays invisible to Pending changes
         # until the user clicks Refresh.
         self.on_board_written = None
+        # Fired when the Refs tab RECORDS into the project's override store (Т5):
+        # the store changed, so every other holder of it must re-read the file.
+        # Separate from on_board_written, which is about the BOARD changing.
+        self.on_overrides_written = None
+        # The store of the project currently open (Т5) — loaded in set_root_path.
+        self._overrides = None
 
         self._build_ui()
         self._reload_form()
@@ -937,6 +946,14 @@ class CellAnchorView(QWidget):
             self._snapshot = []      # a stale snapshot belongs to the old root
         self._root_path = path
         self._sheet_names = {}
+        # The project's OVERRIDE STORE rides along (plan_2026_09_18_field_overrides_
+        # store Т5): it hangs off the CONFIG file, so this is the one place that
+        # knows both it and the Refs tab. A missing file is an EMPTY store — the
+        # pre-store world exactly (Т7). Nothing is written here, ever: this page
+        # only reads what the store says, so a project switch can never keep the
+        # previous project's records.
+        self._overrides = (load_field_overrides(
+            overrides_path_for_config(str(path))) if path is not None else None)
         if path is not None:
             try:
                 _cfg, ctx = load_config(str(path))
@@ -1558,14 +1575,33 @@ class CellAnchorView(QWidget):
         roles = self._cell_role_order() if self._cell_name else []
         self._refs_tab.set_context(
             self._root_path, self._cell_name, roles,
-            self._refs_snapshot_records(), sheet_names=self._sheet_names)
+            self._refs_snapshot_records(), sheet_names=self._sheet_names,
+            overrides=self._overrides)
+
+    def reload_overrides(self) -> None:
+        """Re-read the project's override store from its FILE and hand the fresh
+        copy to the Refs tab (Т5).
+
+        The stop for "another pane recorded": our own object was loaded when the
+        project opened, and the file is the truth — re-loading here is what makes
+        a record made in the fieldstool pane visible in THIS table without
+        reopening the project. A no-op without a project (nothing to re-read)."""
+        if self._root_path is None:
+            return
+        self._overrides = load_field_overrides(
+            overrides_path_for_config(str(self._root_path)))
+        self._refs_tab.set_overrides(self._overrides)
 
     def _on_refs_written(self) -> None:
-        """The "Refs" tab wrote Roles/Cluster to the board (Р6): rebuild this
-        page from the current entry and hand the news on — DockHub wires
-        `on_board_written` to MainWindow.request_refresh, so Pending changes and
-        the other docks see the write without waiting for a manual Refresh."""
+        """The "Refs" tab RECORDED values in the project's override store (Т5):
+        rebuild this page from the current entry and hand the news on. Two hooks,
+        because two different owners must react: `on_overrides_written` (DockHub
+        wires it to re-reading that store wherever another pane holds a copy) and
+        `on_board_written` (MainWindow.request_refresh — nothing on the board
+        changed, but Pending changes must be recomputed)."""
         self._reload_form()
+        if self.on_overrides_written:
+            self.on_overrides_written()
         if self.on_board_written:
             self.on_board_written()
 

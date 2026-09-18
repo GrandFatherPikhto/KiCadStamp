@@ -950,14 +950,21 @@ class MainWindow(QMainWindow):
 
     def request_refresh(self) -> None:
         """Public — lets a dock trigger an out-of-cycle refresh right after
-        its own live board write (Stage in fieldstool, Clear all/Delete
-        selected in the Components tree) instead of waiting for the user to
-        notice nothing updated and click Refresh themselves. The automatic
-        timer tick deliberately never refreshes once already connected (see
-        _poll's docstring), so without this call Pending changes' diff would
-        never pick up a write that just happened (found live 2026-08-03:
-        Stage wrote Role/Cluster to the board, but Pending changes stayed
-        empty until a manual Refresh). Same path as the status-bar button."""
+        its own live board write (Sync from schematic in fieldstool, Clear
+        all/Delete selected in the Components tree) instead of waiting for the
+        user to notice nothing updated and click Refresh themselves. The
+        automatic timer tick deliberately never refreshes once already
+        connected (see _poll's docstring), so without this call Pending
+        changes' diff would never pick up a write that just happened (found
+        live 2026-08-03: Stage wrote Role/Cluster to the board, but Pending
+        changes stayed empty until a manual Refresh). Same path as the
+        status-bar button.
+
+        NOT for a store record: Т5's Stage (2026-09-18) writes the override
+        store, not the board, so it announces itself through
+        on_overrides_written instead — the diff recomputes from the same board
+        snapshot and nothing here needs re-reading. Called from there, this
+        would spend a socket round-trip to re-read a board nobody changed."""
         self._poll(manual=True)
 
     def _poll(self, manual: bool = False) -> None:

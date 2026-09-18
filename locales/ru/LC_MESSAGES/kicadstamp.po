@@ -16935,3 +16935,55 @@ msgstr "Пишет значения ПЛАТЫ в СХЕМУ (значения �
 #, python-brace-format
 msgid "{count} Role/Cluster value(s) would change in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
 msgstr "Значений Role/Cluster, которые изменятся в схеме: {count} — Pending changes → Apply до следующего Update PCB from Schematic (F8)"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Could not save the override store: {error}"
+msgstr "Не удалось сохранить хранилище: {error}"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Open a project first — the override store lives next to its profile config."
+msgstr "Сначала откройте проект — хранилище живёт рядом с конфигом его профиля."
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Record the values that differ from what is in force into this project's override store — OUR values win over the board, take effect at once and survive an F8. Nothing is written to the board; that is the separate “Write to board” action. One atomic save with a backup."
+msgstr "Записать в хранилище этого проекта значения, отличающиеся от действующих: НАШИ значения главнее платы, действуют сразу и переживают F8. На плату при этом ничего не пишется — для этого есть отдельное действие «Write to board». Одно атомарное сохранение с бэкапом."
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Tag roles from a board selection: take the selection, give every component its Role — the batch is RECORDED for this project (our values win over the board), and reaches the board only through an explicit write."
+msgstr "Разметка ролей по выделению на плате: возьмите выделение, задайте каждому компоненту его Role — набор ЗАПИСЫВАЕТСЯ в хранилище проекта (наши значения главнее платы), а на плату попадает только явной записью."
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Write to the store"
+msgstr "Записать в хранилище"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "no symbol uuid — the refdes has no footprint in the last board read"
+msgstr "нет symbol uuid — у refdes нет отпечатка в последнем чтении платы"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "not in the last board read: {refs}"
+msgstr "нет в последнем чтении платы: {refs}"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "nothing to record — every value already matches what is in force"
+msgstr "нечего записывать — все значения уже совпадают с действующими"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "nothing was recorded — no target of this selection is in the last board read"
+msgstr "ничего не записано — ни одной цели этого выделения нет в последнем чтении платы"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "press “Fill from selection” on the Source tab to pin this instance"
+msgstr "нажмите «Fill from selection» на вкладке Source, чтобы закрепить этот экземпляр"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them ONTO the board is a separate action (“Write to board”)"
+msgstr "Записано значений для этого проекта: {count} — они главнее платы и переживают F8; записать их НА плату — отдельное действие («Write to board»)"
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them onto the board is a separate action"
+msgstr "Записано значений для этого проекта: {count} — они главнее платы и переживают F8; записать их на плату — отдельное действие"

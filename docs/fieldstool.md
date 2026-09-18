@@ -158,7 +158,7 @@ selection exists via the main GUI's own Components tree, see below).
 Splits the workflow into two phases with different KiCad requirements, matching the constraint
 above:
 
-### 1. Staging (KiCad open)
+### 1. Staging (records into the project's override store)
 
 - **Pick root sheet** — points the tool at a project (same `root_sheet:` concept as the CLI).
   **Rescan** re-parses it (explicit action, not auto-polled — the schematic only changes when
@@ -170,11 +170,13 @@ above:
   collapses to one row, flagged divergent if its units disagree on Role/Cluster — the schema allows
   this, nothing enforces it stays in sync).
 - **Picking a target** — two ways, either fills the **Role**/**Cluster** combo boxes with the
-  picked target(s)' EFFECTIVE current value — the live board's value when the live snapshot has
-  seen this ref (2026-08-04: a target already Staged but not yet Applied has its new value only on
-  the live board; re-selecting it used to show the schematic's stale, pre-Stage value, forcing
-  edits "blind" — Denis live: "прописал роли... но когда кликаю эти диоды, ...роль... не видно"),
-  else the parsed schematic's — uniform across all of them fills, differs clears (not left showing
+  picked target(s)' EFFECTIVE current value, i.e. the value IN FORCE: OUR stored value when we have
+  a record, else the live board's when the live snapshot has seen this ref, else the parsed
+  schematic's (Т2's priority order — the same order every other reader uses). Before Т5 a staged
+  value lived on the live board; now it lives in the store, so a board-first read would show the
+  OLD, pre-Stage value again — exactly the 2026-08-04 complaint (Denis live: "прописал роли... но
+  когда кликаю эти диоды, ...роль... не видно"). Uniform across all of them fills, differs clears
+  (not left showing
   a stale value). A small note under the target label names any picked ref that still differs from
   the schematic (the same Apply diff Pending changes shows), refreshed on every poll tick too, not
   just on re-click:
@@ -188,21 +190,31 @@ above:
     **group** node (every refdes in that Role/Cluster group at once, for a group-rename without
     retyping refdes) there instead of a live board selection. Clicking calls straight into
     this window's own `_on_tree_leaf_picked()`/`_on_group_picked()` and brings this tab to front.
-- **Stage** — writes the current Role/Cluster form values straight onto the picked target(s)' live
-  board footprint, over IPC (the same mechanism the main GUI's Components tree uses for **Clear
-  all**/**Delete selected**) — nothing touches `.kicad_sch` yet. Pressing **Enter** in either the
-  Role or Cluster field does the same thing as clicking the button (2026-08-04, Denis: "долго Stage
-  жать") — deliberately not on focus-out, since losing focus also happens by clicking a different
-  component, which would stage an unrelated or half-typed value with no explicit write action asked
-  for. There is no separate staging queue
-  to persist: whatever is currently on the live board (via Stage, Clear all, Delete selected,
-  PlacerDock's Cluster tagging — any of them) already *is* the pending state (2026-08-03 redesign —
-  the earlier JSON-backed queue could drift out of sync with the board, e.g. Clear all writing to
-  the board but staging nothing, leaving Apply stuck disabled with no way to apply the erasure).
-  A target whose footprint doesn't have the field yet (Role and/or Cluster) is skipped rather than
-  blocking the rest of the batch (2026-08-04, same `has_field` guard Clear all/Delete selected use)
-  — a warning names exactly which target/field was skipped; see [Ensure fields...](#2-apply-kicad-must-be-closed)
-  or [Why fields must already exist on the target](#why-fields-must-already-exist-on-the-target).
+- **Stage** — RECORDS the current Role/Cluster form values into the project's **override store**
+  (2026-09-18, `plan_2026_09_18_field_overrides_store` Т5) — a file next to the profile config
+  (`overrides/<profile-stem>.fields.json`), keyed by the footprint's **symbol uuid**. Nothing touches
+  `.kicad_sch`, and nothing touches the board: since our stored value WINS over both (Т2/Т3), a board
+  write would be *invisible* — the store would keep overriding exactly what was just written — and
+  the store needs no KiCad at all, so Stage now works with KiCad **closed**. Before Т5 it wrote
+  straight onto the picked target(s)' live board footprint over IPC (the mechanism the Components
+  tree's **Clear all**/**Delete selected** still use); writing the values ONTO the board is now a
+  separate, explicit action of its own (Т5а). Pressing **Enter** in either the Role or Cluster field
+  does the same thing as clicking the button (2026-08-04, Denis: "долго Stage жать") — deliberately
+  not on focus-out, since losing focus also happens by clicking a different component, which would
+  stage an unrelated or half-typed value with no explicit write action asked for.
+  The record is **sparse**: only what you actually changed is written, so opening the tab and
+  touching nothing leaves the store untouched. A target the last board read does not know has no
+  symbol uuid, i.e. no key, and is refused **by name** (С12) while the rest of the batch is still
+  recorded — never recorded under an invented key, and never silently dropped. An **emptied** field
+  means "don't touch", exactly as it always did (erasing a value is Т6's "forget", and erasing what
+  is on the board is the Components tree's **Clear all**).
+  There is no separate staging queue
+  to persist: the pending state is now the STORE (before Т5: whatever lay on the live board, via
+  Stage, Clear all, Delete selected, PlacerDock's Cluster tagging — the 2026-08-03 redesign that
+  replaced the earlier JSON-backed queue, which could drift out of sync with the board, e.g. Clear
+  all writing to the board but staging nothing, leaving Apply stuck disabled with no way to apply
+  the erasure). See [Why fields must already exist on the target](#why-fields-must-already-exist-on-the-target)
+  for the `has_field` rule — it belongs to the BOARD write, which Stage no longer performs.
 
 ### 2. Apply (KiCad must be closed)
 
@@ -232,8 +244,9 @@ above:
   KiCad — a running process never hot-reloads an externally-modified schematic file.
 - **Ensure fields...** (same dock, next to Apply) — a separate sweep for a different problem:
   2026-08-04, found live that one component (`FB3`) had a `Role` property in the schematic but no
-  `Cluster` property block at all — not caused by Clear all/Stage (those only ever write to the
-  live *board* over IPC, never `.kicad_sch`, and even there a missing field is a hard stop, never
+  `Cluster` property block at all — not caused by Stage (since Т5 it writes only the override
+  store: never the board, never `.kicad_sch`) or by Clear all (which writes the live *board* over
+  IPC, never `.kicad_sch`; and even there a missing field is a hard stop, never
   silently created — see [Cluster/Role must already exist on the target](#why-fields-must-already-exist-on-the-target)
   below). Ensure fields walks the whole schematic tree and adds an empty `Role`/`Cluster` property
   to every component missing one outright, leaving every already-present value (even an empty one)
@@ -243,10 +256,12 @@ above:
 
 ## Why fields must already exist on the target
 
-`kicadstamp.kicad.adapter.set_field_value()` (the live-board write Stage/Clear all/Delete
-selected/PlacerDock's Cluster tagging all funnel through) is fatal if the target footprint has no
-field with that name at all — it never creates one from scratch, because there is no sensible
-default position/layer/schematic-symbol sync for a brand-new field on a live PCB footprint. If you
+`kicadstamp.kicad.adapter.set_field_value()` is fatal if the target footprint has no field with that
+name at all — it never creates one from scratch, because there is no sensible default
+position/layer/schematic-symbol sync for a brand-new field on a live PCB footprint. The live-board
+writes that funnel through it are Sync from schematic, Clear all, Delete selected and PlacerDock's
+Cluster tagging (Stage used to as well; since Т5 it writes the override store instead, which needs no
+field on the footprint at all). If you
 hit `FATAL ERROR: cannot set field 'Cluster'`, that refdes's footprint genuinely lacks the field —
 run **Ensure fields...** above (or add it once by hand, in Symbol Properties or the library symbol
 itself) and **Update PCB from Schematic** (F8) before trying again.
@@ -263,5 +278,5 @@ library plus a `rename` mode that didn't exist there. `root_sheet:` (hierarchy w
 `tests/test_schematic_*.py` (offline core — parsing, discovery, editing, `set`, `rename`) plus
 `tests/gui/test_schema_model.py`, `tests/gui/test_pending_dock.py` (the diff function + `QDockWidget`,
 offscreen) and `tests/gui/test_fieldstool_window.py` (the embedded tab's own `MainWindow`, same
-pattern as the rest of [`tests/gui/`](./gui.md#tests)), including a full Stage → Apply → write
+pattern as the rest of [`tests/gui/`](./gui.md#tests)), including a full Stage → Pending → Apply
 round trip against a synthetic `.kicad_sch`. No live KiCad needed anywhere.

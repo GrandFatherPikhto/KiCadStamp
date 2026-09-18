@@ -12,31 +12,47 @@ until the components carry a Role "Fill from selection" on the Source tab has
 nothing to identify ("role 'C_FPGA_BULK' of this cell has no footprint in
 cluster 'FPGA_PWR_BANK'" — the FALSE message the design set out to remove). The
 Role/Cluster panel cannot help either: "Tag selected" writes ONE role into EVERY
-selected component. This tab writes a DIFFERENT role per component, plus the
-cluster, in ONE set_field_values_bulk commit — one Ctrl+Z takes it all back.
+selected component. This tab gives a DIFFERENT role per component, plus the
+cluster.
 
-Where the logic lives. Every decision (what the rows are, what differs from the
-board, what the batch is, what to warn about) is in gui/role_table_model.py,
-Qt-free and adapter-free. This module is the WIDGET plus the two WORKER
-functions, and it owns exactly three things the model cannot: the table cells,
-the board conversation and the gui_state.json table.
+WHERE those values go changed on 2026-09-18 (plan_2026_09_18_field_overrides_store
+Т5): the tab RECORDS them in the project's OVERRIDE STORE — one atomic save with a
+backup — and never writes the board. Our values win over the board in every
+resolution, so they take effect at once and survive an F8; putting them on the
+board as well is the explicit, named operation of Т5а ("Write to board"), which is
+deliberately NOT part of this tab's path any more. Two consequences worth stating:
+
+  * the write needs NO board and NO KiCad — it is a file write next to the
+    profile (the "KiCad must be closed" rule belonged to the schematic splice);
+  * it is SPARSE (С10/С11/Т5): only the rows whose value DIFFERS from what is in
+    force get a record. Open the cell, look at the table, close it — the store
+    gains nothing; filling it from the board wholesale is forbidden, because a
+    mirror plus priority would freeze every later board edit.
+
+Where the logic lives. Every decision (what the rows are, what differs, what the
+batch is, what to warn about) is in gui/role_table_model.py, Qt-free and
+adapter-free. This module is the WIDGET plus the READ worker, and it owns exactly
+three things the model cannot: the table cells, the board READS and the
+gui_state.json table.
 
 The door (techdocs/me/door.md) is honoured the only way it can be in a widget:
 
-  * the UI thread NEVER touches the adapter. Both board operations go through
-    start_long_op, so they run on the worker thread; the rows of a restore, the
+  * the UI thread NEVER touches the adapter. Both board operations are READS, go
+    through start_long_op and run on the worker thread; the rows of a restore, the
     warnings and the write button all come from the snapshot the page was fed
-    (set_context) and from gui_state.json — never from a live read;
-  * before either op: socket_busy(connection) — the shared kipy REQ socket has
+    (set_context), the store in force and gui_state.json — never from a live read;
+  * the write path is not a board operation at all any more: no adapter, no
+    socket, no worker (see _record_overrides). That is what makes guard С8
+    meaningful — an adapter spy is simply never called by it;
+  * before either READ: socket_busy(connection) — the shared kipy REQ socket has
     exactly one owner, so a busy board is refused with a Log line, never queued;
   * the buttons that need the board are DISABLED without it, and the write
-    button follows can_write(rows), so "nothing to write" cannot be pressed;
-  * the footprints of a write are looked up by ref on the LIVE board inside the
-    worker: row objects read earlier are never handed to the writer.
+    button follows can_write(rows) — which now asks the STORE's batch — so
+    "nothing to record" cannot be pressed.
 
 What is deliberately NOT here: identifying the instance (that is the Source
 tab's "Fill from selection"), erasing roles/cluster (Role/Cluster "Clear all"),
-writing to the schematic, any modal window.
+writing to the schematic, the explicit board write (Т5а), any modal window.
 """
 import logging
 from typing import Any, Optional
@@ -51,6 +67,7 @@ from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel,
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.field_overrides import SOURCE_CELL_TABLE, symbol_uuid_of
 from kicadstamp.i18n import _
 from kicadstamp.sheet_names import resolve_sheet_path_names
 
@@ -60,14 +77,13 @@ from ..cell_edit_context import (
     remembered_role_table,
 )
 from ..role_table_model import (
-    SKIP_NO_CLUSTER_FIELD,
-    SKIP_NO_ROLE_FIELD,
     SKIP_NOT_ON_BOARD,
     BoardRecord,
     add_ref,
     append_rows,
     apply_cluster_to_all,
-    build_tag_updates,
+    apply_overrides,
+    build_override_updates,
     can_write,
     default_cluster,
     is_table_empty,
@@ -140,6 +156,9 @@ def read_selection_rows_worker(payload: dict) -> dict:
                "PCB editor, then press the button again")]))
 
     def record(fp):
+        # symbol_uuid (Т5): the store's key for this very component — read here,
+        # where the live footprint is at hand, so a recorded value can never be
+        # attached by refdes alone (an F8 re-annotation would move it).
         return BoardRecord(
             ref=fp.ref,
             role=adapter.get_field_value(fp, ROLE_FIELD_NAME),
@@ -147,53 +166,23 @@ def read_selection_rows_worker(payload: dict) -> dict:
             sheet=_sheet_chain(fp, sheet_names),
             role_field_exists=adapter.has_field(fp, ROLE_FIELD_NAME),
             cluster_field_exists=adapter.has_field(fp, CLUSTER_FIELD_NAME),
+            symbol_uuid=symbol_uuid_of(fp),
         )
 
     return {"records": [record(fp) for fp in footprints]}
 
 
-def write_role_table_worker(payload: dict) -> dict:
-    """The board half of "Write to board": resolve every ref of the batch to a
-    LIVE footprint, drop the ones that cannot take the field, and send the rest
-    as ONE set_field_values_bulk commit (KiCad's own Ctrl+Z then takes the whole
-    table back — the same reasoning as RoleClusterTreeDock._run_tag).
-
-    The footprints come from a FRESH board read by ref, never from the row
-    objects the UI built: those were read earlier and may be stale. The
-    has_field check is repeated here PER FIELD for the same reason the snapshot
-    cannot be trusted for it — a live board that lost the field would otherwise
-    roll back every other component in the batch. An adapter failure comes back
-    as {"error": ...} (the dock's own convention), so the socket is still
-    released by start_long_op's normal path."""
-    adapter = payload["adapter"]
-    updates = list(payload.get("updates") or ())
-    skipped = list(payload.get("skipped") or ())
-    adapter.refresh_board()
-    by_ref: dict = {}
-    for fp in adapter.get_footprints():
-        by_ref.setdefault(getattr(fp, "ref", None), fp)
-
-    batch = []
-    for ref, field, value in updates:
-        fp = by_ref.get(ref)
-        if fp is None:
-            skipped.append((ref, SKIP_NOT_ON_BOARD))
-            continue
-        if not adapter.has_field(fp, field):
-            skipped.append((ref, SKIP_NO_ROLE_FIELD if field == ROLE_FIELD_NAME
-                            else SKIP_NO_CLUSTER_FIELD))
-            continue
-        batch.append((fp, field, value))
-    if batch:
-        touched = {fp.ref for fp, _field, _value in batch}
-        try:
-            adapter.set_field_values_bulk(
-                batch, _("Tag roles on {count} component(s)").format(
-                    count=len(touched)))
-        except ValidationError as e:
-            return {"error": str(e), "skipped": skipped}
-    return {"count": len({fp.ref for fp, _field, _value in batch}),
-            "skipped": skipped}
+# There is deliberately NO write worker here any more (Т5, 2026-09-18).
+#
+# What stood here was `write_role_table_worker`: it re-read the board by ref,
+# repeated the adapter's has_field check per field and sent ONE
+# set_field_values_bulk commit. That is the BOARD write, and with the override
+# store the table's path no longer goes through the board at all — so the code
+# is gone rather than left as an unreachable second way to write (a mutation of
+# it could not have been caught by any test). The board write itself is NOT lost:
+# it comes back in Т5а as an explicitly named button/key ("Write to board"),
+# planned by `build_tag_updates` (which stays in the model for exactly that) and
+# still guarded by the has_field rule that belongs to it.
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -282,6 +271,11 @@ class RefsTabWidget(QWidget):
         self._records: list = []
         self._sheet_names: dict = {}
         self._rows: list = []
+        # The project's OVERRIDE STORE (Т5) — pushed in by the page with
+        # set_context/set_overrides, exactly like the snapshot. None until a
+        # project is open: then the rows simply have no store columns, which is
+        # the pre-store table (Т7).
+        self._overrides = None
         # The cell editors are DELEGATES (see _ComboDelegate), created once and
         # owned by the table — no Python-held widget per row, ever.
         self._role_delegate: Optional[_ComboDelegate] = None
@@ -293,12 +287,12 @@ class RefsTabWidget(QWidget):
         self._render_signature_cached: tuple = ()
         self._active_op = None
         self._loading = False
-        # Fired after a successful write — DockHub wires it to
-        # MainWindow.request_refresh, exactly like the Role/Cluster tree and
-        # fieldstool hooks (the poll tick never refreshes on its own once
-        # connected, so without this the written Roles would stay invisible to
-        # Pending changes until a manual Refresh).
-        self.on_board_written = None
+        # Fired after a successful RECORD (Т5) — DockHub wires it to the two
+        # things a store change needs: every OTHER holder of that store re-reads
+        # it, and Pending changes is recomputed. (A board refresh is requested
+        # too, but nothing on the board changed: it is only how this GUI keeps
+        # its snapshot fresh.)
+        self.on_overrides_written = None
         self._build_ui()
 
     # ── UI ────────────────────────────────────────────────────────────────
@@ -392,28 +386,37 @@ class RefsTabWidget(QWidget):
         self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
-        self._write_button = QPushButton(_("Write to board"))
+        self._write_button = QPushButton(_("Write to the store"))
         self._write_button.setToolTip(
-            _("Write every value that differs from the board in ONE commit — a "
-              "single Ctrl+Z in KiCad takes the whole table back."))
-        self._write_button.clicked.connect(self.write_to_board)
+            _("Record the values that differ from what is in force into this "
+              "project's override store — OUR values win over the board, take "
+              "effect at once and survive an F8. Nothing is written to the "
+              "board; that is the separate “Write to board” action. One atomic "
+              "save with a backup."))
+        self._write_button.clicked.connect(self.write_to_store)
         self._write_button.setEnabled(False)
         layout.addWidget(self._write_button)
 
         note = QLabel(_("Tag roles from a board selection: take the selection, "
-                        "give every component its Role, write the batch to the "
-                        "board in one undo step."))
+                        "give every component its Role — the batch is RECORDED "
+                        "for this project (our values win over the board), and "
+                        "reaches the board only through an explicit write."))
         note.setWordWrap(True)
         layout.addWidget(note)
 
     # ── Context fed by the page (UI thread, no board read) ────────────────
 
     def set_context(self, root_path, cell_name, cell_roles, records=None,
-                    sheet_names=None) -> None:
+                    sheet_names=None, overrides=None) -> None:
         """Point the tab at a cell and hand it the snapshot the page already
         holds. Nothing here touches the board (door rule 6): the board columns,
         the suggestions and the warnings all come from `records` — the page's own
-        read — and gui_state.json.
+        read — gui_state.json and the override store of the open project.
+
+        `overrides` (Optional[kicadstamp.field_overrides.FieldOverrides]) is the
+        store in force (Т5). It counts as a change only when it is a DIFFERENT
+        object (the project switched): the page hands the same one on every form
+        reload, and an unchanged store must never force a re-render.
 
         Opening ANOTHER cell (or another project) rebuilds the rows: the saved
         table of that cell, else the refs of its identified instance, else an
@@ -421,11 +424,14 @@ class RefsTabWidget(QWidget):
         re-reads the board columns, so the user's own cells survive."""
         cell_changed = (cell_name != self._cell_name
                         or root_path != self._root_path)
+        store_changed = overrides is not None and overrides is not self._overrides
+        if overrides is not None:
+            self._overrides = overrides
         new_records = None if records is None else list(records)
         # Early exit on an UNCHANGED context: the page calls this on every form
         # reload, and re-rendering would throw away whatever the user is typing
         # in a Role or Cluster cell (Qt deletes the editor under the cursor).
-        if (not cell_changed
+        if (not cell_changed and not store_changed
                 and list(cell_roles or ()) == self._cell_roles
                 and (new_records is None or self._same_records(new_records))):
             return
@@ -528,6 +534,40 @@ class RefsTabWidget(QWidget):
         """True when this board read says exactly what the previous one said."""
         return ([self._record_key(r) for r in records]
                 == [self._record_key(r) for r in self._records])
+
+    # ── The store in force (Т5) ───────────────────────────────────────────
+
+    def set_overrides(self, overrides) -> None:
+        """The store in force changed without a context change — another pane
+        recorded into it, or the project opened/closed. Re-render, which is where
+        our columns are re-read (see _render/_overlaid), so the table, its
+        "differs" marks and the write button follow our values at once."""
+        if overrides is self._overrides:
+            return
+        self._overrides = overrides
+        self._render()
+
+    def _overlaid(self, rows) -> list:
+        """The rows with OUR store columns filled — the ONE place the store
+        touches the table, so every path that builds or re-reads rows goes
+        through it (see apply_overrides in gui/role_table_model.py for the rule:
+        no store, no uuid or no record all leave the columns None, and None is
+        what makes the board the base again)."""
+        return apply_overrides(list(rows or []), self._overrides)
+
+    def _reload_store(self) -> bool:
+        """Re-read the store from its FILE before recording into it, so a write
+        always starts from what is actually on disk: the other holder in this
+        process (the fieldstool window) may have recorded since we were handed
+        our copy. False when there is no store at all (no project open)."""
+        if self._overrides is None:
+            return False
+        path = getattr(self._overrides, "path", None)
+        if path is None:
+            return True
+        from kicadstamp.field_overrides import load_field_overrides
+        self._overrides = load_field_overrides(str(path))
+        return True
 
     # ── Rendering ─────────────────────────────────────────────────────────
 
@@ -675,6 +715,10 @@ class RefsTabWidget(QWidget):
         Python-owned widget, so nothing here can be destroyed by a garbage
         collection — which is what used to abort the interpreter under the full
         GUI run."""
+        # OUR values go into the rows first (Т5): every comparison below — the
+        # "differs" marks, the warnings, can_write — must be against the value IN
+        # FORCE, or the table would promise a record the resolver ignores.
+        self._rows = self._overlaid(self._rows)
         signature = self._render_signature()
         if signature != self._render_signature_cached:
             self._render_signature_cached = signature
@@ -714,11 +758,14 @@ class RefsTabWidget(QWidget):
             self._write_button.setEnabled(False)
             return
         warnings = role_table_warnings(self._rows, self._cell_roles,
-                                      self._cell_name)
+                                       self._cell_name)
         self._status.setText("  ".join(warnings))
         self._status.setStyleSheet(_WARN_STYLE if warnings else "")
+        # The write button needs a PROJECT, not a board (Т5): recording is a file
+        # write next to the profile, and it must work with KiCad closed — that is
+        # the whole point of the store (guard С8: no adapter on this path).
         self._write_button.setEnabled(can_write(self._rows)
-                                     and self._adapter() is not None)
+                                     and self._overrides is not None)
 
     def _show(self, text: str, style: str = "") -> None:
         """One status line and one Log record — the project's no-modals rule."""
@@ -770,8 +817,10 @@ class RefsTabWidget(QWidget):
         self.add_ref_by_hand(text)
 
     def _after_table_change(self) -> None:
-        """Every table edit ends the same way: the warnings/button state are
-        recomputed and what the user typed is remembered."""
+        """Every table edit ends the same way: our columns are re-read, the
+        warnings/button state are recomputed and what the user typed is
+        remembered."""
+        self._rows = self._overlaid(self._rows)
         self._refresh_status()
         self._remember()
 
@@ -909,49 +958,67 @@ class RefsTabWidget(QWidget):
             else _("added {count} component(s) to the table").format(
                 count=len(records)), _SUCCESS_STYLE)
 
-    def write_to_board(self) -> None:
-        """Write every difference in ONE commit. The batch is built from the
-        rows — each row's own Role and cluster — and resolved to live footprints
-        by the worker."""
+    def write_to_store(self) -> None:
+        """Record every difference into the project's OVERRIDE STORE (Т5).
+
+        NOT a board operation: no adapter, no socket, no worker, no KiCad — the
+        store is a file next to the profile config, and the store itself writes
+        it atomically with a backup (С13). Guard С8 is exactly this: an adapter
+        spy is never called from here.
+
+        The batch is SPARSE (build_override_updates: only the rows whose value
+        differs from what is in force) and keyed by symbol uuid; a row without one
+        is refused by name (С12) instead of being recorded under an invented key.
+
+        The store is re-read from disk FIRST (_reload_store): the other holder in
+        this process may have recorded since we were handed our copy, and a write
+        must never be based on a stale picture of the file."""
         if self._cell_name is None:
             return
-        plan = build_tag_updates(self._rows)
+        if not self._reload_store():
+            self._show(_("Open a project first — the override store lives next "
+                         "to its profile config."), _WARN_STYLE)
+            return
+        plan = build_override_updates(self._rows)
         if not plan.updates:
-            message = _("nothing to write — the roles and the cluster already "
-                        "match the board")
+            message = _("nothing to record — every value already matches what "
+                        "is in force")
             if plan.skipped:
                 message += " " + _("skipped: {refs}").format(
                     refs=skipped_text(plan.skipped))
             self._show(message, _WARN_STYLE)
             return
-        if not self._can_start(_("writing to the board")):
+        by_uuid = {r.symbol_uuid: r.ref for r in self._rows if r.symbol_uuid}
+        for symbol_uuid, field, value in plan.updates:
+            self._overrides.set(symbol_uuid, by_uuid.get(symbol_uuid, ""),
+                                field, value, SOURCE_CELL_TABLE)
+        try:
+            self._overrides.save()
+        except (OSError, ValidationError) as e:
+            self._show(_("Could not save the override store: {error}").format(
+                error=e), _ERROR_STYLE)
             return
-        payload = {"adapter": self._adapter(), "cell_name": self._cell_name,
-                   "updates": plan.updates, "skipped": plan.skipped}
-        self._active_op = start_long_op(
-            self._connection, self._guard_widgets(), write_role_table_worker,
-            self._finish_write, self._on_op_failed, payload)
-
-    def _finish_write(self, result: dict) -> None:
-        self._active_op = None
-        if result.get("error"):
-            self._show(_("Write failed: {error}").format(error=result["error"]),
-                       _ERROR_STYLE)
-            return
-        message = _("{count} components tagged").format(
-            count=result.get("count") or 0)
-        skipped = result.get("skipped") or []
-        if skipped:
+        self._rows = self._overlaid(self._rows)
+        message = _("{count} value(s) recorded for this project — they win over "
+                    "the board and survive an F8; writing them ONTO the board is "
+                    "a separate action (“Write to board”)").format(
+                        count=len(plan.updates))
+        if plan.skipped:
             message += "; " + _("skipped: {refs}").format(
-                refs=skipped_text(skipped))
-        # Р6: the instance is NOT identified automatically — right after a write
-        # KiCad may hand back the OLD field value over IPC (seen live
-        # 2026-08-14), so the user pins the pair on the Source tab instead.
-        message += " — " + _("roles written — press “Fill from selection” on "
-                             "the Source tab to pin this instance")
+                refs=skipped_text(plan.skipped))
+        # Р6, unchanged by Т5: the instance is still NOT identified automatically —
+        # the table holds OUR values and pins nothing until the user says so on the
+        # Source tab, so the reminder stays in the sentence (the reason used to be
+        # "KiCad may hand back the OLD field value over IPC"; now it is simply that
+        # recording a value and IDENTIFYING an instance are two separate acts).
+        message += " — " + _("press “Fill from selection” on the Source tab to "
+                             "pin this instance")
+        # The state refresh comes FIRST: it writes the Р4 warnings into the very
+        # same status strip, so the record's own sentence has to be the last word.
+        self._after_table_change()
         self._show(message, _SUCCESS_STYLE)
-        if self.on_board_written:
-            self.on_board_written()
+        if self.on_overrides_written:
+            self.on_overrides_written()
 
     def _on_op_failed(self, message: str) -> None:
         self._active_op = None

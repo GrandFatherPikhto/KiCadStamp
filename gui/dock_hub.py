@@ -179,6 +179,11 @@ class DockHub:
         request_refresh = getattr(main_window, "request_refresh", None)
         self.tree_dock.on_board_written = request_refresh
         self.fieldstool_dock.window.on_board_written = request_refresh
+        # ... and the STORE half of the same news (Т5): this window is the other
+        # holder of the project's override store, so its own Record (Stage) must
+        # make the Refs table re-read the file (and vice versa, wired further
+        # down where the cell editor is built).
+        self.fieldstool_dock.window.on_overrides_written = self._on_overrides_written
 
         # Placer / NetTrace (2026-09-05, plan config_qview_placer_nettrace):
         # ConfigTreeDock is now a master-detail — the Config tree on the left
@@ -287,13 +292,20 @@ class DockHub:
         self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
         self._cell_anchor_page = self.config_tree_dock.add_right_page(
             self.cell_anchor_view)
-        # The cell editor's "Refs" tab writes Roles/Cluster straight to the board
-        # (2026-09-17, stage 2 of the spoke work), so it needs the same
-        # out-of-cycle refresh hook the Role/Cluster tree and fieldstool got
-        # above: the ~2s poll never refreshes once connected, and without this
-        # the write would stay invisible to Pending changes until a manual
-        # Refresh. request_refresh is resolved earlier in this same __init__.
+        # The cell editor's "Refs" tab RECORDS Role/Cluster into the project's
+        # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
+        # before that it wrote them onto the board, which is why the hook below
+        # kept its old name), so it needs the same out-of-cycle refresh hook the
+        # Role/Cluster tree and fieldstool got above: the ~2s poll never
+        # refreshes once connected, and without this the write would stay
+        # invisible to Pending changes until a manual Refresh. request_refresh is
+        # resolved earlier in this same __init__.
         self.cell_anchor_view.on_board_written = request_refresh
+        # ... and the STORE half of the same news: the fieldstool window holds its
+        # OWN copy of that store (it is what the Pending diff reads), so a record
+        # made here only becomes visible there when that copy re-reads the file.
+        # Two hooks, two owners — never one callback doing both by luck.
+        self.cell_anchor_view.on_overrides_written = self._on_overrides_written
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -2944,6 +2956,18 @@ class DockHub:
         if listener is not None and handler in listener.handlers:
             listener.handlers = tuple(
                 h for h in listener.handlers if h is not handler)
+
+    def _on_overrides_written(self) -> None:
+        """The override store was RECORDED into by one of the GUI's own panes
+        (Т5/Т6). Both holders re-read the FILE — the writer included, on purpose:
+        "the file is the truth" must not depend on who wrote last, and a reload of
+        the writer's own copy is harmless (it is the same content it just saved).
+        The fieldstool window's reload also recomputes the three-sided Pending
+        diff, which is what the user must see next."""
+        self._safe_call("fieldstool window override reload",
+                        self.fieldstool_dock.window.reload_overrides)
+        self._safe_call("cell editor override reload",
+                        self.cell_anchor_view.reload_overrides)
 
     def _safe_call(self, what: str, fn, *args) -> None:
         """Run a dock's root-notification callable safely: a BROKEN root

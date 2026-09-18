@@ -2,7 +2,9 @@
 """
 MainWindow — root-sheet picker, an edit panel, PendingChangesDock, and
 Apply. Two phases with different KiCad requirements (see
-docs/fieldstool.md):
+docs/fieldstool.md) — plus, since 2026-09-18 (Т5 of
+plan_2026_09_18_field_overrides_store), a third thing that needs KiCad not at
+all: RECORDING Role/Cluster into the project's override store:
 
 1. Staging (KiCad open): always embedded as a dock inside the main GUI
    (gui/docks/fieldstool_dock.py), which injects its OWN BoardConnection
@@ -26,13 +28,24 @@ docs/fieldstool.md):
    BoardConnection and polling timers) existed until 2026-08-02, when it
    was retired as pure duplication of the embedded tab.
 
-   2026-08-03 redesign: Stage writes Role/Cluster straight to the LIVE
-   BOARD over IPC (same mechanism RoleClusterTreeDock's Clear all/Delete
-   selected already use) — there is no separate JSON staging queue anymore
+   2026-08-03 redesign: there is no separate JSON staging queue anymore
    (see gui/docks/pending.py's module docstring for why the old
    PendingRegistry was retired: it could drift out of sync with the board,
    found live when Clear all wrote to the board but staged nothing, leaving
-   Apply permanently disabled with no way to apply the erasure).
+   Apply permanently disabled with no way to apply the erasure). Stage used
+   to write Role/Cluster straight to the LIVE BOARD over IPC — the same
+   mechanism RoleClusterTreeDock's Clear all/Delete selected still use.
+
+   2026-09-18 (plan_2026_09_18_field_overrides_store Т5): Stage now RECORDS
+   Role/Cluster into the project's OVERRIDE STORE instead. Because our stored
+   value OUTRANKS the board (Т2), a board write would be invisible: the store
+   would keep overriding exactly what was just written. The typed value has to
+   land where the resolver looks, and that place is a file next to the profile
+   config — so Stage needs no live connection and works with KiCad CLOSED.
+   Writing the values ONTO the board (and onto the schematic) becomes an
+   explicit, separate action of its own, Т5а — which is why the `has_field`
+   skip-guard (still used by Sync from schematic below) and
+   gui/role_table_model.build_tag_updates (the board batch) have NOT gone away.
 2. Apply (KiCad must be closed): diffs the schematic's last-known Role/
    Cluster (self._components) against the live board's last-known values
    (self._live_snapshot) via gui.docks.pending.compute_pending_edits(), and
@@ -64,12 +77,14 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import FieldsToolError, ValidationError
 from kicadstamp.explore import Selected
+from kicadstamp.field_overrides import SOURCE_FIELDSTOOL, symbol_uuid_of
 from kicadstamp.i18n import _
 from kicadstamp.schematic_editing import check_kicad_not_running, write_files
 from kicadstamp.schematic_set_fields import (plan_ensure_fields_for_root,
                                              plan_set_edits_for_root)
 
 from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
+                            SUCCESS_STYLE as _SUCCESS_STYLE,
                             WARN_STYLE as _WARN_STYLE, configure_searchable,
                             show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
@@ -148,6 +163,11 @@ class MainWindow(QMainWindow):
         # on_components_changed, for the same reason (direct-construction
         # tests never assign it).
         self.on_board_written: Optional[Callable[[], None]] = None
+        # Fired when THIS window records into the override store (Т5's Stage):
+        # the store file changed, so every other holder of it must re-read it.
+        # Separate from on_board_written, which is about the BOARD changing —
+        # DockHub wires both, and neither is allowed to stand in for the other.
+        self.on_overrides_written: Optional[Callable[[], None]] = None
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -484,12 +504,18 @@ class MainWindow(QMainWindow):
         FIXED (2026-08-04, Denis live: "прописал роли... но когда кликаю
         эти диоды, ...роль... не видно"): used to read self._components
         unconditionally, i.e. the schematic's last-Rescan value — a target
-        already Staged but not yet Applied has its NEW value only on the
-        live board, so re-selecting it kept showing the OLD, pre-Stage
-        value, forcing edits "blind". The live board already IS the
-        accumulated pending state (see gui/docks/pending.py's module
-        docstring) — reading it here first makes the combo reflect
-        whatever was actually last staged, Applied or not."""
+        already Staged but not yet Applied has its NEW value SOMEWHERE ELSE,
+        so re-selecting it kept showing the OLD, pre-Stage value, forcing
+        edits "blind". The fix reads the accumulated pending state first.
+
+        That fix said "the live board already IS the accumulated pending
+        state", and Т5 (2026-09-18) made it untrue: Stage records into the
+        OVERRIDE STORE, so a staged value sits there and NOT on the board —
+        reading the board first would resurrect the very complaint above
+        (type NEW, Stage, re-pick the part, see OLD). So the order below is now
+        the RESOLVER's own (Т2): our stored value, then the live board, then the
+        parsed schematic — the value IN FORCE, in the order every other reader
+        and the CLI use."""
         by_ref = {c.ref: c for c in self._components}
         live_by_ref = {s.ref: s for s in self._live_snapshot}
         picked_refs = [ref for ref in refs if ref in by_ref]
@@ -498,6 +524,27 @@ class MainWindow(QMainWindow):
 
         def effective(ref: str, field: str) -> str:
             live = live_by_ref.get(ref)
+            # "role"/"cluster" here are ATTRIBUTE names; the store (and the board)
+            # key on the FIELD names "Role"/"Cluster" — mixing the two silently
+            # finds no record at all, which is how this line got written twice.
+            store_field = ROLE_FIELD_NAME if field == "role" else CLUSTER_FIELD_NAME
+            # Ours first (Т2/Т5). The key is the symbol uuid: the live
+            # footprint's when the last board read knows this ref, else the
+            # parsed symbol's own (SchematicComponent.symbol_uuids — the SAME
+            # uuid the board exposes as fp.sheet_path.path[-1], see
+            # schema_model.py), so a target KiCad is not reporting right now
+            # still finds the record it was staged under.
+            keys = []
+            if live is not None:
+                keys.append(symbol_uuid_of(live.fp))
+            keys.extend(getattr(by_ref[ref], "symbol_uuids", ()) or ())
+            if self._overrides is not None:
+                for key in keys:
+                    if not key:
+                        continue
+                    ours = self._overrides.get(key, store_field)
+                    if ours is not None:
+                        return ours
             if live is not None:
                 return getattr(live, field) or ""
             return getattr(by_ref[ref], field) or ""
@@ -545,111 +592,114 @@ class MainWindow(QMainWindow):
             adapter.select_items(footprints)
 
     def _on_stage(self) -> None:
-        """"Stage" writes Role/Cluster straight to the live board over IPC
-        (2026-08-03 redesign, see module docstring) instead of a JSON queue —
-        the board itself IS the pending state.
+        """"Stage" RECORDS Role/Cluster in this project's OVERRIDE STORE (Т5,
+        plan_2026_09_18_field_overrides_store) — it no longer writes the board.
 
-        T.4 (K.2 #8, plan_2026_09_11_stale_snapshot_minor.md): this docstring
-        used to promise that "Apply's diff picks this up once the main GUI's
-        next ~2s poll tick refreshes BoardConnection.snapshot — same short lag
-        Clear all/Delete selected already have". That was WRONG: once the board
-        is connected the automatic poll tick is a deliberate no-op (see
-        gui/main_window.py's module docstring — `if is_connected and not
-        manual: return`), so BoardConnection.snapshot is rebuilt only by
-        connect(), a manual Refresh/Reconnect, or one of the freshness triggers
-        that rebuild it at the point of use (an explicit Rescan here rebuilds
-        the board side before re-reading the schematic; a Config page switch and
-        a tree dialog rebuild it for the docks' lists). So the real lag is
-        "until whichever of those the user does next" — not ~2s, and not
-        instant. Staging itself deliberately stays one bounded IPC write on the
-        shared socket instead of forcing an extra read here."""
+        Why it changed: our stored value WINS over the board (Т2), so a board
+        write is no longer how something takes effect — it would now be INVISIBLE
+        (the store would keep overriding it). What the user typed has to land
+        where the resolver looks, and it has to land there with KiCad closed: the
+        store is a file next to the profile, written atomically with a backup.
+
+        The KEYS come from the cached snapshot (self._live_snapshot), never from a
+        live read: each target ref is resolved to its symbol uuid — exactly the
+        store's key, so the next F8 (which re-annotates) cannot move the record to
+        another component. A target the snapshot does not know has no key and is
+        refused BY NAME (С12), never recorded under an invented one.
+
+        No worker, no socket, no long op, and deliberately NO connection check:
+        nothing here is IPC, so there is nothing to interleave with a poll tick
+        and no "not connected" state to refuse. What it does need is a SNAPSHOT —
+        that is where the uuids come from — and a missing one shows up below as
+        refs refused by name, which is both the honest wording and the case a
+        connection check could not tell apart (a snapshot already in hand
+        survives KiCad closing).
+
+        (Superseded note, kept because it explains the machinery around this tab:
+        T.4/K.2 #8, plan_2026_09_11_stale_snapshot_minor.md — the ~2s poll tick is
+        a deliberate no-op once connected, so anything that used to rely on it
+        had to say so explicitly. Staging no longer depends on the poll AT ALL:
+        the store is read at once, and Pending changes is recomputed here.)"""
         role = self.role_combo.currentText().strip()
         cluster = self.cluster_combo.currentText().strip()
         if not role and not cluster:
-            QMessageBox.warning(self, _("Nothing to stage"),
-                                _("Set Role and/or Cluster first."))
+            # Input, not connection state — one line in the strip and the Log,
+            # never a modal (plan_2026_09_11_no_modals_and_busy_kicad X.1).
+            show_message(_("Set Role and/or Cluster first."), _WARN_STYLE, logger)
             return
         if not self._current_targets:
             return
-        if not self.connection.is_connected:
-            # Connection state, not user input — a Log line, never a modal
-            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). Nothing is
-            # staged below.
-            show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
+        if self._overrides is None:
+            show_message(_("Open a project first — the override store lives next "
+                           "to its profile config."), _ERROR_STYLE, logger)
             return
-        # A background long op (Extract/Redraw) or another poll tick holds
-        # the shared socket; writing now would interleave into its
-        # in-flight REQ transaction.
-        if self.connection.long_op_active:
-            return
-        payload = {"refs": list(self._current_targets), "role": role, "cluster": cluster}
-        self._active_stage_op = start_long_op(
-            self.connection, (self.stage_button,), self._run_stage, self._finish_stage,
-            self._on_stage_failed, payload)
-
-    def _run_stage(self, payload: dict) -> dict:
-        """Worker thread: board IPC only — never touches a widget.
-
-        Skips a (footprint, field) pair the footprint doesn't have, instead
-        of letting set_field_value's fatal ValidationError roll back the
-        WHOLE batch over one stale/incomplete component (2026-08-04 handoff:
-        handoff_2026_08_04_arch_review_handoff_and_cluster_bug.md, "Разрыв
-        B" — FB3 missing Cluster used to block Role/Cluster from reaching
-        the other 5 targets too) — same has_field guard RoleClusterTreeDock.
-        _run_clear already uses for Clear all, just per-field instead of
-        per-footprint since Stage may be setting only Role, only Cluster,
-        or both."""
-        adapter = self.connection.board.adapter
-        footprints = [fp for fp in (adapter.get_footprint(ref) for ref in payload["refs"])
-                      if fp is not None]
-        result = {"error": None, "role": payload["role"], "cluster": payload["cluster"],
-                  "skipped": []}
-        if not footprints:
-            return result
-        updates = []
+        by_ref = {s.ref: s for s in self._live_snapshot}
+        records = []
         skipped = []
-        for fp in footprints:
-            ref = fp.ref if fp.ref else "?"
-            for field, value in (("Role", payload["role"]), ("Cluster", payload["cluster"])):
-                if not value:
-                    continue
-                if adapter.has_field(fp, field):
-                    updates.append((fp, field, value))
-                else:
-                    skipped.append(f"{ref} ({field})")
-        result["skipped"] = skipped
-        if updates:
-            touched = len({id(u[0]) for u in updates})
-            try:
-                adapter.set_field_values_bulk(
-                    updates, _("Set Role/Cluster on {count} component(s)").format(count=touched))
-            except ValidationError as e:
-                return {"error": str(e)}
-        return result
+        for ref in self._current_targets:
+            selected = by_ref.get(ref)
+            symbol_uuid = (symbol_uuid_of(selected.fp)
+                           if selected is not None else None)
+            if not symbol_uuid:
+                skipped.append(ref)
+                continue
+            if role:
+                records.append((symbol_uuid, ref, ROLE_FIELD_NAME, role))
+            if cluster:
+                records.append((symbol_uuid, ref, CLUSTER_FIELD_NAME, cluster))
+        if not records:
+            self._finish_stage({"role": role, "cluster": cluster, "records": 0,
+                                "skipped": skipped})
+            return
+        # Re-read the FILE first: the other holder (the cell editor's Refs tab,
+        # Т5) may have recorded since this window was handed its copy, and a write
+        # must never be based on a stale picture of it.
+        self.reload_overrides()
+        for symbol_uuid, ref, field, value in records:
+            self._overrides.set(symbol_uuid, ref, field, value, SOURCE_FIELDSTOOL)
+        try:
+            self._overrides.save()
+        except (OSError, ValidationError) as e:
+            show_message(_("Could not save the override store: {error}").format(
+                error=e), _ERROR_STYLE, logger)
+            return
+        self._finish_stage({"role": role, "cluster": cluster,
+                            "records": len(records), "skipped": skipped})
 
     def _finish_stage(self, result: dict) -> None:
-        """UI thread: reflect the worker's result into widgets."""
-        if result["error"]:
-            QMessageBox.critical(self, _("Could not set fields"), result["error"])
-            return
+        """UI thread: reflect the record into the widgets and hand the news on.
+        No modal anywhere (X.1) — a refusal is a line in the strip and the Log."""
         # Reflect a brand-new Role/Cluster value in the dropdown right away —
         # don't make the user hit Rescan just to reuse what they typed a moment ago.
         if result["role"]:
             self._add_combo_item_if_missing(self.role_combo, result["role"])
         if result["cluster"]:
             self._add_combo_item_if_missing(self.cluster_combo, result["cluster"])
+        if result["records"]:
+            message = _("{count} value(s) recorded for this project — they win "
+                        "over the board and survive an F8; writing them onto the "
+                        "board is a separate action").format(count=result["records"])
+        else:
+            message = _("nothing was recorded — no target of this selection is in "
+                        "the last board read")
         skipped = result.get("skipped") or []
         if skipped:
-            QMessageBox.warning(
-                self, _("Some fields were skipped"),
-                _("These targets have no such field on their footprint yet — nothing was "
-                  "written for them (use Ensure fields... below, or add the field by hand, "
-                  "then Update PCB from Schematic):\n{refs}").format(refs="\n".join(skipped)))
-        if self.on_board_written:
-            self.on_board_written()
-
-    def _on_stage_failed(self, message: str) -> None:
-        QMessageBox.critical(self, _("Could not set fields"), message)
+            message += "; " + _("not in the last board read: {refs}").format(
+                refs=", ".join(skipped))
+        show_message(message, _SUCCESS_STYLE if result["records"] else _WARN_STYLE,
+                     logger)
+        # The three-sided diff recomputes against OUR values at once; the other
+        # holder of the store re-reads the file through the DockHub hook.
+        self._recompute_pending()
+        if self.on_overrides_written:
+            self.on_overrides_written()
+        # ... and NOT on_board_written. It is wired to MainWindow.request_refresh,
+        # which runs a REAL board refresh over IPC — and the board did not change
+        # here. The first cut of Т5 fired it "for symmetry with the board-writing
+        # past"; reading the wiring back showed that made every Stage do a
+        # pointless round-trip on the shared socket, while the diff never needed
+        # it: reload_overrides() recomputes the three-sided diff, and the Board
+        # column is identical either way.
 
     # ── Sync from schematic (2026-08-27) ───────────────────────────────────
     #
@@ -657,13 +707,28 @@ class MainWindow(QMainWindow):
     # (PendingEdit.old_value) back onto the LIVE board — the automated
     # equivalent of the module docstring's own recommended "revert the field's
     # value on the board itself (Ctrl+Z in KiCad)" workaround, for when that's
-    # inconvenient (other unrelated board edits made since). Structurally a
-    # mirror of the Stage flow (_on_stage/_run_stage/_finish_stage) — same
-    # connection/long-op guards, same has_field skip-per-field discipline,
-    # same on_board_written hook — so Pending changes' diff picks up the write
-    # on the next poll tick without a forced extra round-trip. No new persisted
+    # inconvenient (other unrelated board edits made since). No new persisted
     # state: a live IPC write, immediately followed by the diff recomputing
     # itself against the now-matching board.
+    #
+    # This used to be described here as "structurally a mirror of the Stage
+    # flow (same connection/long-op guards, same has_field skip-per-field
+    # discipline, same on_board_written hook)". After Т5 (2026-09-18) it mirrors
+    # NOTHING: Stage records into the store and touches no board, so this is the
+    # last live board write left in this window — which is exactly why the
+    # connection/long-op guards and the per-field has_field skip live HERE now
+    # (a field that vanished from a footprint between the diff and the write is
+    # skipped rather than aborting the whole batch fatally). It keeps firing
+    # on_board_written, because for THIS flow the board really did change, so
+    # Pending changes' diff picks the write up on the next poll tick without a
+    # manual Refresh.
+    #
+    # Open question for Denis (reported with Т5, not decided here): with the
+    # store in force this write is INVISIBLE to the resolver — the store keeps
+    # overriding the value it writes. Either this flow moves to the store too,
+    # or it stays a deliberately board-only operation and needs to be named as
+    # explicitly as Т5а's own button will be. Nothing was changed here on my own
+    # initiative.
 
     def _on_sync_from_schematic(self) -> None:
         """Sync handler — writes the SCHEMATIC's current value back onto the
@@ -675,7 +740,8 @@ class MainWindow(QMainWindow):
         if not syncable:
             return
         if not self.connection.is_connected:
-            # Same connection-state rule as Stage above.
+            # A live board write, so a live connection is required. (Stage no
+            # longer needs one — it writes a file.)
             show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
         if self.connection.long_op_active:
@@ -711,10 +777,13 @@ class MainWindow(QMainWindow):
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def _run_sync_from_schematic(self, payload: dict) -> dict:
-        """Worker thread: board IPC only — never touches a widget. Same
-        has_field skip-guard as _run_stage (a field that vanished from a
-        footprint between the diff being computed and this running is skipped,
-        not a fatal abort of the whole batch). Skips are split by CAUSE so the
+        """Worker thread: board IPC only — never touches a widget. The has_field
+        skip-guard belongs to writing the BOARD, and after Т5 this is where it
+        lives (Stage's copy went away with Stage's board write: recording into
+        the store does not care whether the footprint carries the field at all):
+        a field that vanished from a footprint between the diff being computed
+        and this running is skipped, not a fatal abort of the whole batch. Skips
+        are split by CAUSE so the
         finish handler can explain each properly: "not_found" = the refdes is
         not on the live board right now (renamed/deleted since the last poll);
         "missing_field" = the footprint exists but has no such field (the far
@@ -746,9 +815,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, _("Could not sync fields"), result["error"])
             return
         # Two DIFFERENT, correctly-worded warnings — the field-missing case
-        # (the overwhelmingly common one) reuses Stage's exact wording, so the
-        # two flows agree on what to do (Ensure fields / add by hand + Update
-        # PCB from Schematic), while a genuinely-missing ref is its own thing.
+        # (the overwhelmingly common one) keeps the wording the board-writing
+        # Stage used ("use Ensure fields... below, or add the field by hand, then
+        # Update PCB from Schematic"): that advice is still exactly right for a
+        # BOARD write, which is what failed here, while a genuinely-missing ref
+        # is its own thing.
         missing_field = result.get("missing_field") or []
         if missing_field:
             QMessageBox.warning(
@@ -772,8 +843,9 @@ class MainWindow(QMainWindow):
     def _on_sync_from_schematic_failed(self, message: str) -> None:
         QMessageBox.critical(self, _("Could not sync fields"), message)
 
-    # ── Live connection (Stage writes Role/Cluster to the board; Apply writes
-    #    the schematic — see module docstring) ───────────────────────────────
+    # ── Live connection (Sync from schematic writes the board; Stage records
+    #    into the override store; Apply writes the schematic — see the module
+    #    docstring) ──────────────────────────────────────────────────────────
 
     def set_connection_status(self, error: Optional[str]) -> None:
         """Public — the single point that reflects the shared connection's

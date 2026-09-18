@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget
 
 from gui import fieldstool_window as fieldstool_window_mod
 from gui.docks.pending import PendingEdit
+from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.explore import Selected
 from kicadstamp.schematic_editing import EditReport
 from tests.fieldstool_fixtures import sch_file, symbol_block
@@ -28,14 +30,21 @@ def _write_root(tmp_path, *blocks):
     return root
 
 
-def _selected(ref, role, cluster, role_field_exists=True, cluster_field_exists=True):
+def _selected(ref, role, cluster, role_field_exists=True, cluster_field_exists=True,
+              symbol_uuid=None):
     """role_field_exists/cluster_field_exists — a physically-absent board
     field (2026-08-27 handoff pending_exclude_missing_board_fields); default
-    True so callers not exercising that scenario are unaffected."""
+    True so callers not exercising that scenario are unaffected.
+
+    symbol_uuid (Т5) fills fp.sheet_path.path[-1] — the key the override store
+    uses, which Stage resolves from THIS cached snapshot. None keeps fp=None: a
+    target Stage cannot key, and therefore cannot record (С12)."""
+    fp = (SimpleNamespace(sheet_path=SimpleNamespace(
+        path=[SimpleNamespace(value=symbol_uuid)])) if symbol_uuid else None)
     return Selected(ref=ref, role=role, cluster=cluster,
                     role_field_exists=role_field_exists,
                     cluster_field_exists=cluster_field_exists,
-                    sheet=[], nets={}, fp=None)
+                    sheet=[], nets={}, fp=fp)
 
 
 class _FakeAdapter:
@@ -232,20 +241,48 @@ def test_leaf_picked_clears_combos_when_targets_differ(fieldstool_window, tmp_pa
     assert fieldstool_window.cluster_combo.currentText() == ""
 
 
-def test_stage_writes_role_cluster_to_the_live_board(fieldstool_window, tmp_path, monkeypatch):
-    """2026-08-03 redesign — Stage writes straight to the board over IPC
-    (same mechanism RoleClusterTreeDock's Clear all uses) instead of a JSON
-    queue; Apply's diff picks it up once the board's snapshot reflects it."""
+def _store_for(fieldstool_window, tmp_path):
+    """Give the window a real PROJECT store — Т5's Stage records into it, so
+    without one the operation refuses by design. A file next to a throwaway
+    profile, exactly like the real thing."""
+    from kicadstamp.field_overrides import FieldOverrides
+    from kicadstamp.utils.paths import overrides_path_for_config
+    profile = tmp_path / "prof.sexp"
+    profile.write_text(dict_to_sexp({"layer": "B.Cu"}), encoding="utf-8")
+    fieldstool_window.set_overrides_store(
+        FieldOverrides(overrides_path_for_config(str(profile))))
+    return fieldstool_window.overrides
+
+
+def _recorded(fieldstool_window):
+    """The store's records AS THEY ARE ON DISK: Stage re-reads the file before
+    writing it (so a stale in-process copy can never lose another pane's
+    records), which also means the window's own object is a fresh copy."""
+    from kicadstamp.field_overrides import load_field_overrides
+    return load_field_overrides(str(fieldstool_window.overrides.path)).records()
+
+
+def test_stage_records_role_cluster_in_the_override_store(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Т5 REWROTE this test — it used to pin the opposite ("Stage writes straight
+    to the board over IPC"). With the store in force our value WINS over the
+    board, so a board write would be invisible: Stage records into the store, and
+    the board is not touched at all."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
     board = _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.role_combo.setCurrentText("NEW")
     fieldstool_window._on_stage()
 
-    updates, _description = board.adapter.calls[0]
-    assert (board.adapter._fps["R1"], "Role", "NEW") in updates
+    assert [(r.symbol_uuid, r.field, r.value)
+            for r in _recorded(fieldstool_window)] == [
+        ("uuid-R1", ROLE_FIELD_NAME, "NEW")]
+    assert board.adapter.calls == []
 
 
 def test_role_combo_does_not_silently_rewrite_a_differently_cased_typed_value(
@@ -253,19 +290,22 @@ def test_role_combo_does_not_silently_rewrite_a_differently_cased_typed_value(
     """2026-08-04, Denis live: typed "C_Out_Bulk" instead of the existing
     "C_OUT_BULK" and fieldstool staged the OLD value back — Qt's default
     combo completer is case-insensitive and silently snaps typed text to
-    an existing item's casing on Enter, before _run_stage ever reads
-    currentText(). configure_searchable() (now case-sensitive, see
-    gui/docks/_common.py) fixes this."""
+    an existing item's casing on Enter, before the value is ever read.
+    configure_searchable() (now case-sensitive, see gui/docks/_common.py)
+    fixes this."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="C_OUT_BULK"))
     fieldstool_window._set_root_sheet(root)
-    board = _connect_board(fieldstool_window, monkeypatch)
+    _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "C_OUT_BULK", None, symbol_uuid="uuid-R1")])
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.role_combo.setCurrentText("C_Out_Bulk")
     fieldstool_window.role_combo.lineEdit().returnPressed.emit()
 
-    updates, _description = board.adapter.calls[0]
-    assert (board.adapter._fps["R1"], "Role", "C_Out_Bulk") in updates
+    assert [(r.field, r.value) for r in _recorded(fieldstool_window)] == [
+        (ROLE_FIELD_NAME, "C_Out_Bulk")]
 
 
 def test_enter_in_role_combo_stages_immediately(fieldstool_window, tmp_path, monkeypatch):
@@ -273,88 +313,148 @@ def test_enter_in_role_combo_stages_immediately(fieldstool_window, tmp_path, mon
     do exactly what clicking Stage does, guards included."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
-    board = _connect_board(fieldstool_window, monkeypatch)
+    _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.role_combo.setCurrentText("NEW")
     fieldstool_window.role_combo.lineEdit().returnPressed.emit()
 
-    updates, _description = board.adapter.calls[0]
-    assert (board.adapter._fps["R1"], "Role", "NEW") in updates
+    assert [(r.field, r.value) for r in _recorded(fieldstool_window)] == [
+        (ROLE_FIELD_NAME, "NEW")]
 
 
 def test_enter_in_cluster_combo_stages_immediately(fieldstool_window, tmp_path, monkeypatch):
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
-    board = _connect_board(fieldstool_window, monkeypatch)
+    _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.cluster_combo.setCurrentText("NEW_CLUSTER")
     fieldstool_window.cluster_combo.lineEdit().returnPressed.emit()
 
-    updates, _description = board.adapter.calls[0]
-    assert (board.adapter._fps["R1"], "Cluster", "NEW_CLUSTER") in updates
+    assert [(r.field, r.value) for r in _recorded(fieldstool_window)] == [
+        (CLUSTER_FIELD_NAME, "NEW_CLUSTER")]
 
 
-def test_stage_success_fires_on_board_written_callback(fieldstool_window, tmp_path, monkeypatch):
-    """2026-08-03 fix: the automatic poll tick never refreshes on its own
-    once already connected (see MainWindow._poll's docstring), so without
-    this hook Pending changes never saw a Stage write until the user
-    happened to click Refresh — found live right after the Apply redesign."""
+def test_stage_fires_the_store_hook_and_never_the_board_one(
+        fieldstool_window, tmp_path, monkeypatch):
+    """Т5 REWROTE this test, and the reason is worth keeping: it used to demand
+    BOTH hooks fire ("tell both owners"), which looked like symmetry and was a
+    bug in the making.
+
+    on_board_written is wired to MainWindow.request_refresh, which runs a REAL
+    board refresh over IPC (gui/main_window.py), on the thread that drives the
+    shared socket. A store record does not change the board, so firing it bought
+    nothing and cost a round-trip per Stage click. One record, ONE owner: the
+    store hook reloads the file wherever another pane holds a copy (the Refs
+    table — and that reload recomputes the three-sided diff by itself).
+
+    So the board hook is asserted SILENT. If it ever fires here again, Stage has
+    gone back to poking a board it never touched."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
     _connect_board(fieldstool_window, monkeypatch)
-    calls = []
-    fieldstool_window.on_board_written = lambda: calls.append(1)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
+    overrides_fired, board_fired = [], []
+    fieldstool_window.on_overrides_written = lambda: overrides_fired.append(1)
+    fieldstool_window.on_board_written = lambda: board_fired.append(1)
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.role_combo.setCurrentText("NEW")
     fieldstool_window._on_stage()
 
-    assert calls == [1]
+    assert overrides_fired == [1]
+    assert board_fired == []
 
 
-def test_stage_skips_a_target_missing_the_field_but_writes_the_rest(
+def test_re_picking_a_target_shows_the_stored_value_not_the_stale_board_one(
         fieldstool_window, tmp_path, monkeypatch):
-    """2026-08-04 (handoff_2026_08_04_arch_review_handoff_and_cluster_bug.md,
-    'Разрыв B'): FB3-like case — a footprint missing Cluster used to make
-    set_field_value's fatal ValidationError roll back the WHOLE batch.
-    Stage must now skip just that (ref, field) pair and still write the
-    rest, same has_field guard Clear all already uses."""
+    """Т5's half of the 2026-08-04 fix (see _prefill_combos_for_refs).
+
+    The combos show the value IN FORCE. Before Т5 that was "board if the
+    snapshot knows the ref, else schematic"; now the staged value lives in the
+    STORE, so a board-only prefill would show the OLD value again — Denis's exact
+    live complaint ("прописал роли... но когда кликаю эти диоды, ...роль... не
+    видно"). The board never hears about NEW here, yet re-picking the very same
+    target must bring NEW back into the combo."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    # Deliberately NO connection: recording needs none (the snapshot is where
+    # the keys come from), and a pick only tries to highlight the board when
+    # there IS one.
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
+
+    fieldstool_window._set_targets(["R1"])
+    fieldstool_window.role_combo.setCurrentText("NEW")
+    fieldstool_window._on_stage()
+
+    fieldstool_window.role_combo.setCurrentText("")
+    fieldstool_window._on_tree_leaf_picked(["R1"])
+
+    assert fieldstool_window.role_combo.currentText() == "NEW"
+
+
+def test_stage_refuses_a_target_without_a_key_and_records_the_rest(
+        fieldstool_window, tmp_path, monkeypatch, caplog):
+    """Т5 replaced the old per-field skip ('Разрыв B', 2026-08-04): the store
+    needs NO field on the footprint, so a missing Cluster can no longer refuse
+    anything. What refuses a target now is having no KEY — a ref the last board
+    read does not carry — and that one is named, while the rest is still
+    recorded: the same "never roll the whole batch back" intent (С12)."""
     root = _write_root(tmp_path, symbol_block(["R1", "R2"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
-    board = _connect_board(fieldstool_window, monkeypatch, missing_fields={("R2", "Cluster")})
+    board = _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    # R2 is NOT in the snapshot: no uuid, so no key.
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "OLD", None, symbol_uuid="uuid-R1")])
 
     fieldstool_window._set_targets(["R1", "R2"])
     fieldstool_window.role_combo.setCurrentText("NEW_ROLE")
     fieldstool_window.cluster_combo.setCurrentText("NEW_CLUSTER")
-    warned = []
-    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning",
-                        staticmethod(lambda *a, **k: warned.append(a[2])))
+    caplog.clear()
 
     fieldstool_window._on_stage()
 
-    updates, _description = board.adapter.calls[0]
-    assert (board.adapter._fps["R1"], "Role", "NEW_ROLE") in updates
-    assert (board.adapter._fps["R1"], "Cluster", "NEW_CLUSTER") in updates
-    assert (board.adapter._fps["R2"], "Role", "NEW_ROLE") in updates
-    assert not any(u[1] == "Cluster" and u[0] is board.adapter._fps["R2"] for u in updates)
-    assert len(warned) == 1 and "R2 (Cluster)" in warned[0]
+    recorded = {(r.symbol_uuid, r.field, r.value)
+                for r in _recorded(fieldstool_window)}
+    assert ("uuid-R1", ROLE_FIELD_NAME, "NEW_ROLE") in recorded
+    assert ("uuid-R1", CLUSTER_FIELD_NAME, "NEW_CLUSTER") in recorded
+    assert "R2" in caplog.text          # refused BY NAME in the status/summary line
+    assert board.adapter.calls == []
 
 
-def test_stage_with_every_target_missing_the_field_writes_nothing_but_does_not_fail(
-        fieldstool_window, tmp_path, monkeypatch):
+def test_stage_with_no_recordable_target_writes_nothing_but_does_not_fail(
+        fieldstool_window, tmp_path, monkeypatch, caplog):
+    """No target of the selection is in the last board read: nothing to record,
+    and nothing blows up — one line saying so (the old version of this test pinned
+    the same shape for a footprint missing the Cluster field, a case the store
+    does not care about at all)."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
-    board = _connect_board(fieldstool_window, monkeypatch, missing_fields={("R1", "Cluster")})
+    board = _connect_board(fieldstool_window, monkeypatch)
+    _store_for(fieldstool_window, tmp_path)
+    fieldstool_window.set_live_snapshot([])
 
     fieldstool_window._set_targets(["R1"])
     fieldstool_window.cluster_combo.setCurrentText("NEW_CLUSTER")
-    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    caplog.clear()
 
     fieldstool_window._on_stage()
 
-    assert board.adapter.calls == []  # set_field_values_bulk never called — nothing to write
+    assert _recorded(fieldstool_window) == []
+    assert board.adapter.calls == []
+    assert "nothing was recorded" in caplog.text
 
 
 def test_stage_with_no_target_does_nothing(fieldstool_window, tmp_path):

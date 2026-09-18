@@ -18261,3 +18261,55 @@ msgstr ""
 #, python-brace-format
 msgid "{count} Role/Cluster value(s) would change in the schematic — Pending changes → Apply before the next Update PCB from Schematic (F8)"
 msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "Could not save the override store: {error}"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Open a project first — the override store lives next to its profile config."
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Record the values that differ from what is in force into this project's override store — OUR values win over the board, take effect at once and survive an F8. Nothing is written to the board; that is the separate “Write to board” action. One atomic save with a backup."
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Tag roles from a board selection: take the selection, give every component its Role — the batch is RECORDED for this project (our values win over the board), and reaches the board only through an explicit write."
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "Write to the store"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "no symbol uuid — the refdes has no footprint in the last board read"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "not in the last board read: {refs}"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "nothing to record — every value already matches what is in force"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "nothing was recorded — no target of this selection is in the last board read"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+msgid "press “Fill from selection” on the Source tab to pin this instance"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them ONTO the board is a separate action (“Write to board”)"
+msgstr ""
+
+#: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
+#, python-brace-format
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8; writing them onto the board is a separate action"
+msgstr ""

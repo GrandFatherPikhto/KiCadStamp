@@ -391,7 +391,10 @@ originate in the schematic symbol. fieldstool's own Stage button (and the main C
 Clear all/Delete selected) write over the same kind of live IPC today too, but Apply's schematic
 diff is what actually persists the change into `.kicad_sch` — the missing step Bulk edit never had.
 fieldstool edits `.kicad_sch` directly instead, which survives that resync — see
-[fieldstool.md](fieldstool.md) for the full design and why it needs KiCad closed to Apply.
+[fieldstool.md](fieldstool.md) for the full design and why it needs KiCad closed to Apply. Since
+2026-09-18 **Stage does not touch the board at all**: it RECORDS into the project's override store
+(Т5 of `plan_2026_09_18_field_overrides_store`), which is where the resolver looks first, and it works
+with KiCad closed — writing the values ONTO the board is again its own explicit action.
 
 ## Files
 
@@ -2047,7 +2050,15 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   this table). The status strip warns without blocking — one role on two rows is fine for tagging
   several spoke pairs at once but will not identify as ONE instance, a role that is not the cell's, a
   cell role left unassigned, clusters that disagree across rows — and **Write to board** is active only
-  when something genuinely differs. The last table the user typed is remembered per cell in
+  when something genuinely differs — a button now named **Write to the store**, because since
+  2026-09-18 (`plan_2026_09_18_field_overrides_store`, Т5) the table RECORDS into the project's
+  override store instead of writing the board: our values already win over the board, so a board write
+  would be invisible, and recording needs no board (and no KiCad) at all. The write is SPARSE — only the
+  rows whose value differs from what is in force earn a record, so opening the table, looking at it and
+  closing it leaves the store empty — and every record is keyed by the component's SYMBOL uuid, never by
+  its refdes, so an F8 re-annotation cannot move it to another component; a row without one is refused
+  by name. Writing the values ONTO the board is the explicit, separate action of Т5а ("Write to
+  board"), not this table's path. The last table the user typed is remembered per cell in
   `gui_state.json` under its OWN key (`cell_role_table`), so the Source tab's Cluster/Sheet pick, which
   deliberately erases the identified refs, cannot erase the table; the board's columns and the cluster
   suggestions always come from the snapshot the page holds. After a write the page refreshes the

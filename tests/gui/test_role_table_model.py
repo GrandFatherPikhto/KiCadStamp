@@ -44,9 +44,13 @@ from gui.role_table_model import (
 
 def _rec(ref, role=None, cluster=None, sheet=(), role_exists=True,
          cluster_exists=True):
+    """A record as a real board read produces it — symbol uuid included: the
+    override store is keyed by it, and `can_write` (Т5) asks for the STORE's
+    batch, so a row without one could never be recorded."""
     return BoardRecord(ref=ref, role=role, cluster=cluster, sheet=tuple(sheet),
                        role_field_exists=role_exists,
-                       cluster_field_exists=cluster_exists)
+                       cluster_field_exists=cluster_exists,
+                       symbol_uuid=f"uuid-{ref}")
 
 
 CELL_ROLES = ["C_BULK", "C_BYPASS"]
