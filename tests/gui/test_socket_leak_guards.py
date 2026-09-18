@@ -55,8 +55,8 @@ def _install_spy(monkeypatch):
     _AdapterSpy.closed = 0
     # BOTH construction sites: the cascade's own adapter and the per-name
     # pipeline's (apply_pipeline.py::_connect_adapter).
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", _AdapterSpy)
-    monkeypatch.setattr(ap_mod, "KiCadBoardAdapter", _AdapterSpy)
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", _AdapterSpy)
+    monkeypatch.setattr(ap_mod, "create_board_adapter", _AdapterSpy)
 
 
 def _neuter_pipeline_steps(monkeypatch, on_validate=None):

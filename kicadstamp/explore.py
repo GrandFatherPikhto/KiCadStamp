@@ -17,6 +17,7 @@ from typing import Any
 from .domain.board import Footprint
 
 from .constants import CLUSTER_FIELD_NAME, DEFAULT_TIMEOUT_MS, ROLE_FIELD_NAME
+from .adapter_factory import create_board_adapter
 from .cluster_matching import cluster_prefix_match
 from .kicad.adapter import KiCadBoardAdapter
 from .sheet_names import build_sheet_name_map, resolve_sheet_path_names
@@ -128,7 +129,10 @@ class Board:
         way it does for `apply`/`extract` — the default "." anchors to the
         current working directory instead, for schematic_dir values already
         written relative to cwd."""
-        adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
+        # The profile rides along: the GUI's own poll adapter (and every other
+        # Board.connect caller) then honours the override store
+        # (plan_2026_09_18_field_overrides_store Т2).
+        adapter = create_board_adapter(timeout_ms=timeout_ms, config_path=config_path)
         # Gate on EITHER source (2026-09-11, plan project_settings_single_source
         # Этап 2): the GUI's RootMetadataDock now fills schematic_files and
         # CLEARS schematic_dir, so gating on schematic_dir alone would silently

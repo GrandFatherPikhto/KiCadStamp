@@ -31,6 +31,7 @@ from .config import (Config, load_config, chain_effective_name,
                     net_trace_effective_name, entity_effective_name)
 from .net_trace_planner import net_trace_anchor_id, adopt_net_trace_copper
 from .runtime_context import RuntimeContext
+from .adapter_factory import create_board_adapter
 from .kicad.adapter import KiCadBoardAdapter
 from .domain.board import Footprint
 from .placement.commands import MoveCommand
@@ -535,7 +536,10 @@ class ApplyPipeline:
 
     def _connect_adapter(self) -> None:
         logger.info(_("Connecting to KiCad (timeout {timeout} ms)").format(timeout=self.timeout_ms))
-        self.adapter = KiCadBoardAdapter(timeout_ms=self.timeout_ms)
+        # The layer comes from the factory: Apply/Extract resolve roles, so they
+        # must see OUR values (plan_2026_09_18_field_overrides_store Т2).
+        self.adapter = create_board_adapter(timeout_ms=self.timeout_ms,
+                                            config_path=self.config_path)
         if self.no_selection:
             self.adapter.ignore_selection = True
             logger.info(_("--no-selection: current PCB editor selection will be ignored for this run"))

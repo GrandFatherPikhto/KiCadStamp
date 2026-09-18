@@ -39,14 +39,21 @@ T = TypeVar("T")
 
 
 def _default_factory(timeout_ms: int):
-    """Create a real KiCadBoardAdapter.
+    """Create a real adapter through the ONE factory (plan Т2/Т2а).
 
     Imported lazily so connection.py (and tests that only use a fake factory)
     never pay for kipy/pynng at import time (P0-2 lazy-import pattern).
-    """
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
 
-    return KiCadBoardAdapter(timeout_ms=timeout_ms)
+    ``use_store=True`` asks the factory for the override LAYER unconditionally,
+    even before any store is bound: the MCP server serves every profile from ONE
+    adapter (one kipy REQ socket per process), while the store is a property of
+    the CALL's config. The store of the current tool call is installed with
+    ``FieldOverrideAdapter.bind_store`` (plan Т3, guard С19) — so the layer must
+    exist from the start, empty, rather than being created on demand.
+    """
+    from kicadstamp.adapter_factory import create_board_adapter
+
+    return create_board_adapter(timeout_ms=timeout_ms, use_store=True)
 
 
 def _get_board_not_found_error():

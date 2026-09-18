@@ -30,7 +30,7 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.copper_order import copper_node_dependencies
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import (
     PositionOverride,
@@ -174,7 +174,7 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     # in the finally — on the happy path AND when a name raises through
     # adapter.refresh_board() below (plan ...socket_leak P.3.2 / P.7: adding
     # the closure is allowed, the redraw's semantics are not touched).
-    adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
+    adapter = create_board_adapter(timeout_ms=timeout_ms, config_path=config_path)
     try:
         adapter.refresh_board()
         sheet_names = ctx.sheet_names if ctx else {}
@@ -292,7 +292,7 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     # did not return within 2.0s" measured live (plan ...socket_leak P.0-P.1).
     # The finally, not a happy-path close, so a failing name (or a raise out of
     # adapter.refresh_board() below) still hands its socket back.
-    adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
+    adapter = create_board_adapter(timeout_ms=timeout_ms, config_path=config_path)
     try:
         adapter.refresh_board()
         sheet_names = ctx.sheet_names if ctx else {}

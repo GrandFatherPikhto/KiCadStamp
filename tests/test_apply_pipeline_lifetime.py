@@ -88,7 +88,7 @@ def test_run_apply_closes_the_adapter_and_keeps_the_dry_run_report(monkeypatch):
         def close(self):
             closed["n"] += 1
 
-    monkeypatch.setattr(ap_mod, "KiCadBoardAdapter", _SpyAdapter)
+    monkeypatch.setattr(ap_mod, "create_board_adapter", _SpyAdapter)
     for step in ("_load_config", "_filter_config", "_validate",
                  "_resolve_order", "_create_planner", "_execute"):
         monkeypatch.setattr(ap_mod.ApplyPipeline, step, lambda self: None)

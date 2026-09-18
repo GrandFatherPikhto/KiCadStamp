@@ -380,7 +380,7 @@ class _NoBoardAdapter:
     """Stands in for KiCadBoardAdapter INSIDE the worker (the worker builds its
     own adapter — no test may reach a real KiCad socket)."""
 
-    def __init__(self, timeout_ms=None):
+    def __init__(self, timeout_ms=None, **_factory_kwargs):
         self.timeout_ms = timeout_ms
 
     def refresh_board(self) -> None:
@@ -409,7 +409,7 @@ def _patch_base_read(main_window, monkeypatch, seen, tree):
     deliberately does NOT touch — see the report), and it must not mask or be mistaken
     for the base flow's own record."""
     connection = main_window.connection
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter", _NoBoardAdapter)
+    monkeypatch.setattr(td_mod, "create_board_adapter", _NoBoardAdapter)
 
     def _spy(adapter, cfg, probe, sheet_names=None, *args, **kwargs):
         if probe is tree:

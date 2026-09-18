@@ -138,7 +138,7 @@ def test_run_curated_tree_redraw_runs_pipeline_per_plan_name(monkeypatch, tmp_pa
             pass
 
     monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter",
+    monkeypatch.setattr(cascade_mod, "create_board_adapter",
                         lambda **k: MagicMock())
 
     results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
@@ -172,7 +172,7 @@ def test_run_curated_tree_redraw_warns_and_logs_parent_not_selected(monkeypatch,
             pass
 
     monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter",
+    monkeypatch.setattr(cascade_mod, "create_board_adapter",
                         lambda **k: MagicMock())
 
     results, warnings = run_curated_tree_redraw("/root.sexp", cfg, None, trees,
@@ -229,7 +229,7 @@ def test_run_curated_forest_redraw_cross_tree_order(monkeypatch, tmp_path):
             pass
 
     monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
 
     results, warnings = run_curated_forest_redraw("/root.sexp", cfg, None,
                                                   trees, selected)
@@ -294,7 +294,7 @@ def test_curated_redraws_keep_placer_error_traceback_split(monkeypatch, tmp_path
         '(tree (name "t") (anchor (origin))\n'
         '      (node (ref "CL_A") (xy 1 2))\n'
         '      (node (ref "CL_B") (xy 3 4)))')
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
 
     # tree redraw: a bare PlacerError -> warning, no traceback
     monkeypatch.setattr(cascade_mod, "ApplyPipeline",
@@ -378,7 +378,7 @@ def test_run_curated_forest_redraw_stage2_places_module_content(monkeypatch, tmp
             pass
 
     monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
 
     results, warnings = run_curated_forest_redraw("/root.sexp", cfg, None,
                                                   trees, selected)
@@ -427,7 +427,7 @@ def test_api_error_busy_in_tree_redraw_logs_human_text_without_a_stack(
     carries the human explanation, the Log gets ONE ERROR line with it, and NO
     record at INFO or above carries a traceback."""
     cfg, trees = _tree_and_cfg(tmp_path)
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
     monkeypatch.setattr(cascade_mod, "ApplyPipeline",
                         _raising_pipeline(_busy_error()))
 
@@ -452,7 +452,7 @@ def test_api_error_busy_covers_cascade_forest_and_single_node(monkeypatch,
     (run_single_node_redraw_worker)."""
     monkeypatch.setattr(cascade_mod, "ApplyPipeline",
                         _raising_pipeline(_busy_error()))
-    monkeypatch.setattr(cascade_mod, "KiCadBoardAdapter", lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
 
     caplog.clear()
     cascade_results = run_cascade("/root.sexp", None, None, ["A"])

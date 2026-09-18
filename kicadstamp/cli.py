@@ -31,10 +31,14 @@ def cmd_extract(args) -> None:
     kicadstamp.cli_extract.extract_template, raising PlacerError on invalid
     input (the entry point maps it to exit code 1).
     """
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
+    from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.cli_extract import (load_profile, extract_template,
                                         EXTRACT_PROFILE_KNOWN_KEYS)
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    # BARE on purpose, spelled out rather than omitted (plan Т2а): `extract` has
+    # no root config — its --profiles file is the extract_profiles /
+    # clone_profiles format, not a profile, so there is no override store for it
+    # to consult.
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
     adapter.refresh_board()
 
     direct_args_given = bool(args.name or args.output or args.param or args.net_template
@@ -137,8 +141,11 @@ def cmd_extract_net(args) -> None:
     """
     if not (args.net and args.anchor_role and args.output):
         raise PlacerError(_("[error] need --net, --anchor-role and --output"))
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    from kicadstamp.adapter_factory import create_board_adapter
+    # BARE on purpose — the docstring above already says it: extract-net is a
+    # STANDALONE command with no config at all, so there is no store to consult
+    # (plan Т2а).
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
     adapter.refresh_board()
 
     from kicadstamp.net_trace_extract import (extract_net_trace, read_net_trace_flags,
@@ -261,8 +268,10 @@ def cmd_channel_copy(args) -> list[str] | None:
     point prints the returned report, same as cmd_apply. A repeated --dst is
     copied in one run, one report section per channel.
     """
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    from kicadstamp.adapter_factory import create_board_adapter
+    # BARE on purpose (plan Т2а): channel-copy addresses components by role over
+    # the live twin map and takes no root config, so there is no store to read.
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
     adapter.refresh_board()
 
     def parse_pair(raw, flag):

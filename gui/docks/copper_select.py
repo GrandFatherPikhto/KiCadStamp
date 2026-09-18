@@ -27,7 +27,7 @@ from ..connection import worker_timeout_ms
 logger = logging.getLogger(__name__)
 
 
-def _live_adapter(timeout_ms: int = DEFAULT_TIMEOUT_MS):
+def _live_adapter(timeout_ms: int = DEFAULT_TIMEOUT_MS, config_path=None):
     """A fresh live-board adapter for the worker. Same construction the other
     live-reading workers use (trees_dock.run_internode_reread_worker,
     cascade), so the whole op owns the board connection on the worker thread.
@@ -35,9 +35,14 @@ def _live_adapter(timeout_ms: int = DEFAULT_TIMEOUT_MS):
     ``timeout_ms`` is taken from the worker payload (Э3, plan_2026_09_13_
     timeout_sweep): the very number the main connection runs with, never a
     literal of our own. The default only serves callers that carry none
-    (probes, tests)."""
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
-    adapter = KiCadBoardAdapter(timeout_ms=timeout_ms)
+    (probes, tests).
+
+    ``config_path`` (2026-09-18, plan_2026_09_18_field_overrides_store Т2) is
+    the profile the payload carries: this worker resolves records and roles, so
+    its adapter must see OUR stored Role/Cluster values, exactly like the main
+    connection. None (probes, tests) means no store."""
+    from kicadstamp.adapter_factory import create_board_adapter
+    adapter = create_board_adapter(timeout_ms=timeout_ms, config_path=config_path)
     adapter.refresh_board()
     return adapter
 
@@ -106,7 +111,7 @@ def run_select_record_copper_worker(payload: dict) -> dict:
     from kicadstamp.domain.board import Track, Via
     from kicadstamp.net_trace_planner import find_live_copper
 
-    adapter = _live_adapter(worker_timeout_ms(payload))
+    adapter = _live_adapter(worker_timeout_ms(payload), payload["config_path"])
     via_registry, track_registry = _readonly_registries(adapter, payload["config_path"])
     result = find_live_copper(adapter, payload["record"],
                               via_registry=via_registry,
@@ -328,7 +333,7 @@ def run_identify_copper_worker(payload: dict) -> IdentifyResult:
     """start_long_op worker entry point for "Whose copper is this?" (Э3).
     Plain data in, plain data out; the selection read and every board call
     happen HERE, on the worker. READ-ONLY: nothing is selected or written."""
-    adapter = _live_adapter(worker_timeout_ms(payload))
+    adapter = _live_adapter(worker_timeout_ms(payload), payload["config_path"])
     selected = list(adapter.get_selected_items() or [])
     via_registry, track_registry = _readonly_registries(adapter, payload["config_path"])
     return identify_selected_copper(

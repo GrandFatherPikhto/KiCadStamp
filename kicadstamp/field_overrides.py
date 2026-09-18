@@ -67,6 +67,29 @@ SOURCE_CLI = "cli"
 OVERRIDABLE_FIELD_NAMES = (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)
 
 
+def symbol_uuid_of(footprint) -> str | None:
+    """The SYMBOL uuid of a board footprint = ``fp.sheet_path.path[-1]``.
+
+    It is the same uuid the schematic's ``(symbol ...)`` block carries as its
+    top-level ``(uuid ...)``: the board/schematic BRIDGE, and therefore the only
+    identity a store applied INTO THE SCHEMATIC may be keyed by. The rule was
+    already spelled out in ``gui/docks/pending.py``'s ``_board_symbol_uuid`` —
+    this is the same logic, moved here so the store, the overlay and Pending
+    cannot drift.
+
+    None when it is unavailable (no footprint, an empty path, an IPC hiccup):
+    the caller must then SKIP the override rather than guess a key — a value
+    attached to the wrong symbol is corruption nobody would trace back here."""
+    try:
+        path = footprint.sheet_path.path
+        if not path:
+            return None
+        last = path[-1]
+        return str(last.value) if hasattr(last, "value") else str(last)
+    except Exception:  # noqa: BLE001 — an unavailable id is a legal answer
+        return None
+
+
 @dataclass(frozen=True)
 class FieldOverride:
     """One stored value: WHICH field of WHICH symbol, and who typed it."""

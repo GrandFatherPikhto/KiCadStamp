@@ -569,7 +569,7 @@ def test_redraw_keeps_the_socket_open_for_tagging_then_closes_it(
         def close(self):
             closed.append(True)
 
-    monkeypatch.setattr(ap_mod, "KiCadBoardAdapter", _SpyAdapter)
+    monkeypatch.setattr(ap_mod, "create_board_adapter", _SpyAdapter)
     for step in ("_load_config", "_filter_config", "_validate",
                  "_resolve_order", "_create_planner", "_execute"):
         monkeypatch.setattr(ap_mod.ApplyPipeline, step, lambda self: None)

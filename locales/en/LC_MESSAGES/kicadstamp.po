@@ -18221,3 +18221,18 @@ msgstr "Role/Cluster source is now the REGISTRY: the stored values take effect a
 #: gui/docks/root_metadata.py
 msgid "Role/Cluster source:"
 msgstr "Role/Cluster source:"
+
+#: kicadstamp/field_override_adapter.py kicadstamp/adapter_factory.py
+#, python-brace-format
+msgid "Could not read role_cluster_source from {path}: {type}: {e} — using the default ({default})"
+msgstr "Could not read role_cluster_source from {path}: {type}: {e} — using the default ({default})"
+
+#: kicadstamp/field_override_adapter.py kicadstamp/adapter_factory.py
+#, python-brace-format
+msgid "Unknown role_cluster_source {value!r} in {path} — using the default ({default}); config/loader.py fatals on it for every command that reads the profile"
+msgstr "Unknown role_cluster_source {value!r} in {path} — using the default ({default}); config/loader.py fatals on it for every command that reads the profile"
+
+#: kicadstamp/field_override_adapter.py kicadstamp/adapter_factory.py
+#, python-brace-format
+msgid "{count} Role/Cluster value(s) came from the override store, not from the board"
+msgstr "{count} Role/Cluster value(s) came from the override store, not from the board"

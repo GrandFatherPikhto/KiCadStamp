@@ -64,7 +64,9 @@ class _FakeAdapter:
     """Stands in for KiCadBoardAdapter in the worker: records how it was built
     and whether the board was refreshed, touches nothing else."""
 
-    def __init__(self, timeout_ms=None):
+    def __init__(self, timeout_ms=None, **_factory_kwargs):
+        # The FACTORY also passes the profile's config_path (the override store,
+        # plan field_overrides_store Т2) — irrelevant here, the timeout is not.
         self.timeout_ms = timeout_ms
         self.refreshed = False
 
@@ -95,14 +97,14 @@ def test_reading_runs_under_start_long_op(main_window, tmp_path, monkeypatch,
     seen = {}
 
     class _TokenWatchingAdapter:
-        def __init__(self, timeout_ms=None):
+        def __init__(self, timeout_ms=None, **_factory_kwargs):
             seen["token_when_built"] = connection.long_op_active
 
         def refresh_board(self):
             seen["token_when_reading"] = connection.long_op_active
             raise ValidationError("no board in this test")
 
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter", _TokenWatchingAdapter)
+    monkeypatch.setattr(td_mod, "create_board_adapter", _TokenWatchingAdapter)
 
     dock._refresh_anchor_live_position()
 
@@ -241,8 +243,8 @@ def test_worker_returns_plain_data_and_touches_no_widget(monkeypatch):
     pinned here is the fallback: the same DEFAULT_TIMEOUT_MS the main
     connection starts with, never a literal of the worker's own."""
     adapter_seen = []
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter",
-                        lambda timeout_ms=None: adapter_seen.append(
+    monkeypatch.setattr(td_mod, "create_board_adapter",
+                        lambda *, timeout_ms=None, **_: adapter_seen.append(
                             _FakeAdapter(timeout_ms)) or adapter_seen[-1])
     monkeypatch.setattr(td_mod, "_anchor_base_live_position",
                         lambda adapter, cfg, tree, sheet_names: (
@@ -264,7 +266,7 @@ def test_worker_returns_plain_data_and_touches_no_widget(monkeypatch):
 def test_worker_turns_a_failed_board_read_into_unavailable(monkeypatch, caplog):
     """An exception INSIDE the worker becomes a normal result with a reason —
     not a failed operation — and leaves one warning in the Log (Э2)."""
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter", _FakeAdapter)
+    monkeypatch.setattr(td_mod, "create_board_adapter", _FakeAdapter)
 
     def boom(*_args, **_kwargs):
         raise ValidationError("anchor 'U1' is not on the board")
@@ -289,7 +291,7 @@ def test_failed_read_shows_unavailable_and_never_crashes_the_dock(
     and nothing propagates out of the finish path (the indicator never crashes
     the dock — its own docstring contract)."""
     dock, _root = _dock_with(main_window, tmp_path, REF_ANCHOR_TREES)
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter", _FakeAdapter)
+    monkeypatch.setattr(td_mod, "create_board_adapter", _FakeAdapter)
 
     def boom(*_args, **_kwargs):
         raise ValidationError("KiCad IPC failure")
@@ -395,8 +397,8 @@ def test_payload_carries_the_connection_timeout_and_the_worker_uses_it(
 
     # …and the worker turns that payload value into the adapter it builds.
     adapter_seen = []
-    monkeypatch.setattr(td_mod, "KiCadBoardAdapter",
-                        lambda timeout_ms=None: adapter_seen.append(timeout_ms)
+    monkeypatch.setattr(td_mod, "create_board_adapter",
+                        lambda *, timeout_ms=None, **_: adapter_seen.append(timeout_ms)
                         or _FakeAdapter(timeout_ms))
     monkeypatch.setattr(td_mod, "_anchor_base_live_position",
                         lambda adapter, cfg, tree, sheet_names: (

@@ -277,7 +277,10 @@ def _fake_connect(monkeypatch, builder):
     calls = {}
 
     class _FakeAdapter:
-        def __init__(self, timeout_ms=0):
+        def __init__(self, timeout_ms=0, **_factory_kwargs):
+            # `**_factory_kwargs`: the adapter FACTORY also passes the profile's
+            # config_path (the override store, plan field_overrides_store Т2) —
+            # this fake only cares about the timeout it has always recorded.
             calls["adapter"] = timeout_ms
 
         def refresh_board(self):
@@ -286,7 +289,7 @@ def _fake_connect(monkeypatch, builder):
         def get_footprints(self):
             return []
 
-    monkeypatch.setattr(explore_module, "KiCadBoardAdapter", _FakeAdapter)
+    monkeypatch.setattr(explore_module, "create_board_adapter", _FakeAdapter)
     monkeypatch.setattr(explore_module, "build_sheet_name_map", builder)
     return calls
 

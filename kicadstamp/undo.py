@@ -30,8 +30,12 @@ def undo_last_operation(json_path: Path, adapter=None) -> bool:
     if adapter is None:
         # Lazy import: importing kicadstamp.undo must not pull the kipy chain
         # (the adapter is only needed on the production CLI path).
-        from kicadstamp.kicad.adapter import KiCadBoardAdapter
-        adapter = KiCadBoardAdapter()
+        from kicadstamp.adapter_factory import create_board_adapter
+        # BARE on purpose, and VERIFIED rather than assumed (plan Т2.3): undo
+        # resolves no roles — it restores moves/flips by uuid and deletes the
+        # copper it created by uuid. The override store would change nothing
+        # here, and a profile path is not even known on this command.
+        adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     # 1. Restore moved components

@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog,
 
 from kicadstamp.anchor_graph import Record, build_records
 from kicadstamp.config import TreeInstance, load_config, load_tree
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
@@ -453,7 +453,8 @@ def run_internode_reread_worker(payload: dict) -> dict:
 
     # The timeout travels in the payload (Э3, plan_2026_09_13_timeout_sweep) —
     # the value the main connection actually runs with, decided on the UI side.
-    adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
+    adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                   config_path=payload.get("config_path"))
     adapter.refresh_board()
     selected = list(adapter.get_selected_items() or [])
     if selected:
@@ -501,7 +502,8 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
     try:
         # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as
         # the reread worker above.
-        adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
+        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                       config_path=payload.get("config_path"))
         adapter.refresh_board()
         pos, rot = _anchor_base_live_position(
             adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
@@ -530,7 +532,8 @@ def run_anchor_base_mm_worker(payload: dict) -> dict:
     gave. Failures are logged at DEBUG (diagnostic detail, no user-facing wording)."""
     tree = payload["tree"]
     try:
-        adapter = KiCadBoardAdapter(timeout_ms=worker_timeout_ms(payload))
+        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                       config_path=payload.get("config_path"))
         adapter.refresh_board()
         pos, _rot = _anchor_base_live_position(
             adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
@@ -3164,6 +3167,7 @@ class TreesDock(QWidget):
         payload = {
             "cfg": self._cfg,
             "tree": tree,
+            "config_path": str(self._root_path) if self._root_path else "",
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
             # Э3 — the worker's own adapter waits exactly as long as the main
             # connection does (read here, on the UI side, like every other
@@ -3875,6 +3879,7 @@ class TreesDock(QWidget):
         payload = {
             "cfg": self._cfg,
             "tree": tree,
+            "config_path": str(self._root_path) if self._root_path else "",
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
             "timeout_ms": worker_timeout_ms(connection),
         }
@@ -4346,6 +4351,7 @@ class TreesDock(QWidget):
         payload = {
             "cfg": self._cfg,
             "tree": tree,
+            "config_path": str(self._root_path) if self._root_path else "",
             "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
             "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
