@@ -1533,6 +1533,17 @@ derived from the picked `*.kicad_pro` (same directory/basename, extension `.kica
 reachable files (relative to the config), also clearing `schematic_dir`. Nothing is recomputed
 automatically — only the button does it.
 
+Since 2026-09-18 the panel also carries the **Role/Cluster source** switch (`role_cluster_source`) —
+a PROJECT setting, which is why it lives here rather than in the GUI's own state file: a GUI-only
+switch would be invisible to the CLI, and one profile would then resolve differently in the GUI and in
+the CLI. **Registry** (the default) means our own override store — `overrides/<config-stem>.fields.json`
+next to the copper registries, written by the "Refs" tab and fieldstool — wins over the live board
+**always**, not only when the board is empty: a role typed in KiCadStamp takes effect without being
+written to the board or to the schematic, and Update PCB from Schematic (F8) stops overwriting the
+values that were not applied yet. **Board** restores the pre-2026-09-18 behaviour exactly. Picking
+"Board" is announced in the Log — the stored values keep existing but stop taking effect. The key
+itself is documented in [docs/config.md](config.md).
+
 Always targets the project's single root file — the one opened via "Open Root file..."/"New Root
 file..."/the Recent dropdown inside this dialog — regardless of which included file is currently
 browsed in the Config tree. Browsing into an included file does not retarget this panel: these

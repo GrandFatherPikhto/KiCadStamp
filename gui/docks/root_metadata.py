@@ -102,6 +102,9 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
                               QVBoxLayout, QWidget)
 
 from kicadstamp.config.models import Config
+from kicadstamp.constants import (ROLE_CLUSTER_SOURCE_BOARD,
+                                  ROLE_CLUSTER_SOURCE_REGISTRY,
+                                  ROLE_CLUSTER_SOURCES)
 from kicadstamp.i18n import _
 from kicadstamp.schematic_discovery import walk_schematic_hierarchy
 
@@ -110,6 +113,7 @@ from ..hotkeys import build_action
 from ..include_recovery import walk_with_recovery
 from kicadstamp.config_working_set import WORKING_SET
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
+                      WARN_STYLE as _WARN_STYLE,
                       display_path, merge_write, show_message)
 from .rename import collect_graph_files
 
@@ -159,6 +163,18 @@ _FLOAT_FIELDS = [
 _INT_FIELDS = [
     ("via_search_n_directions", _("Via search directions:")),
 ]
+
+# The Role/Cluster SOURCE switch (2026-09-18, plan_2026_09_18_field_overrides_
+# store Т3). The labels name what the setting DOES: the competitor of our store
+# is the BOARD, never the schematic — the resolver does not read .kicad_sch at
+# all, it only reaches the schematic when a change is APPLIED there. The rejected
+# "Schematic / Registry" wording would have promised a switch over schematic
+# reading, which is not what this does. The stored value stays the bare word
+# (constants.ROLE_CLUSTER_SOURCES).
+_ROLE_CLUSTER_SOURCE_LABELS = {
+    ROLE_CLUSTER_SOURCE_REGISTRY: _("Registry — our values win over the board"),
+    ROLE_CLUSTER_SOURCE_BOARD: _("Board — read the values from the live board"),
+}
 
 
 class RootMetadataDock(QWidget):
@@ -240,6 +256,11 @@ class RootMetadataDock(QWidget):
         # field edit, cleared by set_target_file/_on_save. Wired to the
         # widgets AFTER the initial restore (see _connect_dirty_signals).
         self._dirty: bool = False
+        # The Role/Cluster source last shown/loaded — the switch is ANNOUNCED
+        # only when it actually changes (see _announce_role_cluster_source_
+        # switch): a silent switch is exactly the failure mode the design
+        # forbids, so it must not depend on the write being loud.
+        self._loaded_role_cluster_source: str = ROLE_CLUSTER_SOURCE_REGISTRY
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -278,6 +299,18 @@ class RootMetadataDock(QWidget):
         self.layer_combo = QComboBox()
         self.layer_combo.addItems(["F.Cu", "B.Cu"])
         common_form.addRow(_("Layer:"), self.layer_combo)
+
+        # Role/Cluster source (2026-09-18, plan field_overrides_store Т3) — a
+        # PROJECT setting, which is why it lives among this dock's root-only
+        # scalars rather than in gui_state.json (Config.role_cluster_source).
+        # "Registry" is the default — our stored values win over the live board;
+        # "board" restores the pre-store behaviour and is announced in the Log
+        # when picked (see _announce_role_cluster_source_switch).
+        self.role_cluster_source_combo = QComboBox()
+        for value in ROLE_CLUSTER_SOURCES:
+            self.role_cluster_source_combo.addItem(
+                _ROLE_CLUSTER_SOURCE_LABELS[value], value)
+        common_form.addRow(_("Role/Cluster source:"), self.role_cluster_source_combo)
 
         self._bool_checks: Dict[str, QCheckBox] = {}
         for key, label in _BOOL_FIELDS:
@@ -540,6 +573,8 @@ class RootMetadataDock(QWidget):
 
     def _populate(self, data: dict) -> None:
         self.layer_combo.setCurrentText(data.get("layer", _DEFAULTS["layer"]))
+        self._set_role_cluster_source_combo(
+            data.get("role_cluster_source", _DEFAULTS["role_cluster_source"]))
         self.kicad_project_edit.setText(
             self._project_field_text(data.get("root_sheet") or ""))
         self.schematic_files_list.clear()
@@ -550,6 +585,22 @@ class RootMetadataDock(QWidget):
             self._float_edits[key].setText(str(data.get(key, _DEFAULTS[key])))
         for key, _label in _INT_FIELDS:
             self._int_edits[key].setText(str(data.get(key, _DEFAULTS[key])))
+        self._loaded_role_cluster_source = self.role_cluster_source_combo.currentData()
+
+    def _set_role_cluster_source_combo(self, value) -> None:
+        """Show `value` in the source combo, signals BLOCKED — repopulation is
+        not a user edit (the same reason set_target_file clears _dirty before
+        calling _populate).
+
+        An unknown value falls back to the DEFAULT for DISPLAY only: this dock
+        reads the file as RAW data, so a hand-broken value must never crash the
+        panel. The real pipeline still fatals on it in config/loader.py."""
+        idx = self.role_cluster_source_combo.findData(value)
+        if idx < 0:
+            idx = self.role_cluster_source_combo.findData(ROLE_CLUSTER_SOURCE_REGISTRY)
+        self.role_cluster_source_combo.blockSignals(True)
+        self.role_cluster_source_combo.setCurrentIndex(idx)
+        self.role_cluster_source_combo.blockSignals(False)
 
     # ── KiCad project field + sheet list ────────────────────────────────
 
@@ -702,6 +753,11 @@ class RootMetadataDock(QWidget):
             if value != _DEFAULTS[key] or key in self._present_keys:
                 updates[key] = value
 
+        source = (self.role_cluster_source_combo.currentData()
+                  or ROLE_CLUSTER_SOURCE_REGISTRY)
+        if source != _DEFAULTS["role_cluster_source"] or "role_cluster_source" in self._present_keys:
+            updates["role_cluster_source"] = source
+
         if not updates:
             if not quiet:
                 self._show_message(_("Nothing to save — every field is still at its default."), "")
@@ -717,10 +773,31 @@ class RootMetadataDock(QWidget):
         # A successful write is by definition saved — clears the File > Close
         # unsaved-changes flag (2026-08-30, plan Этап 1b).
         self._dirty = False
+        self._announce_role_cluster_source_switch(source)
         if not quiet:
             self._show_message(
                 _("Saved root metadata to {path}").format(path=display_path(self._path)),
                 _SUCCESS_STYLE)
+
+    def _announce_role_cluster_source_switch(self, source: str) -> None:
+        """ONE Log line when the Role/Cluster source actually changes.
+
+        The design demands the switch to "board" be NOTICEABLE: the stored values
+        stay in the override store but stop taking effect, and a silent switch is
+        the one outcome the rule forbids. Emitted even when the write itself is
+        quiet (the auto-stage commit point), because THAT is the silent path.
+        The previous value is the last one loaded or already announced."""
+        if source == self._loaded_role_cluster_source:
+            return
+        if source == ROLE_CLUSTER_SOURCE_BOARD:
+            self._show_message(
+                _("Role/Cluster source is now the BOARD: stored values stay in "
+                  "the override store but no longer take effect."), _WARN_STYLE)
+        else:
+            self._show_message(
+                _("Role/Cluster source is now the REGISTRY: the stored values "
+                  "take effect again."), _SUCCESS_STYLE)
+        self._loaded_role_cluster_source = source
 
     # ── Unsaved-changes guard + File > Close (2026-08-30, plan
     # dock_toolbars_menus_hotkeys Этап 1b) ───────────────────────────────
@@ -748,6 +825,10 @@ class RootMetadataDock(QWidget):
         later set_target_file() repopulation clears _dirty BEFORE _populate
         (see set_target_file) so the repopulation signals never stage."""
         self.layer_combo.currentTextChanged.connect(self._stage_on_commit)
+        # PyQt truncates a signal's arguments to the slot's own arity, so the
+        # combo's index argument is dropped by both slots.
+        self.role_cluster_source_combo.currentIndexChanged.connect(self._mark_dirty)
+        self.role_cluster_source_combo.activated.connect(self._stage_on_commit)
         self.kicad_project_edit.textChanged.connect(self._mark_dirty)
         self.kicad_project_edit.editingFinished.connect(self._stage_on_commit)
         for check in self._bool_checks.values():

@@ -737,3 +737,104 @@ def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch
 
     WORKING_SET.enabled = False
     WORKING_SET.clear()
+
+
+# ── Role/Cluster source switch (2026-09-18, plan field_overrides_store Т3) ──
+#
+# The switch lives in the PROFILE CONFIG (Config.role_cluster_source), and this
+# dock is its one editor. Two properties are pinned here: the DEFAULT is the
+# registry and is not written back as noise, and the switch to "board" is
+# ANNOUNCED in the Log — the design demands it be noticeable, because the stored
+# values keep existing but stop taking effect.
+
+def test_role_cluster_source_defaults_to_registry_and_is_not_written(
+        main_window, tmp_path, monkeypatch):
+    path = tmp_path / "root.sexp"
+    _write(path, {})
+
+    # The DOCK'S OWN INTENT is what gets pinned, not only the file: the s-expr
+    # writer omits default-valued fields anyway, so a file-level assertion alone
+    # cannot tell "we skipped the key" from "we asked for it and the writer
+    # dropped it" (mutation М4b, 2026-09-18).
+    calls = []
+    monkeypatch.setattr(root_metadata_mod, "merge_write",
+                        lambda p, updates: calls.append(dict(updates)))
+
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(path)
+
+    assert dock.role_cluster_source_combo.currentData() == "registry"
+    dock._on_save()
+
+    assert all("role_cluster_source" not in updates for updates in calls)
+    assert "role_cluster_source" not in _load(path)
+
+
+def test_role_cluster_source_board_is_shown_when_the_file_declares_it(main_window, tmp_path):
+    # TWO files on purpose, registry first: the combo must be at the DEFAULT
+    # before the board file is loaded, or the index would not change and the
+    # repopulation would emit nothing — which is exactly how the first version of
+    # this guard let a missing blockSignals survive (mutation М4d, 2026-09-18;
+    # the dock also restores gui_state.json's last root in __init__, so "which
+    # index are we starting from" cannot be assumed).
+    registry_path = tmp_path / "registry_root.sexp"
+    _write(registry_path, {})
+    path = tmp_path / "board_root.sexp"
+    _write(path, {"role_cluster_source": "board"})
+    before = path.read_text(encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    seen = []
+    dock.role_cluster_source_combo.currentIndexChanged.connect(seen.append)
+
+    dock.set_target_file(registry_path)
+    dock.set_target_file(path)
+
+    assert dock.role_cluster_source_combo.currentData() == "board"
+    # Repopulating the combo is NOT a user edit, and set_target_file's contract
+    # is "a (re)loaded file is by definition saved". The spy is what pins the
+    # blockSignals: anything wired to currentIndexChanged (dirty tracking, and
+    # in the layer_combo pattern even auto-staging) must never fire while a file
+    # is being loaded.
+    assert seen == []
+    assert dock._dirty is False
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_role_cluster_source_pick_writes_the_bare_value(main_window, tmp_path):
+    path = tmp_path / "root.sexp"
+    _write(path, {})
+
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(path)
+    dock.role_cluster_source_combo.setCurrentIndex(
+        dock.role_cluster_source_combo.findData("board"))
+    dock._on_save()
+
+    assert _load(path)["role_cluster_source"] == "board"
+
+
+def test_switching_the_role_cluster_source_to_board_is_announced(main_window, tmp_path, caplog):
+    path = tmp_path / "root.sexp"
+    _write(path, {})
+
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(path)
+    with caplog.at_level("WARNING"):
+        dock.role_cluster_source_combo.setCurrentIndex(
+            dock.role_cluster_source_combo.findData("board"))
+        dock._on_save()
+
+    assert any("now the BOARD" in r.message for r in caplog.records)
+
+
+def test_an_unknown_role_cluster_source_does_not_crash_the_panel(main_window, tmp_path):
+    """The dock reads RAW data: config/loader.py fatals on an unknown value, but
+    the panel itself must survive a hand-broken file and show the default."""
+    path = tmp_path / "root.sexp"
+    _write(path, {"role_cluster_source": "registryy"})
+
+    dock = RootMetadataDock(main_window)
+    dock.set_target_file(path)
+
+    assert dock.role_cluster_source_combo.currentData() == "registry"

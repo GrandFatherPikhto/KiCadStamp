@@ -18201,3 +18201,23 @@ msgstr "the symbol uuid is the store's key — a refdes-keyed value would arrive
 #, python-brace-format
 msgid "unknown role_cluster_source {value!r}"
 msgstr "unknown role_cluster_source {value!r}"
+
+#: gui/docks/root_metadata.py
+msgid "Board — read the values from the live board"
+msgstr "Board — read the values from the live board"
+
+#: gui/docks/root_metadata.py
+msgid "Registry — our values win over the board"
+msgstr "Registry — our values win over the board"
+
+#: gui/docks/root_metadata.py
+msgid "Role/Cluster source is now the BOARD: stored values stay in the override store but no longer take effect."
+msgstr "Role/Cluster source is now the BOARD: stored values stay in the override store but no longer take effect."
+
+#: gui/docks/root_metadata.py
+msgid "Role/Cluster source is now the REGISTRY: the stored values take effect again."
+msgstr "Role/Cluster source is now the REGISTRY: the stored values take effect again."
+
+#: gui/docks/root_metadata.py
+msgid "Role/Cluster source:"
+msgstr "Role/Cluster source:"
