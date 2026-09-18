@@ -352,21 +352,93 @@ def test_c15_shipping_code_creates_adapters_only_through_the_factory():
     is exactly the regression this guard exists for: one missed call site and
     part of the resolution silently ignores the store.
 
-    Scope: the SHIPPING code (kicadstamp/, gui/, mcp_server/). The 27 probes of
-    kicadstamp/diagnostics/ and the two of tools/ join in step Т2а; the
-    gitignored root ./diagnostics/ is deliberately out of scope (it is Denis's
-    own sandbox, a different set of files on each machine)."""
+    Scope since Т2а (2026-09-18): the SHIPPING code (kicadstamp/, gui/,
+    mcp_server/) AND the 29 probes of kicadstamp/diagnostics/ and tools/ — every
+    one of them now names which truth it wants in its own code. The gitignored
+    root ./diagnostics/ stays deliberately out of scope (Denis's own sandbox, a
+    different set of files on each machine)."""
     factory = ROOT / "kicadstamp" / "adapter_factory.py"
     offenders: list[str] = []
-    for base in ("kicadstamp", "gui", "mcp_server"):
+    for base in ("kicadstamp", "gui", "mcp_server", "tools"):
         for path in (ROOT / base).rglob("*.py"):
             if path == factory:
                 continue          # the ONE place: it must call the real class
-            if "diagnostics" in path.parts:
-                continue          # step Т2а
             for line in _adapter_calls(path):
                 offenders.append(f"{path.relative_to(ROOT)}:{line}")
 
     assert offenders == [], (
         "adapters must be created through kicadstamp.adapter_factory."
         f"create_board_adapter: {offenders}")
+
+
+def _factory_calls(path: Path) -> list:
+    """Every `create_board_adapter(...)` CALL NODE in `path` — parsed, never
+    grepped: the step-style probes carry the name inside a `_()` label STRING,
+    and a text scan mistakes that label for a mode-less call."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    calls = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if name == "create_board_adapter":
+                calls.append(node)
+    return calls
+
+
+_BOARD_PROBES = {
+    "probe_board_role_cluster_fields.py",
+    "get_selected_component.py",
+    "diagnostic_charset.py",
+    # not in the plan's own list: found while reviewing the migration — these two
+    # READ Role/Cluster with no profile anywhere, so what they show is the BOARD
+    "probe_selection_kinds.py",
+    "probe_channel_twins.py",
+}
+
+
+def test_c15b_every_probe_names_the_truth_it_wants():
+    """Т2а's other half: an adapter creation in a probe must never be MODE-LESS.
+
+    Every call in kicadstamp/diagnostics/ and tools/ carries either
+    `config_path=` (it resolves, so it wants the EFFECTIVE values) or an explicit
+    `use_store=False` (it wants the physical board / does not read Role at all).
+    The BOARD probes additionally say so in their module docstring — that is what
+    a reader six months from now will need, and what the rule asked for."""
+    offenders: list[str] = []
+    for base in ("kicadstamp/diagnostics", "tools"):
+        for path in (ROOT / base).rglob("*.py"):
+            for call in _factory_calls(path):
+                named = {keyword.arg for keyword in call.keywords}
+                if "config_path" not in named and "use_store" not in named:
+                    offenders.append(
+                        f"{path.relative_to(ROOT)}:{call.lineno}: mode-less call")
+            if path.name in _BOARD_PROBES:
+                if "PHYSICALLY lying on the board" not in path.read_text(
+                        encoding="utf-8"):
+                    offenders.append(f"{path.relative_to(ROOT)}: no docstring line")
+
+    assert offenders == [], offenders
+
+
+def test_c15a_the_bare_mode_shows_the_board_even_with_records(monkeypatch, tmp_path):
+    """The NAMED bare mode is what a probe about the PHYSICAL board asks for: it
+    must show the board's own value while the very same profile, read the normal
+    way, is overridden by the store. Losing this difference would cost us the
+    only tool that tells "the board is empty" from "the board has a value that
+    our store overrides" (plan Т2а).
+
+    The bare call is handed an EXPLICIT store on purpose: "bare" must mean "no
+    layer at all", not "a layer that happens to be empty"."""
+    _fake_factory(monkeypatch)
+    profile = _profile(tmp_path)
+    _write_store(profile)
+    fp = _FakeFootprint("R1", uuid=UUID_A, role="R_IN")
+    store = _store((UUID_A, ROLE_FIELD_NAME, "R_FB"))
+
+    bare = create_board_adapter(config_path=str(profile), store=store,
+                                use_store=False)
+    layered = create_board_adapter(config_path=str(profile))
+
+    assert bare.get_field_value(fp, ROLE_FIELD_NAME) == "R_IN"
+    assert layered.get_field_value(fp, ROLE_FIELD_NAME) == "R_FB"

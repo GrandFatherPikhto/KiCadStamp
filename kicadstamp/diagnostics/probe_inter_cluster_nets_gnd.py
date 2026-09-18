@@ -14,15 +14,23 @@ all its pads belong to 2+ of the tree's nodes. A GND BRIDGE between two nodes is
 therefore offered now, while a GND pour is not (a zone is not part of the
 connectivity graph at all) and a GND stub inside one cluster is not either.
 
+The nodes it groups by are the DIALOG's nodes (the Cluster field plus its
+fallback to refdes), so this probe reads the EFFECTIVE Role/Cluster values and
+goes through the adapter factory WITH the profile (plan Т2а): a board-only read
+could group the very copper it is judging differently from the dialog.
+
 Read-only: connects to the live board, reads the selection, prints a report.
 Run it with KiCad open, a selection made, e.g.:
 
-    .venv/bin/python kicadstamp/diagnostics/probe_inter_cluster_nets_gnd.py
+    .venv/bin/python kicadstamp/diagnostics/probe_inter_cluster_nets_gnd.py [PROFILE]
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+DEFAULT_PROFILE = (Path(__file__).resolve().parents[2] / "profiles"
+                   / "3ch-awg-tia-v103" / "config.sexp")
 
 
 def main() -> int:
@@ -32,12 +40,14 @@ def main() -> int:
         classify_unit,
         find_copper_units,
     )
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter
+    from kicadstamp.adapter_factory import create_board_adapter
+
+    config = sys.argv[1] if len(sys.argv) > 1 else str(DEFAULT_PROFILE)
 
     # 20 s ON PURPOSE (Э4, plan_2026_09_13_timeout_sweep) — deliberately NOT
     # DEFAULT_TIMEOUT_MS: one probe reads the whole selection's copper plus the
     # board's item lists, so a low ceiling would abort the report, not the board.
-    adapter = KiCadBoardAdapter(timeout_ms=20000)
+    adapter = create_board_adapter(timeout_ms=20000, config_path=config)
     adapter.refresh_board()
     selected = list(adapter.get_selected_items() or [])
     if not selected:

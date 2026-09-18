@@ -18,7 +18,7 @@ import time
 from kipy.board_types import BoardLayer, Pad
 from kipy.geometry import Vector2, Angle
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.geometry.pad_projection import local_pad_offset, predict_pad_position
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
@@ -84,7 +84,10 @@ def main():
                     help=_("IPC timeout in ms"))
     args = ap.parse_args()
 
-    adapter = step(_("KiCadBoardAdapter(...)"), KiCadBoardAdapter, timeout_ms=args.timeout_ms)
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = step(_("create_board_adapter(...)"),
+             lambda *, timeout_ms=None: create_board_adapter(
+                 timeout_ms=timeout_ms, use_store=False), timeout_ms=args.timeout_ms)
     step(_("adapter.refresh_board()"), adapter.refresh_board)
 
     fp0 = find_fp(adapter, args.ref)

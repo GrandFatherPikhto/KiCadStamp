@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.config.sexp_format import sexp_to_dict  # noqa: E402
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME  # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter  # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter  # noqa: E402
 from kicadstamp.net_resolution import RULE_NETS  # noqa: E402
 from kicadstamp.template_extraction import (  # noqa: E402
     _selection_role_nets as selection_role_nets,
@@ -98,7 +98,7 @@ def main():
     params = _load_extract_profile_params(profile, profile_key)
     print(f"profile params ({profile_key}): {params}")
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=DEFAULT_PROFILE)
     adapter.refresh_board()
     print("connected to live board\n")
 

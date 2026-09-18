@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.config import load_config
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.geometry.keepout import build_keepout
 from kicadstamp.utils.units import MM
@@ -38,7 +38,8 @@ def main():
     cfg, _ctx = load_config(config_path)
 
     logger.info(_("Connecting to KiCad..."))
-    adapter = KiCadBoardAdapter()
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     logger.info(_("Creating planner..."))

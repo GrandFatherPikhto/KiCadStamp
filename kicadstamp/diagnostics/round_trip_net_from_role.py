@@ -19,19 +19,25 @@ Two halves, both read-only (nothing is placed or written to the board):
      This exercises exactly the apply path the calculator uses
      (_resolve_role_nets before geometry), without touching the board.
 
+Both halves ask what the PROGRAM resolves (the extractor's role nets, then
+resolve_net_from_role), so this probe reads the EFFECTIVE Role/Cluster values:
+it goes through the adapter factory WITH the profile (plan Т2а). A board-only
+read would silently ignore the override store, and the round trip would then
+"prove" something the resolver no longer does.
+
 Requires KiCad running with the 3CH-AWG-TIA board open and up to date
 (Update PCB from Schematic already run — same precondition as --board in
 net_from_role_audit.py).
 
 Run:
-    python -m kicadstamp.diagnostics.round_trip_net_from_role
+    python -m kicadstamp.diagnostics.round_trip_net_from_role [PROFILE]
 """
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.template_extraction import extract_template_from_selection
 from kicadstamp.net_resolution import resolve_net_from_role
 
@@ -40,6 +46,8 @@ ROLE_FIELD = "Role"
 P2V5 = "LDO_ADJ_P2V5"
 N2V5 = "LDO_ADJ_N2V5"
 RULE_NETS = {"GND"}
+DEFAULT_PROFILE = (Path(__file__).resolve().parents[2] / "profiles"
+                   / "3ch-awg-tia-v103" / "config.sexp")
 
 
 def _cluster_footprints(adapter, cluster: str):
@@ -126,7 +134,9 @@ def _summarize_item(kind, entry):
 
 
 def main():
-    adapter = KiCadBoardAdapter()
+    config = sys.argv[1] if len(sys.argv) > 1 else str(DEFAULT_PROFILE)
+    print(f"profile (the store's home): {config}")
+    adapter = create_board_adapter(config_path=config)
     adapter.refresh_board()
     print("connected to live board")
 

@@ -47,7 +47,7 @@ from kicadstamp.diagnostics.probe_spoke_cell_identification import (       # noq
 )
 from kicadstamp.domain.board import Footprint                                # noqa: E402
 from kicadstamp.exceptions import ValidationError                            # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter                       # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter                       # noqa: E402
 from kicadstamp.placement.services.component_resolver import ComponentResolver  # noqa: E402
 from kicadstamp.utils.units import MM                                        # noqa: E402
 
@@ -67,7 +67,7 @@ def main() -> int:
     cfg, ctx = load_config(config)
     sheet_names = dict(ctx.sheet_names or {})
     print(f"profile: {config}")
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=config)
     try:
         adapter.refresh_board()
         footprints = adapter.get_footprints()

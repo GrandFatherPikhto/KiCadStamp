@@ -22,7 +22,7 @@ import argparse
 import sys
 import time
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.utils.units import MM
 from kipy.board_types import BoardLayer
 from kicadstamp.i18n import _
@@ -61,7 +61,10 @@ def main():
     print(_("=== Test: flip component {ref}, timeout={timeout} ms ===\n")
           .format(ref=args.ref, timeout=args.timeout_ms))
 
-    adapter = step(_("KiCadBoardAdapter(...)"), KiCadBoardAdapter, timeout_ms=args.timeout_ms)
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = step(_("create_board_adapter(...)"),
+             lambda *, timeout_ms=None: create_board_adapter(
+                 timeout_ms=timeout_ms, use_store=False), timeout_ms=args.timeout_ms)
     step(_("adapter.refresh_board()"), adapter.refresh_board)
 
     fp = step(_("adapter.get_footprint({ref!r})").format(ref=args.ref), adapter.get_footprint, args.ref)

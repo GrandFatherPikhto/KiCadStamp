@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """
+
+This probe shows the value PHYSICALLY lying on the board, NOT the effective
+value: the Role/Cluster override store is deliberately not applied here. The
+two are different questions, and telling an empty board from a value that our
+store overrides is exactly what this probe is for (plan Т2а).
+
 diagnostics/get_selected_component.py — prints detailed information
 about components selected on the board (refdes, value, footprint, position,
 angle, size, pads, nets, Role field).
@@ -15,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import logging
 from kicadstamp.domain.board import Footprint
 from kicadstamp.constants import ROLE_FIELD_NAME
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
 
@@ -25,7 +31,8 @@ logger = logging.getLogger(__name__)
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    adapter = KiCadBoardAdapter()
+    # shows what PHYSICALLY lies on the board — the override store is NOT applied
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     # Get selected items (expanding groups)

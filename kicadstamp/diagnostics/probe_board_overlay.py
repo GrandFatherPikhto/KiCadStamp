@@ -54,7 +54,7 @@ import time
 from kipy.board_types import BoardCircle, BoardLayer, BoardRectangle
 from kipy.geometry import Vector2 as KipyVector2
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.utils.units import MM
 
 _LAYER_NAMES = {value: name for name, value in BoardLayer.items()}
@@ -133,7 +133,8 @@ def main():
     parser.add_argument("--pause-s", type=float, default=8.0)
     args = parser.parse_args()
 
-    adapter = KiCadBoardAdapter()
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     if args.layers:

@@ -53,7 +53,7 @@ from typing import Callable, List, Sequence, Tuple, TypeVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.utils.units import MM
 from kicadstamp.constants import POSITION_TOLERANCE_MM
 from kicadstamp.domain.board import Via, Track
@@ -137,7 +137,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Only report duplicates, delete nothing")
     args = ap.parse_args()
 
-    adapter = KiCadBoardAdapter()
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     via_groups = _find_duplicate_groups(adapter.get_vias(), _via_key, _via_pos, POSITION_TOLERANCE_MM)

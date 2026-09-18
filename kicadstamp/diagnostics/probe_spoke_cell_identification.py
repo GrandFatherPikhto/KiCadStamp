@@ -56,7 +56,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME         # n
 from kicadstamp.domain.board import Footprint                                # noqa: E402
 from kicadstamp.exceptions import ValidationError                            # noqa: E402
 from kicadstamp.geometry.spoke_layout import local_to_absolute               # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter                       # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter                       # noqa: E402
 from kicadstamp.placement.services.component_resolver import ComponentResolver  # noqa: E402
 from kicadstamp.placement.services.manual_position_calculator import (      # noqa: E402
     ManualPositionCalculator,
@@ -321,7 +321,7 @@ def main() -> int:
     cfg, ctx = load_config(args.config)
     sheet_names = dict(ctx.sheet_names or {})
     print(f"profile: {args.config}")
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=args.config)
     try:
         adapter.refresh_board()
         fp_by_ref = {fp.ref: fp for fp in adapter.get_footprints()}

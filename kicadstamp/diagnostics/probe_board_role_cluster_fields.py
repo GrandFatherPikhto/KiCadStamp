@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Stage 2 probe — can a role table write Role/Cluster straight onto the board?
+"""
+
+This probe shows the value PHYSICALLY lying on the board, NOT the effective
+value: the Role/Cluster override store is deliberately not applied here. The
+two are different questions, and telling an empty board from a value that our
+store overrides is exactly what this probe is for (plan Т2а).
+Stage 2 probe — can a role table write Role/Cluster straight onto the board?
 
 2026-09-17, chat plan "role table by selection" (stage 2 of the spoke work).
 The table would write through KiCadBoardAdapter.set_field_values_bulk, which
@@ -30,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME   # noqa: E402
 from kicadstamp.domain.board import Footprint                          # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter                 # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter                 # noqa: E402
 
 LIST_LIMIT = 40
 
@@ -54,7 +60,8 @@ def main() -> int:
                         help="also give a per-footprint verdict for the selection")
     args = parser.parse_args()
 
-    adapter = KiCadBoardAdapter()
+    # shows what PHYSICALLY lies on the board — the override store is NOT applied
+    adapter = create_board_adapter(use_store=False)
     try:
         adapter.refresh_board()
         footprints = adapter.get_footprints()

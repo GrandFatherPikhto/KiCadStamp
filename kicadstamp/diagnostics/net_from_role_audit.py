@@ -83,7 +83,7 @@ from kicadstamp.net_from_role_resolver import (  # noqa: E402
 
 try:  # live-board mode (--board) needs kipy + the adapter; keep it optional
     from kipy.geometry import Vector2  # noqa: E402
-    from kicadstamp.kicad.adapter import KiCadBoardAdapter  # noqa: E402
+    from kicadstamp.adapter_factory import create_board_adapter  # noqa: E402
     from kicadstamp.utils.units import MM  # noqa: E402
     from kicadstamp.geometry.spoke_layout import local_to_absolute  # noqa: E402
     from kicadstamp.cluster_matching import cluster_prefix_match  # noqa: E402
@@ -555,16 +555,21 @@ def audit_autoweight(cell: dict, params: dict, cluster: str,
 # Live board fake-run (--board, IPC via kipy)
 # --------------------------------------------------------------------------
 
-def load_live_board():
+def load_live_board(config_path=None):
     """Connect to the live KiCad board; return (adapter, pads_by_ref).
 
     pads_by_ref[ref] = [(x_mm, y_mm, pad_number, net), ...] — real pad
     coordinates from the board, so the fake-run can measure distance to the
     actual PAD (not just the component centre).
+
+    `config_path` is the profile to resolve roles against (plan Т2а: this audit
+    exists to catch the program's OWN disagreements, so it must see the override
+    store). It is a PARAMETER, not a global: this function is not called from
+    main()'s scope, so reading `args` here would be a NameError.
     """
     if not _LIVE_AVAILABLE:
-        raise RuntimeError("live-board mode requires kipy/kicadstamp.kicad.adapter")
-    adapter = KiCadBoardAdapter()
+        raise RuntimeError("live-board mode requires kipy + kicadstamp.adapter_factory")
+    adapter = create_board_adapter(config_path=config_path)
     adapter.refresh_board()
     pads_by_ref = {}
     for fp in adapter.get_footprints():
@@ -746,7 +751,7 @@ def main():
 
     if args.board:
         try:
-            adapter, pads_by_ref = load_live_board()
+            adapter, pads_by_ref = load_live_board(args.profile)
             print(f"live board: {len(pads_by_ref)} refs with pads")
             if cluster_role_nets is None:
                 # No --netlist given -- build the same role/net graph straight

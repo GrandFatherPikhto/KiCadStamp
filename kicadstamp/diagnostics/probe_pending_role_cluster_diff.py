@@ -34,7 +34,7 @@ from gui.docks.pending import compute_pending_edits                     # noqa: 
 from gui.schema_model import load_schematic_components, load_schematic_instances  # noqa: E402
 from kicadstamp.config import load_config                               # noqa: E402
 from kicadstamp.explore import Board                                    # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter                  # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter                  # noqa: E402
 
 DEFAULT_PROFILE = (Path(__file__).resolve().parents[2] / "profiles"
                    / "3ch-awg-tia-v103" / "config.sexp")
@@ -60,7 +60,7 @@ def main() -> int:
     print("\ntimings:")
     components = timed("load_schematic_components", lambda: load_schematic_components(str(root)))
     path_index = timed("load_schematic_instances", lambda: load_schematic_instances(str(root)))
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=config)
     try:
         board = Board(adapter, dict(ctx.sheet_names or {}))
         timed("Board.refresh (footprint list)", board.refresh)

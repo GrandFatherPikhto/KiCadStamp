@@ -50,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME  # noqa: E402
 from kicadstamp.config import load_config  # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter  # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter  # noqa: E402
 from kicadstamp.placement.services.role_narrowing import (  # noqa: E402
     _narrow_ambiguous_candidates,
     narrow_candidates_by_sheet,
@@ -198,7 +198,7 @@ def main(argv=None) -> int:
         else ctx.sheet_names
     entities_by_name = {e.name: e for e in cfg.entities}
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=args.config)
     adapter.refresh_board()
     try:
         all_fps = adapter.get_footprints()

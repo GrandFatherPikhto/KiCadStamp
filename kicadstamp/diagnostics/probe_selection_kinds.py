@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """
+This probe shows the value PHYSICALLY lying on the board, NOT the effective
+value: the Role/Cluster override store is deliberately not applied here (the
+probe carries no profile and its subject is what KiCad hands us). Telling an
+empty board from a value our store overrides is one of the things it is for
+(plan Т2а).
+
 probe_selection_kinds.py — what does KiCad actually hand us for a selection,
 and can a selected Pad be traced back to its footprint?
 
@@ -33,7 +39,7 @@ from kipy.board_types import Pad as KipyPad
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import board_item_from_kipy, unwrap
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 
 
 def describe(index, raw, dto):
@@ -75,7 +81,9 @@ def find_pad_owner(adapter, pad_uuid):
 
 
 def main():
-    adapter = KiCadBoardAdapter()
+    # BARE on purpose (plan Т2а): the Role/Cluster printed below are the ones
+    # PHYSICALLY on the board — the override store is NOT applied here
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
 
     raw_selection = list(adapter._board.get_selection())

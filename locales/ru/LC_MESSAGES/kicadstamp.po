@@ -16910,3 +16910,7 @@ msgstr "неизвестный role_cluster_source {value!r} в {path} — ис�
 #, python-brace-format
 msgid "{count} Role/Cluster value(s) came from the override store, not from the board"
 msgstr "{count} значений Role/Cluster взяты из хранилища, а не с платы"
+
+#: kicadstamp/diagnostics/test_create_one_via.py
+msgid "create_board_adapter(...)"
+msgstr "create_board_adapter(...)"

@@ -26,7 +26,7 @@ import statistics
 import sys
 import time
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 
 ROLE_FIELD = "Role"
 
@@ -55,7 +55,8 @@ def main(argv=None):
     ap.add_argument("--timeout-ms", type=int, default=20000)
     args = ap.parse_args(argv)
 
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
     adapter.refresh_board()
     footprints = adapter.get_footprints()
     n = len(footprints)

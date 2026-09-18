@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from kicadstamp.config import load_config, clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 
 
@@ -91,7 +91,7 @@ def main() -> None:
         print("No matching top-level clone_placements found.")
         return
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=args.config)
     adapter.refresh_board()
     calc = ClonePositionCalculator(adapter, cfg, sheet_names=sheet_names)
 

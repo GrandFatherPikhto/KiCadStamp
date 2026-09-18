@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 import logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
 
@@ -44,7 +44,8 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout)
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(timeout_ms=args.timeout, use_store=False)
     adapter.refresh_board()
 
     fp = adapter.get_footprint(args.ref)

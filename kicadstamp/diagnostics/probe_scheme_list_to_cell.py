@@ -51,7 +51,7 @@ from kicadstamp.config import load_config                                 # noqa
 from kicadstamp.constants import ROLE_FIELD_NAME                          # noqa: E402
 from kicadstamp.diagnostics.probe_spoke_cell_identification import first_line  # noqa: E402
 from kicadstamp.exceptions import ValidationError                         # noqa: E402
-from kicadstamp.kicad.adapter import KiCadBoardAdapter                    # noqa: E402
+from kicadstamp.adapter_factory import create_board_adapter                    # noqa: E402
 from kicadstamp.registry import track_matches, via_matches                # noqa: E402
 from kicadstamp.scheme_list_apply import plan_all_scheme_lists            # noqa: E402
 from kicadstamp.utils.paths import (                                      # noqa: E402
@@ -96,7 +96,7 @@ def main() -> int:
         print("no scheme_list Entities in this profile")
         return 0
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=args.config)
     try:
         adapter.refresh_board()
         fp_by_ref = {fp.ref: fp for fp in adapter.get_footprints()}

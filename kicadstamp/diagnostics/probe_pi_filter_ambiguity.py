@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.config import load_config
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.sheet_names import resolve_sheet_path_names
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 
@@ -37,7 +37,7 @@ def main():
     cfg = load_config(CONFIG_PATH)
     print(f"sheet_names: {len(cfg.sheet_names)} записей\n")
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=CONFIG_PATH)
     adapter.refresh_board()
 
     for fp in adapter.get_footprints():

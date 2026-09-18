@@ -56,7 +56,7 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.geometry.keepout import build_keepout, point_is_clear
 from kicadstamp.geometry.pad_area import pad_area_of
 from kicadstamp.geometry.thermal_grid import compute_thermal_via_grid
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.utils.units import MM
 
@@ -213,7 +213,8 @@ def main() -> int:
     cfg, ctx = load_config(args.config)
     sheet_names = ctx.sheet_names if ctx is not None else {}
 
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout)
+    # BARE: Role/Cluster does not enter this probe's answer at all (plan Т2а)
+    adapter = create_board_adapter(timeout_ms=args.timeout, use_store=False)
     adapter.refresh_board()
     planner = ViaPlanner(adapter, cfg, sheet_names=sheet_names)
 

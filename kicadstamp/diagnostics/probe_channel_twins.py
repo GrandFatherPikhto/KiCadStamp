@@ -1,4 +1,10 @@
 """
+This probe shows the value PHYSICALLY lying on the board, NOT the effective
+value: the Role/Cluster override store is deliberately not applied here, because
+its subject is the BOARD's own data — and because it must mirror channel_copy,
+which itself carries no profile today. Telling an empty board from a value our
+store overrides is one of the things it is for (plan Т2а).
+
 probe_channel_twins.py — one-off live probe (read-only): shows the channel
 layout of the open board exactly as channel_copy.py sees it.
 
@@ -16,13 +22,15 @@ Run:
 from collections import defaultdict
 import sys
 
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.constants import ROLE_FIELD_NAME, CLUSTER_FIELD_NAME
 from kicadstamp.channel_copy import _channel_name_of_fp
 
 
 def main():
-    adapter = KiCadBoardAdapter()
+    # BARE on purpose (plan Т2а): the roles/clusters printed below are the ones
+    # PHYSICALLY on the board — the same ones channel_copy reads today
+    adapter = create_board_adapter(use_store=False)
     adapter.refresh_board()
     all_fps = adapter.get_footprints()
 

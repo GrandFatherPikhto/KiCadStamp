@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """
+
+This probe shows the value PHYSICALLY lying on the board, NOT the effective
+value: the Role/Cluster override store is deliberately not applied here. The
+two are different questions, and telling an empty board from a value that our
+store overrides is exactly what this probe is for (plan Т2а).
+
 diagnostics/diagnostic_charset.py — scans the entire board for Role/Cluster
 fields (or any other via --fields) containing characters outside printable ASCII
 (0x20-0x7E).
@@ -35,7 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -84,7 +90,8 @@ def main():
 
     fields = [f.strip() for f in args.fields.split(",") if f.strip()]
 
-    adapter = KiCadBoardAdapter(timeout_ms=args.timeout_ms)
+    # shows what PHYSICALLY lies on the board — the override store is NOT applied
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
     adapter.refresh_board()
     footprints = adapter.get_footprints()
 

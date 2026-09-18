@@ -74,7 +74,7 @@ from kicadstamp.internode_copper import (
     classify_unit,
     find_copper_units,
 )
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.placement.services.role_narrowing import _narrow_by_sheet_cluster_selection
 from kicadstamp.sheet_names import resolve_sheet_path_names
 from kicadstamp.template_selection import _inflated_boxes, _point_in_box, _points_match
@@ -213,7 +213,7 @@ def main() -> int:
         print(f"tree {args.tree!r} not found; trees: {[t.name for t in cfg.trees]}")
         return 2
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=args.config)
     adapter.refresh_board()
     board_fps = list(adapter.get_footprints())
     fps, items, area_label = _area(adapter, args.selection)

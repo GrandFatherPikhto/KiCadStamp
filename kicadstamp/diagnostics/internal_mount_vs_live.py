@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.config import load_config
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import mount_node_base, tree_layout_base
 from kicadstamp.trees import _walk_nodes
@@ -50,7 +50,7 @@ def main() -> int:
 
     cfg, ctx = load_config(config_path)
     sheet_names = dict(ctx.sheet_names or {})
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=config_path)
     adapter.refresh_board()
     forest = link_trees(cfg, cfg.trees)
 

@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.cell_frame import normalize_deg
 from kicadstamp.config import load_config
-from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.placement.services.component_resolver import ComponentResolver
 from kicadstamp.tree_position import (layout_tree_from_base, mount_node_base,
                                       node_offset, node_position,
@@ -140,7 +140,7 @@ def main() -> int:
     print(f"config: {config_path}  (saved {mtime:%Y-%m-%d %H:%M:%S} — unsaved "
           f"GUI edits are NOT seen)")
 
-    adapter = KiCadBoardAdapter()
+    adapter = create_board_adapter(config_path=str(config_path))
     counters = {"angle_diff": 0, "unresolved": 0, "self_check": 0,
                 "pure_compensation": 0}
     try:
