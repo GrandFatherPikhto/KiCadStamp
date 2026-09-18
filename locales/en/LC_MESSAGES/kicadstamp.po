@@ -18360,3 +18360,7 @@ msgstr ""
 #: kicadstamp/cli_main.py
 msgid "Refine --origin-by-component-role: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet_names — the optional --config lends extract the profile's override store, not its sheet map; prefer --origin-by-component-cluster)."
 msgstr ""
+
+#: gui/docks/role_cluster_tree.py
+msgid "(from the store)"
+msgstr ""

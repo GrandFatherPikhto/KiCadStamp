@@ -309,6 +309,20 @@ the board alone would be a lie, because our value outranks the board and a lefto
 the erased Role straight back ("удалил, а оно есть"), which is worse than "не удалилось". The record
 goes for the skipped footprints too: those are exactly the ones a leftover record would resurrect.
 
+Since 2026-09-18 (Т5г of the same plan) the board snapshot this tree, the pickers and Pending changes
+all read is built **through the override layer**, that is, WITH the project's store — which is the only
+reason a Role that exists in KiCadStamp alone can be chosen at all: a picker can offer nothing beyond
+what its snapshot holds. The tree itself is a **showcase**, not a picker, so it must not silently
+display a value the board does not carry: a row whose value came from the store is marked
+`(from the store)`. That mark is precisely "the value in force ≠ the physical one", and BOTH come out
+of one snapshot row — a second read for the physical value was rejected on correctness, not on cost:
+the board can move between two passes (a nudged component, KiCad's redraw, an autosave), and Pending
+would then show a picture that existed at no single moment. Pending changes' **Board** column is that
+physical value. The GUI's own poll adapter follows the project: `root_changed` **rebinds** its store
+(`bind_store` — the very call the MCP server makes for its per-call profiles; no reconnect, the socket
+is never touched), and the project path is remembered for the next connect, so a root restored at
+launch is bound from the first attempt.
+
 The combo boxes offer as suggestions the sorted unique Role/Cluster values already present in the
 live snapshot — there is no separate fixed vocabulary, the board is its own source of known values,
 and a value you just recorded stays in the suggestions. Those

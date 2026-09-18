@@ -109,10 +109,14 @@ def test_connect_times_out_instead_of_hanging_forever():
     dial_returned = threading.Event()
     late_board = _fake_board()
 
-    def _hangs_forever(timeout_ms):
+    def _hangs_forever(timeout_ms, **kwargs):
         # Simulates kipy's block_on_dial=True never returning — until this
         # test releases it BELOW, i.e. it outlives the caller's give-up (that
         # is the whole point) but not the test run.
+        # **kwargs: Board.connect() also takes config_path since Т5г (the
+        # project's override store for the poll adapter) — accepted and
+        # ignored here, because THIS test is about the timeout, not the
+        # binding; the binding has its own guard at the end of this file.
         release.wait()
         dial_returned.set()
         # Returning a Board keeps the internal daemon thread quiet once
@@ -162,8 +166,9 @@ def test_late_success_after_timeout_closes_the_orphaned_board():
     late_board = _fake_board()
     late_board.adapter.close.side_effect = lambda: closed.set()
 
-    def _slow_success(timeout_ms):
-        # Returns only after the caller already gave up on us.
+    def _slow_success(timeout_ms, **kwargs):
+        # Returns only after the caller already gave up on us. **kwargs for
+        # the same reason as _hangs_forever above (Т5г's config_path).
         release.wait()
         return late_board
 
@@ -178,3 +183,43 @@ def test_late_success_after_timeout_closes_the_orphaned_board():
         assert closed.wait(5.0)
 
     late_board.adapter.close.assert_called_once()
+
+
+def test_connect_hands_the_remembered_project_to_board_connect(tmp_path):
+    """Т5г/С25, the OTHER half of the store binding: the poll adapter is built
+    once per CONNECTION, while the profile belongs to the PROJECT. A project
+    opened (or restored at startup) while no board is up therefore reaches the
+    adapter only if the connection REMEMBERS the profile and passes it into the
+    FIRST Board.connect() — set_project_config() has nothing to rebind yet, its
+    own docstring says so. Board.connect() then builds its layer around this
+    project's store; drop this and the GUI's snapshot is built BARE, so a role
+    noted only in KiCadStamp could not even be chosen in a picker (С25) while
+    Pending would faithfully list it.
+
+    The negative is asserted in the same breath: with no project the connection
+    asks for a bare adapter (config_path None) — the pre-store behaviour, by
+    construction (plan §0: an empty store and the "board" switch reproduce the
+    pre-store plan exactly)."""
+    profile = tmp_path / "prof.sexp"
+    profile.write_text("", encoding="utf-8")
+    seen = []
+
+    def _connect(**kwargs):
+        seen.append(kwargs)
+        return _fake_board()
+
+    connection = BoardConnection()
+    # No board yet: this only REMEMBERS the path for the connect below.
+    connection.set_project_config(profile)
+
+    with patch("gui.connection.Board.connect", side_effect=_connect):
+        assert connection.connect() is None
+
+    assert seen == [{"timeout_ms": connection.timeout_ms,
+                     "config_path": str(profile)}]
+
+    bare = BoardConnection()
+    with patch("gui.connection.Board.connect", side_effect=_connect):
+        assert bare.connect() is None
+
+    assert seen[1]["config_path"] is None

@@ -80,7 +80,7 @@ def worker_timeout_ms(source) -> int:
     return value
 
 
-def _connect_with_timeout(timeout_ms: int) -> Board:
+def _connect_with_timeout(timeout_ms: int, config_path=None) -> Board:
     """Board.connect() wrapped with an EXTERNAL timeout, run on a throwaway
     daemon thread.
 
@@ -119,7 +119,7 @@ def _connect_with_timeout(timeout_ms: int) -> Board:
 
     def _run():
         try:
-            board = Board.connect(timeout_ms=timeout_ms)
+            board = Board.connect(timeout_ms=timeout_ms, config_path=config_path)
         except Exception as e:
             error.append(e)
             return
@@ -153,6 +153,10 @@ class BoardConnection:
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):
         self.timeout_ms = timeout_ms
         self._board: Optional[Board] = None
+        # The CURRENT project's config path (Т5г) — what the poll adapter's
+        # override layer is bound to. None until a project is open, which is the
+        # pre-store world: the layer stays inert and every read is the board's.
+        self._config_path: Optional[str] = None
         # Phase 5.2 — held exclusively by a background long op (Extract/
         # Redraw, see gui/worker.py): while True, MainWindow's polling timers
         # skip their ticks so this kipy REQ socket has exactly one in-flight
@@ -254,13 +258,42 @@ class BoardConnection:
         for window in self._latency.values():
             window.clear()
 
+    def set_project_config(self, config_path) -> None:
+        """Point this connection's POLL ADAPTER at the current profile's store
+        (plan_2026_09_18_field_overrides_store Т5г).
+
+        Why here: the adapter is created once per CONNECTION, while the profile —
+        and so the override store — is a property of the PROJECT. A project switch
+        must therefore reach an adapter that is already alive, and it must not
+        reopen the socket: the layer is REBOUND (`bind_store`, the same mechanism
+        the MCP server uses for its per-call profiles, Т3/С19), so the kipy client
+        and its REQ socket are never touched. Binding ``None`` (no project, or a
+        profile whose switch says "board") leaves the layer inert — the pre-store
+        behaviour, by construction rather than by luck.
+
+        Without this the GUI's own snapshot would show the BOARD's roles while the
+        store holds others: a role noted only in KiCadStamp could not even be
+        chosen in a picker (С25), while Pending would faithfully list it."""
+        self._config_path = str(config_path) if config_path else None
+        board = self._board
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        binder = getattr(adapter, "bind_store", None)
+        if binder is None:
+            # Nothing connected yet (the path is used at connect time), or a bare
+            # adapter the caller built itself (tests' fakes) — nothing to bind.
+            return
+        from kicadstamp.adapter_factory import store_for_config
+        store, source = (store_for_config(self._config_path)
+                         if self._config_path else (None, None))
+        binder(store, source=source)
+
     def connect(self) -> Optional[str]:
         """Attempts a fresh connection. Returns None on success, or an error
         message on failure — never raises, so a QTimer tick doesn't need a
         try/except at every call site."""
         self.disconnect()  # closes any stale board first — see its docstring
         try:
-            board = _connect_with_timeout(self.timeout_ms)
+            board = _connect_with_timeout(self.timeout_ms, self._config_path)
         except TimeoutError as e:
             logger.warning("Connect timed out: %s", e)
             return str(e)

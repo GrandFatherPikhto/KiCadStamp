@@ -109,6 +109,26 @@ def _store_value(store, symbol_uuid, field) -> Optional[str]:
     return store.get(symbol_uuid, field)
 
 
+def _board_value(selected, field: str):
+    """The PHYSICAL value for the Board column (Т5г/С27).
+
+    Since Т5г `Selected.role`/`.cluster` are the values IN FORCE — our stored
+    value when the store has one, the board's otherwise. The diff must NOT compare
+    the store with itself: the entire reason the Board column exists is to show
+    what physically lies on the board, so that a board edit made after the note
+    was taken stays visible (Т4).
+
+    `Selected` carries that as `board_role`/`board_cluster`, filled from the SAME
+    read (explore.Board._both → FieldOverrideAdapter.get_field_values), so the two
+    sides of this row can never describe different instants.
+
+    Falls back to the effective value for a hand-built object without the pair
+    (tests, other callers) — the single-truth world this diff lived in before Т5г.
+    """
+    physical = getattr(selected, f"board_{field}", None)
+    return getattr(selected, field) if physical is None else physical
+
+
 def _emit_side(edits: List[PendingEdit], ref: str, field: str, sch_value,
                board_value, board_has_field: bool, symbol_uuid, store) -> None:
     """ONE side's row, if it earns one. The rule, with the three sides s (schematic),
@@ -193,9 +213,11 @@ def compute_pending_edits(components, snapshot, path_index=None,
             # The symbol uuid IS the last hop of the full path the index is keyed
             # by (see schema_model._full_key) — the same key our store uses.
             symbol_uuid = p[-1] if p else None
-            _emit_side(edits, inst.ref, ROLE_FIELD_NAME, inst.role, s.role,
+            _emit_side(edits, inst.ref, ROLE_FIELD_NAME, inst.role,
+                       _board_value(s, "role"),
                        s.role_field_exists, symbol_uuid, store)
-            _emit_side(edits, inst.ref, CLUSTER_FIELD_NAME, inst.cluster, s.cluster,
+            _emit_side(edits, inst.ref, CLUSTER_FIELD_NAME, inst.cluster,
+                       _board_value(s, "cluster"),
                        s.cluster_field_exists, symbol_uuid, store)
     for i, s in enumerate(snapshot):
         if i in handled:
@@ -224,9 +246,10 @@ def compute_pending_edits(components, snapshot, path_index=None,
         # extended from ref-level to field-level). The field's VALUE may still
         # be None/empty (exists but cleared) — that is a real diff, kept. OUR
         # value needs no such gate: it lives in a file, not on the board.
-        _emit_side(edits, s.ref, ROLE_FIELD_NAME, c.role, s.role,
+        _emit_side(edits, s.ref, ROLE_FIELD_NAME, c.role, _board_value(s, "role"),
                    s.role_field_exists, board_uuid, store)
-        _emit_side(edits, s.ref, CLUSTER_FIELD_NAME, c.cluster, s.cluster,
+        _emit_side(edits, s.ref, CLUSTER_FIELD_NAME, c.cluster,
+                   _board_value(s, "cluster"),
                    s.cluster_field_exists, board_uuid, store)
     return sorted(edits, key=lambda e: (e.ref, e.field))
 

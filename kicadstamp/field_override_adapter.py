@@ -68,19 +68,35 @@ class FieldOverrideAdapter:
     def get_field_value(self, footprint, field_name: str):
         """Our value for (this symbol, Role/Cluster) when we have one — the
         board's value otherwise. Everything else is the board's, untouched."""
+        return self.get_field_values(footprint, field_name)[0]
+
+    def get_field_values(self, footprint, field_name: str) -> tuple:
+        """(effective, physical) — BOTH truths, from ONE board read (Т5г).
+
+        This layer is the only place where the two are ever in hand at the same
+        time: `get_field_value` must read the board's value before it can decide
+        whether ours wins, so handing the pair back costs NOTHING — no second IPC
+        round-trip, no second pass over the footprints. That is what lets a
+        snapshot carry both values of the same instant (plan Т5г/С28: two separate
+        snapshots were rejected because between them the board moves, and the diff
+        would then describe a picture that never existed).
+
+        A caller that only wants the value in force keeps calling
+        `get_field_value` — the pair is an ADDITION, never a replacement, so none
+        of the ~105 existing readers changes."""
         board_value = self._inner.get_field_value(footprint, field_name)
         if field_name not in OVERRIDABLE_FIELD_NAMES:
-            return board_value
+            return (board_value, board_value)
         if self._store is None or self._source != ROLE_CLUSTER_SOURCE_REGISTRY:
-            return board_value
+            return (board_value, board_value)
         symbol_uuid = symbol_uuid_of(footprint)
         if not symbol_uuid:
-            return board_value
+            return (board_value, board_value)
         ours = self._store.get(symbol_uuid, field_name)
         if ours is None:
-            return board_value
+            return (board_value, board_value)
         self._hits += 1
-        return ours
+        return (ours, board_value)
 
     def has_field(self, footprint, field_name: str) -> bool:
         """Still about the BOARD, deliberately: "the field exists physically"

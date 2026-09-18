@@ -97,6 +97,17 @@ def create_board_adapter(timeout_ms: int = DEFAULT_TIMEOUT_MS, *,
     return FieldOverrideAdapter(adapter, resolved_store, source=resolved_source)
 
 
+def store_for_config(config_path):
+    """(store | None, source) for a profile — the SAME resolution
+    ``create_board_adapter`` does for its layered mode, for a caller that must
+    REBIND a layer that already exists: the GUI's poll adapter when the project
+    changes (plan Т5г), exactly as the MCP server binds a store per call (Т3/С19).
+
+    ``(None, source)`` means the profile itself answers "board" — the caller must
+    then leave the layer inert, which is the pre-store behaviour by construction."""
+    return _resolve_store(config_path, None, None)
+
+
 def _resolve_store(config_path, store, source):
     """(store | None, source) — the explicit arguments win over the profile."""
     if store is not None:

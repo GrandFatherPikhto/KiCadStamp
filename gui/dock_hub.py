@@ -101,6 +101,18 @@ class DockHub:
 
     def __init__(self, main_window, connection, verbose: bool = False):
         self.main_window = main_window
+        # Held explicitly, because main_window.connection is NOT reliably set
+        # while this hub is being built (the composition root assigns it after
+        # DockHub) — and the poll adapter's store binding (Т5г) is wired below,
+        # in _wire(), through exactly this object.
+        self._connection = connection
+        # ... and the ONE method that binding needs, resolved once, here, with
+        # getattr: _wire() BINDS this callable into a partial (so _safe_call
+        # cannot help — it guards at emit time, after the attribute is already
+        # fetched), while _sync_root_to_docks() invokes it directly. A plain
+        # connection stand-in (tests/gui/conftest.py's _FakeConnection) simply
+        # has no store to rebind, which is the pre-store behaviour exactly.
+        self._set_project_config = getattr(connection, "set_project_config", None)
         # The root-config log_file: FileHandler currently attached to the
         # root logger, if any — see _on_root_file_changed_for_logging().
         self._log_file_handler: Optional[logging.Handler] = None
@@ -799,6 +811,23 @@ class DockHub:
         # at all — only kicadstamp_cli.py's `apply` command honored it (see
         # cli_common.peek_log_file). Reused here so a project's log_file:
         # covers the GUI too, not just the CLI.
+        # The GUI's own POLL adapter must be bound to the CURRENT project's
+        # override store (plan_2026_09_18_field_overrides_store Т5г): the snapshot
+        # it builds feeds every picker, and a role noted only in KiCadStamp has to
+        # be choosable there (С25). Same root_changed source and same _safe_call
+        # guard as every dock above; the connection rebinds an ALREADY-CREATED
+        # layer rather than reconnecting, so no socket is touched on a switch.
+        # getattr, not a direct attribute access — the same reason as
+        # request_refresh above, and one step stronger: _safe_call only guards
+        # at EMIT time, while the partial(...) below BINDS the method right
+        # here, so a connection stand-in without the method would raise
+        # AttributeError out of DockHub.__init__. Any plain connection
+        # (tests/gui/conftest.py's _FakeConnection among them) simply has no
+        # store to rebind, which is exactly the pre-store behaviour.
+        if self._set_project_config is not None:
+            self.root_metadata_dock.root_changed.connect(
+                partial(self._safe_call, "connection.set_project_config",
+                        self._set_project_config))
         self.root_metadata_dock.root_changed.connect(self._on_root_file_changed_for_logging)
         # Config working set (2026-09-01, plan project_save_model): staging is
         # ON whenever a project root is open, OFF/cleared on close — a root
@@ -3015,6 +3044,13 @@ class DockHub:
                         self.scheme_list_place_dock.set_root_path, path)
         self._safe_call("fieldstool_dock.set_root_path",
                         self.fieldstool_dock.set_root_path, path)
+        # The poll adapter follows the project too (Т5г) — part of THIS startup/
+        # Discard sync list, or a Discard would leave the adapter bound to the
+        # previous project's store. Only when the connection has that seam at
+        # all (see __init__) — a stand-in without it is not an error.
+        if self._set_project_config is not None:
+            self._safe_call("connection.set_project_config",
+                            self._set_project_config, path)
         self._safe_call("_on_root_file_changed_for_logging",
                         self._on_root_file_changed_for_logging, path)
         # V.3: a root config WITHOUT schematic_dir silently disables sheet-based

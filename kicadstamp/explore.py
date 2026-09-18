@@ -53,7 +53,24 @@ class Selected:
     physically-absent field as a diff to apply (see
     handoff_2026_08_27_pending_exclude_missing_board_fields). Default True
     so any manually-constructed Selected (tests, other callers) that
-    doesn't care about this scenario is unaffected."""
+    doesn't care about this scenario is unaffected.
+
+    TWO values per field, since Т5г (plan_2026_09_18_field_overrides_store):
+
+      * `role`/`cluster` are the values IN FORCE — OUR stored value when the
+        store has one, the board's otherwise. This is what the GUI reads: the
+        role pickers must offer a role someone noted only in KiCadStamp, or it
+        cannot be addressed by role at all;
+      * `board_role`/`board_cluster` are what PHYSICALLY lies on the board. The
+        diff's Board column needs this one (С27) — otherwise Pending would
+        compare the store with itself and stop being a diff.
+
+    Both come from ONE read (`FieldOverrideAdapter.get_field_values`, С28): the
+    layer holds them together, so carrying the pair costs nothing and the two can
+    never describe different instants. A hand-built Selected (tests, other
+    callers) has no second truth, so `__post_init__` fills the board side from
+    the effective one — which is exactly the pre-store world.
+    """
     ref: str
     role: str | None
     cluster: str | None
@@ -64,6 +81,31 @@ class Selected:
     # ones so a manually-constructed Selected without them is unaffected).
     role_field_exists: bool = True
     cluster_field_exists: bool = True
+    # The PHYSICAL board values (Т5г). None means "not told apart from the
+    # effective value" — see __post_init__.
+    board_role: str | None = None
+    board_cluster: str | None = None
+
+    def __post_init__(self) -> None:
+        """A Selected built by hand (or by a caller that only knows one truth)
+        answers both questions the same way — the single-truth world this class
+        lived in before Т5г, kept so every existing construction stays honest."""
+        if self.board_role is None:
+            self.board_role = self.role
+        if self.board_cluster is None:
+            self.board_cluster = self.cluster
+
+    @property
+    def role_from_store(self) -> bool:
+        """True when the role IN FORCE is not the one on the board — i.e. it came
+        from the override store. This is the entire mark the Components tree shows
+        (С26): "effective ≠ physical" needs no extra bookkeeping."""
+        return self.role != self.board_role
+
+    @property
+    def cluster_from_store(self) -> bool:
+        """Same for the cluster (С26)."""
+        return self.cluster != self.board_cluster
 
 
 class Selection(list):
@@ -111,6 +153,10 @@ class Board:
         self._footprints: list[Footprint] = []
         self._role_cache: dict[str, str | None] = {}
         self._cluster_cache: dict[str, str | None] = {}
+        # The PHYSICAL side of the same reads (Т5г): filled together with the
+        # caches above, from ONE call each — see _both().
+        self._board_role_cache: dict[str, str | None] = {}
+        self._board_cluster_cache: dict[str, str | None] = {}
         self._role_exists_cache: dict[str, bool] = {}
         self._cluster_exists_cache: dict[str, bool] = {}
         self._nets_cache: dict[str, dict[str, str]] = {}
@@ -151,6 +197,8 @@ class Board:
         self._footprints = self.adapter.get_footprints()
         self._role_cache.clear()
         self._cluster_cache.clear()
+        self._board_role_cache.clear()
+        self._board_cluster_cache.clear()
         self._role_exists_cache.clear()
         self._cluster_exists_cache.clear()
         self._nets_cache.clear()
@@ -160,17 +208,55 @@ class Board:
     def _ref(fp: Footprint) -> str:
         return fp.ref
 
+    def _both(self, fp: Footprint, field_name: str) -> tuple:
+        """(effective, physical) for one field — from ONE board read (Т5г/С28).
+
+        The override layer is the only place where both truths are ever in hand
+        at once (it reads the board's value before deciding whether ours wins), so
+        asking it for the pair costs nothing and spares this snapshot a SECOND
+        pass over the footprints — and a second pass would describe a board that
+        had already moved on, which is exactly why the plan rejected "two
+        snapshots" outright.
+
+        A BARE adapter has one truth, so the physical value IS the effective one:
+        the pre-store world, kept structurally rather than by luck (golden С2)."""
+        # On the TYPE, not the instance: a Mock (or any dynamic stand-in) answers
+        # every attribute name with a Mock, and unpacking THAT is a ValueError in
+        # the middle of a snapshot. Asking the class "does this adapter implement
+        # the pair-read?" is the honest question anyway.
+        getter = getattr(type(self.adapter), "get_field_values", None)
+        if getter is None:
+            value = self.adapter.get_field_value(fp, field_name)
+            return (value, value)
+        return getter(self.adapter, fp, field_name)
+
     def _role(self, fp: Footprint) -> str | None:
+        """The Role IN FORCE (ours when the store has one), as before."""
         ref = self._ref(fp)
         if ref not in self._role_cache:
-            self._role_cache[ref] = self.adapter.get_field_value(fp, ROLE_FIELD_NAME)
+            self._role_cache[ref], self._board_role_cache[ref] = self._both(fp, ROLE_FIELD_NAME)
         return self._role_cache[ref]
 
     def _cluster(self, fp: Footprint) -> str | None:
+        """The Cluster IN FORCE (ours when the store has one), as before."""
         ref = self._ref(fp)
         if ref not in self._cluster_cache:
-            self._cluster_cache[ref] = self.adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
+            self._cluster_cache[ref], self._board_cluster_cache[ref] = self._both(
+                fp, CLUSTER_FIELD_NAME)
         return self._cluster_cache[ref]
+
+    def _board_role(self, fp: Footprint) -> str | None:
+        """The Role PHYSICALLY on the board — the diff's Board column (С27).
+
+        Deliberately not a second read: `_role` above already filled both halves
+        of the pair in one call."""
+        self._role(fp)
+        return self._board_role_cache[self._ref(fp)]
+
+    def _board_cluster(self, fp: Footprint) -> str | None:
+        """The Cluster PHYSICALLY on the board — see _board_role."""
+        self._cluster(fp)
+        return self._board_cluster_cache[self._ref(fp)]
 
     def _role_exists(self, fp: Footprint) -> bool:
         """Does this footprint have the Role field AT ALL (vs. the value
@@ -236,7 +322,12 @@ class Board:
                 ref=fp_ref, role=fp_role, cluster=fp_cluster,
                 role_field_exists=self._role_exists(fp),
                 cluster_field_exists=self._cluster_exists(fp),
-                sheet=fp_sheet, nets=fp_nets, fp=fp))
+                sheet=fp_sheet, nets=fp_nets, fp=fp,
+                # The board's own values, from the SAME reads above (Т5г):
+                # role/cluster stay the values in force for the pickers, these
+                # two are what the Board column must show (С27).
+                board_role=self._board_role(fp),
+                board_cluster=self._board_cluster(fp)))
         return result
 
     def select_items(self, net: str | None = None, role: str | None = None,

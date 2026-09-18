@@ -1815,6 +1815,39 @@ def test_dock_hub_wires_root_changed_to_points_dock(main_window, tmp_path):
         _teardown_hub(hub)
 
 
+def test_dock_hub_binds_the_poll_adapter_to_the_project_on_root_change(
+        main_window, tmp_path):
+    """Т5г/С25, the hub's share of the store binding: the GUI's poll adapter is
+    created once per CONNECTION, while the override store belongs to the PROJECT
+    — so a project switch has to reach an adapter that is already alive.
+    DockHub is the only place that knows about both, and it wires root_changed to
+    BoardConnection.set_project_config, which REBINDS the layer (bind_store) and
+    never reopens the socket. Drop that wiring and the GUI's own snapshot — the
+    one every picker reads — keeps showing the BOARD's roles while the store holds
+    others: a role noted only in KiCadStamp could not even be chosen.
+
+    Both halves are pinned here, because they cover different projects: the
+    root_changed connection covers a switch in a running GUI, while the STARTUP/
+    Discard sync list covers the root restored at launch (the emit above would
+    fire into the void — RootMetadataDock's own restore runs inside its __init__,
+    before _wire() exists). That is why the very first recorded call is already
+    there, with None (no root restored in this fixture — the pre-store default)."""
+    root_file = tmp_path / "root.sexp"
+    _write(root_file)
+    recorded = []
+    main_window.connection.set_project_config = recorded.append
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        assert recorded == [None]      # the startup sync list, not _wire()
+
+        hub.root_metadata_dock.set_root_file(root_file)
+
+        assert recorded[-1] == root_file
+    finally:
+        _teardown_hub(hub)
+
+
 # ── GUI robustness: a BROKEN root config must never crash the window ────────
 
 def _write_broken_root(tmp_path):

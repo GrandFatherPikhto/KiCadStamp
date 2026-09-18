@@ -147,6 +147,10 @@ class _Row:
     role: Optional[str]
     cluster: Optional[str]
     divergent: bool = field(default=False)
+    # The value this row SHOWS is OURS, not the board's (Т5г/С26): a showcase
+    # that silently showed the effective value would hide that the board carries
+    # something else — the same reason Pending changes keeps an "Ours" column.
+    from_store: bool = field(default=False)
 
 
 class RoleClusterTreeDock(QWidget):
@@ -569,7 +573,16 @@ class RoleClusterTreeDock(QWidget):
 
     def _current_rows(self) -> List[_Row]:
         if not self.mode_checkbox.isChecked():
-            return [_Row(s.ref, s.role, s.cluster) for s in self._selected]
+            # role/cluster here are the values IN FORCE (our store wins, Т5г) —
+            # which is what a showcase should show — and `from_store` marks the
+            # rows where that differs from what physically lies on the board.
+            # getattr, not attribute access: direct-construction tests feed this
+            # dock fakes with a single truth, and a single truth is never "from
+            # the store".
+            return [_Row(s.ref, s.role, s.cluster,
+                         from_store=bool(getattr(s, "role_from_store", False)
+                                         or getattr(s, "cluster_from_store", False)))
+                    for s in self._selected]
         # Public accessors on fieldstool's MainWindow (see gui/fieldstool_
         # window.py's components/pending_refs properties) — not the private
         # `_components`/`_pending_edits`, which are refreshed wholesale and
@@ -758,6 +771,12 @@ class RoleClusterTreeDock(QWidget):
         if show_role and r.role:
             text += f" ({r.role})"
         text += " ⚠" if r.divergent else ""  # warn on multi-unit divergence (schematic mode)
+        # Т5г/С26: this dock is a SHOWCASE — it shows the value IN FORCE, so a row
+        # whose value came from the override store has to say so, or the person
+        # stops seeing that the board carries something else (the same thought as
+        # the "Ours" column in Pending changes).
+        if r.from_store:
+            text += " " + _("(from the store)")
         item = QStandardItem(text)
         item.setEditable(False)
         item.setData(r.ref, _REF_ROLE)
