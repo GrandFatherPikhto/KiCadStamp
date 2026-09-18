@@ -18,12 +18,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME    # noqa: E402
 from kicadstamp.exceptions import ValidationError                       # noqa: E402
+from kicadstamp.placement.services.component_pool import ComponentPool  # noqa: E402
 from kicadstamp.spoke_extraction import (                               # noqa: E402
     OUTCOME_EXHAUSTED,
     OUTCOME_MATCH,
     OUTCOME_OTHER_PAIR,
     PLANE_NET_MEMBERS,
+    OrderedPool,
     PadPoint,
     candidate_cells,
     chain_assignment,
@@ -328,3 +331,74 @@ class TestPoolOutcome:
         assert outcome.kind == OUTCOME_OTHER_PAIR
         assert outcome.needs_swap_confirm is True
         assert outcome.owner_chain is None
+
+
+# ── Х3 — OrderedPool's parity with a REAL ComponentPool ─────────────────────
+# OrderedPool's own docstring and gui/docks/extract_spoke.py's header both
+# promise "a parity guard pins the replay against a real ComponentPool" — this
+# is that guard. Refs are deliberately SCRAMBLED so lexicographic and natural
+# order disagree: C2 < C9 < C10, while as strings 'C10' < 'C2'.
+
+NET = "+3V3_VDD"
+CONSUMPTION = [(BULK, "1"), (BYPASS, "1"), (BULK, "2"), (BYPASS, "2"),
+               (BULK, "3"), (BYPASS, "3")]
+
+# (ref, role, cluster, net) in board order — two decoys included:
+# C7 has the right role on the WRONG net, C5 the right role in the WRONG cluster.
+_POOL_BOARD = [
+    ("C10", BULK, CLUSTER, NET), ("C2", BULK, CLUSTER, NET),
+    ("C9", BULK, CLUSTER, NET), ("C8", BYPASS, CLUSTER, NET),
+    ("C1", BYPASS, CLUSTER, NET), ("C3", BYPASS, CLUSTER, NET),
+    ("C7", BULK, CLUSTER, "GND"), ("C5", BULK, "OTHER_PWR", NET),
+]
+
+
+class _PoolBoard:
+    """The tiny board surface ComponentPool reads — footprints, Role/Cluster
+    fields, pad nets — enough to build a REAL pool without KiCad."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+        self._fps = [SimpleNamespace(ref=row[0]) for row in self._rows]
+
+    def get_footprints(self):
+        return list(self._fps)
+
+    def _row_for(self, fp):
+        return next(row for row in self._rows if row[0] == fp.ref)
+
+    def get_field_value(self, fp, field):
+        row = self._row_for(fp)
+        return {ROLE_FIELD_NAME: row[1], CLUSTER_FIELD_NAME: row[2]}.get(field)
+
+    def get_footprint_pads(self, fp):
+        return [SimpleNamespace(number="1", net_name=self._row_for(fp)[3])]
+
+
+class TestOrderedPoolParity:
+    def test_c7_the_replay_reproduces_the_real_pool_exactly(self):
+        """Х3/М7: OrderedPool is the UI-thread replay of a pool read on the
+        worker — its pop() sequence must be IDENTICAL to ComponentPool's on the
+        same roles/pads, or every "which pair will this spoke get" verdict the
+        dialog shows is fiction."""
+        drained = ComponentPool(_PoolBoard(_POOL_BOARD), NET, [BULK, BYPASS],
+                                CLUSTER)
+        order = {role: [drained.pop(role, "?")
+                        for _ in range(drained.remaining_count(role))]
+                 for role in (BULK, BYPASS)}
+        replay = OrderedPool(order, net_name=NET)
+
+        real = ComponentPool(_PoolBoard(_POOL_BOARD), NET, [BULK, BYPASS],
+                             CLUSTER)
+        assert ([real.pop(role, pad) for role, pad in CONSUMPTION]
+                == [replay.pop(role, pad) for role, pad in CONSUMPTION])
+
+    def test_c7_the_order_is_natural_not_lexicographic(self):
+        """Ф6/М7б: the real pool sorts NATURALLY (C2 < C9 < C10). Without this
+        assertion a replay built from an unsorted order would look
+        self-consistent while both disagreed with the config the Ф8 verdict
+        rests on."""
+        pool = ComponentPool(_PoolBoard(_POOL_BOARD), NET, [BULK, BYPASS],
+                             CLUSTER)
+        bulk = [pool.pop(BULK, "?") for _ in range(pool.remaining_count(BULK))]
+        assert bulk == ["C2", "C9", "C10"]

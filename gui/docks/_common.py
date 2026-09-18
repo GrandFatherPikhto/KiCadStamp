@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QCompleter,
 
 from kicadstamp.i18n import _
 
+from kicadstamp.exceptions import strip_fatal_block
+
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
@@ -247,6 +249,17 @@ def show_message(text: str, style: str = "",
     ERROR_STYLE/WARN_STYLE/SUCCESS_STYLE ('' -> plain info); the caller's
     logger is passed through so log records keep the source dock's own
     logger name."""
+    if not text:
+        return
+    # A format_fatal_error() block reaching the Log loses ONLY its box and its
+    # "Placement stopped ... run again" verdict (design design_2026_09_17_spoke_
+    # cell_editing.md §9 X2): in the GUI there is nothing to "run again", and
+    # the '=' rules ate four Log lines — the user's live complaint. The REASON
+    # ('FATAL ERROR: ...' and '✗ ...' lines) stays verbatim, and an ordinary
+    # message (single- or multi-line) is returned byte-for-byte. Fixing it HERE
+    # covers every dock at once: each dock's own _show_message is a thin wrapper
+    # over this one function, and the CLI keeps its own full block untouched.
+    text = strip_fatal_block(text)
     if not text:
         return
     record_log = log if log is not None else logger

@@ -112,6 +112,16 @@ def format_fatal_error(title: str, problems: list) -> str:
     return "\n".join(lines)
 
 
+def _fatal_block_marker() -> tuple:
+    """(heading marker, verdict) of a format_fatal_error() block — the two
+    localized msgids the formatter BUILT the block with, so the parser and the
+    formatter cannot drift apart (the same discipline fatal_error_reason's
+    docstring describes: structure, not an English prefix)."""
+    heading = _("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
+    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
+    return heading, verdict
+
+
 def fatal_error_reason(error, *, title_only: bool = False) -> str:
     """The REASON carried by an error whose text is a format_fatal_error() block
     — WITHOUT the box and WITHOUT the trailing "Placement stopped, board not
@@ -143,8 +153,7 @@ def fatal_error_reason(error, *, title_only: bool = False) -> str:
     verbatim, and the default mode keeps the previous line-per-reason join — a
     plain single-line ValidationError reads the same in both modes."""
     text = str(error)
-    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
-    heading = _("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
+    heading, verdict = _fatal_block_marker()
     raw_lines = text.splitlines()
     # A real format_fatal_error() block carries 70-character '=' rules; a lone
     # '=' inside a plain message must not count as a box.
@@ -162,6 +171,40 @@ def fatal_error_reason(error, *, title_only: bool = False) -> str:
     if title_only:
         return body[0] if structured and body else text
     return "; ".join(body) if body else text.strip()
+
+
+def strip_fatal_block(text) -> str:
+    """`text` with the format_fatal_error() BOX and VERDICT removed — the Log's
+    own view of a fatal (gui/docks/_common.show_message), and NOTHING else.
+
+    Why this is not fatal_error_reason(): that helper answers a DIFFERENT
+    question — "what is the reason, as ONE line" — and joins the surviving lines
+    with "; ", which is right when the reason is embedded into somebody else's
+    single warning (tree_position.py) and wrong for the Log, which shows the
+    block the dock handed it. This function keeps the reason lines exactly as
+    they were written, indentation and newlines included, and only drops the
+    box ("=" rules) and the localized verdict line.
+
+    A text that is NOT a formatted fatal block is returned UNCHANGED, byte for
+    byte: show_message() is the ONE funnel every dock status line ends up in,
+    and an ordinary multi-line message (or a plain ValidationError carrying a
+    leading newline) must read exactly as the dock wrote it. The block is
+    recognised by its own structure — a line of '=' (the same test
+    fatal_error_reason uses) — never by an English prefix, so a translated
+    catalogue strips a translated box too."""
+    text = str(text)
+    raw_lines = text.splitlines()
+    if not any(len(ln.strip()) >= 3 and set(ln.strip()) == {"="}
+               for ln in raw_lines):
+        return text
+    _heading, verdict = _fatal_block_marker()
+    kept = [ln for ln in raw_lines
+            if set(ln.strip()) != {"="} and ln.strip() != verdict]
+    while kept and not kept[0].strip():
+        kept.pop(0)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "\n".join(kept)
 
 
 def check_unknown_keys(data: dict, known_keys: set, title: str, extra_hint: str = "") -> None:

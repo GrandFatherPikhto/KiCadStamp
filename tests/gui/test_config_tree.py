@@ -1916,6 +1916,46 @@ def test_chain_context_menu_has_spoke_redraw_and_bulk(main_window, tmp_path, mon
     assert bulk == ["+3V3"]
 
 
+def test_chain_context_menu_offers_extract_spoke_with_this_chain(
+        main_window, tmp_path, monkeypatch):
+    """С5 (2026-09-18, design §9 X1): the chain node's menu carries "Extract
+    spoke...", and its QAction emits spoke_extract_requested with THIS chain —
+    the dialog then opens with the chain already picked."""
+    root = tmp_path / "root.sexp"
+    chain_data = {"net": "+3V3", "anchor_ref": "U1", "spokes": []}
+    _write(root, {"chains": [chain_data]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    chain = _find(_find(_find(dock.tree.topLevelItem(0), "Spokes"), "Anchor: U1"), "+3V3")
+    actions = dict(_context_menu_actions(dock, chain, monkeypatch))
+    assert "Extract spoke..." in actions
+
+    payloads = []
+    dock.spoke_extract_requested.connect(payloads.append)
+    actions["Extract spoke..."].trigger()
+    assert payloads == [chain_data]
+
+
+def test_chains_category_context_menu_offers_extract_spoke_without_a_chain(
+        main_window, tmp_path, monkeypatch):
+    """С5b: the Chains CATEGORY offers the same item with NO pre-pick (None) —
+    the selected pair's own net picks the chain, exactly like the Tools item."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"chains": [{"net": "+3V3", "anchor_ref": "U1", "spokes": []}]})
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    category = _find(dock.tree.topLevelItem(0), "Spokes")
+    actions = dict(_context_menu_actions(dock, category, monkeypatch))
+    assert "Extract spoke..." in actions
+
+    payloads = []
+    dock.spoke_extract_requested.connect(payloads.append)
+    actions["Extract spoke..."].trigger()
+    assert payloads == [None]
+
+
 def test_pad_context_menu_has_redraw_spoke_and_delete_pad(main_window, tmp_path, monkeypatch):
     """Pad leaf's context actions: Redraw spoke + Delete pad... (the pad has no
     Rename/Delete — it is not a standalone record)."""

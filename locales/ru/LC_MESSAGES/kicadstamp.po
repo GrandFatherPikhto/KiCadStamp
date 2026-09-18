@@ -1654,6 +1654,18 @@ msgstr "номер пада должен совпадать с реальным 
 msgid "Write failed: {error}"
 msgstr "Запись не удалась: {error}"
 
+#, python-brace-format
+msgid "Write failed: {error} — nothing was written (the config was restored)"
+msgstr "Запись не удалась: {error} — ничего не записано (конфиг восстановлен)"
+
+#, python-brace-format
+msgid "Write failed: {error} — the cell {cell!r} WAS written, the spoke was NOT; the config is half-updated"
+msgstr "Запись не удалась: {error} — ячейка {cell!r} ЗАПИСАНА, спица — НЕТ; конфиг в половинчатом состоянии"
+
+#, python-brace-format
+msgid "Write failed: {error} — the config may be half-updated"
+msgstr "Запись не удалась: {error} — конфиг может остаться в половинчатом состоянии"
+
 #: gui/docks/cell_editor.py:1448 gui/docks/chain.py:565
 #: gui/docks/placer.py:2836 gui/docks/placer.py:2948 gui/docks/points.py:396
 #: gui/docks/thermal_via.py:436 kicadstamp/extract_writer.py:136

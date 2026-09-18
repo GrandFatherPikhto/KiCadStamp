@@ -352,6 +352,15 @@ class ConfigTreeDock(QWidget):
     # BulkSetCellDialog and applies the chosen cell across the whole graph
     # (moved from the old RuleDock, plan rules_to_chains).
     bulk_set_cell_requested = pyqtSignal(object)
+    # Fired by the context menu's "Extract spoke..." on a chains: CHAIN node
+    # (2026-09-18, design design_2026_09_17_spoke_cell_editing.md §9 X1 /
+    # plan_2026_09_18_spoke_tails R2) — payload is the chain dict. DockHub opens
+    # the SAME dialog as Tools -> "Extract spoke...", pre-picking this chain, so
+    # the net/chain picking step drops out of the dialog. On the Chains CATEGORY
+    # it fires with None (no chain to pre-pick — the selected pair's net decides,
+    # exactly like the Tools item). The Tools item STAYS: it also works when the
+    # project has no chain on the pair's net yet.
+    spoke_extract_requested = pyqtSignal(object)
     # Fired when a net_traces leaf is clicked (2026-08-21, plan net_trace_dock) —
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
@@ -1350,6 +1359,14 @@ class ConfigTreeDock(QWidget):
                 net = chain.get("net") if isinstance(chain, dict) else None
                 menu.addAction(_("Bulk set Cell for net...")).triggered.connect(
                     lambda checked=False, n=net: self.bulk_set_cell_requested.emit(n))
+                # "Extract spoke..." (2026-09-18, design §9 X1): the same dialog
+                # as the Tools item, opened with THIS chain already picked. Lives
+                # here by the project's own pattern — operations "by selection"
+                # (Update from selection / Import from selection on a Cell leaf)
+                # live in the tree. Nothing is read until the dialog's worker
+                # runs, so the socket rules are untouched.
+                menu.addAction(_("Extract spoke...")).triggered.connect(
+                    lambda checked=False, c=chain: self.spoke_extract_requested.emit(c))
                 menu.addSeparator()
             elif node_data[0] == "pad":
                 chain, idx = node_data[2], node_data[3]
@@ -1358,6 +1375,16 @@ class ConfigTreeDock(QWidget):
                 menu.addAction(_("Delete pad...")).triggered.connect(
                     lambda checked=False, c=chain, i=idx: self._on_delete_pad(file_path, c, i))
                 menu.addSeparator()
+
+        # "Extract spoke..." on the Chains CATEGORY (2026-09-18, design §9 X1):
+        # the same item with no chain pre-picked — the selected pair's net picks
+        # the chain, as in the Tools menu. The category node carries
+        # ("category", "chains"); chain/anchor/pad nodes are handled above.
+        if (node_data is not None and node_data[0] == "category"
+                and node_data[1] == "chains"):
+            menu.addAction(_("Extract spoke...")).triggered.connect(
+                lambda checked=False: self.spoke_extract_requested.emit(None))
+            menu.addSeparator()
 
         # Leaf-only block (Edit cell/Rename/Delete) — the (file_path, section,
         # old_name) triple is extracted by the same _rename_target_for_item the

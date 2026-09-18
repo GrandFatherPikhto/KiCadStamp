@@ -312,3 +312,81 @@ class TestWriteSpokeExtraction:
         spokes = read_data(root)["chains"][0]["spokes"]
         assert [s["pad"] for s in spokes] == ["1", "48"]    # replaced IN PLACE
         assert spokes[1]["cell"] == CELL
+
+
+# ── a failed two-file write (Х4 / С8) ──────────────────────────────────────
+
+class TestFailedWriteRollback:
+    """§9 X4: the cell goes into the ROOT config and the spoke into its chain's
+    OWN file — two files are never atomic together, so a failure between them
+    must not leave the cell behind (rollback), and a rollback that itself fails
+    must SAY the config is half-updated."""
+
+    def _chain_file(self, tmp_path):
+        path = tmp_path / "chains.sexp"
+        write_data(path, {"chains": [{"net": NET, "name": "MCU Vdd",
+                                      "anchor_ref": "U5",
+                                      "spokes": [{"pad": "1", "cell": CELL}]}]})
+        return path
+
+    def _write(self, root, chain_file):
+        return mod.write_spoke_extraction(
+            _board(), root_path=root, cell_name="new_pair", cell_is_new=True,
+            chain_file=chain_file,
+            chain_entry={"net": NET, "name": "MCU Vdd", "anchor_ref": "U5",
+                         "spokes": [{"pad": "1", "cell": CELL}]},
+            spoke=_spoke("new_pair"), replace=False,
+            origin_role=BULK, expected_refs=("C41", "C42"))
+
+    def test_c8_a_failed_chain_write_rolls_the_cell_back(self, root, tmp_path,
+                                                         monkeypatch):
+        """С8/М8: the chain write fails with OSError AFTER the cell landed —
+        both files must be back at their pre-write content, and the message says
+        so instead of the old bare "Write failed"."""
+        chain_file = self._chain_file(tmp_path)
+        monkeypatch.setattr(mod, "extract_template_from_selection",
+                            lambda adapter, name, **kw: {name: _cell_entry()})
+
+        def boom(*_a, **_k):
+            raise OSError("disk full")
+        monkeypatch.setattr(mod, "upsert_list_entry", boom)
+        before = read_data(root)
+
+        result = self._write(root, chain_file)
+
+        assert result.ok is False
+        assert "disk full" in result.messages[0]
+        assert "nothing was written" in result.messages[0]
+        assert read_data(root) == before
+        assert "new_pair" not in read_data(root)["cells"]
+        assert read_data(chain_file)["chains"] == before["chains"]
+
+    def test_c8_a_failed_rollback_names_the_half_state(self, root, tmp_path,
+                                                       monkeypatch):
+        """When the cell cannot be taken back, the message must NAME the half
+        state: the user has to know the config already changed."""
+        chain_file = self._chain_file(tmp_path)
+        monkeypatch.setattr(mod, "extract_template_from_selection",
+                            lambda adapter, name, **kw: {name: _cell_entry()})
+
+        def boom(*_a, **_k):
+            raise OSError("disk full")
+        monkeypatch.setattr(mod, "upsert_list_entry", boom)
+
+        real_write = mod.write_data
+        calls = []
+
+        def failing_restore(path, data):
+            calls.append(Path(path))
+            if len(calls) == 2:          # the rollback's write of the root
+                raise OSError("no space left")
+            return real_write(path, data)
+
+        monkeypatch.setattr(mod, "write_data", failing_restore)
+
+        result = self._write(root, chain_file)
+
+        assert result.ok is False
+        assert "new_pair" in result.messages[0]
+        assert "half-updated" in result.messages[0]
+        assert "new_pair" in read_data(root)["cells"]   # it really is half-updated

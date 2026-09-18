@@ -872,6 +872,11 @@ class DockHub:
         self.config_tree_dock.pad_redraw_requested.connect(self.chain_dock.redraw_pad)
         self.config_tree_dock.anchor_redraw_requested.connect(self.chain_dock.redraw_chains)
         self.config_tree_dock.bulk_set_cell_requested.connect(self.chain_dock.bulk_set_cell)
+        # 2026-09-18 (design §9 X1): the same "Extract spoke..." dialog, opened
+        # from the Config tree — a chain node pre-picks its chain, the Chains
+        # category opens it without a pick (the pair's net decides). The payload
+        # may be None, which extract_spoke handles as "no pre-pick".
+        self.config_tree_dock.spoke_extract_requested.connect(self.extract_spoke)
         # Chains navigation (2026-09-05, design config_qview_chain_entity_pages
         # §4/§8.2): anchor/chain single clicks -> the chains-nav drill page; a
         # nav pad row opens the spoke editor; a nav chain row syncs the tree.
@@ -2501,9 +2506,17 @@ class DockHub:
     # modal error box (П3.5 — the dialog's status line plus the Log carry every
     # message).
 
-    def extract_spoke(self) -> None:
-        """Main menu "Tools -> Extract spoke..." (Р1): open (or raise) the ONE
-        live dialog and fill it from the current board selection."""
+    def extract_spoke(self, chain=None) -> None:
+        """Main menu "Tools -> Extract spoke..." (Р1) and the Config tree's
+        context-menu "Extract spoke..." on a chain / the Chains category (2026-
+        09-18, design design_2026_09_17_spoke_cell_editing.md §9 X1): open (or
+        raise) the ONE live dialog and fill it from the current board selection.
+
+        `chain` is the tree action's payload — when given, the dialog pre-picks
+        that chain so the user does not repeat a choice the tree already knows;
+        None (Tools, or the category) leaves the pair's own net in charge. The
+        guards below are shared, so both entry points refuse identically (the
+        same Log line, no dialog) when there is no connection or no root."""
         connection = self.main_window.connection
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None
@@ -2524,6 +2537,9 @@ class DockHub:
             self._spoke_dialog.set_root_path(root_path)
         self._spoke_dialog.show()
         self._spoke_dialog.raise_()
+        # Pre-pick (or clear) the chain BEFORE the read: set_context() applies it
+        # the moment the worker's rows arrive.
+        self._spoke_dialog.prefill_chain(chain)
         self._read_spoke_context()
 
     def _read_spoke_context(self) -> None:

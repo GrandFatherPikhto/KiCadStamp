@@ -36,7 +36,6 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QFormLayout, QLabel, QLineEdit, QPushButton,
                              QVBoxLayout)
 
-from kicadstamp.config import chain_effective_name
 from kicadstamp.i18n import _
 from kicadstamp.spoke_extraction import (
     OrderedPool,
@@ -51,7 +50,7 @@ from kicadstamp.spoke_extraction import (
 from ..ui_utils import persist_dialog_size, restore_dialog_size
 from ._common import ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE
 from .extract_spoke import (CellChoice, ChainChoice, OrphanNet, SpokeContext,
-                            spoke_identification)
+                            chain_identity, spoke_identification)
 from .reead import _slugify
 
 
@@ -78,6 +77,10 @@ class ExtractSpokeDialog(QDialog):
         self._cfg = None
         self._rows: list = []
         self._ok_allowed = False
+        # The chain the Config tree's context menu was clicked on (design §9 X1),
+        # applied the moment a context is rendered — None for the Tools item / the
+        # Chains category, where the pair's own net picks the chain.
+        self._pending_chain = None
         # Programmatic combo refills must not look like user choices.
         self._loading = False
 
@@ -149,9 +152,41 @@ class ExtractSpokeDialog(QDialog):
         self._loading = True
         try:
             self._refill()
+            self._apply_prefill()
         finally:
             self._loading = False
         self._recompute()
+
+    def prefill_chain(self, chain) -> None:
+        """Pre-pick the chain the Config tree's context menu was clicked on
+        (2026-09-18, design §9 X1 / plan_2026_09_18_spoke_tails R2).
+
+        `None` clears the pick, so opening via Tools (or via the Chains CATEGORY)
+        leaves the pair's own net in charge — the same behaviour as before this
+        item existed. The pick is remembered until a context arrives: DockHub
+        calls this right after show() and BEFORE the worker read, so the chain is
+        selected as soon as set_context() renders the rows."""
+        self._pending_chain = chain
+        if self._data is not None:
+            self._apply_prefill()
+
+    def _apply_prefill(self) -> None:
+        """Best-effort pick of `_pending_chain` among the rows the worker read.
+
+        If the chain is NOT there (the clicked chain sits on another net than the
+        selected pair, or the selection has problems) the default row stays: the
+        dialog reports its own, honest reason rather than pretending a chain is
+        picked. Matching is by effective name (name:, else net:) — the same
+        identity the tree and the rows use."""
+        if self._pending_chain is None:
+            return
+        # chain_identity is the DICT-safe identity (name:, else net:) — the tree
+        # hands over the raw chain dict, not a loaded Chain object.
+        wanted = chain_identity(self._pending_chain)
+        for index, row in enumerate(self._rows):
+            if row["kind"] == "chain" and row["chain"].name == wanted:
+                self.chain_combo.setCurrentIndex(index)
+                return
 
     def show_status(self, text: str, error: bool = False) -> None:
         self.status_label.setText(text or "")

@@ -28,6 +28,7 @@ dialog must answer "which pair will this spoke get" for every pad, cell and chai
 the user can still pick. OrderedPool replays that exact consumption on the UI
 thread (tests/test_spoke_extraction.py pins the replay against a real pool).
 """
+import copy
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
@@ -439,6 +440,46 @@ class SpokeWriteResult:
     pad: str = ""
 
 
+def _restore_spoke_write(root_path, target, same_file, root_before,
+                         target_before) -> bool:
+    """Best-effort rollback of a partially written extraction (plan_2026_09_18_
+    spoke_tails §9 X4): write each file's PRE-write snapshot back.
+
+    Never raises — the caller's message is the only thing the user sees, so a
+    failed rollback must be REPORTED, not thrown. Returns True only when every
+    file that had a snapshot is back to it."""
+    restored = True
+    pairs = [(root_path, root_before)]
+    if not same_file:
+        pairs.append((target, target_before))
+    for path, before in pairs:
+        if before is None:      # the snapshot itself failed: nothing to put back
+            restored = False
+            continue
+        try:
+            write_data(path, before)
+        except OSError:
+            restored = False
+    return restored
+
+
+def _spoke_write_failure(error, *, cell_name: str, cell_written: bool,
+                         restored: bool) -> str:
+    """The sentence shown when the two-file write of an extraction fails. Naming
+    the resulting state is mandatory (§9 X4): the old single "Write failed: ..."
+    left the user unable to tell whether the cell had already landed in the
+    config — a half-updated project reported as if nothing had happened."""
+    if restored:
+        return _("Write failed: {error} — nothing was written (the config was "
+                 "restored)").format(error=error)
+    if cell_written:
+        return _("Write failed: {error} — the cell {cell!r} WAS written, the "
+                 "spoke was NOT; the config is half-updated").format(
+                     error=error, cell=cell_name)
+    return _("Write failed: {error} — the config may be half-updated").format(
+        error=error)
+
+
 def write_spoke_extraction(adapter, *, root_path: Path, cell_name: str,
                            cell_is_new: bool, chain_file: Optional[Path],
                            chain_entry: dict, spoke: dict, replace: bool,
@@ -495,20 +536,40 @@ def write_spoke_extraction(adapter, *, root_path: Path, cell_name: str,
                                 cell_new=cell_is_new, messages=tuple(problems))
 
     target = Path(chain_file) if chain_file else Path(root_path)
+    same_file = target.resolve() == Path(root_path).resolve()
+    # Snapshots for the rollback (§9 X4): the PARSED content of both files,
+    # taken before anything is written. Two files are never atomic together, and
+    # in staged mode read_data/write_data speak to the working set — so the
+    # rollback goes through the SAME pair, never a raw copy that would bypass
+    # staging. A snapshot that cannot even be read leaves None and is reported
+    # as "not restored" rather than guessed at.
+    root_before = target_before = None
     try:
+        # DEEP COPIES, not the returned dicts: read_data hands back the cached
+        # parse, and the cell write below mutates `data` in place
+        # (setdefault(...)[cell] = ...) — the snapshot would otherwise BE the
+        # mutated dict and the rollback would faithfully restore the very state
+        # it was supposed to undo.
+        root_before = copy.deepcopy(read_data(root_path))
+        target_before = (root_before if same_file
+                         else copy.deepcopy(read_data(target)))
         backup_file(root_path)
         data = read_data(root_path)
         if cell_dict is not None:
             data.setdefault("cells", {})[cell_name] = cell_dict
             write_data(root_path, data)
-        if target.resolve() != Path(root_path).resolve():
+        if not same_file:
             backup_file(target)
         upsert_list_entry(target, "chains", plan.chain, key_fn=chain_identity)
     except OSError as exc:
+        restored = _restore_spoke_write(root_path, target, same_file,
+                                       root_before, target_before)
         return SpokeWriteResult(
             ok=False, cell_name=cell_name, cell_new=cell_is_new,
             replaced=plan.replaced,
-            messages=(_("Write failed: {error}").format(error=exc),))
+            messages=(_spoke_write_failure(
+                exc, cell_name=cell_name, cell_written=cell_dict is not None,
+                restored=restored),))
 
     load_chain(plan.chain)                     # the round-trip check
     return SpokeWriteResult(ok=True, cell_name=cell_name, cell_new=cell_is_new,

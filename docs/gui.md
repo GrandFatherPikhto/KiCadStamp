@@ -1632,6 +1632,13 @@ chain via `upsert_list_entry` (a pad is not a standalone record).
   chain on the chosen net at once, even when those chains live in different included files. A
   dialog previews the exact chains/pads that will change BEFORE applying; a partial write failure
   is reported explicitly — never a silent half-applied change.
+- **Extract spoke...** (context menu on a chain node, and on the **Spokes** category; 2026-09-18,
+  design §9 X1) — the very same dialog as the Tools item below, opened from the tree. On a CHAIN
+  node the right-clicked chain is pre-picked, so the net/chain choice drops out of the dialog; on
+  the CATEGORY there is nothing to pre-pick and the selected pair's own net decides, exactly like
+  the Tools item. Both legs keep that item's guards: no live connection or no project root refuses
+  with the same Log line and opens nothing. The Tools item STAYS — it also works when the pair's
+  net has no chain yet.
 
 **Tools menu** (2026-09-01, plan rules_to_chains) — chains are labelled by their NET identity
 (Denis's decision; inside the code it is still `Chain`):
@@ -1655,8 +1662,13 @@ chain via `upsert_list_entry` (a pad is not a standalone record).
   origin (Role, optionally its Pad); for an EXISTING one it reads the frame of the pair's PLACED
   instance — a MIRRORED instance is refused by name, because `chains:` spokes have no mirror field. The
   cell is written to the root config's `cells:`, the spoke into its chain's own file (each with a
-  timestamped backup), and the identified pair is remembered so the cell editor opens on it. Non-modal:
+  timestamped backup), and the identified pair is remembered so the cell editor opens on it. The two
+  files are written as ONE unit (2026-09-18, design §9 X4): if the second write fails, the first is
+  rolled back, and when even the rollback cannot run the message names the half-updated config instead
+  of the old bare "Write failed". Non-modal:
   the board read behind it runs on the worker thread, and a busy socket refuses instead of interleaving.
+  The same dialog is also on the Config tree's context menu (see **Extract spoke...** above) — a chain
+  node pre-picks its chain.
   The CLI `kicadstamp extract` is unchanged (see [docs/commands.md](commands.md#extract)).
 
 ## Net traces
@@ -2255,6 +2267,13 @@ Qt's own `QPlainTextEdit` only auto-scrolls when the view was already at the bot
 appending, so scrolling up to read history used to make the log look stuck during a live error.
 Uncheck it to get that plain Qt behavior back (the panel stops yanking the view down while you
 read).
+
+Since 2026-09-18 a `format_fatal_error` block that reaches this panel is shown WITHOUT its `=`
+box and WITHOUT the trailing "Placement stopped, board not modified. Fix the config and run
+again." verdict (design §9 X2): in the GUI there is nothing to restart, and the box alone ate four
+Log lines. The REASON stays verbatim — the `FATAL ERROR: ...` line and every `✗ ...` hint — and an
+ordinary message is passed through unchanged. The fix lives in `show_message`, the one funnel
+every dock's status line ends up in; the CLI keeps its full block untouched.
 
 Since 2026-08-15 the panel's `logging.Handler` is attached to the live `QueueListener` started by
 `setup_logging()` (queue-based logging, see `techdocs/handoff/plan_2026_08_15_queue_based_logging.md`)

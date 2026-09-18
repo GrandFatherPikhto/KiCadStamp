@@ -21,6 +21,7 @@ outcomes of the pool rule and the two refusals that must never be overridable:
 Widgets are given a Qt parent (the project's own rule: a parentless widget is
 collected and, on Windows, takes the whole run down).
 """
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -332,3 +333,125 @@ class TestHubWiring:
         hub._read_spoke_context()
         assert started == []
         assert stub.status == "the board is busy — press “Refresh” in a moment"
+
+
+# ── the Config tree entry point: chain pre-pick (С5) and refusals (С6) ───────
+# 2026-09-18, design §9 X1 / plan_2026_09_18_spoke_tails R2.
+
+def _chain(name, net=NET, anchor=ANCHOR):
+    """One ChainChoice as the worker read produces it — its name is the chain's
+    effective name (name:, else net:), exactly chain_identity's rule."""
+    entry = {"net": net, "anchor_ref": anchor, "spokes": []}
+    if name:
+        entry["name"] = name
+    return ChainChoice(
+        net=net, name=name or net, entry=entry, file=None, anchor_ref=anchor,
+        anchor_role=None, anchor_cluster=None, anchor_sheet=None,
+        pads=(PadPoint(pad=SPOKE_PAD, x_mm=11.0, y_mm=4.5),), spokes=(),
+        pools={CLUSTER: {BULK: ["C41"], BYPASS: ["C42"]}})
+
+
+class TestChainPrefill:
+    def test_c5_prefill_selects_the_clicked_chain(self, parent, tmp_path):
+        """С5/М5: the tree knows WHICH chain was right-clicked, so the dialog
+        opens on it — the net/chain choice is not repeated. The pick is applied
+        when the worker's rows arrive (set_context)."""
+        data = _context(repeated={BULK: 2, BYPASS: 2},
+                        chains=(_chain("first"), _chain("second")))
+        dialog = ExtractSpokeDialog(None, None, tmp_path / "c.sexp", parent=parent)
+        dialog.prefill_chain({"net": NET, "name": "second", "anchor_ref": ANCHOR})
+        dialog.set_context(data, _cfg())
+        assert dialog._current_row()["chain"].name == "second"
+
+    def test_c5_no_chain_leaves_the_default_row(self, parent, tmp_path):
+        """The Tools item / the Chains category: no pick — the first row stands."""
+        data = _context(repeated={BULK: 2, BYPASS: 2},
+                        chains=(_chain("first"), _chain("second")))
+        dialog = ExtractSpokeDialog(None, None, tmp_path / "c.sexp", parent=parent)
+        dialog.prefill_chain(None)
+        dialog.set_context(data, _cfg())
+        assert dialog._current_row()["chain"].name == "first"
+
+    def test_c5_a_nameless_chain_is_matched_by_its_net(self, parent, tmp_path):
+        """chain_effective_name: a chain without name: is identified by its net
+        in BOTH the tree payload and the worker's rows."""
+        data = _context(repeated={BULK: 2, BYPASS: 2},
+                        chains=(_chain("first"), _chain("", net=NET)))
+        dialog = ExtractSpokeDialog(None, None, tmp_path / "c.sexp", parent=parent)
+        dialog.prefill_chain({"net": NET})
+        dialog.set_context(data, _cfg())
+        assert dialog._current_row()["chain"].name == NET
+
+    def test_an_unrelated_chain_leaves_the_default_row(self, parent, tmp_path):
+        """Best-effort: a chain that is NOT among the read rows must not fake a
+        pick — the dialog reports its own reason instead of lying."""
+        data = _context(repeated={BULK: 2, BYPASS: 2}, chains=(_chain("first"),))
+        dialog = ExtractSpokeDialog(None, None, tmp_path / "c.sexp", parent=parent)
+        dialog.prefill_chain({"net": "+5V"})
+        dialog.set_context(data, _cfg())
+        assert dialog._current_row()["chain"].name == "first"
+
+
+class _PrefillStub:
+    """The dialog surface extract_spoke() touches, minus Qt."""
+
+    def __init__(self):
+        self.prefilled = []
+        self.shown = 0
+
+    def set_root_path(self, path):
+        self.root = path
+
+    def show(self):
+        self.shown += 1
+
+    def raise_(self):
+        pass
+
+    def prefill_chain(self, chain):
+        self.prefilled.append(chain)
+
+
+def _extract_hub(tmp_path, adapter):
+    """A DockHub stand-in with extract_spoke bound and the read stubbed out."""
+    stub = _PrefillStub()
+    hub = _hub(stub, tmp_path / "config.sexp", adapter=adapter)
+    hub.extract_spoke = DockHub.extract_spoke.__get__(hub)
+    reads: list = []
+    hub._read_spoke_context = lambda: reads.append(True)
+    return hub, stub, reads
+
+
+class TestTreeEntryPoint:
+    def test_c5_the_tree_payload_reaches_the_dialog(self, tmp_path):
+        chain = {"net": NET, "name": "MCU Vdd", "anchor_ref": ANCHOR}
+        hub, stub, reads = _extract_hub(tmp_path, object())
+        hub.extract_spoke(chain)
+        assert stub.prefilled == [chain]
+        assert stub.shown == 1
+        assert reads == [True]
+
+    def test_c5_the_tools_item_clears_a_previous_pick(self, tmp_path):
+        pick = {"net": NET, "name": "MCU Vdd"}
+        hub, stub, _reads = _extract_hub(tmp_path, object())
+        hub.extract_spoke(pick)
+        hub.extract_spoke()                     # the Tools menu item
+        assert stub.prefilled == [pick, None]
+
+    def test_c6_no_connection_refuses_and_opens_no_dialog(self, tmp_path, caplog):
+        caplog.set_level(logging.ERROR)
+        hub, stub, reads = _extract_hub(tmp_path, None)
+        hub.extract_spoke({"net": NET})
+        assert stub.shown == 0 and stub.prefilled == []
+        assert reads == []
+        assert "Not connected." in caplog.text
+
+    def test_c6_no_root_refuses_and_opens_no_dialog(self, tmp_path, caplog):
+        caplog.set_level(logging.ERROR)
+        stub = _PrefillStub()
+        hub = _hub(stub, None, adapter=object())
+        hub.extract_spoke = DockHub.extract_spoke.__get__(hub)
+        hub._read_spoke_context = lambda: None
+        hub.extract_spoke({"net": NET})
+        assert stub.shown == 0 and stub.prefilled == []
+        assert "Set the project root first." in caplog.text
