@@ -17026,3 +17026,11 @@ msgstr "Отмечено компонентов для этого проекта
 #, python-brace-format
 msgid "{count} component(s): Role noted for this project — it wins over the board and survives an F8"
 msgstr "Отмечено компонентов для этого проекта: {count} — Role главнее платы и переживает F8"
+
+#: kicadstamp/cli_main.py
+msgid "Profile config file — WITH it Role/Cluster resolve through this profile's override store (our values win over the board; the profile's own role_cluster_source switch still decides, default: registry). WITHOUT it the values come from the BOARD, exactly as before."
+msgstr "Файл конфига профиля — С ним Role/Cluster резолвятся через хранилище ЭТОГО профиля (наши значения главнее платы; рубильник role_cluster_source самого профиля при этом сохраняет последнее слово, по умолчанию registry). БЕЗ него значения берутся с ПЛАТЫ, ровно как раньше."
+
+#: kicadstamp/cli_main.py
+msgid "Refine --origin-by-component-role: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet_names — the optional --config lends extract the profile's override store, not its sheet map; prefer --origin-by-component-cluster)."
+msgstr "Уточнение к --origin-by-component-role: сузить кандидатов с той же ролью до этого листа схемы (no-op без schematic sheet_names — необязательный --config даёт extract хранилище профиля, но НЕ его карту листов; предпочтительнее --origin-by-component-cluster)."

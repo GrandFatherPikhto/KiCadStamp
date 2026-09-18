@@ -180,7 +180,21 @@ def main() -> int:
     clone_plan.add_argument("--output", help=_("Output .sexp file to write the clone_placements: block to"))
     clone_plan.add_argument("-v", "--verbose", action="store_true", help=_("Verbose output"))
 
+    # Т5в (plan_2026_09_18_field_overrides_store): the OPTIONAL --config of the
+    # three commands whose addressing is board-based. ONE shared text on purpose —
+    # all three must promise exactly the same thing, and the promise has two
+    # halves that both have to be said out loud. `extract` reads the selection's
+    # roles and writes them INTO THE CELL (template_extraction.py), so "which
+    # truth did it read" is the difference between a usable cell and a cell full
+    # of stale roles — and without the flag the answer is "the board", i.e.
+    # today's behaviour, unchanged.
+    _config_help = _(
+        "Profile config file — WITH it Role/Cluster resolve through this profile's "
+        "override store (our values win over the board; the profile's own "
+        "role_cluster_source switch still decides, default: registry). WITHOUT it "
+        "the values come from the BOARD, exactly as before.")
     extract_parser = subparsers.add_parser("extract", help=_("Extract spoke cell from current selection"))
+    extract_parser.add_argument("--config", metavar="FILE", help=_config_help)
     extract_parser.add_argument("--name", help=_("Cell name (key in cells:)"))
     extract_parser.add_argument("--output", help=_("Output .sexp/JSON file"))
     extract_parser.add_argument("--profiles", metavar="FILE",
@@ -238,10 +252,11 @@ def main() -> int:
     # refinements of --origin-by-component-role for when several SELECTED
     # components share the role (same role in different Clusters/Channels).
     # Cluster reads the board Cluster field directly and always narrows; Sheet
-    # needs schematic sheet_names (Config.sheet_names), which the standalone
-    # extract command has no config for — it is accepted but only narrows when
-    # the role is unambiguous without it (prefer --origin-by-component-cluster,
-    # same guidance as extract-net's --anchor-sheet/--anchor-cluster).
+    # needs schematic sheet_names (Config.sheet_names). The optional --config
+    # (Т5в) does NOT provide them: it lends extract the profile's override store
+    # and nothing else, so Sheet is still accepted but only narrows when the role
+    # is unambiguous without it (prefer --origin-by-component-cluster, same
+    # guidance as extract-net's --anchor-sheet/--anchor-cluster).
     extract_parser.add_argument("--origin-by-component-cluster", metavar="CLUSTER",
                                 help=_("Refine --origin-by-component-role: narrow the same-role "
                                        "candidates to this Cluster (prefix match, as the role-anchor "
@@ -250,14 +265,16 @@ def main() -> int:
     extract_parser.add_argument("--origin-by-component-sheet", metavar="SHEET",
                                 help=_("Refine --origin-by-component-role: narrow the same-role "
                                        "candidates to this schematic sheet (no-op without schematic "
-                                       "sheet_names — the standalone extract command has no config, "
-                                       "prefer --origin-by-component-cluster)."))
+                                       "sheet_names — the optional --config lends extract the "
+                                       "profile's override store, not its sheet map; prefer "
+                                       "--origin-by-component-cluster)."))
 
     extract_net_parser = subparsers.add_parser(
         "extract-net",
         help=_("Capture one net's copper (tracks + vias) as a net_traces: record, "
                "anchored to a Role-resolved footprint over the whole board")
     )
+    extract_net_parser.add_argument("--config", metavar="FILE", help=_config_help)
     extract_net_parser.add_argument("--net", required=True, metavar="NET",
                                     help=_("Network name to capture (e.g. DAC_DB0; local hierarchical "
                                            "nets keep their full '/Channel_0/...' form)"))
@@ -282,6 +299,7 @@ def main() -> int:
         help=_("Copy a whole channel's placement (components + vias + tracks) "
                "from --src to --dst via a live twin map (variant B)")
     )
+    channel_copy_parser.add_argument("--config", metavar="FILE", help=_config_help)
     channel_copy_parser.add_argument("--src", required=True,
                                      help=_("Source channel name, e.g. Channel_0"))
     channel_copy_parser.add_argument("--dst", action="append", required=True, metavar="CHANNEL",

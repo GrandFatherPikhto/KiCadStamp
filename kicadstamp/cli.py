@@ -23,6 +23,26 @@ from kicadstamp.i18n import _
 logger = logging.getLogger(__name__)
 
 
+def _board_adapter(args):
+    """The board adapter for a command whose config is OPTIONAL (Т5в).
+
+    WITH ``--config`` the profile decides: its override store is layered in, and
+    the profile's own ``role_cluster_source`` switch still has the last word —
+    the same rule CLI, GUI and MCP follow, so one profile cannot give two answers.
+
+    WITHOUT it the adapter is BARE — spelled out rather than omitted: Role/Cluster
+    come straight from the board, exactly as before this plan. That is not a
+    leftover: these three commands address components by selection/refdes/role
+    over the LIVE board, and a caller who never adopted a store must keep getting
+    the board's values.
+    """
+    from kicadstamp.adapter_factory import create_board_adapter
+    config = getattr(args, "config", None)
+    if config:
+        return create_board_adapter(timeout_ms=args.timeout_ms, config_path=config)
+    return create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
+
+
 def cmd_extract(args) -> None:
     """Extract a spoke cell from the current selection on the board.
 
@@ -31,14 +51,13 @@ def cmd_extract(args) -> None:
     kicadstamp.cli_extract.extract_template, raising PlacerError on invalid
     input (the entry point maps it to exit code 1).
     """
-    from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.cli_extract import (load_profile, extract_template,
                                         EXTRACT_PROFILE_KNOWN_KEYS)
-    # BARE on purpose, spelled out rather than omitted (plan Т2а): `extract` has
-    # no root config — its --profiles file is the extract_profiles /
-    # clone_profiles format, not a profile, so there is no override store for it
-    # to consult.
-    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
+    # Т5в: `--config` is OPTIONAL and is NOT the --profiles file — that one
+    # describes extract profiles, this one is a PROFILE, and with it the roles
+    # read here (and written into the cell) are the EFFECTIVE ones. Without it
+    # the adapter is BARE (plan Т2а): the board's values, as before.
+    adapter = _board_adapter(args)
     adapter.refresh_board()
 
     direct_args_given = bool(args.name or args.output or args.param or args.net_template
@@ -134,18 +153,18 @@ def cmd_extract_net(args) -> None:
     net is searched over the WHOLE live board (not the mouse selection) and the
     anchor footprint by anchor_role — the same resolve_footprint_by_role search
     Rule/ClonePlacement use. Raises PlacerError on invalid input (the entry
-    point maps it to exit code 1). sheet_names stays empty (extract-net is a
-    standalone command with no config), so --anchor-sheet narrowing requires
-    the anchor_role to be unambiguous without it — use --anchor-cluster for a
-    second narrowing axis that does not need a schematic_dir.
+    point maps it to exit code 1). sheet_names stays empty — and stays empty even
+    with the optional --config (Т5в): extract-net borrows that profile's OVERRIDE
+    STORE, never its schematic sheet map — so --anchor-sheet narrowing requires
+    the anchor_role to be unambiguous without it; use --anchor-cluster for a
+    second narrowing axis that does not need a schematic_dir at all.
     """
     if not (args.net and args.anchor_role and args.output):
         raise PlacerError(_("[error] need --net, --anchor-role and --output"))
-    from kicadstamp.adapter_factory import create_board_adapter
-    # BARE on purpose — the docstring above already says it: extract-net is a
-    # STANDALONE command with no config at all, so there is no store to consult
-    # (plan Т2а).
-    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
+    # Т5в: extract-net addresses its anchor by Role, so WHICH Role it sees is the
+    # difference between anchoring correctly and anchoring nowhere. With --config
+    # it sees the profile's store; without it the board (as before, plan Т2а).
+    adapter = _board_adapter(args)
     adapter.refresh_board()
 
     from kicadstamp.net_trace_extract import (extract_net_trace, read_net_trace_flags,
@@ -268,10 +287,10 @@ def cmd_channel_copy(args) -> list[str] | None:
     point prints the returned report, same as cmd_apply. A repeated --dst is
     copied in one run, one report section per channel.
     """
-    from kicadstamp.adapter_factory import create_board_adapter
-    # BARE on purpose (plan Т2а): channel-copy addresses components by role over
-    # the live twin map and takes no root config, so there is no store to read.
-    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
+    # Т5в: the twin map is built FROM Role values (channel_copy.py's own role
+    # reads), so a role noted only in the store would otherwise be invisible
+    # here. With --config the profile's store is in force; without it, the board.
+    adapter = _board_adapter(args)
     adapter.refresh_board()
 
     def parse_pair(raw, flag):
