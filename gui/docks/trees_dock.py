@@ -4776,6 +4776,17 @@ class NodeFormWidget(QWidget):
         self._cluster_candidates = list(cluster_candidates or [])
         self.mount_anchor_widget.set_known_roles(
             self._role_candidates, self._cluster_candidates)
+        # The COMPONENT node's address picker is fed here too (2026-09-18).
+        # It used to be populated only once, where it is built — and at that
+        # moment the candidates are still empty (no board snapshot yet, see
+        # _role_candidates' "Empty when not connected"), so its Role/Cluster
+        # lists stayed empty FOREVER: the poll refreshed the mount picker
+        # beside it and skipped this one. Found live: a component node could
+        # not be addressed by role at all, only by typing the name by hand.
+        # Both pickers are populated as a pair where they are built; they must
+        # be refreshed as a pair too.
+        self.component_address_widget.set_known_roles(
+            self._role_candidates, self._cluster_candidates)
 
     def mount_anchor(self) -> TreeAnchor | None:
         """The MOUNT node's anchor (plan §Y.1.2): None when the picker is not
@@ -5639,6 +5650,16 @@ class NodeFormWidget(QWidget):
         # test that walks the tabs by index.
         address_tab_visible = is_mount or is_component
         self.tabs.setTabVisible(self._position_tab_index, address_tab_visible)
+        # The tab's LABEL follows the same one condition (2026-09-18, Denis:
+        # "there the tab is called Position — it should be called Component").
+        # The tab holds the address pickers and nothing else, so "Position"
+        # named neither of them: on a COMPONENT node the one thing done here is
+        # choosing WHICH component, and a label that does not lead to its
+        # content is what sent the user looking for a picker elsewhere.
+        if is_component:
+            self.tabs.setTabText(self._position_tab_index, _("Component"))
+        else:
+            self.tabs.setTabText(self._position_tab_index, _("Position"))
         if not address_tab_visible and self.tabs.currentIndex() == self._position_tab_index:
             # Never leave a hidden tab as the CURRENT one — Qt would otherwise
             # keep a tab the user cannot see active.

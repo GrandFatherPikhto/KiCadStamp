@@ -28,8 +28,10 @@ from PyQt6.QtWidgets import QDialog, QSplitter
 import gui.docks.trees_dock as trees_dock_mod
 from gui.docks.trees_dock import AnchorFormWidget
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.i18n import _
 from kicadstamp.trees import Tree
 from tests.gui.conftest import _pump
+from tests.gui.test_trees_dock import _node_form_for  # noqa: F401
 
 
 def _row(ref, role, cluster):
@@ -381,3 +383,60 @@ def test_tree_flow_passes_the_window_as_the_retry_owner(
     assert args[1] == ()                       # no guard widgets on this path
     assert kwargs["owner"] is real_main_window # the only liveness guard
     assert "on_cached" in kwargs               # the cache fallback is reported
+
+
+def test_component_node_address_lists_are_refreshed_too(
+        qapp, real_main_window):
+    """2026-09-18, found live by Denis: a COMPONENT node could not be addressed
+    by role — its Role/Cluster combos were empty forever.
+
+    The two address pickers of the node form are populated AS A PAIR where they
+    are built (mount_anchor_widget and component_address_widget), but at that
+    moment the candidates are still empty: the board snapshot has not arrived
+    yet. The poll then refreshes the lists through set_candidates — which
+    updated the mount picker and silently skipped the component one, so its
+    lists never filled at all.
+
+    The rule this pins: whatever set_candidates refreshes, it refreshes for
+    BOTH pickers. Red before the fix on component_address_widget alone.
+    """
+    dock = real_main_window._dock_hub.trees_dock
+    tree = Tree(name="T", anchor=None, nodes=[])
+    dock._trees = [tree]
+    form = _node_form_for(dock, tree, None, adapter=object(),
+                          role_candidates=[], cluster_candidates=[])
+
+    # Nothing to pick from yet — exactly the state right after connecting.
+    assert _combo_items(form.component_address_widget.anchor_role_edit) == []
+
+    form.set_candidates(["CONN_RENC", "R_FB"], ["CONN_RENC", "CL2"])
+
+    assert "CONN_RENC" in _combo_items(
+        form.component_address_widget.anchor_role_edit), (
+        "the COMPONENT node's Role list was not refreshed — a component node "
+        "cannot be addressed by role at all, only by typing the name by hand")
+    assert "CONN_RENC" in _combo_items(
+        form.component_address_widget.anchor_cluster_edit)
+    # The mount picker beside it keeps working (it always did).
+    assert "R_FB" in _combo_items(form.mount_anchor_widget.anchor_role_edit)
+
+
+def test_the_address_tab_is_labelled_for_the_kind_it_serves(
+        qapp, real_main_window):
+    """2026-09-18, Denis: the tab read "Position" while the only thing a
+    COMPONENT node does there is choose WHICH component.
+
+    The tab holds the address pickers and nothing else (see Л.2.3 — it is shown
+    exactly when one of them is), so "Position" described neither of them. The
+    label now follows the same single condition as the visibility.
+    """
+    dock = real_main_window._dock_hub.trees_dock
+    tree = Tree(name="T", anchor=None, nodes=[])
+    dock._trees = [tree]
+    form = _node_form_for(dock, tree, None, adapter=object())
+
+    form.kind_combo.setCurrentIndex(form.kind_combo.findData("component"))
+    assert form.tabs.tabText(form._position_tab_index) == _("Component")
+
+    form.kind_combo.setCurrentIndex(form.kind_combo.findData("mount"))
+    assert form.tabs.tabText(form._position_tab_index) == _("Position")
