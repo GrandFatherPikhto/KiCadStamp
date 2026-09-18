@@ -16959,7 +16959,7 @@ msgstr "Записать в хранилище"
 
 #: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
 msgid "no symbol uuid — the refdes has no footprint in the last board read"
-msgstr "нет symbol uuid — у refdes нет отпечатка в последнем чтении платы"
+msgstr "нет symbol uuid — у refdes нет футпринта в последнем чтении платы"
 
 #: gui/docks/cell_refs_tab.py gui/fieldstool_window.py
 #, python-brace-format
