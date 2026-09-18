@@ -124,9 +124,12 @@ GIL, while the UI thread held the GIL and waited for a Qt signal/slot mutex (`QB
 from a pool keyed by address, so unrelated objects collided — a brand-new `QComboBox` against the dying
 worker — which is why it looked random and rare.
 
-`LongOpController._on_thread_finished` (connected FIRST among the `finished` slots, so the worker dies before
-its `QThread` releases the thread data) drops the last Python reference; sip deletes the C++ object right
-there, on the UI thread. Deliberately NOT in `_release()`: that runs while the `succeeded`/`failed` payload is
+`LongOpController._on_thread_finished` drops the last Python reference; sip deletes the C++ object right
+there, on the UI thread. It is connected first among the `finished` slots out of tidiness, but the order is
+not what makes this work: dropping the last reference destroys the object immediately by refcount, while
+`deleteLater` only posts a DeferredDelete event, so the worker is destroyed before its `QThread` whichever
+way the three slots are connected (measured both ways —
+`diagnostics/claude_probe_finished_slot_order_2026_09_18.py`). Deliberately NOT in `_release()`: that runs while the `succeeded`/`failed` payload is
 still being delivered and `run()` can be on the worker thread's stack. Deliberately NOT `deleteLater` from the
 main thread either: the event goes into the finished thread's queue and the object is simply never destroyed
 (measured, `diagnostics/probe_worker_move_back.py` — which also shows Qt REFUSING the plan's other idea, moving

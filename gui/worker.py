@@ -297,9 +297,13 @@ class LongOpController(QObject):
         # thread held the signal/slot mutex and waited for the GIL; neither
         # side could move. Full plan: plan_2026_09_18_worker_delete_deadlock.
         #
-        # Connected FIRST, before the two deleteLater lines below: queued events
-        # on the UI thread are delivered in the order they were posted, so the
-        # worker dies before its QThread releases the thread data it belonged to.
+        # Connected first, before the two deleteLater lines below, out of
+        # tidiness — NOT because the order carries the guarantee. Measured
+        # (diagnostics/claude_probe_finished_slot_order_2026_09_18.py, both
+        # orders): the worker is destroyed before its QThread either way,
+        # because dropping the last reference destroys it IMMEDIATELY by
+        # refcount while deleteLater only POSTS a DeferredDelete event. Say it
+        # plainly so nobody treats this line's position as load-bearing.
         self._thread.finished.connect(self._on_thread_finished)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.finished.connect(self.thread_stopped)
