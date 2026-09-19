@@ -5938,7 +5938,22 @@ msgstr "flatten: wrote {path} ({files} files consolidated)"
 msgid "KiCadStamp GUI"
 msgstr "KiCadStamp GUI"
 
-#: kicadstamp/link_trees.py:96
+#: kicadstamp/link_trees.py:119
+#, python-brace-format
+msgid "tree {name!r}"
+msgstr "tree {name!r}"
+
+#: kicadstamp/link_trees.py:126
+#, python-brace-format
+msgid "{where} > node {ref!r}"
+msgstr "{where} > node {ref!r}"
+
+#: kicadstamp/link_trees.py:134
+#, python-brace-format
+msgid "{where}: "
+msgstr "{where}: "
+
+#: kicadstamp/link_trees.py:167
 #, python-brace-format
 msgid ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
@@ -5947,35 +5962,35 @@ msgstr ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
 "must be unique"
 
-#: kicadstamp/link_trees.py:136
+#: kicadstamp/link_trees.py:242
 #, python-brace-format
-msgid "Node {ref!r} (kind {kind!r}) not found in config"
-msgstr "Node {ref!r} (kind {kind!r}) not found in config"
+msgid "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
+msgstr "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:142
+#: kicadstamp/link_trees.py:253
 #, python-brace-format
-msgid "Node {ref!r} not found in config"
-msgstr "Node {ref!r} not found in config"
+msgid "{location}node {ref!r} not found in config{suggestion}"
+msgstr "{location}node {ref!r} not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:143
+#: kicadstamp/link_trees.py:256
 msgid "If this is an external (live-board-only) refdes, add (kind external)"
 msgstr "If this is an external (live-board-only) refdes, add (kind external)"
 
-#: kicadstamp/link_trees.py:146
+#: kicadstamp/link_trees.py:260
 #, python-brace-format
-msgid "Node {ref!r} is ambiguous across sections: {kinds}"
-msgstr "Node {ref!r} is ambiguous across sections: {kinds}"
+msgid "{location}node {ref!r} is ambiguous across sections: {kinds}"
+msgstr "{location}node {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:148
+#: kicadstamp/link_trees.py:262
 msgid "Add an explicit (kind ...) to disambiguate"
 msgstr "Add an explicit (kind ...) to disambiguate"
 
-#: kicadstamp/link_trees.py:176
+#: kicadstamp/link_trees.py:296
 #, python-brace-format
-msgid "Anchor {ref!r} is ambiguous across sections: {kinds}"
-msgstr "Anchor {ref!r} is ambiguous across sections: {kinds}"
+msgid "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
+msgstr "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:225
+#: kicadstamp/link_trees.py:345
 #, python-brace-format
 msgid ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
@@ -5984,7 +5999,7 @@ msgstr ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
 "itself"
 
-#: kicadstamp/link_trees.py:228
+#: kicadstamp/link_trees.py:348
 #, python-brace-format
 msgid ""
 "tree {name!r}: module node references unknown tree {ref!r} (no tree with "
@@ -5993,7 +6008,7 @@ msgstr ""
 "tree {name!r}: module node references unknown tree {ref!r} (no tree with "
 "that name exists)"
 
-#: kicadstamp/link_trees.py:232
+#: kicadstamp/link_trees.py:352
 #, python-brace-format
 msgid ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
@@ -6002,19 +6017,19 @@ msgstr ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
 "tree by module only once"
 
-#: kicadstamp/link_trees.py:253
+#: kicadstamp/link_trees.py:381
 #, python-brace-format
 msgid "tree module cycle: {chain}"
 msgstr "tree module cycle: {chain}"
 
-#: kicadstamp/link_trees.py:312
+#: kicadstamp/link_trees.py:451
 #, python-brace-format
 msgid ""
-"Module {ref!r} references a tree that is not in this set of trees — link "
-"the whole config"
+"{location}module {ref!r} references a tree that is not in this set of "
+"trees — link the whole config"
 msgstr ""
-"Module {ref!r} references a tree that is not in this set of trees — link "
-"the whole config"
+"{location}module {ref!r} references a tree that is not in this set of "
+"trees — link the whole config"
 
 #: kicadstamp/net_from_role_resolver.py:187
 #, python-brace-format

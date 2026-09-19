@@ -659,3 +659,177 @@ def test_module_linked_recursive_nested(tmp_path):
     # nested content is shared with the nested marker of b's OWN forest tree.
     forest_b_nested = by["b"].nodes[0].children[0]
     assert forest_b_nested.module_linked is nested.module_linked
+
+
+# ── human-readable link fatals (2026-09-19, plan_2026_09_18_link_trees_error_
+#    messages): the tree LOCATION of the failure + a difflib "did you mean" ──
+# The 2026-09-18 live case: tree "mcu" in a 7400-line profile held
+# (node (ref "mcu") (kind "placement")) where the entity is named "mcu_mcu";
+# the old message ("Node 'mcu' (kind 'placement') not found in config") named
+# neither the tree nor the likely intended name.
+
+def test_fatal_names_the_tree_of_a_top_level_node(tmp_path):
+    """С1: an explicit-kind miss on a TOP-LEVEL node names the tree to grep —
+    the first thing that turns "which of a dozen trees?" into a lookup."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "mcu") (anchor (origin))\n'
+        '      (node (ref "NO_SUCH") (kind clone) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError, match=r"tree 'mcu': node 'NO_SUCH'"):
+        link_trees(cfg, trees)
+
+
+def test_fatal_names_the_parent_path_of_a_nested_node(tmp_path):
+    """С2: a node nested under a `mount` parent reports the whole path — the
+    tree AND the parent whose subtree holds it (one " > node" step per level)."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "outer") (anchor (origin))\n'
+        '  (node (ref "M1") (kind mount) (anchor (role "R"))\n'
+        '    (node (ref "NO_SUCH") (kind clone) (xy 1 2))))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError) as excinfo:
+        link_trees(cfg, trees)
+    assert "tree 'outer' > node 'M1': node 'NO_SUCH' (kind 'clone')" \
+        in str(excinfo.value)
+
+
+def test_fatal_suggests_a_close_name_of_the_same_kind(tmp_path):
+    """С3: the live case verbatim — (ref "mcu") (kind placement) in tree "mcu"
+    should have named the entity "mcu_mcu" (its siblings follow "<cell>_mcu");
+    the hint now closes that gap without a grep."""
+    cfg = _cfg(entities=[Entity(name="mcu_mcu", cell="c")])
+    trees = _tree(
+        '(tree (name "mcu") (anchor (origin))\n'
+        '      (node (ref "mcu") (kind placement) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError) as excinfo:
+        link_trees(cfg, trees)
+    assert str(excinfo.value) == (
+        "tree 'mcu': node 'mcu' (kind 'placement') not found in config — "
+        "did you mean 'mcu_mcu'?")
+
+
+def test_fatal_has_no_hint_when_nothing_is_close(tmp_path):
+    """С4: no close name -> NO hint at all (never a dangling "did you mean" or
+    an empty suggestion), and the legacy substring the older tests match on is
+    still there."""
+    cfg = _cfg(entities=[Entity(name="mcu_mcu", cell="c")])
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "ZZZ_QQQ") (kind placement) (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError) as excinfo:
+        link_trees(cfg, trees)
+    message = str(excinfo.value)
+    assert "not found in config" in message
+    assert "did you mean" not in message
+    assert message == ("tree 't': node 'ZZZ_QQQ' (kind 'placement') "
+                       "not found in config")
+
+
+def test_kindless_miss_suggests_a_name_from_any_section(tmp_path):
+    """С5: without an explicit kind the section is unknown, so the candidate
+    pool is EVERY placeable name — a near-miss in any of the four placeable
+    sections yields a hint (here a clone), and the external-refdes hint the
+    message always carried stays."""
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "CL_AA") (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError) as excinfo:
+        link_trees(cfg, trees)
+    message = str(excinfo.value)
+    assert "tree 't': node 'CL_AA' not found in config" in message
+    assert "did you mean 'CL_A'?" in message
+    assert "kind external" in message
+
+
+def test_ambiguous_anchor_fatal_names_the_tree(tmp_path):
+    """С6: the anchor ambiguity fatal names its tree too (no "did you mean" —
+    the conflicting sections ARE the hint)."""
+    cfg = _cfg(rules=[
+        Rule(net="AMB", spokes=[]),
+    ], clone_placements=[
+        ClonePlacement(cluster="AMB", cell="c", xy=(0.0, 0.0)),
+    ])
+    trees = _tree(
+        '(tree (name "t") (anchor (ref "AMB"))\n'
+        '      (node (ref "CL_B") (xy 1 2)))',
+        tmp_path=tmp_path)
+    with pytest.raises(ValidationError) as excinfo:
+        link_trees(cfg, trees)
+    assert "tree 't': anchor 'AMB' is ambiguous across sections" \
+        in str(excinfo.value)
+
+
+def test_module_content_fatal_names_the_tree_that_defines_the_node(tmp_path):
+    """С7: a broken node inside an EMBEDDED tree's content blames the tree the
+    node is DEFINED in, not the host tree whose module marker pulls it in (the
+    breadcrumb is rooted at the content tree's own name)."""
+    from kicadstamp.anchor_graph import build_records
+    from kicadstamp.link_trees import (
+        _build_by_key_index, _build_by_name_index, _link_content_tree,
+    )
+
+    cfg = _cfg()
+    trees = _tree(
+        '(tree (name "inner") (anchor (origin))\n'
+        '      (node (ref "NO_SUCH") (kind clone) (xy 1 1)))\n'
+        '(tree (name "host") (anchor (origin))\n'
+        '      (node (ref "inner") (kind module) (xy 0 0)))',
+        tmp_path=tmp_path)
+    by_tree = {t.name: t for t in trees}
+    records = build_records(cfg)
+    with pytest.raises(ValidationError) as excinfo:
+        _link_content_tree(by_tree["inner"], _build_by_key_index(records),
+                           _build_by_name_index(records), by_tree, {})
+    message = str(excinfo.value)
+    assert "tree 'inner': node 'NO_SUCH'" in message
+    assert "host" not in message
+
+
+def test_resolution_without_where_keeps_the_tree_agnostic_message(tmp_path):
+    """The `where` context is OPTIONAL: the GUI/CLI probes resolve a bare ref
+    outside any tree (_resolve_probe_ref,
+    tree_position._anchor_base_live_position), and must get the message they
+    always got — never a dangling "': '" prefix."""
+    from kicadstamp.anchor_graph import build_records
+    from kicadstamp.link_trees import (
+        _build_by_key_index, _build_by_name_index, _resolve_node_ref,
+    )
+    from kicadstamp.trees import TreeNode
+
+    cfg = _cfg()
+    records = build_records(cfg)
+    probe = TreeNode(ref="NO_SUCH", kind="clone", xy=None, polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    with pytest.raises(ValidationError) as excinfo:
+        _resolve_node_ref(probe, _build_by_key_index(records),
+                          _build_by_name_index(records))
+    assert str(excinfo.value) == \
+        "node 'NO_SUCH' (kind 'clone') not found in config"
+
+
+def test_ru_catalog_renders_the_whole_hint_sentence():
+    """The user-visible half: the RU catalogue really composes the new sentence
+    (location prefix + tree breadcrumb + difflib tail) out of the shipped .mo —
+    a stale binary would fall back to English here. Read WITHOUT installing a
+    language globally (no setup_i18n), so this test cannot leak RU into the
+    other tests of the session."""
+    import gettext
+
+    from kicadstamp.i18n import LOCALE_DIR
+
+    ru = gettext.translation("kicadstamp", localedir=str(LOCALE_DIR),
+                             languages=["ru"]).gettext
+    location = ru("{where}: ").format(where=ru("tree {name!r}").format(name="mcu"))
+    message = ru("{location}node {ref!r} (kind {kind!r}) not found in "
+                 "config{suggestion}").format(
+                     location=location, ref="mcu", kind="placement",
+                     suggestion=ru(" — did you mean {suggestion!r}?").format(
+                         suggestion="mcu_mcu"))
+    assert message == ("дерево 'mcu': узел 'mcu' (kind 'placement') не найден "
+                       "в конфиге — возможно, вы имели в виду 'mcu_mcu'?")

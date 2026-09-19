@@ -35,7 +35,19 @@ Resolution rules (all fatal via ValidationError, formatted AFTER _()):
     the module docstring; the conflict is only consulted at redraw-select time
     via inline_anchor_field() (tree_position.curated_redraw_plan), never at
     link/Save time.
+
+Message context (2026-09-19, plan_2026_09_18_link_trees_error_messages): every
+"not found"/"ambiguous" fatal carries the LOCATION it happened in — "tree 'x'"
+for a top-level node/anchor, plus one " > node 'ref'" step per nesting level
+below it (a nested fatal names the parent path too). A "not found" fatal also
+gets a "did you mean 'close_name'?" tail (difflib — the same pattern
+validation.py uses for nets) when a close name exists: among the SAME kind for
+an explicit-kind lookup, among ALL placeable names for an auto-search. Only the
+wording grew: resolution itself is unchanged, and the legacy substrings ("not
+found in config", "multiple records with key") stay verbatim for the callers
+and tests that match on them.
 """
+import difflib
 from dataclasses import dataclass
 
 from .anchor_graph import Record, build_records, record_key
@@ -100,6 +112,48 @@ def _fatal(message: str) -> None:
     raise ValidationError(message)
 
 
+def _tree_where(tree: Tree) -> str:
+    """The location of a tree's own parts: "tree 'ch0'" — the root of every
+    breadcrumb a link-time fatal carries (plan_2026_09_18_link_trees_error_
+    messages)."""
+    return _("tree {name!r}").format(name=tree.name)
+
+
+def _node_where(where: str, node: TreeNode) -> str:
+    """The location for `node`'s CHILDREN: the caller's location plus this
+    node's own ref — "tree 'ch0' > node 'dac_3_dvdd'" (one step per nesting
+    level), so a nested fatal names the path, not just the tree."""
+    return _("{where} > node {ref!r}").format(where=where, ref=node.ref)
+
+
+def _location(where: str | None) -> str:
+    """The "{where}: " prefix of a fatal message, or "" for a caller with no
+    tree context — the GUI/CLI pre-flight probes (_resolve_probe_ref,
+    tree_position._anchor_base_live_position) resolve a bare ref outside any
+    tree walk and keep the tree-agnostic wording they always had."""
+    return _("{where}: ").format(where=where) if where else ""
+
+
+def _did_you_mean(ref: str, candidates) -> str:
+    """The " — did you mean 'x'?" tail of a "not found" fatal, or "" when
+    nothing is close enough. difflib.get_close_matches over the caller's own
+    index (the names of one kind, or every placeable name) — the same pattern
+    validation.py uses for net typos; an empty result never leaves a dangling
+    "did you mean" (plan §2.2)."""
+    close = difflib.get_close_matches(ref, list(candidates), n=1)
+    return (_(" — did you mean {suggestion!r}?").format(suggestion=close[0])
+            if close else "")
+
+
+def _names_of_kind(by_key: dict[str, Record], kind_key: str) -> list[str]:
+    """Names of every indexed record of ONE canonical kind — the candidate
+    pool for "did you mean" on an explicit-kind lookup ("chain" for a legacy
+    kind "rule", exactly like the lookup above). Reads the existing by_key
+    index; no second index is built."""
+    prefix = f"{kind_key}:"
+    return [k[len(prefix):] for k in by_key if k.startswith(prefix)]
+
+
 def _build_by_key_index(records: list[Record]) -> dict[str, Record]:
     """{record_key: Record} for exact lookup with an explicit kind. Detects
     collisions (two records yielding one key, e.g. two clone_placements with
@@ -128,10 +182,16 @@ def _build_by_name_index(records: list[Record]) -> dict[str, list[Record]]:
 
 
 def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
-                      by_name: dict[str, list[Record]]) -> tuple[Record | None, bool]:
+                      by_name: dict[str, list[Record]],
+                      where: str | None = None) -> tuple[Record | None, bool]:
     """Resolve one node's ref -> (record, is_external). Follows the node
     resolution rules from the module docstring (explicit kind, auto-search,
-    external marker)."""
+    external marker).
+
+    `where` is this node's LOCATION inside its tree ("tree 'x'", or the full
+    breadcrumb for a nested node) — every fatal is prefixed with it, so a typo
+    names the tree to look in. None (a probe resolving a bare ref outside any
+    tree walk) keeps the message tree-agnostic."""
     ref = node.ref
     if node.kind == "external":
         # Live-board-only refdes: never touch the config (symmetrically to
@@ -173,31 +233,49 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         kind_key = "chain" if node.kind == "rule" else node.kind
         rec = by_key.get(f"{kind_key}:{ref}")
         if rec is None:
-            _fatal(_("Node {ref!r} (kind {kind!r}) not found in config")
-                   .format(ref=ref, kind=node.kind))
+            # "did you mean" candidates: the OTHER names of this SAME kind —
+            # the pool a typo is a misspelling of (live 2026-09-18: a node
+            # (ref "mcu") (kind placement) should have named the entity
+            # "mcu_mcu", and every sibling node in that tree followed the
+            # "<cell>_mcu" pattern).
+            names = _names_of_kind(by_key, kind_key)
+            _fatal(_("{location}node {ref!r} (kind {kind!r}) not found in "
+                     "config{suggestion}")
+                   .format(location=_location(where), ref=ref, kind=node.kind,
+                           suggestion=_did_you_mean(ref, names)))
         return rec, False
 
     candidates = by_name.get(ref, [])
     if not candidates:
-        _fatal(_("Node {ref!r} not found in config").format(ref=ref) + " " +
+        # No kind: EVERY placeable name is a candidate (the section is unknown
+        # by construction of this branch), so the hint can come from any of the
+        # four placeable sections.
+        _fatal(_("{location}node {ref!r} not found in config{suggestion}")
+               .format(location=_location(where), ref=ref,
+                       suggestion=_did_you_mean(ref, by_name)) + " " +
                _("If this is an external (live-board-only) refdes, add (kind external)"))
     if len(candidates) > 1:
+        # NOT a "not found": the kinds themselves are the hint, no difflib.
         kinds = ", ".join(sorted({c.kind for c in candidates}))
-        _fatal(_("Node {ref!r} is ambiguous across sections: {kinds}")
-               .format(ref=ref, kinds=kinds) + " " +
+        _fatal(_("{location}node {ref!r} is ambiguous across sections: {kinds}")
+               .format(location=_location(where), ref=ref, kinds=kinds) + " " +
                _("Add an explicit (kind ...) to disambiguate"))
     return candidates[0], False
 
 
 def _resolve_anchor_ref(anchor: TreeAnchor,
-                        by_name: dict[str, list[Record]]) -> tuple[Record | None, bool]:
+                        by_name: dict[str, list[Record]],
+                        where: str | None = None) -> tuple[Record | None, bool]:
     """Resolve a tree anchor's ref -> (record, is_external). is_origin never
     resolves (no base, not "external"). An explicit external marker (the
     anchor's (external) child) is ALWAYS external — never touches config, so
     a name collision with a config record is impossible (the fix for
     note_2026_08_28_tree_anchor_name_collision). Zero matches is SILENTLY
     external — a legacy fallback for anchors pointing at a live component
-    outside the config (kept for backward compatibility)."""
+    outside the config (kept for backward compatibility).
+
+    `where` is the anchor's LOCATION ("tree 'x'") — used by the ambiguity
+    fatal below; None (a probe call) keeps the message tree-agnostic."""
     if anchor.is_origin:
         return None, False
     if anchor.is_self:
@@ -212,9 +290,11 @@ def _resolve_anchor_ref(anchor: TreeAnchor,
     if not candidates:
         return None, True
     if len(candidates) > 1:
+        # The conflicting kinds ARE the hint (the anchor must name exactly one
+        # record) — no difflib here, same as the node ambiguity above.
         kinds = ", ".join(sorted({c.kind for c in candidates}))
-        _fatal(_("Anchor {ref!r} is ambiguous across sections: {kinds}")
-               .format(ref=anchor.ref, kinds=kinds))
+        _fatal(_("{location}anchor {ref!r} is ambiguous across sections: {kinds}")
+               .format(location=_location(where), ref=anchor.ref, kinds=kinds))
     return candidates[0], False
 
 
@@ -337,7 +417,11 @@ def _link_content_tree(tree: Tree, by_key: dict[str, Record],
     # a caller that links a tree subset without running the graph guard would
     # otherwise recurse forever on a self/cycle reference — fail-safe.
     memo[tree.name] = content
-    content.nodes = [_link_node(n, by_key, by_name, by_tree, memo)
+    # The breadcrumb is rooted at THIS tree's name — the tree the nodes are
+    # REALLY defined in — never the host tree that embeds them through a module
+    # marker (a fatal must point at the definition, plan §2.1).
+    content.nodes = [_link_node(n, by_key, by_name, by_tree, memo,
+                                _tree_where(tree))
                      for n in tree.nodes]
     return content
 
@@ -345,11 +429,18 @@ def _link_content_tree(tree: Tree, by_key: dict[str, Record],
 def _link_node(node: TreeNode, by_key: dict[str, Record],
                by_name: dict[str, list[Record]],
                by_tree: dict[str, Tree],
-               memo: dict[str, "LinkedTree"]) -> LinkedNode:
+               memo: dict[str, "LinkedTree"],
+               where: str) -> LinkedNode:
     """Recursively wrap one TreeNode (and its children) into a LinkedNode. A
     module node resolves its ref as another TREE (module_tree, never a record)
     and carries its LINKED CONTENT (module_linked) for the planner/apply; its
-    own children (ordinary marker children) link normally."""
+    own children (ordinary marker children) link normally.
+
+    `where` is THIS node's location ("tree 'x'" for a top-level node, one
+    " > node 'ref'" step per nesting level): it is handed to the resolution (so
+    its fatals name the tree) and extended for the children (so a nested fatal
+    names the parent path too)."""
+    child_where = _node_where(where, node)
     if node.kind == "module":
         module_tree = by_tree.get(node.ref)
         if module_tree is None:
@@ -357,24 +448,25 @@ def _link_node(node: TreeNode, by_key: dict[str, Record],
             # (existence is a config fatal there) — defensive for a caller that
             # links a SUBSET missing the referenced tree: fail loudly, never
             # silently drop the embed.
-            _fatal(_("Module {ref!r} references a tree that is not in this "
-                     "set of trees — link the whole config").format(ref=node.ref))
+            _fatal(_("{location}module {ref!r} references a tree that is not "
+                     "in this set of trees — link the whole config")
+                   .format(location=_location(where), ref=node.ref))
         return LinkedNode(
             node=node,
             record=None,
             is_external=False,
-            children=[_link_node(c, by_key, by_name, by_tree, memo)
+            children=[_link_node(c, by_key, by_name, by_tree, memo, child_where)
                       for c in node.children],
             module_tree=module_tree,
             module_linked=_link_content_tree(module_tree, by_key, by_name,
                                              by_tree, memo),
         )
-    record, is_external = _resolve_node_ref(node, by_key, by_name)
+    record, is_external = _resolve_node_ref(node, by_key, by_name, where)
     return LinkedNode(
         node=node,
         record=record,
         is_external=is_external,
-        children=[_link_node(c, by_key, by_name, by_tree, memo)
+        children=[_link_node(c, by_key, by_name, by_tree, memo, child_where)
                   for c in node.children],
         module_tree=None,
     )
@@ -384,7 +476,8 @@ def _link_tree(tree: Tree, by_key: dict[str, Record],
                by_name: dict[str, list[Record]],
                by_tree: dict[str, Tree],
                memo: dict[str, "LinkedTree"]) -> LinkedTree:
-    record, is_external = _resolve_anchor_ref(tree.anchor, by_name)
+    where = _tree_where(tree)
+    record, is_external = _resolve_anchor_ref(tree.anchor, by_name, where)
     return LinkedTree(
         name=tree.name,
         anchor=LinkedAnchor(
@@ -393,7 +486,8 @@ def _link_tree(tree: Tree, by_key: dict[str, Record],
             is_origin=tree.anchor.is_origin,
             is_external=is_external,
         ),
-        nodes=[_link_node(n, by_key, by_name, by_tree, memo) for n in tree.nodes],
+        nodes=[_link_node(n, by_key, by_name, by_tree, memo, where)
+               for n in tree.nodes],
     )
 
 
