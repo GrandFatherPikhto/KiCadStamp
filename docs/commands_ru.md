@@ -233,7 +233,7 @@ python kicadstamp_cli.py undo --verbose
 ### Синтаксис
 
 ```bash
-python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--net-template-role РОЛЬ=ЛИТЕРАЛ] [--rule-net ЛИТЕРАЛ] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <имя_шаблона> --output <файл> [--config FILE] [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template ЛИТЕРАЛ=ПАТТЕРН] [--net-template-role РОЛЬ=ЛИТЕРАЛ] [--rule-net ЛИТЕРАЛ] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Опции
@@ -242,6 +242,7 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 |------|----------|
 | `--name` | Имя шаблона (ключ в секции `templates`). В режиме явных флагов (не `--profile`) необязателен: если не задан, спрашивается интерактивно. |
 | `--output` | Путь к выходному файлу. Расширение определяет формат: `.json` → JSON (плоский словарь), `.sexp` → s-expr (суффикс `.yaml`/`.yml` — фатальная ошибка: YAML убран 2026-08-28). |
+| `--config FILE` | **Необязательный** конфиг профиля: С ним Role/Cluster резолвятся через **хранилище** ЭТОГО профиля (наши значения главнее платы; рубильник профиля `role_cluster_source` по-прежнему решает, по умолчанию `registry`), и в ячейку попадают ДЕЙСТВУЮЩИЕ роли. Без него значения берутся С ПЛАТЫ, ровно как раньше — это доадресное поведение, а не остаток (о рубильнике — [docs/config_ru.md](config_ru.md)). |
 | `--timeout-ms` | Таймаут IPC (по умолчанию 5000 мс — `DEFAULT_TIMEOUT_MS`). |
 | `--verbose` | Подробный вывод. |
 | `--log-file` | Сохранять логи в файл. |
@@ -253,7 +254,7 @@ python kicadstamp_cli.py extract --name <имя_шаблона> --output <фай
 | `--origin-by-component-role ROLE` | Задаёт origin по позиции компонента с указанной ролью. Взаимоисключающе с `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Уточняет `--origin-by-component-role`: origin — позиция конкретного пада компонента, а не его центр. Без `--origin-by-component-role` — фатал (уточнять пад можно только у уже указанной роли). |
 | `--origin-by-component-cluster CLUSTER` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного Cluster (совпадение по префиксу сегмента — то же сопоставление, что использует резолвер ролевого якоря). Фатально, если после сужения осталось несколько кандидатов. |
-| `--origin-by-component-sheet SHEET` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного листа схемы (без имён листов — no-op: отдельная команда не имеет конфига; предпочтительнее `--origin-by-component-cluster`). |
+| `--origin-by-component-sheet SHEET` | Уточняет `--origin-by-component-role`: сужает кандидатов с этой ролью до данного листа схемы. Имена листов берутся из конфига, поэтому нужен `--config` (либо `schematic_dir` целевого конфига на этапе apply) — без него это no-op; когда конфига под рукой нет, предпочитайте `--origin-by-component-cluster`. |
 | `--raw-selection` | Взять текущее выделение как треки/via **как есть**, без pad-connectivity фильтра — каждый выделенный трек/via попадёт в ячейку без проверки «связи с падом оставленного футпринта». По умолчанию выключено (фильтр остаётся дефолтным поведением); включайте, когда точно знаете, что вся выделенная медь ваша (например, массив via без якорного компонента в выделении). |
 | `--profiles FILE` | S-expr-файл (`.sexp`) с именованными профилями для `extract`. |
 | `--profile NAME` | Использовать профиль из файла `--profiles` вместо явных флагов (нельзя сочетать с `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` — либо всё из профиля, либо всё явными флагами). |
@@ -339,13 +340,17 @@ python kicadstamp_cli.py extract-net --net <СЕТЬ> --anchor-role <РОЛЬ> \
 
 - `--net` (обязательно) — имя сети для захвата (например `DAC_DB0`; локальные
   иерархические сети сохраняют полную форму `/Channel_0/...`).
+- `--config FILE` — **Необязательный** конфиг профиля: С ним Role якоря
+ резолвится через **хранилище** ЭТОГО профиля (наши значения главнее платы;
+ рубильник профиля `role_cluster_source` по-прежнему решает). Без него Role
+ берётся С ПЛАТЫ, ровно как раньше. Тот же флаг, что у `extract`.
 - `--anchor-role` (обязательно) — поле Role якорного футпринта, поиск по всей
-  живой плате (тот же `resolve_footprint_by_role`, что у Chain/ClonePlacement).
-  Фатал, если роли нет или она неоднозначна.
-- `--anchor-sheet` — сузить поиск anchor_role по листу. ВНИМАНИЕ: у
-  `extract-net` нет своего конфига, поэтому сужение по листу требует
-  `schematic_dir` в ЦЕЛЕВОМ конфиге на этапе apply; здесь для снятия
-  неоднозначности предпочитайте `--anchor-cluster`.
+ живой плате (тот же `resolve_footprint_by_role`, что у Chain/ClonePlacement).
+ Фатал, если роли нет или она неоднозначна.
+- `--anchor-sheet` — сузить поиск anchor_role по листу. ВНИМАНИЕ: имена листов
+ берутся из конфига, поэтому здесь нужен `--config` (либо `schematic_dir` в
+ ЦЕЛЕВОМ конфиге на этапе apply); для снятия неоднозначности предпочитайте
+ `--anchor-cluster`.
 - `--anchor-cluster` — сузить по полю Cluster (префиксное совпадение).
 - `--anchor-pad` — якорь на центр этого пада вместо центра футпринта.
 - `--output` (обязательно) — файл `.sexp`/JSON; добавляет/заменяет запись под
@@ -431,7 +436,7 @@ Role — поэтому повторяющиеся Role-схемы между PI
 ```bash
 python kicadstamp_cli.py channel-copy --src <канал> --dst <канал> [--dst <канал> ...]
     (--pivot REF [--pivot-pad P] | --pivot-role ROLE | --src-point X,Y --dst-point X,Y)
-    [--offset DX,DY] [--target-dst X,Y] [--angle DEG] [--mirror]
+    [--config FILE] [--offset DX,DY] [--target-dst X,Y] [--angle DEG] [--mirror]
     [--include-global] [--dry-run] [--no-collision-check] [--verbose]
 ```
 
@@ -441,6 +446,7 @@ python kicadstamp_cli.py channel-copy --src <канал> --dst <канал> [--d
 |------|-------------|
 | `--src` | Имя исходного канала (например, `Channel_0`). |
 | `--dst` | Имя канала назначения (например, `Channel_1`); повторяемый — несколько каналов за один запуск. |
+| `--config FILE` | **Необязательный** конфиг профиля: С ним `--pivot-role` (и любой поиск по роли) резолвится через **хранилище** ЭТОГО профиля — наши значения главнее платы, рубильник профиля `role_cluster_source` по-прежнему решает. Без него Role берётся С ПЛАТЫ, ровно как раньше. |
 | `--pivot REF` | Рефдес пивот-компонента на исходном канале. |
 | `--pivot-role ROLE` | Пивот по полю `Role` на исходном канале (переживает переаннотацию). |
 | `--pivot-pad P` | Якорь на этом паде пивота вместо его центра. |
@@ -553,6 +559,114 @@ python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp --output profi
 
 # Перезаписать корневой файл на месте слитым содержимым
 python kicadstamp_cli.py flatten --root profiles/3ch-awg-tia.sexp
+```
+
+---
+
+## Команда `overrides-apply` – записать значения из хранилища НАРУЖУ
+
+**Хранилище проекта** (`overrides/<stem профиля>.fields.json` рядом с профилем — см.
+[docs/config_ru.md](config_ru.md)) хранит значения Role/Cluster, которые человек наметил в
+KiCadStamp. Наше значение главнее платы ВЕЗДЕ (в этом весь смысл хранилища), поэтому хранилище — это
+место разметки; а эти команды — обратное направление: ЯВНАЯ запись этих значений на плату или в
+схему.
+
+Зачем они нужны: плату читают ЧУЖИЕ инструменты (BOM, классы цепей), а `--to schematic` сплайсит
+`.kicad_sch` ОФЛАЙН — операция, при которой KiCad закрыт, и до сих пор она была доступна только из GUI.
+
+### Синтаксис
+
+```bash
+python kicadstamp_cli.py overrides-apply --config <профиль> --to board|schematic [--dry-run] [--root-sheet FILE] [--timeout-ms MS] [--verbose]
+```
+
+### Опции
+
+| Флаг | Описание |
+|------|-------------|
+| `--config FILE` | **Обязателен** — профиль, чьё хранилище записывается наружу. Путь хранилища выводится из него (`overrides/<stem>.fields.json` рядом), поэтому без профиля хранилища нет. |
+| `--to board` | Записать значения НА живую плату через KiCad: ОДИН коммит `set_field_values_bulk`, так что Ctrl+Z в KiCad откатывает всю пачку. Записи сопоставляются с футпринтами по **symbol uuid**, никогда по сохранённому рядом refdes (переаннотация F8 переименовывает компоненты). Футпринт, у которого поля нет, пропускается ПО ПОЛЮ и по имени; символ, которого на плате нет, отклоняется по имени. |
+| `--to schematic` | Сплайс значений в `.kicad_sch` ОФЛАЙН (KiCad должен быть закрыт). Адресация — refdes + свойство, словарь самого формата: неизвестный refdes фатален и не пишется ничего, а два символа одного refdes с разными значениями отклоняются, а не выбирается один молча. Каждый перезаписанный файл оставляет `.bak`. |
+| `--dry-run` | Печатать план и НЕ писать ничего — ни плату, ни файлы (хранилище тоже не трогается). |
+| `--root-sheet FILE` | Только для `--to schematic`: какой `.kicad_sch` сплайсить. По умолчанию — собственный `root_sheet` профиля. |
+| `--timeout-ms` | Таймаут IPC для `--to board` (по умолчанию `DEFAULT_TIMEOUT_MS`). |
+
+Два поведения, о которых стоит знать: при `role_cluster_source: board` в профиле значения НЕ в силе,
+и команда отказывается (писать их не имело бы смысла); а запись `--to schematic` **убирает записи,
+которые стали лишними** (запись, которую схема уже несёт, сделала своё дело — см. раздел о хранилище в
+[docs/config_ru.md](config_ru.md)). `--to board` хранилища не трогает никогда.
+
+### Примеры
+
+```bash
+# Посмотреть, что легло бы на плату, ничего не записывая
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to board --dry-run
+
+# Записать значения из хранилища на плату (один коммит)
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to board
+
+# Сплайсить их в схему (KiCad закрыт); записи, которые она теперь несёт, уходят
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to schematic
+```
+
+---
+
+## Команда `overrides-list` – показать хранилище
+
+Хранилище — это машинный JSON, который руками никто не читает, а теперь оно ещё и главнее платы,
+поэтому «что там лежит?» должно быть выясняемо без запуска GUI.
+
+### Синтаксис
+
+```bash
+python kicadstamp_cli.py overrides-list --config <профиль> [--verbose]
+```
+
+Строка на запись: `ref.field = value  (source)`, сортировка по ref. Пустое хранилище так и говорит
+(и чтение несуществующего хранилища НИЧЕГО не создаёт).
+
+```bash
+python kicadstamp_cli.py overrides-list --config profiles/3ch-awg-tia.sexp
+```
+
+---
+
+## Команда `overrides-forget` – убрать записи по компоненту
+
+Явное «передумал»: убрать наши записи для названных компонентов (или для одного поля у них). На
+плату и в схему ничего не пишется — правится только файл хранилища, а значения НА плате остаются
+ровно как были.
+
+Автоматическая половина команды не требует: запись уходит, как только СХЕМА несёт то же значение (это
+делает Apply, и та же проверка проходит на каждом Rescan и после `overrides-apply --to schematic`).
+
+### Синтаксис
+
+```bash
+python kicadstamp_cli.py overrides-forget --config <профиль> (--ref REF [--ref REF ...] | --all) [--field Role|Cluster] [--dry-run]
+```
+
+### Опции
+
+| Флаг | Описание |
+|------|-------------|
+| `--config FILE` | **Обязателен** — профиль, чьё хранилище правится. |
+| `--ref REF` | Забыть все записи этого компонента (можно повторять). Сохранённый refdes — единственное человеческое имя, которое есть у записи. |
+| `--field Role` / `--field Cluster` | Сузить забывание до одного этого поля названных компонентов. |
+| `--all` | Забыть ВСЕ записи этого профиля (вместе с `--field` — очистить одно поле везде). |
+| `--dry-run` | Печатать, что будет забыто, и ничего не записывать. |
+
+Отказ без `--ref` и без `--all` — нарочно: команда, которая по умолчанию «стирает всё», в одном
+нажатии от уничтожения записей, которые человек не воспроизведёт по памяти.
+
+### Примеры
+
+```bash
+# Забыть записи одного компонента (оба поля), передумав
+python kicadstamp_cli.py overrides-forget --config profiles/3ch-awg-tia.sexp --ref C41
+
+# Только запись Cluster, и сначала посмотреть
+python kicadstamp_cli.py overrides-forget --config profiles/3ch-awg-tia.sexp --ref C41 --field Cluster --dry-run
 ```
 
 ---

@@ -233,7 +233,7 @@ Creates a spoke template from the current selection in the PCB editor. Each sele
 ### Syntax
 
 ```bash
-python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--net-template-role ROLE=LITERAL] [--rule-net LITERAL] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
+python kicadstamp_cli.py extract --name <template_name> --output <file> [--config FILE] [--timeout-ms] [--verbose] [--log-file] [--param KEY=VALUE] [--net-template LITERAL=PATTERN] [--net-template-role ROLE=LITERAL] [--rule-net LITERAL] [--origin-by-via-net NET] [--origin-by-component-role ROLE] [--origin-by-component-pad PAD] [--origin-by-component-cluster CLUSTER] [--origin-by-component-sheet SHEET] [--raw-selection] [--profiles FILE] [--profile NAME]
 ```
 
 ### Options
@@ -242,6 +242,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 |------|-------------|
 | `--name` | Name of the template (key in the `templates` section). Optional in direct-flags mode (not `--profile`): if omitted, prompted for interactively. |
 | `--output` | Output file path. The extension determines the format: `.json` → JSON (flat dictionary), `.sexp` → s-expr (a `.yaml`/`.yml` suffix is a fatal error — YAML support was removed 2026-08-28). |
+| `--config FILE` | **Optional** profile config file. WITH it, Role/Cluster resolve through THAT profile's **override store** (our stored values win over the board; the profile's own `role_cluster_source` switch still decides, default `registry`), and the roles written into the cell are the EFFECTIVE ones. WITHOUT it the values come from the BOARD, exactly as before — which is the pre-store behaviour, not a leftover (see [docs/config.md](config.md) for the switch). |
 | `--timeout-ms` | IPC timeout in milliseconds (default: `DEFAULT_TIMEOUT_MS`, 5000 ms). |
 | `--verbose` | Enable verbose output. |
 | `--log-file` | Save logs to a file. |
@@ -253,7 +254,7 @@ python kicadstamp_cli.py extract --name <template_name> --output <file> [--timeo
 | `--origin-by-component-role ROLE` | Sets the origin to the position of the component with the specified role. Mutually exclusive with `--origin-by-via-net`. |
 | `--origin-by-component-pad PAD` | Refines `--origin-by-component-role`: origin is the position of the specific pad of that component, not its centre. Without `--origin-by-component-role` it is fatal (you can only specify a pad for an already specified role). |
 | `--origin-by-component-cluster CLUSTER` | Refines `--origin-by-component-role`: narrow the same-role candidates to this Cluster (segment-prefix match, the same matching the role-anchor resolver uses). Fatal if several candidates remain even after narrowing. |
-| `--origin-by-component-sheet SHEET` | Refines `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet (no-op without schematic sheet names — the standalone command has no config; prefer `--origin-by-component-cluster`). |
+| `--origin-by-component-sheet SHEET` | Refines `--origin-by-component-role`: narrow the same-role candidates to this schematic sheet. Sheet names come from the config, so this needs `--config` (or, at apply time, the target config's `schematic_dir`) — without one it is a no-op; prefer `--origin-by-component-cluster` when you have no config at hand. |
 | `--raw-selection` | Take the current selection as tracks/vias **as-is**, without the pad-connectivity filter — every selected track/via goes into the cell with no "connected to a kept footprint's pad" check. Off by default (the filter stays the default behaviour); opt in when you know all the selected copper is yours (e.g. a via array with no anchor component in the selection). |
 | `--profiles FILE` | S-expr (`.sexp`) file with named profiles for `extract`. |
 | `--profile NAME` | Use a profile from the `--profiles` file instead of explicit flags (cannot be combined with `--name`, `--output`, `--param`, `--net-template`, `--raw-selection`, `--origin-by-*` – either everything from the profile or all explicit flags). |
@@ -343,13 +344,16 @@ python kicadstamp_cli.py extract-net --net <NET> --anchor-role <ROLE> \
 
 - `--net` (required) — the network name to capture (e.g. `DAC_DB0`; local
   hierarchical nets keep their full `/Channel_0/...` form).
+- `--config FILE` — **Optional** profile config file: WITH it the anchor's Role
+  resolves through THAT profile's override store (our stored values win; the
+  profile's `role_cluster_source` switch still decides). WITHOUT it the Role is
+  the BOARD's, exactly as before. Same flag as `extract` has.
 - `--anchor-role` (required) — the Role field of the anchor footprint, searched
   over the whole live board (the same `resolve_footprint_by_role` search
   Chain/ClonePlacement use). Fatal if absent or ambiguous.
-- `--anchor-sheet` — narrow the anchor_role search by sheet. NOTE:
-  `extract-net` has no config of its own, so sheet narrowing needs
-  `schematic_dir` in the TARGET config at apply time; prefer `--anchor-cluster`
-  here for disambiguation.
+- `--anchor-sheet` — narrow the anchor_role search by sheet. NOTE: sheet names
+  come from a config, so this needs `--config` here (or `schematic_dir` in the
+  TARGET config at apply time); prefer `--anchor-cluster` for disambiguation.
 - `--anchor-cluster` — narrow by Cluster field (prefix match).
 - `--anchor-pad` — anchor on this pad's centre instead of the footprint centre.
 - `--output` (required) — `.sexp`/JSON file; appends/replaces the record under
@@ -435,7 +439,7 @@ touched.
 ```bash
 python kicadstamp_cli.py channel-copy --src <channel> --dst <channel> [--dst <channel> ...]
     (--pivot REF [--pivot-pad P] | --pivot-role ROLE | --src-point X,Y --dst-point X,Y)
-    [--offset DX,DY] [--target-dst X,Y] [--angle DEG] [--mirror]
+    [--config FILE] [--offset DX,DY] [--target-dst X,Y] [--angle DEG] [--mirror]
     [--include-global] [--dry-run] [--no-collision-check] [--verbose]
 ```
 
@@ -445,6 +449,7 @@ python kicadstamp_cli.py channel-copy --src <channel> --dst <channel> [--dst <ch
 |------|-------------|
 | `--src` | Source channel name (e.g. `Channel_0`). |
 | `--dst` | Destination channel name (e.g. `Channel_1`); repeatable — several channels in one run. |
+| `--config FILE` | **Optional** profile config file: WITH it `--pivot-role` (and any role lookup) resolves through THAT profile's override store — our stored values win over the board, the profile's `role_cluster_source` switch still deciding. WITHOUT it the Role is the BOARD's, exactly as before. |
 | `--pivot REF` | Pivot component refdes on the source channel. |
 | `--pivot-role ROLE` | Pivot by the `Role` field on the source channel (survives re-annotation). |
 | `--pivot-pad P` | Anchor on this pad of the pivot instead of its centre. |
@@ -614,6 +619,118 @@ python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.s
 python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.sexp \
     --output profiles/3ch-awg-tia-v103/config.mount.sexp
 ```
+
+## `overrides-apply` – write the stored Role/Cluster values OUT
+
+The project's **override store** (`overrides/<profile-stem>.fields.json`, next to
+the profile — see [docs/config.md](config.md)) holds the Role/Cluster values the
+user noted in KiCadStamp. Our stored value wins over the board EVERYWHERE (that is
+the whole point of the store), so the store is where authoring happens — and these
+commands are the other direction: an EXPLICIT write of those values onto the board
+or into the schematic.
+
+Why they exist: the board is what FOREIGN tools read (BOM, net classes), and
+`--to schematic` splices the `.kicad_sch` OFFLINE — a KiCad-closed operation,
+which until now was reachable only from the GUI.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py overrides-apply --config <profile> --to board|schematic [--dry-run] [--root-sheet FILE] [--timeout-ms MS] [--verbose]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--config FILE` | **Required** — the profile whose store is written out. The store's location is derived from it (`overrides/<stem>.fields.json` beside the profile), so there is no store without a profile. |
+| `--to board` | Write the values onto the LIVE board through KiCad: ONE `set_field_values_bulk` commit, so KiCad's own Ctrl+Z takes the whole batch back. Records are matched to footprints by **symbol uuid**, never by the refdes stored beside them (an F8 re-annotation renames components). A footprint that lacks the field is skipped PER FIELD and by name; a symbol the board does not carry is refused by name. |
+| `--to schematic` | Splice the values into the `.kicad_sch` OFFLINE (KiCad must be closed). Addressed by refdes + property — the file format's own vocabulary — so an unknown refdes is fatal with nothing written, and two symbols of one refdes wanting different values is refused rather than silently picked. Every rewritten file keeps a `.bak`. |
+| `--dry-run` | Print the plan and write NOTHING — neither the board nor any file (the store is not touched either). |
+| `--root-sheet FILE` | Only for `--to schematic`: the `.kicad_sch` to splice. Default: the profile's own `root_sheet`. |
+| `--timeout-ms` | IPC timeout for `--to board` (default `DEFAULT_TIMEOUT_MS`). |
+
+Two behaviours worth knowing: with `role_cluster_source: board` in the profile the
+values are NOT in force, so the command refuses (writing them would mean nothing);
+and writing `--to schematic` **drops the notes it made redundant** (a record the
+schematic now carries has done its job — see the store's own section in
+[docs/config.md](config.md)). `--to board` never touches the store.
+
+### Examples
+
+```bash
+# See what would land on the board, without writing
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to board --dry-run
+
+# Put the stored values onto the board (one commit)
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to board
+
+# Splice them into the schematic (KiCad closed); the notes it now carries go away
+python kicadstamp_cli.py overrides-apply --config profiles/3ch-awg-tia.sexp --to schematic
+```
+
+---
+
+## `overrides-list` – show the override store
+
+The store is a machine-readable JSON nobody reads by hand, and it now outranks the
+board — so "what is in there?" has to be answerable without opening the GUI.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py overrides-list --config <profile> [--verbose]
+```
+
+One line per record: `ref.field = value  (source)`, sorted by ref. An empty store
+says so (and reading a store that does not exist creates nothing).
+
+```bash
+python kicadstamp_cli.py overrides-list --config profiles/3ch-awg-tia.sexp
+```
+
+---
+
+## `overrides-forget` – drop stored values by component
+
+The explicit "never mind": remove our notes for named components (or for one
+field of them). Nothing is written to the board or the schematic — this only edits
+the store file, and the values ON the board stay exactly as they are.
+
+The AUTOMATIC half needs no command: a note is dropped as soon as the SCHEMATIC
+carries the same value (that is what Apply does, and the same check runs on every
+Rescan and after `overrides-apply --to schematic`).
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py overrides-forget --config <profile> (--ref REF [--ref REF ...] | --all) [--field Role|Cluster] [--dry-run]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--config FILE` | **Required** — the profile whose store is edited. |
+| `--ref REF` | Forget every record of this component (repeatable). The stored refdes is the only human name a record has. |
+| `--field Role` / `--field Cluster` | Narrow the forget to that one field of the named components. |
+| `--all` | Forget EVERY record of this profile (combine with `--field` to clear one field everywhere). |
+| `--dry-run` | Print what would be forgotten and write nothing. |
+
+No `--ref` and no `--all` is refused on purpose: a command that defaults to "wipe
+everything" is one keystroke away from destroying notes nobody can retype.
+
+### Examples
+
+```bash
+# Forget one component's notes (both fields), after a change of mind
+python kicadstamp_cli.py overrides-forget --config profiles/3ch-awg-tia.sexp --ref C41
+
+# Only the Cluster note, and see first
+python kicadstamp_cli.py overrides-forget --config profiles/3ch-awg-tia.sexp --ref C41 --field Cluster --dry-run
+```
+
+---
 
 ## Utility scripts (`tools/`)
 

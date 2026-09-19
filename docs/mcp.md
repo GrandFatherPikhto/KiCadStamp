@@ -53,7 +53,7 @@ register it:
 | `kicadstamp_get_items_by_uuid` | low | Resolve board item uuids (tracks/vias/footprints) to detailed records; each requested uuid appears exactly once, missing ones report `found: false` |
 | `kicadstamp_list_tracks` | low | Track segments with optional `net`/`layer` filters (e.g. `net='GND'`); prefer filters or `get_items_by_uuid` on large boards |
 | `kicadstamp_list_vias` | low | Vias with optional `net` filter (e.g. `net='GND'`); prefer the filter or `get_items_by_uuid` on large boards |
-| `kicadstamp_apply_config` | low (validated) | Run the existing validated apply pipeline on a `.sexp`/`.json` profile; `dry_run` only plans |
+| `kicadstamp_apply_config` | low (validated) | Run the existing validated apply pipeline on a `.sexp`/`.json` profile; `dry_run` only plans. It runs the SAME `run_apply` the CLI runs, on the config the CALL named — so THAT profile's override store is what is in force (our stored Role/Cluster wins over the board; the profile's `role_cluster_source` switch still decides — see [docs/config.md](config.md)) |
 | `kicad_raw_move_footprint` | **high (raw)** | Move one footprint by ref directly over kipy; off by default; requires `expected_board_name` (mandatory board-identity guard) |
 
 Tool names and descriptions are English only (machine interface); server log

@@ -52,7 +52,7 @@ pip install -e ".[mcp]"
 | `kicadstamp_get_items_by_uuid` | низкий | Детализация объектов платы по uuid (tracks/vias/footprints); каждый запрошенный uuid встречается ровно один раз, отсутствующие — `found: false` |
 | `kicadstamp_list_tracks` | низкий | Сегменты дорожек с опциями `net`/`layer` (например `net='GND'`); на больших платах предпочитай фильтры или `get_items_by_uuid` |
 | `kicadstamp_list_vias` | низкий | Via с опцией `net` (например `net='GND'`); на больших платах предпочитай фильтр или `get_items_by_uuid` |
-| `kicadstamp_apply_config` | низкий (validated) | Прогон существующего validated-конвейера по профилю `.sexp`/`.json`; `dry_run` — только план |
+| `kicadstamp_apply_config` | низкий (validated) | Прогон существующего validated-конвейера по профилю `.sexp`/`.json`; `dry_run` — только план. Запускается ТА ЖЕ `run_apply`, что и в CLI, по конфигу ИМЕНОВАННОГО вызова — поэтому в силе хранилище ЭТОГО профиля (наши значения Role/Cluster главнее платы; рубильник профиля `role_cluster_source` по-прежнему решает — см. [docs/config_ru.md](config_ru.md)) |
 | `kicad_raw_move_footprint` | **высокий (raw)** | Перемещение одного футпринта по ref напрямую через kipy; выключен по умолчанию; требует `expected_board_name` (обязательный guard идентичности платы) |
 
 Имена и описания инструментов — только английские (машинный интерфейс);
