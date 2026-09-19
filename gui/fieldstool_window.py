@@ -249,6 +249,11 @@ class MainWindow(QMainWindow):
         self.pending_dock.on_apply_clicked = self._on_apply
         self.pending_dock.on_ensure_fields_clicked = self._on_ensure_fields
         self.pending_dock.on_sync_clicked = self._on_sync_from_schematic
+        # Т6: the table's own right-click "forget" edits the SAME store this window
+        # holds, so the dock announces it and the window (the store's owner here)
+        # re-reads the file and recomputes the diff — the same split the Refs
+        # table follows with its own hook (Т5).
+        self.pending_dock.on_overrides_written = self._on_store_written_by_dock
 
         self.setCentralWidget(central)
 
@@ -284,10 +289,59 @@ class MainWindow(QMainWindow):
         the board, not to our own files. Whoever WRITES the store says so with
         reload_overrides() instead — see the Refs table (Т5).
 
-        Then the diff is recomputed at once: the Ours column must be right the
-        moment the project opens, not after the next poll tick."""
+        Then the notes the SCHEMATIC already carries are dropped (Т6/С5 — this
+        window is where the schematic is read, so this is where that becomes
+        visible) and the diff is recomputed at once: the Ours column must be right
+        the moment the project opens, not after the next poll tick."""
         self._overrides = store
+        self.pending_dock.set_overrides(store)
+        self._forget_the_notes_the_sheet_carries()
         self._recompute_pending()
+
+    def _on_store_written_by_dock(self) -> None:
+        """The Pending table forgot a record (Т6): re-read the file into THIS
+        window's copy, then tell whoever else holds the store — DockHub wires
+        on_overrides_written to exactly that (its own reload of every holder)."""
+        self.reload_overrides()
+        if self.on_overrides_written:
+            self.on_overrides_written()
+
+    def _forget_the_notes_the_sheet_carries(self) -> int:
+        """Т6/С5, the automatic half: drop every note the SCHEMATIC now agrees with.
+
+        Returns how many went (0 in the normal case — most of the time nothing
+        matches, and then not a single file is touched).
+
+        Why here: a note exists to keep OUR value in force over the board, and
+        while it lives it outranks the SCHEMATIC too (plan §0). The moment the
+        sheet carries the same value the note has done its job, and keeping it
+        would silently veto whatever the user writes in KiCad next. This window is
+        the one that READS the sheet (Rescan/Apply), so this is where agreement is
+        discovered — and a user editing the Role in Eeschema and pressing Rescan
+        is exactly the case that must not leave a stale veto behind.
+
+        The file is re-read FIRST when there is one: this is an EDIT, and a save
+        built on a stale picture would drop a note the other holder (the Refs
+        table, another window) recorded since we were handed our copy."""
+        store = self._overrides
+        if store is None or not self._components:
+            return 0
+        path = getattr(store, "path", None)
+        if path is not None:
+            from kicadstamp.field_overrides import load_field_overrides
+            store = load_field_overrides(str(path))
+            self._overrides = store
+        from kicadstamp.overrides_forget import (forget_records, redundant_records,
+                                                 values_by_uuid)
+        doomed = redundant_records(store.records(), values_by_uuid(self._components))
+        dropped = forget_records(store, doomed, save=True)
+        if dropped:
+            logger.info(_("forgot {count} stored value(s): the schematic now "
+                          "carries them ({refs})").format(
+                              count=dropped,
+                              refs=", ".join("{ref}.{field}".format(
+                                  ref=r.ref, field=r.field) for r in doomed)))
+        return dropped
 
     @property
     def overrides(self):
@@ -404,6 +458,10 @@ class MainWindow(QMainWindow):
                 clusters.add(s.cluster)
         self._set_combo_items(self.role_combo, sorted(roles))
         self._set_combo_items(self.cluster_combo, sorted(clusters))
+        # Т6/С5: the sheet was just read, so "our note is redundant now" is
+        # knowable here — and a Rescan is exactly how a user's own edit in
+        # Eeschema reaches this tool (see _forget_the_notes_the_sheet_carries).
+        self._forget_the_notes_the_sheet_carries()
         self._recompute_pending()
 
     def _recompute_pending(self) -> None:

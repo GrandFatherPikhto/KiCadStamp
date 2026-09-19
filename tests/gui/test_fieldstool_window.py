@@ -262,6 +262,87 @@ def _recorded(fieldstool_window):
     return load_field_overrides(str(fieldstool_window.overrides.path)).records()
 
 
+# ── Т6/С5: the note goes once the SCHEMATIC carries it ────────────────────
+
+def _record_in(window, symbol_uuid, field, value):
+    """Put one record in the window's store and write the file."""
+    from kicadstamp.field_overrides import SOURCE_FIELDSTOOL
+    window.overrides.set(symbol_uuid, "R1", field, value, SOURCE_FIELDSTOOL)
+    window.overrides.save()
+
+
+def test_c5_a_record_the_schematic_carries_is_forgotten_when_the_store_arrives(
+        fieldstool_window, tmp_path):
+    """С5, the direction this window owns: it is the one that READS the schematic,
+    so it is where "the schematic already says this" is discovered.
+
+    Keeping such a note would turn a reminder into a veto: while it lives, OUR
+    value outranks the schematic too (plan §0), so the value the user can see in
+    KiCad would be silently ignored by every resolver."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="APPLIED",
+                                              symbol_uuid="uuid-R1"))
+    fieldstool_window._set_root_sheet(root)          # reads the components
+    _store_for(fieldstool_window, tmp_path)
+    _record_in(fieldstool_window, "uuid-R1", ROLE_FIELD_NAME, "APPLIED")
+
+    fieldstool_window.set_overrides_store(fieldstool_window.overrides)
+
+    assert _recorded(fieldstool_window) == []
+
+
+def test_c5_a_record_the_schematic_disagrees_with_stays(
+        fieldstool_window, tmp_path):
+    """The negative, and the one that matters: a note that has NOT been applied is
+    the only thing keeping our value in force — forgetting it would silently
+    revert the component to the board's value."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD_ROLE",
+                                              symbol_uuid="uuid-R1"))
+    fieldstool_window._set_root_sheet(root)
+    _store_for(fieldstool_window, tmp_path)
+    _record_in(fieldstool_window, "uuid-R1", ROLE_FIELD_NAME, "OUR_ROLE")
+
+    fieldstool_window.set_overrides_store(fieldstool_window.overrides)
+
+    assert [(r.symbol_uuid, r.value) for r in _recorded(fieldstool_window)] == [
+        ("uuid-R1", "OUR_ROLE")]
+
+
+def test_c5_a_later_rescan_forgets_a_note_the_sheet_has_caught_up_with(
+        fieldstool_window, tmp_path):
+    """The user edits the Role in Eeschema and presses Rescan: NOW the schematic
+    says what our note said, and the note must go — otherwise the resolver keeps
+    ignoring the schematic for ever, and nobody would ever find out why."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD_ROLE",
+                                              symbol_uuid="uuid-R1"))
+    fieldstool_window._set_root_sheet(root)
+    _store_for(fieldstool_window, tmp_path)
+    _record_in(fieldstool_window, "uuid-R1", ROLE_FIELD_NAME, "OUR_ROLE")
+    assert len(_recorded(fieldstool_window)) == 1
+
+    root.write_text(sch_file(symbol_block(["R1"], role="OUR_ROLE",
+                                          symbol_uuid="uuid-R1")),
+                    encoding="utf-8")
+    fieldstool_window._rescan()
+
+    assert _recorded(fieldstool_window) == []
+
+
+def test_c5_only_the_field_the_sheet_agrees_with_goes(fieldstool_window, tmp_path):
+    """Role and Cluster are decided one at a time: the sheet carrying our Cluster
+    says nothing about the Role note."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD_ROLE", cluster="bank",
+                                              symbol_uuid="uuid-R1"))
+    fieldstool_window._set_root_sheet(root)
+    _store_for(fieldstool_window, tmp_path)
+    _record_in(fieldstool_window, "uuid-R1", ROLE_FIELD_NAME, "OUR_ROLE")
+    _record_in(fieldstool_window, "uuid-R1", CLUSTER_FIELD_NAME, "bank")
+
+    fieldstool_window.set_overrides_store(fieldstool_window.overrides)
+
+    assert [(r.field, r.value) for r in _recorded(fieldstool_window)] == [
+        (ROLE_FIELD_NAME, "OUR_ROLE")]
+
+
 def test_stage_records_role_cluster_in_the_override_store(
         fieldstool_window, tmp_path, monkeypatch):
     """Т5 REWROTE this test — it used to pin the opposite ("Stage writes straight

@@ -2109,6 +2109,17 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   lacks something the table has (`can_write` / `can_write_to_board` in `gui/role_table_model.py`); only
   the board one also needs a live KiCad, and that is answered at CLICK time (one Log line, no modal),
   the same way the two read buttons answer it.
+
+  A note in the store does not live for ever (Т6). It is dropped as soon as the SCHEMATIC carries the
+  same value — that is what Apply just did (С16), and the same check runs wherever the sheet is read
+  (`overrides-apply --to schematic` re-reads it after writing, `Rescan` re-reads it on demand). NOT the
+  board: the board is rewritten by F8, and the note is exactly what keeps the intended value across it.
+  Reason: while the note lives, OUR value outranks the schematic too, so a value the user then types in
+  KiCad would be silently ignored — the note must stop being a veto the moment it has done its job. The
+  other half of Т6 is explicit: a right-click on a **Pending changes** row offers **forget this record**
+  for our value of that row (disabled where there is no record, or no key), and
+  `overrides-forget --config <profile> --ref R1 [--field Role] [--all] [--dry-run]` does the same from
+  the command line.
 - **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
   graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
   the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all

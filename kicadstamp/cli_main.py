@@ -22,11 +22,12 @@ setup_i18n()
 from kicadstamp import __version__
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_clone_plan,
                             cmd_convert_trees, cmd_extract, cmd_extract_net,
-                            cmd_flatten, cmd_overrides_apply, cmd_overrides_list,
-                            cmd_undo)
+                            cmd_flatten, cmd_overrides_apply,
+                            cmd_overrides_forget, cmd_overrides_list, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
-from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
+from kicadstamp.constants import (CLUSTER_FIELD_NAME, DEFAULT_BATCH_SIZE,
+                                  DEFAULT_TIMEOUT_MS, ROLE_FIELD_NAME)
 from kicadstamp.i18n import _
 
 
@@ -57,12 +58,12 @@ if hasattr(sys.stderr, "reconfigure"):
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
                 "clone-plan", "channel-copy", "flatten", "convert-trees",
-                # Т5а (plan_2026_09_18_field_overrides_store): the override
-                # store, written OUT. They belong in this tuple for the same
-                # reason as any other name — without it the bare-config
+                # Т5а/Т6 (plan_2026_09_18_field_overrides_store): the override
+                # store, written OUT and forgotten. They belong in this tuple for
+                # the same reason as any other name — without it the bare-config
                 # shorthand prepends "apply" and the command dies as an
                 # unrecognized argument.
-                "overrides-apply", "overrides-list")
+                "overrides-apply", "overrides-list", "overrides-forget")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -410,6 +411,35 @@ def main() -> int:
                                        "listed. REQUIRED — the store belongs to a profile."))
     overrides_list.add_argument("--verbose", action="store_true", help=_("Verbose output"))
 
+    # Т6: the explicit "передумал". The AUTOMATIC half of Т6 (a note the schematic
+    # already carries) needs no command — it happens where the schematic is read
+    # (Apply, and `overrides-apply --to schematic` above).
+    overrides_forget = subparsers.add_parser(
+        "overrides-forget",
+        help=_("Drop stored Role/Cluster values by component (the “never mind” "
+               "of the override store)"))
+    overrides_forget.add_argument("--config", metavar="FILE", required=True,
+                                  help=_("Profile config file whose override store "
+                                         "(overrides/<stem>.fields.json, next to it) "
+                                         "is edited. REQUIRED — the store belongs "
+                                         "to a profile."))
+    overrides_forget.add_argument("--ref", action="append", metavar="REF",
+                                  help=_("Forget every record of this component "
+                                         "(repeatable). The stored refdes is the "
+                                         "only human name a record has."))
+    overrides_forget.add_argument("--field", choices=[ROLE_FIELD_NAME,
+                                                      CLUSTER_FIELD_NAME],
+                                  help=_("Narrow the forget to this one field of "
+                                         "the named components."))
+    overrides_forget.add_argument("--all", action="store_true",
+                                  help=_("Forget EVERY record of this profile "
+                                         "(combine with --field to clear one field "
+                                         "everywhere)."))
+    overrides_forget.add_argument("--dry-run", action="store_true",
+                                  help=_("Print what would be forgotten and write "
+                                         "NOTHING."))
+    overrides_forget.add_argument("--verbose", action="store_true", help=_("Verbose output"))
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
@@ -418,7 +448,7 @@ def main() -> int:
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
                     "apply, undo, extract, extract-net, clone-extract, clone-plan, "
                     "channel-copy, flatten, convert-trees, overrides-apply, "
-                    "overrides-list."),
+                    "overrides-list, overrides-forget."),
                   file=sys.stderr)
         raise
 
@@ -469,6 +499,10 @@ def main() -> int:
                 print("\n".join(report))
         elif args.command == "overrides-list":
             report = cmd_overrides_list(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "overrides-forget":
+            report = cmd_overrides_forget(args)
             if report:
                 print("\n".join(report))
         else:

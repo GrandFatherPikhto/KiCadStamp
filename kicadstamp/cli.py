@@ -390,7 +390,7 @@ def cmd_overrides_apply(args) -> list[str]:
                 .format(path=store.path)]
     if getattr(args, "to", None) == BOARD:
         return _apply_overrides_to_board(args, records)
-    return _apply_overrides_to_schematic(args, records)
+    return _apply_overrides_to_schematic(args, store, records)
 
 
 def _planned_line(update) -> str:
@@ -463,16 +463,24 @@ def _profile_root_sheet(config_path) -> str:
     return root_sheet
 
 
-def _apply_overrides_to_schematic(args, records) -> list[str]:
+def _apply_overrides_to_schematic(args, store, records) -> list[str]:
     """The offline half: splice our values into `.kicad_sch` with KiCad closed.
 
     The addressing here is the FILE FORMAT's own — refdes + property — so the
     plan speaks (ref, field, value) and an unknown refdes is fatal with nothing
     written (`plan_set_edits_for_root`'s contract, shared with fieldstool's
     Apply). `write_files` keeps a .bak of every file it rewrites, which is the
-    offline splice's only undo."""
+    offline splice's only undo.
+
+    It also does what Т6 asks of this direction (С5): once the schematic carries
+    our value, the NOTE has done its job and is dropped — otherwise it would start
+    outranking the schematic it just wrote into. Writing the value onto the BOARD
+    never does this (see _apply_overrides_to_board): the board is rewritten by F8,
+    and the note is what protects the intended value across it."""
     from kicadstamp.overrides_apply import (fields_config_from_plan,
                                             plan_schematic_writes, skipped_text)
+    from kicadstamp.overrides_forget import (forget_records, redundant_records,
+                                             values_by_uuid_from_sheet)
     from kicadstamp.schematic_editing import check_kicad_not_running, write_files
     from kicadstamp.schematic_set_fields import plan_set_edits_for_root
 
@@ -497,6 +505,12 @@ def _apply_overrides_to_schematic(args, records) -> list[str]:
 
     if args.dry_run:
         lines.append(_("Dry run: nothing was written. Drop --dry-run to write."))
+        if plan.updates:
+            # What the write WOULD make redundant is known without touching
+            # anything: the values in the plan are exactly what the sheet will
+            # then carry (С5).
+            lines.append(_("{count} note(s) would be forgotten — the schematic "
+                           "would then carry them").format(count=len(plan.updates)))
         return lines
 
     try:
@@ -512,6 +526,85 @@ def _apply_overrides_to_schematic(args, records) -> list[str]:
                             "{failed}").format(failed=", ".join(failed)))
     lines.append(_("{count} file(s) written (a .bak copy of each was kept)")
                  .format(count=len(written)))
+
+    # С5, the real check (not the forecast above): read the schematic BACK and ask
+    # which notes it now agrees with. Values that were already there before this
+    # command ran are caught too — the rule is about agreement, not about who
+    # wrote it.
+    redundant = redundant_records(store.records(),
+                                  values_by_uuid_from_sheet(str(root_sheet)))
+    dropped = forget_records(store, redundant, save=True)
+    if dropped:
+        lines.append(_("{count} note(s) forgotten — the schematic now carries "
+                       "them").format(count=dropped))
+    return lines
+
+
+def cmd_overrides_forget(args) -> list[str]:
+    """Т6's explicit "передумал": drop records by NAME.
+
+    The automatic half of Т6 (С5) happens where the schematic is read — Apply in
+    the GUI, `overrides-apply --to schematic` here. This command is for the other
+    case: the user simply changed their mind, and nothing about the schematic has
+    anything to say about it.
+
+    The store is read from its FILE, not resolved through the profile's
+    `role_cluster_source` switch: that switch says whether notes are IN FORCE,
+    while this is file maintenance — a note that is currently inactive is still
+    the user's note, and a command that removes it must not answer "nothing in
+    force to remove". Nothing is created here: a missing file is an empty store."""
+    from kicadstamp.field_overrides import OVERRIDABLE_FIELD_NAMES, load_field_overrides
+    from kicadstamp.overrides_forget import forget_records
+    from kicadstamp.utils.paths import overrides_path_for_config
+
+    refs = [str(ref).strip() for ref in (getattr(args, "ref", None) or [])
+            if str(ref).strip()]
+    field = getattr(args, "field", None)
+    everything = bool(getattr(args, "all", False))
+    if field is not None and field not in OVERRIDABLE_FIELD_NAMES:
+        raise PlacerError(_("--field takes {names} — nothing else may live in this "
+                            "store").format(names=" or ".join(OVERRIDABLE_FIELD_NAMES)))
+    if not refs and not everything:
+        return [_("Nothing to forget: name the components with --ref R1 (repeatable) "
+                  "or add --all to drop every record of this profile.")]
+
+    path = overrides_path_for_config(str(args.config))
+    store = load_field_overrides(path)
+    if not store.has_any():
+        return [_("The override store is empty ({path}) — nothing to forget.")
+                .format(path=path)]
+
+    records = store.records()
+    if everything:
+        doomed = [r for r in records if field is None or r.field == field]
+    else:
+        wanted = set(refs)
+        doomed = [r for r in records
+                  if r.ref in wanted and (field is None or r.field == field)]
+    # Names that matched nothing are reported BEFORE anything is dropped — a typo
+    # must stay visible, and a ref whose record somebody else already forgot is not
+    # an error.
+    known_refs = {r.ref for r in records}
+    unknown = [ref for ref in refs if ref not in known_refs]
+
+    lines: list[str] = []
+    if not doomed:
+        lines.append(_("No record to forget for {refs}.").format(
+            refs=", ".join(unknown) or ", ".join(refs)))
+    else:
+        if args.dry_run:
+            lines.append(_("Would forget {count} record(s) (nothing is written):")
+                         .format(count=len(doomed)))
+        else:
+            dropped = forget_records(store, doomed, save=True)
+            lines.append(_("Forgot {count} record(s) from {path}").format(
+                count=dropped, path=path))
+        # WHAT went, by name — the whole point of a command that edits a file the
+        # user cannot read by hand.
+        lines += ["  {ref}.{field}".format(ref=r.ref, field=r.field) for r in doomed]
+    if unknown:
+        lines.append(_("no record for {refs} — nothing was forgotten for them")
+                     .format(refs=", ".join(unknown)))
     return lines
 
 

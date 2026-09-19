@@ -273,10 +273,17 @@ def test_the_reminder_no_longer_claims_the_values_are_on_the_board_only():
 
 # ── the wiring: the store is the PROFILE's ─────────────────────────────────
 
-def _profile_with_store(tmp_path, *records):
+def _bare_profile(tmp_path):
+    """A profile file that EXISTS (the store path is derived from it) with no
+    records written for it yet."""
     from kicadstamp.config.sexp_format import dict_to_sexp
     profile = tmp_path / "prof.sexp"
     profile.write_text(dict_to_sexp({"layer": "B.Cu"}), encoding="utf-8")
+    return profile
+
+
+def _profile_with_store(tmp_path, *records):
+    profile = _bare_profile(tmp_path)
     overrides = Path(overrides_path_for_config(str(profile)))
     _store(*records, path=overrides).save()
     return profile
@@ -315,3 +322,78 @@ def test_a_profile_without_a_store_file_gives_an_empty_store(
     window = real_main_window.fieldstool_dock.window
     assert window.overrides is not None
     assert window.overrides.has_any() is False
+
+
+# ── Т6: the row carries its key, and "forget" acts on it ──────────────────
+
+def test_t6_a_pending_row_carries_the_key_its_record_is_stored_under():
+    """The row already shows our value; Т6 needs the KEY too — forgetting must be
+    addressed by symbol uuid, like every other write to that file."""
+    components = [_component("R1", "C_SCHEM", None, symbol_uuids=(UUID_A,))]
+    snapshot = [_selected("R1", "B", None, last=UUID_A)]
+
+    edits = compute_pending_edits(
+        components, snapshot, store=_store((UUID_A, ROLE_FIELD_NAME, "A_OURS")))
+
+    assert [e.symbol_uuid for e in edits] == [UUID_A]
+
+
+def test_t6_forget_is_offered_only_where_there_is_a_record(
+        qapp, main_window, tmp_path):
+    """A row without our value has nothing to forget, and the menu says so by
+    being DISABLED — never by disappearing (an entry that vanishes reads as a
+    bug, the same reasoning the always-present "Ours" column follows)."""
+    store = _store((UUID_A, ROLE_FIELD_NAME, "A"),
+                   path=overrides_path_for_config(str(_bare_profile(tmp_path))))
+    dock = PendingChangesDock(main_window)
+    dock.set_overrides(store)
+
+    with_record = PendingEdit("R1", ROLE_FIELD_NAME, "C", "B", our_value="A",
+                              symbol_uuid=UUID_A)
+    without = PendingEdit("R2", ROLE_FIELD_NAME, "C", "B")
+
+    label, enabled, _action = dock.row_actions(with_record)[0]
+    assert enabled is True
+    assert "forget" in label.lower()
+    assert dock.row_actions(without)[0][1] is False
+
+
+def test_t6_forgetting_a_row_drops_exactly_that_record_and_announces_it(
+        qapp, main_window, tmp_path):
+    """The "передумал" half of Т6 (the automatic half is С5, guarded where the
+    schematic is read). Exactly one field of one component goes — and whoever else
+    holds the store has to hear about it, or their next save would bring it back."""
+    from kicadstamp.field_overrides import load_field_overrides
+
+    path = overrides_path_for_config(str(_bare_profile(tmp_path)))
+    store = _store((UUID_A, ROLE_FIELD_NAME, "A"),
+                   (UUID_A, CLUSTER_FIELD_NAME, "bank"), path=path)
+    store.save()
+    dock = PendingChangesDock(main_window)
+    dock.set_overrides(store)
+    fired = []
+    dock.on_overrides_written = lambda: fired.append(True)
+    row = PendingEdit("R1", ROLE_FIELD_NAME, "C", "B", our_value="A",
+                      symbol_uuid=UUID_A)
+
+    dock.row_actions(row)[0][2]()
+
+    left = load_field_overrides(str(path)).records()
+    assert [(r.symbol_uuid, r.field) for r in left] == [(UUID_A, CLUSTER_FIELD_NAME)]
+    assert fired == [True]
+
+
+def test_t6_the_menu_needs_both_a_store_and_a_row_record(qapp, main_window):
+    """No store (no project) or no uuid to key by: there is nothing to forget —
+    and the action is disabled rather than pointing at an invented key."""
+    dock = PendingChangesDock(main_window)          # no store pushed in at all
+    row = PendingEdit("R1", ROLE_FIELD_NAME, "C", "B", our_value="A",
+                      symbol_uuid=UUID_A)
+
+    assert dock.row_actions(row)[0][1] is False
+
+    store = _store((UUID_A, ROLE_FIELD_NAME, "A"))
+    dock.set_overrides(store)
+    keyless = PendingEdit("R1", ROLE_FIELD_NAME, "C", "B", our_value="A")
+
+    assert dock.row_actions(keyless)[0][1] is False

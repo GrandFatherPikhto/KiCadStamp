@@ -17146,3 +17146,83 @@ msgstr "Значений из хранилища: {count} -> {destination}:"
 #: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
 msgid "{count} value(s) written to the board"
 msgstr "Записано на плату значений: {count}"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "--field takes {names} — nothing else may live in this store"
+msgstr "--field принимает {names} — ничего другого в этом хранилище быть не может"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Drop stored Role/Cluster values by component (the “never mind” of the override store)"
+msgstr "Убрать сохранённые значения Role/Cluster по компонентам («передумал» для хранилища)"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Forget EVERY record of this profile (combine with --field to clear one field everywhere)."
+msgstr "Забыть ВСЕ записи этого профиля (вместе с --field — очистить одно поле везде)."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Forget every record of this component (repeatable). The stored refdes is the only human name a record has."
+msgstr "Забыть все записи этого компонента (можно повторять). Сохранённый refdes — единственное человеческое имя, которое есть у записи."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Forget this record (Т6)"
+msgstr "Забыть эту запись (Т6)"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Forgot {count} record(s) from {path}"
+msgstr "Забыто записей: {count} из {path}"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Narrow the forget to this one field of the named components."
+msgstr "Ограничить забывание одним этим полем названных компонентов."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "No record to forget for {refs}."
+msgstr "Нет записей для забывания: {refs}."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, clone-plan, channel-copy, flatten, convert-trees, overrides-apply, overrides-list, overrides-forget."
+msgstr "Замечание: первый аргумент принят за путь к конфигу для 'apply' (сокращение «голый конфиг»). Если вы имели в виду подкоманду, напишите её точно: apply, undo, extract, extract-net, clone-extract, clone-plan, channel-copy, flatten, convert-trees, overrides-apply, overrides-list, overrides-forget."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Nothing to forget: name the components with --ref R1 (repeatable) or add --all to drop every record of this profile."
+msgstr "Нечего забывать: назовите компоненты через --ref R1 (можно повторять) или добавьте --all, чтобы убрать все записи этого профиля."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Print what would be forgotten and write NOTHING."
+msgstr "Печатать, что будет забыто, и НИЧЕГО не записывать."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Profile config file whose override store (overrides/<stem>.fields.json, next to it) is edited. REQUIRED — the store belongs to a profile."
+msgstr "Файл конфига профиля, хранилище которого (overrides/<stem>.fields.json рядом с ним) правится. ОБЯЗАТЕЛЕН — хранилище принадлежит профилю."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "The override store is empty ({path}) — nothing to forget."
+msgstr "Хранилище пусто ({path}) — забывать нечего."
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "Would forget {count} record(s) (nothing is written):"
+msgstr "Будет забыто записей: {count} (ничего не записывается):"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "forgot our stored %(field)s for %(ref)s — the board and the schematic are untouched"
+msgstr "забыта наша запись %(field)s для %(ref)s — плата и схема не тронуты"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "forgot {count} stored value(s): the schematic now carries them ({refs})"
+msgstr "забыто записей хранилища: {count} — теперь их несёт схема ({refs})"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "no record for {refs} — nothing was forgotten for them"
+msgstr "нет записей для {refs} — для них ничего не забыто"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "nothing to forget for %(ref)s %(field)s — the record is already gone"
+msgstr "нечего забывать для %(ref)s %(field)s — запись уже исчезла"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "{count} note(s) forgotten — the schematic now carries them"
+msgstr "забыто записей: {count} — теперь их несёт схема"
+
+#: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
+msgid "{count} note(s) would be forgotten — the schematic would then carry them"
+msgstr "будет забыто записей: {count} — тогда их будет нести схема"

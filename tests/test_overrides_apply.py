@@ -82,6 +82,19 @@ def _store_of(profile, *records):
     return store
 
 
+def _stored_records(profile):
+    """The store as it is ON DISK — the truth after any command."""
+    from kicadstamp.field_overrides import load_field_overrides
+    return load_field_overrides(overrides_path_for_config(str(profile))).records()
+
+
+def _store_bytes(profile):
+    from kicadstamp.utils.paths import overrides_path_for_config as _p
+    from pathlib import Path
+    path = Path(_p(str(profile)))
+    return path.read_bytes() if path.exists() else b""
+
+
 def _args(config, to="board", dry_run=False, root_sheet=None):
     return SimpleNamespace(config=str(config), to=to, dry_run=dry_run,
                            root_sheet=root_sheet, timeout_ms=13, verbose=False)
@@ -239,10 +252,15 @@ def test_c20_the_profile_switch_board_makes_the_store_inapplicable(
 
 # ── --to schematic ─────────────────────────────────────────────────────────
 
-def _schematic_profile(tmp_path, role="OLD"):
-    """A profile pointing at a real (synthetic) .kicad_sch with one symbol."""
+def _schematic_profile(tmp_path, role="OLD", symbol_uuid="uuid-R1"):
+    """A profile pointing at a real (synthetic) .kicad_sch with one symbol.
+
+    The symbol CARRIES a top-level uuid on purpose: that is the bridge between the
+    store's key and the schematic (and therefore what makes the С5 forgetting of
+    this step possible at all)."""
     root = tmp_path / "root.kicad_sch"
-    root.write_text(sch_file(symbol_block(["R1"], role=role, cluster="CL_OLD")),
+    root.write_text(sch_file(symbol_block(["R1"], role=role, cluster="CL_OLD",
+                                          symbol_uuid=symbol_uuid)),
                     encoding="utf-8")
     return _profile(tmp_path, root_sheet="root.kicad_sch"), root
 
@@ -330,6 +348,56 @@ def test_c20_an_unknown_refdes_is_fatal_and_nothing_is_written(
         cli_mod.cmd_overrides_apply(_args(profile, to="schematic"))
 
     assert root.read_bytes() == before
+
+
+# ── С5: the note goes when the SCHEMATIC and the note agree ───────────────
+
+def test_c5_the_schematic_apply_forgets_the_note_it_just_made_redundant(
+        tmp_path, monkeypatch):
+    """С5: once the schematic carries our value, the note has done its job.
+
+    Keeping it would turn a reminder into a VETO: while a record lives, OUR value
+    outranks everything (plan §0) — including the schematic — so the user's next
+    edit in KiCad would be silently ignored. The board is not part of this test
+    (see the next one): the board is rewritten by F8, and the note is exactly what
+    protects the intended value until then."""
+    _kicad_closed(monkeypatch)
+    profile, root = _schematic_profile(tmp_path)
+    _store_of(profile, ("uuid-R1", "R1", ROLE_FIELD_NAME, "FROM_STORE"))
+
+    lines = cli_mod.cmd_overrides_apply(_args(profile, to="schematic"))
+
+    assert 'property "Role" "FROM_STORE"' in root.read_text(encoding="utf-8")
+    assert _stored_records(profile) == []
+    assert any("forgot" in line.lower() for line in lines)
+
+
+def test_c5_a_board_apply_keeps_every_record(tmp_path, monkeypatch):
+    """М5, the half that matters most: writing the value ONTO THE BOARD does not
+    touch the store. The board agreeing today says nothing about tomorrow's F8 —
+    and the note is what keeps our value in force across it."""
+    profile = _profile(tmp_path)
+    _store_of(profile, ("uuid-R1", "R1", ROLE_FIELD_NAME, "FROM_STORE"))
+    board = _FakeBoard([_fp("R1", "uuid-R1")])
+    _board_adapter(monkeypatch, board)
+
+    cli_mod.cmd_overrides_apply(_args(profile))
+
+    assert board.bulk, "the board write happened"
+    assert [r.symbol_uuid for r in _stored_records(profile)] == ["uuid-R1"]
+
+
+def test_c5_a_schematic_dry_run_forgets_nothing(tmp_path, monkeypatch):
+    """The preflight half: --dry-run must not prune the store either, or it would
+    be a write wearing a dry-run's name."""
+    _kicad_closed(monkeypatch)
+    profile, _root = _schematic_profile(tmp_path)
+    _store_of(profile, ("uuid-R1", "R1", ROLE_FIELD_NAME, "FROM_STORE"))
+    before = _store_bytes(profile)
+
+    cli_mod.cmd_overrides_apply(_args(profile, to="schematic", dry_run=True))
+
+    assert _store_bytes(profile) == before
 
 
 # ── overrides-list ─────────────────────────────────────────────────────────

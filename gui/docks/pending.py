@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,11 @@ class PendingEdit:
     # (edits_to_fields_cfg), which would silently lose the edit — hence a field
     # of its own, shown in the table and carried by Apply.
     board_moved: bool = False
+    # The KEY our record is stored under (Т6): `our_value` says WHAT we recorded,
+    # this says for WHICH symbol — and "forget this row" must be addressed by it,
+    # never by the refdes (see kicadstamp/field_overrides.py's module docstring).
+    # None on a hand-built edit and on rows whose identity chain did not resolve.
+    symbol_uuid: Optional[str] = None
 
 
 def _board_symbol_uuid(s) -> str | None:
@@ -153,7 +159,8 @@ def _emit_side(edits: List[PendingEdit], ref: str, field: str, sch_value,
     if sch == ours and not (board_has_field and sch != board):
         return
     moved = sch != ours and board != ours and board != sch
-    edits.append(PendingEdit(ref, field, sch, board, False, ours, moved))
+    edits.append(PendingEdit(ref, field, sch, board, False, ours, moved,
+                             symbol_uuid))
 
 
 def compute_pending_edits(components, snapshot, path_index=None,
@@ -359,9 +366,9 @@ def mismatch_log_line(prev_mismatches: int, mismatches: int) -> Optional[str]:
 
 
 try:
-    from PyQt6.QtCore import pyqtSignal
+    from PyQt6.QtCore import Qt, pyqtSignal
     from PyQt6.QtGui import QColor
-    from PyQt6.QtWidgets import (QAbstractItemView, QHBoxLayout,
+    from PyQt6.QtWidgets import (QAbstractItemView, QHBoxLayout, QMenu,
                                  QPushButton, QTableWidget, QTableWidgetItem,
                                  QVBoxLayout, QWidget)
 except ImportError:  # pragma: no cover — the functions above are usable without PyQt6
@@ -413,6 +420,16 @@ class PendingChangesDock(QWidget):
         self.on_apply_clicked = None  # Callable[[], None], set by MainWindow
         self.on_ensure_fields_clicked = None  # Callable[[], None], set by MainWindow
         self.on_sync_clicked = None  # Callable[[], None], set by MainWindow (2026-08-27)
+        # The store in force, pushed in by the fieldstool window (Т6): this dock
+        # only ever FORGETS from it (the row menu), which is why it holds the
+        # object rather than a path — whoever owns it re-reads the file first.
+        self._overrides = None
+        # Fired after a successful forget (Т6): the store file changed, so every
+        # other holder of it must re-read — the window wires this to its own
+        # reload + recompute, exactly like the Refs table's hook (Т5).
+        self.on_overrides_written = None
+        # The rows as last set — the context menu addresses a row by index.
+        self._edits: List[PendingEdit] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -445,6 +462,9 @@ class PendingChangesDock(QWidget):
         # a diff row loads that ref into the fieldstool pane on the right and
         # reveals it in the Components tree (see _on_cell_clicked).
         self.table.cellClicked.connect(self._on_cell_clicked)
+        # Т6: a right-click on a row offers "forget" for OUR record of it.
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         # 2026-08-27 (handoff pending_dock_min_height, kept): without an
         # explicit minimum this QTableWidget's default minimumSizeHint floored
         # how small the panel could shrink. setMinimumHeight(1), NOT 0 — Qt
@@ -506,7 +526,77 @@ class PendingChangesDock(QWidget):
         if item is not None and item.text():
             self.ref_activated.emit(item.text())
 
+    # ── Т6: forgetting OUR record of a row ────────────────────────────────
+
+    def set_overrides(self, store) -> None:
+        """Install the override store in force (or None when no project is open).
+        Held, not re-read — the writing side re-reads the file before it saves."""
+        self._overrides = store
+
+    def row_actions(self, edit: PendingEdit) -> list:
+        """The context menu of one row: ``[(label, enabled, callback)]``.
+
+        Kept as data rather than built inside the menu so the rule can be guarded
+        without opening a popup: the ONE action is offered for every row and
+        DISABLED where there is nothing to forget (no store, no record, or no
+        symbol uuid to key it by) — an entry that disappears instead reads as a
+        bug, the same reasoning the always-present "Ours" column follows."""
+        can_forget = (self._overrides is not None
+                      and edit.our_value is not None
+                      and bool(edit.symbol_uuid))
+        return [(_("Forget this record (Т6)"), can_forget,
+                 lambda: self.forget_row(edit))]
+
+    def _on_context_menu(self, pos) -> None:
+        row = self.table.rowAt(pos.y())
+        if row < 0 or row >= len(self._edits):
+            return
+        actions = self.row_actions(self._edits[row])
+        if not actions:
+            return
+        menu = QMenu(self)
+        for label, enabled, callback in actions:
+            action = menu.addAction(label)
+            action.setEnabled(enabled)
+            action.triggered.connect(callback)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def forget_row(self, edit: PendingEdit) -> None:
+        """Drop OUR record of this row (Т6) — the "передумал" the user asked for.
+
+        The AUTOMATIC half of Т6 is С5 (a record the schematic already carries is
+        dropped where the schematic is read: the fieldstool window's Rescan/Apply
+        and `overrides-apply --to schematic`). This one is for the case nothing
+        about the schematic has an opinion on. The store is re-read from its FILE
+        first: the other holder in this process may have recorded since we were
+        handed our copy, and a save built on a stale picture would drop that."""
+        store = self._overrides
+        if store is None or not edit.symbol_uuid:
+            return
+        path = getattr(store, "path", None)
+        if path is not None:
+            from kicadstamp.field_overrides import load_field_overrides
+            store = load_field_overrides(str(path))
+            self._overrides = store
+        dropped = store.forget(edit.symbol_uuid, edit.field)
+        if not dropped:
+            logger.info(_("nothing to forget for %(ref)s %(field)s — the record "
+                          "is already gone"), {"ref": edit.ref, "field": edit.field})
+            return
+        try:
+            store.save()
+        except (OSError, ValidationError) as e:
+            logger.error(_("Could not save the override store: {error}").format(
+                error=e))
+            return
+        logger.info(_("forgot our stored %(field)s for %(ref)s — the board and "
+                      "the schematic are untouched"), {"ref": edit.ref,
+                                                       "field": edit.field})
+        if self.on_overrides_written:
+            self.on_overrides_written()
+
     def set_edits(self, edits: List[PendingEdit]) -> None:
+        self._edits = list(edits or ())
         self.table.setRowCount(len(edits))
         for row, e in enumerate(edits):
             row_values = [e.ref, e.field, e.old_value,
