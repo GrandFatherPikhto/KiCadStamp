@@ -22,7 +22,8 @@ setup_i18n()
 from kicadstamp import __version__
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_clone_plan,
                             cmd_convert_trees, cmd_extract, cmd_extract_net,
-                            cmd_flatten, cmd_undo)
+                            cmd_flatten, cmd_overrides_apply, cmd_overrides_list,
+                            cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS, DEFAULT_BATCH_SIZE
@@ -55,7 +56,13 @@ if hasattr(sys.stderr, "reconfigure"):
 # not a flag) is treated as a bare config path for 'apply' — see
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
-                "clone-plan", "channel-copy", "flatten", "convert-trees")
+                "clone-plan", "channel-copy", "flatten", "convert-trees",
+                # Т5а (plan_2026_09_18_field_overrides_store): the override
+                # store, written OUT. They belong in this tuple for the same
+                # reason as any other name — without it the bare-config
+                # shorthand prepends "apply" and the command dies as an
+                # unrecognized argument.
+                "overrides-apply", "overrides-list")
 
 
 def _looks_like_misspelled_subcommand(token: str) -> bool:
@@ -364,6 +371,45 @@ def main() -> int:
     convert_trees_parser.add_argument("--dry-run", action="store_true",
                                       help=_("Print the conversion report without writing anything"))
 
+    # Т5а (plan_2026_09_18_field_overrides_store): our stored Role/Cluster
+    # values, written OUT. `--config` is REQUIRED here (unlike Т5в's optional
+    # flag): the store lives next to a profile — overrides/<stem>.fields.json —
+    # and without the profile there is neither a store to read nor a root_sheet
+    # to splice. MCP is deliberately not extended with this: a board field write
+    # is a raw-write with its own gate, and MCP only READS the store.
+    overrides_apply = subparsers.add_parser(
+        "overrides-apply",
+        help=_("Write this profile's stored Role/Cluster values onto the board "
+               "or into the schematic"))
+    overrides_apply.add_argument("--config", metavar="FILE", required=True,
+                                 help=_("Profile config file whose override store "
+                                        "(overrides/<stem>.fields.json, next to it) "
+                                        "is written out. REQUIRED — the store belongs "
+                                        "to a profile."))
+    overrides_apply.add_argument("--to", choices=["board", "schematic"], required=True,
+                                 help=_("Destination: “board” writes the live board "
+                                        "through KiCad (one commit, one Ctrl+Z); "
+                                        "“schematic” splices the .kicad_sch offline, "
+                                        "which is an operation KiCad must be closed for."))
+    overrides_apply.add_argument("--dry-run", action="store_true",
+                                 help=_("Print the plan and write NOTHING — neither the "
+                                        "board nor any file is touched."))
+    overrides_apply.add_argument("--root-sheet", metavar="FILE",
+                                 help=_("The .kicad_sch to splice for --to schematic. "
+                                        "Default: the profile's own root_sheet."))
+    overrides_apply.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS,
+                                 help=_("IPC timeout in ms (--to board only)"))
+    overrides_apply.add_argument("--verbose", action="store_true", help=_("Verbose output"))
+
+    overrides_list = subparsers.add_parser(
+        "overrides-list",
+        help=_("Show the profile's override store (ref, field, value, who set it)"))
+    overrides_list.add_argument("--config", metavar="FILE", required=True,
+                                help=_("Profile config file whose override store "
+                                       "(overrides/<stem>.fields.json, next to it) is "
+                                       "listed. REQUIRED — the store belongs to a profile."))
+    overrides_list.add_argument("--verbose", action="store_true", help=_("Verbose output"))
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
@@ -371,7 +417,8 @@ def main() -> int:
             print(_("Note: the first argument was taken as a config path for 'apply' "
                     "(bare-config shorthand). If you meant a subcommand, spell it exactly: "
                     "apply, undo, extract, extract-net, clone-extract, clone-plan, "
-                    "channel-copy, flatten, convert-trees."),
+                    "channel-copy, flatten, convert-trees, overrides-apply, "
+                    "overrides-list."),
                   file=sys.stderr)
         raise
 
@@ -414,6 +461,14 @@ def main() -> int:
                 print("\n".join(report))
         elif args.command == "convert-trees":
             report = cmd_convert_trees(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "overrides-apply":
+            report = cmd_overrides_apply(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "overrides-list":
+            report = cmd_overrides_list(args)
             if report:
                 print("\n".join(report))
         else:

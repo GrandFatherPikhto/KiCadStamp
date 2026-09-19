@@ -384,6 +384,83 @@ def test_recording_keeps_what_another_pane_already_recorded(main_window, tmp_pat
     assert ("uuid-C41", "C_BULK") in kept
 
 
+# ── Т5а: the explicit BOARD write ("Write to board") ──────────────────────
+#
+# Т5 moved the table's own path into the store, but putting the values back ONTO
+# the board stays possible — as this named button, because the board is what
+# foreign tools read (BOM, net classes, design §4.2). It is a BOARD operation:
+# a live KiCad, the shared socket gate and the worker thread.
+
+def test_t5a_the_board_button_writes_the_tables_batch_in_one_commit(
+        main_window, tmp_path, monkeypatch):
+    """С20, the GUI half: one set_field_values_bulk for the whole table — KiCad's
+    own Ctrl+Z then takes the batch back — and the STORE is not touched at all:
+    this button writes OUTWARD, recording is the other button's job."""
+    _sync_long_op(monkeypatch)
+    adapter = _adapter([_fp("C41", role="OLD_ROLE")])
+    tab, store = _recording_tab(
+        main_window, tmp_path, _records_with_uuids(("C41", "OLD_ROLE", None)),
+        adapter)
+    _role_combo(tab, 0).setCurrentText("C_BULK")
+
+    tab.write_to_board()
+
+    assert len(adapter.bulk) == 1
+    updates, description = adapter.bulk[0]
+    assert [(fp.ref, field, value) for fp, field, value in updates] == [
+        ("C41", ROLE_FIELD_NAME, "C_BULK")]
+    assert description
+    assert _written(store).has_any() is False
+
+
+def test_t5a_the_board_button_needs_a_live_board_and_says_so(
+        main_window, tmp_path, monkeypatch, caplog):
+    """No KiCad, no board write — refused with a Log line by the ONE gate
+    (_can_start), the same way the two reads are refused. The value stays in the
+    table (and in the store, if it was recorded): nothing is lost."""
+    _sync_long_op(monkeypatch)
+    tab, store = _recording_tab(main_window, tmp_path,
+                                _records_with_uuids(("C41", "OLD_ROLE", None)))
+    _role_combo(tab, 0).setCurrentText("C_BULK")
+    caplog.clear()
+
+    tab.write_to_board()
+
+    assert any("No live board" in r.message for r in caplog.records)
+
+
+def test_t5a_the_two_write_buttons_ask_two_different_questions(
+        main_window, tmp_path):
+    """The store button asks "does this differ from the value IN FORCE", the
+    board button asks "does the BOARD lack this". A row whose cell already holds
+    what the board has, while OUR store holds something else, is exactly the case
+    where the answers differ: there IS something to put on the board, and nothing
+    new to record."""
+    store = _store_file(tmp_path)
+    store.set("uuid-C41", "C41", ROLE_FIELD_NAME, "STORE_OLD", "cell_table")
+    store.save()
+    adapter = _adapter([_fp("C41", role="C_BULK")])
+
+    tab = _tab(main_window, adapter=adapter,
+               records=_records_with_uuids(("C41", "C_BULK", None)), store=store)
+
+    assert tab.board_write_button_enabled() is False   # the board already has it
+    assert tab.write_button_enabled() is True          # ... but the store owes one
+
+
+def test_t5a_the_board_button_is_off_when_the_table_is_untouched(
+        main_window, tmp_path):
+    """Open the tab, look at the table: nothing differs from the board, so the
+    board button cannot be pressed — the same "nothing to write" discipline the
+    store button has (Р4)."""
+    adapter = _adapter([_fp("C41", role="C_BULK")])
+    tab, _store = _recording_tab(
+        main_window, tmp_path, _records_with_uuids(("C41", "C_BULK", None)),
+        adapter)
+
+    assert tab.board_write_button_enabled() is False
+
+
 # ── The tab: taking the selection (С2б, С2в, С6, С7, С11) ──────────────────
 
 def test_c2b_take_selection_replaces_the_rows_and_keeps_the_field_facts(

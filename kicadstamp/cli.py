@@ -16,7 +16,7 @@ from pathlib import Path
 # NOT at module level — each command imports them lazily inside its own body,
 # so non-IPC commands like `flatten` never pay for kipy+protobuf+pynng at import.
 from kicadstamp.constants import DEFAULT_LOG_DIR
-from kicadstamp.exceptions import PlacerError
+from kicadstamp.exceptions import FieldsToolError, PlacerError
 from kicadstamp.flatten import flatten_config
 from kicadstamp.i18n import _
 
@@ -349,6 +349,190 @@ def cmd_flatten(args) -> list[str] | None:
     for the entry point to print, same shape as cmd_apply/cmd_channel_copy.
     """
     return flatten_config(root=args.root, output=args.output, dry_run=args.dry_run)
+
+
+# ── Т5а: the override store, written OUT again ─────────────────────────────
+#
+# Т5 sends every authoring path into the store, because our value outranks the
+# board (plan §0) and a board write would therefore be invisible. These two
+# commands are the other direction: an EXPLICIT write of those values onto the
+# board or into the `.kicad_sch`. Why it must stay possible: the board is what
+# foreign tools read (BOM, net classes — design §4.2), and `--to schematic` is
+# an OFFLINE splice, i.e. KiCad-closed by nature — until now reachable only from
+# the GUI's fieldstool tab.
+#
+# MCP is deliberately NOT extended here: writing fields to the board is a
+# raw-write, which has its own gate (KICADSTAMP_MCP_ALLOW_RAW_WRITE), and MCP
+# only READS the store (Т3).
+
+def cmd_overrides_apply(args) -> list[str]:
+    """Write this profile's stored Role/Cluster values onto the board or into
+    the schematic (Т5а).
+
+    Both destinations write OUR values (that is what the store is FOR) and both
+    honour `--dry-run` — the plan is printed and NOTHING is written (С20). Reads
+    only otherwise: the store is never modified here, so a write outward can
+    always be redone."""
+    from kicadstamp.adapter_factory import store_for_config
+    from kicadstamp.overrides_apply import BOARD
+
+    # The store comes from the profile the SAME way the resolver gets it, so the
+    # switch keeps its last word: with `role_cluster_source: board` the values in
+    # the file are NOT in force, and writing them out would mean nothing (Т3/Т7).
+    store, source = store_for_config(args.config)
+    if store is None:
+        return [_("The profile's role_cluster_source is “board”, so its override "
+                  "store is NOT in force — nothing is written. Switch it back to "
+                  "“registry” to make these values active again.")]
+    records = store.records()
+    if not records:
+        return [_("The override store for {path} is empty — nothing to write.")
+                .format(path=store.path)]
+    if getattr(args, "to", None) == BOARD:
+        return _apply_overrides_to_board(args, records)
+    return _apply_overrides_to_schematic(args, records)
+
+
+def _planned_line(update) -> str:
+    """One line of a plan — the same shape for both destinations (the board plan
+    carries a live footprint, the schematic plan a refdes: `ref` is the readable
+    name of either)."""
+    target, field_name, value = update
+    name = getattr(target, "ref", target)
+    return "  {name}.{field} = {value!r}".format(name=name, field=field_name,
+                                                 value=value)
+
+
+def _plan_lines(plan, destination: str) -> list[str]:
+    lines = [_("{count} stored value(s) -> {destination}:").format(
+        count=len(plan.updates), destination=destination)]
+    lines += [_planned_line(update) for update in plan.updates]
+    if plan.skipped:
+        from kicadstamp.overrides_apply import skipped_text
+        lines.append(_("skipped: {refs}").format(refs=skipped_text(plan.skipped)))
+    return lines
+
+
+def _apply_overrides_to_board(args, records) -> list[str]:
+    from kicadstamp.adapter_factory import create_board_adapter
+    from kicadstamp.overrides_apply import (board_write_description,
+                                            plan_board_writes)
+
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms,
+                                   config_path=args.config)
+    try:
+        # A FRESH read: the footprints are matched by symbol uuid, never by the
+        # stored refdes (see overrides_apply's docstring — re-annotation).
+        plan = plan_board_writes(records, adapter.get_footprints(), adapter.has_field)
+        lines = _plan_lines(plan, destination=args.to)
+        if args.dry_run:
+            lines.append(_("Dry run: nothing was written. Drop --dry-run to write."))
+            return lines
+        if plan.updates:
+            adapter.set_field_values_bulk(plan.updates, board_write_description())
+            lines.append(_("{count} value(s) written to the board")
+                         .format(count=len(plan.updates)))
+        else:
+            lines.append(_("Nothing written: the board can take none of these "
+                           "records."))
+        return lines
+    finally:
+        # The socket is the whole reason the CLI closes it explicitly instead of
+        # leaving it to the GC (see kicadstamp/kicad/pynng_safety.py).
+        adapter.close()
+
+
+def _profile_root_sheet(config_path) -> str:
+    """The profile's root_sheet, RESOLVED — through load_config's RuntimeContext,
+    the project's one owner of resolved path fields (runtime_context.py:
+    "consumers that actually open/read/write these files read from
+    RuntimeContext, never re-resolving"). Raises PlacerError when the profile has
+    none: splicing into the wrong sheet is not something a fallback may guess."""
+    from kicadstamp.config import load_config
+
+    try:
+        _cfg, ctx = load_config(str(config_path))
+    except Exception as e:  # noqa: BLE001 — reported as a CLI error, not a traceback
+        raise PlacerError(_("Could not load {path}: {error}").format(
+            path=config_path, error=e)) from e
+    root_sheet = getattr(ctx, "root_sheet", None) if ctx is not None else None
+    if not root_sheet:
+        raise PlacerError(_("The profile has no root_sheet — add root_sheet: to "
+                            "it, or pass --root-sheet pointing at the .kicad_sch "
+                            "to splice."))
+    return root_sheet
+
+
+def _apply_overrides_to_schematic(args, records) -> list[str]:
+    """The offline half: splice our values into `.kicad_sch` with KiCad closed.
+
+    The addressing here is the FILE FORMAT's own — refdes + property — so the
+    plan speaks (ref, field, value) and an unknown refdes is fatal with nothing
+    written (`plan_set_edits_for_root`'s contract, shared with fieldstool's
+    Apply). `write_files` keeps a .bak of every file it rewrites, which is the
+    offline splice's only undo."""
+    from kicadstamp.overrides_apply import (fields_config_from_plan,
+                                            plan_schematic_writes, skipped_text)
+    from kicadstamp.schematic_editing import check_kicad_not_running, write_files
+    from kicadstamp.schematic_set_fields import plan_set_edits_for_root
+
+    root_sheet = getattr(args, "root_sheet", None) or _profile_root_sheet(args.config)
+    plan = plan_schematic_writes(records)
+    if not plan.updates:
+        return [_("Nothing written: no record can be expressed in the "
+                  ".kicad_sch.")]
+    try:
+        edits_by_file, file_texts, report = plan_set_edits_for_root(
+            str(root_sheet), fields_config_from_plan(plan))
+    except FieldsToolError as e:
+        raise PlacerError(str(e)) from e
+
+    lines = [_("{count} edit(s) in the schematic:").format(count=len(report))]
+    for entry in sorted(report, key=lambda r: (str(r.file), list(r.refs))):
+        lines.append("  [{name}] {refs}.{field}: {old} -> {new}".format(
+            name=Path(entry.file).name, refs=",".join(entry.refs),
+            field=entry.field, old=repr(entry.old_value), new=repr(entry.new_value)))
+    if plan.skipped:
+        lines.append(_("skipped: {refs}").format(refs=skipped_text(plan.skipped)))
+
+    if args.dry_run:
+        lines.append(_("Dry run: nothing was written. Drop --dry-run to write."))
+        return lines
+
+    try:
+        check_kicad_not_running(force=False)
+    except RuntimeError as e:
+        # The running-KiCad guard is the offline splice's own rule (a live
+        # Eeschema session would overwrite the file on its next save) — the CLI
+        # reports it as a normal failure, never as a traceback.
+        raise PlacerError(str(e)) from e
+    written, failed = write_files(edits_by_file, file_texts)
+    if failed:
+        raise PlacerError(_("Some files failed and were restored from .bak: "
+                            "{failed}").format(failed=", ".join(failed)))
+    lines.append(_("{count} file(s) written (a .bak copy of each was kept)")
+                 .format(count=len(written)))
+    return lines
+
+
+def cmd_overrides_list(args) -> list[str]:
+    """Print what the store holds: ref, field, value and WHO put it there.
+
+    The store is invisible otherwise, and it now OUTRANKS the board — so
+    "what is in there?" has to be answerable without opening the GUI. Reading a
+    store that does not exist creates nothing (С11): an empty listing is the
+    answer, and no overrides/ directory appears as a side effect."""
+    from kicadstamp.field_overrides import load_field_overrides
+    from kicadstamp.utils.paths import overrides_path_for_config
+
+    path = overrides_path_for_config(str(args.config))
+    records = sorted(load_field_overrides(path).records(),
+                     key=lambda r: (r.ref, r.field))
+    if not records:
+        return [_("The override store is empty ({path}) — no Role/Cluster values "
+                  "are recorded for this profile.").format(path=path)]
+    return ["  {ref}.{field} = {value!r}  ({source})".format(
+        ref=r.ref, field=r.field, value=r.value, source=r.source) for r in records]
 
 
 def cmd_undo(args, log_dir: str | None = None) -> None:

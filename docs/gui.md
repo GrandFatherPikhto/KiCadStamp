@@ -2086,8 +2086,13 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   rows whose value differs from what is in force earn a record, so opening the table, looking at it and
   closing it leaves the store empty — and every record is keyed by the component's SYMBOL uuid, never by
   its refdes, so an F8 re-annotation cannot move it to another component; a row without one is refused
-  by name. Writing the values ONTO the board is the explicit, separate action of Т5а ("Write to
-  board"), not this table's path. The last table the user typed is remembered per cell in
+  by name. Writing the values ONTO the board is the explicit, separate action of Т5а — the **Write to
+  board** button next to it: the store is the source of truth, but the board is what FOREIGN tools read
+  (BOM, net classes), so our values can still be put there, in ONE `set_field_values_bulk` commit (a
+  single Ctrl+Z in KiCad takes the whole table back) and without touching the store. A footprint whose
+  field is missing on the live board is skipped PER FIELD by name, never rolling back the batch. It is
+  a BOARD operation: it needs a live KiCad and refuses with a Log line without one, exactly like the
+  two read buttons. The last table the user typed is remembered per cell in
   `gui_state.json` under its OWN key (`cell_role_table`), so the Source tab's Cluster/Sheet pick, which
   deliberately erases the identified refs, cannot erase the table; the board's columns and the cluster
   suggestions always come from the snapshot the page holds. After a write the page refreshes the
@@ -2096,10 +2101,14 @@ It is the v2 declarative anchor UI — the anchor is a REFERENCE resolved at app
   the refs are NOT remembered automatically, because right after a write KiCad may still hand back the
   OLD field value over IPC. The tab's cell editors are DELEGATES, not widgets attached to cells: Qt
   creates the editor when a cell is opened and owns it (see `gui/docks/cell_refs_tab.py`). The delegate
-  hints and the status/Write-to-board state are recomputed on EVERY render, including the ones that skip
-  rebuilding the table itself (stage 2а, `plan_2026_09_17_spoke_s2a_fixes.md`): a Role added to the cell
-  in the editor appears in the Role dropdown at once, without reopening the cell, and a board that
-  connects late turns **Write to board** on for the table already on screen.
+  hints, the status strip and BOTH write buttons' states are recomputed on EVERY render, including the
+  ones that skip rebuilding the table itself (stage 2а, `plan_2026_09_17_spoke_s2a_fixes.md`): a Role
+  added to the cell in the editor appears in the Role dropdown at once, without reopening the cell. The
+  two buttons ask two DIFFERENT questions and can therefore be on and off independently — "Write to the
+  store" is enabled while something differs from the value IN FORCE, "Write to board" while the BOARD
+  lacks something the table has (`can_write` / `can_write_to_board` in `gui/role_table_model.py`); only
+  the board one also needs a live KiCad, and that is answered at CLICK time (one Log line, no modal),
+  the same way the two read buttons answer it.
 - **Marker anchor** — draws the cell's bbox rectangle and a draggable marker circle as REAL KiCad
   graphics on the overlay layer (the **Settings → Board overlay** layer, `User.Drawings` by default;
   the stroke/radius come from the same page too; colour comes from the LAYER, no colour setting), all

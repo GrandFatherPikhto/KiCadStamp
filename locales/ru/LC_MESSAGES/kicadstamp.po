@@ -17038,3 +17038,111 @@ msgstr "Уточнение к --origin-by-component-role: сузить канд�
 #: gui/docks/role_cluster_tree.py
 msgid "(from the store)"
 msgstr "(из хранилища)"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Could not load {path}: {error}"
+msgstr "Не удалось загрузить {path}: {error}"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Destination: “board” writes the live board through KiCad (one commit, one Ctrl+Z); “schematic” splices the .kicad_sch offline, which is an operation KiCad must be closed for."
+msgstr "Назначение: «board» пишет живую плату через KiCad (один коммит, один Ctrl+Z); «schematic» сплайсит .kicad_sch офлайн, а это операция, при которой KiCad должен быть закрыт."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Dry run: nothing was written. Drop --dry-run to write."
+msgstr "Сухой прогон: ничего не записано. Уберите --dry-run, чтобы записать."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "IPC timeout in ms (--to board only)"
+msgstr "Таймаут IPC в мс (только для --to board)"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Note: the first argument was taken as a config path for 'apply' (bare-config shorthand). If you meant a subcommand, spell it exactly: apply, undo, extract, extract-net, clone-extract, clone-plan, channel-copy, flatten, convert-trees, overrides-apply, overrides-list."
+msgstr "Замечание: первый аргумент принят за путь к конфигу для 'apply' (сокращение «голый конфиг»). Если вы имели в виду подкоманду, напишите её точно: apply, undo, extract, extract-net, clone-extract, clone-plan, channel-copy, flatten, convert-trees, overrides-apply, overrides-list."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Nothing written: no record can be expressed in the .kicad_sch."
+msgstr "Ничего не записано: ни одну запись нельзя выразить в .kicad_sch."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Nothing written: the board can take none of these records."
+msgstr "Ничего не записано: плата не может принять ни одну из этих записей."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Print the plan and write NOTHING — neither the board nor any file is touched."
+msgstr "Печатать план и НИЧЕГО не записывать — ни плата, ни какой-либо файл не трогаются."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Profile config file whose override store (overrides/<stem>.fields.json, next to it) is listed. REQUIRED — the store belongs to a profile."
+msgstr "Файл конфига профиля, хранилище которого (overrides/<stem>.fields.json рядом с ним) выводится. ОБЯЗАТЕЛЕН — хранилище принадлежит профилю."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Profile config file whose override store (overrides/<stem>.fields.json, next to it) is written out. REQUIRED — the store belongs to a profile."
+msgstr "Файл конфига профиля, хранилище которого (overrides/<stem>.fields.json рядом с ним) записывается наружу. ОБЯЗАТЕЛЕН — хранилище принадлежит профилю."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Put this table's values ONTO the live board in ONE commit — a single Ctrl+Z in KiCad takes the whole table back. Only what differs from the board is written; a footprint whose field is missing there is skipped by name. The override store is not touched: this action is for the tools that read the board, not the source of truth."
+msgstr "Записать значения таблицы НА живую плату ОДНИМ коммитом — один Ctrl+Z в KiCad откатывает всю таблицу целиком. Пишется только то, что отличается от платы; футпринт, у которого нужного поля там нет, пропускается по имени. Хранилище не трогается: это действие для инструментов, читающих плату, а не источник истины."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Show the profile's override store (ref, field, value, who set it)"
+msgstr "Показать хранилище профиля (ref, поле, значение, кем поставлено)"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Some files failed and were restored from .bak: {failed}"
+msgstr "Часть файлов не удалась и восстановлена из .bak: {failed}"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Tag roles from a board selection: take the selection, give every component its Role — the batch is RECORDED for this project (our values win over the board), and reaches the board only through the explicit “Write to board” button."
+msgstr "Разметка ролей по выделению на плате: возьмите выделение, дайте каждому компоненту его Role — пачка ЗАПИСЫВАЕТСЯ для этого проекта (наши значения главнее платы) и попадает на плату только через явную кнопку «Записать на плату»."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "The .kicad_sch to splice for --to schematic. Default: the profile's own root_sheet."
+msgstr ".kicad_sch для сплайса при --to schematic. По умолчанию — собственный root_sheet профиля."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "The override store for {path} is empty — nothing to write."
+msgstr "Хранилище для {path} пусто — записывать нечего."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "The override store is empty ({path}) — no Role/Cluster values are recorded for this profile."
+msgstr "Хранилище пусто ({path}) — для этого профиля не записано ни одного значения Role/Cluster."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "The profile has no root_sheet — add root_sheet: to it, or pass --root-sheet pointing at the .kicad_sch to splice."
+msgstr "В профиле нет root_sheet — добавьте root_sheet: в него или передайте --root-sheet с путём к .kicad_sch, который надо сплайсить."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "The profile's role_cluster_source is “board”, so its override store is NOT in force — nothing is written. Switch it back to “registry” to make these values active again."
+msgstr "У профиля role_cluster_source = «плата», поэтому его хранилище НЕ действует — ничего не записано. Верните «реестр», чтобы эти значения снова работали."
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Write stored Role/Cluster values to the board"
+msgstr "Записать значения Role/Cluster из хранилища на плату"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "Write this profile's stored Role/Cluster values onto the board or into the schematic"
+msgstr "Записать значения Role/Cluster из хранилища профиля на плату или в схему"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "two symbols of this refdes need different values"
+msgstr "у двух символов этого refdes значения разные"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "{count} component(s) written to the board"
+msgstr "Записано на плату компонентов: {count}"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "{count} edit(s) in the schematic:"
+msgstr "Правок в схеме: {count}:"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "{count} file(s) written (a .bak copy of each was kept)"
+msgstr "Записано файлов: {count} (копия каждого сохранена как .bak)"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "{count} stored value(s) -> {destination}:"
+msgstr "Значений из хранилища: {count} -> {destination}:"
+
+#: kicadstamp/overrides_apply.py kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/cell_refs_tab.py
+msgid "{count} value(s) written to the board"
+msgstr "Записано на плату значений: {count}"

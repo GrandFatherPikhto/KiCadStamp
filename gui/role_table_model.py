@@ -525,10 +525,23 @@ def build_override_updates(rows: Iterable) -> TagPlan:
 
 
 def can_write(rows: Iterable) -> bool:
-    """The write button is active only when the batch is not empty (Р4) — and
+    """The STORE button is active only when the batch is not empty (Р4) — and
     since Т5 the batch is the STORE's, so "nothing to write" means "nothing
     differs from what is already in force"."""
     return bool(build_override_updates(rows).updates)
+
+
+def can_write_to_board(rows: Iterable) -> bool:
+    """The BOARD button's gate (Т5а): "does the board lack something this table
+    has?".
+
+    Deliberately a second function rather than a flag on can_write: the two
+    buttons ask different questions, and a row can be a "yes" for one and a "no"
+    for the other. A cell holding OUR stored value while the board still says
+    something else has something to put ON the board (can_write_to_board: yes)
+    and nothing new to record (can_write: no); a cell holding the board's value
+    while the store disagrees is exactly the other way round."""
+    return bool(build_tag_updates(rows).updates)
 
 
 # ── Warnings (Р4: a line in the status strip and the Log, never a blocker) ──
