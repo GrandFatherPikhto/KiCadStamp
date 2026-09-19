@@ -258,6 +258,22 @@ class BoardConnection:
         for window in self._latency.values():
             window.clear()
 
+    def _store_layer(self):
+        """(bound store, ``bind_store``) of the poll adapter, or (None, None).
+
+        The ONE place the connection reaches into the adapter's override layer,
+        shared by the two methods that need it: ``set_project_config`` (a project
+        switch — needs the binder) and ``reload_store`` (a write elsewhere —
+        needs the bound store's path as well). getattr, not a direct attribute
+        access: a bare adapter (tests' fakes, a stand-in with no store at all) is
+        not an error, it simply has no layer to rebind."""
+        board = self._board
+        adapter = getattr(board, "adapter", None) if board is not None else None
+        if adapter is None:
+            return None, None
+        return (getattr(adapter, "store", None),
+                getattr(adapter, "bind_store", None))
+
     def set_project_config(self, config_path) -> None:
         """Point this connection's POLL ADAPTER at the current profile's store
         (plan_2026_09_18_field_overrides_store Т5г).
@@ -275,9 +291,7 @@ class BoardConnection:
         store holds others: a role noted only in KiCadStamp could not even be
         chosen in a picker (С25), while Pending would faithfully list it."""
         self._config_path = str(config_path) if config_path else None
-        board = self._board
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        binder = getattr(adapter, "bind_store", None)
+        _store, binder = self._store_layer()
         if binder is None:
             # Nothing connected yet (the path is used at connect time), or a bare
             # adapter the caller built itself (tests' fakes) — nothing to bind.
@@ -286,6 +300,39 @@ class BoardConnection:
         store, source = (store_for_config(self._config_path)
                          if self._config_path else (None, None))
         binder(store, source=source)
+
+    def reload_store(self) -> None:
+        """Re-read the poll adapter's store from ITS OWN FILE (Т5г's tail).
+
+        The store is a FILE, and more than one holder keeps a copy of it in
+        memory: a pane that records writes through a store of its own and saves,
+        while this adapter holds the copy it was bound to when the project
+        opened. The file is the truth, so a WRITE by one holder has to be
+        announced to the others — DockHub._on_overrides_written is that
+        announcement, and this is its stop on the poll adapter.
+
+        The path comes from the bound store itself (``store.path``, the very
+        trick gui/fieldstool_window.py's reload_overrides uses), so nothing here
+        needs the project root — and the layer is REBOUND (``bind_store``),
+        exactly as set_project_config does, so the kipy client and its REQ socket
+        are never touched. "Never touched" includes the board's own snapshot:
+        the board did not change, and re-reading it would spend a socket
+        round-trip on a board nobody changed — the rule spelled out in
+        gui/main_window.py's request_refresh (door rule 3).
+
+        Silently does nothing when there is no bound store (no project open, a
+        profile whose switch says "board", a bare adapter a caller built
+        itself) — the same shape as set_project_config with no binder. A read
+        error is left to the caller's guard (DockHub._safe_call logs it and the
+        window stays open); this method invents no error of its own."""
+        store, binder = self._store_layer()
+        if store is None or binder is None:
+            return
+        path = getattr(store, "path", None)
+        if path is None:
+            return
+        from kicadstamp.field_overrides import load_field_overrides
+        binder(load_field_overrides(str(path)))
 
     def connect(self) -> Optional[str]:
         """Attempts a fresh connection. Returns None on success, or an error

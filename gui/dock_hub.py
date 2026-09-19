@@ -113,6 +113,11 @@ class DockHub:
         # connection stand-in (tests/gui/conftest.py's _FakeConnection) simply
         # has no store to rebind, which is the pre-store behaviour exactly.
         self._set_project_config = getattr(connection, "set_project_config", None)
+        # The OTHER half of the same seam (Т5г's tail): a WRITE by one of the
+        # GUI's panes must reach the poll adapter's bound store as well, and
+        # _on_overrides_written is where that event lands. Same getattr for the
+        # same reason — a stand-in without the method keeps the pre-store world.
+        self._reload_poll_store = getattr(connection, "reload_store", None)
         # The root-config log_file: FileHandler currently attached to the
         # root logger, if any — see _on_root_file_changed_for_logging().
         self._log_file_handler: Optional[logging.Handler] = None
@@ -2993,15 +2998,35 @@ class DockHub:
 
     def _on_overrides_written(self) -> None:
         """The override store was RECORDED into by one of the GUI's own panes
-        (Т5/Т6). Both holders re-read the FILE — the writer included, on purpose:
-        "the file is the truth" must not depend on who wrote last, and a reload of
-        the writer's own copy is harmless (it is the same content it just saved).
-        The fieldstool window's reload also recomputes the three-sided Pending
-        diff, which is what the user must see next."""
+        (Т5/Т6) — the ONE announcement every holder of it listens to.
+
+        The rule, not the list: **whoever keeps a copy of the store in memory
+        re-reads it on this event.** The list was the bug once already — the poll
+        adapter was a holder and nobody called it, so the snapshot every picker
+        and the Components tree read kept showing the board's roles while the
+        store held others (the hole Т5г's tail closed). A new holder joins by
+        being ADDED HERE, and the guards in tests/test_overrides_store_reload.py
+        (behavioural) and tests/gui/test_overrides_store_reload_gui.py (the whole
+        wired chain) fail when it is not.
+
+        The writer is included on purpose: "the file is the truth" must not
+        depend on who wrote last, and a reload of the writer's own copy is
+        harmless (it is the same content it just saved). The fieldstool window's
+        reload also recomputes the three-sided Pending diff, which is what the
+        user must see next."""
         self._safe_call("fieldstool window override reload",
                         self.fieldstool_dock.window.reload_overrides)
         self._safe_call("cell editor override reload",
                         self.cell_anchor_view.reload_overrides)
+        # The poll adapter's bound store — the copy the GUI's OWN snapshot is
+        # built from, and so the one every picker and the Components tree see.
+        # Behind an `is not None` guard, unlike the two above: a connection
+        # stand-in without the seam is not an error (the same reasoning as
+        # _set_project_config), and _safe_call would otherwise log a TypeError
+        # on every write.
+        if self._reload_poll_store is not None:
+            self._safe_call("poll adapter override reload",
+                            self._reload_poll_store)
 
     def _safe_call(self, what: str, fn, *args) -> None:
         """Run a dock's root-notification callable safely: a BROKEN root

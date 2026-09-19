@@ -321,7 +321,12 @@ would then show a picture that existed at no single moment. Pending changes' **B
 physical value. The GUI's own poll adapter follows the project: `root_changed` **rebinds** its store
 (`bind_store` — the very call the MCP server makes for its per-call profiles; no reconnect, the socket
 is never touched), and the project path is remembered for the next connect, so a root restored at
-launch is bound from the first attempt.
+launch is bound from the first attempt. A **write** by any of the GUI's own panes (the Refs tab,
+fieldstool's Stage, the Components tree's Tag/Delete, Pending's "forget") is announced once and reaches
+every holder of that store — this adapter included: it re-reads the file from the bound store's own
+path and rebinds the layer. The board is deliberately NOT re-read by that event — it did not change,
+and spending a socket round-trip on a board nobody changed is exactly what the poll's no-op rule
+forbids.
 
 The combo boxes offer as suggestions the sorted unique Role/Cluster values already present in the
 live snapshot — there is no separate fixed vocabulary, the board is its own source of known values,
