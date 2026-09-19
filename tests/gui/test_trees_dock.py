@@ -7323,3 +7323,287 @@ def test_both_paths_keep_a_polar_node_polar(main_window, tmp_path, monkeypatch):
 
         assert moved.xy is None, via
         assert moved.polar == (5.0, -90.0), via
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Часть B (plan_2026_09_18_component_node_redraw_and_read_position.md):
+# "Read current position" on a kind "component" node.
+#
+# A component node's ref is a LOCAL NAME (link_trees resolves no config record
+# for kind "component"), so the live read cannot probe the config for it: the
+# component it names lives in the node's own nested ADDRESS, resolved through
+# component_address.resolve_component_footprint — the SAME resolver the
+# materializer and the rigid-group capture use. These guards (С6..С10) pin the
+# button's visibility, the address refusal, the filled offset/rotation, the
+# shared refusal style, and that the record/mount paths are untouched.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_component_node_read_position_row_is_visible_and_enabled(qapp):
+    """С6: kind "component" gets the "Read current position" row — visible AND
+    enabled once ref + an explicit kind are set, exactly like any other
+    positioned kind. It used to be hidden deliberately (plan Ф5: "a component
+    node's read would have to resolve the ADDRESS ... deliberately not invented
+    here"); Часть B is that feature."""
+    dlg = _bare_node_dialog()
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.ref_combo.setCurrentText("conn_renc")
+
+    assert dlg.read_position_button.isVisibleTo(dlg) is True
+    assert dlg.read_status_label.isVisibleTo(dlg) is True
+    assert dlg.read_position_button.isEnabled() is True
+
+
+def test_component_node_read_position_without_address_warns_and_writes_nothing(
+        main_window, tmp_path, monkeypatch):
+    """С7: an empty address (no Ref, no Role) is refused with the picker's OWN
+    message, the fields keep their values, and no board read is even attempted
+    (the resolver is booby-trapped)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(td_mod, "_resolve_live_offset",
+                        lambda *a, **k: pytest.fail("no address -> no read"))
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: pytest.fail("no address -> no resolve"))
+
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg.offset_widget.x_edit.setText("7.000")
+    dlg.offset_widget.y_edit.setText("8.000")
+    dlg.rotation_edit.setText("12.000")
+
+    dlg._on_read_position()
+
+    assert warnings, "a missing address must be reported"
+    assert "Ref or Role" in str(warnings[-1][2])
+    assert dlg.offset_widget.x_edit.text() == "7.000"
+    assert dlg.offset_widget.y_edit.text() == "8.000"
+    assert dlg.rotation_edit.text() == "12.000"
+
+
+def test_component_node_read_position_fills_offset_and_rotation(
+        main_window, tmp_path, monkeypatch):
+    """С8: with an address set the read fills the offset and the rotation from
+    the live component relative to the parent base — the same two numbers a
+    normal node stores."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: SimpleNamespace(
+                            position=Vector2.from_xy_mm(10.0, 5.0),
+                            angle_deg=30.0, layer=BoardLayer.BL_F_Cu))
+
+    dlg = _build_dialog(dock, tree, None)
+    monkeypatch.setattr(dlg, "_base_rotation_deg", lambda: 0.0)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg.component_address_widget.anchor_ref_edit.setText("J5")
+
+    dlg._on_read_position()
+
+    assert dlg.offset_widget.x_edit.text() == "10.000"
+    assert dlg.offset_widget.y_edit.text() == "5.000"
+    assert dlg.rotation_edit.text() == "30.000"
+    assert dlg.read_status_label.text() == ""
+
+
+@pytest.mark.parametrize("base_rot", [0.0, 90.0, 180.0, 270.0])
+def test_component_read_offset_is_the_local_delta_against_the_base(
+        base_rot, monkeypatch):
+    """С8, independent cross-check: the returned pair, converted back into the
+    BOARD frame with the SAME base rotation, reproduces the live component's
+    board delta — i.e. the read really is "component minus base, in the base's
+    own frame", not a world delta wearing a local label."""
+    import gui.docks.trees_dock as td_mod
+    base_pos = Vector2.from_xy_mm(10.0, 20.0)
+    live = Vector2.from_xy_mm(13.0, 22.0)
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (base_pos, base_rot, False))
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: SimpleNamespace(
+                            position=live, angle_deg=base_rot + 40.0,
+                            layer=BoardLayer.BL_F_Cu))
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        object(), object(), {}, object(), None, "conn_renc", "component",
+        component_address=TreeAnchor(role="CONN_RENC", is_origin=False))
+
+    assert local_offset_to_board_mm(offset_mm, base_rot) == (3.0, 2.0)
+    assert rotation == pytest.approx(40.0)
+
+
+def test_resolve_live_offset_component_address_uses_the_project_resolver(monkeypatch):
+    """The component branch resolves through component_address.
+    resolve_component_footprint on a synthetic node carrying the ADDRESS, and
+    NEVER through the config probe (_resolve_probe_ref would look for a config
+    record whose name is a local node name — the Ф6 defect)."""
+    import gui.docks.trees_dock as td_mod
+    from kicadstamp.component_address import component_anchor
+    seen = {}
+
+    def _fake_fp(adapter, node, sheet_names=None):
+        seen["kind"] = node.kind
+        seen["ref"] = node.ref
+        seen["anchor"] = component_anchor(node)
+        return SimpleNamespace(position=Vector2.from_xy_mm(12.0, 3.0),
+                               angle_deg=45.0, layer=BoardLayer.BL_F_Cu)
+
+    monkeypatch.setattr(td_mod, "resolve_component_footprint", _fake_fp)
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(10.0, 0.0), 0.0, False))
+    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda *a, **k: pytest.fail(
+                            "a component node's ref is a LOCAL name"))
+    address = TreeAnchor(role="CONN_RENC", is_origin=False)
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        object(), object(), {}, object(), None, "conn_renc", "component",
+        component_address=address)
+
+    assert seen == {"kind": "component", "ref": "conn_renc", "anchor": address}
+    assert offset_mm == (2.0, 3.0)
+    assert rotation == pytest.approx(45.0)
+
+
+def test_resolve_live_offset_component_mirror_is_refused(monkeypatch):
+    """С9: a mirrored live component is an honest refusal of the same class the
+    mirror check already raises for a base/child — the trees layer stores no
+    mirror, so it must not silently import an unmirrored pose."""
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: SimpleNamespace(
+                            position=Vector2.from_xy_mm(1.0, 1.0),
+                            angle_deg=0.0, layer=BoardLayer.BL_B_Cu))
+
+    with pytest.raises(ValidationError) as ei:
+        td_mod._resolve_live_offset(
+            object(), object(), {}, object(), None, "conn_renc", "component",
+            component_address=TreeAnchor(ref="J5", is_origin=False))
+    assert "MIRRORED" in str(ei.value)
+
+
+def test_component_node_read_position_mirrored_warns_and_writes_nothing(
+        main_window, tmp_path, monkeypatch):
+    """С9 through the form: the mirror refusal reaches the user as the SAME
+    QMessageBox.warning every other kind's refusal uses, with the fields
+    untouched (no partial write)."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: SimpleNamespace(
+                            position=Vector2.from_xy_mm(1.0, 1.0),
+                            angle_deg=0.0, layer=BoardLayer.BL_B_Cu))
+
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg.component_address_widget.anchor_ref_edit.setText("J5")
+    before = (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),
+              dlg.rotation_edit.text())
+
+    dlg._on_read_position()
+
+    assert warnings and "MIRRORED" in str(warnings[-1][2])
+    assert (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),
+            dlg.rotation_edit.text()) == before
+
+
+def test_component_node_read_position_not_found_warns_like_every_other_kind(
+        main_window, tmp_path, monkeypatch):
+    """С9: an address that resolves to nothing is reported through the same
+    ValidationError -> warning channel, with the resolver's own honest text
+    ("... not found") reaching the user — no second error style."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    # The PARENT base resolves normally (stubbed): the refusal under test is the
+    # ADDRESS's, and the base is resolved before the child in _resolve_live_offset.
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
+
+    def _boom(*a, **k):
+        raise ValidationError("tree node 'conn_renc': CONN_RENC not found")
+    monkeypatch.setattr(td_mod, "resolve_component_footprint", _boom)
+
+    dlg = _build_dialog(dock, tree, None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg.component_address_widget.anchor_ref_edit.setText("J5")
+    before = dlg.offset_widget.x_edit.text()
+
+    dlg._on_read_position()
+
+    assert warnings and "not found" in str(warnings[-1][2])
+    assert dlg.offset_widget.x_edit.text() == before
+
+
+def test_resolve_live_offset_keeps_the_record_path_without_an_address(monkeypatch):
+    """С10: `component_address` DEFAULTS to None, so every pre-existing caller
+    keeps the historic probe path byte-for-byte — the component resolver is not
+    even reachable without an address."""
+    import gui.docks.trees_dock as td_mod
+    probed = []
+    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda cfg, ref, kind: (probed.append((ref, kind))
+                                                or (None, True)))
+    monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
+                        lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
+    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy_mm(10.0, 0.0))
+    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg", lambda *a, **k: 0.0)
+    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+                        lambda *a, **k: pytest.fail(
+                            "no address -> the component path must stay shut"))
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        object(), object(), {}, object(), None, "CHILD", "clone")
+
+    assert probed == [("CHILD", "clone")]
+    assert offset_mm == (10.0, 0.0)
+    assert rotation == 0.0
+
+
+def test_reread_node_flow_payload_carries_the_component_address(
+        main_window, tmp_path, monkeypatch):
+    """С10/Часть B: the tree-level "Reread current position" of a COMPONENT node
+    hands the worker the node's OWN nested address — the same (address, parent
+    base) pair the form's read uses, so the context-menu path works on a
+    component node too (and every other kind's payload is unchanged: None)."""
+    import gui.docks.trees_dock as td_mod
+    main_window.connection.board = _FakeBoard()
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    node.kind = "component"
+    node.anchor = TreeAnchor(role="CONN_RENC", is_origin=False)
+    captured = {}
+
+    def _stub_start_long_op(connection, blockers, worker, on_done, on_fail,
+                            payload, **kwargs):
+        captured.update(payload)
+        return None
+    monkeypatch.setattr(td_mod, "start_long_op", _stub_start_long_op)
+
+    dock._reread_node_flow(tree, node)
+
+    assert captured["component_address"] is node.anchor
+    assert captured["base_anchor"] is None
+    assert captured["kind"] == "component"

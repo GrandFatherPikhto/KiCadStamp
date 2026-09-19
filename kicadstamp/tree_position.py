@@ -41,6 +41,7 @@ from .domain.geometry import BoardLayer, Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from .link_trees import (
+    LinkedAnchor,
     LinkedNode,
     LinkedTree,
     _build_by_name_index,
@@ -904,11 +905,23 @@ class RigidCapture:
     parent's CURRENT base through the ONE seam (mount_node_base,
     _mount_parent_base_pose) — without widening apply_rigid_override's signature
     for its other callers, which pass (ref, record) only. Both are None for a
-    NORMAL parent, which keeps every existing path byte-identical."""
+    NORMAL parent, which keeps every existing path byte-identical.
+
+    anchor_parent/anchor_tree — the TREE-ANCHOR parent context (plan_2026_09_18
+    Часть A, variant В2). A TOP-LEVEL node's parent IS its tree's anchor: for a
+    REF-LESS anchor — (role ...), (point ...), (self ...) — the (parent_ref,
+    parent_record) pair is (None, None), which the base resolver can only read as
+    the ABSOLUTE ORIGIN. The anchor's own LIVE pose therefore travels in these
+    two fields, exactly the way the mount pair does, and the apply half
+    re-resolves it through _anchor_parent_base_pose. Both are None/False for
+    every other parent (an origin anchor needs none of this: (0,0) IS its base),
+    which keeps every existing path byte-identical."""
     local_offset: Vector2
     relative_rotation: float
     mount_parent: "TreeNode | None" = None
     mount_tree: "Tree | None" = None
+    anchor_parent: bool = False
+    anchor_tree: "Tree | None" = None
 
 
 def _tree_node_index(tree: LinkedTree) -> dict[str, LinkedNode]:
@@ -945,6 +958,43 @@ def _node_parent_map(tree: LinkedTree) -> dict[str, tuple[str | None, Record | N
 
     walk(tree.nodes, anchor_ref, anchor_record, not anchor_is_origin)
     return parent_map
+
+
+def _anchor_parent_base_pose(adapter, cfg, tree: "Tree | None", sheet_names
+                             ) -> tuple[Vector2, float]:
+    """Absolute (pos, rot) of a tree's OWN ANCHOR standing as a rigid-group
+    PARENT (plan_2026_09_18 Часть A, variant В2) — the base of every TOP-LEVEL
+    node.
+
+    THE single seam for this case: `_anchor_base_live_position`, the very
+    resolver the apply-time materializer (entity_placement._anchor_base) and the
+    GUI form (trees_dock._resolve_node_base_pose, parent_node=None) already share
+    for a tree's own anchor — so the capture's base and the apply's base can
+    never disagree about where the anchor stands.
+
+    Before this seam the (ref, record) pair was fed the anchor's own (None, None)
+    for a REF-LESS anchor — (role ...), (point ...), (self ...) — and
+    `_base_position_or_origin` read that as the absolute origin. The captured
+    offset then WAS the node's absolute position and the apply wrote it straight
+    back, so a top-level node could not follow its anchor at all ("дерево должно
+    ехать за привязкой якоря верхнего уровня" — Denis, 2026-09-19): the
+    "floating" base had silently become a FIXED (0,0).
+
+    An origin anchor never reaches here, and a ref/external anchor keeps the
+    (ref, record) path byte-for-byte. A None rotation (a (point ...) anchor has
+    no orientation by construction) means 0.0 for this composition — the same
+    documented assumption `_base_rotation_or_zero` logs. Raises ValidationError
+    when the anchor does not resolve (the capture's own tolerant branch turns
+    that into the existing "not rigidly" warning, never a crash)."""
+    if tree is None:
+        # cfg.trees was not carried by this caller — there is no plain Tree to
+        # resolve a (self ...) anchor's own nodes from, and no honest base to
+        # guess. Fail loudly; the capture reports it as a skipped node.
+        raise ValidationError(_(
+            "a tree anchor's live base needs the plain configuration tree "
+            "(cfg.trees) — the rigid redraw cannot read it"))
+    pos, deg = _anchor_base_live_position(adapter, cfg, tree, sheet_names)
+    return pos, deg if deg is not None else 0.0
 
 
 def _mount_parent_base_pose(adapter, cfg, mount_node: TreeNode,
@@ -1030,6 +1080,15 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
         if ln is None or (ln.record is None and ln.node.kind != "component"):
             continue  # external/point never emit names; defensive only
         parent_ref, parent_record, parent_is_anchor = parent_map[name]
+        # A TOP-LEVEL node of a REF-LESS anchor tree (plan_2026_09_18 Часть A,
+        # В2): its base is that very anchor, and (None, None) below could only
+        # mean the absolute origin — a FIXED base that made the capture and the
+        # apply cancel out and froze the node where it stood. An ORIGIN anchor
+        # never lands here (its (0,0) is the correct base, and _node_parent_map
+        # marks it parent_is_anchor=False), and a ref/external anchor keeps the
+        # (ref, None) path untouched.
+        anchor_parent = bool(parent_is_anchor and parent_ref is None
+                             and parent_record is None)
         # A kind "mount" PARENT (plan_2026_09_14 Э2): its base is its OWN
         # anchor's position through mount_node_base, never a live ref lookup
         # (_mount_parent_base_pose explains why). The tree ANCHOR
@@ -1059,6 +1118,12 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
             if mount_parent is not None:
                 parent_pos_old, parent_rot_old = _mount_parent_base_pose(
                     adapter, cfg, mount_parent, plain_tree, sheet_names)
+            elif anchor_parent:
+                # The FLoating top-level base: the anchor's own LIVE pose, read
+                # through the ONE seam the materializer and the GUI form use,
+                # so the whole tree rides along when the anchor moves.
+                parent_pos_old, parent_rot_old = _anchor_parent_base_pose(
+                    adapter, cfg, plain_tree, sheet_names)
             else:
                 parent_pos_old = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
                                                           resolved_points, sheet_names)
@@ -1081,6 +1146,8 @@ def capture_rigid_state(adapter, cfg, tree: LinkedTree, names: list[str], sheet_
             relative_rotation=relative_rotation_deg(child_rot_old, parent_rot_old),
             mount_parent=mount_parent,
             mount_tree=plain_tree if mount_parent is not None else None,
+            anchor_parent=anchor_parent,
+            anchor_tree=plain_tree if anchor_parent else None,
         )
     return captures, parent_map
 
@@ -1095,11 +1162,19 @@ def apply_rigid_override(adapter, cfg, parent_ref, parent_record, capture: Rigid
     A MOUNT parent (capture.mount_parent set — plan_2026_09_14 Э2) is
     re-resolved through mount_node_base instead: (parent_ref, parent_record)
     cannot express it (a mount ref is a tree-local name and its record is None
-    by construction), which is exactly the bug this fixes. Every other capture
-    keeps the (ref, record) path byte-for-byte."""
+    by construction), which is exactly the bug this fixes.
+
+    A TREE-ANCHOR parent (capture.anchor_parent — plan_2026_09_18 Часть A, В2)
+    is re-resolved the same way, through _anchor_parent_base_pose: a REF-LESS
+    anchor is (None, None) and could only be read as the absolute origin, which
+    pinned every top-level node in place. Every other capture keeps the
+    (ref, record) path byte-for-byte."""
     if capture.mount_parent is not None:
         parent_pos_new, parent_rot_new = _mount_parent_base_pose(
             adapter, cfg, capture.mount_parent, capture.mount_tree, sheet_names)
+    elif capture.anchor_parent:
+        parent_pos_new, parent_rot_new = _anchor_parent_base_pose(
+            adapter, cfg, capture.anchor_tree, sheet_names)
     else:
         parent_pos_new = _base_position_or_origin(adapter, cfg, parent_ref, parent_record,
                                                   {}, sheet_names)
@@ -1107,6 +1182,32 @@ def apply_rigid_override(adapter, cfg, parent_ref, parent_record, capture: Rigid
     child_pos_new = child_absolute_position(parent_pos_new, parent_rot_new, capture.local_offset)
     child_rot_new = parent_rot_new + capture.relative_rotation
     return PositionOverride(position=child_pos_new, rotation_deg=child_rot_new)
+
+
+def anchor_base_label(linked_anchor: LinkedAnchor) -> str:
+    """How a warning NAMES a node's base when that base is the tree's own ANCHOR
+    (plan_2026_09_18 Часть A, Ф10).
+
+    A ref/external anchor is named by its ref — what the user typed. Every OTHER
+    anchor used to be printed as the hard-coded "(origin)", whatever it really
+    was, so a ROLE-anchored tree's top-level nodes announced "will be redrawn
+    from the current position of '(origin)'" — a warning that read as "this tree
+    is origin-anchored" and cost a wrong diagnosis (it is what made the plan
+    assume (origin)). The label is a NAME, like a refdes, so it stays
+    untranslated — exactly like the ref it replaces."""
+    ref = linked_anchor.anchor.ref
+    if ref:
+        return ref
+    if linked_anchor.is_origin:
+        return "(origin)"
+    anchor = linked_anchor.anchor
+    if anchor.role:
+        return f"(role {anchor.role!r})"
+    if getattr(anchor, "point", None):
+        return f"(point {anchor.point!r})"
+    if getattr(anchor, "is_self", False):
+        return "(self)"
+    return "(origin)"
 
 
 def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
@@ -1145,12 +1246,13 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     # Top-level nodes: the "parent" is the tree anchor. A config anchor not in
     # the selection triggers the warning; origin/external anchors never do
     # (origin is an absolute point, external is always a live board position).
+    # The LABEL names the anchor by its real mode, never a hard-coded "(origin)"
+    # (Ф10) — a role/point/self anchor is a live, floating base, not the origin.
+    anchor_label = anchor_base_label(anchor)
     if anchor.record is None:
         anchor_in_sel = True
-        anchor_label = anchor.anchor.ref or "(origin)"
     else:
         anchor_in_sel = anchor.anchor.ref in selected_refs
-        anchor_label = anchor.anchor.ref or "(origin)"
 
     def walk(linked_node: LinkedNode, parent_in_sel: bool, parent_label: str) -> None:
         ref = linked_node.node.ref
@@ -1460,13 +1562,22 @@ def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
     names: list[str] = [vertex for vertex in order if isinstance(vertex, str)]
 
     # warnings: a forest selected node whose base is not applied this run.
+    # A top-level node's base is its tree's ANCHOR — named by its real mode
+    # (Ф10): a (role ...)/(point ...)/(self ...) anchor is a live, floating base
+    # and printing "(origin)" for it read as "this tree is origin-anchored".
+    top_level_anchor_label: dict[str, str] = {}
+    for linked_tree in linked_trees:
+        label = anchor_base_label(linked_tree.anchor)
+        for linked_node in linked_tree.nodes:
+            top_level_anchor_label[linked_node.node.ref] = label
     for ref in selected:
         if ref in copper_refs:
             # Copper's base is its OWN anchor pad, never its tree parent — the
             # note below is false for it (P.2.2 of the 2026-09-16 plan).
             continue
         p = index.parent_map.get(ref)
-        parent_label = p if p is not None else "(origin)"
+        parent_label = (p if p is not None
+                        else top_level_anchor_label.get(ref, "(origin)"))
         if p is None or (p not in selected and p not in content_refs):
             warnings.append(
                 _("Node {ref!r} will be redrawn from the current position of "

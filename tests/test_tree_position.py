@@ -2336,3 +2336,220 @@ def test_forest_module_content_ties_follow_its_own_document_order():
     t = _linked_tree("t", is_origin=True, nodes=[_marker_ln("ch0", content)])
     names, _warnings = curated_redraw_plan_forest([t], {"ch0"})
     assert names == ["z_first", "a_second"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Часть A (plan_2026_09_18_component_node_redraw_and_read_position.md, variant
+# В2): a TOP-LEVEL node's base is its tree's own ANCHOR — the live, floating
+# binding Denis described ("нода верхнего уровня -- это привязка к точке,
+# компоненту или чему-то ещё, к чему можно привязаться и что можно двигать"):
+# "важно, чтобы якорь верхнего уровня был плавающим — дерево двигалось бы за
+# привязкой якоря верхнего уровня".
+#
+# For a REF-LESS anchor — (role ...), (point ...), (self ...) — the
+# (parent_ref, parent_record) pair is (None, None), which
+# _base_position_or_origin could only read as the ABSOLUTE ORIGIN. The captured
+# offset then WAS the node's absolute position and the apply wrote it straight
+# back: the "floating" base had silently become a fixed (0,0) and a top-level
+# node could not follow its anchor at all.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _role_anchor_tree(role="MCU", name="mcu", nodes=None) -> LinkedTree:
+    """A hand-built LinkedTree whose anchor is a REF-LESS (role ...) anchor — the
+    live, floating base a top-level node hangs from."""
+    return LinkedTree(
+        name=name,
+        anchor=LinkedAnchor(anchor=TreeAnchor(role=role, is_origin=False),
+                            record=None, is_origin=False, is_external=False),
+        nodes=nodes or [])
+
+
+def _cfg_with_plain_tree(name="mcu", role="MCU"):
+    """A cfg double carrying cfg.trees — the plain Tree the anchor's live base is
+    resolved from (the mount seam already reads cfg.trees the same way)."""
+    from types import SimpleNamespace
+    return SimpleNamespace(trees=[
+        Tree(name=name, anchor=TreeAnchor(role=role, is_origin=False), nodes=[])])
+
+
+def _top_level_clone(ref="T1", xy=(5.0, 0.0)) -> LinkedNode:
+    return LinkedNode(node=_node_dc(ref=ref, kind="clone", xy=xy),
+                      record=_record("clone", ref), is_external=False,
+                      children=[])
+
+
+def test_top_level_node_of_a_role_anchor_uses_the_live_anchor_base(monkeypatch):
+    """С2: the captured offset of a TOP-LEVEL node is the node MINUS the anchor's
+    live pose — never the node's absolute position (which is what the
+    (None, None) pair used to produce)."""
+    import kicadstamp.tree_position as tp
+
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(105 * MM, 50 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    anchor_reads = []
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda adapter, cfg, tree, sheet_names:
+                        (anchor_reads.append(tree.name)
+                         or (Vector2.from_xy(100 * MM, 50 * MM), 0.0)))
+    tree = _role_anchor_tree(nodes=[_top_level_clone()])
+
+    captures, _parent_map = capture_rigid_state(
+        "adapter", _cfg_with_plain_tree(), tree, ["T1"], {})
+
+    cap = captures["T1"]
+    assert anchor_reads == ["mcu"]          # the ANCHOR was read, not the origin
+    assert cap.anchor_parent is True
+    assert cap.anchor_tree is not None
+    assert cap.local_offset.x == 5 * MM     # 105 - 100, NEVER 105
+    assert cap.local_offset.y == 0
+
+
+def test_the_whole_tree_follows_the_anchor_when_it_moves(monkeypatch):
+    """С3 — the requirement in one assertion: "дерево двигалось бы за привязкой
+    якоря верхнего уровня". The anchor moves 100 -> 150 mm between the capture
+    and the apply; the node keeps its captured 5 mm offset and lands at 155 mm.
+    Before the fix the override was the node's OWN absolute position (105), so
+    the tree never followed the anchor at all."""
+    import kicadstamp.tree_position as tp
+
+    child_pos = {"value": Vector2.from_xy(105 * MM, 50 * MM)}
+    anchor_pos = {"value": Vector2.from_xy(100 * MM, 50 * MM)}
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: child_pos["value"])
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda *a, **k: (anchor_pos["value"], 0.0))
+    cfg = _cfg_with_plain_tree()
+    tree = _role_anchor_tree(nodes=[_top_level_clone()])
+
+    captures, parent_map = capture_rigid_state("adapter", cfg, tree, ["T1"], {})
+    cap = captures["T1"]
+    assert cap.local_offset.x == 5 * MM
+
+    # The ANCHOR moved (hand-moved in KiCad before the Redraw): 100 -> 150 mm.
+    anchor_pos["value"] = Vector2.from_xy(150 * MM, 50 * MM)
+    parent_ref, parent_record, _is_anchor = parent_map["T1"]
+    override = apply_rigid_override("adapter", cfg, parent_ref, parent_record,
+                                    cap, {})
+
+    assert override.position.x == 155 * MM
+    assert override.position.y == 50 * MM
+
+
+def test_component_and_regular_nodes_under_one_anchor_behave_alike(monkeypatch):
+    """С5/Ф4: the anchor-parent base is a property of the PARENT, not of the
+    node's kind — a kind "component" node and an ordinary record node under the
+    same (role ...) anchor are both measured against the anchor's live pose."""
+    import kicadstamp.tree_position as tp
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(100 * MM, 50 * MM), 0.0))
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(110 * MM, 50 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    monkeypatch.setattr(tp, "resolve_component_footprint",
+                        lambda adapter, node, sheet_names: SimpleNamespace(
+                            position=Vector2.from_xy(120 * MM, 50 * MM),
+                            angle_deg=0.0))
+    component = LinkedNode(node=_node_dc(ref="conn", kind="component"),
+                           record=None, is_external=False, children=[])
+    regular = _top_level_clone(ref="T1")
+    tree = _role_anchor_tree(nodes=[component, regular])
+
+    captures, _parent_map = capture_rigid_state(
+        "adapter", _cfg_with_plain_tree(), tree, ["conn", "T1"], {})
+
+    assert captures["conn"].local_offset.x == 20 * MM    # 120 - 100
+    assert captures["T1"].local_offset.x == 10 * MM      # 110 - 100
+    assert captures["conn"].anchor_parent is True
+    assert captures["T1"].anchor_parent is True
+
+
+def test_origin_anchor_never_takes_the_live_anchor_base(monkeypatch):
+    """С4: an ORIGIN anchor keeps its (0,0) short-circuit — it is a FIXED point
+    by definition, so it must not acquire an anchor-tree context (which would
+    change its base and its idempotency)."""
+    import kicadstamp.tree_position as tp
+
+    def _boom(*a, **k):
+        raise AssertionError("an origin anchor must never be read live")
+    monkeypatch.setattr(tp, "_anchor_base_live_position", _boom)
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(7 * MM, 9 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    tree = _linked_tree("t", anchor_ref=None, is_origin=True,
+                        nodes=[_top_level_clone()])
+
+    captures, _parent_map = capture_rigid_state("adapter", "cfg", tree, ["T1"], {})
+
+    cap = captures["T1"]
+    assert cap.anchor_parent is False
+    assert cap.anchor_tree is None
+    assert cap.local_offset.x == 7 * MM and cap.local_offset.y == 9 * MM
+
+
+def test_ref_anchor_parent_keeps_the_ref_record_path(monkeypatch):
+    """С4: a REF/external anchor parent still resolves through the (ref, record)
+    pair — the anchor seam must not steal it (its live base is reachable there
+    and every existing behaviour depends on it)."""
+    import kicadstamp.tree_position as tp
+
+    positions = {"CONN": Vector2.from_xy(100 * MM, 50 * MM),
+                 "T1": Vector2.from_xy(105 * MM, 50 * MM)}
+
+    def _boom(*a, **k):
+        raise AssertionError("a ref anchor keeps the (ref, record) path")
+    monkeypatch.setattr(tp, "_anchor_base_live_position", _boom)
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda adapter, cfg, ref, record, points, sheet_names:
+                        positions[ref])
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    tree = _linked_tree("t", anchor_ref="CONN", nodes=[_top_level_clone()])
+
+    captures, parent_map = capture_rigid_state("adapter", "cfg", tree, ["T1"], {})
+
+    parent_ref, _parent_record, parent_is_anchor = parent_map["T1"]
+    assert (parent_ref, parent_is_anchor) == ("CONN", True)
+    cap = captures["T1"]
+    assert cap.anchor_parent is False
+    assert cap.local_offset.x == 5 * MM         # 105 - 100, via the ref path
+
+
+# ── Ф10: the warning that NAMES a node's base ──────────────────────────────
+
+def test_anchor_base_label_names_the_real_anchor_mode():
+    """Ф10: the planners used to print "(origin)" for EVERY ref-less anchor —
+    origin, role, point and self alike — so a role-anchored tree's top-level
+    nodes announced a base they never had ("will be redrawn from the current
+    position of '(origin)'"), which is exactly the message that made the plan
+    believe the mcu tree was origin-anchored. The label now names the anchor's
+    real mode; it is a NAME (like a refdes), so it stays untranslated — exactly
+    like the ref it replaces."""
+    from kicadstamp.tree_position import anchor_base_label
+
+    def _label(ta, is_origin=False, record=None, is_external=False):
+        return anchor_base_label(LinkedAnchor(anchor=ta, record=record,
+                                              is_origin=is_origin,
+                                              is_external=is_external))
+
+    assert _label(TreeAnchor(ref="CONN"), record=object()) == "CONN"
+    assert _label(TreeAnchor(ref="CONN"), is_external=True) == "CONN"
+    assert _label(TreeAnchor(is_origin=True), is_origin=True) == "(origin)"
+    assert _label(TreeAnchor(role="MCU")) == "(role 'MCU')"
+    assert _label(TreeAnchor(point="P1")) == "(point 'P1')"
+    assert _label(TreeAnchor(is_self=True)) == "(self)"
+
+
+def test_forest_plan_warning_names_the_role_anchor_never_origin():
+    """Ф10, end to end: the forest planner's informational warning for a
+    TOP-LEVEL node carries the ROLE label, and never claims the origin."""
+    tree = _role_anchor_tree(nodes=[_top_level_clone(ref="T1")])
+
+    _names, warnings = curated_redraw_plan_forest([tree], {"T1"})
+
+    assert warnings, "a top-level node whose base is outside the run must warn"
+    assert "(role 'MCU')" in warnings[0]
+    assert "(origin)" not in warnings[0]

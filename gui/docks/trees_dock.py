@@ -27,11 +27,12 @@ from PyQt6.QtWidgets import (QComboBox, QDialog,
                              QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import Record, build_records
+from kicadstamp.component_address import resolve_component_footprint
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
 from kicadstamp.domain.board import Footprint, Track, Via
-from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (
@@ -564,7 +565,11 @@ def run_node_reread_worker(payload: dict) -> dict:
         offset_mm, rotation = _resolve_live_offset(
             payload["cfg"], payload["adapter"], payload["sheet_names"],
             payload["tree"], payload["parent_node"], payload["ref"],
-            payload["kind"], base_anchor=payload["base_anchor"])
+            payload["kind"], base_anchor=payload["base_anchor"],
+            # A COMPONENT node's address travels in the payload the same way a
+            # mount node's base_anchor does. `.get`, not [], so every existing
+            # payload (and every existing test's payload) is untouched.
+            component_address=payload.get("component_address"))
     except Exception as exc:  # noqa: BLE001 — a refusal is a normal result here
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "xy": (offset_mm[0], offset_mm[1]), "rotation": rotation}
@@ -762,9 +767,20 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
     return (new_xy, None, new_rotation)
 
 
+def _component_footprint_is_mirrored(fp) -> bool:
+    """Whether the live footprint a COMPONENT node's address resolved to sits on
+    the BACK copper side — the mirror the trees layer cannot store, refused by
+    the caller exactly like a mirrored base or a mirrored record child
+    (plan_2026_09_11 §2.3 discipline). A duck-typed double without a usable layer
+    reads as "not mirrored", the same tolerance tree_position's
+    _footprint_relative_mirror uses."""
+    return getattr(fp, "layer", None) == BoardLayer.BL_B_Cu
+
+
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
-                         base_anchor: Optional[TreeAnchor] = None
+                         base_anchor: Optional[TreeAnchor] = None,
+                         component_address: Optional[TreeAnchor] = None
                          ) -> tuple[tuple[float, float], Optional[float]]:
     """((local_offset_x_mm, local_offset_y_mm), relative_rotation_deg | None) for
     the "would-be" child `ref`/`kind` relative to its base (parent_node None =
@@ -780,6 +796,19 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     shared base resolver (_resolve_node_base_pose) for the mount anchor / tree
     anchor / parent node.
 
+    A COMPONENT node's `component_address` (plan_2026_09_18 Часть B) replaces the
+    config probe for the CHILD only: a component node's `ref` is a LOCAL NAME
+    (link_trees resolves no record for kind "component"), so the component it
+    names can only come from the node's own ADDRESS. That address is resolved by
+    component_address.resolve_component_footprint — the SAME resolver the
+    materializer (_materialize_component_node) and the rigid-group capture
+    (capture_rigid_state) use, so a read and an Apply can never disagree about
+    which component the node names. The BASE is deliberately untouched: a
+    component node does not substitute its base (unlike a mount node, whose base
+    IS its own anchor) — it is measured against its ordinary parent frame. A
+    mirrored live component is refused below exactly like a mirrored base or a
+    mirrored record child, because a tree node stores no mirror.
+
     Rotation is None when the CHILD has no rotation concept (point kind) — the
     caller must leave the field blank, never write a fake 0. Raises
     ValidationError on any resolution failure, INCLUDING a MIRRORED live
@@ -792,7 +821,8 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     `resolve_base_rotation_deg` stay on THIS module's names, so the existing
     tests' monkeypatches of them keep driving the pass-through kinds (clone/
     chain/coordinate/point/external/rule)."""
-    child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
+    child_record, _is_external = (None, False) if component_address is not None \
+        else _resolve_probe_ref(cfg, ref, kind)
 
     # No KeyError boundary here any more: bug #6 (2026-08-31) made
     # ClonePositionCalculator._resolve_anchor resolve its anchor_point LAZILY on
@@ -811,7 +841,19 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                "KiCad (or pick another base), then read the position again")]))
     base_rot = base_deg if base_deg is not None else 0.0
 
-    if child_record is not None and getattr(child_record, "kind", None) == "placement":
+    if component_address is not None:
+        # The component the node ADDRESSES, never a config record (see the
+        # docstring). The address's `pad` takes no part in the resolution: a pad
+        # says where the component is SEATED (the node's own anchor mode), not
+        # which component it is — component_address's own rule.
+        synthetic = TreeNode(ref=ref, kind="component", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None, children=[],
+                             anchor=component_address)
+        fp = resolve_component_footprint(adapter, synthetic, sheet_names)
+        child_pos = fp.position
+        child_deg = float(fp.angle_deg)
+        child_mirror = _component_footprint_is_mirrored(fp)
+    elif child_record is not None and getattr(child_record, "kind", None) == "placement":
         child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
                                           sheet_names)
         child_pos = child_pose.position
@@ -3103,6 +3145,10 @@ class TreesDock(QWidget):
             # not the parent — reread against the same base the node is
             # authored against (plan_2026_09_11_tree_mount_nodes).
             "base_anchor": node.anchor if node.kind == "mount" else None,
+            # A COMPONENT node's live IDENTITY is its nested ADDRESS, which lives
+            # on the NODE itself (never in a config record) — reread against the
+            # very address the node is authored with (plan_2026_09_18 Часть B).
+            "component_address": node.anchor if node.kind == "component" else None,
             # A COPY: no live mapping crosses the thread boundary.
             "sheet_names": dict(self._ctx.sheet_names
                                 if self._ctx is not None else {}),
@@ -5326,7 +5372,12 @@ class NodeFormWidget(QWidget):
             return
         # A MOUNT node's offset is defined from its anchor's live frame — the
         # read must diff against it, not the parent (plan_2026_09_11_tree_mount_
-        # nodes). Every other kind reads against the parent base.
+        # nodes). A COMPONENT node (plan_2026_09_18 Часть B) is the other way
+        # round: its BASE stays the ordinary parent frame, while its OWN live
+        # identity comes from the form's address picker — its ref is a LOCAL
+        # NAME, so the config probe inside _resolve_live_offset could never find
+        # the component (link_trees resolves no record for kind "component").
+        component_address = None
         if kind == "mount":
             base_anchor = self.mount_anchor()
             if base_anchor is None:
@@ -5334,13 +5385,28 @@ class NodeFormWidget(QWidget):
                     self, _("Read current position"),
                     _("Mount anchor: Role is required."))
                 return
+        elif kind == "component":
+            base_anchor = None
+            # The picker's OWN message first (Ref/Role exclusivity, "set Ref or
+            # Role"), then the missing-address refusal — the same pair
+            # build_node uses, so one rule is never worded two ways.
+            _fields, err = self.component_address_widget.build()
+            if err:
+                QMessageBox.warning(self, _("Read current position"), err)
+                return
+            component_address = self.component_address()
+            if component_address is None:
+                QMessageBox.warning(
+                    self, _("Read current position"),
+                    _("A component node needs an address — Ref or Role."))
+                return
         else:
             base_anchor = None
         try:
             offset_mm, rotation = _resolve_live_offset(
                 self._cfg, self._adapter, self._sheet_names,
                 self._tree, self._selected_parent_node(), ref, kind,
-                base_anchor=base_anchor)
+                base_anchor=base_anchor, component_address=component_address)
         except ValidationError as e:
             QMessageBox.warning(self, _("Read current position"), str(e))
             return
@@ -5608,12 +5674,13 @@ class NodeFormWidget(QWidget):
         # The "Read current position" row (a live read of a module ref — a tree,
         # not a record — is meaningless; a MOUNT node's position IS its anchor,
         # so a read is meaningless there too; a positionless kind has no position
-        # at all to read; a COMPONENT node's read would have to resolve the
-        # ADDRESS and diff it against the parent's frame — a feature of its own,
-        # deliberately not invented here (Т3.7 asks for the address fields, the
-        # offset and the rotation — nothing about a live read).
+        # at all to read). A COMPONENT node DOES get the row (plan_2026_09_18
+        # Часть B, the Т3.7 follow-up it was deferred from): its read resolves the
+        # node's own ADDRESS and diffs it against the parent's frame — the kind
+        # "component" branch of _on_read_position, i.e. the very same live read
+        # every other kind gets.
         read_row_visible = (not is_module and not is_mount
-                            and not is_positionless and not is_component)
+                            and not is_positionless)
         self.read_position_button.setVisible(read_row_visible)
         self.read_status_label.setVisible(read_row_visible)
         # ── No coordinates: hide the offset row, the rotation row and the ────

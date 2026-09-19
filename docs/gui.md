@@ -573,7 +573,17 @@ offset preview works for a resolvable Entity parent too. An Entity that no tree 
 back to its own cell's single zero-offset (local 0,0) component's role (the same derivation as the
 self-anchor), so "Read current position" for e.g. fpga_flash works even BEFORE the node that places
 it is saved; only an Entity with NEITHER a placement node NOR a readable zero-offset component (or
-one placed twice / in a cycle) warns with the materializer's own fatal text (2026-08-31). Nothing
+one placed twice / in a cycle) warns with the materializer's own fatal text (2026-08-31).
+
+**Read current position** is offered for every positioned kind, including **kind = component**
+(2026-09-19, plan_2026_09_18_component_node_redraw_and_read_position.md Часть B): such a node's ref
+is a LOCAL NAME and the component it places is named by its own nested `(anchor ...)` ADDRESS, so the
+read resolves that address through the SAME resolver the Apply-time materializer uses
+(`component_address.resolve_component_footprint`) — never by probing the config for a record whose
+name is a node name. The node keeps its ordinary parent frame as its base (unlike a mount node, whose
+base IS its own anchor), a missing address warns with the picker's own message, and a mirrored live
+component is refused (the trees layer stores no mirror). The node context menu's **Reread current
+position** works on a component node the same way, taking the address from the node itself. Nothing
 reaches the disk until **Save**, which replaces the whole root `trees:` section through the single
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
@@ -831,6 +841,15 @@ redrawing the selected dependents moves them together, the offset rotating WITH 
 offset is read live from the board at redraw time (not from the stored `xy`/`polar`, which remain a
 fallback for a node with no live presence yet); the record's own fields are never rewritten — the
 move is applied via a per-run, non-persistent position override (Option 1, see the plan's §3/§4).
+
+A TOP-LEVEL node's "parent" is the tree's own ANCHOR, and that base is read LIVE for every anchor
+mode — a (role ...)/(point ...)/(self ...) anchor is a movable binding (a component, a point, a
+pivot), so the whole tree rides along when it is moved. 2026-09-19 (plan_2026_09_18_component_node_
+redraw_and_read_position.md, variant В2): such a ref-less anchor used to be fed to the base resolver
+as (None, None) and read as the ABSOLUTE ORIGIN, which made the captured offset equal to the node's
+absolute position and the apply write it straight back — a top-level node could not follow its anchor
+at all. The anchor's live base now comes from the SAME resolver the apply pipeline uses, so the
+capture and the apply can never disagree again.
 
 **Module embedding (2026-09-02, plan_2026_09_02_tree_module_embedding.md):** choosing **Kind =
 module** in the Add/Edit-node dialog embeds ANOTHER tree as a rigid sub-layout. The **Ref:** list
