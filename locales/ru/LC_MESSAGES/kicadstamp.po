@@ -2063,6 +2063,49 @@ msgstr "Удалить пад..."
 msgid "Create entity"
 msgstr "Создать сущность"
 
+#: gui/docks/create_entity.py
+msgid "Name:"
+msgstr "Имя:"
+
+#: gui/docks/create_entity.py
+msgid "Cluster:"
+msgstr "Кластер:"
+
+#: gui/docks/create_entity.py
+msgid "Sheet:"
+msgstr "Лист:"
+
+#: gui/docks/create_entity.py
+msgid "optional — a cell is cloned by its cluster"
+msgstr "необязательно — ячейка клонируется по своему кластеру"
+
+#: gui/docks/create_entity.py
+msgid "optional — narrows role resolution / the twin target"
+msgstr "необязательно — сужает резолв ролей / цель твина"
+
+#: gui/docks/create_entity.py
+msgid "No cluster — the entity is created without a tag, so it cannot be cloned by cluster."
+msgstr "Кластер не задан — сущность создаётся без тега, поэтому её нельзя клонировать по кластеру."
+
+#: gui/docks/create_entity.py
+msgid "Name is required."
+msgstr "Требуется имя."
+
+#: gui/docks/create_entity.py
+#, python-brace-format
+msgid "An entity named {name!r} already exists."
+msgstr "Сущность с именем {name!r} уже существует."
+
+#: gui/dock_hub.py
+#, python-brace-format
+msgid "Entity {name!r} already exists for this source — reused, nothing new was created."
+msgstr "Сущность {name!r} для этого источника уже существует — переиспользована, ничего нового не создано."
+
+#: gui/dock_hub.py
+#, python-brace-format
+msgid "Entity {name!r} saved to {path}."
+msgstr "Сущность {name!r} сохранена в {path}."
+
 #: gui/docks/config_tree.py:1065
 msgid "Edit cell..."
 msgstr "Изменить шаблон..."

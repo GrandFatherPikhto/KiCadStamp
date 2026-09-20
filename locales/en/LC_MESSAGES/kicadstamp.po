@@ -2051,6 +2051,49 @@ msgstr "Delete pad..."
 msgid "Create entity"
 msgstr ""
 
+#: gui/docks/create_entity.py
+msgid "Name:"
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "Cluster:"
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "Sheet:"
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "optional — a cell is cloned by its cluster"
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "optional — narrows role resolution / the twin target"
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "No cluster — the entity is created without a tag, so it cannot be cloned by cluster."
+msgstr ""
+
+#: gui/docks/create_entity.py
+msgid "Name is required."
+msgstr ""
+
+#: gui/docks/create_entity.py
+#, python-brace-format
+msgid "An entity named {name!r} already exists."
+msgstr ""
+
+#: gui/dock_hub.py
+#, python-brace-format
+msgid "Entity {name!r} already exists for this source — reused, nothing new was created."
+msgstr ""
+
+#: gui/dock_hub.py
+#, python-brace-format
+msgid "Entity {name!r} saved to {path}."
+msgstr ""
+
 #: gui/docks/config_tree.py:1065
 msgid "Edit cell..."
 msgstr "Edit cell..."

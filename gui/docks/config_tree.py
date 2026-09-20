@@ -1414,7 +1414,14 @@ class ConfigTreeDock(QWidget):
                     # cell:). An imprint-based Entity carries no cluster/refs/
                     # nets (fatal at load, config/models.py:706), so the
                     # created record is {name, imprint, sheet?} only.
-                    menu.addAction(_("Create entity")).triggered.connect(
+                    create_action = menu.addAction(_("Create entity"))
+                    # С1 (plan_2026_09_20_create_entity_menu.md): the guard
+                    # finds this item by its objectName, never by the
+                    # translated label — "Create entity" depends on the locale
+                    # and on the catalogs, and a guard bound to the text would
+                    # fail for unrelated reasons.
+                    create_action.setObjectName("create_entity_action")
+                    create_action.triggered.connect(
                         lambda checked=False, n=old_name, f=file_path:
                         self.add_entity_requested.emit("imprint", n, f))
                     menu.addAction(_("Reread...")).triggered.connect(
@@ -1439,7 +1446,11 @@ class ConfigTreeDock(QWidget):
                 # menu.md Т1): the ONE item that gives an EXISTING cell an
                 # entities: record — the same item also appears on an imprints
                 # leaf below, only the source field differs.
-                menu.addAction(_("Create entity")).triggered.connect(
+                create_action = menu.addAction(_("Create entity"))
+                # С1 — same objectName as the imprint leg above: the guard
+                # finds the item by it, not by the translated label.
+                create_action.setObjectName("create_entity_action")
+                create_action.triggered.connect(
                     lambda checked=False, n=old_name, f=file_path:
                     self.add_entity_requested.emit("cell", n, f))
                 menu.addAction(_("Edit cell...")).triggered.connect(
