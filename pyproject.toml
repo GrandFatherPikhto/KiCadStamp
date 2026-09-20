@@ -23,6 +23,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==9.1.1",
+    # Per-TEST timeout with a thread dump (2026-09-20). The outer `timeout 700`
+    # in every run command stays: it guards against pytest itself hanging, but
+    # it kills the whole run and names nothing. This one names the test and
+    # prints where it hung — see pytest.ini's timeout_method.
+    "pytest-timeout==2.4.0",
     "babel==2.18.0",
     "pyflakes==3.4.0",
 ]
