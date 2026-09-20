@@ -126,3 +126,4 @@ gdb/**
 *.tar.xz
 
 .mcp.json
+.aider*
