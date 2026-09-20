@@ -234,6 +234,11 @@ class DockHub:
         # via the Entity(imprint:)/Placement machinery (P4/P6).
         self.imprint_dock = ImprintFormWidget(main_window, connection=connection)
         self._imprint_page = self.config_tree_dock.add_right_page(self.imprint_dock)
+        # The imprint page's "Roles" tab RECORDS into the same override store
+        # (2026-09-20, Д2 of plan_2026_09_18_scheme_list_to_cell_and_capture.md),
+        # so it announces its write through the ONE event every holder listens to
+        # — see _on_overrides_written, which is also where its own reload is.
+        self.imprint_dock.refs_tab.on_overrides_written = self._on_overrides_written
         # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
         # SEPARATE "Place Imprint..." QView page (NOT a tab of "Instantiate
         # from Cell..." — Denis's anti-pattern §9.1). It turns ONE recorded
@@ -3018,6 +3023,11 @@ class DockHub:
                         self.fieldstool_dock.window.reload_overrides)
         self._safe_call("cell editor override reload",
                         self.cell_anchor_view.reload_overrides)
+        # The imprint page's Roles tab holds a copy of the same store (Д2,
+        # 2026-09-20): without this reload a record made in the cell editor would
+        # not show up there, and vice versa.
+        self._safe_call("imprint page override reload",
+                        self.imprint_dock.reload_overrides)
         # The poll adapter's bound store — the copy the GUI's OWN snapshot is
         # built from, and so the one every picker and the Components tree see.
         # Behind an `is not None` guard, unlike the two above: a connection

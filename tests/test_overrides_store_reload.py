@@ -94,16 +94,18 @@ class _Holder:
         self.reloads += 1
 
 
-def _event_hub(connection, window=None, cell_editor=None):
+def _event_hub(connection, window=None, cell_editor=None, imprint_page=None):
     """A DockHub-shaped stub the REAL _on_overrides_written runs against.
 
-    Three attributes are all that method reaches — the fieldstool window, the
-    cell editor and the poll adapter's reload seam — so no Qt dock (and no
-    QApplication) is needed to exercise it."""
+    Four attributes are all that method reaches — the fieldstool window, the
+    cell editor, the imprint page's Roles tab (2026-09-20, Д2) and the poll
+    adapter's reload seam — so no Qt dock (and no QApplication) is needed to
+    exercise it."""
     hub = SimpleNamespace(
         fieldstool_dock=SimpleNamespace(
             window=window if window is not None else _Holder()),
         cell_anchor_view=cell_editor if cell_editor is not None else _Holder(),
+        imprint_dock=imprint_page if imprint_page is not None else _Holder(),
         _reload_poll_store=getattr(connection, "reload_store", None))
     hub._safe_call = types.MethodType(DockHub._safe_call, hub)
     hub._on_overrides_written = types.MethodType(
@@ -359,18 +361,23 @@ def _store_holders():
             for key, info in holders.items() if info["accepts"]}
 
 
-#: Measured 2026-09-19, base `2b7501b` + this change (Т3's inventory).
+#: Measured 2026-09-19, base `2b7501b` + this change (Т3's inventory);
+#: gui/docks/imprint_refs_tab.py joined 2026-09-20 (Д2 of
+#: plan_2026_09_18_scheme_list_to_cell_and_capture.md — the imprint's Roles tab
+#: records into the same store).
 STORE_HOLDERS = {
     "gui/fieldstool_window.py:MainWindow",
     "gui/docks/cell_anchor_view.py:CellAnchorView",
     "gui/docks/cell_refs_tab.py:RefsTabWidget",
+    "gui/docks/imprint_refs_tab.py:ImprintRefsTab",
     "gui/docks/pending.py:PendingChangesDock",
 }
 
-#: The three stops of the write event, spelled as the source spells them.
+#: The stops of the write event, spelled as the source spells them.
 EVENT_STOPS = {
     "self.fieldstool_dock.window.reload_overrides",
     "self.cell_anchor_view.reload_overrides",
+    "self.imprint_dock.reload_overrides",
     "self._reload_poll_store",
 }
 

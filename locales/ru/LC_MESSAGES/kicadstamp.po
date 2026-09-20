@@ -17260,3 +17260,84 @@ msgstr "забыто записей: {count} — теперь их несёт с
 #: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
 msgid "{count} note(s) would be forgotten — the schematic would then carry them"
 msgstr "будет забыто записей: {count} — тогда их будет нести схема"
+
+# ===== Imprint Roles tab — Д2 (2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md) =====
+#: gui/docks/imprint_refs_tab.py kicadstamp/imprint_cell.py
+msgid "Roles"
+msgstr "Роли"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Convert to cell"
+msgstr "Преобразовать в ячейку"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Cluster of this imprint:"
+msgstr "Кластер отпечатка:"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Pick an Imprint in the Config tree."
+msgstr "Сначала выберите отпечаток в дереве Config."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Open an Imprint record first."
+msgstr "Сначала откройте запись отпечатка."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Open a project first — the cell is written next to its profile config."
+msgstr "Сначала откройте проект — ячейка пишется рядом с его конфигом профиля."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "The CLUSTER of this imprint — one for the whole record: a cell is cloned by its cluster, so the conversion needs exactly one. It is recorded for every component of the table."
+msgstr "КЛАСТЕР отпечатка — один на всю запись: ячейка клонируется по своему кластеру, поэтому для преобразования нужен ровно один. Записывается для каждого компонента таблицы."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Record the Roles that differ from what is in force into this project's override store — OUR values win over the board, take effect at once and survive an F8. Nothing is written to the board, and the imprint record itself is not changed."
+msgstr "Записать роли, отличающиеся от действующих, в хранилище перекрытий этого проекта — наши значения главнее платы, действуют сразу и переживают F8. На плату ничего не пишется, и сама запись отпечатка не меняется."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Build a cells: entry out of this imprint: its components with the Roles of the table, its vias and tracks, and the one cluster. Written into the ROOT config only — the entity keeps pointing at the imprint (switching it is a separate, later step). Refuses, listing every reason, while a Role is missing or repeated or the cluster is empty."
+msgstr "Собрать запись cells: из этого отпечатка: его компоненты с ролями из таблицы, его переходные и дорожки и единственный кластер. Пишется ТОЛЬКО в корневой конфиг — сущность продолжает указывать на отпечаток (её переключение — отдельный, более поздний шаг). Отказывает, перечисляя все причины, пока роль не расставлена, повторяется или кластер пуст."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "The Roles of this imprint: the record carries literal refdes and no roles, so fill them here — they are RECORDED for this project (our values win over the board) and never written onto it. One cluster for the whole imprint; “Convert to cell” needs every Role, no repeats, and that cluster."
+msgstr "Роли этого отпечатка: запись несёт литеральные рефдесы и не несёт ролей, поэтому заполните их здесь — они ЗАПИСЫВАЮТСЯ для этого проекта (наши значения главнее платы) и никогда не пишутся на неё. Один кластер на весь отпечаток; для «Преобразовать в ячейку» нужны все роли, без повторов, и этот кластер."
+
+#: gui/docks/imprint_refs_tab.py
+msgid "not in the last board read — the refdes has no symbol uuid, so its Role cannot be recorded"
+msgstr "нет в последнем чтении платы — у рефдеса нет symbol uuid, поэтому его роль нельзя записать"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "nothing to record — every Role already matches what is in force"
+msgstr "нечего записывать — все роли уже совпадают с действующими"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8"
+msgstr "записано значений для этого проекта: {count} — они главнее платы и переживают F8"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "cannot convert to a cell: {reasons}"
+msgstr "не удаётся преобразовать в ячейку: {reasons}"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "cannot convert to a cell: {error}"
+msgstr "не удаётся преобразовать в ячейку: {error}"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Convert to cell failed: {error}"
+msgstr "Преобразование в ячейку не удалось: {error}"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Cell {name!r} created from imprint {imprint!r} — {components} component(s), {vias} via(s), {tracks} track(s). The entity is NOT switched: it still points at the imprint."
+msgstr "Ячейка {name!r} создана из отпечатка {imprint!r} — компонентов: {components}, переходных: {vias}, дорожек: {tracks}. Сущность НЕ переключена: она по-прежнему указывает на отпечаток."
+
+#: kicadstamp/imprint_cell.py
+msgid "no Role for {refs} — fill the Role column of this imprint"
+msgstr "нет роли для {refs} — заполните колонку Role этого отпечатка"
+
+#: kicadstamp/imprint_cell.py
+msgid "Role {role} is used by {refs} — a cell's roles must be unique (they identify its slots)"
+msgstr "роль {role} используется у {refs} — роли ячейки должны быть уникальны (они идентифицируют её слоты)"
+
+#: kicadstamp/imprint_cell.py
+msgid "the imprint has no Cluster — a cell is cloned by its cluster, so one cluster per imprint is required"
+msgstr "у отпечатка нет кластера — ячейка клонируется по своему кластеру, поэтому нужен один кластер на отпечаток"

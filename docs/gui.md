@@ -1954,6 +1954,28 @@ Since Commit F the page is a **two-tab** page:
 The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
 (Re-source...) or re-syncing (Reread), never by hand.
 
+### Roles of a record, and turning it into a Cell — the **Roles** tab
+
+A record is a literal snapshot: it carries the recorded refdes and their geometry, and **no roles** —
+so there is nothing a pool could resolve and nothing a cell template could be built from. The
+**Roles** tab of the record page is where that is fixed. It lists the record's OWN components (in the
+record's order, one row each) with an editable **Role** per row, plus ONE **Cluster of this imprint**
+field above the table — a cell is cloned by its cluster, so a record carries exactly one (there is no
+per-row cluster column at all, 2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md Д2/Р20).
+
+- **Write to the store** — records the roles (and the cluster) that DIFFER from the value in force into
+  the project's override store (`overrides/<config-stem>.fields.json`, one atomic save, keyed by the
+  component's symbol uuid). Our values win over the board's, take effect at once and survive an F8;
+  **nothing is written onto the board**, and the record itself is not changed. The table needs no KiCad
+  for this — it reads only the record, the polled snapshot and that file.
+- **Convert to cell** — builds a `cells:` entry out of the record: its components with the roles of the
+  table, its vias and tracks, and the one cluster; the record's pivot becomes the cell's mount point
+  (`anchor_xy`). The cell is named after the cluster (slugged, `DAC_BUF` → `dac_buf`). It writes into
+  the ROOT config and touches NOTHING else — the entity keeps pointing at the imprint, and switching it
+  to `cell:` (where doubled copper becomes possible) is a separate, later step with its own dry run.
+  It REFUSES, listing every reason at once and writing nothing, while a component has no Role, two
+  components share one, or the cluster is empty.
+
 ### Placing a record — Tools → Imprints → Place... (the "Place Imprint" page)
 
 The Config side of CLONING a record onto a (possibly twin) sheet. The separate **"Place Imprint"**

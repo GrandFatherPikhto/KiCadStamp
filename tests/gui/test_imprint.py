@@ -2931,16 +2931,18 @@ def test_resource_dialog_pivot_tab_prefills_stored_pivot(main_window):
 
 def test_record_page_has_record_summary_and_pivot_anchor_tabs(
         main_window, tmp_path):
-    """Commit F — the saved-record page is a TWO-tab page: the read-only
-    "Record summary" tab (source/preset/geometry/Reread) and the "Pivot /
-    Anchor" tab (the editable pivot block from Commit B1/B2)."""
+    """Commit F — the saved-record page carries the read-only "Record summary"
+    tab (source/preset/geometry/Reread) and the "Pivot / Anchor" tab (the
+    editable pivot block from Commit B1/B2); the "Roles" tab joined them
+    2026-09-20 (Д2 of plan_2026_09_18_scheme_list_to_cell_and_capture.md)."""
     adapter = _line_board()
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
-    assert dock.page_tabs.count() == 2
+    assert dock.page_tabs.count() == 3
     assert dock.page_tabs.tabText(0) == "Record summary"
     assert dock.page_tabs.tabText(1) == "Pivot / Anchor"
+    assert dock.page_tabs.tabText(2) == "Roles"
     # the summary tab still renders the loaded record
     dock.page_tabs.setCurrentIndex(0)
     assert dock.source_sheet_label.text() == "Channel_0"
@@ -3398,3 +3400,73 @@ def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
         assert warns == []
     finally:
         dialog.close()
+
+
+# ── Д2: the page's half of the Roles tab (2026-09-20, plan_2026_09_18_scheme_
+# list_to_cell_and_capture.md) ────────────────────────────────────────────────
+#
+# The tab itself is guarded in tests/gui/test_imprint_refs_tab.py. What is pinned
+# HERE is the WIRING the tab cannot test by itself: that loading a record points
+# the tab at the record's own components, that the selection tick feeds it the
+# page's snapshot, and that the tab really is a page of this form.
+
+class TestRolesTabWiring:
+    def test_the_form_has_a_roles_page(self, main_window, tmp_path):
+        adapter = _line_board()
+        d = _record_dict(adapter)
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        titles = [dock.page_tabs.tabText(i)
+                  for i in range(dock.page_tabs.count())]
+        assert "Roles" in titles
+        assert dock.refs_tab is dock.page_tabs.widget(titles.index("Roles"))
+
+    def test_loading_a_record_fills_the_tab_with_its_components(
+            self, main_window, tmp_path):
+        adapter = _line_board()
+        d = _record_dict(adapter)
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        assert dock.refs_tab.row_refs() == ["R1", "C1", "C2"]
+
+    def test_the_selection_tick_hands_over_the_snapshot(
+            self, main_window, tmp_path):
+        """The tab's board columns come from the PAGE's polled snapshot: the tick
+        hands it over (and nothing on the UI thread touches the adapter)."""
+        adapter = _line_board()
+        d = _record_dict(adapter)
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        dock.set_board_selection([], [])
+        assert dock.refs_tab.row_refs() == ["R1", "C1", "C2"]
+
+    def test_clearing_the_form_clears_the_tab(self, main_window, tmp_path):
+        adapter = _line_board()
+        d = _record_dict(adapter)
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        dock.clear()
+        assert dock.refs_tab.row_refs() == []
+
+    def test_converting_writes_the_cell_into_the_root_config(
+            self, main_window, tmp_path):
+        """End to end through the real page: roles typed in the tab + one cluster
+        -> `cells:` in the root config, and the imprint record untouched."""
+        adapter = _line_board()
+        d = _record_dict(adapter)
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        refs = ["R1", "C1", "C2"]
+        imprints_before = _load(root)["imprints"]
+        for ref, role in zip(refs, ("HEAVY", "LIGHT", "XTAL")):
+            dock.refs_tab.rows[refs.index(ref)].role = role
+        dock.refs_tab._cluster_edit.setText("DAC_BUF")
+        dock.refs_tab.convert_to_cell()
+
+        data = _load(root)
+        assert "dac_buf" in data["cells"]
+        assert [c["role"] for c in data["cells"]["dac_buf"]["components"]] == [
+            "HEAVY", "LIGHT", "XTAL"]
+        # The record is exactly as it was: the button touched cells: and nothing
+        # else (С9 — the entity stays imprint-based until stage 4).
+        assert data["imprints"] == imprints_before

@@ -60,6 +60,7 @@ from kicadstamp.imprint_capture import (
     build_imprint_diff,
     capture_imprint,
 )
+from kicadstamp.utils.paths import overrides_path_for_config
 from kicadstamp.utils.units import MM
 
 from ..worker import refresh_snapshot_then_with_retry, start_long_op
@@ -67,6 +68,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       WARN_STYLE as _WARN_STYLE,
                       add_include, display_path, read_data, show_message,
                       upsert_list_entry)
+from .imprint_refs_tab import ImprintRefsTab
 from .rename import collect_graph_files, find_list_entry_file
 from .tree_from_selection import selected_center_mm
 
@@ -1342,6 +1344,17 @@ class ImprintFormWidget(QWidget):
         record_lay.addStretch(1)
         self.page_tabs.addTab(record_page, _("Record summary"))
         self.page_tabs.addTab(pivot_editor, _("Pivot / Anchor"))
+        # Tab 3 — Roles (2026-09-20, Д2 of
+        # plan_2026_09_18_scheme_list_to_cell_and_capture.md): the record's own
+        # components as a role table, ONE
+        # cluster field above it and the "Convert to cell" button. The values go
+        # into the project's override store (our values win over the board) and
+        # the conversion writes cells: — this page owns the wiring, the tab owns
+        # the table (see gui/docks/imprint_refs_tab.py).
+        self.refs_tab = ImprintRefsTab(self._main_window,
+                                       connection=self._connection)
+        self.refs_tab.saved.connect(self.saved.emit)
+        self.page_tabs.addTab(self.refs_tab, _("Roles"))
         layout.addWidget(self.page_tabs)
         layout.addStretch(1)
 
@@ -1354,14 +1367,61 @@ class ImprintFormWidget(QWidget):
 
     def set_root_path(self, path: Optional[Path]) -> None:
         self._root_path = path
+        # The Roles tab's override store belongs to the PROFILE: opening another
+        # one re-reads it (the tab's own rule — an unchanged object is ignored).
+        self.reload_overrides()
 
     def set_board_selection(self, items, selected) -> None:
         """Live board selection tick (DockHub.set_board_selection fan-out,
         5c.4) — the Reread scope of a "By selection"-record is the CURRENT
         board selection at click time, so the user re-selects the (possibly
         changed) set and THEN clicks Reread. `items` is unused (kept for the
-        shared fan-out signature)."""
+        shared fan-out signature).
+
+        The same tick feeds the Roles tab (2026-09-20, Д2): its board columns and
+        role suggestions come from the page's polled snapshot, never from a live
+        adapter call on the UI thread (door rule 6 / guard С12)."""
         self._selection_footprints = list(selected)
+        self._sync_roles_tab()
+
+    def _snapshot_records(self) -> list:
+        """The polled whole-board snapshot as role-table records. Read from
+        `connection.snapshot` (already read data — no board access here) and
+        only ever used for display: the Roles tab needs each component's Role
+        and its symbol uuid, both of which the snapshot already carries."""
+        return ImprintRefsTab.records_from_snapshot(
+            getattr(self._connection, "snapshot", None) or ())
+
+    def reload_overrides(self) -> None:
+        """Re-read the project's override store from its FILE and hand the fresh
+        copy to the Roles tab — the stop for "another pane recorded" (Т5) and
+        for a project change. A no-op without a project."""
+        if self._root_path is None:
+            self.refs_tab.set_overrides(None)
+            return
+        from kicadstamp.field_overrides import load_field_overrides
+        self.refs_tab.set_overrides(
+            load_field_overrides(overrides_path_for_config(str(self._root_path))))
+
+    def _sync_roles_tab(self) -> None:
+        """Hand the Roles tab the record it is showing plus the page's snapshot
+        (UI thread, no board read). Called on every selection tick and after
+        every (re)load of a record."""
+        self.refs_tab.set_context(self._root_path, self._loaded_name(),
+                                  self._loaded_record(),
+                                  self._snapshot_records())
+
+    def _loaded_record(self):
+        """The parsed record of the currently shown entry, or None."""
+        if not self._entry:
+            return None
+        try:
+            return load_imprint(self._entry)
+        except ValidationError:
+            return None
+
+    def _loaded_name(self) -> Optional[str]:
+        return self._entry.get("name") if self._entry else None
 
     def clear(self) -> None:
         """Blank the form (nothing loaded)."""
@@ -1376,6 +1436,7 @@ class ImprintFormWidget(QWidget):
         self.preset_combo.blockSignals(False)
         self.preset_combo.setVisible(False)
         self.geometry_label.setText("")
+        self.refs_tab.clear()
 
     def load_entry(self, entry: Dict[str, Any],
                    file_path: Optional[Path] = None) -> None:
@@ -1400,8 +1461,12 @@ class ImprintFormWidget(QWidget):
                 _("Imprint: {name}").format(name=entry.get("name", "?")))
             self.pivot_x_edit.clear()
             self.pivot_y_edit.clear()
+            self.refs_tab.clear()
             return
         self._render(record)
+        # The Roles tab follows the loaded record (its refs, and the pivot that
+        # becomes the created cell's mount point).
+        self._sync_roles_tab()
 
     def _render(self, record: ImprintConfig) -> None:
         self.name_label.setText(

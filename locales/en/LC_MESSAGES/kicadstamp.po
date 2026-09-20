@@ -18579,3 +18579,84 @@ msgstr ""
 #: kicadstamp/cli.py kicadstamp/cli_main.py gui/docks/pending.py gui/fieldstool_window.py
 msgid "{count} note(s) would be forgotten — the schematic would then carry them"
 msgstr ""
+
+# ===== Imprint Roles tab — Д2 (2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md) =====
+#: gui/docks/imprint_refs_tab.py kicadstamp/imprint_cell.py
+msgid "Roles"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Convert to cell"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Cluster of this imprint:"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Pick an Imprint in the Config tree."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Open an Imprint record first."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Open a project first — the cell is written next to its profile config."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "The CLUSTER of this imprint — one for the whole record: a cell is cloned by its cluster, so the conversion needs exactly one. It is recorded for every component of the table."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Record the Roles that differ from what is in force into this project's override store — OUR values win over the board, take effect at once and survive an F8. Nothing is written to the board, and the imprint record itself is not changed."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Build a cells: entry out of this imprint: its components with the Roles of the table, its vias and tracks, and the one cluster. Written into the ROOT config only — the entity keeps pointing at the imprint (switching it is a separate, later step). Refuses, listing every reason, while a Role is missing or repeated or the cluster is empty."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "The Roles of this imprint: the record carries literal refdes and no roles, so fill them here — they are RECORDED for this project (our values win over the board) and never written onto it. One cluster for the whole imprint; “Convert to cell” needs every Role, no repeats, and that cluster."
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "not in the last board read — the refdes has no symbol uuid, so its Role cannot be recorded"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "nothing to record — every Role already matches what is in force"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "{count} value(s) recorded for this project — they win over the board and survive an F8"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "cannot convert to a cell: {reasons}"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "cannot convert to a cell: {error}"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Convert to cell failed: {error}"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "Cell {name!r} created from imprint {imprint!r} — {components} component(s), {vias} via(s), {tracks} track(s). The entity is NOT switched: it still points at the imprint."
+msgstr ""
+
+#: kicadstamp/imprint_cell.py
+msgid "no Role for {refs} — fill the Role column of this imprint"
+msgstr ""
+
+#: kicadstamp/imprint_cell.py
+msgid "Role {role} is used by {refs} — a cell's roles must be unique (they identify its slots)"
+msgstr ""
+
+#: kicadstamp/imprint_cell.py
+msgid "the imprint has no Cluster — a cell is cloned by its cluster, so one cluster per imprint is required"
+msgstr ""

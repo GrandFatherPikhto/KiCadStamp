@@ -82,6 +82,9 @@ def test_c5_the_write_event_refreshes_every_holder_in_the_wired_gui(qapp, tmp_pa
             "Pending changes": hub.pending_dock._overrides,
             "cell editor (anchor page)": hub.cell_anchor_view._overrides,
             "cell editor's Refs table": hub.cell_anchor_view._refs_tab._overrides,
+            # 2026-09-20 (Д2): the imprint page's Roles tab records into the same
+            # store, so it must hear about a write made in ANY other pane.
+            "imprint page's Roles tab": hub.imprint_dock.refs_tab._overrides,
             "poll adapter's bound store": adapter.store,
             "Components tree (through the window)": hub.tree_dock._overrides(),
         }
