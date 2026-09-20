@@ -1,0 +1,65 @@
+# docs/aider.conf.example.yml — ОБРАЗЕЦ настроек aider для этого проекта.
+#
+# Это не рабочий файл. Рабочий называется .aider.conf.yml, лежит в каталоге,
+# откуда запускается aider (обычно ../KiCadStamp-daemon), и в git НЕ ХРАНИТСЯ:
+# aider правит свой конфиг сам и, видя его отслеживаемым, коммитит — так в main
+# уже приехали три пустых коммита "Aider config" / "Aider changes".
+#
+# Завести рабочий:   cp docs/aider.conf.example.yml <каталог>/.aider.conf.yml
+# Руководство:       techdocs/manuals/aider.md
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# ЧАСТЬ 1. Одинаково везде — переносить как есть
+# ═══════════════════════════════════════════════════════════════════════════
+
+# timeout ОБЯЗАТЕЛЕН: GUI-тесты умеют виснуть, без него заход встаёт навсегда.
+# --ignore=tests/integration_tests ОБЯЗАТЕЛЕН: они пишут на ЖИВУЮ плату
+# и оставляют по две via за прогон. Это единственные две строчки здесь,
+# у которых есть цена ошибки.
+# Голый `python` — значит aider запускается из оболочки с активированным .venv.
+test-cmd: "timeout 700 python -m pytest tests -q --ignore=tests/integration_tests -p no:cacheprovider"
+auto-test: true
+
+# Коммиты этого проекта идут без подписи инструмента и по-английски.
+attribute-author: false
+attribute-committer: false
+attribute-commit-message-author: false
+attribute-commit-message-committer: false
+attribute-co-authored-by: false
+commit-language: en
+
+# 597 файлов, ~218 тыс. строк — карте нужно больше места, чем по умолчанию.
+map-tokens: 4096
+
+# Кеш промптов: карта репозитория и файлы правил уезжают на каждом шаге
+# одни и те же. У DeepSeek попадание в кеш примерно вдесятеро дешевле.
+cache-prompts: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ЧАСТЬ 2. Машинное — пути свои, проверить перед использованием
+# ═══════════════════════════════════════════════════════════════════════════
+
+model: deepseek/deepseek-reasoner
+
+# Правила работы, читаются до любой задачи. Аналог techdocs/me/claude.md
+# для Claude. Пути абсолютные: techdocs в git не ездит, а в каталоге Демона
+# это симлинк, через который относительный путь бывает капризен.
+read:
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/deepseek.md
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/door.md
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/i18troubles.md
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ЧАСТЬ 3. По вкусу — но эти две ТОЛЬКО парой
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Не переспрашивать о каждом файле. Безопасно только в отдельном каталоге
+# со своей веткой: худший случай — git reset --hard.
+yes-always: true
+# ВМЕСТЕ с yes-always обязательно false, иначе aider молча выполнит любую
+# команду оболочки, которую сам придумает.
+suggest-shell-commands: false
+
+# Подтверждать правки руками:
+# auto-commits: false
+# show-diffs: true
