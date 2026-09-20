@@ -31,3 +31,5 @@ map-tokens: 4096
 
 read:
   - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/deepseek.md
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/door.md
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/i18troubles.md
