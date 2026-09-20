@@ -10,10 +10,18 @@
 на РЕЗУЛЬТАТ — состояние конфига ПОСЛЕ срабатывания действия, — а не на
 оформление. В частности:
 
-  * пункт меню ищется по своему objectName ("create_entity_action"), НЕ по
+  * пункт меню ищется ПО СИГНАЛУ (add_entity_requested), а не по
     переведённой подписи: текст "Create entity" зависит от локали и от
     каталогов, и сторож, привязанный к нему, будет падать по посторонним
-    причинам (недокомпилированный .mo, переведённая строка, и т.п.);
+    причинам (недокомпилированный .mo, переведённая строка, и т.п.).
+    Практически «по сигналу» здесь читается так:
+      - сам QAction-якорь берём по objectName "create_entity_action" —
+        это стабильный, нелокализованный идентификатор, установленный в
+        config_tree.py РЯДОМ с тем же `add_entity_requested.emit(...)`,
+        то есть «сигнальная сторона» пункта;
+      - и ДОПОЛНИТЕЛЬНО сторож явно проверяет, что найденный QAction
+        эмитит ИМЕННО add_entity_requested — шпионом на сигнале. Иначе
+        формулировка «по сигналу» осталась бы на словах;
   * у срабатывания проверяется запись в entities:, а не строки Log, не
     заголовки окон и не порядок кнопок.
 
@@ -102,6 +110,17 @@ def test_c1_create_entity_on_a_cell_leaf_writes_a_cell_entity(
     entities: с `cell: "<имя ячейки>"`. Проверяется РЕЗУЛЬТАТ, а не
     оформление: смотрим в ФАЙЛ конфига после срабатывания.
 
+    Требование §3: пункт меню искать ПО СИГНАЛУ, а не по переведённой
+    подписи. Здесь это сделано двумя шагами:
+      1) QAction-якорь берём по objectName "create_entity_action" — это
+         нелокализованный идентификатор, установленный в config_tree.py
+         рядом с `add_entity_requested.emit(...)`, т.е. «сигнальная
+         сторона» пункта. Никаких проверок текста подписи нет;
+      2) на сигнал add_entity_requested ставим шпиона и явно проверяем,
+         что найденный QAction эмитит ИМЕННО его (payload совпадает с
+         ("cell", "my_cell", <путь к файлу>)). Это закрывает «по сигналу»
+         буквально, а не описательно.
+
     Мутация М1, от которой этот сторож защищает: оставить пункт только у
     отпечатка (тогда на узле ячейки действия нет, и первая половина теста
     падает — но падает с понятным сообщением, а не «menu is empty» без
@@ -137,9 +156,20 @@ def test_c1_create_entity_on_a_cell_leaf_writes_a_cell_entity(
         "видели: " + repr([t for t, _ in actions]))
     _label, action = matching[0]
 
+    # Сторож привязан к СИГНАЛУ, а не к подписи: наблюдаем payload, который
+    # уйдёт в обработчик, и сверяем его с ожидаемым ("cell", <имя>, <файл>).
+    emitted = []
+    hub.config_tree_dock.add_entity_requested.connect(
+        lambda kind, name, path: emitted.append((kind, name, str(path))))
+
     fake_cls = _fake_dialog("buf_entity", "CH0", "Sheet_1")
     monkeypatch.setattr(create_entity_mod, "CreateEntityDialog", fake_cls)
     action.trigger()
+
+    assert emitted == [("cell", "my_cell", str(target.resolve()))], (
+        "найденный по objectName QAction обязан эмитить add_entity_requested"
+        "('cell', 'my_cell', <путь к файлу>) — сторож держится за сигнал,"
+        " а не за переведённую подпись; видели: " + repr(emitted))
 
     entities = _load(target).get("entities") or []
     written = [e for e in entities if e.get("cell") == "my_cell"]
