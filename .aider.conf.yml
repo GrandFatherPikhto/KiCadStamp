@@ -25,6 +25,12 @@ attribute-committer: false
 attribute-commit-message-author: false
 attribute-commit-message-committer: false
 
+# Не переспрашивать: каталог свой, ветка своя, худший случай — git reset --hard
+yes-always: true
+# Но тогда обязательно запретить ему предлагать команды оболочки,
+# иначе auto-yes согласится и на их запуск
+suggest-shell-commands: false
+
 # ── Контекст ───────────────────────────────────────────────────────────────
 # 597 файлов, ~218 тыс. строк — карте нужно больше места, чем по умолчанию.
 map-tokens: 4096
