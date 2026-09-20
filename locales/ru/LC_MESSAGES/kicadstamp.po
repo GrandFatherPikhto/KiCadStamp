@@ -2064,18 +2064,6 @@ msgid "Create entity"
 msgstr "Создать сущность"
 
 #: gui/docks/create_entity.py
-msgid "Name:"
-msgstr "Имя:"
-
-#: gui/docks/create_entity.py
-msgid "Cluster:"
-msgstr "Кластер:"
-
-#: gui/docks/create_entity.py
-msgid "Sheet:"
-msgstr "Лист:"
-
-#: gui/docks/create_entity.py
 msgid "optional — a cell is cloned by its cluster"
 msgstr "необязательно — ячейка клонируется по своему кластеру"
 
@@ -2086,10 +2074,6 @@ msgstr "необязательно — сужает резолв ролей / ц
 #: gui/docks/create_entity.py
 msgid "No cluster — the entity is created without a tag, so it cannot be cloned by cluster."
 msgstr "Кластер не задан — сущность создаётся без тега, поэтому её нельзя клонировать по кластеру."
-
-#: gui/docks/create_entity.py
-msgid "Name is required."
-msgstr "Требуется имя."
 
 #: gui/docks/create_entity.py
 #, python-brace-format
@@ -2607,11 +2591,6 @@ msgstr "Неизвестная Cell {cell!r}."
 #: gui/docks/instantiate_cell_dialog.py:227 gui/docks/placer.py:2036
 msgid "Entity name is required."
 msgstr "Требуется имя сущности."
-
-#: gui/docks/instantiate_cell_dialog.py:229
-#, python-brace-format
-msgid "An entity named {name!r} already exists."
-msgstr "Entity с именем {name!r} уже существует."
 
 #: gui/docks/instantiate_cell_dialog.py:231
 msgid "Cluster is required (the address of the new instance)."

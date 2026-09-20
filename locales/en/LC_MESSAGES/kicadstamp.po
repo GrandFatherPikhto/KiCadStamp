@@ -2052,18 +2052,6 @@ msgid "Create entity"
 msgstr ""
 
 #: gui/docks/create_entity.py
-msgid "Name:"
-msgstr ""
-
-#: gui/docks/create_entity.py
-msgid "Cluster:"
-msgstr ""
-
-#: gui/docks/create_entity.py
-msgid "Sheet:"
-msgstr ""
-
-#: gui/docks/create_entity.py
 msgid "optional — a cell is cloned by its cluster"
 msgstr ""
 
@@ -2073,10 +2061,6 @@ msgstr ""
 
 #: gui/docks/create_entity.py
 msgid "No cluster — the entity is created without a tag, so it cannot be cloned by cluster."
-msgstr ""
-
-#: gui/docks/create_entity.py
-msgid "Name is required."
 msgstr ""
 
 #: gui/docks/create_entity.py
@@ -2582,11 +2566,6 @@ msgstr ""
 #: gui/docks/instantiate_cell_dialog.py:227 gui/docks/placer.py:2036
 msgid "Entity name is required."
 msgstr "Entity name is required."
-
-#: gui/docks/instantiate_cell_dialog.py:229
-#, python-brace-format
-msgid "An entity named {name!r} already exists."
-msgstr ""
 
 #: gui/docks/instantiate_cell_dialog.py:231
 msgid "Cluster is required (the address of the new instance)."
