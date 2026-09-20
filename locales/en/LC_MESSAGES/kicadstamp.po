@@ -15651,9 +15651,6 @@ msgstr ""
 msgid "Anchor rotation (at record):"
 msgstr ""
 
-msgid "Apply is disabled while component(s) are missing from the board — restore them and Reread again."
-msgstr ""
-
 msgid "Boundary nets"
 msgstr ""
 
@@ -15706,9 +15703,6 @@ msgid "Reread failed: {error}"
 msgstr ""
 
 msgid "Reread..."
-msgstr ""
-
-msgid "Imprint Reread"
 msgstr ""
 
 msgid "Imprint: {name}"
@@ -15765,9 +15759,6 @@ msgstr ""
 msgid "Re-sourced Imprint {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
 msgstr ""
 
-msgid "What changed for {name!r} on the live board:"
-msgstr ""
-
 msgid "an Imprint named {name!r} already exists — pick another name"
 msgstr ""
 
@@ -15808,9 +15799,6 @@ msgid "name (used by --only and Entity.imprint, must be unique)"
 msgstr ""
 
 msgid "new boundary net(s): {nets}"
-msgstr ""
-
-msgid "no differences"
 msgstr ""
 
 msgid "the anchor {ref!r} is not on the board"
@@ -18581,10 +18569,6 @@ msgid "{count} note(s) would be forgotten — the schematic would then carry the
 msgstr ""
 
 # ===== Imprint Roles tab — Д2 (2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md) =====
-#: gui/docks/imprint_refs_tab.py kicadstamp/imprint_cell.py
-msgid "Roles"
-msgstr ""
-
 #: gui/docks/imprint_refs_tab.py
 msgid "Convert to cell"
 msgstr ""
@@ -18659,4 +18643,20 @@ msgstr ""
 
 #: kicadstamp/imprint_cell.py
 msgid "the imprint has no Cluster — a cell is cloned by its cluster, so one cluster per imprint is required"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
+msgid "the record changed — {what} (Reread)"
+msgstr ""
+
+#: gui/docks/imprint.py
+msgid "Open a project first — Reread rewrites the file that owns this record."
+msgstr ""
+
+#: gui/docks/imprint.py
+msgid "Reread stopped — component(s) missing from the board: {refs}. The record is unchanged; restore them and Reread again."
+msgstr ""
+
+#: gui/docks/imprint.py
+msgid "Reread apply failed: no project root to write the record to"
 msgstr ""

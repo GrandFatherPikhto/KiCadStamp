@@ -14324,9 +14324,6 @@ msgstr "Пэд якоря:"
 msgid "Anchor rotation (at record):"
 msgstr "Поворот якоря (при записи):"
 
-msgid "Apply is disabled while component(s) are missing from the board — restore them and Reread again."
-msgstr "Apply отключён, пока компоненты отсутствуют на плате — верните их и повторите Reread."
-
 msgid "Boundary nets"
 msgstr "Пограничные сети"
 
@@ -14380,9 +14377,6 @@ msgstr "Сбой Reread: {error}"
 
 msgid "Reread..."
 msgstr "Перечитать..."
-
-msgid "Imprint Reread"
-msgstr "Перечитать Imprint"
 
 msgid "Imprint: {name}"
 msgstr "Imprint: {name}"
@@ -14438,9 +14432,6 @@ msgstr "Сбой Re-source"
 msgid "Re-sourced Imprint {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
 msgstr "Переисточён Imprint {name!r} — {components} компон., {vias} виа, {tracks} треков -> {path}"
 
-msgid "What changed for {name!r} on the live board:"
-msgstr "Что изменилось для {name!r} на живой плате:"
-
 msgid "an Imprint named {name!r} already exists — pick another name"
 msgstr "Imprint с именем {name!r} уже существует — выберите другое имя"
 
@@ -14482,9 +14473,6 @@ msgstr "имя (используется в --only и в Entity.imprint, дол�
 
 msgid "new boundary net(s): {nets}"
 msgstr "новые пограничные сети: {nets}"
-
-msgid "no differences"
-msgstr "нет отличий"
 
 msgid "the anchor {ref!r} is not on the board"
 msgstr "якорь {ref!r} отсутствует на плате"
@@ -17263,9 +17251,6 @@ msgstr "будет забыто записей: {count} — тогда их бу
 
 # ===== Imprint Roles tab — Д2 (2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md) =====
 #: gui/docks/imprint_refs_tab.py kicadstamp/imprint_cell.py
-msgid "Roles"
-msgstr "Роли"
-
 #: gui/docks/imprint_refs_tab.py
 msgid "Convert to cell"
 msgstr "Преобразовать в ячейку"
@@ -17341,3 +17326,19 @@ msgstr "роль {role} используется у {refs} — роли ячей
 #: kicadstamp/imprint_cell.py
 msgid "the imprint has no Cluster — a cell is cloned by its cluster, so one cluster per imprint is required"
 msgstr "у отпечатка нет кластера — ячейка клонируется по своему кластеру, поэтому нужен один кластер на отпечаток"
+
+#: gui/docks/imprint_refs_tab.py
+msgid "the record changed — {what} (Reread)"
+msgstr "состав записи изменился — {what} (Reread)"
+
+#: gui/docks/imprint.py
+msgid "Open a project first — Reread rewrites the file that owns this record."
+msgstr "Сначала откройте проект — Reread перезаписывает файл, в котором живёт эта запись."
+
+#: gui/docks/imprint.py
+msgid "Reread stopped — component(s) missing from the board: {refs}. The record is unchanged; restore them and Reread again."
+msgstr "Reread остановлен — компоненты отсутствуют на плате: {refs}. Запись не изменена; верните их и повторите Reread."
+
+#: gui/docks/imprint.py
+msgid "Reread apply failed: no project root to write the record to"
+msgstr "применение Reread не удалось: нет корня проекта, куда писать запись"

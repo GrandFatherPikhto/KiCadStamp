@@ -1,6 +1,6 @@
 # gui/docks/imprint_refs_tab.py
-"""The imprint's "Roles" tab — the role table of a recorded imprint, and the
-"Convert to cell" button that turns it into a Cell template.
+"""The imprint's "Components" tab — the role table of a recorded imprint, and
+the "Convert to cell" button that turns it into a Cell template.
 
 Plan: `plan_2026_09_18_scheme_list_to_cell_and_capture.md` (Д2, Р12/Р17/Р20);
 design `design_2026_09_17_spoke_cell_editing.md` §10/§10а.
@@ -93,6 +93,11 @@ class ImprintRefsTab(QWidget):
         self._root_path: Optional[Path] = None
         self._imprint_name: Optional[str] = None
         self._record: Any = None
+        # The refs of the record as last rendered — the RECORD's own composition.
+        # Reread can change it (Denis added D6 to `zummer` live, 2026-09-20), and
+        # then the table must follow: rows are rebuilt from the new refs, the
+        # user's typed Roles of the surviving refs are kept.
+        self._record_refs: tuple = ()
         self._records: list = []
         self._overrides = None
         self._rows: list = []
@@ -184,11 +189,16 @@ class ImprintRefsTab(QWidget):
         and the store columns, so nothing the user typed is lost."""
         changed = (imprint_name != self._imprint_name
                    or root_path != self._root_path)
+        # The RECORD's own composition: a Reread can add or drop components, and
+        # the table is built from the record — so this counts as a change too.
+        new_refs = tuple(str(c.ref) for c in
+                         (getattr(record, "components", None) or ()))
+        refs_changed = record is not None and new_refs != self._record_refs
         store_changed = overrides is not None and overrides is not self._overrides
         if overrides is not None:
             self._overrides = overrides
         new_records = None if records is None else list(records)
-        if (not changed and not store_changed
+        if (not changed and not refs_changed and not store_changed
                 and (new_records is None or self._same_records(new_records))):
             return
         self._root_path = root_path
@@ -196,12 +206,20 @@ class ImprintRefsTab(QWidget):
         self._record = record
         if new_records is not None:
             self._records = new_records
+        added: list = []
+        removed: list = []
         if changed:
+            self._record_refs = new_refs
             self._rows = self._restore_rows()
             self._set_cluster_text(self._initial_cluster())
+        elif refs_changed:
+            self._record_refs = new_refs
+            self._rows, added, removed = self._rebuild_rows()
         else:
             self._rows = self._with_board_values(self._rows)
         self._render()
+        if added or removed:
+            self._report_record_change(added, removed)
 
     def set_overrides(self, overrides) -> None:
         """The store in force changed without a context change (another pane
@@ -222,6 +240,7 @@ class ImprintRefsTab(QWidget):
         """Nothing is loaded (the page was cleared)."""
         self._imprint_name = None
         self._record = None
+        self._record_refs = ()
         self._rows = []
         self._set_cluster_text("")
         self._render()
@@ -276,6 +295,51 @@ class ImprintRefsTab(QWidget):
                 == [self._record_key(r) for r in self._records])
 
     # ── Rows ──────────────────────────────────────────────────────────────
+
+    def _rebuild_rows(self) -> tuple:
+        """(rows, added_refs, removed_refs) after the RECORD's composition
+        changed (Reread added or dropped components).
+
+        The rows come from the new refs, but the user's own work is preserved:
+        a ref that is STILL in the record keeps the Role typed into it (the record
+        is the source of the list, not of the user's typing) AND its POSITION —
+        only genuinely new components are appended, in the record's own order. A
+        ref that left the record loses its row (there is nothing left for the
+        value to belong to) and is reported by name, never dropped silently."""
+        previous = {r.ref: r for r in self._rows}
+        order = [r.ref for r in self._rows]
+        fresh = {r.ref: r for r in self._restore_rows()}
+        out = []
+        for ref in order:
+            row = fresh.pop(ref, None)
+            if row is None:
+                continue
+            typed = previous.get(ref)
+            if typed is not None:
+                row.role = typed.role
+            out.append(row)
+        for ref in self._record_refs:      # new refs: the record's own order
+            row = fresh.pop(ref, None)
+            if row is not None:
+                out.append(row)
+        out.extend(fresh.values())         # safety: anything the order missed
+        kept = {r.ref for r in out}
+        added = sorted(r.ref for r in out if r.ref not in previous)
+        removed = sorted(ref for ref in order if ref not in kept)
+        return apply_overrides(out, self._overrides), added, removed
+
+    def _report_record_change(self, added: list, removed: list) -> None:
+        """Say what Reread did to the composition — a Log line and the status
+        strip, never a modal (the project's rule)."""
+        parts = []
+        if added:
+            parts.append(_("component(s) added to the scope: {refs}").format(
+                refs=", ".join(added)))
+        if removed:
+            parts.append(_("component(s) removed from the scope: {refs}").format(
+                refs=", ".join(removed)))
+        self._show(_("the record changed — {what} (Reread)").format(
+            what="; ".join(parts)), _WARN_STYLE if removed else _SUCCESS_STYLE)
 
     def _restore_rows(self) -> list:
         """The rows of the just-opened imprint: its RECORD's components, with

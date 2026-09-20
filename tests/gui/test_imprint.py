@@ -30,7 +30,6 @@ from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.imprint import (
     BoundaryNetDialog,
     RecordImprintDialog,
-    ImprintDiffDialog,
     ImprintFormWidget,
     all_sheet_paths,
     boundary_net_rows,
@@ -144,6 +143,26 @@ class FakeAdapter:
             out.append(Box2(pos=Vector2.from_xy(p.x - half, p.y - half),
                             size=Vector2.from_xy(2 * half, 2 * half)))
         return out
+
+
+def _line_board_with_d6():
+    """`_line_board()` PLUS a D6 diode wired after C2 (F.Cu) — the live case of
+    2026-09-20: Denis re-read the `zummer` record after soldering D6 onto the
+    board, and the record grew a component the tab knew nothing about."""
+    r1 = _fp("R1", 10, 10)
+    c1 = _fp("C1", 20, 10, angle=90.0)
+    c2 = _fp("C2", 24, 10)
+    d6 = _fp("D6", 30, 10)
+    pads = {
+        "R1": [_pad("R1", 10, 10, _V5)],
+        "C1": [_pad("C1", 20, 10, _V5)],
+        "C2": [_pad("C2", 24, 10, _V5)],
+        "D6": [_pad("D6", 30, 10, _V5)],
+    }
+    tracks = [_track(10, 10, 20, 10, _V5, layer=F),
+              _track(20, 10, 24, 10, _V5, layer=IN1),
+              _track(24, 10, 30, 10, _V5, layer=F)]
+    return FakeAdapter([r1, c1, c2, d6], tracks, [_via(20, 10, _V5)], pads)
 
 
 def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
@@ -807,31 +826,85 @@ def test_record_dialog_by_selection_collects_name_only(main_window):
     assert dialog._ok_button.isEnabled()
 
 
-def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
+def test_reread_applies_quietly_and_logs_what_changed(
+        main_window, tmp_path, caplog, monkeypatch):
+    """LIVE FIX 2026-09-20 (Denis): the "What changed" box is gone. Reread writes
+    the diff to the LOG and re-syncs the record at once — nobody is asked, and the
+    record really is rewritten."""
     adapter = _line_board()
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
-    # C2 moved on the live board -> clean diff, Apply allowed
-    adapter1 = _line_board(c2_x_mm=24.5)
-    _connect_board(dock, adapter1)
+
+    moved = _line_board(c2_x_mm=24.5)          # C2 moved on the live board
+    _connect_board(dock, moved)
     _select(dock, "R1", "C1", "C2")
-    clean_diff = dock._do_reread()["diff"]
-    dialog = ImprintDiffDialog("amp", clean_diff, main_window)
-    apply_btn = next(b for b in dialog.findChildren(QPushButton) if b.text() == "Apply")
-    assert apply_btn.isEnabled()
-    dialog.close()
-    # a missing ref -> the same dialog shows the problem and disables Apply
+    result = dock._do_reread()
+    applies = []
+    # The apply itself runs on a worker (start_long_op) — no event loop here, so
+    # the guard watches the CALL: the box used to sit between the diff and this.
+    monkeypatch.setattr(dock, "_apply_reread", lambda: applies.append(True))
+    with caplog.at_level(logging.INFO, logger="gui.docks.imprint"):
+        dock._finish_reread(result)            # exactly what the worker callback runs
+
+    assert applies == [True], "Reread must re-sync without asking anything"
+    assert any("moved" in r.message for r in caplog.records), \
+        "the diff must reach the Log"
+    # ...and the same worker does write the record (the synchronous hook).
+    before = root.read_text(encoding="utf-8")
+    assert "error" not in dock._do_reread_apply()
+    assert root.read_text(encoding="utf-8") != before
+
+
+def test_reread_refuses_quietly_when_a_recorded_ref_is_missing(
+        main_window, tmp_path, caplog):
+    """The one refusal that stays: a recorded component missing from the board —
+    there the record cannot be faithfully re-synced. Reported in the Log, the
+    record untouched, and still no box."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    dock = _make_dock(main_window, root, d)
+
     adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
     _connect_board(dock, adapter)
     _select(dock, "R1", "C1")
-    missing_diff = dock._do_reread()["diff"]
-    assert missing_diff.refs_not_found == ["C2"]
-    dialog2 = ImprintDiffDialog("amp", missing_diff, main_window)
-    apply_btn2 = next(b for b in dialog2.findChildren(QPushButton)
-                      if b.text() == "Apply")
-    assert not apply_btn2.isEnabled()
-    dialog2.close()
+    result = dock._do_reread()
+    assert result["diff"].refs_not_found == ["C2"]
+    before = root.read_text(encoding="utf-8")
+    with caplog.at_level(logging.ERROR, logger="gui.docks.imprint"):
+        dock._finish_reread(result)
+
+    assert root.read_text(encoding="utf-8") == before   # nothing written
+    assert any("missing from the board" in r.message for r in caplog.records)
+
+
+def test_reread_without_a_project_refuses_with_a_log_line(
+        main_window, tmp_path, caplog):
+    """LIVE FIX 2026-09-20 (Denis's Log): `Reread apply` died with
+    "unsupported config file extension ''" because the record page had no project
+    ROOT and the worker fell back to Path(".". Both halves are pinned here: the
+    page refuses with a Log line (nothing starts), and the worker itself refuses
+    the rootless payload instead of inventing a path."""
+    adapter = _line_board()
+    d = _record_dict(adapter)
+    root = _record_file(tmp_path, d)
+    before = root.read_text(encoding="utf-8")
+
+    dock = ImprintFormWidget(main_window)   # never pointed at a project
+    dock.load_entry(d)
+    _connect_board(dock, adapter)
+    _select(dock, "R1", "C1", "C2")
+    with caplog.at_level(logging.ERROR, logger="gui.docks.imprint"):
+        assert dock._do_reread() == {}      # no payload -> no worker at all
+    assert any("Open a project first" in r.message for r in caplog.records)
+
+    # ...and the worker will not write into the CWD when the payload has no root.
+    result = dock._run_reread_apply({
+        "stored": d, "board": SimpleNamespace(adapter=adapter),
+        "scope_refs": ["R1", "C1", "C2"], "root": None, "path": None})
+    assert "error" in result
+    assert root.read_text(encoding="utf-8") == before
 
 
 # ── G1: per-net boundary dialog (choose_boundary_actions) ───────────────────
@@ -2933,8 +3006,10 @@ def test_record_page_has_record_summary_and_pivot_anchor_tabs(
         main_window, tmp_path):
     """Commit F — the saved-record page carries the read-only "Record summary"
     tab (source/preset/geometry/Reread) and the "Pivot / Anchor" tab (the
-    editable pivot block from Commit B1/B2); the "Roles" tab joined them
-    2026-09-20 (Д2 of plan_2026_09_18_scheme_list_to_cell_and_capture.md)."""
+    editable pivot block from Commit B1/B2); the "Components" tab joined them
+    2026-09-20 (Д2 of plan_2026_09_18_scheme_list_to_cell_and_capture.md; it was
+    briefly called "Roles" — Denis renamed it the same day, because the tab
+    shows the record's COMPONENTS and Role is just one of their columns)."""
     adapter = _line_board()
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
@@ -2942,7 +3017,7 @@ def test_record_page_has_record_summary_and_pivot_anchor_tabs(
     assert dock.page_tabs.count() == 3
     assert dock.page_tabs.tabText(0) == "Record summary"
     assert dock.page_tabs.tabText(1) == "Pivot / Anchor"
-    assert dock.page_tabs.tabText(2) == "Roles"
+    assert dock.page_tabs.tabText(2) == "Components"
     # the summary tab still renders the loaded record
     dock.page_tabs.setCurrentIndex(0)
     assert dock.source_sheet_label.text() == "Channel_0"
@@ -3402,24 +3477,25 @@ def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
         dialog.close()
 
 
-# ── Д2: the page's half of the Roles tab (2026-09-20, plan_2026_09_18_scheme_
-# list_to_cell_and_capture.md) ────────────────────────────────────────────────
+# ── Д2: the page's half of the Components tab (2026-09-20, plan_2026_09_18_
+# scheme_list_to_cell_and_capture.md) ─────────────────────────────────────────
 #
 # The tab itself is guarded in tests/gui/test_imprint_refs_tab.py. What is pinned
 # HERE is the WIRING the tab cannot test by itself: that loading a record points
 # the tab at the record's own components, that the selection tick feeds it the
-# page's snapshot, and that the tab really is a page of this form.
+# page's snapshot, that a Reread which changes the composition refreshes the
+# list, and that the tab really is a page of this form.
 
-class TestRolesTabWiring:
-    def test_the_form_has_a_roles_page(self, main_window, tmp_path):
+class TestComponentsTabWiring:
+    def test_the_form_has_a_components_page(self, main_window, tmp_path):
         adapter = _line_board()
         d = _record_dict(adapter)
         root = _record_file(tmp_path, d)
         dock = _make_dock(main_window, root, d)
         titles = [dock.page_tabs.tabText(i)
                   for i in range(dock.page_tabs.count())]
-        assert "Roles" in titles
-        assert dock.refs_tab is dock.page_tabs.widget(titles.index("Roles"))
+        assert "Components" in titles
+        assert dock.refs_tab is dock.page_tabs.widget(titles.index("Components"))
 
     def test_loading_a_record_fills_the_tab_with_its_components(
             self, main_window, tmp_path):
@@ -3447,6 +3523,41 @@ class TestRolesTabWiring:
         dock = _make_dock(main_window, root, d)
         dock.clear()
         assert dock.refs_tab.row_refs() == []
+
+    def test_a_reread_that_adds_a_component_refreshes_the_list(
+            self, main_window, tmp_path):
+        """Live case 2026-09-20 (Denis): D6 was added to the board, the record was
+        re-read — and the Components tab still listed the three old refs. The
+        page now re-reads the record from the file it just wrote, and the tab
+        rebuilds its rows from the record's new composition."""
+        adapter = _line_board()          # the board BEFORE D6
+        d = _record_dict(adapter)        # the record: R1, C1, C2
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        assert dock.refs_tab.row_refs() == ["R1", "C1", "C2"]
+
+        grown = _line_board_with_d6()    # the board AFTER D6
+        _connect_board(dock, grown)
+        _select(dock, "R1", "C1", "C2", "D6")
+        assert "error" not in dock._do_reread_apply()
+
+        assert dock.refs_tab.row_refs() == ["R1", "C1", "C2", "D6"]
+
+    def test_a_reread_that_drops_a_component_takes_its_row_away(
+            self, main_window, tmp_path):
+        """The other direction, same rule: the record IS the list, so a component
+        that left it loses its row (its value has nothing left to belong to)."""
+        adapter = _line_board()
+        d = _record_dict(adapter)        # R1, C1, C2
+        root = _record_file(tmp_path, d)
+        dock = _make_dock(main_window, root, d)
+        assert dock.refs_tab.row_refs() == ["R1", "C1", "C2"]
+
+        _connect_board(dock, adapter)
+        _select(dock, "R1", "C1")        # C2 out of the current scope
+        assert "error" not in dock._do_reread_apply()
+
+        assert dock.refs_tab.row_refs() == ["R1", "C1"]
 
     def test_converting_writes_the_cell_into_the_root_config(
             self, main_window, tmp_path):

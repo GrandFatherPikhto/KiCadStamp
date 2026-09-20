@@ -1919,13 +1919,18 @@ now change the record's REF SET itself, not only diff fixed positions:
   record's NEW stored `scope_sheet_paths` — the `scope_presets` library itself is never rewritten by
   Apply (only Record/Re-source "Save as preset" edits it).
 
-The diff dialog lists what changed — component(s) no longer on the board, components moved (compared
-in a translation-invariant way through a transient reference recorded component, so moving one part
-does not report the whole frame drifting), component(s) added to the scope, component(s) removed from
-the scope, vias & tracks added & removed, new/gone boundary nets — and **Apply** rewrites the stored
-record in its own file, all in one explicit confirmation (no per-piece copper validation). Apply is
-disabled while a recorded component is missing from the board (the record cannot be faithfully
-re-synced). Nothing is applied to the board.
+What changed goes to the **Log** (2026-09-20, Denis's live decision: the "What changed" dialog is
+gone — Reread IS the re-read, and a box whose only useful answer is "yes" was in the way):
+component(s) no longer on the board, components moved (compared in a translation-invariant way through
+a transient reference recorded component, so moving one part does not report the whole frame drifting),
+component(s) added to the scope, component(s) removed from the scope, vias & tracks added & removed,
+new/gone boundary nets — and Reread **rewrites the stored record in its own file at once**, no
+confirmation (no per-piece copper validation either). The ONE case that stops it: a recorded component
+missing from the board (the record cannot be faithfully re-synced around it) — reported in the Log, the
+record untouched. Nothing is applied to the board.
+
+Reread needs a PROJECT (it writes a file): without a root it refuses with a Log line instead of letting
+the writer hit a pathless one (the live ERROR of 2026-09-20: `unsupported config file extension ''`).
 
 ### The record page (Config tree → `imprints:` leaf)
 
@@ -1954,14 +1959,16 @@ Since Commit F the page is a **two-tab** page:
 The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
 (Re-source...) or re-syncing (Reread), never by hand.
 
-### Roles of a record, and turning it into a Cell — the **Roles** tab
+### Components of a record, and turning it into a Cell — the **Components** tab
 
 A record is a literal snapshot: it carries the recorded refdes and their geometry, and **no roles** —
 so there is nothing a pool could resolve and nothing a cell template could be built from. The
-**Roles** tab of the record page is where that is fixed. It lists the record's OWN components (in the
-record's order, one row each) with an editable **Role** per row, plus ONE **Cluster of this imprint**
-field above the table — a cell is cloned by its cluster, so a record carries exactly one (there is no
-per-row cluster column at all, 2026-09-20, plan_2026_09_18_scheme_list_to_cell_and_capture.md Д2/Р20).
+**Components** tab of the record page (named "Roles" for a few hours on 2026-09-20 — it lists the
+record's components, the Role being one of their columns) is where that is fixed. It lists the record's
+OWN components (in the record's order, one row each) with an editable **Role** per row, plus ONE
+**Cluster of this imprint** field above the table — a cell is cloned by its cluster, so a record
+carries exactly one (there is no per-row cluster column at all, 2026-09-20,
+plan_2026_09_18_scheme_list_to_cell_and_capture.md Д2/Р20).
 
 - **Write to the store** — records the roles (and the cluster) that DIFFER from the value in force into
   the project's override store (`overrides/<config-stem>.fields.json`, one atomic save, keyed by the
@@ -1975,6 +1982,11 @@ per-row cluster column at all, 2026-09-20, plan_2026_09_18_scheme_list_to_cell_a
   to `cell:` (where doubled copper becomes possible) is a separate, later step with its own dry run.
   It REFUSES, listing every reason at once and writing nothing, while a component has no Role, two
   components share one, or the cluster is empty.
+
+The list FOLLOWS the record: a Reread that changes the composition (a component added on the board,
+another one gone) rebuilds the rows as soon as the record is rewritten — the Roles the user already
+typed stay with the components that are still there, and a component that left the record is named in
+the Log instead of vanishing silently.
 
 ### Placing a record — Tools → Imprints → Place... (the "Place Imprint" page)
 

@@ -45,7 +45,7 @@ from kipy.errors import ApiError
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                             QPlainTextEdit, QPushButton, QTabWidget,
+                             QPushButton, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.cli_common import api_error_message
@@ -1091,37 +1091,12 @@ class RecordImprintDialog(QDialog):
         return text or None
 
 
-class ImprintDiffDialog(QDialog):
-    """Reread result (design §4): shows what changed against the live board
-    and offers Apply (rewrite the stored record) — never applied silently.
-    Apply is disabled when a recorded component is missing from the board
-    (the record cannot be faithfully re-synced while a ref is off-board)."""
-
-    def __init__(self, name: str, diff: ImprintDiff, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(_("Imprint Reread"))
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            _("What changed for {name!r} on the live board:").format(name=name)))
-        text = QPlainTextEdit()
-        text.setReadOnly(True)
-        text.setPlainText("\n".join(imprint_diff_lines(diff)) or _("no differences"))
-        layout.addWidget(text)
-        if diff.refs_not_found:
-            warn = QLabel(_("Apply is disabled while component(s) are missing from the "
-                            "board — restore them and Reread again."))
-            warn.setWordWrap(True)
-            warn.setStyleSheet("color: #a60;")
-            layout.addWidget(warn)
-        buttons = QDialogButtonBox()
-        apply_button = QPushButton(_("Apply"))
-        apply_button.setEnabled(not diff.refs_not_found)
-        buttons.addButton(apply_button, QDialogButtonBox.ButtonRole.AcceptRole)
-        close_button = buttons.addButton(QDialogButtonBox.StandardButton.Close)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        close_button.clicked.connect(self.reject)
-        layout.addWidget(buttons)
+# The "What changed" Reread dialog used to live here. It is GONE (2026-09-20,
+# Denis, live): Reread is the re-read, and a box whose only useful answer is
+# "yes" was in the way. The diff lines now go to the LOG (imprint_diff_lines is
+# still the one place that words them) and the record is re-synced right away;
+# the only refusal left is a recorded component missing from the board, where
+# the write could not be faithful — and even that is a Log line, not a box.
 
 
 @dataclass
@@ -1344,17 +1319,18 @@ class ImprintFormWidget(QWidget):
         record_lay.addStretch(1)
         self.page_tabs.addTab(record_page, _("Record summary"))
         self.page_tabs.addTab(pivot_editor, _("Pivot / Anchor"))
-        # Tab 3 — Roles (2026-09-20, Д2 of
-        # plan_2026_09_18_scheme_list_to_cell_and_capture.md): the record's own
-        # components as a role table, ONE
-        # cluster field above it and the "Convert to cell" button. The values go
-        # into the project's override store (our values win over the board) and
-        # the conversion writes cells: — this page owns the wiring, the tab owns
-        # the table (see gui/docks/imprint_refs_tab.py).
+        # Tab 3 — Components (2026-09-20, Д2 of
+        # plan_2026_09_18_scheme_list_to_cell_and_capture.md; renamed from
+        # "Roles" the same day, Denis: the tab shows the record's COMPONENTS,
+        # the Role is one of their columns): the record's own components as a
+        # table, ONE cluster field above it and the "Convert to cell" button.
+        # The values go into the project's override store (our values win over
+        # the board) and the conversion writes cells: — this page owns the
+        # wiring, the tab owns the table (see gui/docks/imprint_refs_tab.py).
         self.refs_tab = ImprintRefsTab(self._main_window,
                                        connection=self._connection)
         self.refs_tab.saved.connect(self.saved.emit)
-        self.page_tabs.addTab(self.refs_tab, _("Roles"))
+        self.page_tabs.addTab(self.refs_tab, _("Components"))
         layout.addWidget(self.page_tabs)
         layout.addStretch(1)
 
@@ -1664,6 +1640,15 @@ class ImprintFormWidget(QWidget):
         if not self._entry:
             self._show_message(_("Load an Imprint record first."), _ERROR_STYLE)
             return None
+        # A project ROOT is required, and it is not a formality: Apply WRITES the
+        # record back, and without a root the worker had nothing to write to (it
+        # fell back to Path(".") and the config writer rejected the extensionless
+        # path — Denis's live ERROR, 2026-09-20). Refuse here, with a Log line.
+        if self._root_path is None:
+            self._show_message(
+                _("Open a project first — Reread rewrites the file that owns "
+                  "this record."), _ERROR_STYLE)
+            return None
         try:
             stored = load_imprint(self._entry)
         except ValidationError as e:
@@ -1748,9 +1733,20 @@ class ImprintFormWidget(QWidget):
                 _("{name!r} is up to date — nothing changed on the board.")
                 .format(name=result["name"]), _SUCCESS_STYLE)
             return
-        dialog = ImprintDiffDialog(result["name"], diff, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._apply_reread()
+        # 2026-09-20 (Denis, live): the "What changed" dialog is GONE. Reread is
+        # the re-read — a box whose only useful answer is "yes" was in the way, so
+        # the diff lines go to the LOG and the record is re-synced right away.
+        # The one refusal that stays is the one where the write could not be
+        # faithful: a recorded component that is no longer on the board (the
+        # record cannot be re-synced around it) — said in the Log, still no box.
+        if diff.refs_not_found:
+            self._show_message(
+                _("Reread stopped — component(s) missing from the board: {refs}. "
+                  "The record is unchanged; restore them and Reread again.")
+                .format(refs=", ".join(diff.refs_not_found)), _ERROR_STYLE)
+            return
+        self._show_message("; ".join(imprint_diff_lines(diff)))
+        self._apply_reread()
 
     def _on_reread_op_failed(self, message: str) -> None:
         self._active_op = None
@@ -1816,7 +1812,14 @@ class ImprintFormWidget(QWidget):
                 # the saved library.
                 scope_presets=stored.scope_presets)
             load_imprint(imprint_to_dict(fresh))  # validate before writing
-            root_path = Path(payload["root"]) if payload.get("root") else Path(".")
+            # NEVER a fallback path here: `Path(".")` has no config extension and
+            # the writer rejects it (the live ERROR of 2026-09-20 was exactly that
+            # — the UI guard above now stops it earlier, and this is the worker's
+            # own belt: it must not have to invent where to write).
+            if not payload.get("root"):
+                return {"error": _("Reread apply failed: no project root to write "
+                                   "the record to")}
+            root_path = Path(payload["root"])
             target_path = Path(payload["path"]) if payload.get("path") else None
             written = write_imprint_record(root_path, fresh, target_path=target_path)
         except (ValidationError, OSError) as e:
@@ -1835,11 +1838,44 @@ class ImprintFormWidget(QWidget):
         if result.get("error"):
             self._show_message(result["error"], _ERROR_STYLE)
             return
+        # The record was REWRITTEN: re-read it from the file we just wrote, so the
+        # form shows the new record and the Components tab shows its new
+        # composition. Added live 2026-09-20: Denis re-read `zummer` after adding
+        # D6 to the board, and the tab still listed the three old components —
+        # the in-memory entry was a snapshot of the last load, and Reread's whole
+        # job is geometry AND the ref set (5c). Reload BEFORE the success line:
+        # that sentence must be the last word on the strip (the same order the
+        # cell editor's Refs tab uses).
+        self._reload_entry_from_file(result.get("path"))
         self._show_message(
             _("Updated Imprint {name!r} from the live board -> {path}")
             .format(name=result["name"], path=display_path(Path(result["path"]))),
             _SUCCESS_STYLE)
         self.saved.emit()
+
+    def _reload_entry_from_file(self, file_path) -> None:
+        """Re-read THIS record from the file that owns it and re-render the form
+        (and the Components tab). The file is the truth; `self._entry` is only
+        the snapshot the form was loaded with. A missing/renamed record in that
+        file leaves the form as it is — the caller has already reported what was
+        written, and guessing a composition would be worse than showing the old
+        one."""
+        name = (self._entry or {}).get("name")
+        if not name or not file_path:
+            return
+        try:
+            data = read_data(Path(file_path))
+            entry = next((e for e in (data.get("imprints") or [])
+                          if isinstance(e, dict) and e.get("name") == name), None)
+            record = load_imprint(entry) if entry is not None else None
+        except (ValidationError, OSError):
+            return
+        if record is None:
+            return
+        self._entry = dict(entry)
+        self._path = Path(file_path)
+        self._render(record)
+        self._sync_roles_tab()
 
     # ── Test hooks (synchronous, no worker thread — net_trace's _do_* shape) ──
 

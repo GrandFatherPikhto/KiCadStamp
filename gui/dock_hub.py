@@ -432,7 +432,13 @@ class DockHub:
     def _load_imprint_page(self, entry) -> None:
         """Imprint leaf single click (imprint_picked, 2026-09-06, plan
         imprint P5) — load the record read-only and show it as a Config
-        right-QView page (no dialog)."""
+        right-QView page (no dialog).
+
+        The ROOT is pushed first, every time: the page is a shared instance that
+        may have been created before the project opened, and Reread writes the
+        record back — a rootless page cannot (Denis's live ERROR of 2026-09-20:
+        the writer got Path(".") and rejected the extensionless path)."""
+        self.imprint_dock.set_root_path(self.root_metadata_dock.root_path)
         self.imprint_dock.load_entry(entry)
         self._show_config_imprint()
 
@@ -440,6 +446,7 @@ class DockHub:
         """Config-tree context menu's "Reread..." delegate (imprint_reread_
         requested, 2026-09-06) — load the record (targeting its OWN file so an
         Apply rewrites it there) and run the Reread flow on the same page."""
+        self.imprint_dock.set_root_path(self.root_metadata_dock.root_path)
         self.imprint_dock.load_entry(entry, file_path)
         self._show_config_imprint()
         self.imprint_dock.reread()

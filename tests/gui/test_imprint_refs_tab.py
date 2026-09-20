@@ -37,7 +37,7 @@ from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import load_field_overrides
 from kicadstamp.utils.paths import overrides_path_for_config
 
-UUID = {"BZ1": "uuid-BZ1", "Q1": "uuid-Q1", "R6": "uuid-R6"}
+UUID = {"BZ1": "uuid-BZ1", "Q1": "uuid-Q1", "R6": "uuid-R6", "D6": "uuid-D6"}
 
 
 class _AdapterSpy:
@@ -58,18 +58,25 @@ def _records(roles=None):
     return ImprintRefsTab.records_from_snapshot(_snapshot(roles))
 
 
-def _record(name="zummer"):
+def _record(name="zummer", extra_refs=()):
+    """The record as the page loads it. `extra_refs` appends further components —
+    the D6 of the live case (Denis re-read the record after adding D6, so the
+    RECORD grew a component the table had never seen)."""
+    components = [
+        {"ref": "BZ1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "rotation_deg": 0.0},
+        {"ref": "Q1", "offset_along_mm": 10.0, "offset_across_mm": 5.0,
+         "rotation_deg": 90.0},
+        {"ref": "R6", "offset_along_mm": -2.5, "offset_across_mm": 1.5,
+         "rotation_deg": 180.0},
+    ]
+    for i, ref in enumerate(extra_refs):
+        components.append({"ref": ref, "offset_along_mm": 20.0 + 2.0 * i,
+                           "offset_across_mm": -1.0, "rotation_deg": 0.0})
     return load_imprint({
         "name": name,
         "source_sheet": "Channel_0",
-        "components": [
-            {"ref": "BZ1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
-             "rotation_deg": 0.0},
-            {"ref": "Q1", "offset_along_mm": 10.0, "offset_across_mm": 5.0,
-             "rotation_deg": 90.0},
-            {"ref": "R6", "offset_along_mm": -2.5, "offset_across_mm": 1.5,
-             "rotation_deg": 180.0},
-        ],
+        "components": components,
         "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
                   "drill_mm": 0.3, "diameter_mm": 0.6, "net": "GND"}],
         "tracks": [{"start_along_mm": 0.0, "start_across_mm": 0.0,
@@ -239,6 +246,53 @@ class TestClusterIsOne:
                         _records({"BZ1": "BUZZER", "Q1": "", "R6": ""}),
                         load_field_overrides(overrides_path_for_config(str(root))))
         assert tab.cluster_text() == "OURS"
+
+
+# ── the list follows the record (live case 2026-09-20) ────────────────────
+
+class TestTheListFollowsTheRecord:
+    def test_a_new_component_arrives_and_the_typed_roles_survive(self, qapp, tmp_path):
+        """Denis's case: D6 was added to the board and the record re-read — the
+        table must show the new component WITHOUT throwing away the Roles already
+        typed for the others (the record is the source of the LIST, never of the
+        user's typing)."""
+        tab, root, _store, _spy = _tab(qapp, tmp_path)
+        _set_role(tab, "BZ1", "BUZZER")
+        _set_role(tab, "Q1", "DRIVER")
+
+        tab.set_context(root, "zummer", _record(extra_refs=("D6",)),
+                        _records({"BZ1": "", "Q1": "", "R6": "", "D6": ""}), None)
+
+        assert tab.row_refs() == ["BZ1", "Q1", "R6", "D6"]  # new one appended
+        assert tab.roles_by_ref()["BZ1"] == "BUZZER"
+        assert tab.roles_by_ref()["Q1"] == "DRIVER"
+        assert "D6" in tab.status_text()                    # and it is reported
+
+    def test_a_component_that_left_the_record_loses_its_row(self, qapp, tmp_path):
+        """The other direction: the record no longer carries R6, so its row goes —
+        and the refdes is named in the status line rather than disappearing
+        silently."""
+        tab, root, _store, _spy = _tab(qapp, tmp_path)
+        _set_role(tab, "R6", "BASE_RES")
+        shrunk = _record()
+        shrunk.components = [c for c in shrunk.components if c.ref != "R6"]
+
+        tab.set_context(root, "zummer", shrunk,
+                        _records({"BZ1": "", "Q1": ""}), None)
+
+        assert tab.row_refs() == ["BZ1", "Q1"]
+        assert "R6" in tab.status_text()
+
+    def test_the_typed_role_reaches_the_store_after_a_reread(self, qapp, tmp_path):
+        """End to end: type a Role, Reread adds a component, record — the value
+        still lands in the store file (the rebuild must not lose the edit)."""
+        tab, root, _store, _spy = _tab(qapp, tmp_path)
+        _set_role(tab, "BZ1", "BUZZER")
+        tab.set_context(root, "zummer", _record(extra_refs=("D6",)),
+                        _records({"BZ1": "", "Q1": "", "R6": "", "D6": ""}), None)
+        tab.write_to_store()
+        from_disk = load_field_overrides(overrides_path_for_config(str(root)))
+        assert from_disk.get("uuid-BZ1", ROLE_FIELD_NAME) == "BUZZER"
 
 
 # ── С2 + С9: the conversion ───────────────────────────────────────────────
