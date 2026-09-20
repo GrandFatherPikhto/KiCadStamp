@@ -2883,30 +2883,23 @@ class DockHub:
         the source and its entity travel between profiles together.
 
         Т3: a suitable entity for the same source already existing WINS — the
-        second is not created, and the user is told which one was found."""
+        second is not created, and the user is told which one was found. The
+        rule is NOT restated here: it lives in
+        gui.docks.tree_from_selection.find_entity_for_source, the ONE function
+        create_cell_and_entity_for_cluster also resolves through. This handler
+        used to keep a copy, and the copy had already drifted — it matched the
+        source alone, i.e. it forbade a second Entity on the same cell under a
+        DIFFERENT cluster, which the docstring of the real rule calls out."""
         from .docks.create_entity import CreateEntityDialog
         from .docks.rename import (collect_graph_files,
                                    name_exists_in_list_section)
+        from .docks.tree_from_selection import find_entity_for_source
+        from kicadstamp.config import load_config
         from kicadstamp.config_writer import read_data, upsert_list_entry
 
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
             show_message(_("Set the project root first."), _ERROR_STYLE, logger)
-            return
-
-        # Т3: an entity for this very source already exists — it wins, nothing
-        # is created, and the user is told which one was found. The check is by
-        # SOURCE only (cell:/imprint:), never by cluster/sheet: both are
-        # optional, and two entities on one cell with different clusters are
-        # legitimate (one cell, two placements).
-        source_field = "cell" if source_kind == "cell" else "imprint"
-        existing = self._find_entity_for_source(root_path, source_field,
-                                                source_name)
-        if existing is not None:
-            show_message(
-                _("Entity {name!r} already exists for this source — reused, "
-                  "nothing new was created.").format(name=existing),
-                _WARN_STYLE, logger)
             return
 
         # Т2: the name must be unique across the WHOLE include graph, not just
@@ -2923,6 +2916,33 @@ class DockHub:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         name, cluster, sheet = dialog.result_data()
+        source_field = "cell" if source_kind == "cell" else "imprint"
+
+        # Т3: the duplicate check comes AFTER the form, for BOTH sources, and
+        # its key is the source PLUS that source's OWN second field — (cell,
+        # cluster) for a cell, (imprint, sheet) for an imprint. That is exactly
+        # why it cannot be decided before the dialog (2026-09-20, plan §Т3):
+        # one cell on two clusters is two legitimate Entities, and so is one
+        # imprint on two twin sheets. The rule itself is shared, never restated
+        # here (see the docstring) — a second copy is what drifted before.
+        try:
+            cfg, _ctx = load_config(str(root_path))
+        except (ValidationError, OSError) as e:
+            show_message(_("Failed to load config: {error}").format(error=e),
+                         _ERROR_STYLE, logger)
+            return
+        if source_field == "imprint":
+            existing = find_entity_for_source(
+                cfg, imprint=source_name, sheet=sheet)
+        else:
+            existing = find_entity_for_source(
+                cfg, cell=source_name, cluster=cluster)
+        if existing is not None:
+            show_message(
+                _("Entity {name!r} already exists for this source — reused, "
+                  "nothing new was created.").format(name=existing.name),
+                _WARN_STYLE, logger)
+            return
 
         # Т2: the name is checked against the WHOLE graph once more, now that
         # the user has had a chance to type one — the dialog's own check is a
@@ -2934,7 +2954,10 @@ class DockHub:
             return
 
         entry = {"name": name, source_field: source_name}
-        if cluster:
+        # cluster: a CELL's tag ONLY — on an imprint-based Entity it is fatal at
+        # load (config/models.py:706; С3), so it is dropped here whatever the
+        # form hands back, rather than trusted to have omitted the field.
+        if source_field == "cell" and cluster:
             entry["cluster"] = cluster
         if sheet:
             entry["sheet"] = sheet
@@ -2954,19 +2977,6 @@ class DockHub:
                 name=name, path=display_path(file_path)),
             "", logger)
 
-    def _find_entity_for_source(self, root_path, source_field: str,
-                                source_name: str):
-        """The name of an existing entities: record whose `source_field`
-        (cell:/imprint:) equals `source_name`, anywhere in the include graph —
-        or None. Т3's "a suitable entity already exists" check."""
-        from .docks.rename import collect_graph_files
-        from kicadstamp.config_writer import read_data
-        for path in collect_graph_files(root_path):
-            for item in (read_data(path).get("entities") or []):
-                if (isinstance(item, dict)
-                        and item.get(source_field) == source_name):
-                    return item.get("name")
-        return None
 
     def _copy_cell_placement(self, name, file_path) -> None:
         """ConfigTreeDock's cell_copy_requested delegate (2026-09-06, plan
