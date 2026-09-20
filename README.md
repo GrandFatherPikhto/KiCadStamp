@@ -147,7 +147,7 @@ nest, and a child's coordinates are measured from its parent.
 **ClonePlacement** — the historical way to place a clone (by selection or by nets). Still supported, but
 new profiles should prefer the Entity + Tree model; `tools/convert_placements.py` migrates the old ones.
 
-**Scheme List** — a snapshot of a set of board components that can be re-read and re-placed as a whole.
+**Imprint** — a snapshot of a set of board components that can be re-read and re-placed as a whole.
 
 **Registry** — a journal of created vias and tracks with their UUIDs. It is what makes a repeat run
 idempotent: it updates rather than duplicates.
@@ -158,7 +158,7 @@ idempotent: it updates rather than duplicates.
 
 The config is an **s-expression** (`.sexp`), like KiCad's own formats. A file with any other extension is
 rejected with a fatal error. (`.json` is still read as well — it backs a legacy `scheme_lists.json` side
-file; the GUI now creates its own `scheme_lists.sexp` the first time a Scheme List is recorded, and keeps
+file; the GUI now creates its own `scheme_lists.sexp` the first time an Imprint is recorded, and keeps
 using an existing `scheme_lists.json` as-is where a profile already has one.)
 
 A profile can be split across several files: `include:` at the root pulls in other `.sexp`/`.json` files

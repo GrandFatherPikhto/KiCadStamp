@@ -80,16 +80,16 @@ from .docks.thermal_via import ThermalViaArrayDock
 from .docks.tools import ToolsDock
 from .docks.tools_dialog import ToolsDialog
 from .docks.instances_dialog import TreeInstancesDialog
-from .docks.scheme_list import (
-    RecordSchemeListDialog,
-    SchemeListFormWidget,
+from .docks.imprint import (
+    RecordImprintDialog,
+    ImprintFormWidget,
     choose_boundary_actions,
     record_refs_for,
-    scheme_list_duplicate_problems,
+    imprint_duplicate_problems,
     snapshot_with_resolved_sheets,
-    write_scheme_list_record,
+    write_imprint_record,
 )
-from .docks.scheme_list_place import SchemeListPlaceFormWidget
+from .docks.imprint_place import ImprintPlaceFormWidget
 
 logger = logging.getLogger(__name__)
 
@@ -226,25 +226,25 @@ class DockHub:
         # the snapshot ticks / set_root_path / saved.
         self.thermal_via_dock = ThermalViaArrayDock(main_window)
         self._thermal_via_page = self.config_tree_dock.add_right_page(self.thermal_via_dock)
-        # Scheme List (2026-09-06, plan scheme_list P5, design §3): the same
+        # Imprint (2026-09-06, plan imprint P5, design §3): the same
         # QView move as Thermal via/NetTrace — the single live
-        # SchemeListFormWidget is a Config right-QView page (a single click on
-        # a scheme_lists leaf opens the record read-only; Reread rewrites it on
+        # ImprintFormWidget is a Config right-QView page (a single click on
+        # an imprints leaf opens the record read-only; Reread rewrites it on
         # an explicit Apply). No Placement/Redraw here — that lives in Trees
-        # via the Entity(scheme_list:)/Placement machinery (P4/P6).
-        self.scheme_list_dock = SchemeListFormWidget(main_window, connection=connection)
-        self._scheme_list_page = self.config_tree_dock.add_right_page(self.scheme_list_dock)
-        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
-        # SEPARATE "Place Scheme List..." QView page (NOT a tab of "Instantiate
+        # via the Entity(imprint:)/Placement machinery (P4/P6).
+        self.imprint_dock = ImprintFormWidget(main_window, connection=connection)
+        self._imprint_page = self.config_tree_dock.add_right_page(self.imprint_dock)
+        # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
+        # SEPARATE "Place Imprint..." QView page (NOT a tab of "Instantiate
         # from Cell..." — Denis's anti-pattern §9.1). It turns ONE recorded
-        # snapshot into a NEW scheme_list-based Entity + a placement node in an
+        # snapshot into a NEW imprint-based Entity + a placement node in an
         # EXISTING tree. Built once and registered as another Config right page,
         # driven by root_changed (set_root_path -> refresh cfg combos) and the
         # selection ticks (the opt-in "from selection" hint).
-        self.scheme_list_place_dock = SchemeListPlaceFormWidget(
+        self.imprint_place_dock = ImprintPlaceFormWidget(
             main_window, connection=connection)
-        self._scheme_list_place_page = self.config_tree_dock.add_right_page(
-            self.scheme_list_place_dock)
+        self._imprint_place_page = self.config_tree_dock.add_right_page(
+            self.imprint_place_dock)
         # Held across the Record.../capture worker ops (worker.py keeps its own
         # keep-alive too, but the dock keeps the returned controller for
         # inspection/idempotency, the same shape as the docks' _active_op).
@@ -419,68 +419,68 @@ class DockHub:
         dock."""
         self.config_tree_dock.show_page(self._net_trace_page)
 
-    def _show_config_scheme_list(self, *_args) -> None:
-        """Route a scheme_lists pick to the Scheme List right page of the
-        Config dock (2026-09-06, plan scheme_list P5)."""
-        self.config_tree_dock.show_page(self._scheme_list_page)
+    def _show_config_imprint(self, *_args) -> None:
+        """Route an imprints pick to the Imprint right page of the
+        Config dock (2026-09-06, plan imprint P5)."""
+        self.config_tree_dock.show_page(self._imprint_page)
 
-    def _load_scheme_list_page(self, entry) -> None:
-        """Scheme List leaf single click (scheme_list_picked, 2026-09-06, plan
-        scheme_list P5) — load the record read-only and show it as a Config
+    def _load_imprint_page(self, entry) -> None:
+        """Imprint leaf single click (imprint_picked, 2026-09-06, plan
+        imprint P5) — load the record read-only and show it as a Config
         right-QView page (no dialog)."""
-        self.scheme_list_dock.load_entry(entry)
-        self._show_config_scheme_list()
+        self.imprint_dock.load_entry(entry)
+        self._show_config_imprint()
 
-    def _reread_scheme_list_from_tree(self, entry, file_path) -> None:
-        """Config-tree context menu's "Reread..." delegate (scheme_list_reread_
+    def _reread_imprint_from_tree(self, entry, file_path) -> None:
+        """Config-tree context menu's "Reread..." delegate (imprint_reread_
         requested, 2026-09-06) — load the record (targeting its OWN file so an
         Apply rewrites it there) and run the Reread flow on the same page."""
-        self.scheme_list_dock.load_entry(entry, file_path)
-        self._show_config_scheme_list()
-        self.scheme_list_dock.reread()
+        self.imprint_dock.load_entry(entry, file_path)
+        self._show_config_imprint()
+        self.imprint_dock.reread()
 
-    # ── Scheme List Place (2026-09-06, plan scheme_list §6.3 / P6 Stage 3) ─
+    # ── Imprint Place (2026-09-06, plan imprint §6.3 / P6 Stage 3) ─
     # The Place QView is the Config side of turning ONE recorded snapshot into
-    # a NEW scheme_list-based Entity + a placement node in an EXISTING tree.
-    # Triple exposure: the context menu's "Place..." (scheme_list_place_
+    # a NEW imprint-based Entity + a placement node in an EXISTING tree.
+    # Triple exposure: the context menu's "Place..." (imprint_place_
     # requested), the Tools menu's "Place..." (blank form, presets the record
     # currently selected in the Config tree when there is one) and the page's
-    # own button. All three land on the same SchemeListPlaceFormWidget page.
+    # own button. All three land on the same ImprintPlaceFormWidget page.
 
-    def _show_place_scheme_list_page(self, record_name) -> None:
+    def _show_place_imprint_page(self, record_name) -> None:
         """Shared leg of the Place triple exposure: focus the Config dock,
         re-read the cfg at the current root (refresh() repopulates the cfg-
         derived combos), preset the record when one was requested and show the
-        page. Order matters — preset_scheme_list needs a loaded cfg to resolve
+        page. Order matters — preset_imprint needs a loaded cfg to resolve
         the name, so refresh() runs before the preset."""
         self._focus_config_tree_dock()
-        self.scheme_list_place_dock.refresh()
+        self.imprint_place_dock.refresh()
         if record_name:
-            self.scheme_list_place_dock.preset_scheme_list(record_name)
-        self.config_tree_dock.show_page(self._scheme_list_place_page)
+            self.imprint_place_dock.preset_imprint(record_name)
+        self.config_tree_dock.show_page(self._imprint_place_page)
 
-    def place_scheme_list(self) -> None:
-        """Main menu "Tools -> Scheme Lists -> Place..." (plan §6.3): open the
-        SchemeListPlaceFormWidget QView page, preset to the Scheme List record
+    def place_imprint(self) -> None:
+        """Main menu "Tools -> Imprints -> Place..." (plan §6.3): open the
+        ImprintPlaceFormWidget QView page, preset to the Imprint record
         currently SELECTED in the Config tree when there is one (mirror of
-        reread_scheme_list), otherwise a blank form — the user picks the record
+        reread_imprint), otherwise a blank form — the user picks the record
         + tree + parent + offset/rotation in the page itself."""
         name = None
-        selection = self.config_tree_dock.selected_scheme_list()
+        selection = self.config_tree_dock.selected_imprint()
         if selection is not None:
             entry = selection[1]
             name = entry.get("name") if isinstance(entry, dict) else None
-        self._show_place_scheme_list_page(name)
+        self._show_place_imprint_page(name)
 
-    def place_scheme_list_record(self, entry, file_path) -> None:
+    def place_imprint_record(self, entry, file_path) -> None:
         """Config-tree context menu's "Place..." delegate
-        (scheme_list_place_requested, 2026-09-06): preset the Place page to
+        (imprint_place_requested, 2026-09-06): preset the Place page to
         the right-clicked record (by its name) and show it. `file_path` is the
         record's owning file — the page re-resolves the tree owner itself."""
         name = entry.get("name") if isinstance(entry, dict) else None
-        self._show_place_scheme_list_page(name)
+        self._show_place_imprint_page(name)
 
-    # ── Scheme List Re-source (2026-09-06, plan scheme_list §7 / Stage 5b) ─
+    # ── Imprint Re-source (2026-09-06, plan imprint §7 / Stage 5b) ─
     # "Re-source..." re-points an EXISTING record at a DIFFERENT source (sheet
     # or selection) under the SAME name — the same two-tab Record dialog with
     # the name pinned read-only (plan_2026_09_06_scheme_list_sheet_capture.md
@@ -488,14 +488,14 @@ class DockHub:
     # (target_path, like Reread Apply) — never moved to the default storage
     # file (scheme_lists.sexp, or the legacy scheme_lists.json).
     # Triple exposure: the context menu's "Re-source..."
-    # (scheme_list_resource_requested) and the Tools menu's "Re-source..."
-    # (needs a selected record); both converge on _run_resource_scheme_list.
+    # (imprint_resource_requested) and the Tools menu's "Re-source..."
+    # (needs a selected record); both converge on _run_resource_imprint.
     # The capture itself runs on the worker (_run_resource_capture, mirror of
     # Record's _run_record_capture) — never blocking the UI on live-board IPC.
 
-    def resource_scheme_list_record(self, entry, file_path) -> None:
+    def resource_imprint_record(self, entry, file_path) -> None:
         """Config-tree context menu's "Re-source..." delegate
-        (scheme_list_resource_requested, plan 5b.3/5b.4): the record is
+        (imprint_resource_requested, plan 5b.3/5b.4): the record is
         already known from the right-click — re-point it under the same name.
         `file_path` is the record's owning file (the re-source write target).
 
@@ -504,26 +504,26 @@ class DockHub:
         fly in the Config tree, and that object is gone with its menu long
         before the worker runs — there is nothing stable to disable. A second
         run would need a fresh right-click plus the whole dialog round trip."""
-        self._run_resource_scheme_list(entry, file_path)
+        self._run_resource_imprint(entry, file_path)
 
-    def resource_scheme_list(self) -> None:
-        """Main menu "Tools -> Scheme Lists -> Re-source..." (plan 5b.3): like
-        Reread, this acts on the Scheme List record currently SELECTED in the
+    def resource_imprint(self) -> None:
+        """Main menu "Tools -> Imprints -> Re-source..." (plan 5b.3): like
+        Reread, this acts on the Imprint record currently SELECTED in the
         Config tree — unlike Record there is no point in an empty re-source
         form, so a missing selection is a warning, not a blank dialog."""
-        selection = self.config_tree_dock.selected_scheme_list()
+        selection = self.config_tree_dock.selected_imprint()
         if selection is None:
-            show_message(_("Select a Scheme List record first."), "",
+            show_message(_("Select an Imprint record first."), "",
                          logging.getLogger(__name__))
             return
         file_path, entry = selection
-        self._run_resource_scheme_list(
+        self._run_resource_imprint(
             entry, file_path,
-            trigger=self._menu_trigger_action("resource_scheme_list_action"))
+            trigger=self._menu_trigger_action("resource_imprint_action"))
 
-    def _run_resource_scheme_list(self, entry, file_path, trigger=None) -> None:
+    def _run_resource_imprint(self, entry, file_path, trigger=None) -> None:
         """UI thread — the shared Re-source flow: guards, the fixed-name
-        RecordSchemeListDialog (both source tabs stay available), the ref
+        RecordImprintDialog (both source tabs stay available), the ref
         derivation (record_refs_for — same By-sheet/By-selection branch as
         Record), the duplicate pre-checks with exclude_name = the record
         itself, then the capture dispatched to the worker. Never touches the
@@ -532,17 +532,17 @@ class DockHub:
         `trigger` is the menu QAction the flow was started by, for the guard
         widget of its start_long_op (Э2, plan_2026_09_12_busy_indicator); the
         Config-tree context-menu leg passes None on purpose (see
-        resource_scheme_list_record)."""
+        resource_imprint_record)."""
         from .worker import start_long_op
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+            QMessageBox.warning(self.main_window, _("Imprints"),
                                 _("Set the project root first."))
             return
         record_name = entry.get("name") if isinstance(entry, dict) else None
         if not record_name:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
-                                _("Select a Scheme List record first."))
+            QMessageBox.warning(self.main_window, _("Imprints"),
+                                _("Select an Imprint record first."))
             return
         connection = self.main_window.connection
         board = getattr(connection, "board", None)
@@ -553,7 +553,7 @@ class DockHub:
             # stops here (no dialog, no capture).
             show_message(_("Connect to KiCad first."), _ERROR_STYLE, logger)
             return
-        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        # source_sheet derivation (capture_imprint's sheet_names parameter)
         # needs the {uuid: sheetname} map — best-effort, same as Record (a
         # broken config only leaves source_sheet None, never blocks). Loaded
         # BEFORE the dialog (2026-09-07 fix, symmetric to Record — see
@@ -576,14 +576,14 @@ class DockHub:
             getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
-        dialog = RecordSchemeListDialog(
+        dialog = RecordImprintDialog(
             snapshot, selection_refs, self.main_window, fixed_name=record_name,
             adapter=adapter, selected_footprints=self._selection_footprints,
             # Re-source pre-fills the Pivot/Anchor tab from the record's stored
             # pivot, so leaving it untouched KEEPS the pivot (Commit F).
             pivot_initial=entry.get("pivot") if isinstance(entry, dict) else None,
             # Commit G — "Take from selection" reads the CURRENT board selection
-            # at click time (see record_scheme_list).
+            # at click time (see record_imprint).
             selection_provider=lambda: list(self._selection_footprints),
             # Commit H — the recorded refs' positions come from the LIVE
             # full-board snapshot (connection.snapshot, refreshed by the poll
@@ -603,14 +603,14 @@ class DockHub:
         try:
             pivot = dialog.pivot_value()  # Pivot/Anchor tab (Commit F)
         except ValidationError as e:
-            QMessageBox.warning(self.main_window, _("Cannot re-source Scheme List"),
+            QMessageBox.warning(self.main_window, _("Cannot re-source Imprint"),
                                 str(e))
             return
         refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
                                selection_refs)
         if not refs:
             QMessageBox.warning(
-                self.main_window, _("Cannot re-source Scheme List"),
+                self.main_window, _("Cannot re-source Imprint"),
                 _("No footprints to record — pick a sheet that has footprints "
                   "on the 'By sheet' tab, or select footprints on the board "
                   "for 'By selection'."))
@@ -619,11 +619,11 @@ class DockHub:
         # but the record ITSELF is excluded: its own name is not a duplicate
         # and its own old refs are being REPLACED (replace, not conflict).
         # Only a ref owned by ANOTHER record stays fatal.
-        problems = scheme_list_duplicate_problems(
+        problems = imprint_duplicate_problems(
             root_path, record_name, refs, exclude_name=record_name)
         if problems:
             QMessageBox.warning(self.main_window,
-                                _("Cannot re-source Scheme List"),
+                                _("Cannot re-source Imprint"),
                                 "\n".join(problems))
             return
         # 5c.1 — same scope persistence as Record: a "By sheet" Re-source
@@ -770,18 +770,18 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "thermal_via_dock.set_root_path",
                     self.thermal_via_dock.set_root_path))
-        # Scheme List (2026-09-06, plan scheme_list P5): Reread Apply needs the
+        # Imprint (2026-09-06, plan imprint P5): Reread Apply needs the
         # project root to resolve/write the record's owning file; the root also
         # feeds the Record... duplicate pre-checks.
         self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "scheme_list_dock.set_root_path",
-                    self.scheme_list_dock.set_root_path))
-        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
-        # Place page's cfg combos (scheme lists / trees / parents) come from
+            partial(self._safe_call, "imprint_dock.set_root_path",
+                    self.imprint_dock.set_root_path))
+        # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
+        # Place page's cfg combos (imprints / trees / parents) come from
         # the root config — same root_changed source as every other dock.
         self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "scheme_list_place_dock.set_root_path",
-                    self.scheme_list_place_dock.set_root_path))
+            partial(self._safe_call, "imprint_place_dock.set_root_path",
+                    self.imprint_place_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
@@ -937,23 +937,23 @@ class DockHub:
         self.chains_nav_dock.reveal_chain.connect(self.config_tree_dock.select_chains_chain)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
-        # Scheme List (2026-09-06, plan scheme_list P5): a single click on a
-        # scheme_lists leaf opens the read-only record page; the context menu's
+        # Imprint (2026-09-06, plan imprint P5): a single click on a
+        # imprints leaf opens the read-only record page; the context menu's
         # "Reread..." loads the record and runs the Reread flow on the same
-        # page. No Add/Record here — a Scheme List can only be captured from
-        # the live board (Tools -> "Scheme Lists" -> "Record...").
-        self.config_tree_dock.scheme_list_picked.connect(self._load_scheme_list_page)
-        self.config_tree_dock.scheme_list_reread_requested.connect(
-            self._reread_scheme_list_from_tree)
-        # 2026-09-06 (plan scheme_list §6.3 / P6 Stage 3): the context menu's
+        # page. No Add/Record here — an Imprint can only be captured from
+        # the live board (Tools -> "Imprints" -> "Record...").
+        self.config_tree_dock.imprint_picked.connect(self._load_imprint_page)
+        self.config_tree_dock.imprint_reread_requested.connect(
+            self._reread_imprint_from_tree)
+        # 2026-09-06 (plan imprint §6.3 / P6 Stage 3): the context menu's
         # "Place..." — the Place page opens preset to the right-clicked record.
-        self.config_tree_dock.scheme_list_place_requested.connect(
-            self.place_scheme_list_record)
+        self.config_tree_dock.imprint_place_requested.connect(
+            self.place_imprint_record)
         # "Re-source..." (Stage 5b) — the context-menu leg re-sources the
         # right-clicked record under the same name (fixed-name dialog; the
-        # Tools-menu leg is resource_scheme_list, called from main_window).
-        self.config_tree_dock.scheme_list_resource_requested.connect(
-            self.resource_scheme_list_record)
+        # Tools-menu leg is resource_imprint, called from main_window).
+        self.config_tree_dock.imprint_resource_requested.connect(
+            self.resource_imprint_record)
         # "Edit cell..." (context menu, 2026-08-06) — deliberately NOT wired
         # to cell_picked, which keeps meaning "pick this cell as a
         # placement's content" (see config_tree.py's module docstring).
@@ -1009,17 +1009,17 @@ class DockHub:
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
-        # Scheme List (2026-09-06, plan scheme_list P5): a successful Reread
+        # Imprint (2026-09-06, plan imprint P5): a successful Reread
         # Apply rewrites the record — refresh the tree's leaf display.
-        self.scheme_list_dock.saved.connect(self.config_tree_dock.refresh)
-        # Scheme List Place (2026-09-06, plan scheme_list §6.3 / P6 Stage 3): a
+        self.imprint_dock.saved.connect(self.config_tree_dock.refresh)
+        # Imprint Place (2026-09-06, plan imprint §6.3 / P6 Stage 3): a
         # successful Place wrote a NEW Entity + a NEW tree node — refresh the
         # Config tree's display, reload the Trees dock (its tree tabs hold the
         # config's trees: in memory) and broadcast graph_changed so every
         # graph-derived combo (Entity names, ...) hears about the new Entity.
-        self.scheme_list_place_dock.saved.connect(self.config_tree_dock.refresh)
-        self.scheme_list_place_dock.saved.connect(self.trees_dock.reload_trees)
-        self.scheme_list_place_dock.saved.connect(
+        self.imprint_place_dock.saved.connect(self.config_tree_dock.refresh)
+        self.imprint_place_dock.saved.connect(self.trees_dock.reload_trees)
+        self.imprint_place_dock.saved.connect(
             self.config_tree_dock.graph_changed.emit)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
         # Cell anchor (Phase C, 2026-09-09): a saved anchor rewrites the cell
@@ -1310,19 +1310,19 @@ class DockHub:
         self._warn_if_sheet_narrowing_disabled(
             self.root_metadata_dock.root_path)
         self.placer_dock.set_board_selection(items, selected)
-        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
         # Place page's opt-in "from selection" hint reads the current selection
         # center — fed by the same polled snapshot tick as Placer's auto-fill.
-        self.scheme_list_place_dock.set_board_selection(items, selected)
+        self.imprint_place_dock.set_board_selection(items, selected)
         # Cell editor (2026-09-12, plan_2026_09_12_cell_layer_dialog Э3): the
         # layer dialog marks a layer "empty in the selection" from THIS tick —
         # the raw items, so the dock never reads the board itself on the UI
         # thread (P.3.4 of that plan).
         self.cells_dock.set_board_selection(items, selected)
-        # Scheme List record Reread (5c.4): a "By selection"-record's scope is
+        # Imprint record Reread (5c.4): a "By selection"-record's scope is
         # the CURRENT board selection at click time — the record dock needs the
         # same selection tick.
-        self.scheme_list_dock.set_board_selection(items, selected)
+        self.imprint_dock.set_board_selection(items, selected)
 
     def push_fieldstool_selection(self, refs) -> None:
         """Live board selection -> embedded fieldstool's target label (Phase
@@ -1520,17 +1520,17 @@ class DockHub:
         None instead of an AttributeError."""
         return getattr(self.main_window, attr_name, None)
 
-    # ── Tools → "Scheme Lists" (2026-09-06, plan scheme_list §5.3 / Stage 5a)
+    # ── Tools → "Imprints" (2026-09-06, plan imprint §5.3 / Stage 5a)
     # "Record..." captures the source the user picks in a TWO-tab dialog — "By
     # sheet" (root sheet + sub-sheet checklist, the DEFAULT) or "By selection"
     # (the current board selection, unchanged P2 behavior) — as a named Scheme
-    # List record; "Reread..." re-syncs the Scheme List record currently
+    # List record; "Reread..." re-syncs the Imprint record currently
     # SELECTED in the Config tree against the live board (the form button + the
     # context menu are the other two legs of the triple exposure). Neither ever
     # applies anything to the board — this is the pure Config side (design §3).
 
-    def record_scheme_list(self) -> None:
-        """Main menu "Tools -> Scheme Lists -> Record..." (plan §5.3 / Stage
+    def record_imprint(self) -> None:
+        """Main menu "Tools -> Imprints -> Record..." (plan §5.3 / Stage
         5a.3): open the two-tab Record dialog ("By sheet" default / "By
         selection"), derive the capture refs from what the user picked, ask a
         unique name inside the dialog, run capture on the worker (never
@@ -1542,7 +1542,7 @@ class DockHub:
         from .worker import start_long_op
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+            QMessageBox.warning(self.main_window, _("Imprints"),
                                 _("Set the project root first."))
             return
         connection = self.main_window.connection
@@ -1556,8 +1556,8 @@ class DockHub:
         # Э2 (plan_2026_09_12_busy_indicator): the Tools-menu QAction that
         # started this flow is disabled until the capture finishes, so the same
         # entry cannot put a second live-board read on the shared kipy socket.
-        trigger = self._menu_trigger_action("record_scheme_list_action")
-        # source_sheet derivation (capture_scheme_list's sheet_names parameter)
+        trigger = self._menu_trigger_action("record_imprint_action")
+        # source_sheet derivation (capture_imprint's sheet_names parameter)
         # needs the {uuid: sheetname} map the project config carries
         # (ctx.sheet_names). Best-effort: a broken config must not block Record
         # — it only leaves source_sheet None (record is "in place only").
@@ -1584,7 +1584,7 @@ class DockHub:
             getattr(connection, "snapshot", None) or [], sheet_names)
         selection_refs = sorted({getattr(s, "ref", None) for s in self._selection_footprints
                                  if getattr(s, "ref", None)})
-        dialog = RecordSchemeListDialog(
+        dialog = RecordImprintDialog(
             snapshot, selection_refs, self.main_window,
             adapter=adapter, selected_footprints=self._selection_footprints,
             # Commit G — "Take from selection" reads the CURRENT board selection
@@ -1606,19 +1606,19 @@ class DockHub:
             return
         name, _sheet_path, checked_paths = dialog.result_data()
         if not name:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"),
+            QMessageBox.warning(self.main_window, _("Imprints"),
                                 _("Name is required."))
             return
         try:
             pivot = dialog.pivot_value()  # Pivot/Anchor tab (Commit F)
         except ValidationError as e:
-            QMessageBox.warning(self.main_window, _("Scheme Lists"), str(e))
+            QMessageBox.warning(self.main_window, _("Imprints"), str(e))
             return
         refs = record_refs_for(snapshot, dialog.is_by_sheet(), checked_paths,
                                selection_refs)
         if not refs:
             QMessageBox.warning(
-                self.main_window, _("Scheme Lists"),
+                self.main_window, _("Imprints"),
                 _("No footprints to record — pick a sheet that has footprints "
                   "on the 'By sheet' tab, or select footprints on the board "
                   "for 'By selection'."))
@@ -1626,9 +1626,9 @@ class DockHub:
         # Duplicate pre-checks BEFORE the expensive capture (plan §2): the
         # loader validates these at load, but a wasted board read must not
         # happen over a record that cannot be saved.
-        problems = scheme_list_duplicate_problems(root_path, name, refs)
+        problems = imprint_duplicate_problems(root_path, name, refs)
         if problems:
-            QMessageBox.warning(self.main_window, _("Cannot record Scheme List"),
+            QMessageBox.warning(self.main_window, _("Cannot record Imprint"),
                                 "\n".join(problems))
             return
         # 5c.1 — a "By sheet" Record persists the CHECKED leaf paths as the
@@ -1668,16 +1668,16 @@ class DockHub:
         G2's phase-2 re-runs the SAME worker with the user's per-net
         boundary_net_actions, so a truncate choice re-captures the clipped
         copper. A payload without the key is byte-identical to v1."""
-        from kicadstamp.config.models import SchemeListScopePreset
-        from kicadstamp.scheme_list_capture import capture_scheme_list
+        from kicadstamp.config.models import ImprintScopePreset
+        from kicadstamp.imprint_capture import capture_imprint
         try:
-            record = capture_scheme_list(
+            record = capture_imprint(
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
                 pivot=payload.get("pivot"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
-                scope_presets=[SchemeListScopePreset(**p)
+                scope_presets=[ImprintScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],
                 boundary_net_actions=payload.get("boundary_net_actions"))
         except ApiError as e:
@@ -1686,7 +1686,7 @@ class DockHub:
             # "finish the unfinished tool in KiCad"), never a raw stack.
             return {"error": api_error_message(e)}
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
-            logging.getLogger(__name__).exception("Scheme List record capture failed")
+            logging.getLogger(__name__).exception("Imprint record capture failed")
             return {"error": str(e)}
         # `payload` rides along so phase-1's finish can re-run this worker with
         # the SAME Record payload + the chosen boundary_net_actions (G2).
@@ -1750,14 +1750,14 @@ class DockHub:
         record = result["record"]
         root_path = Path(result["root"])
         try:
-            written = write_scheme_list_record(root_path, record)
+            written = write_imprint_record(root_path, record)
         except OSError as e:
             QMessageBox.warning(self.main_window, _("Record failed"), str(e))
             return
         self.config_tree_dock.refresh()
         self.config_tree_dock.graph_changed.emit()
         show_message(
-            _("Recorded Scheme List {name!r} — {components} components, "
+            _("Recorded Imprint {name!r} — {components} components, "
               "{vias} vias, {tracks} tracks -> {path}").format(
                 name=record.name, components=len(record.components),
                 vias=len(record.vias), tracks=len(record.tracks),
@@ -1781,16 +1781,16 @@ class DockHub:
         truncate choice could never reach capture before the record was
         persisted). A payload without the boundary_net_actions key is
         byte-identical to v1."""
-        from kicadstamp.config.models import SchemeListScopePreset
-        from kicadstamp.scheme_list_capture import capture_scheme_list
+        from kicadstamp.config.models import ImprintScopePreset
+        from kicadstamp.imprint_capture import capture_imprint
         try:
-            record = capture_scheme_list(
+            record = capture_imprint(
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
                 sheet_names=payload.get("sheet_names"),
                 pivot=payload.get("pivot"),
                 scope_sheet_paths=payload.get("scope_sheet_paths"),
-                scope_presets=[SchemeListScopePreset(**p)
+                scope_presets=[ImprintScopePreset(**p)
                                for p in (payload.get("scope_presets") or [])],
                 boundary_net_actions=payload.get("boundary_net_actions"))
         except ApiError as e:
@@ -1798,7 +1798,7 @@ class DockHub:
             return {"error": api_error_message(e)}
         except Exception as e:  # noqa: BLE001 — ValidationError family surfaces verbatim
             logging.getLogger(__name__).exception(
-                "Scheme List re-source capture failed")
+                "Imprint re-source capture failed")
             return {"error": str(e)}
         return {"record": record, "root": payload["root"],
                 "target_path": payload.get("target_path"), "payload": payload}
@@ -1865,7 +1865,7 @@ class DockHub:
         target_path = (Path(result["target_path"])
                        if result.get("target_path") else None)
         try:
-            written = write_scheme_list_record(root_path, record,
+            written = write_imprint_record(root_path, record,
                                                target_path=target_path)
         except OSError as e:
             QMessageBox.warning(self.main_window, _("Re-source failed"), str(e))
@@ -1873,7 +1873,7 @@ class DockHub:
         self.config_tree_dock.refresh()
         self.config_tree_dock.graph_changed.emit()
         show_message(
-            _("Re-sourced Scheme List {name!r} — {components} components, "
+            _("Re-sourced Imprint {name!r} — {components} components, "
               "{vias} vias, {tracks} tracks -> {path}").format(
                 name=record.name, components=len(record.components),
                 vias=len(record.vias), tracks=len(record.tracks),
@@ -1885,18 +1885,18 @@ class DockHub:
         QMessageBox.warning(self.main_window, _("Re-source failed"),
                             _("Operation failed: {error}").format(error=message))
 
-    def reread_scheme_list(self) -> None:
-        """Main menu "Tools -> Scheme Lists -> Reread..." (plan §5.3): the
-        Scheme List record currently SELECTED in the Config tree — load it into
-        the Scheme List right page and run the Reread flow there."""
-        selection = self.config_tree_dock.selected_scheme_list()
+    def reread_imprint(self) -> None:
+        """Main menu "Tools -> Imprints -> Reread..." (plan §5.3): the
+        Imprint record currently SELECTED in the Config tree — load it into
+        the Imprint right page and run the Reread flow there."""
+        selection = self.config_tree_dock.selected_imprint()
         if selection is None:
-            show_message(_("Pick a Scheme List in the Config tree first."), "",
+            show_message(_("Pick an Imprint in the Config tree first."), "",
                          logging.getLogger(__name__))
             return
         file_path, entry = selection
         self._focus_config_tree_dock()
-        self._reread_scheme_list_from_tree(entry, file_path)
+        self._reread_imprint_from_tree(entry, file_path)
 
     def run_forest_full_redraw(self) -> None:
         """Main menu "Tools -> Trees -> Full redraw (all trees and modules)..."
@@ -2787,7 +2787,7 @@ class DockHub:
         """The Config tree's currently selected cell as (name, file_path), or None
         with a Log line already written — the ONE "no cell selected" handling the
         Tools → Config delegates below share (same idiom as
-        delete_selected_chain/reread_scheme_list)."""
+        delete_selected_chain/reread_imprint)."""
         selection = self.config_tree_dock.selected_cell()
         if selection is None:
             show_message(_("Pick a cell in the Config tree first."), "",
@@ -3062,11 +3062,11 @@ class DockHub:
                         self.cell_anchor_view.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",
                         self.net_trace_dock.set_root_path, path)
-        # Scheme List Place (2026-09-06, plan scheme_list §6 / P6 Stage 3): the
+        # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
         # Place page reads its cfg combos from the root — must be in the same
         # startup/discard sync list as every other root_changed consumer.
-        self._safe_call("scheme_list_place_dock.set_root_path",
-                        self.scheme_list_place_dock.set_root_path, path)
+        self._safe_call("imprint_place_dock.set_root_path",
+                        self.imprint_place_dock.set_root_path, path)
         self._safe_call("fieldstool_dock.set_root_path",
                         self.fieldstool_dock.set_root_path, path)
         # The poll adapter follows the project too (Т5г) — part of THIS startup/

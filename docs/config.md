@@ -477,13 +477,13 @@ So "an Entity no tree node references" is a legitimate, explicitly *not placed* 
 | `layer` / `mirror` | Optional — same cross-validation as `ClonePlacement` (mirror without a layer change, or vice versa, is a fatal load error). |
 | `comment` | Optional free-form note shown in the GUI. |
 
-A `scheme_list`-based Entity (design_2026_09_05_scheme_list.md) is different:
-instead of `cell:` it references a recorded Scheme List and carries `sheet` = the
+A `imprint`-based Entity (design_2026_09_05_scheme_list.md) is different:
+instead of `cell:` it references a recorded Imprint and carries `sheet` = the
 TARGET sheet. Empty `sheet` (or equal to the record's `source_sheet`) means the
 record is replayed "in place" (its own refs move); a different `sheet` resolves
 the recorded components' TWINS on that sheet and remaps their local nets to it.
 Apply/Redraw of such an Entity never goes through the clone/cell machinery
-(`scheme_list_apply.py` — the recorded snapshot is refdes-literal, not a Role
+(`imprint_apply.py` — the recorded snapshot is refdes-literal, not a Role
 template). `mirror`/`layer` are meaningless here and are fatal at load (v1 has
 no mirror formula).
 
@@ -968,23 +968,23 @@ find-and-replace on an old config, re-check the intended sense).
 
 ---
 
-## `scheme_lists:` — a recorded snapshot of a real board region
+## `imprints:` — a recorded snapshot of a real board region
 
 The answer to "I've already routed this region and want to replay it (or its
-twin) later": a Scheme List records a real, already-routed region as an
+twin) later": an Imprint records a real, already-routed region as an
 explicit list of literal refdes + the copper that reaches their pads (tracks
 and vias on ALL copper layers of the stack — F.Cu/In1.Cu..In30.Cu/B.Cu).
 Unlike a Cell (abstract Role), identity here is the literal `ref`, so a record
 is a snapshot, not a template. Records are captured from the live board (Tools
-→ Scheme Lists → Record...) and physically live in an included
+→ Imprints → Record...) and physically live in an included
 `scheme_lists.sexp` (the section itself is format-agnostic — see `include:`; a
 profile that still carries a legacy `scheme_lists.json` keeps using that file).
 
 ```sexp
 ; e.g. scheme_lists.sexp — included via include: (the .sexp syntax is identical)
-(scheme_lists
-  (scheme_list
-    (name "amp_avdd")               ; identity — the --only and Entity.scheme_list key
+(imprints
+  (imprint
+    (name "amp_avdd")               ; identity — the --only and Entity.imprint key
     ; (pivot (1.5 -2.25))           ; OPTIONAL — the record's anchor POINT in its centre frame
     ;                               ;   (design_2026_09_07_scheme_list_pivot.md): the point of the
     ;                               ;   recorded region that lands on a placement node at Redraw
@@ -1001,33 +1001,33 @@ profile that still carries a legacy `scheme_lists.json` keeps using that file).
     ;                                           ;   live snapshot. Absent for "By selection" records
     ;                                           ;   (their Reread scope is the board selection).
     ; (scope_presets                  ; "By sheet" records ONLY (design §9 п.12, 2026-09-06):
-    ;   (scheme_list_scope_preset
+    ;   (imprint_scope_preset
     ;     (name "full")
     ;     (sheet_paths ("Top" "Channel_0") ("Top" "Channel_1")))  ; NAMED saved alternatives to
-    ;   (scheme_list_scope_preset      ;   scope_sheet_paths — a library of checklist variants the
+    ;   (imprint_scope_preset      ;   scope_sheet_paths — a library of checklist variants the
     ;     (name "ch0-only")            ;   record page's "Preset" combo switches between BEFORE a
     ;     (sheet_paths ("Top" "Channel_0"))))  ;   Reread (Apply makes the picked one the new
                                               ;   scope_sheet_paths).
     (components
-      (scheme_list_component
+      (imprint_component
         (ref "R1")
         (offset_along_mm 0.0)
         (offset_across_mm 0.0)
         (rotation_deg 0.0))
-      (scheme_list_component
+      (imprint_component
         (ref "C1")
         (offset_along_mm 10.0)
         (offset_across_mm 0.0)
         (rotation_deg 90.0)))
     (vias
-      (scheme_list_via
+      (imprint_via
         (offset_along_mm 10.0)
         (offset_across_mm 0.0)
         (drill_mm 0.3)
         (diameter_mm 0.6)
         (net "/Channel_0/AMP/+5V")))
     (tracks
-      (scheme_list_track
+      (imprint_track
         (start_along_mm 0.0)
         (start_across_mm 0.0)
         (end_along_mm 10.0)
@@ -1036,13 +1036,13 @@ profile that still carries a legacy `scheme_lists.json` keeps using that file).
         (layer "F.Cu")        ; any copper layer: F.Cu/In1.Cu/.../In30.Cu/B.Cu
         (net "/Channel_0/AMP/+5V")))
     (boundary_nets            ; copper that only touched EXCLUDED footprints
-      (scheme_list_boundary_net
+      (imprint_boundary_net
         (net "/Channel_0/AMP/GND")
         (action "exclude")    ; v1: ONLY exclude (drop the whole component, warning)
         (external_ref "J1")))))  ; diagnostics: which outside footprint dragged this copper
 ```
 
-Rules: one real `ref` may be recorded in at most ONE Scheme List (fatal at
+Rules: one real `ref` may be recorded in at most ONE Imprint (fatal at
 load — cloning one record must not move a component another expects). There is
 NO anchor component and NO such "anchor must be among components" rule — the
 recorded refs are only "which footprints to move" (the twin-resolution handle).
@@ -1053,11 +1053,11 @@ copper reaching a recorded ref's pad is kept), pre-filtered to the refs' bbox +
 covering the full copper stack. The record's frame is the CENTRE of the
 recorded region (the midpoint of the recorded footprints' position extents):
 every component/via/track offset is measured from that centre, and each element
-keeps its REAL absolute angle at capture (design_2026_09_07_scheme_list_pivot.
+keeps its REAL absolute angle at capture (design_2026_09_07_imprint_pivot.
 md) — Apply/Redraw (P4) adds the node rotation on top, so there is NO
 `anchor_rotation_deg` compensation and the d3326e4 double-rotation bug class is
 gone by construction. Cloning a record onto another (twin) sheet goes through
-an Entity with `scheme_list:` (not `cell:`) — the stored-record format above
+an Entity with `imprint:` (not `cell:`) — the stored-record format above
 is what capture/Reread write.
 
 `source_sheet` is the record's FULL sheet path (5a — derived from the FIRST
@@ -1082,19 +1082,19 @@ pick a saved preset so Reread recomputes the current scope from ITS paths
 instead, and Apply makes that preset the record's NEW `scope_sheet_paths`
 without touching the rest of the library.
 
-GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Scheme Lists"
+GUI Config side (2026-09-06, plan §5 — see [docs/gui.md](gui.md)'s "Imprints"
 section): records are captured from the live board through the two-tab Record
-dialog (Tools → Scheme Lists → Record... — "By sheet" primary: root sheet +
+dialog (Tools → Imprints → Record... — "By sheet" primary: root sheet +
 sub-sheet checklist; "By selection" secondary: the current board selection)
 into the fixed `scheme_lists.sexp` (auto-included on first use; a profile that
 already has the legacy `scheme_lists.json` keeps writing there instead);
 Re-source...
 re-captures an EXISTING record from a different source under the same name;
-Reread (the form button / the record's context menu / Tools → Scheme Lists)
+Reread (the form button / the record's context menu / Tools → Imprints)
 shows the diff against the live board (including refs added to / removed from
 the scope) and, on an explicit Apply, rewrites the record in its own file. The
-Config-tree `scheme_lists:` category opens a read-only record viewer; the
-separate "Place Scheme List..." page (Tools → Scheme Lists → Place...) turns a
+Config-tree `imprints:` category opens a read-only record viewer; the
+separate "Place Imprint..." page (Tools → Imprints → Place...) turns a
 record into a tree Entity. The Config side never moves board copper by itself —
 that happens on a tree node's Redraw.
 

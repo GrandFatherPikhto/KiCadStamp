@@ -12,7 +12,7 @@ owner — and never by calling the adapter from the UI thread, which was exactly
 the Commit H hang (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_fix.md
 §0). These tests pin that contract down on the helper itself; the flow-level
 gates (fresh position wins, fully-selected detection) live next to the docks'
-own tests (tests/gui/test_scheme_list.py, tests/gui/test_phase3_wiring.py).
+own tests (tests/gui/test_imprint.py, tests/gui/test_phase3_wiring.py).
 """
 import logging
 import threading
@@ -341,7 +341,7 @@ def test_defer_while_socket_busy_watches_the_guard_widgets_too(qapp, monkeypatch
     guard ``widgets`` as well as ``owner``, and nothing pinned that half: dropping
     ``candidates.extend(widget_list)`` from ``_gone()`` left the whole suite green
     (``pytest tests/gui -q``: 2131 passed), because BOTH twins' sentinels delete
-    only ``owner``. The branch is live in the older twin's caller — scheme_list's
+    only ``owner``. The branch is live in the older twin's caller — imprint's
     pivots put a real BUTTON in the widgets tuple (``pivot_from_selection_button``)
     — so a widget that goes away during the delay must stop the retry even when
     ``owner`` is still alive. Same no-op contract as above: no ``proceed``, no
@@ -372,7 +372,7 @@ def test_retry_watches_a_guard_widget_closed_during_the_delay(qapp, monkeypatch)
     ``_gone()`` also left the whole suite green (its sentinel, right above the
     retry guards, deletes only ``owner``). A deleted guard widget means the retry
     runs nothing at all — no rebuild, no ``on_cached``, no ``on_ready`` — which is
-    what the caller's own button (scheme_list's ``pivot_from_selection_button``,
+    what the caller's own button (imprint's ``pivot_from_selection_button``,
     its two pivot sites) relies on when the tab it lives on is rebuilt during the
     delay."""
     connection = _RefreshingConnection([["stale"]])

@@ -570,17 +570,17 @@ def test_fatal_wrong_pair_shape():
         r"expected a key-value pair")
 
 
-# ── scheme_lists: (recorded live-board snapshots, design_2026_09_05) ────────
+# ── imprints: (recorded live-board snapshots, design_2026_09_05) ────────
 
-def test_scheme_lists_roundtrip():
-    """A scheme_lists record with nested components/vias/tracks/boundary_nets
+def test_imprints_roundtrip():
+    """An imprints record with nested components/vias/tracks/boundary_nets
     (incl. an internal copper layer string) and a "By sheet" scope
     (scope_sheet_paths, 5c.1 — incl. a SINGLE-segment path that must not
     collapse into a bare string) round-trips bijectively. A non-default pivot
     (design_2026_09_07_scheme_list_pivot.md p.3.2) survives as the [x, y]
     pair."""
     _roundtrip({
-        "scheme_lists": [{
+        "imprints": [{
             "name": "psu",
             "pivot": [1.5, -2.25],  # design p.3.2 — non-default survives
             "source_sheet": "Channel_0",
@@ -600,12 +600,12 @@ def test_scheme_lists_roundtrip():
     })
 
 
-def test_scheme_list_boundary_truncate_roundtrip():
-    """A scheme_lists record whose boundary_nets carry action="truncate"
+def test_imprint_boundary_truncate_roundtrip():
+    """An imprints record whose boundary_nets carry action="truncate"
     (design_2026_09_06_boundary_truncate_and_zones.md Part A) round-trips
     bijectively — the per-net decision survives .sexp write/read."""
     back = _roundtrip({
-        "scheme_lists": [{
+        "imprints": [{
             "name": "psu",
             "source_sheet": "Channel_0",
             "components": [
@@ -622,20 +622,20 @@ def test_scheme_list_boundary_truncate_roundtrip():
     # action="truncate" (non-default) must SURVIVE verbatim; the exclude row's
     # action is the field default and is legitimately stripped by the generic
     # serializer (same contract as every other default-valued field).
-    assert back["scheme_lists"][0]["boundary_nets"] == [
+    assert back["imprints"][0]["boundary_nets"] == [
         {"net": "/Channel_0/OUT", "external_ref": "J1", "action": "truncate"},
         {"net": "/Channel_0/GND"},
     ]
 
 
-def test_scheme_list_scope_presets_roundtrip():
-    """A scheme_lists record carrying NAMED scope presets (the nested
-    SchemeListScopePreset dataclass list, plan_2026_09_06_scheme_list_named_
+def test_imprint_scope_presets_roundtrip():
+    """An imprints record carrying NAMED scope presets (the nested
+    ImprintScopePreset dataclass list, plan_2026_09_06_imprint_named_
     presets.md §3) round-trips bijectively — the on-the-ground proof that the
     generic list_record + inner list_list_str machinery needs NO new sexp code
     beyond the _TAG_BY_CLASS registration (the plan's §3 hypothesis)."""
     back = _roundtrip({
-        "scheme_lists": [{
+        "imprints": [{
             "name": "psu",
             "source_sheet": "Channel_0",
             "scope_sheet_paths": [["Top", "Channel_0"], ["Top"]],
@@ -650,19 +650,19 @@ def test_scheme_list_scope_presets_roundtrip():
             ],
         }],
     })
-    assert back["scheme_lists"][0]["scope_presets"] == [
+    assert back["imprints"][0]["scope_presets"] == [
         {"name": "full", "sheet_paths": [["Top", "Channel_0"],
                                          ["Top", "Channel_1"]]},
         {"name": "ch0-only", "sheet_paths": [["Top", "Channel_0"]]},
     ]
 
 
-def test_scheme_list_entity_roundtrip():
-    """A scheme_list-based Entity (cell omitted -> its None default) round-trips:
-    `cell` is legitimately dropped (None == default), `scheme_list` kept."""
+def test_imprint_entity_roundtrip():
+    """An imprint-based Entity (cell omitted -> its None default) round-trips:
+    `cell` is legitimately dropped (None == default), `imprint` kept."""
     back = _roundtrip({
-        "entities": [{"name": "E1", "scheme_list": "psu", "sheet": "Channel_1"}],
+        "entities": [{"name": "E1", "imprint": "psu", "sheet": "Channel_1"}],
     })
-    assert back["entities"][0]["scheme_list"] == "psu"
+    assert back["entities"][0]["imprint"] == "psu"
     assert back["entities"][0]["sheet"] == "Channel_1"
     assert "cell" not in back["entities"][0]

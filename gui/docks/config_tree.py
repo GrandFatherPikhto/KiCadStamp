@@ -147,10 +147,10 @@ _SECTION_LABELS = {
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),
     "net_traces": _("Net traces"),
-    # scheme_lists: — recorded live-board snapshots (plan_2026_09_05_scheme_
+    # imprints: — recorded live-board snapshots (plan_2026_09_05_scheme_
     # list.md P5): a list section shown with one leaf per record; a single
-    # click opens the record's read-only SchemeListFormWidget right page.
-    "scheme_lists": _("Scheme lists"),
+    # click opens the record's read-only ImprintFormWidget right page.
+    "imprints": _("Imprints"),
     "cells": _("Cells"),
     "points": _("Points"),
     "extract_profiles": _("Extract profiles"),
@@ -365,31 +365,31 @@ class ConfigTreeDock(QWidget):
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
     net_trace_picked = pyqtSignal(object)
-    # Fired by a SINGLE click on a scheme_lists leaf (2026-09-06, plan
-    # scheme_list P5) — the full record dict; DockHub loads it into the
-    # read-only SchemeListFormWidget Config right page. Same list-section
+    # Fired by a SINGLE click on an imprints leaf (2026-09-06, plan
+    # imprint P5) — the full record dict; DockHub loads it into the
+    # read-only ImprintFormWidget Config right page. Same list-section
     # full-dict payload as thermal_via_picked/net_trace_picked.
-    scheme_list_picked = pyqtSignal(object)
-    # Fired by the context menu's "Reread..." on a scheme_lists leaf
-    # (2026-09-06, plan scheme_list §5.3 — the triple exposure of Reread:
+    imprint_picked = pyqtSignal(object)
+    # Fired by the context menu's "Reread..." on an imprints leaf
+    # (2026-09-06, plan imprint §5.3 — the triple exposure of Reread:
     # form button / context menu / Tools menu). Payload is (record dict,
     # owning file path), the same (name, file_path) shape as
     # cell_refresh_requested; DockHub loads + runs the Reread flow.
-    scheme_list_reread_requested = pyqtSignal(object, object)
-    # Fired by the context menu's "Place..." on a scheme_lists leaf
-    # (2026-09-06, plan scheme_list §6.3 — the triple exposure of Place:
+    imprint_reread_requested = pyqtSignal(object, object)
+    # Fired by the context menu's "Place..." on an imprints leaf
+    # (2026-09-06, plan imprint §6.3 — the triple exposure of Place:
     # context menu / Tools menu / the Place QView's own button). Payload is
     # (record dict, owning file path), the same shape as
-    # scheme_list_reread_requested; DockHub opens the
-    # SchemeListPlaceFormWidget right page preset to that record.
-    scheme_list_place_requested = pyqtSignal(object, object)
-    # Fired by the context menu's "Re-source..." on a scheme_lists leaf
-    # (2026-09-06, plan scheme_list §7 / Stage 5b — the exposure of Re-source:
+    # imprint_reread_requested; DockHub opens the
+    # ImprintPlaceFormWidget right page preset to that record.
+    imprint_place_requested = pyqtSignal(object, object)
+    # Fired by the context menu's "Re-source..." on an imprints leaf
+    # (2026-09-06, plan imprint §7 / Stage 5b — the exposure of Re-source:
     # context menu + Tools menu; no QView form — the fixed-name Record dialog
     # IS the whole operation). Payload is (record dict, owning file path), the
-    # same shape as scheme_list_reread_requested; DockHub re-sources the record
+    # same shape as imprint_reread_requested; DockHub re-sources the record
     # under the same name and writes it back to that same file.
-    scheme_list_resource_requested = pyqtSignal(object, object)
+    imprint_resource_requested = pyqtSignal(object, object)
     # Fired on EVERY click in the tree (file header, category, or leaf) —
     # see module docstring for why this replaces the three independent
     # FilePickerDock role signals.
@@ -449,7 +449,7 @@ class ConfigTreeDock(QWidget):
         # G.5: keyboard navigation (arrow keys) moves the CURRENT item without
         # ever emitting itemClicked, so the whole tree's one-click navigation
         # (cells, clone_placements, thermal_via_arrays, coordinate_placements,
-        # points, net_traces, scheme_lists, chain/anchor/pad) used to be
+        # points, net_traces, imprints, chain/anchor/pad) used to be
         # mouse-only. currentItemChanged fires for BOTH mouse and keyboard and
         # routes into the same handler. itemClicked stays connected on purpose:
         # currentItemChanged does not fire on a repeat click of the already
@@ -1201,11 +1201,11 @@ class ConfigTreeDock(QWidget):
             self.points_picked.emit(ref)
         elif section == "net_traces":
             self.net_trace_picked.emit(ref)
-        elif section == "scheme_lists":
-            # A SINGLE click on a scheme_lists leaf opens the record's
-            # read-only right page (2026-09-06, plan scheme_list P5): the
+        elif section == "imprints":
+            # A SINGLE click on an imprints leaf opens the record's
+            # read-only right page (2026-09-06, plan imprint P5): the
             # payload is the full record dict (list section).
-            self.scheme_list_picked.emit(ref)
+            self.imprint_picked.emit(ref)
         elif section == "entities":
             # The payload is the full entity dict (list section) — emit the
             # NAME (phase 5.6), Placer's Entity source selects by name.
@@ -1392,8 +1392,8 @@ class ConfigTreeDock(QWidget):
         rename_target = self._rename_target_for_item(item)
         if rename_target is not None:
             section, old_name = rename_target[1], rename_target[2]
-            if section == "scheme_lists":
-                # Reread (2026-09-06, plan scheme_list §5.3): re-run the
+            if section == "imprints":
+                # Reread (2026-09-06, plan imprint §5.3): re-run the
                 # capture against the live board and, on explicit Apply, rewrite
                 # the record — the context-menu leg of the triple exposure.
                 leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1401,21 +1401,21 @@ class ConfigTreeDock(QWidget):
                 if payload is not None:
                     menu.addAction(_("Reread...")).triggered.connect(
                         lambda checked=False, p=payload:
-                        self.scheme_list_reread_requested.emit(p, file_path))
-                    # Place... (2026-09-06, plan scheme_list §6.3 — the
+                        self.imprint_reread_requested.emit(p, file_path))
+                    # Place... (2026-09-06, plan imprint §6.3 — the
                     # context-menu leg of the Place triple exposure): open the
-                    # SchemeListPlaceFormWidget right page preset to this
+                    # ImprintPlaceFormWidget right page preset to this
                     # record (P6 Stage 3).
                     menu.addAction(_("Place...")).triggered.connect(
                         lambda checked=False, p=payload, f=file_path:
-                        self.scheme_list_place_requested.emit(p, f))
-                    # Re-source... (2026-09-06, plan scheme_list §7 / Stage
+                        self.imprint_place_requested.emit(p, f))
+                    # Re-source... (2026-09-06, plan imprint §7 / Stage
                     # 5b — the context-menu leg of the Re-source exposure):
                     # re-point THIS record at a new source under the same name
                     # (fixed-name Record dialog + replace in the owning file).
                     menu.addAction(_("Re-source...")).triggered.connect(
                         lambda checked=False, p=payload, f=file_path:
-                        self.scheme_list_resource_requested.emit(p, f))
+                        self.imprint_resource_requested.emit(p, f))
             if section == "cells":
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
@@ -1676,17 +1676,17 @@ class ConfigTreeDock(QWidget):
             for child in range(item.childCount()):
                 stack.append(item.child(child))
 
-    def selected_scheme_list(self) -> Optional[tuple]:
-        """The currently selected scheme_lists leaf as (file_path, record_dict),
+    def selected_imprint(self) -> Optional[tuple]:
+        """The currently selected imprints leaf as (file_path, record_dict),
         or None when there is no selection or the selection is a different node
-        kind. The Tools menu's "Scheme Lists -> Reread..." (DockHub.
-        reread_scheme_list) operates on the Scheme List record currently
-        selected in the Config tree (2026-09-06, plan scheme_list §5.3) — the
-        mirror of selected_chain() above for the scheme_lists section."""
+        kind. The Tools menu's "Imprints -> Reread..." (DockHub.
+        reread_imprint) operates on the Imprint record currently
+        selected in the Config tree (2026-09-06, plan imprint §5.3) — the
+        mirror of selected_chain() above for the imprints section."""
         for tree_item in self.tree.selectedItems():
             data = tree_item.data(0, Qt.ItemDataRole.UserRole)
             if (data is not None and data[0] == "leaf"
-                    and data[1] == "scheme_lists"):
+                    and data[1] == "imprints"):
                 file_ctx = self._file_context_for_item(tree_item)
                 if file_ctx is not None:
                     return file_ctx[0], data[2]
@@ -1699,7 +1699,7 @@ class ConfigTreeDock(QWidget):
         The Tools → Config entries (DockHub.update_selected_cell_from_selection /
         import_selected_cell_from_selection, Э4 of plan_2026_09_12_cell_layer_
         dialog) act on the cell currently selected in the Config tree — the mirror
-        of selected_chain()/selected_scheme_list() above. The identity comes from
+        of selected_chain()/selected_imprint() above. The identity comes from
         _item_identity(), so a commented label is stripped exactly as elsewhere."""
         for tree_item in self.tree.selectedItems():
             identity = self._item_identity(tree_item)

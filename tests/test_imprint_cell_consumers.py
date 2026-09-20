@@ -1,25 +1,25 @@
-"""P6 Stage 4 — ".cell consumer" audit for scheme_list-based Entities
+"""P6 Stage 4 — ".cell consumer" audit for imprint-based Entities
 (handoff_2026_09_06_scheme_list_p6_stage3_done.md Stage 4, design §9 п.9).
 
-A scheme_list-based Entity (plan_2026_09_05_scheme_list.md §5.1) has
+An imprint-based Entity (plan_2026_09_05_scheme_list.md §5.1) has
 cell=None by construction — it is a refdes-literal clone of a recorded
 snapshot, so every remaining consumer of Entity.cell that assumes a
 non-empty string must close its None-branch. The Apply/Redraw path (P4
-`_walk` skip, scheme_list_apply.py) and `check_entity_cells_exist` are
-already covered in test_scheme_list_apply.py / test_scheme_list_config.py;
+`_walk` skip, imprint_apply.py) and `check_entity_cells_exist` are
+already covered in test_imprint_apply.py / test_imprint_config.py;
 this file pins the REST of the audit:
 
   * placement/anchor_identity — the shared self-anchor helpers return
-    None/False for a scheme_list Entity (never rely on cfg.cells.get(None));
+    None/False for an imprint Entity (never rely on cfg.cells.get(None));
   * gui/docks/tree_from_selection role/zero-slot derivations return None;
-  * anchor_graph's producer index never registers a scheme_list Entity as a
+  * anchor_graph's producer index never registers an imprint Entity as a
     board component producer and never crashes on its cell=None;
-  * the Stage-4 canary: a Place-written Entity (build_scheme_list_entity +
+  * the Stage-4 canary: a Place-written Entity (build_imprint_entity +
     append_tree_child_node) survives load_config round-trip, link_trees
     resolves its node to the real Entity record, materialize_entity_placements
     emits NO ClonePlacement(cell=None), and check_entity_cells_exist passes.
 
-Headless (no live board, no QApplication) — same shape as test_scheme_list_
+Headless (no live board, no QApplication) — same shape as test_imprint_
 place.py.
 """
 from pathlib import Path
@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from gui.docks.tree_from_selection import (
     _mount_baked_angle_deg,
     _zero_slot_role,
-    build_scheme_list_entity,
+    build_imprint_entity,
     tree_anchor_from_cluster_entity,
 )
 from kicadstamp.anchor_graph import build_producer_index, build_records
@@ -48,7 +48,7 @@ from kicadstamp.validation import check_entity_cells_exist
 
 
 def _scheme_entity(name="S1", sheet="Channel_1"):
-    return Entity(name=name, scheme_list="psu", sheet=sheet)
+    return Entity(name=name, imprint="psu", sheet=sheet)
 
 
 def _role_anchor(role="DAC"):
@@ -56,7 +56,7 @@ def _role_anchor(role="DAC"):
 
 
 def _scheme_record_dict(name="psu"):
-    """A minimal VALID scheme_lists: entry for a file round-trip load (no
+    """A minimal VALID imprints: entry for a file round-trip load (no
     anchor — the frame is the region's centre, pivot defaults to it)."""
     return {
         "name": name,
@@ -79,16 +79,16 @@ def _placement_node(ref, x=1.0, y=2.0, rotation=None):
 
 # ── placement/anchor_identity ───────────────────────────────────────────────
 
-class TestAnchorIdentityForSchemeListEntity:
+class TestAnchorIdentityForImprintEntity:
     def test_anchor_identity_is_none_not_a_cell_lookup(self):
-        """A scheme_list Entity has no cell/anchor_role — it can never be an
+        """An imprint Entity has no cell/anchor_role — it can never be an
         anchor subject, so entity_anchor_identity returns None even when the
         config has cells (the guard is explicit, not cfg.cells.get(None))."""
         cfg = Config()
         assert entity_anchor_identity(_scheme_entity(), cfg) is None
 
     def test_cell_has_copper_is_false(self):
-        """The scheme_list Entity's copper lives in the recorded snapshot, not
+        """The imprint Entity's copper lives in the recorded snapshot, not
         in a cell — never flagged as a copper-carrying self-anchor duplicate."""
         assert entity_cell_has_copper(_scheme_entity(), Config()) is False
 
@@ -100,7 +100,7 @@ class TestAnchorIdentityForSchemeListEntity:
 
 # ── gui/docks/tree_from_selection derivations ───────────────────────────────
 
-class TestTreeFromSelectionDerivationsForSchemeListEntity:
+class TestTreeFromSelectionDerivationsForImprintEntity:
     def test_zero_slot_role_is_none(self):
         ent = _scheme_entity()
         assert _zero_slot_role(ent, Config()) is None
@@ -112,21 +112,21 @@ class TestTreeFromSelectionDerivationsForSchemeListEntity:
 
     def test_mount_baked_angle_is_none(self):
         """_mount_baked_angle_deg resolves via entity_anchor_identity -> None
-        for a scheme_list Entity (no cell slot to read a baked angle from)."""
+        for an imprint Entity (no cell slot to read a baked angle from)."""
         assert _mount_baked_angle_deg(_scheme_entity(), Config()) is None
 
 
 # ── anchor_graph producer index ─────────────────────────────────────────────
 
-def test_producer_index_omits_scheme_list_entity_without_crashing():
-    """A scheme_list Entity is a record (kind "placement") in the anchor graph
+def test_producer_index_omits_imprint_entity_without_crashing():
+    """An imprint Entity is a record (kind "placement") in the anchor graph
     but PRODUCES no board component roles (its literal copper/refs are not the
     role/cluster producer machinery), and its cell=None must not crash the
     index build."""
     cfg = Config(entities=[_scheme_entity(name="S1")])
     recs = build_records(cfg)
     assert any(r.kind == "placement" and r.name == "S1" for r in recs)
-    # No producer entry at all — the scheme_list Entity never becomes a parent.
+    # No producer entry at all — the imprint Entity never becomes a parent.
     assert build_producer_index(cfg, recs) == {}
 
 
@@ -137,28 +137,28 @@ def _write(path: Path, data: dict) -> None:
 
 
 def test_place_written_entity_roundtrip_no_cell_none_pathology(tmp_path):
-    """The Stage-4 canary: a Place-created scheme_list Entity + an appended
+    """The Stage-4 canary: a Place-created imprint Entity + an appended
     top-level placement node (written through the Stage-1 core:
-    build_scheme_list_entity + append_tree_child_node) survives load_config,
+    build_imprint_entity + append_tree_child_node) survives load_config,
     link_trees resolves the node to the real Entity record (never a cell=None
     clone), materialize_entity_placements emits nothing for it, and
     check_entity_cells_exist passes (plan P4 canary (b)). Reaching the P4
-    scheme_list branch itself is pinned in test_scheme_list_apply.py."""
+    imprint branch itself is pinned in test_imprint_apply.py."""
     root = tmp_path / "root.sexp"
     _write(root, {
-        "scheme_lists": [_scheme_record_dict()],
+        "imprints": [_scheme_record_dict()],
         "entities": [],
         "trees": [{"name": "main", "anchor": {"origin": True}, "nodes": []}],
     })
 
-    upsert_entity(root, build_scheme_list_entity("SL1", "psu", sheet="Channel_1"))
+    upsert_entity(root, build_imprint_entity("SL1", "psu", sheet="Channel_1"))
     append_tree_child_node(root, "main", None,
                            _placement_node("SL1", 5.0, 6.0, rotation=90.0))
 
     cfg, _ = load_config(str(root))
     ent = next(e for e in cfg.entities if e.name == "SL1")
     assert ent.cell is None
-    assert ent.scheme_list == "psu"
+    assert ent.imprint == "psu"
     assert ent.sheet == "Channel_1"
 
     linked = link_trees(cfg, cfg.trees)[0]
@@ -167,11 +167,11 @@ def test_place_written_entity_roundtrip_no_cell_none_pathology(tmp_path):
     assert linked.nodes[0].record.kind == "placement"
     assert linked.nodes[0].record.name == "SL1"
 
-    # Canary (a): the cell path must NOT materialize the scheme_list node —
+    # Canary (a): the cell path must NOT materialize the imprint node —
     # materialize_entity_placements returns zero clones (no ClonePlacement(cell=None)).
     clones = materialize_entity_placements(None, cfg, {})
     assert clones == []
     assert all(c.cell is not None for c in clones)  # vacuously true
 
-    # Canary (b): the structural entity/cell check passes for the scheme_list Entity.
+    # Canary (b): the structural entity/cell check passes for the imprint Entity.
     check_entity_cells_exist(cfg)

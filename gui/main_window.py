@@ -435,39 +435,39 @@ class MainWindow(QMainWindow):
                 choose_layers=True))
         self.config_menu.addAction(self.import_cell_layers_action)
 
-        # ── Scheme Lists submenu (2026-09-06, plan scheme_list §5.3) ──────
+        # ── Imprints submenu (2026-09-06, plan imprint §5.3) ──────
         # "Record..." captures the CURRENT board selection as a named Scheme
-        # List record; "Reread..." re-syncs the Scheme List record currently
+        # List record; "Reread..." re-syncs the Imprint record currently
         # selected in the Config tree against the live board (the form's Reread
         # button + the tree's context-menu "Reread..." are the other two legs
         # of the triple exposure). Both delegates live on DockHub.
-        self.scheme_lists_menu = tools_menu.addMenu(_("Scheme Lists"))
-        self.record_scheme_list_action = QAction(_("Record..."), self)
-        self.record_scheme_list_action.triggered.connect(
-            lambda: self._dock_hub.record_scheme_list())
-        self.scheme_lists_menu.addAction(self.record_scheme_list_action)
-        self.reread_scheme_list_action = QAction(_("Reread..."), self)
-        self.reread_scheme_list_action.triggered.connect(
-            lambda: self._dock_hub.reread_scheme_list())
-        self.scheme_lists_menu.addAction(self.reread_scheme_list_action)
-        # "Place..." (2026-09-06, plan scheme_list §6.3 / P6): the third action
-        # of the triple exposure — opens the SchemeListPlaceFormWidget QView
-        # (Tools -> Scheme Lists, deliberately NOT Tools -> Trees — this is the
+        self.imprints_menu = tools_menu.addMenu(_("Imprints"))
+        self.record_imprint_action = QAction(_("Record..."), self)
+        self.record_imprint_action.triggered.connect(
+            lambda: self._dock_hub.record_imprint())
+        self.imprints_menu.addAction(self.record_imprint_action)
+        self.reread_imprint_action = QAction(_("Reread..."), self)
+        self.reread_imprint_action.triggered.connect(
+            lambda: self._dock_hub.reread_imprint())
+        self.imprints_menu.addAction(self.reread_imprint_action)
+        # "Place..." (2026-09-06, plan imprint §6.3 / P6): the third action
+        # of the triple exposure — opens the ImprintPlaceFormWidget QView
+        # (Tools -> Imprints, deliberately NOT Tools -> Trees — this is the
         # Config side of turning a recorded snapshot into an Entity + placement
         # node, even though the result lands in a tree). Delegate on DockHub.
-        self.place_scheme_list_action = QAction(_("Place..."), self)
-        self.place_scheme_list_action.triggered.connect(
-            lambda: self._dock_hub.place_scheme_list())
-        self.scheme_lists_menu.addAction(self.place_scheme_list_action)
-        # "Re-source..." (2026-09-06, plan scheme_list §7 / Stage 5b): the
-        # fourth action — re-points the Scheme List record currently SELECTED
+        self.place_imprint_action = QAction(_("Place..."), self)
+        self.place_imprint_action.triggered.connect(
+            lambda: self._dock_hub.place_imprint())
+        self.imprints_menu.addAction(self.place_imprint_action)
+        # "Re-source..." (2026-09-06, plan imprint §7 / Stage 5b): the
+        # fourth action — re-points the Imprint record currently SELECTED
         # in the Config tree at a new source (sheet/selection) under the SAME
-        # name. Delegate on DockHub (resource_scheme_list requires a selected
+        # name. Delegate on DockHub (resource_imprint requires a selected
         # record, unlike Record's blank form).
-        self.resource_scheme_list_action = QAction(_("Re-source..."), self)
-        self.resource_scheme_list_action.triggered.connect(
-            lambda: self._dock_hub.resource_scheme_list())
-        self.scheme_lists_menu.addAction(self.resource_scheme_list_action)
+        self.resource_imprint_action = QAction(_("Re-source..."), self)
+        self.resource_imprint_action.triggered.connect(
+            lambda: self._dock_hub.resource_imprint())
+        self.imprints_menu.addAction(self.resource_imprint_action)
 
         # ── Tools root (non-tree entries) ────────────────────────────────
         # "Place thermal vias..." (2026-09-01, plan

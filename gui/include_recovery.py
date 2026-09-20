@@ -11,7 +11,7 @@ and hand-edit the root .sexp.
 
 Three outcomes, all decided here:
   * CREATE — write an empty config at the missing path. This is exactly the
-    state ensure_scheme_list_storage() creates on first write, and the right
+    state ensure_imprint_storage() creates on first write, and the right
     answer for "I deleted scheme_lists.sexp". For that one name it is also the
     dialog's DEFAULT action: that include line was written by us.
   * REMOVE — drop every `include:` entry pointing at the missing path from the
@@ -85,24 +85,24 @@ def recover_missing_include(parent, error: MissingIncludeError, *, ask=None) -> 
     return False
 
 
-def _scheme_list_storage_names() -> tuple:
-    """SCHEME_LIST_STORAGE_NAME / LEGACY_SCHEME_LIST_STORAGE_NAME, imported
-    lazily: gui.docks.scheme_list imports PyQt and much of the config graph,
+def _imprint_storage_names() -> tuple:
+    """IMPRINT_STORAGE_NAME / LEGACY_IMPRINT_STORAGE_NAME, imported
+    lazily: gui.docks.imprint imports PyQt and much of the config graph,
     and this module is imported from a dock's own module top — a module-level
     import here would be a cycle."""
-    from .docks.scheme_list import (LEGACY_SCHEME_LIST_STORAGE_NAME,
-                                    SCHEME_LIST_STORAGE_NAME)
-    return SCHEME_LIST_STORAGE_NAME, LEGACY_SCHEME_LIST_STORAGE_NAME
+    from .docks.imprint import (LEGACY_IMPRINT_STORAGE_NAME,
+                                    IMPRINT_STORAGE_NAME)
+    return IMPRINT_STORAGE_NAME, LEGACY_IMPRINT_STORAGE_NAME
 
 
 def _default_choice(include_entry: str) -> str:
     """The dialog's default action for a given include name. 'Create empty
-    file' is the default ONLY for the Scheme List side file — that include was
-    written by US (see ensure_scheme_list_storage), and an empty file is
+    file' is the default ONLY for the Imprint side file — that include was
+    written by US (see ensure_imprint_storage), and an empty file is
     equivalent to "no records yet". For any other name the safe default is
     Cancel: the name is far more likely a typo than a file the user wants
     invented. Pure and separate so the rule is unit-testable without a modal."""
-    if Path(include_entry).name in _scheme_list_storage_names():
+    if Path(include_entry).name in _imprint_storage_names():
         return CREATE
     return CANCEL
 
@@ -135,7 +135,7 @@ def _ask_choice(parent, error: MissingIncludeError) -> str:
 
 def _create_empty(error: MissingIncludeError) -> bool:
     """Write dict_to_sexp({}) at the missing path — the exact empty config a
-    fresh include file starts as (the same text ensure_scheme_list_storage
+    fresh include file starts as (the same text ensure_imprint_storage
     writes). Creates no directories: a missing PARENT directory is far more
     likely a wrong path than a directory worth inventing, so the write fails
     and the outcome collapses to Cancel."""

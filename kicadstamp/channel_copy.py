@@ -86,7 +86,7 @@ def sheet_name_of_fp(adapter, fp) -> str | None:
     pad (a purely global-net component, or pads with no nets yet).
 
     Generalization (2026-09-06, plan_2026_09_05_scheme_list.md P2) of the
-    channel-only helper below — used by Scheme List capture for `source_sheet`.
+    channel-only helper below — used by Imprint capture for `source_sheet`.
     Only valid for footprints on a TOP-LEVEL sheet (the first net segment IS
     the sheet of path[0]); a deeper-nested local net ("/A/B/net") would still
     report the top-level name "A", not the real leaf sheet — same documented

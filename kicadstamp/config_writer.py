@@ -430,7 +430,7 @@ def append_tree_child_node(path: Path, tree_name: str,
                            node_dict: Dict[str, Any]) -> bool:
     """Append ONE placement node to an EXISTING tree as a CHILD of an existing
     node (parent_ref) — or as a new TOP-LEVEL node of that tree (parent_ref is
-    None) — P6 "Place Scheme List" (plan_2026_09_05_scheme_list.md §6.2): the
+    None) — P6 "Place Imprint" (plan_2026_09_05_scheme_list.md §6.2): the
     node is written INTO the already-existing tree named `tree_name`, NEVER a
     new tree (Denis, 2026-09-06: "Нам не нужно новое дерево").
 

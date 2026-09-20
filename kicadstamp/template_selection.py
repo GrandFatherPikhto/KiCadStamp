@@ -173,7 +173,7 @@ def _filter_tracks_and_vias_within_selection(
     when False (the default) the return is the historical 2-tuple
     ``(kept_tracks, kept_vias)`` and the Cell-extraction caller is unchanged.
     When True the return becomes a 4-tuple
-    ``(kept_tracks, kept_vias, dropped_tracks, dropped_vias)`` so Scheme List
+    ``(kept_tracks, kept_vias, dropped_tracks, dropped_vias)`` so Imprint
     capture can turn the dropped copper into boundary_nets diagnostics (copper
     that only ever touched excluded footprints).
     """

@@ -119,7 +119,7 @@ from .live_position import (
     world_pos_to_cell_local_offset,
 )
 from .rename import collect_graph_files, find_dict_entry_file
-from .scheme_list import snapshot_with_resolved_sheets
+from .imprint import snapshot_with_resolved_sheets
 
 logger = logging.getLogger(__name__)
 

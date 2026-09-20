@@ -156,7 +156,7 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
     from gui.docks.project_dialog import ProjectDialog
     from gui.docks.role_cluster_tree import RoleClusterTreeDock
     from gui.docks.root_metadata import RootMetadataDock
-    from gui.docks.scheme_list import BoundaryNetDialog
+    from gui.docks.imprint import BoundaryNetDialog
     from gui.docks.settings_dialog import SettingsDialog
     from gui.docks.thermal_via import ThermalViaArrayDock
     from gui.docks.tools import ToolsDock

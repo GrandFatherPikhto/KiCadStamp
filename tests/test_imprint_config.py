@@ -1,10 +1,10 @@
-# tests/test_scheme_list_config.py
-"""Config-side tests for the Scheme List feature (design_2026_09_05_scheme_
+# tests/test_imprint_config.py
+"""Config-side tests for the Imprint feature (design_2026_09_05_scheme_
 list.md, plan P1; design_2026_09_07_scheme_list_pivot.md — the record now
 carries `pivot` instead of an `anchor_ref`/`anchor_pad`/`anchor_rotation_deg`
-and its geometry lives in the CENTRE frame): the SchemeListConfig dataclasses
-+ loader validation + .json/.sexp round-trips + the Entity cell-or-scheme_list
-cross-validation and the canary that a scheme_list-based Entity never trips
+and its geometry lives in the CENTRE frame): the ImprintConfig dataclasses
++ loader validation + .json/.sexp round-trips + the Entity cell-or-imprint
+cross-validation and the canary that an imprint-based Entity never trips
 the cell-existence structural check.
 
 Pure config tests — no live board, no adapter, no GUI. The capture/Reread/
@@ -19,14 +19,14 @@ from kicadstamp.config import (
     Config,
     load_config,
     load_entity,
-    load_scheme_list,
+    load_imprint,
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import check_entity_cells_exist
 
 
 def _record(name="psu", components=None, **extra):
-    """A valid scheme_lists entry dict (no anchor — the record's frame is the
+    """A valid imprints entry dict (no anchor — the record's frame is the
     captured region's CENTRE and its pivot defaults to the centre)."""
     rec = {
         "name": name,
@@ -45,13 +45,13 @@ def _write_json(path: Path, data: dict) -> Path:
     return path
 
 
-# ── per-record loading (_load_scheme_list / public load_scheme_list) ────────
+# ── per-record loading (_load_imprint / public load_imprint) ────────
 
 def test_single_record_loads_with_nested_copper():
     """A full record (components/vias/tracks/boundary_nets) parses into the
     dataclasses; track.layer is a free string (In1.Cu — a multilayer board
     layer, see P0.1), boundary action defaults to exclude."""
-    sl = load_scheme_list(_record(
+    sl = load_imprint(_record(
         vias=[{"offset_along_mm": 2.0, "drill_mm": 0.3, "net": "/Channel_0/GND"}],
         tracks=[{"start_along_mm": 0.0, "end_along_mm": 1.0, "width_mm": 0.25,
                  "layer": "In1.Cu", "net": "/Channel_0/+3V3"}],
@@ -71,16 +71,16 @@ def test_single_record_loads_with_nested_copper():
 def test_record_pivot_defaults_to_centre():
     """design_2026_09_07 p.3.2 — pivot is OPTIONAL and defaults to (0,0) = the
     region centre; no anchor component exists any more."""
-    sl = load_scheme_list(_record())
+    sl = load_imprint(_record())
     assert sl.pivot == (0.0, 0.0)
 
 
 def test_record_loads_explicit_pivot():
     """A non-default pivot (a point in the record's centre frame) is read from
     the [x, y] pair and survives."""
-    sl = load_scheme_list(_record(pivot=[1.5, -2.25]))
+    sl = load_imprint(_record(pivot=[1.5, -2.25]))
     assert sl.pivot == (1.5, -2.25)
-    sl2 = load_scheme_list(_record(pivot=(0.0, 3.0)))
+    sl2 = load_imprint(_record(pivot=(0.0, 3.0)))
     assert sl2.pivot == (0.0, 3.0)
 
 
@@ -88,27 +88,27 @@ def test_record_pivot_must_be_a_2_point():
     """A malformed pivot is a fatal (a 2-element [x, y] point in the centre
     frame), never a silent garbage accept."""
     with pytest.raises(ValidationError, match="pivot"):
-        load_scheme_list(_record(pivot="0,0"))
+        load_imprint(_record(pivot="0,0"))
     with pytest.raises(ValidationError, match="pivot"):
-        load_scheme_list(_record(pivot=[1.0]))
+        load_imprint(_record(pivot=[1.0]))
     with pytest.raises(ValidationError, match="pivot"):
-        load_scheme_list(_record(pivot=[1.0, 2.0, 3.0]))
+        load_imprint(_record(pivot=[1.0, 2.0, 3.0]))
 
 
 def test_record_scope_sheet_paths_defaults_to_none():
     """5c.1 — scope_sheet_paths is OPTIONAL (None default): an absent/empty
     value means a "By selection"-record (or a pre-5c legacy record) whose
     Reread scope is NOT persisted."""
-    sl = load_scheme_list(_record())
+    sl = load_imprint(_record())
     assert sl.scope_sheet_paths is None
-    sl2 = load_scheme_list(_record(scope_sheet_paths=[]))
+    sl2 = load_imprint(_record(scope_sheet_paths=[]))
     assert sl2.scope_sheet_paths is None
 
 
 def test_record_loads_scope_sheet_paths():
     """5c.1 — the checked leaf paths of a "By sheet" record round-trip through
     the loader as list[list[str]] (single-segment paths included)."""
-    sl = load_scheme_list(_record(
+    sl = load_imprint(_record(
         scope_sheet_paths=[["Top", "Channel_0"], ["Top"]]))
     assert sl.scope_sheet_paths == [["Top", "Channel_0"], ["Top"]]
 
@@ -117,30 +117,30 @@ def test_record_scope_sheet_paths_must_be_path_lists():
     """5c.1 — a malformed scope_sheet_paths is a fatal (a path is a non-empty
     list of non-empty sheet-name strings), never a silent garbage accept."""
     with pytest.raises(ValidationError, match="scope_sheet_paths"):
-        load_scheme_list(_record(scope_sheet_paths="Channel_0"))
+        load_imprint(_record(scope_sheet_paths="Channel_0"))
     with pytest.raises(ValidationError, match="scope_sheet_paths"):
-        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], 42]))
+        load_imprint(_record(scope_sheet_paths=[["Channel_0"], 42]))
     with pytest.raises(ValidationError, match="scope_sheet_paths"):
-        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], []]))
+        load_imprint(_record(scope_sheet_paths=[["Channel_0"], []]))
     with pytest.raises(ValidationError, match="scope_sheet_paths"):
-        load_scheme_list(_record(scope_sheet_paths=[["Channel_0"], [""]]))
+        load_imprint(_record(scope_sheet_paths=[["Channel_0"], [""]]))
 
 
 def test_record_scope_presets_default_to_empty():
     """Named presets (plan_2026_09_06_scheme_list_named_presets.md §2) are
     OPTIONAL ([] default): an absent/empty value means the record simply has no
     saved checklist variants (a "By selection"-record never fills it)."""
-    sl = load_scheme_list(_record())
+    sl = load_imprint(_record())
     assert sl.scope_presets == []
-    sl2 = load_scheme_list(_record(scope_presets=[]))
+    sl2 = load_imprint(_record(scope_presets=[]))
     assert sl2.scope_presets == []
 
 
 def test_record_loads_named_scope_presets():
     """plan §2 — scope_presets round-trip through the loader as
-    SchemeListScopePreset {name, sheet_paths: list[list[str]]} (single-segment
+    ImprintScopePreset {name, sheet_paths: list[list[str]]} (single-segment
     paths included)."""
-    sl = load_scheme_list(_record(scope_presets=[
+    sl = load_imprint(_record(scope_presets=[
         {"name": "full",
          "sheet_paths": [["Top", "Channel_0"], ["Top", "Channel_1"]]},
         {"name": "ch0-only", "sheet_paths": [["Top"]]},
@@ -156,7 +156,7 @@ def test_record_duplicate_preset_name_within_record_is_fatal():
     scope_presets (the same ambiguity scope_sheet_paths' between-records
     uniqueness guards against, one level down)."""
     with pytest.raises(ValidationError, match="duplicate preset name"):
-        load_scheme_list(_record(scope_presets=[
+        load_imprint(_record(scope_presets=[
             {"name": "full", "sheet_paths": [["Top"]]},
             {"name": "full", "sheet_paths": [["Top", "Channel_0"]]},
         ]))
@@ -167,16 +167,16 @@ def test_record_scope_presets_must_be_valid_presets():
     without a (non-empty) name or sheet_paths / an entry whose sheet_paths is
     not a non-empty list of non-empty sheet-name strings."""
     with pytest.raises(ValidationError, match="scope_presets"):
-        load_scheme_list(_record(scope_presets="full"))
+        load_imprint(_record(scope_presets="full"))
     with pytest.raises(ValidationError, match="scope_presets"):
-        load_scheme_list(_record(scope_presets=[{"name": ""}]))
+        load_imprint(_record(scope_presets=[{"name": ""}]))
     with pytest.raises(ValidationError, match="scope_presets"):
-        load_scheme_list(_record(scope_presets=[{"name": "full"}]))
+        load_imprint(_record(scope_presets=[{"name": "full"}]))
     with pytest.raises(ValidationError, match="sheet_paths"):
-        load_scheme_list(_record(scope_presets=[
+        load_imprint(_record(scope_presets=[
             {"name": "full", "sheet_paths": "Top"}]))
     with pytest.raises(ValidationError, match="sheet_paths"):
-        load_scheme_list(_record(scope_presets=[
+        load_imprint(_record(scope_presets=[
             {"name": "full", "sheet_paths": [["Top"], []]}]))
 
 
@@ -185,21 +185,21 @@ def test_record_requires_name_and_components():
     (design_2026_09_07_scheme_list_pivot.md — there is no anchor component:
     the frame is the region centre, pivot defaults to it)."""
     with pytest.raises(ValidationError, match="without name"):
-        load_scheme_list({"components": [{"ref": "C1"}]})
+        load_imprint({"components": [{"ref": "C1"}]})
     # a record with only a name + components (no anchor, no source_sheet) loads
-    sl = load_scheme_list({"name": "psu", "components": [{"ref": "C1"}]})
+    sl = load_imprint({"name": "psu", "components": [{"ref": "C1"}]})
     assert sl.pivot == (0.0, 0.0)
     assert sl.source_sheet is None
 
 
 def test_record_requires_nonempty_components():
     with pytest.raises(ValidationError, match="without components"):
-        load_scheme_list({"name": "psu", "components": []})
+        load_imprint({"name": "psu", "components": []})
 
 
 def test_record_rejects_unknown_keys():
     with pytest.raises(ValidationError, match="unknown fields"):
-        load_scheme_list(_record(bogus=1))
+        load_imprint(_record(bogus=1))
 
 
 def test_record_rejects_stale_anchor_keys():
@@ -207,9 +207,9 @@ def test_record_rejects_stale_anchor_keys():
     format (design_2026_09_07_scheme_list_pivot.md) — writing one is an
     unknown-field fatal, not a silent accept."""
     with pytest.raises(ValidationError, match="unknown fields"):
-        load_scheme_list(_record(anchor_ref="C1"))
+        load_imprint(_record(anchor_ref="C1"))
     with pytest.raises(ValidationError, match="unknown fields"):
-        load_scheme_list(_record(anchor_rotation_deg=90.0))
+        load_imprint(_record(anchor_rotation_deg=90.0))
 
 
 def test_record_accepts_truncate_action():
@@ -217,7 +217,7 @@ def test_record_accepts_truncate_action():
     design_2026_09_06_boundary_truncate_and_zones.md Part A) now loads; the
     net's decision is persisted verbatim so a later Reread re-clips with the
     same choice."""
-    sl = load_scheme_list(_record(boundary_nets=[
+    sl = load_imprint(_record(boundary_nets=[
         {"net": "/Channel_0/OUT", "action": "truncate", "external_ref": "J1"}]))
     assert len(sl.boundary_nets) == 1
     bn = sl.boundary_nets[0]
@@ -230,41 +230,41 @@ def test_record_rejects_unknown_boundary_action():
     """ANY action other than 'exclude'/'truncate' must stay an explicit error,
     not a silent accept."""
     with pytest.raises(ValidationError, match="action"):
-        load_scheme_list(_record(boundary_nets=[
+        load_imprint(_record(boundary_nets=[
             {"net": "/Channel_0/OUT", "action": "something-else"}]))
 
 
 def test_record_track_layer_must_be_string():
     with pytest.raises(ValidationError, match="layer must be a string"):
-        load_scheme_list(_record(tracks=[
+        load_imprint(_record(tracks=[
             {"start_along_mm": 0.0, "end_along_mm": 1.0, "layer": 4}]))
     # non-copper nonsense is NOT validated here (a string is accepted as-is);
     # the layer is a literal identifier, P0.1 leaves enum-restriction out.
 
 
-# ── Entity: exactly one of cell:/scheme_list: ───────────────────────────────
+# ── Entity: exactly one of cell:/imprint: ───────────────────────────────
 
-def test_entity_requires_exactly_one_of_cell_and_scheme_list():
+def test_entity_requires_exactly_one_of_cell_and_imprint():
     with pytest.raises(ValidationError, match="exactly one of cell"):
-        load_entity({"name": "E1", "cell": "c_dac", "scheme_list": "psu"})
+        load_entity({"name": "E1", "cell": "c_dac", "imprint": "psu"})
     with pytest.raises(ValidationError, match="exactly one of cell"):
         load_entity({"name": "E1"})
 
 
-def test_entity_scheme_list_forbids_role_resolution_fields():
+def test_entity_imprint_forbids_role_resolution_fields():
     """cluster/by_selection/refs/nets/params/net_overrides are meaningless on a
     recorded snapshot (it already carries literal refs and literal nets)."""
     for key in ("cluster", "by_selection", "refs", "nets", "params", "net_overrides"):
         value = {"cluster": "X", "by_selection": True, "refs": {"R": "C1"},
                  "nets": {"R": "/NET"}, "params": {"p": 1},
                  "net_overrides": {"R": "/NET"}}[key]
-        with pytest.raises(ValidationError, match="scheme_list-based entity"):
-            load_entity({"name": "E1", "scheme_list": "psu", key: value})
+        with pytest.raises(ValidationError, match="imprint-based entity"):
+            load_entity({"name": "E1", "imprint": "psu", key: value})
 
 
-def test_entity_scheme_list_loads_cell_is_none():
-    ent = load_entity({"name": "E1", "scheme_list": "psu", "sheet": "Channel_1"})
-    assert ent.scheme_list == "psu"
+def test_entity_imprint_loads_cell_is_none():
+    ent = load_entity({"name": "E1", "imprint": "psu", "sheet": "Channel_1"})
+    assert ent.imprint == "psu"
     assert ent.cell is None
     assert ent.sheet == "Channel_1"
 
@@ -273,18 +273,18 @@ def test_entity_cell_based_still_loads():
     """A plain cell-based Entity is unchanged (backward compat)."""
     ent = load_entity({"name": "E1", "cell": "c_dac", "cluster": "DAC"})
     assert ent.cell == "c_dac"
-    assert ent.scheme_list is None
+    assert ent.imprint is None
 
 
-# ── canary: scheme_list Entity passes the structural cell-existence check ───
+# ── canary: imprint Entity passes the structural cell-existence check ───
 
-def test_check_entity_cells_exist_passes_for_scheme_list_entity():
-    """The canary from plan P4: a scheme_list-based Entity (cell=None) must
+def test_check_entity_cells_exist_passes_for_imprint_entity():
+    """The canary from plan P4: an imprint-based Entity (cell=None) must
     NOT trip check_entity_cells_exist's "cell not found" fatal — before the
-    scheme_list branch this was exactly the spurious-fatal path."""
+    imprint branch this was exactly the spurious-fatal path."""
     cfg = Config(
         entities=[
-            load_entity({"name": "E1", "scheme_list": "psu"}),
+            load_entity({"name": "E1", "imprint": "psu"}),
             load_entity({"name": "E2", "cell": "c_dac"}),
         ],
         cells={"c_dac": _CELL_STUB},
@@ -304,25 +304,25 @@ _CELL_STUB = _CellStub()
 # ── load_config: section wiring, includes, duplicates ───────────────────────
 
 def test_config_json_include_roundtrip(tmp_path: Path):
-    """scheme_lists records physically live in an included .json file (design
+    """imprints records physically live in an included .json file (design
     §3) — include: concatenates the list section with the main file."""
     main = _write_json(tmp_path / "cfg.json", {
         "include": ["scheme_lists.json"],
-        "entities": [{"name": "E1", "scheme_list": "psu"}],
+        "entities": [{"name": "E1", "imprint": "psu"}],
     })
     _write_json(tmp_path / "scheme_lists.json", {
-        "scheme_lists": [_record()],
+        "imprints": [_record()],
     })
     cfg, _ = load_config(str(main))
-    assert len(cfg.scheme_lists) == 1
-    assert cfg.scheme_lists[0].name == "psu"
-    assert cfg.entities[0].scheme_list == "psu"
+    assert len(cfg.imprints) == 1
+    assert cfg.imprints[0].name == "psu"
+    assert cfg.entities[0].imprint == "psu"
     assert cfg.entities[0].cell is None
 
 
-def test_config_duplicate_scheme_list_name_fatal(tmp_path: Path):
+def test_config_duplicate_imprint_name_fatal(tmp_path: Path):
     main = _write_json(tmp_path / "cfg.json", {
-        "scheme_lists": [
+        "imprints": [
             _record(name="psu"),
             _record(name="psu", components=[{"ref": "C9"}]),
         ],
@@ -333,16 +333,16 @@ def test_config_duplicate_scheme_list_name_fatal(tmp_path: Path):
         load_config(str(main))
 
 
-def test_config_duplicate_ref_across_scheme_lists_fatal(tmp_path: Path):
-    """A real ref may be recorded in at most ONE Scheme List (design §9.2 /
+def test_config_duplicate_ref_across_imprints_fatal(tmp_path: Path):
+    """A real ref may be recorded in at most ONE Imprint (design §9.2 /
     plan §0.2): cloning one record would move a component another expects."""
     main = _write_json(tmp_path / "cfg.json", {
-        "scheme_lists": [
+        "imprints": [
             _record(name="psu"),
             _record(name="psu2", components=[{"ref": "R1"}, {"ref": "C1"}]),
         ],
     })
-    with pytest.raises(ValidationError, match="more than one scheme_lists"):
+    with pytest.raises(ValidationError, match="more than one imprints"):
         load_config(str(main))
 
 
@@ -350,22 +350,22 @@ def test_config_records_from_multiple_included_files_concatenate(tmp_path: Path)
     main = _write_json(tmp_path / "cfg.json", {
         "include": ["a.json", "b.json"],
     })
-    _write_json(tmp_path / "a.json", {"scheme_lists": [_record(name="a_sl")]})
+    _write_json(tmp_path / "a.json", {"imprints": [_record(name="a_sl")]})
     # disjoint refs from a_sl (C1/R1) — records concatenate across include
     # files, but the cross-record ref-uniqueness rule still applies.
     _write_json(tmp_path / "b.json", {
-        "scheme_lists": [_record(name="b_sl", components=[{"ref": "C2"}])]})
+        "imprints": [_record(name="b_sl", components=[{"ref": "C2"}])]})
     cfg, _ = load_config(str(main))
-    assert [sl.name for sl in cfg.scheme_lists] == ["a_sl", "b_sl"]
-    assert {c.ref for sl in cfg.scheme_lists for c in sl.components} == {"C1", "R1", "C2"}
+    assert [sl.name for sl in cfg.imprints] == ["a_sl", "b_sl"]
+    assert {c.ref for sl in cfg.imprints for c in sl.components} == {"C1", "R1", "C2"}
 
 
-def test_entity_scheme_list_must_reference_existing_record(tmp_path: Path):
-    """A scheme_list-based Entity naming a non-existent scheme_lists entry is a
+def test_entity_imprint_must_reference_existing_record(tmp_path: Path):
+    """An imprint-based Entity naming a non-existent imprints entry is a
     load-time fatal (mirror of check_entity_cells_exist for the cell side) —
     a dangling name would otherwise only blow up at Apply/Redraw (P4)."""
     main = _write_json(tmp_path / "cfg.json", {
-        "entities": [{"name": "E1", "scheme_list": "missing"}],
+        "entities": [{"name": "E1", "imprint": "missing"}],
     })
-    with pytest.raises(ValidationError, match="missing scheme_lists entry"):
+    with pytest.raises(ValidationError, match="missing imprints entry"):
         load_config(str(main))

@@ -285,7 +285,7 @@ def _anchor_base(adapter: "KiCadBoardAdapter", cfg: "Config",
     (tree_position.tree_effective_base), so the tree's suspension point lands on
     the outer anchor and its `rotation` turns the content around it.
 
-    THE one seam: _walk (materialization), scheme_list_apply and every live-read
+    THE one seam: _walk (materialization), imprint_apply and every live-read
     of an Entity's position go through this, so the materialized result can never
     drift apart from the live curated layout (plan §V.7.3 test 14). A tree with
     no inner point and rotation 0 returns the raw pose unchanged (bit-identical
@@ -664,11 +664,11 @@ def _walk(linked_nodes, parent_pos: Vector2, parent_rot: float, out: list[CloneP
                 component_refs=component_refs))
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity) \
-                and ln.record.obj.scheme_list is None:
-            # scheme_list-based Entities NEVER go through _to_clone (which would
+                and ln.record.obj.imprint is None:
+            # imprint-based Entities NEVER go through _to_clone (which would
             # produce ClonePlacement(cell=None) and break the cell machinery) —
             # plan_2026_09_05_scheme_list.md §4 invariant. Their Apply/Redraw
-            # branch runs at the caller level (scheme_list_apply.py). The node's
+            # branch runs at the caller level (imprint_apply.py). The node's
             # abs pos/rot still feed its children below (frame composition).
             override = (position_overrides or {}).get(ln.record.name)
             if override is not None:
@@ -702,7 +702,7 @@ def _structural_candidates(tree: LinkedTree) -> set[str]:
     depth, for EVERY kind (a "module" or "mount" node has record None but its
     children still carry placements) — and never into `ln.module_linked` (P.1.5:
     `_walk` does not descend there either; a module target is itself a top-level
-    tree, so it materializes its content on its own). The `scheme_list is None`
+    tree, so it materializes its content on its own). The `imprint is None`
     condition `_walk` ALSO applies is deliberately not checked here: keeping such
     a node's name is wider, and wider only costs time.
 

@@ -14,118 +14,118 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
-msgid "Unknown Scheme List {name!r}."
+msgid "Unknown Imprint {name!r}."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
 msgid "Unknown tree {name!r}."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "— top level (no parent) —"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "Place Scheme List"
+#: gui/docks/imprint_place.py
+msgid "Place Imprint"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "Scheme List:"
+#: gui/docks/imprint_place.py
+msgid "Imprint:"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Target sheet:"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "Leave empty to place on the sheet the Scheme List was recorded from (in place); pick another sheet to place onto its twin."
+#: gui/docks/imprint_place.py
+msgid "Leave empty to place on the sheet the Imprint was recorded from (in place); pick another sheet to place onto its twin."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Tree:"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Top level = relative to the tree anchor."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Parent node:"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Take from selection (center of the selected group)"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "X offset (mm):"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Y offset (mm):"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "new Entity name (must be unique)"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Place"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "Place adds a tree Entity that references the Scheme List by name — it never copies the recorded geometry and never touches the live board until you Redraw the tree node."
+#: gui/docks/imprint_place.py
+msgid "Place adds a tree Entity that references the Imprint by name — it never copies the recorded geometry and never touches the live board until you Redraw the tree node."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
 msgid "Failed to load the config: {error}"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Failed to load the config."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "no Scheme Lists recorded — use Tools → Scheme Lists → Record..."
+#: gui/docks/imprint_place.py
+msgid "no Imprints recorded — use Tools → Imprints → Record..."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "no editable trees in this config"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Cannot derive the node offset from the selection — enter the X/Y offset manually."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
-msgid "Select a Scheme List to place."
+#: gui/docks/imprint_place.py
+msgid "Select an Imprint to place."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Pick a tree to place into."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 msgid "Place failed — check the log."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
 msgid "Tree {name!r} not found in the config graph."
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
 msgid "Place failed: {error}"
 msgstr ""
 
-#: gui/docks/scheme_list_place.py
+#: gui/docks/imprint_place.py
 #, python-brace-format
-msgid "Placed Scheme List {scheme!r} as Entity {entity!r} under tree {tree!r}."
+msgid "Placed Imprint {scheme!r} as Entity {entity!r} under tree {tree!r}."
 msgstr ""
 
 #: gui/dock_hub.py:663 gui/dock_hub.py:674
@@ -6283,12 +6283,12 @@ msgstr "net_traces track has invalid copper layer {layer!r}"
 msgid "net_traces tracks need an absolute copper layer ('F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; there is no cell to inherit from"
 msgstr "net_traces tracks need an absolute copper layer ('F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu') — extract-net always writes one; there is no cell to inherit from"
 
-#: kicadstamp/scheme_list_apply.py:150
+#: kicadstamp/imprint_apply.py:150
 #, python-brace-format
-msgid "scheme_lists track has invalid copper layer {layer!r}"
-msgstr "scheme_lists track has invalid copper layer {layer!r}"
+msgid "imprints track has invalid copper layer {layer!r}"
+msgstr "imprints track has invalid copper layer {layer!r}"
 
-#: kicadstamp/scheme_list_apply.py:151
+#: kicadstamp/imprint_apply.py:151
 msgid "a recorded track layer is a literal copper layer name: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
 msgstr "a recorded track layer is a literal copper layer name: 'F.Cu', 'In1.Cu'..'In30.Cu' or 'B.Cu'"
 
@@ -7652,21 +7652,33 @@ msgstr "no footprints for channel {channel!r} on the board"
 msgid "target channel {channel!r} not found; available: {avail}"
 msgstr "target channel {channel!r} not found; available: {avail}"
 
-#: kicadstamp/config/aliases.py:43
+#: kicadstamp/config/aliases.py:70
 #, python-brace-format
-msgid "both {legacy}: and {canonical}: present in the same config file"
-msgstr "both {legacy}: and {canonical}: present in the same config file"
+msgid "both {legacy} and {canonical} present in the same file"
+msgstr "both {legacy} and {canonical} present in the same file"
 
-#: kicadstamp/config/aliases.py:45
+#: kicadstamp/config/aliases.py:76
 #, python-brace-format
 msgid ""
-"the legacy {legacy}: key was renamed to {canonical}: (2026-09-01) — keep "
-"one. Move the {legacy}: entries into {canonical}: (or run "
-"tools/convert_rules_to_chains.py) and remove the old key"
+"the legacy {legacy} key was renamed to {canonical} — keep one: move the "
+"old value into {canonical} and remove {legacy}"
 msgstr ""
-"the legacy {legacy}: key was renamed to {canonical}: (2026-09-01) — keep "
-"one. Move the {legacy}: entries into {canonical}: (or run "
-"tools/convert_rules_to_chains.py) and remove the old key"
+"the legacy {legacy} key was renamed to {canonical} — keep one: move the "
+"old value into {canonical} and remove {legacy}"
+
+#: kicadstamp/config/sexp_format.py:762
+#, python-brace-format
+msgid "in {path}: {legacy!r} and {canonical!r} on the same record — keep one"
+msgstr "in {path}: {legacy!r} and {canonical!r} on the same record — keep one"
+
+#: kicadstamp/config/sexp_format.py:772
+#, python-brace-format
+msgid ""
+"in {path}: the legacy spelling of {canonical!r} was already given on this "
+"record — keep one"
+msgstr ""
+"in {path}: the legacy spelling of {canonical!r} was already given on this "
+"record — keep one"
 
 #: kicadstamp/config/entries.py:33
 #, python-brace-format
@@ -15384,13 +15396,13 @@ msgid "Pick a cell to copy into first."
 msgstr ""
 
 
-msgid "a Scheme List is a recorded live-board snapshot that already carries its literal refs and literal nets — {key} has no meaning here. Remove it, or use a cell-based Entity instead"
+msgid "an Imprint is a recorded live-board snapshot that already carries its literal refs and literal nets — {key} has no meaning here. Remove it, or use a cell-based Entity instead"
 msgstr ""
 
-msgid "a recorded Scheme List is a snapshot of a real region — it must list at least one footprint (components: [{ref: C1, ...}])"
+msgid "a recorded Imprint is a snapshot of a real region — it must list at least one footprint (components: [{ref: C1, ...}])"
 msgstr ""
 
-msgid "an Entity is either a role-resolved use of a Cell template (cell: <name from cells:>) or a refdes-literal clone of a recorded Scheme List (scheme_list: <name from scheme_lists:>) — set exactly one of the two, not both and not neither"
+msgid "an Entity is either a role-resolved use of a Cell template (cell: <name from cells:>) or a refdes-literal clone of a recorded Imprint (imprint: <name from imprints:>) — set exactly one of the two, not both and not neither"
 msgstr ""
 
 msgid "anchor_ref must be one of the recorded refs in components[].ref — it doubles as the offset origin and the clone anchor; got components: {refs}"
@@ -15402,19 +15414,19 @@ msgstr ""
 msgid "each boundary-net diagnostic names the boundary net: net: <name>"
 msgstr ""
 
-msgid "entity {name!r} needs exactly one of cell:/scheme_list:"
+msgid "entity {name!r} needs exactly one of cell:/imprint:"
 msgstr ""
 
 msgid "every recorded component needs a literal refdes: ref: <C1>"
 msgstr ""
 
-msgid "every scheme_lists entry needs a name — the identity for --only and the reference an Entity's scheme_list: points at"
+msgid "every imprints entry needs a name — the identity for --only and the reference an Entity's imprint: points at"
 msgstr ""
 
-msgid "every scheme_lists entry needs a unique name — --only and Entity.scheme_list references cannot tell same-named records apart otherwise"
+msgid "every imprints entry needs a unique name — --only and Entity.imprint references cannot tell same-named records apart otherwise"
 msgstr ""
 
-msgid "field {key!r} on scheme_list-based entity {name!r}"
+msgid "field {key!r} on imprint-based entity {name!r}"
 msgstr ""
 
 msgid "got: {b!r}"
@@ -15432,61 +15444,61 @@ msgstr ""
 msgid "got: {v!r}"
 msgstr ""
 
-msgid "one component can belong to at most one Scheme List — cloning one record would move a component another record expects; duplicate refs are also fatal at \"Record...\" capture time"
+msgid "one component can belong to at most one Imprint — cloning one record would move a component another record expects; duplicate refs are also fatal at \"Record...\" capture time"
 msgstr ""
 
-msgid "ref(s) recorded in more than one scheme_lists entry: {refs}"
+msgid "ref(s) recorded in more than one imprints entry: {refs}"
 msgstr ""
 
-msgid "scheme_lists entry without name"
+msgid "imprints entry without name"
 msgstr ""
 
-msgid "scheme_lists entry {name!r} without anchor_ref"
+msgid "imprints entry {name!r} without anchor_ref"
 msgstr ""
 
-msgid "scheme_lists entry {name!r} without components"
+msgid "imprints entry {name!r} without components"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: anchor_ref {ref!r} is not one of its own components"
+msgid "imprints entry {name!r}: anchor_ref {ref!r} is not one of its own components"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: boundary net {net!r} action {action!r}"
+msgid "imprints entry {name!r}: boundary net {net!r} action {action!r}"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: boundary_net {i} without net"
+msgid "imprints entry {name!r}: boundary_net {i} without net"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: boundary_nets[{i}] must be a mapping"
+msgid "imprints entry {name!r}: boundary_nets[{i}] must be a mapping"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: component {i} without ref"
+msgid "imprints entry {name!r}: component {i} without ref"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: components[{i}] must be a mapping"
+msgid "imprints entry {name!r}: components[{i}] must be a mapping"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: track {i} layer must be a string"
+msgid "imprints entry {name!r}: track {i} layer must be a string"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: tracks[{i}] must be a mapping"
+msgid "imprints entry {name!r}: tracks[{i}] must be a mapping"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: vias[{i}] must be a mapping"
+msgid "imprints entry {name!r}: vias[{i}] must be a mapping"
 msgstr ""
 
-msgid "unknown fields in scheme_lists entry {name!r}"
+msgid "unknown fields in imprints entry {name!r}"
 msgstr ""
 
-msgid "unknown fields in scheme_lists {name!r} boundary_nets[{i}]"
+msgid "unknown fields in imprints {name!r} boundary_nets[{i}]"
 msgstr ""
 
-msgid "unknown fields in scheme_lists {name!r} component {i}"
+msgid "unknown fields in imprints {name!r} component {i}"
 msgstr ""
 
-msgid "unknown fields in scheme_lists {name!r} track {i}"
+msgid "unknown fields in imprints {name!r} track {i}"
 msgstr ""
 
-msgid "unknown fields in scheme_lists {name!r} via {i}"
+msgid "unknown fields in imprints {name!r} via {i}"
 msgstr ""
 
 msgid "v1 supports ONLY action: 'exclude' (drop the whole connected component with a warning, like Cell extraction). 'truncate' (geometric clipping of copper at the boundary) is an open future question, not yet implemented"
@@ -15498,10 +15510,10 @@ msgstr ""
 msgid "{ref} (in both {a} and {b})"
 msgstr ""
 
-msgid "entity references a missing scheme_lists entry: {names}"
+msgid "entity references a missing imprints entry: {names}"
 msgstr ""
 
-msgid "a scheme_list-based Entity names the recorded Scheme List it clones; every such name must exist in scheme_lists: (which may live in an included .json file — check include:)"
+msgid "an imprint-based Entity names the recorded Imprint it clones; every such name must exist in imprints: (which may live in an included .json file — check include:)"
 msgstr ""
 
 msgid "Anchor point from the selected Via: ({x:.3f}, {y:.3f}) mm — press “Set as anchor” to apply."
@@ -15555,31 +15567,31 @@ msgstr ""
 msgid "via"
 msgstr ""
 
-msgid "cannot record scheme list {name!r}: no refs given"
+msgid "cannot record imprint {name!r}: no refs given"
 msgstr ""
 
-msgid "a Scheme List needs at least one component ref to capture"
+msgid "an Imprint needs at least one component ref to capture"
 msgstr ""
 
-msgid "cannot record scheme list {name!r}: refs not found on the board: {refs}"
+msgid "cannot record imprint {name!r}: refs not found on the board: {refs}"
 msgstr ""
 
-msgid "Scheme List capture is a snapshot of real footprints — every ref in the list must resolve on the live board (use the board selection / direct refdes lookup)"
+msgid "Imprint capture is a snapshot of real footprints — every ref in the list must resolve on the live board (use the board selection / direct refdes lookup)"
 msgstr ""
 
-msgid "cannot record scheme list {name!r}: anchor_ref {ref!r} is not among the refs"
+msgid "cannot record imprint {name!r}: anchor_ref {ref!r} is not among the refs"
 msgstr ""
 
 msgid "the anchor_ref must be one of the captured components (it is the offset origin and the clone anchor point)"
 msgstr ""
 
-msgid "cannot record scheme list {name!r}: pad {pad!r} not found on {ref}"
+msgid "cannot record imprint {name!r}: pad {pad!r} not found on {ref}"
 msgstr ""
 
 msgid "anchor_pad must be a pad number of the anchor footprint"
 msgstr ""
 
-msgid "cannot apply scheme list: {count} problem(s)"
+msgid "cannot apply imprint: {count} problem(s)"
 msgstr ""
 
 msgid "anchor {ref!r} is not on the board"
@@ -15609,22 +15621,22 @@ msgstr ""
 msgid "target {ref!r} is not on the board"
 msgstr ""
 
-msgid "Scheme List apply: tree {tree!r} skipped — {error}"
+msgid "Imprint apply: tree {tree!r} skipped — {error}"
 msgstr ""
 
-msgid "Scheme List apply: everything already in place — nothing to do"
+msgid "Imprint apply: everything already in place — nothing to do"
 msgstr ""
 
-msgid "Scheme List apply: {moves} moves, {vias} vias, {tracks} tracks"
+msgid "Imprint apply: {moves} moves, {vias} vias, {tracks} tracks"
 msgstr ""
 
-msgid "Planned {count} scheme list placement(s) from trees into the apply plan"
+msgid "Planned {count} imprint placement(s) from trees into the apply plan"
 msgstr ""
 
-msgid "Applying scheme list placements..."
+msgid "Applying imprint placements..."
 msgstr ""
 
-msgid "Scheme List {entity} ({mode}):"
+msgid "Imprint {entity} ({mode}):"
 msgstr ""
 
 msgid "(root sheet)"
@@ -15645,25 +15657,25 @@ msgstr ""
 msgid "Boundary nets"
 msgstr ""
 
-msgid "Cannot record Scheme List"
+msgid "Cannot record Imprint"
 msgstr ""
 
 msgid "Exclude"
 msgstr ""
 
-msgid "Load a Scheme List record first."
+msgid "Load an Imprint record first."
 msgstr ""
 
 msgid "No footprints selected — select the footprints to record on the board first."
 msgstr ""
 
-msgid "Pick a Scheme List in the Config tree first."
+msgid "Pick an Imprint in the Config tree first."
 msgstr ""
 
 msgid "Record"
 msgstr ""
 
-msgid "Record Scheme List"
+msgid "Record Imprint"
 msgstr ""
 
 msgid "Record failed"
@@ -15675,7 +15687,7 @@ msgstr ""
 msgid "Record..."
 msgstr ""
 
-msgid "Recorded Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgid "Recorded Imprint {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
 msgstr ""
 
 msgid "Recorded geometry:"
@@ -15687,7 +15699,7 @@ msgstr ""
 msgid "Reread apply failed: {error}"
 msgstr ""
 
-msgid "Reread compares this record against the live board and, after an explicit Apply, rewrites it — it never places anything. Cloning a Scheme List onto another sheet happens through a tree Entity (scheme_list:), not here."
+msgid "Reread compares this record against the live board and, after an explicit Apply, rewrites it — it never places anything. Cloning an Imprint onto another sheet happens through a tree Entity (imprint:), not here."
 msgstr ""
 
 msgid "Reread failed: {error}"
@@ -15696,25 +15708,22 @@ msgstr ""
 msgid "Reread..."
 msgstr ""
 
-msgid "Scheme List Reread"
+msgid "Imprint Reread"
 msgstr ""
 
-msgid "Scheme List: {name}"
+msgid "Imprint: {name}"
 msgstr ""
 
-msgid "Scheme Lists"
+msgid "Imprints"
 msgstr ""
 
-msgid "Scheme lists"
-msgstr ""
-
-msgid "Entity {name!r} is a Scheme List placement — Placer edits cell-based Entities only; edit its record via the Config tree and position it in Trees."
+msgid "Entity {name!r} is an Imprint placement — Placer edits cell-based Entities only; edit its record via the Config tree and position it in Trees."
 msgstr ""
 
 msgid "Source sheet:"
 msgstr ""
 
-msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Scheme List — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
+msgid "The recorded region touches copper of components outside the selection on the following net(s):\n\n{nets}\n\nThis copper cannot be part of the Imprint — v1 excludes it (drops each whole connected component). The exclusions are stored in the record; Reread will keep reporting changes to these nets."
 msgstr ""
 
 msgid "Choose how to treat each boundary net. Exclude drops the whole connected component; Truncate keeps only the copper inside the capture region."
@@ -15726,11 +15735,11 @@ msgstr ""
 msgid "Truncate for boundary nets is not wired into the Record flow yet — it arrives in the next stage. Nothing was recorded."
 msgstr ""
 
-msgid "Updated Scheme List {name!r} from the live board -> {path}"
+msgid "Updated Imprint {name!r} from the live board -> {path}"
 msgstr ""
 
 #, python-brace-format
-msgid "Re-source Scheme List {name!r}"
+msgid "Re-source Imprint {name!r}"
 msgstr ""
 
 #, python-brace-format
@@ -15743,29 +15752,29 @@ msgstr ""
 msgid "Re-source..."
 msgstr ""
 
-msgid "Select a Scheme List record first."
+msgid "Select an Imprint record first."
 msgstr ""
 
-msgid "Cannot re-source Scheme List"
+msgid "Cannot re-source Imprint"
 msgstr ""
 
 msgid "Re-source failed"
 msgstr ""
 
 #, python-brace-format
-msgid "Re-sourced Scheme List {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
+msgid "Re-sourced Imprint {name!r} — {components} components, {vias} vias, {tracks} tracks -> {path}"
 msgstr ""
 
 msgid "What changed for {name!r} on the live board:"
 msgstr ""
 
-msgid "a Scheme List named {name!r} already exists — pick another name"
+msgid "an Imprint named {name!r} already exists — pick another name"
 msgstr ""
 
 msgid "boundary net(s) gone: {nets}"
 msgstr ""
 
-msgid "component ref(s) already recorded in another Scheme List: {refs}"
+msgid "component ref(s) already recorded in another Imprint: {refs}"
 msgstr ""
 
 msgid "component {ref!r} moved: ({old_x}, {old_y}) mm, {old_rot} deg -> ({new_x}, {new_y}) mm, {new_rot} deg"
@@ -15783,19 +15792,19 @@ msgstr ""
 msgid "select footprints on the board first — this record's Reread scope is the current selection"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: scope_sheet_paths must be a list of sheet paths"
+msgid "imprints entry {name!r}: scope_sheet_paths must be a list of sheet paths"
 msgstr ""
 
 msgid "each scope path is a list of sheet-name strings, e.g. [['Top', 'Channel_0'], ['Top']] — the checked leaves of the capture checklist; got {raw!r}"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: scope_sheet_paths[{i}] must be a sheet path"
+msgid "imprints entry {name!r}: scope_sheet_paths[{i}] must be a sheet path"
 msgstr ""
 
 msgid "a sheet path is a non-empty list of non-empty sheet-name strings, e.g. ['Top', 'Channel_0']; got {path!r}"
 msgstr ""
 
-msgid "name (used by --only and Entity.scheme_list, must be unique)"
+msgid "name (used by --only and Entity.imprint, must be unique)"
 msgstr ""
 
 msgid "new boundary net(s): {nets}"
@@ -15858,19 +15867,19 @@ msgstr ""
 msgid "(current)"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: scope_presets must be a list of presets"
+msgid "imprints entry {name!r}: scope_presets must be a list of presets"
 msgstr ""
 
 msgid "each preset is {{'name': str, 'sheet_paths': [[...]]}}; got {raw!r}"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: scope_presets[{i}] must have a non-empty name and sheet_paths"
+msgid "imprints entry {name!r}: scope_presets[{i}] must have a non-empty name and sheet_paths"
 msgstr ""
 
 msgid "got {entry!r}"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: duplicate preset name {preset!r}"
+msgid "imprints entry {name!r}: duplicate preset name {preset!r}"
 msgstr ""
 
 msgid "preset names must be unique WITHIN one record's scope_presets"
@@ -15896,7 +15905,7 @@ msgstr ""
 msgid "nothing is selected on the board"
 msgstr ""
 
-msgid "scheme_lists entry {name!r}: pivot must be a 2-element [x, y] point in the region's centre frame"
+msgid "imprints entry {name!r}: pivot must be a 2-element [x, y] point in the region's centre frame"
 msgstr ""
 
 msgid "got: {pivot!r}"
@@ -15912,7 +15921,7 @@ msgstr ""
 msgid "Pivot x/y must be numbers (mm)."
 msgstr ""
 
-msgid "Pivot for Scheme List {name!r} saved -> {path}"
+msgid "Pivot for Imprint {name!r} saved -> {path}"
 msgstr ""
 
 msgid "Pivot save failed: {error}"
@@ -17216,7 +17225,7 @@ msgstr "Working with the board: {what}"
 # WHICH board operation is running ("Working with the board: placing"). An
 # operation that passes nothing gets the generic wording above instead.
 #: gui/dock_hub.py
-#: gui/docks/scheme_list.py
+#: gui/docks/imprint.py
 #: gui/docks/trees_dock.py
 msgid "reading the board"
 msgstr "reading the board"
@@ -17493,7 +17502,7 @@ msgstr ""
 msgid "The board is busy — using the previously read board snapshot; the pending list may be slightly out of date."
 msgstr ""
 
-#: gui/docks/scheme_list.py
+#: gui/docks/imprint.py
 msgid "another operation is using the board"
 msgstr ""
 

@@ -436,8 +436,8 @@ def snapshot_refresh_supported(connection: Any) -> bool:
     connection, a test double) has no fresher data to offer, so callers keep
     the cached snapshot and continue — the same provider-or-fallback shape the
     docks' live providers already use (see
-    ``SchemeListFormWidget._live_snapshot``'s "tests/fallback" and
-    ``RecordSchemeListDialog._live_selection``)."""
+    ``ImprintFormWidget._live_snapshot``'s "tests/fallback" and
+    ``RecordImprintDialog._live_selection``)."""
     return callable(getattr(getattr(connection, "board", None), "refresh", None))
 
 
@@ -589,7 +589,7 @@ def refresh_snapshot_then_with_retry(
     The exhausted outcome is the caller's choice, because staleness costs
     different things:
 
-    * ``on_still_busy`` given (the scheme-list pivots, which read POSITIONS out
+    * ``on_still_busy`` given (the imprint pivots, which read POSITIONS out
       of the snapshot): it runs and ``on_ready`` does NOT — a pivot computed
       from a stale snapshot is wrong geometry, not a slightly old list, so the
       operation is refused and the caller tells the user;

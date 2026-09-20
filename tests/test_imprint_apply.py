@@ -1,4 +1,4 @@
-"""Scheme List Apply/Redraw branch (plan_2026_09_05_scheme_list.md §4,
+"""Imprint Apply/Redraw branch (plan_2026_09_05_scheme_list.md §4,
 plan_2026_09_06_scheme_list_p4_apply.md;
 design_2026_09_07_scheme_list_pivot.md) — pure planning tests over a mock
 adapter: in-place + onto-sibling modes, the centre-frame + pivot geometry
@@ -6,27 +6,27 @@ adapter: in-place + onto-sibling modes, the centre-frame + pivot geometry
 the WHOLE region around the pivot; each element keeps its real absolute
 angle — no anchor_rotation_deg compensation, so the d3326e4 double-rotation
 bug class is gone by construction), the incomplete-twin single fatal, and
-the canary that a scheme_list Entity never materializes into
+the canary that an imprint Entity never materializes into
 ClonePlacement(cell=None).
 """
 import pytest
 
 from kicadstamp.config import Config, Entity
 from kicadstamp.config.models import (
-    SchemeListComponentRecord,
-    SchemeListConfig,
-    SchemeListTrackRecord,
-    SchemeListViaRecord,
+    ImprintComponentRecord,
+    ImprintConfig,
+    ImprintTrackRecord,
+    ImprintViaRecord,
 )
 from kicadstamp.domain.board import Footprint, Pad
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.link_trees import link_trees
 from kicadstamp.placement.entity_placement import materialize_entity_placements
-from kicadstamp.scheme_list_apply import (
-    execute_scheme_list_plans,
-    plan_all_scheme_lists,
-    plan_scheme_list,
+from kicadstamp.imprint_apply import (
+    execute_imprint_plans,
+    plan_all_imprints,
+    plan_imprint,
 )
 from kicadstamp.tree_position import curated_redraw_plan
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
@@ -55,16 +55,16 @@ def _fp(ref, x_mm, y_mm, angle=0.0, layer=F, chain=(), pad_nets=()):
 
 
 def _comp(ref, along, across, rot):
-    return SchemeListComponentRecord(ref=ref, offset_along_mm=along,
+    return ImprintComponentRecord(ref=ref, offset_along_mm=along,
                                      offset_across_mm=across, rotation_deg=rot)
 
 
 def _rec(name="psu", pivot=(0.0, 0.0), components=None,
          vias=None, tracks=None, source_sheet=None):
-    """A recorded Scheme List in the CENTRE frame with a pivot (default (0,0)
+    """A recorded Imprint in the CENTRE frame with a pivot (default (0,0)
     = the region centre). No anchor component exists
     (design_2026_09_07_scheme_list_pivot.md)."""
-    return SchemeListConfig(
+    return ImprintConfig(
         name=name, pivot=pivot, source_sheet=source_sheet,
         components=components or [_comp("R1", 0.0, 0.0, 0.0)],
         vias=vias or [], tracks=tracks or [])
@@ -110,7 +110,7 @@ class TestInPlace:
         # reproduces the record exactly: element world = node_pos + offset.
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+        plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(100, 50), 0.0)
         assert plan.mode == "in_place"
         moves = _moves_by_ref(plan)
@@ -127,7 +127,7 @@ class TestInPlace:
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
         rec = _rec(pivot=(0.0, 0.0),
                    components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+        plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(50, 50), 90.0)
         moves = _moves_by_ref(plan)
         # R1 sits at the pivot -> lands on node_pos whatever the node rotation
@@ -145,7 +145,7 @@ class TestInPlace:
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
         rec = _rec(pivot=(0.0, 0.0),
                    components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+        plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(50, 50), 0.0)
         moves = _moves_by_ref(plan)
         # node_rot=0 -> world = node_pos + (offset - pivot); angles untouched
@@ -163,7 +163,7 @@ class TestInPlace:
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(pivot=(3.0, 0.0),
                    components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+        plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(100, 50), 0.0)
         moves = _moves_by_ref(plan)
         # the stored element at the pivot lands exactly on node_pos
@@ -176,7 +176,7 @@ class TestInPlace:
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(pivot=(3.0, 0.0),
                    components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu"), rec, adapter,
+        plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(100, 50), 90.0)
         moves = _moves_by_ref(plan)
         _assert_xy_near(moves["R1"].position, 100.0, 50.0)  # on the pivot
@@ -187,13 +187,13 @@ class TestInPlace:
         adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(
             components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)],
-            vias=[SchemeListViaRecord(offset_along_mm=10.0, drill_mm=0.3,
+            vias=[ImprintViaRecord(offset_along_mm=10.0, drill_mm=0.3,
                                       diameter_mm=0.6, net=CH0)],
-            tracks=[SchemeListTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
+            tracks=[ImprintTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
                                           end_along_mm=10.0, end_across_mm=0.0,
                                           width_mm=0.25, layer="F.Cu", net=CH0)],
             source_sheet="Channel_0")
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet=""), rec,
+        plan = plan_imprint(Entity(name="E1", imprint="psu", sheet=""), rec,
                                 adapter, Vector2.from_xy_mm(100, 50), 0.0)
         assert plan.mode == "in_place"
         assert len(plan.vias) == 1 and plan.vias[0].net_name == CH0
@@ -203,7 +203,7 @@ class TestInPlace:
         assert t.net_name == CH0 and t.layer == F
         assert t.start == Vector2.from_xy_mm(100, 50)
         assert t.end == Vector2.from_xy_mm(110, 50)
-        assert t.registry_key == "scheme_list:E1:track:0"
+        assert t.registry_key == "imprint:E1:track:0"
 
 
 # ── onto sibling ────────────────────────────────────────────────────────────
@@ -228,13 +228,13 @@ class TestOntoSibling:
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)],
-            vias=[SchemeListViaRecord(offset_along_mm=10.0, drill_mm=0.3,
+            vias=[ImprintViaRecord(offset_along_mm=10.0, drill_mm=0.3,
                                       diameter_mm=0.6, net=CH0)],
-            tracks=[SchemeListTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
+            tracks=[ImprintTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
                                           end_along_mm=10.0, end_across_mm=0.0,
                                           width_mm=0.25, layer="In1.Cu", net=GND0)],
         )
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+        plan = plan_imprint(Entity(name="E1", imprint="psu", sheet="Channel_1"),
                                 rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
         assert plan.mode == "onto_sibling"
         # twins are the targets — NOT the recorded source refs
@@ -254,22 +254,22 @@ class TestOntoSibling:
         assert plan.tracks[0].layer == BoardLayer.BL_In1_Cu
 
     def test_unknown_track_layer_name_is_not_silently_f_cu(self):
-        """plan_2026_09_12_strict_copper_layers.md Э4.2 (scheme_lists path).
+        """plan_2026_09_12_strict_copper_layers.md Э4.2 (imprints path).
 
-        A scheme_lists track layer is a free STRING (deliberately not the F/B
-        enum — see SchemeListTrackRecord), so a hand-edited record can name
+        An imprints track layer is a free STRING (deliberately not the F/B
+        enum — see ImprintTrackRecord), so a hand-edited record can name
         anything. On the WRITE path an unknown name must be a fatal: the old
         tolerant `layer_from_str` fallback quietly made it F.Cu."""
         adapter = FakeAdapter(_twin_board())
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0)],
-            tracks=[SchemeListTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
+            tracks=[ImprintTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
                                           end_along_mm=10.0, end_across_mm=0.0,
                                           width_mm=0.25, layer="Top.Cu", net=GND0)],
         )
         with pytest.raises(ValidationError):
-            plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+            plan_imprint(Entity(name="E1", imprint="psu", sheet="Channel_1"),
                              rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
 
     def test_twin_node_rotation_turns_region_around_pivot(self):
@@ -279,7 +279,7 @@ class TestOntoSibling:
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
-        plan = plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+        plan = plan_imprint(Entity(name="E1", imprint="psu", sheet="Channel_1"),
                                 rec, adapter, Vector2.from_xy_mm(100, 200), 90.0)
         moves = _moves_by_ref(plan)
         _assert_xy_near(moves["R1d"].position, 100.0, 200.0)
@@ -294,7 +294,7 @@ class TestOntoSibling:
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
         with pytest.raises(ValidationError, match="problem"):
-            plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_1"),
+            plan_imprint(Entity(name="E1", imprint="psu", sheet="Channel_1"),
                              rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
 
     def test_unknown_target_sheet_fatal(self):
@@ -302,7 +302,7 @@ class TestOntoSibling:
         rec = _rec(source_sheet="Channel_0",
                    components=[_comp("R1s", 0, 0, 0.0), _comp("C1s", 10, 0, 0.0)])
         with pytest.raises(ValidationError, match="target sheet"):
-            plan_scheme_list(Entity(name="E1", scheme_list="psu", sheet="Channel_9"),
+            plan_imprint(Entity(name="E1", imprint="psu", sheet="Channel_9"),
                              rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
 
 
@@ -318,12 +318,12 @@ def _node(ref, xy=None, kind="placement", rotation=0.0):
 
 
 def test_canary_materialize_never_emits_clone_with_cell_none():
-    """plan §4 canary (a): a config whose ONLY placement is a scheme_list
+    """plan §4 canary (a): a config whose ONLY placement is an imprint
     Entity materializes to ZERO ClonePlacements (the cell path skips it) — a
-    scheme_list Entity can never become ClonePlacement(cell=None)."""
+    imprint Entity can never become ClonePlacement(cell=None)."""
     cfg = Config(
-        scheme_lists=[_rec(components=[_comp("R1", 0, 0, 0.0)])],
-        entities=[Entity(name="E1", scheme_list="psu", sheet="Channel_0")],
+        imprints=[_rec(components=[_comp("R1", 0, 0, 0.0)])],
+        entities=[Entity(name="E1", imprint="psu", sheet="Channel_0")],
         trees=[_origin_tree([_node(ref="E1", xy=(5.0, 2.0))])],
     )
     clones = materialize_entity_placements(None, cfg, {})
@@ -331,12 +331,12 @@ def test_canary_materialize_never_emits_clone_with_cell_none():
     assert all(c.cell is not None for c in clones)  # vacuously true, no clones
 
 
-def test_materialize_skips_scheme_list_but_keeps_cell_entity():
+def test_materialize_skips_imprint_but_keeps_cell_entity():
     """A cell-based Entity in the SAME forest still materializes; only the
-    scheme_list Entity is skipped (never a ClonePlacement(cell=None))."""
+    imprint Entity is skipped (never a ClonePlacement(cell=None))."""
     cfg = Config(
         entities=[Entity(name="Ecell", cell="c"),
-                  Entity(name="Esl", scheme_list="psu")],
+                  Entity(name="Esl", imprint="psu")],
         trees=[_origin_tree([_node(ref="Ecell", xy=(1.0, 1.0)),
                              _node(ref="Esl", xy=(9.0, 9.0))])],
     )
@@ -345,23 +345,23 @@ def test_materialize_skips_scheme_list_but_keeps_cell_entity():
     assert all(c.cell is not None for c in clones)
 
 
-def test_scheme_list_entity_mirror_layer_fatal():
-    """P4.2 guard: mirror/layer on a scheme_list Entity is a v1-unsupported
+def test_imprint_entity_mirror_layer_fatal():
+    """P4.2 guard: mirror/layer on an imprint Entity is a v1-unsupported
     config (no mirror formula in the Apply branch) — fatal at load."""
     from kicadstamp.config import load_entity
     from kicadstamp.exceptions import ValidationError as VE
-    with pytest.raises(VE, match="scheme_list-based"):
-        load_entity({"name": "E1", "scheme_list": "psu", "mirror": True})
-    with pytest.raises(VE, match="scheme_list-based"):
-        load_entity({"name": "E1", "scheme_list": "psu", "layer": "B.Cu"})
+    with pytest.raises(VE, match="imprint-based"):
+        load_entity({"name": "E1", "imprint": "psu", "mirror": True})
+    with pytest.raises(VE, match="imprint-based"):
+        load_entity({"name": "E1", "imprint": "psu", "layer": "B.Cu"})
 
 
 # ── P4.4: forest collection + aggregate planning + execution ────────────────
 
 def _scheme_cfg(entity=None, tree_nodes=None, rec=None):
     rec = rec or _rec(components=[_comp("R1", 0, 0, 0.0)])
-    ent = entity if entity is not None else Entity(name="E1", scheme_list="psu")
-    return Config(scheme_lists=[rec], entities=[ent],
+    ent = entity if entity is not None else Entity(name="E1", imprint="psu")
+    return Config(imprints=[rec], entities=[ent],
                   trees=[_origin_tree(tree_nodes or [_node(ref="E1", xy=(5.0, 2.0),
                                                           rotation=45.0)])])
 
@@ -373,7 +373,7 @@ class TestForestPlanning:
         the record's element at the pivot lands on that pos and gets the node
         rotation added to its stored angle."""
         adapter = FakeAdapter([_fp("R1", 10, 10)])
-        plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
+        plans = plan_all_imprints(adapter, _scheme_cfg(), {})
         assert len(plans) == 1
         p = plans[0]
         assert p.entity_name == "E1"
@@ -386,13 +386,13 @@ class TestForestPlanning:
     def test_only_filter_narrows_to_entity(self):
         adapter = FakeAdapter([_fp("R1", 10, 10)])
         cfg = _scheme_cfg()
-        assert len(plan_all_scheme_lists(adapter, cfg, {}, only=["E1"])) == 1
-        assert len(plan_all_scheme_lists(adapter, cfg, {}, only=["OTHER"])) == 0
+        assert len(plan_all_imprints(adapter, cfg, {}, only=["E1"])) == 1
+        assert len(plan_all_imprints(adapter, cfg, {}, only=["OTHER"])) == 0
 
     def test_no_scheme_entities_is_empty(self):
         adapter = FakeAdapter([_fp("R1", 10, 10)])
         cfg = Config(entities=[Entity(name="E1", cell="c")], trees=[])
-        assert plan_all_scheme_lists(adapter, cfg, {}) == []
+        assert plan_all_imprints(adapter, cfg, {}) == []
 
 
 class TestExecutionIdempotency:
@@ -401,23 +401,23 @@ class TestExecutionIdempotency:
         touch the executor — positional idempotency (P4 plan §0.6)."""
         # R1 already at the node target (5,2)
         adapter = FakeAdapter([_fp("R1", 5, 2, angle=45.0)])
-        plans = plan_all_scheme_lists(adapter, _scheme_cfg(), {})
-        failed = execute_scheme_list_plans(adapter, plans)
+        plans = plan_all_imprints(adapter, _scheme_cfg(), {})
+        failed = execute_imprint_plans(adapter, plans)
         assert failed == ([], [], [])
 
 
-def test_gui_redraw_plan_emits_scheme_list_node_not_dropped():
+def test_gui_redraw_plan_emits_imprint_node_not_dropped():
     """P5 gate D — the GUI Trees-Redraw path plans a checked node through
     curated_redraw_plan and then runs ONE ApplyPipeline --only per emitted
     name (gui/docks/cascade.py run_curated_tree_redraw), which is where the P4
-    scheme_list branch executes. A scheme_list placement node's Entity name
+    imprint branch executes. An imprint placement node's Entity name
     must REACH that plan (not be swallowed as a cell=None record / not be
     silently skipped), so nothing crashes and nothing is dropped."""
     cfg = _scheme_cfg()
     linked = link_trees(cfg, cfg.trees)
     assert len(linked) == 1
     node = linked[0].nodes[0]
-    # link_trees resolves the scheme_list Entity node to a real record (its
+    # link_trees resolves the imprint Entity node to a real record (its
     # own kind, NOT the cell machinery) — the record is never cell=None.
     assert node.record is not None
     assert node.record.name == "E1"

@@ -369,13 +369,13 @@ def test_entity_save_clears_fields_removed_in_the_form(main_window, tmp_path):
     assert e1["nets"] == {"C_IN": "+3V3"}  # Tools-owned field preserved
 
 
-# ── P6 Stage 4: a scheme_list-based Entity (cell=None) in the Source combo ──
+# ── P6 Stage 4: an imprint-based Entity (cell=None) in the Source combo ──
 
 def _make_scheme_entity_dock(main_window, tmp_path):
-    """An Entity-mode placer root that ALSO carries a scheme_lists: record and
-    a scheme_list-based Entity (S1, cell=None) beside the cell-based E1 — the
+    """An Entity-mode placer root that ALSO carries an imprints: record and
+    an imprint-based Entity (S1, cell=None) beside the cell-based E1 — the
     Stage-4 .cell audit case: a cell=None Entity sharing the Source combo with
-    cell-based ones. The root must LOAD (scheme_list refs resolve), so the
+    cell-based ones. The root must LOAD (imprint refs resolve), so the
     record is included."""
     cells_file = tmp_path / "cells.sexp"
     _write(cells_file, {"cells": {
@@ -387,14 +387,14 @@ def _make_scheme_entity_dock(main_window, tmp_path):
     _write(root_file, {
         "clone_placements": [],
         "include": ["cells.sexp"],
-        "scheme_lists": [{
+        "imprints": [{
             "name": "psu", "source_sheet": "Channel_0",
             "components": [{"ref": "R1", "offset_along_mm": 0.0,
                             "offset_across_mm": 0.0, "rotation_deg": 0.0}],
         }],
         "entities": [
             {"name": "E1", "cell": "pi_filter", "cluster": "CL1"},
-            {"name": "S1", "scheme_list": "psu", "sheet": "Channel_1"},
+            {"name": "S1", "imprint": "psu", "sheet": "Channel_1"},
         ],
     })
     dock = PlacerDock(main_window)
@@ -402,8 +402,8 @@ def _make_scheme_entity_dock(main_window, tmp_path):
     return dock, root_file
 
 
-def test_scheme_list_entity_pick_is_readonly_and_save_refused(main_window, tmp_path, caplog):
-    """P6 Stage 4 .cell audit — a scheme_list-based Entity (cell=None) is in
+def test_imprint_entity_pick_is_readonly_and_save_refused(main_window, tmp_path, caplog):
+    """P6 Stage 4 .cell audit — an imprint-based Entity (cell=None) is in
     the Source combo but Placer's cell-based Entity form cannot represent it:
     picking it loads read-only (no crash, no cell), and a Save is refused with
     a clear message — the record is NEVER silently rewritten into a cell-less
@@ -414,22 +414,22 @@ def test_scheme_list_entity_pick_is_readonly_and_save_refused(main_window, tmp_p
     assert names == ["E1", "S1"]
     dock.entity_combo.setCurrentText("S1")
 
-    # Read-only load: the scheme_list identity is remembered, no cell picked.
+    # Read-only load: the imprint identity is remembered, no cell picked.
     assert dock._selected_cell is None
-    assert dock._loaded_entity_scheme_list == "psu"
+    assert dock._loaded_entity_imprint == "psu"
     assert dock._loaded_entity_identity == "S1"
     assert dock.placer_name_edit.text() == "S1"
     assert dock.sheet_edit.currentText() == "Channel_1"
 
-    # Save is refused (no payload) with the scheme_list-specific message —
+    # Save is refused (no payload) with the imprint-specific message —
     # the root config stays byte-identical (no rewrite, no drop).
     before = _load(root_file)
     assert dock._build_entry_dict() is None
     dock._do_save()
     assert _load(root_file) == before
-    assert "Scheme List placement" in caplog.text
+    assert "Imprint placement" in caplog.text
 
-    # Switching back to a cell-based Entity clears the scheme_list identity.
+    # Switching back to a cell-based Entity clears the imprint identity.
     dock.entity_combo.setCurrentText("E1")
     assert dock._selected_cell == "pi_filter"
-    assert dock._loaded_entity_scheme_list is None
+    assert dock._loaded_entity_imprint is None

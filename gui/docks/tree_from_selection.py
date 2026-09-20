@@ -119,10 +119,10 @@ def _zero_slot_role(entity: Any, cfg: Any) -> Optional[str]:
     component's role when the cell has no zero-offset slot (a hand-authored
     cell without one), None when the cell has no components at all.
 
-    A scheme_list-based Entity (cell=None, plan_2026_09_05_scheme_list.md
+    An imprint-based Entity (cell=None, plan_2026_09_05_scheme_list.md
     §5.1) has no cell to derive a role from — None, guarded EXPLICITLY here
     (Stage 4 .cell audit) instead of relying on cfg.cells.get(None)."""
-    if getattr(entity, "scheme_list", None) is not None:
+    if getattr(entity, "imprint", None) is not None:
         return None
     cell = cfg.cells.get(entity.cell)
     if cell is None or not cell.components:
@@ -386,19 +386,19 @@ def extract_new_cell_for_instantiation(
 #     cluster/sheet (the same path the template Entity uses). Selection is only
 #     an OPTIONAL positioning aid: the geometric center of a single-cluster
 #     selection gives the node's offset from the tree anchor.
-#   * "Place Scheme List…" (P6, plan_2026_09_05_scheme_list.md §6) — place a
-#     recorded Scheme List snapshot: a NEW scheme_list-based Entity (refdes-
+#   * "Place Imprint…" (P6, plan_2026_09_05_scheme_list.md §6) — place a
+#     recorded Imprint snapshot: a NEW imprint-based Entity (refdes-
 #     literal clone of a recorded snapshot) + a placement node appended as a
 #     child of an EXISTING tree node (never a new tree).
 # Both share _entity_payload: an Entity is {name} + a geometry-source
-# reference (cell+cluster / scheme_list) + optional sheet, and NEVER carries
+# reference (cell+cluster / imprint) + optional sheet, and NEVER carries
 # position (the tree node owns xy/rotation).
 
 def _entity_payload(name: str, source: dict, sheet: Optional[str] = None) -> dict:
     """The shared entities: payload of the placement builders — {name} + the
     geometry-source reference fields (`source`) + optional sheet. Deliberately
     NO refs/by_selection/position: an Entity stores WHAT to place and HOW
-    (cell/scheme_list identity + optional sheet target), never WHERE (that is
+    (cell/imprint identity + optional sheet target), never WHERE (that is
     the placement node's job). Never writes to disk itself."""
     ent: dict = {"name": name}
     ent.update(source)
@@ -417,20 +417,20 @@ def build_instantiated_entity(cell_name: str, name: str, cluster: str,
     return _entity_payload(name, {"cell": cell_name, "cluster": cluster}, sheet)
 
 
-def build_scheme_list_entity(name: str, scheme_list: str,
+def build_imprint_entity(name: str, imprint: str,
                              sheet: Optional[str] = None) -> dict:
-    """The entities: dict for a NEW scheme_list-based Entity (P6, plan
-    plan_2026_09_05_scheme_list.md §6.2): {name, scheme_list, sheet?}.
+    """The entities: dict for a NEW imprint-based Entity (P6, plan
+    plan_2026_09_05_scheme_list.md §6.2): {name, imprint, sheet?}.
 
-    A scheme_list Entity is a refdes-LITERAL clone of a recorded Scheme List
-    snapshot — it references the record by name (Entity.scheme_list:
-    <name from scheme_lists:>, the "указывает, не копирует" design §6 rule)
+    An imprint Entity is a refdes-LITERAL clone of a recorded Imprint
+    snapshot — it references the record by name (Entity.imprint:
+    <name from imprints:>, the "указывает, не копирует" design §6 rule)
     and deliberately carries NO cluster/refs/by_selection/nets: the snapshot
     already has its literal refs and literal nets, and those fields are fatal
-    on a scheme_list Entity at load (config/entries.py::_load_entity). `sheet`,
+    on an imprint Entity at load (config/entries.py::_load_entity). `sheet`,
     when set, is the TARGET sheet for twin-resolution (design §5.2); empty/
     None == the source sheet (mode "in place")."""
-    return _entity_payload(name, {"scheme_list": scheme_list}, sheet)
+    return _entity_payload(name, {"imprint": imprint}, sheet)
 
 
 def selection_cluster(selected: Iterable[Any]) -> Optional[str]:

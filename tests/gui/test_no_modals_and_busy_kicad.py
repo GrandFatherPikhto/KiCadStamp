@@ -13,18 +13,18 @@ keeps its dialog (X.1.3).
 
 This module covers the call sites whose own test module would otherwise have to
 grow a second concern:
-  * DockHub's two Scheme-List flows (Record... / Re-source...);
+  * DockHub's two Imprint flows (Record... / Re-source...);
   * TreesDock's "Reread current position" context action;
   * the X.1.3 REGRESSION set — the six call sites that already went through
-    _show_message (3x CellDock, 1x NetTraceDock here; the two SchemeListForm
-    Widget ones are asserted in tests/gui/test_scheme_list.py) keep behaving
+    _show_message (3x CellDock, 1x NetTraceDock here; the two ImprintForm
+    Widget ones are asserted in tests/gui/test_imprint.py) keep behaving
     exactly as before;
   * the node form's offline hint, which is a FORM hint and NOT an error
     (X.1.3 — "showing the STORED values" must stay, and must NOT log).
 
 The remaining converted sites assert the same rule in their own modules
 (test_placer_read_position, test_rules_read_position, test_fieldstool_window,
-test_scheme_list, test_trees_dock).
+test_imprint, test_trees_dock).
 """
 import logging
 
@@ -63,9 +63,9 @@ def _errors(caplog):
 # ── DockHub — Record... / Re-source... (X.1.2, lines 477 / 1375) ───────────
 
 
-def test_record_scheme_list_without_connection_logs_one_error(
+def test_record_imprint_without_connection_logs_one_error(
         real_main_window, tmp_path, monkeypatch, caplog):
-    """Tools -> Scheme Lists -> Record... without a live board: ONE ERROR line
+    """Tools -> Imprints -> Record... without a live board: ONE ERROR line
     in the Log, no modal, and the Record dialog is never even constructed (the
     flow stops right there — X.1.4)."""
     root = tmp_path / "root.sexp"
@@ -74,11 +74,11 @@ def test_record_scheme_list_without_connection_logs_one_error(
 
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _no_boxes)
     constructed = []
-    monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+    monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                         lambda *a, **k: constructed.append(True) or object())
     caplog.clear()
 
-    real_main_window._dock_hub.record_scheme_list()
+    real_main_window._dock_hub.record_imprint()
 
     errors = _errors(caplog)
     assert len(errors) == 1
@@ -86,7 +86,7 @@ def test_record_scheme_list_without_connection_logs_one_error(
     assert constructed == []
 
 
-def test_resource_scheme_list_without_connection_logs_one_error(
+def test_resource_imprint_without_connection_logs_one_error(
         real_main_window, tmp_path, monkeypatch, caplog):
     """The Re-source... twin of the flow above (X.1.2) — same one ERROR line,
     no modal, no dialog, nothing captured."""
@@ -96,11 +96,11 @@ def test_resource_scheme_list_without_connection_logs_one_error(
 
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _no_boxes)
     constructed = []
-    monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+    monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                         lambda *a, **k: constructed.append(True) or object())
     caplog.clear()
 
-    real_main_window._dock_hub._run_resource_scheme_list({"name": "rec"}, root)
+    real_main_window._dock_hub._run_resource_imprint({"name": "rec"}, root)
 
     errors = _errors(caplog)
     assert len(errors) == 1

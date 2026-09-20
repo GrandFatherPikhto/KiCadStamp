@@ -218,14 +218,14 @@ class Box2:
         return self
 
 
-# --- Segment-vs-box clipping (Scheme List truncate, plan Part A stage 3) ----
+# --- Segment-vs-box clipping (Imprint truncate, plan Part A stage 3) ----
 
 def _segment_box_interval(a: Vector2, b: Vector2, box: Box2
                           ) -> tuple[float, float] | None:
     """Liang-Barsky parametric interval [t0, t1] in [0, 1] of the segment
     [a, b] that lies inside the axis-aligned box, or None when the segment
     misses the box entirely. Extracted from the former bool-only test in
-    scheme_list_capture._segment_intersects_box so the SAME math both answers
+    imprint_capture._segment_intersects_box so the SAME math both answers
     the boolean pre-filter question and computes real clip points."""
     x1, y1 = float(a.x), float(a.y)
     x2, y2 = float(b.x), float(b.y)

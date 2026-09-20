@@ -37,9 +37,9 @@ def _force_choice(monkeypatch, choice):
     monkeypatch.setattr(recovery_mod, "recover_missing_include", fake)
 
 
-# ── default action rule (Scheme List side file) ────────────────────────────
+# ── default action rule (Imprint side file) ────────────────────────────
 
-def test_default_choice_is_create_for_the_scheme_list_storage():
+def test_default_choice_is_create_for_the_imprint_storage():
     assert recovery_mod._default_choice("scheme_lists.sexp") == recovery_mod.CREATE
     assert recovery_mod._default_choice("scheme_lists.json") == recovery_mod.CREATE
     # path form as recorded: the BASENAME is what matters

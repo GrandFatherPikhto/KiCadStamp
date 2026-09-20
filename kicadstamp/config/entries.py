@@ -18,12 +18,13 @@ from typing import Any
 from ..exceptions import ValidationError, format_fatal_error, check_unknown_keys
 from ..i18n import _
 from ..trees import Tree, anchor_from_dict, anchor_to_dict, tree_from_dict
+from .aliases import normalize_entity_aliases
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
     Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
-    NetTrace, Entity, SchemeListConfig, SchemeListComponentRecord,
-    SchemeListScopePreset, SchemeListViaRecord, SchemeListTrackRecord,
-    SchemeListBoundaryNet, TreeInstance,
+    NetTrace, Entity, ImprintConfig, ImprintComponentRecord,
+    ImprintScopePreset, ImprintViaRecord, ImprintTrackRecord,
+    ImprintBoundaryNet, TreeInstance,
 )
 from .points import Point
 
@@ -848,7 +849,7 @@ _ENTITY_FORBIDDEN_KEYS = (
 )
 
 _ENTITY_KNOWN_KEYS = {
-    'name', 'cell', 'scheme_list', 'nets', 'params', 'net_overrides',
+    'name', 'cell', 'imprint', 'nets', 'params', 'net_overrides',
     'cluster', 'sheet', 'retired', 'skip', 'ignore_selection',
     'by_selection', 'refs', 'layer', 'mirror', 'comment',
 }
@@ -858,13 +859,18 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     """One entities: entry — the "what" of a placement, WITHOUT position
     (see Entity's docstring in config/models.py). Loader mirrors
     _load_clone_placement's per-field discipline: EXACTLY ONE of cell:/
-    scheme_list: required, unknown keys fatal, positional keys fatal,
+    imprint: required, unknown keys fatal, positional keys fatal,
     by_selection+nets fatal, layer value checked.
 
-    2026-09-06 (design_2026_09_05_scheme_list.md §5.1): a scheme_list-based
+    2026-09-06 (design_2026_09_05_scheme_list.md §5.1): an imprint-based
     Entity is a refdes-literal clone of a recorded snapshot, so the
     role-resolution controls (cluster/by_selection/refs/nets/params/
     net_overrides) are meaningless on it and fatal if set together."""
+    # Legacy ENTITY key (2026-09-20 Imprint rename): a profile written before
+    # the rename carries `scheme_list:`; map it to `imprint:` BEFORE the
+    # known-key check so old files keep loading and the canonical spelling is
+    # the only one this loader ever sees (config/aliases.py owns the rule).
+    normalize_entity_aliases(data)
     name = data.get('name')
     if not name:
         raise ValidationError(format_fatal_error(
@@ -886,29 +892,29 @@ def _load_entity(data: dict[str, Any]) -> Entity:
                  .format(field=forbidden)]))
 
     cell = data.get('cell')
-    scheme_list = data.get('scheme_list')
-    if (cell is None) == (scheme_list is None):
+    imprint = data.get('imprint')
+    if (cell is None) == (imprint is None):
         raise ValidationError(format_fatal_error(
-            _("entity {name!r} needs exactly one of cell:/scheme_list:").format(name=name),
+            _("entity {name!r} needs exactly one of cell:/imprint:").format(name=name),
             [_("an Entity is either a role-resolved use of a Cell template "
                "(cell: <name from cells:>) or a refdes-literal clone of a "
-               "recorded Scheme List (scheme_list: <name from scheme_lists:>) "
+               "recorded Imprint (imprint: <name from imprints:>) "
                "— set exactly one of the two, not both and not neither")]))
 
-    if scheme_list is not None:
+    if imprint is not None:
         # Role-resolution controls are meaningless on a recorded snapshot
         # (it already carries its literal refs and literal nets).
-        # mirror/layer join the forbidden set for a scheme_list Entity (P4 v1
+        # mirror/layer join the forbidden set for an imprint Entity (P4 v1
         # scope guard): the recorded copper carries literal layer strings and
         # the Apply branch has no mirror formula — a mirror/layer on a
-        # scheme_list Entity would silently produce wrong geometry.
+        # imprint Entity would silently produce wrong geometry.
         for key in ('cluster', 'by_selection', 'refs', 'nets', 'params',
                     'net_overrides', 'mirror', 'layer'):
             if data.get(key):
                 raise ValidationError(format_fatal_error(
-                    _("field {key!r} on scheme_list-based entity {name!r}").format(
+                    _("field {key!r} on imprint-based entity {name!r}").format(
                         key=key, name=name),
-                    [_("a Scheme List is a recorded live-board snapshot that "
+                    [_("an Imprint is a recorded live-board snapshot that "
                        "already carries its literal refs and literal nets — "
                        "{key} has no meaning here. Remove it, or use a "
                        "cell-based Entity instead").format(key=key)]))
@@ -929,7 +935,7 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     return Entity(
         name=name,
         cell=cell,
-        scheme_list=scheme_list,
+        imprint=imprint,
         nets=nets,
         params=data.get('params', {}) or {},
         net_overrides=data.get('net_overrides', {}) or {},
@@ -946,45 +952,45 @@ def _load_entity(data: dict[str, Any]) -> Entity:
     )
 
 
-_SCHEME_LIST_KNOWN_KEYS = {
+_IMPRINT_KNOWN_KEYS = {
     'name', 'pivot', 'source_sheet',
     'scope_sheet_paths', 'scope_presets', 'components', 'vias', 'tracks',
     'boundary_nets',
 }
-_SCHEME_LIST_COMPONENT_KNOWN_KEYS = {
+_IMPRINT_COMPONENT_KNOWN_KEYS = {
     'ref', 'offset_along_mm', 'offset_across_mm', 'rotation_deg',
 }
-_SCHEME_LIST_VIA_KNOWN_KEYS = {
+_IMPRINT_VIA_KNOWN_KEYS = {
     'offset_along_mm', 'offset_across_mm', 'drill_mm', 'diameter_mm', 'net',
 }
-_SCHEME_LIST_TRACK_KNOWN_KEYS = {
+_IMPRINT_TRACK_KNOWN_KEYS = {
     'start_along_mm', 'start_across_mm', 'end_along_mm', 'end_across_mm',
     'width_mm', 'layer', 'net',
 }
-_SCHEME_LIST_BOUNDARY_KNOWN_KEYS = {'net', 'action', 'external_ref'}
+_IMPRINT_BOUNDARY_KNOWN_KEYS = {'net', 'action', 'external_ref'}
 
 
-def _load_scheme_list_components(raw: list | None, owner: str) -> list[SchemeListComponentRecord]:
-    """Parse the literal-ref components of one Scheme List record. The owner
+def _load_imprint_components(raw: list | None, owner: str) -> list[ImprintComponentRecord]:
+    """Parse the literal-ref components of one Imprint record. The owner
     refs are the record's own captured footprints (offset in the region's
-    centre frame, see SchemeListConfig)."""
-    out: list[SchemeListComponentRecord] = []
+    centre frame, see ImprintConfig)."""
+    out: list[ImprintComponentRecord] = []
     for i, c in enumerate(raw or []):
         if not isinstance(c, dict):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: components[{i}] must be a mapping").format(
+                _("imprints entry {name!r}: components[{i}] must be a mapping").format(
                     name=owner, i=i),
                 [_("got: {c!r}").format(c=c)]))
-        check_unknown_keys(c, _SCHEME_LIST_COMPONENT_KNOWN_KEYS,
-                           _("unknown fields in scheme_lists {name!r} component {i}").format(
+        check_unknown_keys(c, _IMPRINT_COMPONENT_KNOWN_KEYS,
+                           _("unknown fields in imprints {name!r} component {i}").format(
                                name=owner, i=i))
         ref = c.get('ref')
         if not ref:
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: component {i} without ref").format(
+                _("imprints entry {name!r}: component {i} without ref").format(
                     name=owner, i=i),
                 [_("every recorded component needs a literal refdes: ref: <C1>")]))
-        out.append(SchemeListComponentRecord(
+        out.append(ImprintComponentRecord(
             ref=ref,
             offset_along_mm=float(c.get('offset_along_mm', 0.0)),
             offset_across_mm=float(c.get('offset_across_mm', 0.0)),
@@ -993,18 +999,18 @@ def _load_scheme_list_components(raw: list | None, owner: str) -> list[SchemeLis
     return out
 
 
-def _load_scheme_list_vias(raw: list | None, owner: str) -> list[SchemeListViaRecord]:
-    out: list[SchemeListViaRecord] = []
+def _load_imprint_vias(raw: list | None, owner: str) -> list[ImprintViaRecord]:
+    out: list[ImprintViaRecord] = []
     for i, v in enumerate(raw or []):
         if not isinstance(v, dict):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: vias[{i}] must be a mapping").format(
+                _("imprints entry {name!r}: vias[{i}] must be a mapping").format(
                     name=owner, i=i),
                 [_("got: {v!r}").format(v=v)]))
-        check_unknown_keys(v, _SCHEME_LIST_VIA_KNOWN_KEYS,
-                           _("unknown fields in scheme_lists {name!r} via {i}").format(
+        check_unknown_keys(v, _IMPRINT_VIA_KNOWN_KEYS,
+                           _("unknown fields in imprints {name!r} via {i}").format(
                                name=owner, i=i))
-        out.append(SchemeListViaRecord(
+        out.append(ImprintViaRecord(
             offset_along_mm=float(v.get('offset_along_mm', 0.0)),
             offset_across_mm=float(v.get('offset_across_mm', 0.0)),
             drill_mm=float(v.get('drill_mm', 0.0)),
@@ -1014,27 +1020,27 @@ def _load_scheme_list_vias(raw: list | None, owner: str) -> list[SchemeListViaRe
     return out
 
 
-def _load_scheme_list_tracks(raw: list | None, owner: str) -> list[SchemeListTrackRecord]:
-    out: list[SchemeListTrackRecord] = []
+def _load_imprint_tracks(raw: list | None, owner: str) -> list[ImprintTrackRecord]:
+    out: list[ImprintTrackRecord] = []
     for i, t in enumerate(raw or []):
         if not isinstance(t, dict):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: tracks[{i}] must be a mapping").format(
+                _("imprints entry {name!r}: tracks[{i}] must be a mapping").format(
                     name=owner, i=i),
                 [_("got: {t!r}").format(t=t)]))
-        check_unknown_keys(t, _SCHEME_LIST_TRACK_KNOWN_KEYS,
-                           _("unknown fields in scheme_lists {name!r} track {i}").format(
+        check_unknown_keys(t, _IMPRINT_TRACK_KNOWN_KEYS,
+                           _("unknown fields in imprints {name!r} track {i}").format(
                                name=owner, i=i))
         layer = t.get('layer')
         # Literal copper layer — a STRING, deliberately not restricted to the
         # F.Cu/B.Cu-only BoardLayer enum (multilayer boards, P0.1).
         if layer is not None and not isinstance(layer, str):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: track {i} layer must be a string").format(
+                _("imprints entry {name!r}: track {i} layer must be a string").format(
                     name=owner, i=i),
                 [_("got: {layer!r} — layer is the literal copper layer name "
                    "(e.g. 'F.Cu', 'In1.Cu', 'B.Cu')").format(layer=layer)]))
-        out.append(SchemeListTrackRecord(
+        out.append(ImprintTrackRecord(
             start_along_mm=float(t.get('start_along_mm', 0.0)),
             start_across_mm=float(t.get('start_across_mm', 0.0)),
             end_along_mm=float(t.get('end_along_mm', 0.0)),
@@ -1046,39 +1052,39 @@ def _load_scheme_list_tracks(raw: list | None, owner: str) -> list[SchemeListTra
     return out
 
 
-def _load_scheme_list_boundary_nets(raw: list | None,
-                                    owner: str) -> list[SchemeListBoundaryNet]:
+def _load_imprint_boundary_nets(raw: list | None,
+                                    owner: str) -> list[ImprintBoundaryNet]:
     """Boundary-net diagnostics: per-NET decision key, one `action` for every
     disconnected stub of the net (design §3). Allowed actions are "exclude"
     (drop the whole connected component, v1) and "truncate" (geometric
     clipping at the capture boundary — design_2026_09_06_boundary_truncate_
     and_zones.md Part A); ANY other value is fatal."""
-    out: list[SchemeListBoundaryNet] = []
+    out: list[ImprintBoundaryNet] = []
     for i, b in enumerate(raw or []):
         if not isinstance(b, dict):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: boundary_nets[{i}] must be a mapping").format(
+                _("imprints entry {name!r}: boundary_nets[{i}] must be a mapping").format(
                     name=owner, i=i),
                 [_("got: {b!r}").format(b=b)]))
-        check_unknown_keys(b, _SCHEME_LIST_BOUNDARY_KNOWN_KEYS,
-                           _("unknown fields in scheme_lists {name!r} boundary_nets[{i}]").format(
+        check_unknown_keys(b, _IMPRINT_BOUNDARY_KNOWN_KEYS,
+                           _("unknown fields in imprints {name!r} boundary_nets[{i}]").format(
                                name=owner, i=i))
         net = b.get('net')
         if not net:
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: boundary_net {i} without net").format(
+                _("imprints entry {name!r}: boundary_net {i} without net").format(
                     name=owner, i=i),
                 [_("each boundary-net diagnostic names the boundary net: net: <name>")]))
         action = b.get('action', 'exclude')
         if action not in ('exclude', 'truncate'):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: boundary net {net!r} action {action!r}").format(
+                _("imprints entry {name!r}: boundary net {net!r} action {action!r}").format(
                     name=owner, net=net, action=action),
                 [_("boundary-net action must be one of: 'exclude' (drop the "
                    "whole connected component with a warning, like Cell "
                    "extraction) or 'truncate' (geometric clipping of copper at "
                    "the capture boundary)")]))
-        out.append(SchemeListBoundaryNet(
+        out.append(ImprintBoundaryNet(
             net=net,
             action=action,
             external_ref=b.get('external_ref'),
@@ -1086,8 +1092,8 @@ def _load_scheme_list_boundary_nets(raw: list | None,
     return out
 
 
-def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
-    """Parse scheme_lists' ``scope_sheet_paths`` (plan_2026_09_06_scheme_
+def _load_imprint_scope_paths(raw, owner: str) -> list[list[str]] | None:
+    """Parse imprints' ``scope_sheet_paths`` (plan_2026_09_06_scheme_
     list_sheet_capture.md 5c.1): the CHECKED leaf sheet paths of a "By sheet"
     capture, stored as list[list[str]] (each inner list is one full path, e.g.
     ['Top', 'Channel_0']). None when absent/empty (a "By selection"-record, or
@@ -1097,7 +1103,7 @@ def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
         return None
     if not isinstance(raw, list):
         raise ValidationError(format_fatal_error(
-            _("scheme_lists entry {name!r}: scope_sheet_paths must be a list of sheet paths").format(
+            _("imprints entry {name!r}: scope_sheet_paths must be a list of sheet paths").format(
                 name=owner),
             [_("each scope path is a list of sheet-name strings, e.g. "
                "[['Top', 'Channel_0'], ['Top']] — the checked leaves of the "
@@ -1107,7 +1113,7 @@ def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
         if (not isinstance(path, list) or not path
                 or not all(isinstance(seg, str) and seg for seg in path)):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: scope_sheet_paths[{i}] must be a sheet path").format(
+                _("imprints entry {name!r}: scope_sheet_paths[{i}] must be a sheet path").format(
                     name=owner, i=i),
                 [_("a sheet path is a non-empty list of non-empty sheet-name "
                    "strings, e.g. ['Top', 'Channel_0']; got {path!r}").format(path=path)]))
@@ -1115,47 +1121,47 @@ def _load_scheme_list_scope_paths(raw, owner: str) -> list[list[str]] | None:
     return out
 
 
-def _load_scheme_list_scope_presets(raw, owner: str) -> list[SchemeListScopePreset]:
-    """Parse scheme_lists' ``scope_presets`` (plan_2026_09_06_scheme_list_
+def _load_imprint_scope_presets(raw, owner: str) -> list[ImprintScopePreset]:
+    """Parse imprints' ``scope_presets`` (plan_2026_09_06_imprint_
     named_presets.md §2): a list of {name, sheet_paths} — NAMED saved
     alternatives to ``scope_sheet_paths`` (the checked-leaf-path library a user
     switches between on the record page before a Reread). [] when absent/empty.
     Each preset's name must be a non-empty string, UNIQUE within this record's
     OWN preset list (fatal on duplicate — the same ambiguity scope_sheet_paths'
     uniqueness-between-records already guards against, one level down). Each
-    sheet_paths is validated by the SHARED _load_scheme_list_scope_paths (no
+    sheet_paths is validated by the SHARED _load_imprint_scope_paths (no
     duplicated "non-empty list of non-empty strings" logic)."""
     if not raw:
         return []
     if not isinstance(raw, list):
         raise ValidationError(format_fatal_error(
-            _("scheme_lists entry {name!r}: scope_presets must be a list of presets").format(
+            _("imprints entry {name!r}: scope_presets must be a list of presets").format(
                 name=owner),
             [_("each preset is {{'name': str, 'sheet_paths': [[...]]}}; got {raw!r}").format(
                 raw=raw)]))
-    out: list[SchemeListScopePreset] = []
+    out: list[ImprintScopePreset] = []
     seen_names: set[str] = set()
     for i, entry in enumerate(raw):
         if (not isinstance(entry, dict) or not entry.get('name')
                 or 'sheet_paths' not in entry):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: scope_presets[{i}] must have a "
+                _("imprints entry {name!r}: scope_presets[{i}] must have a "
                   "non-empty name and sheet_paths").format(name=owner, i=i),
                 [_("got {entry!r}").format(entry=entry)]))
         preset_name = str(entry['name'])
         if preset_name in seen_names:
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: duplicate preset name {preset!r}").format(
+                _("imprints entry {name!r}: duplicate preset name {preset!r}").format(
                     name=owner, preset=preset_name),
                 [_("preset names must be unique WITHIN one record's scope_presets")]))
         seen_names.add(preset_name)
-        sheet_paths = _load_scheme_list_scope_paths(entry['sheet_paths'], owner) or []
-        out.append(SchemeListScopePreset(name=preset_name, sheet_paths=sheet_paths))
+        sheet_paths = _load_imprint_scope_paths(entry['sheet_paths'], owner) or []
+        out.append(ImprintScopePreset(name=preset_name, sheet_paths=sheet_paths))
     return out
 
 
-def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
-    """One scheme_lists: entry — a recorded live-board snapshot in the CENTRE
+def _load_imprint(data: dict[str, Any]) -> ImprintConfig:
+    """One imprints: entry — a recorded live-board snapshot in the CENTRE
     frame of the recorded region (design_2026_09_07_scheme_list_pivot.md).
     Pure single-entry validator, split out so a future GUI dock can
     validate/rebuild one record the same way load_entity/load_thermal_via_array
@@ -1164,17 +1170,17 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
     name = data.get('name')
     if not name:
         raise ValidationError(format_fatal_error(
-            _("scheme_lists entry without name"),
-            [_("every scheme_lists entry needs a name — the identity for "
-               "--only and the reference an Entity's scheme_list: points at")]))
-    check_unknown_keys(data, _SCHEME_LIST_KNOWN_KEYS,
-                       _("unknown fields in scheme_lists entry {name!r}").format(name=name))
+            _("imprints entry without name"),
+            [_("every imprints entry needs a name — the identity for "
+               "--only and the reference an Entity's imprint: points at")]))
+    check_unknown_keys(data, _IMPRINT_KNOWN_KEYS,
+                       _("unknown fields in imprints entry {name!r}").format(name=name))
 
-    components = _load_scheme_list_components(data.get('components'), name)
+    components = _load_imprint_components(data.get('components'), name)
     if not components:
         raise ValidationError(format_fatal_error(
-            _("scheme_lists entry {name!r} without components").format(name=name),
-            [_("a recorded Scheme List is a snapshot of a real region — it must "
+            _("imprints entry {name!r} without components").format(name=name),
+            [_("a recorded Imprint is a snapshot of a real region — it must "
                "list at least one footprint (components: [{ref: C1, ...}])")]))
 
     pivot_raw = data.get('pivot')
@@ -1183,23 +1189,23 @@ def _load_scheme_list(data: dict[str, Any]) -> SchemeListConfig:
     else:
         if not (isinstance(pivot_raw, (list, tuple)) and len(pivot_raw) == 2):
             raise ValidationError(format_fatal_error(
-                _("scheme_lists entry {name!r}: pivot must be a 2-element "
+                _("imprints entry {name!r}: pivot must be a 2-element "
                   "[x, y] point in the region's centre frame").format(name=name),
                 [_("got: {pivot!r}").format(pivot=pivot_raw)]))
         pivot = (float(pivot_raw[0]), float(pivot_raw[1]))
 
-    return SchemeListConfig(
+    return ImprintConfig(
         name=name,
         pivot=pivot,
         source_sheet=data.get('source_sheet'),
-        scope_sheet_paths=_load_scheme_list_scope_paths(
+        scope_sheet_paths=_load_imprint_scope_paths(
             data.get('scope_sheet_paths'), name),
-        scope_presets=_load_scheme_list_scope_presets(
+        scope_presets=_load_imprint_scope_presets(
             data.get('scope_presets'), name),
         components=components,
-        vias=_load_scheme_list_vias(data.get('vias'), name),
-        tracks=_load_scheme_list_tracks(data.get('tracks'), name),
-        boundary_nets=_load_scheme_list_boundary_nets(data.get('boundary_nets'), name),
+        vias=_load_imprint_vias(data.get('vias'), name),
+        tracks=_load_imprint_tracks(data.get('tracks'), name),
+        boundary_nets=_load_imprint_boundary_nets(data.get('boundary_nets'), name),
     )
 
 

@@ -1,19 +1,19 @@
-# tests/test_scheme_list_place.py
-"""P6 "Place Scheme List" — pure (Qt-free) core tests (plan_2026_09_05_
-scheme_list.md §6, handoff_2026_09_06_scheme_list_p6_staged.md Stage 1):
-  * gui/docks/tree_from_selection.build_scheme_list_entity — the entities:
-    dict shape for a NEW scheme_list-based Entity (scheme_list: instead of
+# tests/test_imprint_place.py
+"""P6 "Place Imprint" — pure (Qt-free) core tests (plan_2026_09_05_
+imprint.md §6, handoff_2026_09_06_scheme_list_p6_staged.md Stage 1):
+  * gui/docks/tree_from_selection.build_imprint_entity — the entities:
+    dict shape for a NEW imprint-based Entity (imprint: instead of
     cell:, no cluster/refs/by_selection), sharing _entity_payload with
     build_instantiated_entity;
   * kicadstamp/config_writer.append_tree_child_node — append a placement node
     as a CHILD of an existing tree node (parent_ref) or as a new top-level
     node (parent_ref=None) of an EXISTING tree, NEVER a new tree; OSError on
     a missing tree / missing parent;
-  * round-trip: a config carrying the scheme_list Entity + the appended node
+  * round-trip: a config carrying the imprint Entity + the appended node
     loads and link_trees resolves the node to the Entity (not cell=None).
 
 The GUI widget tests (validation, DockHub wiring) live in
-tests/gui/test_scheme_list_place.py (Stage 5).
+tests/gui/test_imprint_place.py (Stage 5).
 """
 import json
 from pathlib import Path
@@ -22,7 +22,7 @@ import pytest
 
 from gui.docks.tree_from_selection import (
     build_instantiated_entity,
-    build_scheme_list_entity,
+    build_imprint_entity,
 )
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_writer import append_tree_child_node
@@ -58,21 +58,21 @@ def _find_node(tree: dict, ref: str):
     return walk(tree.get("nodes"))
 
 
-class TestBuildSchemeListEntity:
-    def test_shape_scheme_list_only_no_cell_cluster_refs(self):
-        ent = build_scheme_list_entity("PSU_CH0", "psu", "Channel_0")
-        assert ent == {"name": "PSU_CH0", "scheme_list": "psu", "sheet": "Channel_0"}
+class TestBuildImprintEntity:
+    def test_shape_imprint_only_no_cell_cluster_refs(self):
+        ent = build_imprint_entity("PSU_CH0", "psu", "Channel_0")
+        assert ent == {"name": "PSU_CH0", "imprint": "psu", "sheet": "Channel_0"}
         # Deliberately NO cell/cluster/refs/by_selection: a recorded snapshot
         # already carries its literal refs/nets; role-pinning keys are fatal on
-        # a scheme_list Entity at load (config/entries.py::_load_entity).
+        # an imprint Entity at load (config/entries.py::_load_entity).
         assert "cell" not in ent
         assert "cluster" not in ent
         assert "refs" not in ent
         assert "by_selection" not in ent
 
     def test_sheet_optional_defaults_to_in_place(self):
-        ent = build_scheme_list_entity("PSU_CH0", "psu")
-        assert ent == {"name": "PSU_CH0", "scheme_list": "psu"}
+        ent = build_imprint_entity("PSU_CH0", "psu")
+        assert ent == {"name": "PSU_CH0", "imprint": "psu"}
 
     def test_shares_entity_payload_with_build_instantiated(self):
         """Both builders go through the same _entity_payload — the cell-based
@@ -80,8 +80,8 @@ class TestBuildSchemeListEntity:
         inst = build_instantiated_entity("c_psu", "PSU_CH0", "PSU", "Channel_0")
         assert inst == {"name": "PSU_CH0", "cell": "c_psu",
                         "cluster": "PSU", "sheet": "Channel_0"}
-        sl = build_scheme_list_entity("PSU_CH0", "psu", "Channel_0")
-        assert sl == {"name": "PSU_CH0", "scheme_list": "psu", "sheet": "Channel_0"}
+        sl = build_imprint_entity("PSU_CH0", "psu", "Channel_0")
+        assert sl == {"name": "PSU_CH0", "imprint": "psu", "sheet": "Channel_0"}
 
 
 def _placement_node(ref, x=1.0, y=2.0, rotation=None):
@@ -168,11 +168,11 @@ class TestAppendTreeChildNode:
                 {"name": "keep", "anchor": {"origin": True},
                  "nodes": [{"ref": "OTHER", "kind": "placement", "xy": [1.0, 1.0]}]},
             ],
-            "entities": [{"name": "E0", "scheme_list": "psu"}],
+            "entities": [{"name": "E0", "imprint": "psu"}],
         })
         append_tree_child_node(path, "keep", None, _placement_node("E1"))
         data = _load(path)
-        assert data["entities"] == [{"name": "E0", "scheme_list": "psu"}]
+        assert data["entities"] == [{"name": "E0", "imprint": "psu"}]
         assert len(data["trees"]) == 1
         _, other = _find_node(data["trees"][0], "OTHER")
         assert other["xy"] == [1.0, 1.0]
@@ -188,7 +188,7 @@ class TestAppendTreeChildNode:
 
 
 def _scheme_record_dict(name="psu"):
-    """A minimal valid scheme_lists: entry (no anchor — the frame is the
+    """A minimal valid imprints: entry (no anchor — the frame is the
     region's centre, pivot defaults to it) for the round-trip load."""
     return {
         "name": name,
@@ -202,19 +202,19 @@ def _scheme_record_dict(name="psu"):
     }
 
 
-class TestSchemeListEntityRoundTrip:
+class TestImprintEntityRoundTrip:
     def test_entity_and_appended_node_load_and_link(self, tmp_path):
-        """The Stage-1 round-trip: build_scheme_list_entity + an appended
+        """The Stage-1 round-trip: build_imprint_entity + an appended
         placement node (child of an existing node) survive load_config and
         link_trees resolves the node to the Entity — never cell=None."""
         root = tmp_path / "root.sexp"
         # PARENT must itself be an existing Entity so link_trees resolves the
         # pre-existing placement node too (a placement ref always resolves).
         root.write_text(dict_to_sexp({
-            "scheme_lists": [_scheme_record_dict()],
+            "imprints": [_scheme_record_dict()],
             "entities": [
                 {"name": "PARENT", "cell": "c_parent"},
-                build_scheme_list_entity("PSU_CH0", "psu", "Channel_0"),
+                build_imprint_entity("PSU_CH0", "psu", "Channel_0"),
             ],
             "trees": [{
                 "name": "main", "anchor": {"origin": True},
@@ -227,7 +227,7 @@ class TestSchemeListEntityRoundTrip:
         assert "PSU_CH0" in {e.name for e in cfg.entities}
         ent = next(e for e in cfg.entities if e.name == "PSU_CH0")
         assert ent.cell is None
-        assert ent.scheme_list == "psu"
+        assert ent.imprint == "psu"
         linked = link_trees(cfg, cfg.trees)[0]
         nodes, node = _find_node(_read_back(root, "main"), "PSU_CH0")
         assert nodes is not None and node is not None

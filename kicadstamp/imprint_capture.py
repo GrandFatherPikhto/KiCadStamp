@@ -1,9 +1,9 @@
-# kicadstamp/scheme_list_capture.py
-"""Scheme List capture — record a real, already-routed region of the live
-board as a SchemeListConfig (plan_2026_09_05_scheme_list.md P2;
+# kicadstamp/imprint_capture.py
+"""Imprint capture — record a real, already-routed region of the live
+board as an ImprintConfig (plan_2026_09_05_scheme_list.md P2;
 design_2026_09_07_scheme_list_pivot.md — CENTRE-frame, no anchor).
 
-A Scheme List is a named snapshot identified by an explicit list of literal
+An Imprint is a named snapshot identified by an explicit list of literal
 refdes (NOT a Role): resolve the refs directly on the live board, run the SAME
 connectivity-closure copper filter Cell extraction uses
 (template_selection._filter_tracks_and_vias_within_selection), keep only the
@@ -24,12 +24,12 @@ import logging
 from dataclasses import dataclass, field
 
 from .config.models import (
-    SchemeListBoundaryNet,
-    SchemeListComponentRecord,
-    SchemeListConfig,
-    SchemeListScopePreset,
-    SchemeListTrackRecord,
-    SchemeListViaRecord,
+    ImprintBoundaryNet,
+    ImprintComponentRecord,
+    ImprintConfig,
+    ImprintScopePreset,
+    ImprintTrackRecord,
+    ImprintViaRecord,
 )
 from .domain.board import Footprint, Track, Via
 from .domain.geometry import Box2, Vector2, clip_segment_to_box
@@ -66,10 +66,10 @@ def _region_centre(footprints: list[Footprint]) -> Vector2:
     return Vector2.from_xy((min(xs) + max(xs)) // 2, (min(ys) + max(ys)) // 2)
 
 
-def _component_record(fp: Footprint, origin: Vector2) -> SchemeListComponentRecord:
+def _component_record(fp: Footprint, origin: Vector2) -> ImprintComponentRecord:
     """One recorded component — same offset formula as Cell's component slot
     (cell_geometry_refresh._component_new_geo), keyed by literal ref."""
-    return SchemeListComponentRecord(
+    return ImprintComponentRecord(
         ref=fp.ref,
         offset_along_mm=_mm(fp.position.x - origin.x),
         offset_across_mm=_mm(fp.position.y - origin.y),
@@ -77,10 +77,10 @@ def _component_record(fp: Footprint, origin: Vector2) -> SchemeListComponentReco
     )
 
 
-def _via_record(via: Via, origin: Vector2) -> SchemeListViaRecord:
+def _via_record(via: Via, origin: Vector2) -> ImprintViaRecord:
     """One recorded via — reuse cell_geometry_refresh._import_via_record's exact
     geometry (offset + drill/diameter); the net is LITERAL (never classified)."""
-    record = SchemeListViaRecord(
+    record = ImprintViaRecord(
         offset_along_mm=_mm(via.position.x - origin.x),
         offset_across_mm=_mm(via.position.y - origin.y),
         drill_mm=round(via.drill_mm, 4),
@@ -90,11 +90,11 @@ def _via_record(via: Via, origin: Vector2) -> SchemeListViaRecord:
     return record
 
 
-def _track_record(track: Track, origin: Vector2) -> SchemeListTrackRecord:
+def _track_record(track: Track, origin: Vector2) -> ImprintTrackRecord:
     """One recorded track — reuse cell_geometry_refresh._import_track_record's
     exact geometry; net LITERAL and copper layer as a STRING (full copper
     stack, utils.layers.layer_to_str)."""
-    return SchemeListTrackRecord(
+    return ImprintTrackRecord(
         start_along_mm=_mm(track.start.x - origin.x),
         start_across_mm=_mm(track.start.y - origin.y),
         end_along_mm=_mm(track.end.x - origin.x),
@@ -175,7 +175,7 @@ def _boundary_net_external_ref(dropped: list[Track] | list[Via],
     return None
 
 
-def capture_scheme_list(
+def capture_imprint(
     name: str,
     refs: list[str],
     adapter=None,
@@ -183,10 +183,10 @@ def capture_scheme_list(
     source_sheet: str | None = None,   # explicit override (Reread)
     sheet_names: dict[str, str] | None = None,  # for derivation (Record/Re-source)
     scope_sheet_paths: list[list[str]] | None = None,  # 5c.1 — "By sheet" scope
-    scope_presets: list[SchemeListScopePreset] | None = None,  # named presets
+    scope_presets: list[ImprintScopePreset] | None = None,  # named presets
     boundary_net_actions: dict[str, str] | None = None,  # net -> "exclude"|"truncate"
-) -> SchemeListConfig:
-    """Capture the live board region identified by `refs` as a Scheme List.
+) -> ImprintConfig:
+    """Capture the live board region identified by `refs` as an Imprint.
 
     Resolves every ref by direct refdes lookup (missing refs -> one fatal
     listing ALL of them), runs the shared connectivity-closure filter over the
@@ -197,7 +197,7 @@ def capture_scheme_list(
 
     The record's frame origin is the CENTRE of the recorded region (the
     midpoint of the recorded footprints' position extents, design_2026_09_07_
-    scheme_list_pivot.md): every recorded element's offset is measured from
+    imprint_pivot.md): every recorded element's offset is measured from
     that centre, NOT from any single anchor component. `pivot` (a point in the
     same centre-frame, default (0,0) = the centre) is stored on the record —
     the point that lands on a placement node at Redraw. Reread passes the
@@ -226,17 +226,17 @@ def capture_scheme_list(
     """
     if not refs:
         raise ValidationError(format_fatal_error(
-            _("cannot record scheme list {name!r}: no refs given").format(name=name),
-            [_("a Scheme List needs at least one component ref to capture")]))
+            _("cannot record imprint {name!r}: no refs given").format(name=name),
+            [_("an Imprint needs at least one component ref to capture")]))
 
     all_footprints = adapter.get_footprints()  # one IPC read, shared below
     fp_by_ref = {fp.ref: fp for fp in all_footprints}
     missing = sorted(set(refs) - set(fp_by_ref))
     if missing:
         raise ValidationError(format_fatal_error(
-            _("cannot record scheme list {name!r}: refs not found on the board: {refs}").format(
+            _("cannot record imprint {name!r}: refs not found on the board: {refs}").format(
                 name=name, refs=", ".join(missing)),
-            [_("Scheme List capture is a snapshot of real footprints — every "
+            [_("Imprint capture is a snapshot of real footprints — every "
                "ref in the list must resolve on the live board (use the board "
                "selection / direct refdes lookup)")]))
     footprints = [fp_by_ref[r] for r in refs]
@@ -284,14 +284,14 @@ def capture_scheme_list(
         if item.net_name:
             dropped_by_net.setdefault(item.net_name, []).append(item)
 
-    boundary_nets: list[SchemeListBoundaryNet] = []
+    boundary_nets: list[ImprintBoundaryNet] = []
     for net, items in sorted(dropped_by_net.items()):
         if (boundary_net_actions or {}).get(net) == "truncate":
             if clip_box is None:
                 # No real footprint bbox geometry to clip against (e.g. a mock
                 # adapter without boxes) — degrade to exclude, never crash.
                 logger.warning(
-                    "scheme list %r: boundary net %r requested 'truncate' but no "
+                    "imprint %r: boundary net %r requested 'truncate' but no "
                     "footprint bbox is available — falling back to 'exclude'",
                     name, net)
                 action = "exclude"
@@ -313,7 +313,7 @@ def capture_scheme_list(
                         kept_vias.append(item)
         else:
             action = "exclude"
-        boundary_nets.append(SchemeListBoundaryNet(
+        boundary_nets.append(ImprintBoundaryNet(
             net=net,
             action=action,
             external_ref=_boundary_net_external_ref(items, external_fps, adapter)))
@@ -336,7 +336,7 @@ def capture_scheme_list(
                 source_sheet = "/".join(path)
                 break
 
-    return SchemeListConfig(
+    return ImprintConfig(
         name=name,
         pivot=pivot if pivot is not None else (0.0, 0.0),
         source_sheet=source_sheet,
@@ -347,7 +347,7 @@ def capture_scheme_list(
         # Named presets library — persisted VERBATIM, never interpreted here
         # either (capture does not decide what is inside; the caller does —
         # DockHub merges the save-as-preset into the payload, plan
-        # 2026_09_06_scheme_list_named_presets.md §4/§7).
+        # 2026_09_06_imprint_named_presets.md §4/§7).
         scope_presets=scope_presets or [],
         components=components,
         vias=vias,
@@ -360,7 +360,7 @@ def capture_scheme_list(
 
 
 @dataclass
-class SchemeListComponentChange:
+class ImprintComponentChange:
     """A recorded component whose live position/rotation moved beyond the Reread
     tolerances (POSITION_TOLERANCE_MM / ANGLE_TOLERANCE_DEG)."""
 
@@ -374,8 +374,8 @@ class SchemeListComponentChange:
 
 
 @dataclass
-class SchemeListDiff:
-    """Reread result — what changed between a stored SchemeListConfig and the
+class ImprintDiff:
+    """Reread result — what changed between a stored ImprintConfig and the
     live board. Pure calculation; the caller (GUI) decides whether to apply
     (rewrite the stored record) after explicit confirmation.
 
@@ -393,7 +393,7 @@ class SchemeListDiff:
     added-removed) is therefore only computed when the compared set is
     UNCHANGED (no missing refs, no scope add/remove), and is TRANSLATION-
     INVARIANT there: both sides are aligned through a transient reference
-    recorded component (see build_scheme_list_diff), so moving one part never
+    recorded component (see build_imprint_diff), so moving one part never
     reports the whole frame drifting. On a set change the diff reports the
     membership change (refs_not_found / components_added / refs_removed_from_
     scope — added components WITH their fresh geometry) and skips the per-
@@ -401,13 +401,13 @@ class SchemeListDiff:
     anyway)."""
 
     refs_not_found: list[str] = field(default_factory=list)
-    components_moved: list[SchemeListComponentChange] = field(default_factory=list)
-    components_added: list[SchemeListComponentRecord] = field(default_factory=list)
+    components_moved: list[ImprintComponentChange] = field(default_factory=list)
+    components_added: list[ImprintComponentRecord] = field(default_factory=list)
     refs_removed_from_scope: list[str] = field(default_factory=list)
-    vias_added: list[SchemeListViaRecord] = field(default_factory=list)
-    vias_removed: list[SchemeListViaRecord] = field(default_factory=list)
-    tracks_added: list[SchemeListTrackRecord] = field(default_factory=list)
-    tracks_removed: list[SchemeListTrackRecord] = field(default_factory=list)
+    vias_added: list[ImprintViaRecord] = field(default_factory=list)
+    vias_removed: list[ImprintViaRecord] = field(default_factory=list)
+    tracks_added: list[ImprintTrackRecord] = field(default_factory=list)
+    tracks_removed: list[ImprintTrackRecord] = field(default_factory=list)
     boundary_nets_added: list[str] = field(default_factory=list)
     boundary_nets_gone: list[str] = field(default_factory=list)
 
@@ -429,12 +429,12 @@ def _angle_delta(a: float, b: float) -> float:
     return min(d, 360.0 - d)
 
 
-def _via_matches(a: SchemeListViaRecord, b: SchemeListViaRecord) -> bool:
+def _via_matches(a: ImprintViaRecord, b: ImprintViaRecord) -> bool:
     return (a.net == b.net and _pos_equal(a.offset_along_mm, b.offset_along_mm)
             and _pos_equal(a.offset_across_mm, b.offset_across_mm))
 
 
-def _track_matches(a: SchemeListTrackRecord, b: SchemeListTrackRecord) -> bool:
+def _track_matches(a: ImprintTrackRecord, b: ImprintTrackRecord) -> bool:
     if a.net != b.net or a.layer != b.layer:
         return False
     if not _pos_equal(a.width_mm, b.width_mm):
@@ -467,9 +467,9 @@ def _split_changes(old: list, new: list, matches) -> tuple[list, list]:
     return unmatched_new, removed
 
 
-def build_scheme_list_diff(stored: SchemeListConfig, adapter,
-                           scope_refs: list[str] | None = None) -> SchemeListDiff:
-    """Re-read the region a stored Scheme List was recorded from and report what
+def build_imprint_diff(stored: ImprintConfig, adapter,
+                           scope_refs: list[str] | None = None) -> ImprintDiff:
+    """Re-read the region a stored Imprint was recorded from and report what
     differs, within the Reread tolerances. Pure computation — applies nothing.
 
     Centre-frame semantics (design_2026_09_07_scheme_list_pivot.md): the
@@ -522,7 +522,7 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
     if set_changed or not refs_for_fresh:
         added_records: list = []
         if added_refs and refs_for_fresh:
-            fresh = capture_scheme_list(
+            fresh = capture_imprint(
                 name=stored.name, refs=refs_for_fresh, adapter=adapter,
                 # Keep the STORED pivot and source_sheet as explicit overrides —
                 # Reread's job is re-reading the same source, never resetting a
@@ -531,13 +531,13 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
             fresh_by_ref = {c.ref: c for c in fresh.components}
             added_records = [fresh_by_ref[r] for r in sorted(added_refs)
                              if r in fresh_by_ref]
-        return SchemeListDiff(
+        return ImprintDiff(
             refs_not_found=refs_not_found,
             components_added=added_records,
             refs_removed_from_scope=removed_from_scope,
         )
 
-    fresh = capture_scheme_list(
+    fresh = capture_imprint(
         name=stored.name, refs=refs_for_fresh, adapter=adapter,
         # Keep the STORED pivot and source_sheet as explicit overrides —
         # Reread's job is re-reading the same source, never resetting a
@@ -564,7 +564,7 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
     shift_across = ref0_fresh.offset_across_mm - ref0_stored.offset_across_mm
 
     # Components — report when position/rotation moved beyond the tolerance.
-    components_moved: list[SchemeListComponentChange] = []
+    components_moved: list[ImprintComponentChange] = []
     for stored_comp in stored.components:
         new_comp = fresh_by_ref.get(stored_comp.ref)
         if new_comp is None:
@@ -576,7 +576,7 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
                  or _angle_delta(stored_comp.rotation_deg, new_comp.rotation_deg)
                  > ANGLE_TOLERANCE_DEG)
         if moved:
-            components_moved.append(SchemeListComponentChange(
+            components_moved.append(ImprintComponentChange(
                 ref=stored_comp.ref,
                 old_offset_along_mm=stored_comp.offset_along_mm,
                 old_offset_across_mm=stored_comp.offset_across_mm,
@@ -587,14 +587,14 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
                 new_rotation_deg=new_comp.rotation_deg))
 
     # Vias/tracks: align the STORED side by the same ref0 shift, then match.
-    def _align_via(v: SchemeListViaRecord) -> SchemeListViaRecord:
-        return SchemeListViaRecord(
+    def _align_via(v: ImprintViaRecord) -> ImprintViaRecord:
+        return ImprintViaRecord(
             offset_along_mm=round(v.offset_along_mm + shift_along, 6),
             offset_across_mm=round(v.offset_across_mm + shift_across, 6),
             drill_mm=v.drill_mm, diameter_mm=v.diameter_mm, net=v.net)
 
-    def _align_track(t: SchemeListTrackRecord) -> SchemeListTrackRecord:
-        return SchemeListTrackRecord(
+    def _align_track(t: ImprintTrackRecord) -> ImprintTrackRecord:
+        return ImprintTrackRecord(
             start_along_mm=round(t.start_along_mm + shift_along, 6),
             start_across_mm=round(t.start_across_mm + shift_across, 6),
             end_along_mm=round(t.end_along_mm + shift_along, 6),
@@ -613,7 +613,7 @@ def build_scheme_list_diff(stored: SchemeListConfig, adapter,
     boundary_nets_added = sorted(fresh_boundary - stored_boundary)
     boundary_nets_gone = sorted(stored_boundary - fresh_boundary)
 
-    return SchemeListDiff(
+    return ImprintDiff(
         refs_not_found=refs_not_found,
         components_moved=components_moved,
         components_added=[],

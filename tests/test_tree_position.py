@@ -491,7 +491,7 @@ _SEAM_WALKS = {
     "kicadstamp/placement/entity_placement.py": ("_walk",),
     "kicadstamp/tree_position.py": ("_node_path_pose", "layout_tree_from_base",
                                     "capture_rigid_state", "_mount_parent_base_pose"),
-    "kicadstamp/scheme_list_apply.py": ("_collect_scheme_nodes",),
+    "kicadstamp/imprint_apply.py": ("_collect_scheme_nodes",),
 }
 
 
@@ -521,7 +521,7 @@ def test_every_registered_mount_walk_goes_through_the_seam():
 
     doc = mount_node_base.__doc__ or ""
     for token in ("entity_placement._walk", "node-path walk",
-                  "layout_tree_from_base", "scheme_list_apply",
+                  "layout_tree_from_base", "imprint_apply",
                   "capture_rigid_state", "_node_parent_map", "FIFTH"):
         assert token in doc, (
             f"mount_node_base's docstring no longer names {token!r} — the "

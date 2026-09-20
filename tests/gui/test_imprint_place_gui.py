@@ -1,24 +1,24 @@
-# tests/gui/test_scheme_list_place.py
-"""P6 "Place Scheme List" GUI tests (plan_2026_09_05_scheme_list.md §6,
+# tests/gui/test_imprint_place.py
+"""P6 "Place Imprint" GUI tests (plan_2026_09_05_scheme_list.md §6,
 plan_2026_09_06_scheme_list_p6_tests.md — Stages 2-3, headless Qt):
   * Section A — the pure helpers (collect_parent_candidates,
     placement_node_payload) behind the parent_combo and the placement write;
-  * Section B — SchemeListPlaceFormWidget construction + validate(): empty vs
+  * Section B — ImprintPlaceFormWidget construction + validate(): empty vs
     valid form, duplicate Entity name, non-numeric rotation, free-typed
-    unknown Scheme List/tree (the combos are editable+searchable);
+    unknown Imprint/tree (the combos are editable+searchable);
   * Section C — _do_place(): the synchronous write path (no dialogs), driven
-    like SchemeListFormWidget._do_reread is in test_scheme_list.py: top-level
+    like ImprintFormWidget._do_reread is in test_imprint.py: top-level
     vs child node placement, rotation materialization, the Entity's
-    scheme_list/sheet semantics ("in place" vs twin target), the link_trees
+    imprint/sheet semantics ("in place" vs twin target), the link_trees
     round-trip and the caught-error contract (returns {"error": ...}).
   * Section D — DockHub wiring (page registered, context-menu request opens +
-    presets it, Tools-menu place_scheme_list() with/without a tree selection,
+    presets it, Tools-menu place_imprint() with/without a tree selection,
     saved -> config_tree.refresh + trees_dock.reload_trees + graph_changed);
   * Section E — the ConfigTreeDock context-menu "Place..." action on a
-    scheme_lists leaf.
+    imprints leaf.
 
-Only reference-material read, never edited: tests/gui/test_scheme_list.py,
-tests/gui/test_config_tree.py, tests/test_scheme_list_place.py (Stage 1).
+Only reference-material read, never edited: tests/gui/test_imprint.py,
+tests/gui/test_config_tree.py, tests/test_imprint_place.py (Stage 1).
 """
 import logging
 from pathlib import Path
@@ -27,10 +27,10 @@ from types import SimpleNamespace
 import pytest
 
 import gui.docks.config_tree as config_tree_mod
-import gui.docks.scheme_list_place as slp_mod
+import gui.docks.imprint_place as slp_mod
 from gui.docks.config_tree import ConfigTreeDock
-from gui.docks.scheme_list_place import (
-    SchemeListPlaceFormWidget,
+from gui.docks.imprint_place import (
+    ImprintPlaceFormWidget,
     _twin_sibling_sheet_names,
     collect_parent_candidates,
     placement_node_payload,
@@ -54,9 +54,9 @@ def _load(path: Path) -> dict:
 
 
 def _scheme_record(name: str = "amp", source_sheet: str = "Channel_0") -> dict:
-    """A minimal VALID scheme_lists: entry (no anchor — the record's frame is
+    """A minimal VALID imprints: entry (no anchor — the record's frame is
     the region's centre, pivot defaults to it) — the same shape
-    tests/test_scheme_list_place.py uses for the Stage-1 round-trip, good
+    tests/test_imprint_place.py uses for the Stage-1 round-trip, good
     enough for load_config + the GUI cfg combos."""
     return {
         "name": name,
@@ -72,9 +72,9 @@ def _scheme_record(name: str = "amp", source_sheet: str = "Channel_0") -> dict:
 
 def _project_dict(*, schemes=("amp",), extra_entities=(), extra_trees=()) -> dict:
     """A root config that loads cleanly and gives the Place page something to
-    work with: scheme_lists: (the records to place), an entities:/trees: pair
+    work with: imprints: (the records to place), an entities:/trees: pair
     with a PARENT node so both a top-level AND a child placement resolve."""
-    data = {"scheme_lists": [_scheme_record(name) for name in schemes]}
+    data = {"imprints": [_scheme_record(name) for name in schemes]}
     data["entities"] = [{"name": "PARENT", "cell": "c_parent"}, *extra_entities]
     data["trees"] = [{
         "name": "main", "anchor": {"origin": True},
@@ -103,7 +103,7 @@ def _tree_dict(root: Path, tree_name: str = "main") -> dict:
 def _find_node(tree: dict, ref: str):
     """(parent_list, node_dict) where node_dict has ref == ref — tree["nodes"]
     for a top-level node, else the owning node's "children". (None, None) when
-    absent (mirror of tests/test_scheme_list_place.py's helper)."""
+    absent (mirror of tests/test_imprint_place.py's helper)."""
     def walk(nodes):
         for n in nodes or []:
             if n.get("ref") == ref:
@@ -116,9 +116,9 @@ def _find_node(tree: dict, ref: str):
 
 
 def _make_place_dock(main_window, root: Path):
-    """A SchemeListPlaceFormWidget pointed at `root` (set_root_path triggers
+    """An ImprintPlaceFormWidget pointed at `root` (set_root_path triggers
     refresh -> load_config -> cfg combos populated)."""
-    dock = SchemeListPlaceFormWidget(main_window)
+    dock = ImprintPlaceFormWidget(main_window)
     dock.set_root_path(root)
     return dock
 
@@ -127,7 +127,7 @@ def _fill_form(dock, *, scheme="amp", tree="main", parent_ref=None,
                name="NEWENT", rotation="45.0", x=1.5, y=2.5):
     """Drive the form into a valid Place state. parent_ref None == the
     top-level sentinel (currentData() is None)."""
-    dock.scheme_list_combo.setCurrentText(scheme)
+    dock.imprint_combo.setCurrentText(scheme)
     dock.tree_combo.setCurrentText(tree)
     if parent_ref is None:
         dock.parent_combo.setCurrentIndex(0)
@@ -196,7 +196,7 @@ def test_placement_node_payload_xy_and_nonzero_rotation():
     assert node["rotation"] == 90.0
 
 
-# ── Section B — SchemeListPlaceFormWidget construction + validate() ───────
+# ── Section B — ImprintPlaceFormWidget construction + validate() ───────
 
 def test_validate_empty_form_reports_all_missing_selections(main_window, tmp_path):
     root = tmp_path / "root.sexp"
@@ -205,7 +205,7 @@ def test_validate_empty_form_reports_all_missing_selections(main_window, tmp_pat
 
     problems = dock.validate()
     texts = " ".join(problems)
-    assert "Select a Scheme List to place." in texts
+    assert "Select an Imprint to place." in texts
     assert "Pick a tree to place into." in texts
     assert "Entity name is required." in texts
 
@@ -239,8 +239,8 @@ def test_validate_reports_non_numeric_rotation(main_window, tmp_path):
     assert "Rotation must be a number." in dock.validate()
 
 
-def test_validate_reports_unknown_free_typed_scheme_list(main_window, tmp_path):
-    """The Scheme List combo is editable+searchable — a free-typed value that
+def test_validate_reports_unknown_free_typed_imprint(main_window, tmp_path):
+    """The Imprint combo is editable+searchable — a free-typed value that
     names no record must be rejected (a nonexistent reference would be fatal
     at the next load)."""
     root = tmp_path / "root.sexp"
@@ -248,7 +248,7 @@ def test_validate_reports_unknown_free_typed_scheme_list(main_window, tmp_path):
     dock = _make_place_dock(main_window, root)
     _fill_form(dock, scheme="bogus", tree="main", name="NEWENT", rotation="")
 
-    assert any("Unknown Scheme List 'bogus'." in p for p in dock.validate())
+    assert any("Unknown Imprint 'bogus'." in p for p in dock.validate())
 
 
 def test_validate_reports_unknown_free_typed_tree(main_window, tmp_path):
@@ -318,8 +318,8 @@ def test_do_place_materializes_nonzero_rotation(main_window, tmp_path):
     assert node["rotation"] == 45.0
 
 
-def test_do_place_entity_scheme_list_in_place_when_sheet_blank(main_window, tmp_path):
-    """Blank target sheet = the "in place" mode: Entity carries scheme_list
+def test_do_place_entity_imprint_in_place_when_sheet_blank(main_window, tmp_path):
+    """Blank target sheet = the "in place" mode: Entity carries imprint
     only (no sheet, cell stays None — never a copy of the geometry)."""
     root = tmp_path / "root.sexp"
     _write_project(root)
@@ -331,7 +331,7 @@ def test_do_place_entity_scheme_list_in_place_when_sheet_blank(main_window, tmp_
 
     cfg, _ = load_config(str(root))
     ent = next(e for e in cfg.entities if e.name == "E_A")
-    assert ent.scheme_list == "amp"
+    assert ent.imprint == "amp"
     assert ent.cell is None
     assert ent.sheet is None
 
@@ -361,7 +361,7 @@ def test_do_place_entity_other_sheet_is_written_as_twin_target(main_window, tmp_
     # A live sheet instance (Channel_1) makes the sheet combo offer a target
     # genuinely different from the record's source_sheet.
     dock._connection.snapshot = [SimpleNamespace(sheet=("Channel_1",))]
-    dock._on_scheme_list_changed()  # rebuild sheet combo from the live set
+    dock._on_imprint_changed()  # rebuild sheet combo from the live set
     _fill_form(dock, parent_ref="PARENT", name="E_OTHER", rotation="")
     dock.sheet_combo.setCurrentText("Channel_1")
 
@@ -371,11 +371,11 @@ def test_do_place_entity_other_sheet_is_written_as_twin_target(main_window, tmp_
     cfg, _ = load_config(str(root))
     ent = next(e for e in cfg.entities if e.name == "E_OTHER")
     assert ent.sheet == "Channel_1"
-    assert ent.scheme_list == "amp"
+    assert ent.imprint == "amp"
 
 
 def test_do_place_round_trip_link_trees_resolves_new_entity(main_window, tmp_path):
-    """The GUI-path mirror of TestSchemeListEntityRoundTrip (Stage 1): after a
+    """The GUI-path mirror of TestImprintEntityRoundTrip (Stage 1): after a
     real _do_place() the new node resolves to the NEW Entity, never cell=None."""
     root = tmp_path / "root.sexp"
     _write_project(root)
@@ -388,7 +388,7 @@ def test_do_place_round_trip_link_trees_resolves_new_entity(main_window, tmp_pat
 
     cfg, _ = load_config(str(root))
     ent = next(e for e in cfg.entities if e.name == "NEWENT")
-    assert ent.scheme_list == "amp"
+    assert ent.imprint == "amp"
     assert ent.cell is None
 
     def _all_ln(lnodes):
@@ -404,7 +404,7 @@ def test_do_place_round_trip_link_trees_resolves_new_entity(main_window, tmp_pat
 
 def test_do_place_missing_tree_returns_error_not_raise(main_window, tmp_path, monkeypatch):
     """_do_place must surface a missing owning tree as {"error": ...}, not let
-    the failure escape — the find_list_entry_file None leg (scheme_list_place
+    the failure escape — the find_list_entry_file None leg (imprint_place
     resolves the tree's owning file itself)."""
     root = tmp_path / "root.sexp"
     _write_project(root)
@@ -421,7 +421,7 @@ def test_do_place_missing_tree_returns_error_not_raise(main_window, tmp_path, mo
 def test_do_place_append_os_error_is_caught_into_error_dict(main_window, tmp_path, monkeypatch):
     """config_writer.append_tree_child_node's OSError (missing tree/parent,
     write failure) must be caught and reported, never crash the caller
-    (scheme_list_place.py:588)."""
+    (imprint_place.py:588)."""
     root = tmp_path / "root.sexp"
     _write_project(root)
     dock = _make_place_dock(main_window, root)
@@ -448,10 +448,10 @@ def test_do_place_append_os_error_is_caught_into_error_dict(main_window, tmp_pat
 # the candidates are then filtered to REAL twin top-level sheets only — a
 # top-level sheet must be a member of a 2+ inner_key group (path[1:] identical
 # across 2+ channel instances), the same rule as
-# scheme_list_apply._twin_sheet_uuids / channel_copy._channel_sheet_uuids.
+# imprint_apply._twin_sheet_uuids / channel_copy._channel_sheet_uuids.
 # Single-instance sheets (FPGA/Power/MCU) and bare sub-sheets (DAC/OpAmp)
 # never qualify — the combo can no longer offer a sheet Apply would reject as
-# "not a twin on the board" (Denis' repro, plan_2026_09_08_scheme_list_place_
+# "not a twin on the board" (Denis' repro, plan_2026_09_08_imprint_place_
 # target_sheet_twin_filter.md). Both run over the CACHED snapshot, never a
 # fresh adapter call (that would race the background kipy poll — Commit H).
 
@@ -533,8 +533,8 @@ def test_sheet_combo_offers_resolved_sibling_twins(main_window, tmp_path):
     _write_project(root)  # scheme "amp", source_sheet "Channel_0"
     dock = _make_place_dock(main_window, root)
     # Select the record first so the combo knows its source_sheet (Channel_0)
-    # — a fresh dock opens with no Scheme List chosen yet.
-    dock.scheme_list_combo.setCurrentText("amp")
+    # — a fresh dock opens with no Imprint chosen yet.
+    dock.imprint_combo.setCurrentText("amp")
     # This test config has no schematic_dir, so ctx.sheet_names is empty —
     # replace the ctx with one carrying the map a real project would have
     # resolved (_rebuild_sheet_combo reads ONLY _ctx.sheet_names).
@@ -548,7 +548,7 @@ def test_sheet_combo_offers_resolved_sibling_twins(main_window, tmp_path):
         _sheet_selected("U2", ("ch1", "dac", "u2")),
         _sheet_selected("U2", ("ch2", "dac", "u2")),
     ]
-    dock._on_scheme_list_changed()  # rebuild the sheet combo from the live set
+    dock._on_imprint_changed()  # rebuild the sheet combo from the live set
 
     items = _combo_items(dock.sheet_combo)
     # "Channel_0" is the record's own source_sheet — always there. The FIX is
@@ -558,7 +558,7 @@ def test_sheet_combo_offers_resolved_sibling_twins(main_window, tmp_path):
 
 
 def test_repro_sheet_combo_offers_only_real_twin_top_levels(main_window, tmp_path):
-    """Denis' repro (plan_2026_09_08_scheme_list_place_target_sheet_twin_
+    """Denis' repro (plan_2026_09_08_imprint_place_target_sheet_twin_
     filter.md §0/§6): on the `channel` record the Target sheet combo must show
     ROUNDLY its source_sheet plus the REAL twin top-level channels — NO
     FPGA/Power/MCU (single instances, never clones), NO bare DAC/OpAmp
@@ -572,10 +572,10 @@ def test_repro_sheet_combo_offers_only_real_twin_top_levels(main_window, tmp_pat
     # The channel record was captured from Channel_0/DAC + Channel_0/OpAmp, so
     # its source_sheet is the FULL path of the first recorded sheet.
     data = _load(root)
-    data["scheme_lists"][0]["source_sheet"] = "Channel_0/DAC"
+    data["imprints"][0]["source_sheet"] = "Channel_0/DAC"
     _write(root, data)
     dock = _make_place_dock(main_window, root)
-    dock.scheme_list_combo.setCurrentText("channel")
+    dock.imprint_combo.setCurrentText("channel")
     dock._ctx = SimpleNamespace(sheet_names={
         "ch0": "Channel_0", "ch1": "Channel_1", "ch2": "Channel_2",
         "fpga": "FPGA", "power": "Power", "mcu": "MCU",
@@ -593,7 +593,7 @@ def test_repro_sheet_combo_offers_only_real_twin_top_levels(main_window, tmp_pat
         _sheet_selected("U10", ("power", "u10")),
         _sheet_selected("U11", ("mcu", "u11")),
     ]
-    dock._on_scheme_list_changed()
+    dock._on_imprint_changed()
 
     assert _combo_items(dock.sheet_combo) == [
         "", "Channel_0/DAC", "Channel_1", "Channel_2"]
@@ -607,9 +607,9 @@ def test_sheet_combo_raw_all_none_snapshot_offers_only_source(main_window, tmp_p
     root = tmp_path / "root.sexp"
     _write_project(root)
     dock = _make_place_dock(main_window, root)
-    dock.scheme_list_combo.setCurrentText("amp")  # source_sheet becomes Channel_0
+    dock.imprint_combo.setCurrentText("amp")  # source_sheet becomes Channel_0
     dock._connection.snapshot = [_sheet_selected("U1", ("ch1", "u1"))]
-    dock._on_scheme_list_changed()
+    dock._on_imprint_changed()
 
     # ctx.sheet_names is empty for this schematic-less config -> resolution is
     # a no-op -> the all-None .sheet contributes no twin names.
@@ -623,11 +623,11 @@ def test_rebuild_sheet_combo_is_safe_before_first_refresh(main_window, tmp_path)
     empty sheet_names map / empty snapshot and the combo degrades to [""]
     instead of crashing (the old _live_sheets() safety contract, now carried
     by the rebuilt combo path)."""
-    dock = SchemeListPlaceFormWidget(main_window)  # no set_root_path -> _ctx None
+    dock = ImprintPlaceFormWidget(main_window)  # no set_root_path -> _ctx None
     assert dock._ctx is None
     assert getattr(dock._connection, "snapshot", None) is None  # fake, no attr
 
-    dock._on_scheme_list_changed()  # must not crash
+    dock._on_imprint_changed()  # must not crash
 
     assert _combo_items(dock.sheet_combo) == [""]
 
@@ -637,7 +637,7 @@ def test_rebuild_sheet_combo_is_safe_before_first_refresh(main_window, tmp_path)
 @pytest.fixture
 def hub(main_window):
     """A DockHub on the bare QMainWindow stub with a fake connection, cleaned
-    up exactly like tests/gui/test_scheme_list.py:403's try/finally: detach the
+    up exactly like tests/gui/test_imprint.py:403's try/finally: detach the
     Log dock's root-logger handler and close the root log_file FileHandler."""
     from gui.dock_hub import DockHub
 
@@ -656,59 +656,59 @@ def _set_hub_root(hub, root: Path) -> None:
     hub.root_metadata_dock.set_root_file(root)
 
 
-def test_dock_hub_registers_scheme_list_place_page(hub):
-    idx = hub._scheme_list_place_page
-    assert hub.config_tree_dock.right_page_at(idx) is hub.scheme_list_place_dock
+def test_dock_hub_registers_imprint_place_page(hub):
+    idx = hub._imprint_place_page
+    assert hub.config_tree_dock.right_page_at(idx) is hub.imprint_place_dock
 
 
-def test_dock_hub_scheme_list_place_requested_opens_page_and_presets(hub, tmp_path):
+def test_dock_hub_imprint_place_requested_opens_page_and_presets(hub, tmp_path):
     root = tmp_path / "root.sexp"
     _write_project(root)
     _set_hub_root(hub, root)
 
     record = _scheme_record("amp")
-    hub.config_tree_dock.scheme_list_place_requested.emit(record, root)
+    hub.config_tree_dock.imprint_place_requested.emit(record, root)
 
     assert (hub.config_tree_dock.current_right_page()
-            is hub.scheme_list_place_dock)
-    assert hub.scheme_list_place_dock.scheme_list_combo.currentText() == "amp"
+            is hub.imprint_place_dock)
+    assert hub.imprint_place_dock.imprint_combo.currentText() == "amp"
 
 
-def test_dock_hub_place_scheme_list_with_no_selection_presets_nothing(hub, tmp_path, monkeypatch):
+def test_dock_hub_place_imprint_with_no_selection_presets_nothing(hub, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
     _write_project(root)
     _set_hub_root(hub, root)
     hub.config_tree_dock.tree.clearSelection()
 
     presets = []
-    monkeypatch.setattr(hub.scheme_list_place_dock, "preset_scheme_list",
+    monkeypatch.setattr(hub.imprint_place_dock, "preset_imprint",
                         lambda name: presets.append(name))
 
-    hub.place_scheme_list()
+    hub.place_imprint()
 
-    # The page opens, but preset_scheme_list is NEVER called blindly.
+    # The page opens, but preset_imprint is NEVER called blindly.
     assert presets == []
     assert (hub.config_tree_dock.current_right_page()
-            is hub.scheme_list_place_dock)
+            is hub.imprint_place_dock)
 
 
-def test_dock_hub_place_scheme_list_with_selection_presets_record(hub, tmp_path):
+def test_dock_hub_place_imprint_with_selection_presets_record(hub, tmp_path):
     root = tmp_path / "root.sexp"
     _write_project(root)
     _set_hub_root(hub, root)
 
-    # Emulate the real selection: the Config tree's scheme_lists leaf is the
-    # item selected_scheme_list() scans for.
+    # Emulate the real selection: the Config tree's imprints leaf is the
+    # item selected_imprint() scans for.
     root_item = hub.config_tree_dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
     leaf.setSelected(True)
 
-    hub.place_scheme_list()
+    hub.place_imprint()
 
     assert (hub.config_tree_dock.current_right_page()
-            is hub.scheme_list_place_dock)
-    assert hub.scheme_list_place_dock.scheme_list_combo.currentText() == "amp"
+            is hub.imprint_place_dock)
+    assert hub.imprint_place_dock.imprint_combo.currentText() == "amp"
 
 
 def test_dock_hub_place_saved_refreshes_tree_reloads_trees_and_emits_graph_changed(
@@ -745,7 +745,7 @@ def test_dock_hub_place_saved_refreshes_tree_reloads_trees_and_emits_graph_chang
     graph_changed = []
     hub.config_tree_dock.graph_changed.connect(lambda: graph_changed.append(True))
 
-    hub.scheme_list_place_dock.saved.emit()
+    hub.imprint_place_dock.saved.emit()
 
     # config_tree_dock.refresh ran -> the config tree now shows the new tree.
     root_item = hub.config_tree_dock.tree.topLevelItem(0)
@@ -777,15 +777,15 @@ def _context_menu_actions(dock, item, monkeypatch):
     return captured
 
 
-def test_config_tree_scheme_list_context_menu_offers_place_next_to_reread(
+def test_config_tree_imprint_context_menu_offers_place_next_to_reread(
         main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [_scheme_record("amp")]})
+    _write(root, {"imprints": [_scheme_record("amp")]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
 
     labels = [label for label, _action in _context_menu_actions(dock, leaf, monkeypatch)]
@@ -793,23 +793,23 @@ def test_config_tree_scheme_list_context_menu_offers_place_next_to_reread(
     assert "Place..." in labels
 
 
-def test_config_tree_scheme_list_place_action_emits_signal_with_payload(
+def test_config_tree_imprint_place_action_emits_signal_with_payload(
         main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
     record = _scheme_record("amp")
-    _write(root, {"scheme_lists": [record]})
+    _write(root, {"imprints": [record]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
 
     actions = _context_menu_actions(dock, leaf, monkeypatch)
     place_action = next(action for label, action in actions if label == "Place...")
 
     captured = []
-    dock.scheme_list_place_requested.connect(
+    dock.imprint_place_requested.connect(
         lambda payload, file_path: captured.append((payload, file_path)))
     place_action.trigger()
 
@@ -819,21 +819,21 @@ def test_config_tree_scheme_list_place_action_emits_signal_with_payload(
     assert Path(file_path) == root
 
 
-# ── Section F — Re-source... wiring (plan_2026_09_06_scheme_list_sheet_
+# ── Section F — Re-source... wiring (plan_2026_09_06_imprint_sheet_
 #    capture.md 5b.4): the ConfigTreeDock context-menu "Re-source..." action,
 #    the DockHub signal -> delegate -> shared-flow path, and the Tools menu
 #    delegate (needs a selected record — a missing selection warns, never a
 #    blank dialog).
 
-def test_config_tree_scheme_list_context_menu_offers_re_source_next_to_place(
+def test_config_tree_imprint_context_menu_offers_re_source_next_to_place(
         main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [_scheme_record("amp")]})
+    _write(root, {"imprints": [_scheme_record("amp")]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
 
     labels = [label for label, _action in _context_menu_actions(dock, leaf, monkeypatch)]
@@ -842,23 +842,23 @@ def test_config_tree_scheme_list_context_menu_offers_re_source_next_to_place(
     assert "Re-source..." in labels
 
 
-def test_config_tree_scheme_list_re_source_action_emits_signal_with_payload(
+def test_config_tree_imprint_re_source_action_emits_signal_with_payload(
         main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
     record = _scheme_record("amp")
-    _write(root, {"scheme_lists": [record]})
+    _write(root, {"imprints": [record]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
 
     actions = _context_menu_actions(dock, leaf, monkeypatch)
     rs_action = next(action for label, action in actions if label == "Re-source...")
 
     captured = []
-    dock.scheme_list_resource_requested.connect(
+    dock.imprint_resource_requested.connect(
         lambda payload, file_path: captured.append((payload, file_path)))
     rs_action.trigger()
 
@@ -868,10 +868,10 @@ def test_config_tree_scheme_list_re_source_action_emits_signal_with_payload(
     assert Path(file_path) == root
 
 
-def test_dock_hub_scheme_list_resource_requested_reaches_shared_flow(
+def test_dock_hub_imprint_resource_requested_reaches_shared_flow(
         hub, tmp_path, monkeypatch):
-    """The _wire() connection: scheme_list_resource_requested (context menu)
-    -> resource_scheme_list_record -> the shared _run_resource_scheme_list flow
+    """The _wire() connection: imprint_resource_requested (context menu)
+    -> resource_imprint_record -> the shared _run_resource_imprint flow
     with the right-clicked record + its OWNING file."""
     root = tmp_path / "root.sexp"
     _write_project(root)
@@ -880,12 +880,12 @@ def test_dock_hub_scheme_list_resource_requested_reaches_shared_flow(
     calls = []
     # `trigger` (Э2, plan_2026_09_12_busy_indicator): the Tools-menu leg passes
     # the QAction, this context-menu leg passes None by design.
-    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+    monkeypatch.setattr(hub, "_run_resource_imprint",
                         lambda entry, file_path, trigger=None:
                         calls.append((entry, file_path)))
 
     record = _scheme_record("amp")
-    hub.config_tree_dock.scheme_list_resource_requested.emit(record, root)
+    hub.config_tree_dock.imprint_resource_requested.emit(record, root)
 
     assert len(calls) == 1
     entry, file_path = calls[0]
@@ -893,9 +893,9 @@ def test_dock_hub_scheme_list_resource_requested_reaches_shared_flow(
     assert Path(file_path) == root
 
 
-def test_dock_hub_resource_scheme_list_without_selection_warns(hub, tmp_path, monkeypatch):
+def test_dock_hub_resource_imprint_without_selection_warns(hub, tmp_path, monkeypatch):
     """Tools delegate with no record selected in the Config tree -> a warning,
-    NOT a blank Re-source flow (mirror of place_scheme_list's no-selection
+    NOT a blank Re-source flow (mirror of place_imprint's no-selection
     guard — Re-source is meaningless without a record to re-point)."""
     root = tmp_path / "root.sexp"
     _write_project(root)
@@ -903,16 +903,16 @@ def test_dock_hub_resource_scheme_list_without_selection_warns(hub, tmp_path, mo
     hub.config_tree_dock.tree.clearSelection()
 
     opened = []
-    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+    monkeypatch.setattr(hub, "_run_resource_imprint",
                         lambda entry, file_path, trigger=None:
                         opened.append(entry))
 
-    hub.resource_scheme_list()
+    hub.resource_imprint()
 
     assert opened == []
 
 
-def test_dock_hub_resource_scheme_list_with_selection_reaches_shared_flow(
+def test_dock_hub_resource_imprint_with_selection_reaches_shared_flow(
         hub, tmp_path, monkeypatch):
     """Tools delegate with a record selected in the Config tree passes that
     record + its owning file to the shared Re-source flow."""
@@ -921,18 +921,18 @@ def test_dock_hub_resource_scheme_list_with_selection_reaches_shared_flow(
     _set_hub_root(hub, root)
 
     root_item = hub.config_tree_dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
     leaf.setSelected(True)
 
     calls = []
     triggers = []
-    monkeypatch.setattr(hub, "_run_resource_scheme_list",
+    monkeypatch.setattr(hub, "_run_resource_imprint",
                         lambda entry, file_path, trigger=None:
                         (calls.append((entry, file_path)),
                          triggers.append(trigger)))
 
-    hub.resource_scheme_list()
+    hub.resource_imprint()
 
     assert len(calls) == 1
     entry, file_path = calls[0]

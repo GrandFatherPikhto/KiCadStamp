@@ -46,6 +46,7 @@ from ..trees import (
     tree_to_dict,
     tree_to_sexp,
 )
+from .aliases import _ENTITY_KEY_ALIASES, _SECTION_ALIASES
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -57,12 +58,12 @@ from .models import (
     ManualSpoke,
     NetTrace,
     Chain,
-    SchemeListBoundaryNet,
-    SchemeListComponentRecord,
-    SchemeListConfig,
-    SchemeListScopePreset,
-    SchemeListTrackRecord,
-    SchemeListViaRecord,
+    ImprintBoundaryNet,
+    ImprintComponentRecord,
+    ImprintConfig,
+    ImprintScopePreset,
+    ImprintTrackRecord,
+    ImprintViaRecord,
     TemplateComponentSlot,
     TemplateTrack,
     TemplateVia,
@@ -92,12 +93,12 @@ _TAG_BY_CLASS = {
     NetTrace: "net_trace",
     Point: "point",
     TreeInstance: "tree_instance",
-    SchemeListConfig: "scheme_list",
-    SchemeListComponentRecord: "scheme_list_component",
-    SchemeListScopePreset: "scheme_list_scope_preset",
-    SchemeListViaRecord: "scheme_list_via",
-    SchemeListTrackRecord: "scheme_list_track",
-    SchemeListBoundaryNet: "scheme_list_boundary_net",
+    ImprintConfig: "imprint",
+    ImprintComponentRecord: "imprint_component",
+    ImprintScopePreset: "imprint_scope_preset",
+    ImprintViaRecord: "imprint_via",
+    ImprintTrackRecord: "imprint_track",
+    ImprintBoundaryNet: "imprint_boundary_net",
 }
 _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 
@@ -113,10 +114,10 @@ _LIST_SECTION_CLASS = {
     # records, unlike trees: which is _SPECIAL_SECTIONS — see below), handled
     # by the same schema-aware machinery as net_traces/entities.
     "tree_instances": TreeInstance,
-    # scheme_lists: — recorded live-board snapshots (design_2026_09_05_scheme_
+    # imprints: — recorded live-board snapshots (design_2026_09_05_scheme_
     # list.md): plain dataclass records with nested components/vias/tracks/
     # boundary_nets lists, handled by the same schema-aware machinery.
-    "scheme_lists": SchemeListConfig,
+    "imprints": ImprintConfig,
 }
 
 # dict sections with a real dataclass (record name in the first position).
@@ -211,7 +212,7 @@ def _norm(tp) -> tuple:
         if elem is str:
             return ("list_str",)
         # list[list[str]] — nested string lists (e.g.
-        # SchemeListConfig.scope_sheet_paths: each inner list is ONE full sheet
+        # ImprintConfig.scope_sheet_paths: each inner list is ONE full sheet
         # path). _norm's generic list_any cannot round-trip a list-of-lists
         # (its all-scalar/all-mapping rule fatals on it), so it gets its own
         # kind with an unambiguous (path "...")-list representation.
@@ -744,13 +745,44 @@ def _parse_list_list_str(node, path: str):
 def _parse_record(dc, node, path: str) -> dict:
     known = {f.name for f in dataclasses.fields(dc)}
     out: dict = {}
+    # Canonical keys that arrived under a LEGACY spelling (2026-09-20 Imprint
+    # rename) — a second spelling of any of them on the same record is the
+    # "both keys in one record" fatal (see config/aliases.py).
+    _aliased_keys: set = set()
     for field_node in node[1:]:
         if not isinstance(field_node, list) or not field_node:
             raise _fatal(
                 "s-expr: expected a (key ...) node in a record",
                 [_("in {path}: got {value!r}; every field of a record must be "
                    "a (name ...) node").format(path=path, value=field_node)])
-        key = sval(field_node[0])
+        raw_key = sval(field_node[0])
+        # Legacy per-record key (2026-09-20 Imprint rename): an Entity written
+        # before the rename carries `scheme_list:` and must keep parsing as
+        # `imprint:` — the same alias config/entries.py::_load_entity applies
+        # to the raw-dict (JSON/YAML) path. Mapping BEFORE the known-key check
+        # means the legacy spelling is accepted, the canonical one is written
+        # back by the serializer, and an unknown key still fatals.
+        key = _ENTITY_KEY_ALIASES.get(raw_key, raw_key)
+        if raw_key != key:
+            if key in out or key in _aliased_keys:
+                # Both spellings in ONE record — the s-expr counterpart of the
+                # raw-dict fatal in config/aliases.py. Without this check the
+                # alias mapping would silently let the last one win.
+                raise _fatal(
+                    "s-expr: both the legacy and the current spelling of a "
+                    "renamed record key",
+                    [_("in {path}: {legacy!r} and {canonical!r} on the same "
+                       "record — keep one").format(
+                           path=path, legacy=raw_key, canonical=key)])
+            _aliased_keys.add(key)
+        elif key in _aliased_keys:
+            # The canonical spelling after its legacy twin: same fatal.
+            raise _fatal(
+                "s-expr: both the legacy and the current spelling of a renamed "
+                "record key",
+                [_("in {path}: the legacy spelling of {canonical!r} was already "
+                   "given on this record — keep one").format(
+                       path=path, canonical=key)])
         if key not in known:
             raise _fatal(
                 "s-expr: unknown key in a record",
@@ -1000,14 +1032,15 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
                 "s-expr: expected a (key ...) node at the top level",
                 [_("got {value!r}").format(value=child)])
         key = sval(child[0])
-        # Legacy section-key alias (2026-09-01, Rule -> Chain rename): an old
-        # profile written with `(rules ...)` must parse as the chains record
-        # class, not as an unknown free field. Same alias as
-        # config/aliases.py's normalize_section_aliases, applied at parse time
-        # so the emitted dict already carries the canonical `chains:` key.
-        # apply_aliases=False (the converter) keeps the raw `rules` key.
+        # Legacy section-key aliases (2026-09-01 Rule -> Chain, 2026-09-20
+        # Scheme List -> Imprint): an old profile written with `(rules ...)` or
+        # `(scheme_lists ...)` must parse as the canonical record class, not as
+        # an unknown free field. Same map as config/aliases.py's
+        # normalize_section_aliases, applied at parse time so the emitted dict
+        # already carries the canonical `chains:` / `imprints:` key.
+        # apply_aliases=False (the migration converter) keeps the raw key.
         if apply_aliases:
-            key = "chains" if key == "rules" else key
+            key = _SECTION_ALIASES.get(key, key)
         path = f"<{key}>"
         if key in _LIST_SECTION_CLASS:
             dc = _LIST_SECTION_CLASS[key]

@@ -719,13 +719,13 @@ class PlacerDock(QWidget):
         # for Entity mode (2026-08-30, Entity/Placement split, phase 5.2) —
         # see _loaded_clone_identity and _do_save_entity.
         self._loaded_entity_identity: Optional[str] = None
-        # The scheme_list of a loaded scheme_list-based Entity (2026-09-06,
+        # The imprint of a loaded imprint-based Entity (2026-09-06,
         # P6 Stage 4 .cell audit): such an Entity has cell=None and Placer's
         # cell-based Entity form cannot represent it — remembering the loaded
-        # record's scheme_list lets a Save refuse with a CLEAR message instead
+        # record's imprint lets a Save refuse with a CLEAR message instead
         # of the misleading generic "Pick an Entity first" (never a silent
         # rewrite to a cell-less Entity that load_entity would reject).
-        self._loaded_entity_scheme_list: Optional[str] = None
+        self._loaded_entity_imprint: Optional[str] = None
         # Stored manual by-nets override fields (params/nets/net_overrides/
         # refs) of whichever record is loaded — carried forward unchanged on
         # save, since the Placer no longer edits them (2026-09-05).
@@ -1095,7 +1095,7 @@ class PlacerDock(QWidget):
         so the whole populate sits under the _loading auto-stage guard (see
         _autostage)."""
         self._selected_cell = entity.cell
-        self._loaded_entity_scheme_list = getattr(entity, "scheme_list", None)
+        self._loaded_entity_imprint = getattr(entity, "imprint", None)
         self.cluster_edit.setCurrentText(entity.cluster or "")
         self.placer_name_edit.setText(entity.name)
         self.placer_comment_edit.setText(entity.comment or "")
@@ -1619,15 +1619,15 @@ class PlacerDock(QWidget):
         if not name:
             self._show_message(_("Entity name is required."), _ERROR_STYLE)
             return None
-        if self._loaded_entity_scheme_list:
-            # A scheme_list-based Entity (cell=None, P6 "Place Scheme List")
+        if self._loaded_entity_imprint:
+            # An imprint-based Entity (cell=None, P6 "Place Imprint")
             # cannot be represented by Placer's cell-based Entity form — a Save
             # would either be rejected by load_entity ("exactly one of cell/
-            # scheme_list") or silently rewrite the record into a cell-less one.
+            # imprint") or silently rewrite the record into a cell-less one.
             # Refuse with a clear message (Stage 4 .cell audit — no silent
             # drop, no misleading "Pick an Entity first").
             self._show_message(
-                _("Entity {name!r} is a Scheme List placement — Placer edits "
+                _("Entity {name!r} is an Imprint placement — Placer edits "
                   "cell-based Entities only; edit its record via the Config "
                   "tree and position it in Trees.").format(name=name),
                 _ERROR_STYLE)
@@ -2507,7 +2507,7 @@ class PlacerDock(QWidget):
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity = None
         self._loaded_entity_identity = None
-        self._loaded_entity_scheme_list = None
+        self._loaded_entity_imprint = None
         self._placement_status_label.setText("")
         self.sheet_edit.setCurrentText("")
         self.origin_widget.clear()

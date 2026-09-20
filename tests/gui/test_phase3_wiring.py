@@ -1064,9 +1064,9 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     # Nested blocks at the Tools root: "Trees" (tree entries), "Config"
     # (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md — a future home
     # for Config-related actions, seeded with "Edit Cell...") and "Scheme
-    # Lists" (2026-09-06, plan scheme_list §5.3 — Record.../Reread...).
+    # Lists" (2026-09-06, plan imprint §5.3 — Record.../Reread...).
     submenus = [a for a in tools.actions() if a.menu() is not None]
-    assert [a.text() for a in submenus] == ["Trees", "Config", "Scheme Lists"]
+    assert [a.text() for a in submenus] == ["Trees", "Config", "Imprints"]
     sub = submenus[0].menu()
     texts = [a.text() for a in sub.actions()]
     for label in ("Extract tree...", "Extract cluster...", "Create tree...",
@@ -1081,7 +1081,7 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     config_texts = [a.text() for a in submenus[1].menu().actions()]
     assert "Edit Cell..." in config_texts
     assert "Extract cluster (by selection)" in config_texts
-    # "Record..."/"Reread..." live in the Scheme Lists submenu, NOT the root.
+    # "Record..."/"Reread..." live in the Imprints submenu, NOT the root.
     scheme_texts = [a.text() for a in submenus[2].menu().actions()]
     assert "Record..." in scheme_texts and "Reread..." in scheme_texts
     # Non-tree entries stay in the Tools root.

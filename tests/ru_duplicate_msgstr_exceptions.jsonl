@@ -15,7 +15,6 @@
 {"reason": "label with and without trailing colon", "msgids": ["Pad", "Pad:"]}
 {"reason": "the two msgids are the same action ('Rename'/'Rename tree')", "msgids": ["Rename", "Rename tree"]}
 {"reason": "synonymous English verbs (Place/Placement failed)", "msgids": ["Place failed: {error}", "Placement failed: {error}"]}
-{"reason": "capitalisation-only difference (Scheme Lists/Scheme lists)", "msgids": ["Scheme Lists", "Scheme lists"]}
 {"reason": "synonymous English nouns (Kind/Type), both render as 'Тип'", "msgids": ["Kind", "Type"]}
 {"reason": "synonymous English verbs (Remove/Delete selected)", "msgids": ["Delete selected", "Remove selected"]}
 {"reason": "English dash variant (– vs —) in the same sentence", "msgids": ["these are mutually exclusive ways to define the anchor – either by refdes (anchor_ref) or by Role field (anchor_role), not both", "these are mutually exclusive ways to define the anchor — either by refdes (anchor_ref) or by Role field (anchor_role), not both"]}

@@ -1,20 +1,20 @@
-# tests/gui/test_scheme_list.py
-"""Scheme List Config-side GUI (plan_2026_09_05_scheme_list.md §5, P5;
+# tests/gui/test_imprint.py
+"""Imprint Config-side GUI (plan_2026_09_05_scheme_list.md §5, P5;
 design_2026_09_07_scheme_list_pivot.md — the record carries a `pivot` in the
 region's CENTRE frame and has NO anchor component) — headless Qt + mock
 adapter, following the tests/gui patterns of test_net_trace_dock.py /
 test_phase3_wiring.py:
-  - SchemeListFormWidget: a scheme_lists record loads READ-ONLY (the pivot /
+  - ImprintFormWidget: an imprints record loads READ-ONLY (the pivot /
     source_sheet readouts + geometry summary); nothing here ever applies to
     the board.
   - Reread: identical board -> "no differences"; a moved component -> the
     diff; explicit Apply rewrites the stored record in its owning file.
-  - Storage helpers: scheme_list_to_dict round-trips through the loader; a
+  - Storage helpers: imprint_to_dict round-trips through the loader; a
     write auto-creates scheme_lists.sexp + include: on first use and upserts
     by name afterwards (a legacy scheme_lists.json is reused as-is); duplicate
     pre-checks fire before capture.
-  - ConfigTreeDock: the scheme_lists section shows one leaf per record and a
-    single click emits scheme_list_picked (-> DockHub opens the right page).
+  - ConfigTreeDock: the imprints section shows one leaf per record and a
+    single click emits imprint_picked (-> DockHub opens the right page).
 """
 import json
 import logging
@@ -27,40 +27,40 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QLabel,
                              QPushButton, QTabWidget)
 
 from gui.docks.config_tree import ConfigTreeDock
-from gui.docks.scheme_list import (
+from gui.docks.imprint import (
     BoundaryNetDialog,
-    RecordSchemeListDialog,
-    SchemeListDiffDialog,
-    SchemeListFormWidget,
+    RecordImprintDialog,
+    ImprintDiffDialog,
+    ImprintFormWidget,
     all_sheet_paths,
     boundary_net_rows,
     choose_boundary_actions,
-    default_scheme_list_path,
-    ensure_scheme_list_storage,
+    default_imprint_path,
+    ensure_imprint_storage,
     live_record_centre_mm,
     live_sheet_paths,
     missing_record_refs,
     pivot_centre_frame_from_selection,
-    read_scheme_list_records,
+    read_imprint_records,
     record_refs_for,
     refs_on_sheet,
     reread_scope_refs,
-    scheme_list_duplicate_problems,
-    scheme_list_to_dict,
+    imprint_duplicate_problems,
+    imprint_to_dict,
     sheet_paths_under,
     sheet_subtree_plan,
     snapshot_with_resolved_sheets,
-    write_scheme_list_record,
+    write_imprint_record,
 )
-from kicadstamp.config import load_config, load_scheme_list
-from kicadstamp.config.models import SchemeListBoundaryNet
+from kicadstamp.config import load_config, load_imprint
+from kicadstamp.config.models import ImprintBoundaryNet
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
 from kicadstamp.explore import Selected
 from kicadstamp.link_trees import link_trees
 from kicadstamp.domain.geometry import BoardLayer, Box2, Vector2
-from kicadstamp.scheme_list_capture import SchemeListDiff, capture_scheme_list
+from kicadstamp.imprint_capture import ImprintDiff, capture_imprint
 from kicadstamp.utils.units import MM
 
 F = BoardLayer.BL_F_Cu
@@ -102,7 +102,7 @@ def _via(x_mm, y_mm, net, drill=0.3, diam=0.6):
 
 
 class FakeAdapter:
-    """Mock board adapter (mirrors tests/test_scheme_list_capture.py's) — the
+    """Mock board adapter (mirrors tests/test_imprint_capture.py's) — the
     capture/diff read through get_footprints/get_tracks/get_vias/
     get_footprint_pads/get_bounding_boxes only."""
 
@@ -133,7 +133,7 @@ class FakeAdapter:
                 # Real pad boxes are the closure filter's ANCHOR set — without
                 # them capture falls back to the both-ends rule and drops the
                 # (perfectly valid) line copper (mirror of
-                # tests/test_scheme_list_capture.py's adapter).
+                # tests/test_imprint_capture.py's adapter).
                 half = int(0.5 * MM)
             elif isinstance(it, Via):
                 half = max(int((it.diameter_mm / 2) * MM), int(0.25 * MM))
@@ -168,9 +168,9 @@ def _record_dict(adapter, name="amp", c2_x_mm=24.0):
     """Capture R1/C1/C2 from a live `adapter` and serialise to the record dict
     (centre-frame offsets, pivot default (0,0))."""
     sheet_names = _stamp_sheet(adapter)
-    record = capture_scheme_list(name, ["R1", "C1", "C2"],
+    record = capture_imprint(name, ["R1", "C1", "C2"],
                                  adapter=adapter, sheet_names=sheet_names)
-    return scheme_list_to_dict(record)
+    return imprint_to_dict(record)
 
 
 def _write(path, data) -> None:
@@ -183,12 +183,12 @@ def _load(path) -> dict:
 
 def _record_file(tmp_path, record_dict, name="root.sexp") -> Path:
     root = tmp_path / name
-    _write(root, {"scheme_lists": [record_dict]})
+    _write(root, {"imprints": [record_dict]})
     return root
 
 
 def _make_dock(main_window, root_path, record_dict):
-    dock = SchemeListFormWidget(main_window)
+    dock = ImprintFormWidget(main_window)
     dock.set_root_path(root_path)
     dock.load_entry(record_dict)
     return dock
@@ -215,12 +215,12 @@ def _selection_from(*footprints) -> list:
     return [SimpleNamespace(ref=fp.ref, fp=fp) for fp in footprints]
 
 
-# ── scheme_list_to_dict round-trip ─────────────────────────────────────────
+# ── imprint_to_dict round-trip ─────────────────────────────────────────
 
-def test_scheme_list_to_dict_round_trips_through_the_loader(main_window):
+def test_imprint_to_dict_round_trips_through_the_loader(main_window):
     adapter = _line_board()
     d = _record_dict(adapter)
-    again = load_scheme_list(d)
+    again = load_imprint(d)
     assert again.name == "amp"
     assert again.pivot == (0.0, 0.0)  # centre default; (0,0) is not written
     assert [c.ref for c in again.components] == ["R1", "C1", "C2"]
@@ -238,7 +238,7 @@ def test_load_entry_fills_pivot_edits_and_source_sheet(main_window, tmp_path):
     root = _record_file(tmp_path, d)
     dock = _make_dock(main_window, root, d)
 
-    assert dock.name_label.text() == "Scheme List: amp"
+    assert dock.name_label.text() == "Imprint: amp"
     # pivot defaults to the centre (0,0) — the edits prefill 0.00/0.00
     assert dock.pivot_x_edit.text() == "0.00"
     assert dock.pivot_y_edit.text() == "0.00"
@@ -288,13 +288,13 @@ def test_pivot_apply_writes_nondefault_pivot_into_record_file(main_window, tmp_p
 
     assert emitted == [True]
     data = _load(root)
-    entry = data["scheme_lists"][0]
+    entry = data["imprints"][0]
     assert entry["pivot"] == [3.5, -1.25]
-    assert load_scheme_list(entry).pivot == (3.5, -1.25)
+    assert load_imprint(entry).pivot == (3.5, -1.25)
 
 
 def test_pivot_apply_centre_leaves_record_without_pivot_key(main_window, tmp_path):
-    """(0,0) is the centre default — scheme_list_to_dict omits it, so applying
+    """(0,0) is the centre default — imprint_to_dict omits it, so applying
     a centre pivot writes a record WITHOUT the pivot key (and removing a
     previously-stored non-default pivot drops the key)."""
     adapter = _line_board()
@@ -307,9 +307,9 @@ def test_pivot_apply_centre_leaves_record_without_pivot_key(main_window, tmp_pat
     dock.pivot_apply_button.click()
 
     data = _load(root)
-    entry = data["scheme_lists"][0]
+    entry = data["imprints"][0]
     assert "pivot" not in entry
-    assert load_scheme_list(entry).pivot == (0.0, 0.0)
+    assert load_imprint(entry).pivot == (0.0, 0.0)
 
 
 def test_pivot_apply_invalid_number_is_reported_without_write(main_window, tmp_path, caplog):
@@ -329,14 +329,14 @@ def test_pivot_apply_invalid_number_is_reported_without_write(main_window, tmp_p
 
 def test_pivot_apply_without_loaded_record_is_reported_no_crash(main_window, tmp_path, caplog):
     root = _record_file(tmp_path, _record_dict(_line_board()))
-    dock = SchemeListFormWidget(main_window)
+    dock = ImprintFormWidget(main_window)
     dock.set_root_path(root)  # nothing loaded -> _entry empty, _path None
 
     dock.pivot_x_edit.setText("1")
     dock.pivot_y_edit.setText("1")
     dock.pivot_apply_button.click()  # must not crash
 
-    assert any("Load a Scheme List record first." in r.message for r in caplog.records)
+    assert any("Load an Imprint record first." in r.message for r in caplog.records)
 
 
 # ── Pivot "Take from selection" (Commit B2) ─────────────────────────────────
@@ -438,7 +438,7 @@ def test_pivot_helpers_take_a_snapshot_not_an_adapter(main_window):
     .get_footprints or any other adapter method — so a helper that regressed
     to calling adapter methods would raise AttributeError, proving a GUI-
     thread click can never fire a second adapter.get_footprints() IPC on the
-    shared kipy REQ socket (plan_2026_09_08_scheme_list_pivot_direct_ipc_hang_
+    shared kipy REQ socket (plan_2026_09_08_imprint_pivot_direct_ipc_hang_
     fix.md §0)."""
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
@@ -495,14 +495,14 @@ def test_pivot_take_from_selection_missing_recorded_ref_warns_and_computes(
 def test_pivot_take_from_selection_without_loaded_record_is_reported_no_crash(
         main_window, tmp_path, caplog):
     root = _record_file(tmp_path, _record_dict(_line_board()))
-    dock = SchemeListFormWidget(main_window)
+    dock = ImprintFormWidget(main_window)
     dock.set_root_path(root)  # nothing loaded -> _entry empty, _path None
     _connect_board(dock, _line_board())
     dock.set_board_selection([], _selection_from(_line_board().get_footprints()[0]))
 
     dock.pivot_from_selection_button.click()  # must not crash
 
-    assert any("Load a Scheme List record first." in r.message
+    assert any("Load an Imprint record first." in r.message
                for r in caplog.records)
     assert dock.pivot_x_edit.text() == ""
 
@@ -615,13 +615,13 @@ def test_reread_reports_moved_component_and_apply_rewrites_record(main_window, t
     apply_result = dock._do_reread_apply()
     assert "error" not in apply_result
     data = _load(root)
-    entry = data["scheme_lists"][0]
+    entry = data["imprints"][0]
     comps = {c["ref"]: c for c in entry["components"]}
     # centre-frame offsets of the re-capture over R1/C1/C2 (centre x = 17.25)
     assert comps["C2"]["offset_along_mm"] == pytest.approx(7.25)
     assert comps["R1"]["offset_along_mm"] == pytest.approx(-7.25)
     # and the diff against the SAME live board is now clean
-    dock.load_entry(data["scheme_lists"][0])
+    dock.load_entry(data["imprints"][0])
     result2 = dock._do_reread()
     assert result2["diff"].changed is False
 
@@ -659,22 +659,22 @@ def test_write_record_auto_creates_sexp_and_includes_it(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
-    record = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+    record = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
 
-    written = write_scheme_list_record(root, record)
+    written = write_imprint_record(root, record)
 
-    assert written == default_scheme_list_path(root)
+    assert written == default_imprint_path(root)
     assert written.name == "scheme_lists.sexp"
     assert written.exists()
     # new storage is s-expr — no JSON side file is created any more
     assert not (tmp_path / "scheme_lists.json").exists()
     stored = sexp_to_dict(written.read_text(encoding="utf-8"))
-    assert stored["scheme_lists"][0]["name"] == "amp"
+    assert stored["imprints"][0]["name"] == "amp"
     root_data = _load(root)
     assert root_data["include"] == ["scheme_lists.sexp"]
 
     # A second record write must not duplicate the include line.
-    write_scheme_list_record(root, record)
+    write_imprint_record(root, record)
     root_data = _load(root)
     assert root_data["include"] == ["scheme_lists.sexp"]
 
@@ -689,18 +689,18 @@ def test_write_record_reuses_legacy_json_when_one_exists(main_window, tmp_path):
     _write(root, {"include": ["scheme_lists.json"]})
     adapter = _line_board()
     legacy = tmp_path / "scheme_lists.json"
-    legacy.write_text(json.dumps({"scheme_lists": [
-        scheme_list_to_dict(capture_scheme_list("keep", ["R1"], adapter=adapter)),
+    legacy.write_text(json.dumps({"imprints": [
+        imprint_to_dict(capture_imprint("keep", ["R1"], adapter=adapter)),
     ]}), encoding="utf-8")
 
-    written = write_scheme_list_record(
-        root, capture_scheme_list("amp", ["C1"], adapter=adapter))
+    written = write_imprint_record(
+        root, capture_imprint("amp", ["C1"], adapter=adapter))
 
     assert written == legacy
-    assert written == default_scheme_list_path(root)
+    assert written == default_imprint_path(root)
     assert not (tmp_path / "scheme_lists.sexp").exists()
     data = json.loads(legacy.read_text(encoding="utf-8"))
-    assert [e["name"] for e in data["scheme_lists"]] == ["keep", "amp"]
+    assert [e["name"] for e in data["imprints"]] == ["keep", "amp"]
     assert _load(root)["include"] == ["scheme_lists.json"]  # still one line
 
 
@@ -713,14 +713,14 @@ def test_new_storage_is_a_valid_empty_sexp_config(main_window, tmp_path):
     root = tmp_path / "root.sexp"
     _write(root, {})
 
-    written = ensure_scheme_list_storage(root)
+    written = ensure_imprint_storage(root)
 
     assert written.name == "scheme_lists.sexp"
     text = written.read_text(encoding="utf-8")
     assert text == dict_to_sexp({})
     assert sexp_to_dict(text) == {}
     cfg, _ = load_config(str(root))
-    assert cfg.scheme_lists == []
+    assert cfg.imprints == []
     assert _load(root)["include"] == ["scheme_lists.sexp"]
 
 
@@ -728,13 +728,13 @@ def test_write_record_upserts_by_name_into_existing_storage(main_window, tmp_pat
     root = tmp_path / "root.sexp"
     _write(root, {})
     adapter = _line_board()
-    record = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
-    write_scheme_list_record(root, record)
+    record = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
+    write_imprint_record(root, record)
     # re-capture same name from a moved board -> replace in place (still 1 record)
     adapter2 = _line_board(c2_x_mm=25.0)
-    record2 = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter2)
-    write_scheme_list_record(root, record2)
-    data = read_scheme_list_records(root)
+    record2 = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter2)
+    write_imprint_record(root, record2)
+    data = read_imprint_records(root)
     assert len(data) == 1
     comps = {c["ref"]: c for c in data[0]["components"]}
     # centre-frame: centre x = (10+25)/2 = 17.5 -> C2 offset 7.5
@@ -746,15 +746,15 @@ def test_duplicate_problems_catches_name_and_ref_before_capture(main_window, tmp
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
 
-    problems = scheme_list_duplicate_problems(root, "amp", ["R1", "ZZ9"])
+    problems = imprint_duplicate_problems(root, "amp", ["R1", "ZZ9"])
     texts = " ".join(problems)
     assert "amp" in texts            # duplicate name
     assert "R1" in texts             # ref already in another record
     # clean name + foreign refs -> no problems
-    assert scheme_list_duplicate_problems(root, "other", ["QQ1", "QQ2"]) == []
+    assert imprint_duplicate_problems(root, "other", ["QQ1", "QQ2"]) == []
 
 
-# ── ConfigTreeDock: scheme_lists section + single-click routing ────────────
+# ── ConfigTreeDock: imprints section + single-click routing ────────────
 
 def _find(item, text):
     for i in range(item.childCount()):
@@ -764,7 +764,7 @@ def _find(item, text):
     raise AssertionError(f"no child {text!r} under {item.text(0)!r}")
 
 
-def test_config_tree_shows_scheme_lists_section_and_click_emits_signal(main_window, tmp_path):
+def test_config_tree_shows_imprints_section_and_click_emits_signal(main_window, tmp_path):
     adapter = _line_board()
     d = _record_dict(adapter)
     root = _record_file(tmp_path, d)
@@ -773,12 +773,12 @@ def test_config_tree_shows_scheme_lists_section_and_click_emits_signal(main_wind
     dock.set_root_file(root)
 
     root_item = dock.tree.topLevelItem(0)
-    section = _find(root_item, "Scheme lists")
+    section = _find(root_item, "Imprints")
     leaf = _find(section, "amp")
     assert leaf is not None
 
     captured = []
-    dock.scheme_list_picked.connect(captured.append)
+    dock.imprint_picked.connect(captured.append)
     dock._on_clicked(leaf, 0)
     assert len(captured) == 1
     assert isinstance(captured[0], dict)
@@ -794,7 +794,7 @@ def test_record_dialog_by_selection_collects_name_only(main_window):
     snapshot = [SimpleNamespace(ref="R1", sheet=["Channel_0"]),
                 SimpleNamespace(ref="C1", sheet=["Channel_0"]),
                 SimpleNamespace(ref="C2", sheet=["Channel_0"])]
-    dialog = RecordSchemeListDialog(snapshot, ["R1", "C1", "C2"], main_window)
+    dialog = RecordImprintDialog(snapshot, ["R1", "C1", "C2"], main_window)
     assert isinstance(dialog.tabs, QTabWidget)
     assert dialog.tabs.tabText(0) == "By sheet"
     assert dialog.is_by_sheet()  # "By sheet" is the first/default tab
@@ -817,7 +817,7 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
     _connect_board(dock, adapter1)
     _select(dock, "R1", "C1", "C2")
     clean_diff = dock._do_reread()["diff"]
-    dialog = SchemeListDiffDialog("amp", clean_diff, main_window)
+    dialog = ImprintDiffDialog("amp", clean_diff, main_window)
     apply_btn = next(b for b in dialog.findChildren(QPushButton) if b.text() == "Apply")
     assert apply_btn.isEnabled()
     dialog.close()
@@ -827,7 +827,7 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
     _select(dock, "R1", "C1")
     missing_diff = dock._do_reread()["diff"]
     assert missing_diff.refs_not_found == ["C2"]
-    dialog2 = SchemeListDiffDialog("amp", missing_diff, main_window)
+    dialog2 = ImprintDiffDialog("amp", missing_diff, main_window)
     apply_btn2 = next(b for b in dialog2.findChildren(QPushButton)
                       if b.text() == "Apply")
     assert not apply_btn2.isEnabled()
@@ -843,7 +843,7 @@ def test_diff_dialog_gates_apply_when_a_ref_is_missing(main_window, tmp_path):
 # honours a truncate choice is G2).
 
 def _boundary_net(net, external_ref=None, action="exclude"):
-    return SchemeListBoundaryNet(net=net, action=action,
+    return ImprintBoundaryNet(net=net, action=action,
                                  external_ref=external_ref)
 
 
@@ -853,7 +853,7 @@ def _two_boundary_nets():
 
 
 def test_boundary_net_rows_filters_real_models_and_keeps_diagnostics():
-    """The pure helper drops anything that is not a SchemeListBoundaryNet and
+    """The pure helper drops anything that is not an ImprintBoundaryNet and
     keeps net + external_ref — the input rows the dialog renders."""
     rows = boundary_net_rows([_boundary_net("NET1", external_ref="R9"),
                               _boundary_net("NET2"), "stray-not-a-model"])
@@ -910,7 +910,7 @@ def test_boundary_dialog_selected_actions_reflect_combo_choices(main_window):
 
 
 def test_choose_boundary_actions_cancel_returns_none(main_window, monkeypatch):
-    import gui.docks.scheme_list as sl_mod
+    import gui.docks.imprint as sl_mod
     monkeypatch.setattr(sl_mod.BoundaryNetDialog, "exec",
                         lambda self: QDialog.DialogCode.Rejected)
     assert choose_boundary_actions(main_window, _two_boundary_nets()) is None
@@ -918,7 +918,7 @@ def test_choose_boundary_actions_cancel_returns_none(main_window, monkeypatch):
 
 def test_choose_boundary_actions_all_exclude_returns_empty_dict(
         main_window, monkeypatch):
-    import gui.docks.scheme_list as sl_mod
+    import gui.docks.imprint as sl_mod
     monkeypatch.setattr(sl_mod.BoundaryNetDialog, "exec",
                         lambda self: QDialog.DialogCode.Accepted)
     assert choose_boundary_actions(main_window, _two_boundary_nets()) == {}
@@ -926,7 +926,7 @@ def test_choose_boundary_actions_all_exclude_returns_empty_dict(
 
 def test_choose_boundary_actions_truncate_choice_returns_dict(
         main_window, monkeypatch):
-    import gui.docks.scheme_list as sl_mod
+    import gui.docks.imprint as sl_mod
 
     def _accepted_after_flipping_first_row(self):
         # emulate the user switching the first net to Truncate before OK
@@ -953,12 +953,12 @@ def test_choose_boundary_actions_empty_boundary_nets_returns_empty():
 # without ever re-opening the dialog.
 
 def _record_with_boundary(seed: str, boundary_raw):
-    """A minimal, loadable Scheme List record carrying raw boundary_nets — a
+    """A minimal, loadable Imprint record carrying raw boundary_nets — a
     phase-1/phase-2 stand-in for the Record flow tests (the loader normalises
-    raw dicts into SchemeListBoundaryNet, so a phase-2 record can differ from
+    raw dicts into ImprintBoundaryNet, so a phase-2 record can differ from
     phase-1 by its action="truncate"). No anchor field — the centre-frame
     record only needs its components."""
-    return load_scheme_list({
+    return load_imprint({
         "name": f"amp{seed}",
         "components": [{"ref": "R1", "offset_along_mm": 0.0,
                         "offset_across_mm": 0.0, "rotation_deg": 0.0}],
@@ -982,15 +982,15 @@ def _record_hub(main_window):
 
 def test_run_record_capture_forwards_boundary_net_actions(main_window, monkeypatch):
     """G2 worker: the payload's optional boundary_net_actions reaches
-    capture_scheme_list; a payload WITHOUT the key forwards None (v1
+    capture_imprint; a payload WITHOUT the key forwards None (v1
     byte-identical). The original payload rides back in the result so phase-1's
     finish can re-run phase-2 with the same Record payload."""
-    import kicadstamp.scheme_list_capture as cap_mod
+    import kicadstamp.imprint_capture as cap_mod
     from gui.dock_hub import DockHub
 
     hub = DockHub.__new__(DockHub)
     seen = {}
-    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+    monkeypatch.setattr(cap_mod, "capture_imprint",
                         lambda **kw: seen.update(kw) or object())
     payload = {"name": "amp", "refs": ["R1"],
                "board": SimpleNamespace(adapter=None), "root": ".",
@@ -1000,7 +1000,7 @@ def test_run_record_capture_forwards_boundary_net_actions(main_window, monkeypat
     assert seen.get("boundary_net_actions") == {"NET1": "truncate"}
 
     seen2 = {}
-    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+    monkeypatch.setattr(cap_mod, "capture_imprint",
                         lambda **kw: seen2.update(kw) or object())
     hub._run_record_capture({"name": "amp", "refs": ["R1"],
                              "board": SimpleNamespace(adapter=None),
@@ -1023,9 +1023,9 @@ def test_finish_record_capture_no_boundary_nets_writes_without_dialog(
     hub._finish_record_capture({"record": record, "root": str(root),
                                 "payload": {}})
     assert calls == []
-    data = read_scheme_list_records(root)
+    data = read_imprint_records(root)
     assert [e["name"] for e in data] == ["ampA"]
-    # an empty boundary_nets list is not written (scheme_list_to_dict omits it)
+    # an empty boundary_nets list is not written (imprint_to_dict omits it)
     assert data[0].get("boundary_nets", []) == []
 
 
@@ -1047,14 +1047,14 @@ def test_finish_record_capture_all_exclude_single_pass_and_writes(
     hub._finish_record_capture({"record": record, "root": str(root),
                                 "payload": {}})
     assert launched == []  # no phase-2
-    data = read_scheme_list_records(root)
+    data = read_imprint_records(root)
     assert [e["name"] for e in data] == ["ampA"]
     # The s-expr writer omits DEFAULT-valued fields, so an exclude boundary net
     # is stored WITHOUT its action key — the loader re-defaults it to exclude
     # (the same contract the G3 Re-source test below documents), so the v1
     # exclusion decision survives the storage format change.
     assert data[0]["boundary_nets"] == [{"net": "NET1", "external_ref": "R9"}]
-    amp_loaded = load_scheme_list(data[0])
+    amp_loaded = load_imprint(data[0])
     assert [(bn.net, bn.action)
             for bn in amp_loaded.boundary_nets] == [("NET1", "exclude")]
 
@@ -1075,8 +1075,8 @@ def test_finish_record_capture_cancel_writes_nothing(
     hub._finish_record_capture({"record": record, "root": str(root),
                                 "payload": {}})
     assert launched == []
-    assert not default_scheme_list_path(root).exists()
-    assert read_scheme_list_records(root) == []
+    assert not default_imprint_path(root).exists()
+    assert read_imprint_records(root) == []
 
 
 def test_finish_record_capture_truncate_launches_phase2_with_actions(
@@ -1105,7 +1105,7 @@ def test_finish_record_capture_truncate_launches_phase2_with_actions(
     # the phase-1 fields are preserved for the re-capture
     assert p["name"] == "ampA" and p["refs"] == ["R1"]
     # phase-2 has not been written yet (only launched)
-    assert not default_scheme_list_path(root).exists()
+    assert not default_imprint_path(root).exists()
 
 
 def test_finish_record_capture_phase2_writes_phase2_result_without_dialog(
@@ -1122,7 +1122,7 @@ def test_finish_record_capture_phase2_writes_phase2_result_without_dialog(
                         lambda *a, **k: AssertionError("dialog must not reopen"))
     hub._finish_record_capture_phase2({"record": record2, "root": str(root),
                                        "payload": {}})
-    data = read_scheme_list_records(root)
+    data = read_imprint_records(root)
     assert [e["name"] for e in data] == ["ampA"]
     assert data[0]["boundary_nets"] == [{"net": "NET1", "action": "truncate",
                                          "external_ref": "R9"}]
@@ -1156,7 +1156,7 @@ def _resource_owner(tmp_path, amp_components=None):
         amp_components = [{"ref": "R1", "offset_along_mm": 0.0,
                            "offset_across_mm": 0.0, "rotation_deg": 0.0}]
     _write(root, {"include": ["owner.sexp"]})
-    _write(owner, {"scheme_lists": [
+    _write(owner, {"imprints": [
         {"name": "amp", "components": amp_components},
         {"name": "keep", "components": [{"ref": "K1", "offset_along_mm": 0.0,
                                          "offset_across_mm": 0.0,
@@ -1165,7 +1165,7 @@ def _resource_owner(tmp_path, amp_components=None):
 
 
 def _resource_boundary_record(boundary_raw, name="amp"):
-    """A minimal loadable Scheme List record carrying raw boundary_nets, named
+    """A minimal loadable Imprint record carrying raw boundary_nets, named
     after the EXISTING record a Re-source replaces (the owner-file upsert is by
     name, so the phase-2/phase-1 record must carry the record's own name)."""
     record = _record_with_boundary("X", boundary_raw)
@@ -1177,15 +1177,15 @@ def test_run_resource_capture_forwards_boundary_net_actions_and_no_write(
         main_window, monkeypatch):
     """G3 worker: phase-1 Re-source capture returns record + root + target_path
     + the original payload and forwards the payload's optional
-    boundary_net_actions to capture_scheme_list; a payload WITHOUT the key
+    boundary_net_actions to capture_imprint; a payload WITHOUT the key
     forwards None (v1 byte-identical). Phase-1 NEVER writes — the write is a
     separate finish step (G3 split)."""
-    import kicadstamp.scheme_list_capture as cap_mod
+    import kicadstamp.imprint_capture as cap_mod
     from gui.dock_hub import DockHub
 
     hub = DockHub.__new__(DockHub)
     seen = {}
-    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+    monkeypatch.setattr(cap_mod, "capture_imprint",
                         lambda **kw: seen.update(kw) or object())
     payload = {"name": "amp", "refs": ["R5"],
                "board": SimpleNamespace(adapter=None),
@@ -1197,7 +1197,7 @@ def test_run_resource_capture_forwards_boundary_net_actions_and_no_write(
     assert seen.get("boundary_net_actions") == {"NET1": "truncate"}
 
     seen2 = {}
-    monkeypatch.setattr(cap_mod, "capture_scheme_list",
+    monkeypatch.setattr(cap_mod, "capture_imprint",
                         lambda **kw: seen2.update(kw) or object())
     hub._run_resource_capture({"name": "amp", "refs": ["R5"],
                                "board": SimpleNamespace(adapter=None),
@@ -1223,11 +1223,11 @@ def test_finish_resource_capture_no_boundary_nets_writes_to_target_without_dialo
     assert calls == []
     # the record was REPLACED in the owner file (fresh capture — the new refs),
     # the neighbour is untouched.
-    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    data = {e["name"]: e for e in _load(owner)["imprints"]}
     assert set(data) == {"amp", "keep"}
-    assert data["keep"] == owner_before["scheme_lists"][1]
+    assert data["keep"] == owner_before["imprints"][1]
     assert [c["ref"] for c in data["amp"]["components"]] == ["R1"]
-    assert not default_scheme_list_path(root).exists()
+    assert not default_imprint_path(root).exists()
 
 
 def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
@@ -1248,7 +1248,7 @@ def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
     hub._finish_resource_capture({"record": record, "root": str(root),
                                   "target_path": str(owner), "payload": {}})
     assert launched == []  # no phase-2
-    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    data = {e["name"]: e for e in _load(owner)["imprints"]}
     assert set(data) == {"amp", "keep"}
     # The s-expr writer omits DEFAULT-valued fields (the legacy JSON writer
     # did not): an exclude boundary net is persisted WITHOUT its action key —
@@ -1256,11 +1256,11 @@ def test_finish_resource_capture_all_exclude_single_pass_and_writes_owner(
     # decision is preserved semantically.
     assert data["amp"]["boundary_nets"] == [
         {"net": "NET1", "external_ref": "R9"}]
-    amp_loaded = load_scheme_list(data["amp"])
+    amp_loaded = load_imprint(data["amp"])
     assert [(bn.net, bn.action)
             for bn in amp_loaded.boundary_nets] == [("NET1", "exclude")]
     # nothing was written to the DEFAULT storage file
-    assert not default_scheme_list_path(root).exists()
+    assert not default_imprint_path(root).exists()
 
 
 def test_finish_resource_capture_cancel_writes_nothing(
@@ -1314,7 +1314,7 @@ def test_finish_resource_capture_truncate_launches_phase2_with_actions(
     assert p["name"] == "amp" and p["refs"] == ["R5"]
     assert p["target_path"] == str(root)
     # phase-2 has not been written yet (only launched)
-    assert _load(root).get("scheme_lists") is None
+    assert _load(root).get("imprints") is None
 
 
 def test_finish_resource_capture_phase2_writes_to_owner_without_dialog(
@@ -1332,27 +1332,27 @@ def test_finish_resource_capture_phase2_writes_to_owner_without_dialog(
     hub._finish_resource_capture_phase2({"record": record2, "root": str(root),
                                          "target_path": str(owner),
                                          "payload": {}})
-    data = {e["name"]: e for e in _load(owner)["scheme_lists"]}
+    data = {e["name"]: e for e in _load(owner)["imprints"]}
     assert set(data) == {"amp", "keep"}
     assert data["amp"]["boundary_nets"] == [
         {"net": "NET1", "action": "truncate", "external_ref": "R9"}]
-    assert not default_scheme_list_path(root).exists()
+    assert not default_imprint_path(root).exists()
 
 
 # ── DockHub wiring (page registered + single click opens it) ───────────────
 
-def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_path):
+def test_dock_hub_registers_imprint_page_and_routes_pick(main_window, tmp_path):
     from gui.dock_hub import DockHub
 
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
-        idx = hub._scheme_list_page
-        assert hub.config_tree_dock.right_page_at(idx) is hub.scheme_list_dock
+        idx = hub._imprint_page
+        assert hub.config_tree_dock.right_page_at(idx) is hub.imprint_dock
         adapter = _line_board()
         d = _record_dict(adapter)
-        hub.config_tree_dock.scheme_list_picked.emit(d)
-        assert hub.config_tree_dock.current_right_page() is hub.scheme_list_dock
-        assert hub.scheme_list_dock._entry.get("name") == "amp"
+        hub.config_tree_dock.imprint_picked.emit(d)
+        assert hub.config_tree_dock.current_right_page() is hub.imprint_dock
+        assert hub.imprint_dock._entry.get("name") == "amp"
     finally:
         hub.log_dock.remove_handler()
         if hub._log_file_handler is not None:
@@ -1363,7 +1363,7 @@ def test_dock_hub_registers_scheme_list_page_and_routes_pick(main_window, tmp_pa
 
 # ── Stage 5a: "By sheet" helpers + the two-tab Record dialog ───────────────
 # plan_2026_09_06_scheme_list_sheet_capture.md 5a — the pure sheet-scope
-# helpers (5a.1) and the two-tab RecordSchemeListDialog + DockHub ref
+# helpers (5a.1) and the two-tab RecordImprintDialog + DockHub ref
 # derivation (5a.3). Synthetic snapshot rows are SimpleNamespace(ref, sheet)
 # Selected stand-ins — the plan's headless style.
 
@@ -1437,7 +1437,7 @@ def test_live_sheet_paths_empty_snapshot_is_empty():
 # Selected.sheet is a list of None, which live_sheet_paths() filters out
 # entirely. snapshot_with_resolved_sheets() re-resolves .sheet against the
 # ALREADY-loaded config-based ctx.sheet_names before the snapshot reaches
-# RecordSchemeListDialog (plan_2026_09_07_scheme_list_sheet_names_empty.md).
+# RecordImprintDialog (plan_2026_09_07_scheme_list_sheet_names_empty.md).
 
 def test_snapshot_with_resolved_sheets_resolves_against_config_map():
     fp = _fp("U1", 0, 0)
@@ -1566,12 +1566,12 @@ def test_all_sheet_paths_skips_unresolved_and_empty():
     assert all_sheet_paths(snapshot) == []
 
 
-# ── 5a.3 — RecordSchemeListDialog (two tabs, NO anchor pick) ───────────────
+# ── 5a.3 — RecordImprintDialog (two tabs, NO anchor pick) ───────────────
 
 def test_record_dialog_two_tabs_with_by_sheet_default(main_window):
     """Commit F: the dialog now carries THREE tabs — the two source tabs plus
     the Pivot/Anchor tab (defaults to 0,0 = record centre)."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window)
     assert dialog.tabs.count() == 3
     assert dialog.tabs.tabText(0) == "By sheet"
     assert dialog.tabs.tabText(1) == "By selection"
@@ -1585,7 +1585,7 @@ def test_record_dialog_by_sheet_defaults_unchecked_ok_disabled_until_tick(main_w
     disabled until at least one sheet is marked; marking a sheet captures its
     DIRECT refs."""
     snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     assert dialog._checked_sheet_paths() == []
     assert dialog._checked_refs() == []
     assert not dialog._ok_button.isEnabled()
@@ -1600,7 +1600,7 @@ def test_record_dialog_by_sheet_marking_a_top_sheet_marks_its_whole_subtree(main
     """Commit E + D: marking a top sheet (Top) cascades to its whole subtree —
     Ch0/Amp/Ch1 become Checked, capture = the whole Top subtree's direct refs."""
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     top = _tree_item_by_path(dialog, ("Top",))
     top.setCheckState(0, Qt.CheckState.Checked)
     assert _tree_item_by_path(dialog, ("Top", "Ch0")).checkState(0) \
@@ -1647,7 +1647,7 @@ def test_record_dialog_by_sheet_unchecking_a_parent_drops_the_whole_branch(main_
     — Ch0's C1/C2 AND the nested Amp (U1); Top stays Partial (Ch1 on) so its own
     R1 is still read."""
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     top = _tree_item_by_path(dialog, ("Top",))
     top.setCheckState(0, Qt.CheckState.Checked)  # whole Top subtree on
     ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
@@ -1664,7 +1664,7 @@ def test_record_dialog_by_sheet_partial_parent_is_still_read(main_window):
     and they are STILL read (their direct refs stay in); only the excluded child
     drops out."""
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     top = _tree_item_by_path(dialog, ("Top",))
     top.setCheckState(0, Qt.CheckState.Checked)  # whole subtree on
     amp = _tree_item_by_path(dialog, ("Top", "Ch0", "Amp"))
@@ -1684,7 +1684,7 @@ def test_record_dialog_by_sheet_container_without_own_refs_is_checkable(main_win
     cascades to its sheets (Commit D) and its OWN path is stored in the scope
     (0 direct refs), while the capture refs come from the marked descendants."""
     snapshot = _snap(("U_DAC", ("Ch0", "DAC")), ("U_OP", ("Ch0", "OpAmp")))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     ch0 = _tree_item_by_path(dialog, ("Ch0",))
     assert ch0 is not None
     assert (ch0.flags() & Qt.ItemFlag.ItemIsUserCheckable)
@@ -1701,7 +1701,7 @@ def test_record_dialog_by_sheet_top_level_sheets_are_tree_roots(main_window):
     """Commit E: each TOP-LEVEL sheet is its own root of the single tree (no
     root combobox any more) — marking one does not touch the other."""
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     roots = [dialog.sheet_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
              for i in range(dialog.sheet_tree.topLevelItemCount())]
     assert roots == [("Other",), ("Top",)]
@@ -1713,7 +1713,7 @@ def test_record_dialog_by_sheet_top_level_sheets_are_tree_roots(main_window):
 
 def test_record_dialog_by_sheet_labels_and_tooltips(main_window):
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     ch0 = _tree_item_by_path(dialog, ("Top", "Ch0"))
     assert ch0 is not None
     assert ch0.text(0) == "Ch0"          # leaf label, not the whole path
@@ -1722,7 +1722,7 @@ def test_record_dialog_by_sheet_labels_and_tooltips(main_window):
 
 def test_record_dialog_by_sheet_unchecking_everything_disables_ok(main_window):
     snapshot = _snap(*_HIER)
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     top = _tree_item_by_path(dialog, ("Top",))
     top.setCheckState(0, Qt.CheckState.Checked)  # OK becomes enabled...
     assert dialog._ok_button.isEnabled()
@@ -1747,17 +1747,17 @@ def test_record_dialog_branch_state_all_on_all_off_mixed(main_window):
     top.setCheckState(0, Qt.CheckState.Checked)
     a.setCheckState(0, Qt.CheckState.Checked)
     b.setCheckState(0, Qt.CheckState.Checked)
-    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.Checked
+    assert RecordImprintDialog._branch_state(top) == Qt.CheckState.Checked
     a.setCheckState(0, Qt.CheckState.Unchecked)  # mixed -> PartiallyChecked
-    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.PartiallyChecked
+    assert RecordImprintDialog._branch_state(top) == Qt.CheckState.PartiallyChecked
     b.setCheckState(0, Qt.CheckState.Unchecked)
     top.setCheckState(0, Qt.CheckState.Unchecked)  # everything off
-    assert RecordSchemeListDialog._branch_state(top) == Qt.CheckState.Unchecked
+    assert RecordImprintDialog._branch_state(top) == Qt.CheckState.Unchecked
 
 
 def test_record_dialog_ok_gated_per_active_tab(main_window):
     snapshot = _snap(("R1", ("Top",)))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     # By sheet: nothing marked yet -> OK off; marking the sheet -> OK on.
     assert dialog.is_by_sheet()
     assert not dialog._ok_button.isEnabled()
@@ -1794,7 +1794,7 @@ def test_run_record_capture_honours_payload_refs_and_sheet_names():
     payload's refs and feed sheet_names through for the source_sheet
     derivation — the pass-through that makes a By-sheet-limited payload real."""
     from gui.dock_hub import DockHub
-    from kicadstamp.scheme_list_capture import capture_scheme_list  # noqa: F401
+    from kicadstamp.imprint_capture import capture_imprint  # noqa: F401
 
     hub = DockHub.__new__(DockHub)  # no __init__ side effects
     adapter = _line_board()
@@ -1808,9 +1808,9 @@ def test_run_record_capture_honours_payload_refs_and_sheet_names():
     assert record.source_sheet == "Channel_0"
 
 
-def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
+def test_record_imprint_by_sheet_payload_refs_match_checked_sheets(
         main_window, tmp_path, monkeypatch):
-    """record_scheme_list(): in "By sheet" mode the worker payload's refs are
+    """record_imprint(): in "By sheet" mode the worker payload's refs are
     really the union over the CHECKED sheets (unchecking a sub-sheet excludes
     its refs from the capture). The dialog and worker are faked; the payload
     construction itself is exercised synchronously."""
@@ -1821,7 +1821,7 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
     from PyQt6.QtWidgets import QDialog
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [],
+    _write(root, {"imprints": [],
                   "entities": [{"name": "PARENT", "cell": "c_parent"}],
                   "trees": [{"name": "main", "anchor": {"origin": True},
                              "nodes": [{"ref": "PARENT", "kind": "placement",
@@ -1863,8 +1863,8 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
                                           ("Top", "Ch0", "Amp")])
 
         payloads = []
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
-        # record_scheme_list imports start_long_op lazily (`from .worker import
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog", _FakeDialog)
+        # record_imprint imports start_long_op lazily (`from .worker import
         # start_long_op`) — patch the worker module, not dock_hub's namespace.
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -1872,7 +1872,7 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.record_scheme_list()
+        hub.record_imprint()
 
         # Commit G — the dialog receives a LIVE selection provider (a view over
         # the hub's current selection, not an open-time snapshot), so "Take from
@@ -1907,9 +1907,9 @@ def test_record_scheme_list_by_sheet_payload_refs_match_checked_sheets(
             hub._log_file_handler.close()
 
 
-def test_record_scheme_list_by_selection_payload_matches_selection_refs(
+def test_record_imprint_by_selection_payload_matches_selection_refs(
         main_window, tmp_path, monkeypatch):
-    """record_scheme_list(): in "By selection" mode the payload's refs are the
+    """record_imprint(): in "By selection" mode the payload's refs are the
     current board selection — identical to the pre-Stage-5a Record behavior
     (regression guard, design §2)."""
     import logging
@@ -1919,7 +1919,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
     from PyQt6.QtWidgets import QDialog
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [],
+    _write(root, {"imprints": [],
                   "entities": [{"name": "PARENT", "cell": "c_parent"}],
                   "trees": [{"name": "main", "anchor": {"origin": True},
                              "nodes": [{"ref": "PARENT", "kind": "placement",
@@ -1958,8 +1958,8 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
                 return ("amp", None, None)
 
         payloads = []
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
-        # record_scheme_list imports start_long_op lazily (`from .worker import
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog", _FakeDialog)
+        # record_imprint imports start_long_op lazily (`from .worker import
         # start_long_op`) — patch the worker module, not dock_hub's namespace.
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -1967,7 +1967,7 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.record_scheme_list()
+        hub.record_imprint()
 
         assert len(payloads) == 1
         assert payloads[0]["refs"] == ["C1", "R1"]  # the board selection
@@ -1985,9 +1985,9 @@ def test_record_scheme_list_by_selection_payload_matches_selection_refs(
 # ── Stage 5b: Re-source (exclude_name, fixed-name dialog, worker) ───────────
 # plan_2026_09_06_scheme_list_sheet_capture.md 5b — re-source re-points an
 # EXISTING record at a different source under the SAME name:
-#   5b.1 scheme_list_duplicate_problems(..., exclude_name) — the record being
+#   5b.1 imprint_duplicate_problems(..., exclude_name) — the record being
 #        replaced is not a duplicate of itself (its own refs are freed);
-#   5b.2 RecordSchemeListDialog(fixed_name=...) — pinned read-only name, a
+#   5b.2 RecordImprintDialog(fixed_name=...) — pinned read-only name, a
 #        distinct "Re-source" title/OK and an in-dialog warning;
 #   5b.3 DockHub worker — capture from the NEW source + write REPLACES the
 #        record in the file that OWNS it; the UI flow opens the fixed-name
@@ -1999,7 +1999,7 @@ def test_duplicate_problems_exclude_name_allows_self_replacement(main_window, tm
     its own (old) refs pass with exclude_name; a ref owned by ANOTHER record
     still blocks. Without exclude_name the old Record behavior is unchanged."""
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [
+    _write(root, {"imprints": [
         {"name": "amp",
          "components": [{"ref": "R1", "offset_along_mm": 0.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0},
@@ -2011,26 +2011,26 @@ def test_duplicate_problems_exclude_name_allows_self_replacement(main_window, tm
     ]})
     # Without exclude_name its own name AND its own refs are both duplicates
     # (the behavior Record... relies on).
-    assert len(scheme_list_duplicate_problems(root, "amp", ["R1", "C1"])) == 2
+    assert len(imprint_duplicate_problems(root, "amp", ["R1", "C1"])) == 2
     # Re-source passes exclude_name=the record itself -> clean.
-    assert scheme_list_duplicate_problems(
+    assert imprint_duplicate_problems(
         root, "amp", ["R1", "C1"], exclude_name="amp") == []
     # A ref owned by ANOTHER record stays fatal even for Re-source.
-    other = scheme_list_duplicate_problems(root, "amp", ["X1"],
+    other = imprint_duplicate_problems(root, "amp", ["X1"],
                                            exclude_name="amp")
     assert len(other) == 1 and "X1" in other[0]
 
 
 def test_resource_dialog_fixed_name_read_only_title_and_re_source_ok(main_window):
-    """5b.2 — Re-source mode of RecordSchemeListDialog: the name is pinned
+    """5b.2 — Re-source mode of RecordImprintDialog: the name is pinned
     read-only, the title/OK say "Re-source" and both source tabs stay
     available (re-sourcing can come from either mode)."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window,
                                     fixed_name="amp")
     try:
         assert dialog.name_edit.isReadOnly()
         assert dialog.name_edit.text() == "amp"
-        assert dialog.windowTitle() == "Re-source Scheme List 'amp'"
+        assert dialog.windowTitle() == "Re-source Imprint 'amp'"
         assert dialog._ok_button.text() == "Re-source"
         assert dialog.tabs.count() == 3  # By sheet + By selection + Pivot/Anchor
         # result_data keeps the pinned name regardless of the active tab.
@@ -2044,10 +2044,10 @@ def test_resource_dialog_fixed_name_read_only_title_and_re_source_ok(main_window
 def test_record_dialog_without_fixed_name_keeps_record_behavior(main_window):
     """5b.2 regression guard — omitting fixed_name leaves the Record dialog's
     editable name, original title and OK label untouched."""
-    dialog = RecordSchemeListDialog([], [], main_window)
+    dialog = RecordImprintDialog([], [], main_window)
     try:
         assert not dialog.name_edit.isReadOnly()
-        assert dialog.windowTitle() == "Record Scheme List"
+        assert dialog.windowTitle() == "Record Imprint"
         assert dialog._ok_button.text() == "OK"
     finally:
         dialog.close()
@@ -2081,7 +2081,7 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
 
     root = tmp_path / "root.sexp"
     _write(root, {
-        "scheme_lists": [
+        "imprints": [
             {"name": "amp", "source_sheet": "Channel_0",
              "components": [
                  {"ref": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
@@ -2097,12 +2097,12 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
         ],
         # An Entity already PLACED on "amp" — after the record is replaced it
         # must still resolve (it points at the record by NAME, not by content).
-        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "entities": [{"name": "E_AMP", "imprint": "amp"}],
         "trees": [{"name": "main", "anchor": {"origin": True},
                    "nodes": [{"ref": "E_AMP", "kind": "placement",
                               "xy": [0.0, 0.0]}]}],
     })
-    keep_before = next(e for e in _load(root)["scheme_lists"]
+    keep_before = next(e for e in _load(root)["imprints"]
                        if e["name"] == "keep")
 
     new_adapter = _line_board_ch1()
@@ -2123,13 +2123,13 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
     assert "error" not in result, result
     assert "record" in result
     assert result["target_path"] == str(root)
-    before = {e["name"]: e for e in _load(root)["scheme_lists"]}
+    before = {e["name"]: e for e in _load(root)["imprints"]}
     assert [c["ref"] for c in before["amp"]["components"]] == ["R1", "C1", "C2"]
 
     # The phase-1 finish (no boundary nets -> write straight to the owner file)
     # persists the replacement.
     hub._finish_resource_capture(result)
-    records = {e["name"]: e for e in _load(root)["scheme_lists"]}
+    records = {e["name"]: e for e in _load(root)["imprints"]}
     assert set(records) == {"amp", "keep"}
     amp = records["amp"]
     # NEW refs/source_sheet/geometry, from the NEW source (no anchor field).
@@ -2154,9 +2154,9 @@ def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_p
     assert ln.record.name == "E_AMP"
 
 
-def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner(
+def test_run_resource_imprint_payload_uses_fixed_name_checked_refs_and_owner(
         main_window, tmp_path, monkeypatch):
-    """5b.3 UI flow — resource_scheme_list_record opens the fixed-name dialog,
+    """5b.3 UI flow — resource_imprint_record opens the fixed-name dialog,
     derives refs from the CHECKED sheets only (a partial checklist — Ch1
     excluded), runs the duplicate pre-checks with exclude_name = the record
     itself and sends the record's OWNING file as target_path."""
@@ -2167,7 +2167,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
     from PyQt6.QtWidgets import QDialog
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [
+    _write(root, {"imprints": [
         {"name": "amp",
          "components": [{"ref": "R1", "offset_along_mm": 0.0,
                          "offset_across_mm": 0.0, "rotation_deg": 0.0}]}]})
@@ -2214,8 +2214,8 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
                         [("Top",), ("Top", "Ch0"), ("Top", "Ch0", "Amp")])
 
         payloads = []
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog", _FakeDialog)
-        # start_long_op is imported lazily inside _run_resource_scheme_list —
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog", _FakeDialog)
+        # start_long_op is imported lazily inside _run_resource_imprint —
         # patch the worker module, not dock_hub's namespace.
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -2225,7 +2225,7 @@ def test_run_resource_scheme_list_payload_uses_fixed_name_checked_refs_and_owner
 
         entry = {"name": "amp", "pivot": [2.5, -1.0],
                  "components": [{"ref": "R1"}]}
-        hub.resource_scheme_list_record(entry, root)
+        hub.resource_imprint_record(entry, root)
 
         assert seen.get("fixed_name") == "amp"
         # Commit G — the Re-source dialog also gets the LIVE selection provider.
@@ -2284,7 +2284,7 @@ def _stored(components=None, scope_sheet_paths=None):
                                                      {"ref": "C1"}]}
     if scope_sheet_paths is not None:
         d["scope_sheet_paths"] = scope_sheet_paths
-    return load_scheme_list(d)
+    return load_imprint(d)
 
 
 def test_reread_scope_refs_by_sheet_recomputes_from_stored_paths():
@@ -2347,7 +2347,7 @@ def test_reread_by_selection_added_ref_lands_in_record_after_apply(
 
     apply_result = dock._do_reread_apply()
     assert "error" not in apply_result
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     assert "C9" in {c["ref"] for c in entry["components"]}
 
 
@@ -2370,7 +2370,7 @@ def test_reread_by_selection_removed_ref_falls_out_after_apply(
 
     apply_result = dock._do_reread_apply()
     assert "error" not in apply_result
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     assert {c["ref"] for c in entry["components"]} == {"R1", "C1"}
 
 
@@ -2403,27 +2403,27 @@ def test_reread_by_sheet_recomputes_scope_without_selection_and_apply_keeps_it(
 
     apply_result = dock._do_reread_apply()
     assert "error" not in apply_result
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     assert entry["scope_sheet_paths"] == [["Channel_0"]]
     assert {c["ref"] for c in entry["components"]} >= {"C9"}
 
 
 def test_reread_apply_keeps_placed_entity_resolvable(main_window, tmp_path):
     """5c round-trip gate (plan) — a record already Placed (Entity with
-    scheme_list: "amp") still resolves through load_config + link_trees after a
+    imprint: "amp") still resolves through load_config + link_trees after a
     Reread-Apply that REMOVED a ref from the scope: the record is rewritten to
     the smaller set, but the Entity points at it by NAME, so the link survives."""
     adapter0 = _line_board(c2_x_mm=24.0)
     d0 = _record_dict(adapter0)  # R1/C1/C2
     root = tmp_path / "root.sexp"
     _write(root, {
-        "scheme_lists": [d0],
-        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "imprints": [d0],
+        "entities": [{"name": "E_AMP", "imprint": "amp"}],
         "trees": [{"name": "main", "anchor": {"origin": True},
                    "nodes": [{"ref": "E_AMP", "kind": "placement",
                               "xy": [0.0, 0.0]}]}],
     })
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     dock = _make_dock(main_window, root, entry)
     _connect_board(dock, adapter0)
     _select(dock, "R1", "C1")  # C2 removed from the current scope
@@ -2434,7 +2434,7 @@ def test_reread_apply_keeps_placed_entity_resolvable(main_window, tmp_path):
     assert "error" not in apply_result
 
     # the record was rewritten to the smaller set...
-    rec = {e["name"]: e for e in _load(root)["scheme_lists"]}["amp"]
+    rec = {e["name"]: e for e in _load(root)["imprints"]}["amp"]
     assert {c["ref"] for c in rec["components"]} == {"R1", "C1"}
     # ...and the already-placed Entity still resolves via link_trees.
     cfg, _ = load_config(str(root))
@@ -2477,7 +2477,7 @@ def test_record_dialog_preset_name_to_save_is_by_sheet_only(main_window):
     """§6 — the optional "Save as preset" field reports its non-empty (stripped)
     text only on the "By sheet" tab; empty -> None; on "By selection" ALWAYS
     None regardless of the text still sitting in the tab-1 field."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window)
     try:
         assert dialog.preset_name_to_save() is None  # empty by default
         dialog.save_preset_edit.setText("  full  ")
@@ -2493,7 +2493,7 @@ def test_record_dialog_save_preset_field_is_optional_no_ok_gating(main_window):
     """§6 — the preset field is FULLY optional: it must not change the OK
     gating (5a regression guard)."""
     snapshot = _snap(("R1", ("Top",)), ("C1", ("Top",)))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     try:
         # Commit E: sheets start UNCHECKED — mark one so OK gating is on, then
         # prove the preset field neither enables nor disables it.
@@ -2507,7 +2507,7 @@ def test_record_dialog_save_preset_field_is_optional_no_ok_gating(main_window):
 
 
 def _preset_fake_dialog(preset_name, by_sheet=True, checked=None):
-    """Build a RecordSchemeListDialog stand-in that reports a fixed "Save as
+    """Build a RecordImprintDialog stand-in that reports a fixed "Save as
     preset" field value and (default) the full Top/Ch0/Amp checked checklist."""
     from PyQt6.QtWidgets import QDialog
 
@@ -2535,7 +2535,7 @@ def _preset_fake_dialog(preset_name, by_sheet=True, checked=None):
     return _D
 
 
-def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
+def test_record_imprint_by_sheet_save_preset_adds_first_preset(
         main_window, tmp_path, monkeypatch):
     """§7 (Record) — a non-empty "Save as preset" field makes the CURRENT
     checked checklist the brand-new record's FIRST named preset in the
@@ -2547,7 +2547,7 @@ def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [],
+    _write(root, {"imprints": [],
                   "entities": [{"name": "PARENT", "cell": "c_parent"}],
                   "trees": [{"name": "main", "anchor": {"origin": True},
                              "nodes": [{"ref": "PARENT", "kind": "placement",
@@ -2559,7 +2559,7 @@ def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
         connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                             _preset_fake_dialog("full"))
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -2567,7 +2567,7 @@ def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.record_scheme_list()
+        hub.record_imprint()
 
         assert len(payloads) == 1
         assert payloads[0]["scope_presets"] == [
@@ -2580,7 +2580,7 @@ def test_record_scheme_list_by_sheet_save_preset_adds_first_preset(
             hub._log_file_handler.close()
 
 
-def test_resource_scheme_list_without_preset_save_keeps_existing_library(
+def test_resource_imprint_without_preset_save_keeps_existing_library(
         main_window, tmp_path, monkeypatch):
     """§7 (Re-source) — when the "Save as preset" field is EMPTY, the existing
     record's scope_presets library SURVIVES the Re-source untouched (Re-source
@@ -2591,7 +2591,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [{"name": "amp",
+    _write(root, {"imprints": [{"name": "amp",
                                     "components": [{"ref": "R1"}]}]})
     connection = main_window.connection
     hub = DockHub(main_window, connection=connection, verbose=False)
@@ -2605,7 +2605,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
                      {"name": "full",
                       "sheet_paths": [["Top"], ["Top", "Ch0"]]},
                      {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]}]}
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                             _preset_fake_dialog(None))
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -2613,7 +2613,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.resource_scheme_list_record(entry, root)
+        hub.resource_imprint_record(entry, root)
 
         assert len(payloads) == 1
         assert payloads[0]["scope_presets"] == [
@@ -2627,7 +2627,7 @@ def test_resource_scheme_list_without_preset_save_keeps_existing_library(
             hub._log_file_handler.close()
 
 
-def test_resource_scheme_list_save_preset_overwrites_only_same_name(
+def test_resource_imprint_save_preset_overwrites_only_same_name(
         main_window, tmp_path, monkeypatch):
     """§7 (Re-source) — a "Save as preset" whose name matches an EXISTING
     preset overwrites ONLY that entry; the rest of the library stays intact."""
@@ -2637,7 +2637,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
     from gui.dock_hub import DockHub
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [{"name": "amp",
+    _write(root, {"imprints": [{"name": "amp",
                                     "components": [{"ref": "R1"}]}]})
     connection = main_window.connection
     hub = DockHub(main_window, connection=connection, verbose=False)
@@ -2653,7 +2653,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
                      {"name": "ch0-only", "sheet_paths": [["Top", "Ch0"]]}]}
         # User re-saves "full" from a NARROWER current checklist (only Ch0).
         checked = [("Top",), ("Top", "Ch0")]
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                             _preset_fake_dialog("full", checked=checked))
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -2661,7 +2661,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.resource_scheme_list_record(entry, root)
+        hub.resource_imprint_record(entry, root)
 
         assert len(payloads) == 1
         # ch0-only is untouched; "full" is REPLACED by the current checklist.
@@ -2678,7 +2678,7 @@ def test_resource_scheme_list_save_preset_overwrites_only_same_name(
 
 def test_run_record_capture_carries_scope_presets_into_record():
     """§7 — the record worker converts the payload's scope_presets dict list
-    into SchemeListScopePreset records (never interprets their content)."""
+    into ImprintScopePreset records (never interprets their content)."""
     from gui.dock_hub import DockHub
 
     hub = DockHub.__new__(DockHub)  # worker method — no __init__ side effects
@@ -2756,13 +2756,13 @@ def test_reread_preset_switch_changes_scope_and_apply_makes_it_current(
     d0 = _by_sheet_record_dict_with_presets(adapter0)  # stored scope Channel_0
     root = tmp_path / "root.sexp"
     _write(root, {
-        "scheme_lists": [d0],
-        "entities": [{"name": "E_AMP", "scheme_list": "amp"}],
+        "imprints": [d0],
+        "entities": [{"name": "E_AMP", "imprint": "amp"}],
         "trees": [{"name": "main", "anchor": {"origin": True},
                    "nodes": [{"ref": "E_AMP", "kind": "placement",
                               "xy": [0.0, 0.0]}]}],
     })
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     dock = _make_dock(main_window, root, entry)
 
     adapter1 = _line_board(c2_x_mm=24.0)
@@ -2787,7 +2787,7 @@ def test_reread_preset_switch_changes_scope_and_apply_makes_it_current(
 
     apply_result = dock._do_reread_apply()
     assert "error" not in apply_result, apply_result
-    rec = {e["name"]: e for e in _load(root)["scheme_lists"]}["amp"]
+    rec = {e["name"]: e for e in _load(root)["imprints"]}["amp"]
     # Apply made the PRESET's paths the new stored scope...
     assert rec["scope_sheet_paths"] == [["Channel_0"], ["Channel_0", "Sub"]]
     # ...C9 landed in the record...
@@ -2822,13 +2822,13 @@ def test_reread_preset_switch_changes_scope_and_apply_makes_it_current(
 def test_record_dialog_pivot_tab_prefills_pivot_initial(main_window):
     """Commit F — Record: no pivot_initial -> the (0,0) centre default; a
     supplied initial (Re-source prefill) lands in the x/y fields verbatim."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window)
     try:
         assert dialog.pivot_value() == (0.0, 0.0)
         assert dialog.pivot_centre_button.isEnabled()
     finally:
         dialog.close()
-    prefilled = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+    prefilled = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window,
                                        pivot_initial=(3.5, -2.0))
     try:
         assert prefilled.pivot_value() == (3.5, -2.0)
@@ -2838,7 +2838,7 @@ def test_record_dialog_pivot_tab_prefills_pivot_initial(main_window):
 
 def test_record_dialog_pivot_centre_button_writes_0_0(main_window):
     """Commit F — 'Centre' writes the (0,0) centre default into the fields."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window,
                                     pivot_initial=(3.5, -2.0))
     try:
         dialog.pivot_x_edit.setText("9")
@@ -2861,7 +2861,7 @@ def test_record_dialog_pivot_take_from_selection_fills_using_selection(
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
     sel = _selection_from(fps["R1"])  # live board selection = R1 only
-    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
+    dialog = RecordImprintDialog(_snap_live(adapter), ["R1", "C1", "C2"],
                                     main_window, adapter=adapter,
                                     selected_footprints=sel)
     try:
@@ -2879,12 +2879,12 @@ def test_record_dialog_pivot_take_from_selection_no_adapter_logs_error(
     """Commit F — without a live adapter the handler writes ONE ERROR line to
     the Log (never a modal — plan_2026_09_11_no_modals_and_busy_kicad X.1) and
     leaves the (0,0) default untouched (it never guesses a pivot)."""
-    import gui.docks.scheme_list as sl_mod
+    import gui.docks.imprint as sl_mod
 
     def _no_boxes(*a, **k):
         raise AssertionError("a connection-state error must not open a QMessageBox")
     monkeypatch.setattr(sl_mod.QMessageBox, "warning", _no_boxes)
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window)
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window)
     try:
         assert not dialog.pivot_from_selection_button.isEnabled()  # no adapter
         caplog.clear()
@@ -2902,7 +2902,7 @@ def test_record_dialog_pivot_invalid_numbers_disable_ok(main_window):
     is checked (a bad pivot must never reach the record) and pivot_value()
     raises ValidationError for it."""
     snapshot = _snap(("R1", ("Top",)))
-    dialog = RecordSchemeListDialog(snapshot, [], main_window)
+    dialog = RecordImprintDialog(snapshot, [], main_window)
     try:
         _tree_item_by_path(dialog, ("Top",)).setCheckState(
             0, Qt.CheckState.Checked)
@@ -2920,7 +2920,7 @@ def test_record_dialog_pivot_invalid_numbers_disable_ok(main_window):
 def test_resource_dialog_pivot_tab_prefills_stored_pivot(main_window):
     """Commit F — Re-source pre-fills the Pivot/Anchor tab from the stored
     record's pivot, so an untouched dialog KEEPS the pivot on re-source."""
-    dialog = RecordSchemeListDialog(_snap(*_HIER), ["C4"], main_window,
+    dialog = RecordImprintDialog(_snap(*_HIER), ["C4"], main_window,
                                     fixed_name="amp",
                                     pivot_initial=[2.0, 1.5])
     try:
@@ -2958,9 +2958,9 @@ def test_record_page_pivot_tab_apply_still_saves(main_window, tmp_path):
     dock.pivot_x_edit.setText("1.25")
     dock.pivot_y_edit.setText("-0.5")
     dock.pivot_apply_button.click()
-    entry = _load(root)["scheme_lists"][0]
+    entry = _load(root)["imprints"][0]
     assert entry["pivot"] == [1.25, -0.5]
-    assert load_scheme_list(entry).pivot == (1.25, -0.5)
+    assert load_imprint(entry).pivot == (1.25, -0.5)
 
 
 # ── Commit G — "Take from selection" reads the LIVE selection at click time ─
@@ -2980,7 +2980,7 @@ def test_record_dialog_pivot_take_from_selection_reads_live_selection(
     adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
     fps = _fps_by_ref(adapter)
     live: list = []  # nothing is selected when the dialog opens
-    dialog = RecordSchemeListDialog(_snap_live(adapter), [], main_window,
+    dialog = RecordImprintDialog(_snap_live(adapter), [], main_window,
                                     adapter=adapter,
                                     selection_provider=lambda: list(live))
     try:
@@ -3010,7 +3010,7 @@ def test_record_dialog_pivot_take_from_selection_reads_live_snapshot(
     fps = _fps_by_ref(adapter)
     static = _snap_live(adapter)  # the board as it was when the dialog opened
     live_snap = list(static)      # connection.snapshot — mutated by the test
-    dialog = RecordSchemeListDialog(static, ["R1", "C1", "C2"], main_window,
+    dialog = RecordImprintDialog(static, ["R1", "C1", "C2"], main_window,
                                     adapter=adapter,
                                     selected_footprints=_selection_from(
                                         fps["R1"]),
@@ -3046,7 +3046,7 @@ def test_record_dialog_pivot_take_from_selection_falls_back_to_snapshot(
     as before."""
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
-    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
+    dialog = RecordImprintDialog(_snap_live(adapter), ["R1", "C1", "C2"],
                                     main_window, adapter=adapter,
                                     selected_footprints=_selection_from(
                                         fps["R1"]))
@@ -3076,13 +3076,13 @@ def test_record_dialog_pivot_tab_keeps_by_sheet_source_take_from_selection_fills
     and warned 'No footprints to record' with x/y staying 0,0. The tracked
     source keeps the By-sheet checklist authoritative on tab 2, so the pivot is
     filled from the checked sheet's region and no warning fires."""
-    import gui.docks.scheme_list as sl_mod
+    import gui.docks.imprint as sl_mod
     warns = []
     monkeypatch.setattr(sl_mod.QMessageBox, "warning",
                         lambda parent, title, text: warns.append(text))
     adapter = _line_board()  # R1(10,10) C1(20,10) C2(24,10) -> centre (17,10)
     fps = _fps_by_ref(adapter)
-    dialog = RecordSchemeListDialog(_snap_live(adapter), [], main_window,
+    dialog = RecordImprintDialog(_snap_live(adapter), [], main_window,
                                     adapter=adapter,
                                     selection_provider=lambda: list(
                                         _selection_from(fps["R1"])))
@@ -3116,7 +3116,7 @@ def test_record_dialog_pivot_tab_keeps_by_selection_source(main_window):
     result_data() keeps the no-paths selection contract."""
     adapter = _line_board()
     fps = _fps_by_ref(adapter)
-    dialog = RecordSchemeListDialog(_snap_live(adapter), ["R1", "C1", "C2"],
+    dialog = RecordImprintDialog(_snap_live(adapter), ["R1", "C1", "C2"],
                                     main_window, adapter=adapter,
                                     selected_footprints=_selection_from(
                                         fps["R1"]))
@@ -3142,7 +3142,7 @@ def test_record_dialog_ok_stays_enabled_after_pivot_tab_visit_with_by_sheet_sour
     """§0.2 OK gate — with a non-empty "By sheet" checklist, moving to the
     Pivot/Anchor tab (index 2) must NOT disable OK (the old code re-derived
     _checked_refs() as the empty selection on tab 2 and switched OK off)."""
-    dialog = RecordSchemeListDialog(_snap(("R1", ("Top",))), [], main_window)
+    dialog = RecordImprintDialog(_snap(("R1", ("Top",))), [], main_window)
     try:
         _tree_item_by_path(dialog, ("Top",)).setCheckState(
             0, Qt.CheckState.Checked)
@@ -3155,11 +3155,11 @@ def test_record_dialog_ok_stays_enabled_after_pivot_tab_visit_with_by_sheet_sour
         dialog.close()
 
 
-def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
+def test_record_imprint_ok_from_pivot_tab_uses_by_sheet_source(
         main_window, tmp_path, monkeypatch):
     """§0.3 — the most serious consequence (silent corruption): pressing OK
     DIRECTLY from the Pivot/Anchor tab (the natural flow — fill the pivot last,
-    then OK). dock_hub's record_scheme_list() reads result_data()/is_by_sheet()
+    then OK). dock_hub's record_imprint() reads result_data()/is_by_sheet()
     only AFTER exec() returns; with the tab-based source a dialog left on tab 2
     would report "By selection", derive refs from the (here empty) board
     selection and abort with 'No footprints to record' instead of recording the
@@ -3172,7 +3172,7 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
     from PyQt6.QtWidgets import QDialog
 
     root = tmp_path / "root.sexp"
-    _write(root, {"scheme_lists": [],
+    _write(root, {"imprints": [],
                   "entities": [{"name": "PARENT", "cell": "c_parent"}],
                   "trees": [{"name": "main", "anchor": {"origin": True},
                              "nodes": [{"ref": "PARENT", "kind": "placement",
@@ -3184,7 +3184,7 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
         connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
 
-        real_cls = dock_hub_mod.RecordSchemeListDialog
+        real_cls = dock_hub_mod.RecordImprintDialog
 
         class _DialogOkFromPivot(real_cls):
             """The real dialog; exec() emulates the user typing a unique name,
@@ -3206,9 +3206,9 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
         # it instead so the test fails fast rather than hangs headless.
         monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
                             lambda parent, title, text: warns.append(text))
-        monkeypatch.setattr(dock_hub_mod, "RecordSchemeListDialog",
+        monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
                             _DialogOkFromPivot)
-        # record_scheme_list imports start_long_op lazily (`from .worker import
+        # record_imprint imports start_long_op lazily (`from .worker import
         # start_long_op`) — patch the worker module, not dock_hub's namespace.
         import gui.worker as worker_mod
         monkeypatch.setattr(
@@ -3216,7 +3216,7 @@ def test_record_scheme_list_ok_from_pivot_tab_uses_by_sheet_source(
             lambda _c, _w, worker, on_success, on_error, payload, **kwargs:
                 payloads.append(payload) or object())
 
-        hub.record_scheme_list()
+        hub.record_imprint()
 
         assert len(payloads) == 1
         # refs = the CHECKED Top subtree union — NOT the empty board selection;
@@ -3319,7 +3319,7 @@ def test_record_dialog_pivot_rebuilds_the_snapshot_before_reading_positions(
         return None
 
     connection.refresh = _refresh
-    dialog = RecordSchemeListDialog(
+    dialog = RecordImprintDialog(
         _snap_live(adapter), ["R1", "C1", "C2"], main_window,
         adapter=adapter,
         selected_footprints=_selection_from(fps["R1"]),
@@ -3364,7 +3364,7 @@ def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
         worker_mod.QTimer, "singleShot",
         lambda delay, callback: scheduled.append((delay, callback)))
 
-    dialog = RecordSchemeListDialog(
+    dialog = RecordImprintDialog(
         _snap_live(adapter), ["R1", "C1", "C2"], main_window,
         adapter=adapter,
         selected_footprints=_selection_from(fps["R1"]),
@@ -3387,13 +3387,13 @@ def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
         assert ran == []                          # NO cached-snapshot pivot
         assert dialog.pivot_value() == before     # the fields stayed untouched
         errors = [r for r in caplog.records
-                  if r.name == "gui.docks.scheme_list"
+                  if r.name == "gui.docks.imprint"
                   and r.levelno == logging.ERROR]
         assert len(errors) == 1
         assert "another operation is using the board" in errors[0].message
         # ...and the dock did NOT report a cache fallback.
         warns = [r for r in caplog.records
-                 if r.name == "gui.docks.scheme_list"
+                 if r.name == "gui.docks.imprint"
                  and r.levelno == logging.WARNING]
         assert warns == []
     finally:

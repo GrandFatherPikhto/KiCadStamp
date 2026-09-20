@@ -696,30 +696,30 @@ class Entity:
     registry identity (replaces ClonePlacement's effective name).
 
     cell — a reference to a cells: entry (like ClonePlacement.cell).
-    scheme_list — a reference to a scheme_lists: entry (a recorded live board
+    imprint — a reference to an imprints: entry (a recorded live board
     snapshot, see design_2026_09_05_scheme_list.md). EXACTLY ONE of
-    cell/scheme_list is required (fatal when both or neither — the same
+    cell/imprint is required (fatal when both or neither — the same
     "exactly one of N optional fields" pattern the loader applies to
     TreeAnchor's anchor kinds and to mirror/layer): a cell-based Entity is a
-    role-resolved use of a Cell template, a scheme_list-based Entity is a
+    role-resolved use of a Cell template, an imprint-based Entity is a
     refdes-literal clone of a recorded snapshot onto a (possibly twin) sheet.
 
-    When scheme_list is set, cluster/by_selection/refs/nets/params/
+    When imprint is set, cluster/by_selection/refs/nets/params/
     net_overrides are meaningless (a recorded snapshot already carries its
     literal refs and literal nets) — fatal at load if set together (see
-    config/entries.py). `sheet`, when set on a scheme_list Entity, is the
+    config/entries.py). `sheet`, when set on an imprint Entity, is the
     TARGET sheet for twin-resolution (design §5.2), not an addressing helper
     for role resolution as on a cell-based Entity.
 
     cluster — the physical Cluster TAG written onto the board's components
     at Apply (formerly ClonePlacement.cluster). Optional here so an entity
     may exist "not placed" (no tree node) without a tag. Not meaningful on a
-    scheme_list Entity (fatal at load, see above).
+    imprint Entity (fatal at load, see above).
 
     by_selection/refs — per-instantiation role-resolution controls
     (formerly ClonePlacement.by_selection/refs): by_selection: true resolves
     roles by the live board selection; refs pins role -> ref explicitly.
-    Meaningless on a scheme_list Entity (fatal at load, see above).
+    Meaningless on an imprint Entity (fatal at load, see above).
 
     layer/mirror — physical placement facts/ops (formerly ClonePlacement.
     layer/mirror): a mirror without a layer change is physically meaningless
@@ -727,7 +727,7 @@ class Entity:
     """
     name: str
     cell: str | None = None
-    scheme_list: str | None = None
+    imprint: str | None = None
     nets: dict[str, str] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
     net_overrides: dict[str, str] = field(default_factory=dict)
@@ -750,8 +750,8 @@ def entity_effective_name(entity: "Entity") -> str:
 
 
 @dataclass
-class SchemeListComponentRecord:
-    """One footprint of a recorded Scheme List — a literal refdes (NOT a
+class ImprintComponentRecord:
+    """One footprint of a recorded Imprint — a literal refdes (NOT a
     role), positioned in the LOCAL coordinate frame of the record's
     anchor_ref (+ anchor_pad), in mm/deg. Same shape as a Cell's component
     slot but keyed by ref instead of role (design_2026_09_05_scheme_list.md
@@ -764,8 +764,8 @@ class SchemeListComponentRecord:
 
 
 @dataclass
-class SchemeListViaRecord:
-    """One via of a recorded Scheme List — offset in the anchor_ref frame,
+class ImprintViaRecord:
+    """One via of a recorded Imprint — offset in the anchor_ref frame,
     literal net (source of truth is the live board at record/Reread time;
     no net_from_role/params)."""
 
@@ -777,8 +777,8 @@ class SchemeListViaRecord:
 
 
 @dataclass
-class SchemeListTrackRecord:
-    """One track of a recorded Scheme List — start/end in the anchor_ref
+class ImprintTrackRecord:
+    """One track of a recorded Imprint — start/end in the anchor_ref
     frame, literal net and literal copper layer (a STRING like 'F.Cu'/
     'In1.Cu'/'B.Cu', deliberately not restricted to today's BoardLayer enum
     which only models F.Cu/B.Cu — see P0.1 of
@@ -794,7 +794,7 @@ class SchemeListTrackRecord:
 
 
 @dataclass
-class SchemeListBoundaryNet:
+class ImprintBoundaryNet:
     """Diagnostics of one boundary net — copper that touched only EXCLUDED
     footprints and was dropped (or truncated) by the capture closure (design
     §2/§3). The DECISION KEY is the net: one `action` for every disconnected
@@ -812,8 +812,8 @@ class SchemeListBoundaryNet:
 
 
 @dataclass
-class SchemeListScopePreset:
-    """A named, saved alternative to SchemeListConfig.scope_sheet_paths — the
+class ImprintScopePreset:
+    """A named, saved alternative to ImprintConfig.scope_sheet_paths — the
     checked leaf paths of a "By sheet" capture checklist, given a name so the
     user can switch back to it on a later Reread without re-recording
     (design §9 п.12 / §3, plan_2026_09_06_scheme_list_named_presets.md)."""
@@ -823,8 +823,8 @@ class SchemeListScopePreset:
 
 
 @dataclass
-class SchemeListConfig:
-    """One scheme_lists: entry — a named, recorded snapshot of a real,
+class ImprintConfig:
+    """One imprints: entry — a named, recorded snapshot of a real,
     already-routed region of the live board (its literal refs + copper on
     all copper layers of the stack). The geometry is stored in the CENTRE-
     anchored frame of the recorded region: offsets of every component/via/
@@ -864,15 +864,15 @@ class SchemeListConfig:
     # variants the user can switch between on the record page BEFORE a Reread.
     # Only for "By sheet"-records (like scope_sheet_paths): a "By selection"-
     # record keeps [] and never fills it.
-    scope_presets: list[SchemeListScopePreset] = field(default_factory=list)
-    components: list[SchemeListComponentRecord] = field(default_factory=list)
-    vias: list[SchemeListViaRecord] = field(default_factory=list)
-    tracks: list[SchemeListTrackRecord] = field(default_factory=list)
-    boundary_nets: list[SchemeListBoundaryNet] = field(default_factory=list)
+    scope_presets: list[ImprintScopePreset] = field(default_factory=list)
+    components: list[ImprintComponentRecord] = field(default_factory=list)
+    vias: list[ImprintViaRecord] = field(default_factory=list)
+    tracks: list[ImprintTrackRecord] = field(default_factory=list)
+    boundary_nets: list[ImprintBoundaryNet] = field(default_factory=list)
 
 
-def scheme_list_effective_name(sl: "SchemeListConfig") -> str:
-    """Single point for reading the --only identity of a Scheme List — just
+def imprint_effective_name(sl: "ImprintConfig") -> str:
+    """Single point for reading the --only identity of an Imprint — just
     sl.name (required and unique by a load-time check)."""
     return sl.name
 
@@ -1148,12 +1148,12 @@ class Config:
     cells: dict[str, Cell] = field(default_factory=dict)
     points: dict[str, Point] = field(default_factory=dict)
     thermal_via_arrays: list[ThermalViaArrayConfig] = field(default_factory=list)
-    # scheme_lists: — recorded live-board snapshots (design_2026_09_05_
-    # scheme_list.md). A LIST section (records concatenate across include:),
-    # loaded by config/entries.py::_load_scheme_list; Entity.scheme_list
+    # imprints: — recorded live-board snapshots (design_2026_09_05_
+    # imprint.md). A LIST section (records concatenate across include:),
+    # loaded by config/entries.py::_load_imprint; Entity.imprint
     # references these by name. Physically they live in an included .json
     # file, but the section itself is format-agnostic.
-    scheme_lists: list[SchemeListConfig] = field(default_factory=list)
+    imprints: list[ImprintConfig] = field(default_factory=list)
     # chains: — the rule-of-pads container (renamed from rules: 2026-09-01).
     # `rules` below is a READ-ONLY property alias so every existing cfg.rules
     # call site keeps working until it is migrated to cfg.chains (writes must

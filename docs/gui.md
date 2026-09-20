@@ -63,7 +63,7 @@ closed dock can be brought back without restarting).
 ## Busy indicator (2026-09-12)
 
 **While a board operation runs, the status bar says so — and says which one.** Every operation the
-USER starts (Extract/Redraw, a scheme-list Record/Re-source/Reread, the inter-node copper re-read,
+USER starts (Extract/Redraw, an imprint Record/Re-source/Reread, the inter-node copper re-read,
 a node's *Reread current position* from the node context menu, "Whose copper is this?", the live
 anchor-position read behind Tools → Trees → Anchor position, the snapshot rebuild in front of an
 Extract dialog, …) shows a short word in the status bar for its whole
@@ -1818,21 +1818,21 @@ net_trace_dock.md`). Added 2026-08-21.
   selected, the tier that found them, and a note that the previous selection was replaced.
 - Clicking a `net_traces:` leaf in the Config tree loads that record into the form.
 
-## Scheme Lists
+## Imprints
 
-The Scheme List feature records a real, already-routed board region as a NAMED snapshot — an explicit
+The Imprint feature records a real, already-routed board region as a NAMED snapshot — an explicit
 list of literal refdes plus the copper that reaches their pads (see [docs/config.md](config.md)'s
-`scheme_lists:` section). Design and plans:
+`imprints:` section). Design and plans:
 `techdocs/handoff/deepseek/design_2026_09_05_scheme_list.md`,
 `techdocs/handoff/deepseek/plan_2026_09_05_scheme_list.md` (§5-§7) and
 `techdocs/handoff/deepseek/plan_2026_09_06_scheme_list_sheet_capture.md` (5a-5c). Added 2026-09-06.
 Recording/re-syncing a snapshot never touches the live board — only a tree node's Redraw does. The
 Config side lives on two pages of the Config dock's right QView: the read-only **record page** (record
-+ Reread) and the separate **"Place Scheme List"** page that turns one record into a tree Entity.
++ Reread) and the separate **"Place Imprint"** page that turns one record into a tree Entity.
 
-### Recording a record — Tools → Scheme Lists → Record...
+### Recording a record — Tools → Imprints → Record...
 
-Captures a named Scheme List from the live board through a **three-tab** dialog:
+Captures a named Imprint from the live board through a **three-tab** dialog:
 
 - **"By sheet" (primary, the default tab)** — the WHOLE live hierarchy as ONE tree (QTreeWidget,
   Commit E): every real sheet is a checkable node — the top sheets first (Channel_0/1/2, FPGA, MCU,
@@ -1872,7 +1872,7 @@ Captures a named Scheme List from the live board through a **three-tab** dialog:
   (plan_2026_09_08_scheme_list_pivot_tab_source_tracking_fix.md).
 
 Both tabs end the same way: a unique record name, a duplicate pre-check BEFORE the expensive capture
-(a duplicate name, or a ref already recorded in ANOTHER Scheme List), a worker-thread capture (never
+(a duplicate name, or a ref already recorded in ANOTHER Imprint), a worker-thread capture (never
 blocking the UI) and — when the connectivity closure dropped copper that reached only excluded
 footprints — a boundary-net dialog (v1: each such net is excluded as a whole connected component; the
 dialog shows which outside footprint dragged each net). The new record is written to the fixed
@@ -1884,11 +1884,11 @@ the board. The **"By sheet"** tab also has an OPTIONAL **"Save as preset"** fiel
 stores the current checklist as a NAMED preset IN the record's `scope_presets` library (the same name
 overwrites it), so a later Reread can switch back to that variant without re-recording (design §9 п.12).
 
-### Re-sourcing a record — Tools → Scheme Lists → Re-source...
+### Re-sourcing a record — Tools → Imprints → Re-source...
 
 Re-sources an EXISTING record from a DIFFERENT source under the SAME name. Reached from the record the
 user right-clicked in the Config tree (context-menu **Re-source...**) or the one currently SELECTED
-there (Tools → Scheme Lists → **Re-source...**; with no selection the Tools action warns). The dialog
+there (Tools → Imprints → **Re-source...**; with no selection the Tools action warns). The dialog
 is the SAME three-tab Record dialog with the name pinned read-only, an explicit in-dialog warning that
 the record's refs/geometry are REPLACED (every Entity already placed from the record picks up the new
 geometry on its next Apply/Redraw — the sheet it currently comes from does NOT update by itself; Place
@@ -1902,7 +1902,7 @@ non-empty one overwrites only the same-name preset with the current checklist.
 ### Rereading a record — Reread
 
 For the record currently loaded in the record page; three entry points (the page's **Reread** button /
-the record's context-menu **Reread...** / Tools → Scheme Lists → **Reread...** — the latter two load
+the record's context-menu **Reread...** / Tools → Imprints → **Reread...** — the latter two load
 the selected record and run the same flow). Reread compares the record against the live board AND can
 now change the record's REF SET itself, not only diff fixed positions:
 
@@ -1927,9 +1927,9 @@ record in its own file, all in one explicit confirmation (no per-piece copper va
 disabled while a recorded component is missing from the board (the record cannot be faithfully
 re-synced). Nothing is applied to the board.
 
-### The record page (Config tree → `scheme_lists:` leaf)
+### The record page (Config tree → `imprints:` leaf)
 
-Clicking a `scheme_lists:` leaf in the Config tree opens the record in the Config dock's right QView.
+Clicking a `imprints:` leaf in the Config tree opens the record in the Config dock's right QView.
 Since Commit F the page is a **two-tab** page:
 
 - **"Record summary" tab** — read-only: the `source_sheet` readout, a recorded-geometry summary, the
@@ -1954,22 +1954,22 @@ Since Commit F the page is a **two-tab** page:
 The record itself is edited by the Pivot Apply above, by re-recording (Record...), re-sourcing
 (Re-source...) or re-syncing (Reread), never by hand.
 
-### Placing a record — Tools → Scheme Lists → Place... (the "Place Scheme List" page)
+### Placing a record — Tools → Imprints → Place... (the "Place Imprint" page)
 
-The Config side of CLONING a record onto a (possibly twin) sheet. The separate **"Place Scheme List"**
+The Config side of CLONING a record onto a (possibly twin) sheet. The separate **"Place Imprint"**
 QView page in the Config dock's right side (a plain Config right-page, deliberately NOT a tab of
-"Instantiate from Cell...") is opened by Tools → Scheme Lists → **Place...** (pre-filled with the record
+"Instantiate from Cell...") is opened by Tools → Imprints → **Place...** (pre-filled with the record
 selected in the Config tree, if any) or a record's context-menu **Place...** (pre-filled with that
 record). The form holds:
 
-- **Scheme List** — which recorded snapshot to place (searchable combo of `cfg.scheme_lists`).
+- **Imprint** — which recorded snapshot to place (searchable combo of `cfg.imprints`).
 - **Target sheet** — leave empty (or equal to the record's `source_sheet`) to place the record "in
   place" on the sheet it was captured from. The other offered values are the REAL twin top-level
   sheets on the live board only (2+ channel instances sharing the same sub-sheet structure, computed
   from the cached board snapshot — never a fresh board call) — single-instance sheets
   (FPGA/Power/MCU) and sub-sheets (DAC/OpAmp) are never offered, because they are not valid
   `entity.sheet` targets for the onto-sibling apply (the same twin rule
-  `scheme_list_apply` uses at Redraw time).
+  `imprint_apply` uses at Redraw time).
 - **Tree / Parent node** — the EXISTING tree the new node is appended to (generated `tree_instances`
   are read-only and excluded) and the parent node inside it, DFS-listed with a "— top level (no
   parent) —" sentinel (top level = offset relative to the tree anchor). A new tree is NEVER created.
@@ -1979,7 +1979,7 @@ record). The form holds:
 - **Rotation (deg)** and **Entity name** — the rotation is written onto the node at creation; the
   Entity name must be non-empty and unique.
 
-**Place** creates a NEW `scheme_list:`-based Entity (carrying only `name`/`scheme_list`/`sheet` — it
+**Place** creates a NEW `imprint:`-based Entity (carrying only `name`/`imprint`/`sheet` — it
 references the record by name and never copies its geometry) plus a `placement` node appended under the
 chosen tree/parent. The live board is untouched until the tree node is **Redraw**-ed (twin resolution
 + net remap happen then). Reread, by contrast, only rewrites the stored snapshot and never places
@@ -2443,8 +2443,8 @@ no listener configured it attaches directly to the root logger, as before.
 Since 2026-09-11 a **lost KiCad connection is reported HERE, not in a dialog**
 (plan `2026_09_11_no_modals_and_busy_kicad`): every "no live board connection / connect KiCad first"
 guard in the docks — the Chain/Rules anchor's *Read current position*, Placer's two *Read current
-position* buttons, Trees' *Reread current position* and the node form's, the Scheme List pivot's
-*Take from selection*, DockHub's two Scheme-List Tools flows, the fieldstool's Stage/Sync and the
+position* buttons, Trees' *Reread current position* and the node form's, the Imprint pivot's
+*Take from selection*, DockHub's two Imprint Tools flows, the fieldstool's Stage/Sync and the
 Board-overlay sweep — writes **one ERROR line** into this panel (red, see the level colours) and
 still REFUSES the operation. Only form VALIDATION keeps its dialog ("Ref is required", a bad number
 in a field, …), because that is a direct answer to what you just typed.
@@ -2454,7 +2454,7 @@ unfinished tool in the GUI: dimensioning, interactive routing, the move tool) al
 ERROR line with the actionable explanation ("finish the tool — Esc or right-click → Cancel — and run
 it again; the board was not modified") instead of a ~20-line Python traceback. The traceback is
 still written, but at DEBUG level only, so **Verbose** shows it when you actually need it. That
-covers every long operation (Extract / Redraw / Apply, the Scheme List capture, the fieldstool's
+covers every long operation (Extract / Redraw / Apply, the Imprint capture, the fieldstool's
 writes) plus the redraw chain's per-record failures. `_mutating_call` (the adapter's write wrapper)
 also finally RETRIES a write when KiCad answers AS_BUSY — it used to match the text `not ready`,
 which the real message never contains, so the retry silently never fired (2026-09-11).

@@ -1,17 +1,17 @@
-# kicadstamp/scheme_list_apply.py
-"""Apply/Redraw branch for scheme_list-based Entities (plan_2026_09_05_scheme_
+# kicadstamp/imprint_apply.py
+"""Apply/Redraw branch for imprint-based Entities (plan_2026_09_05_scheme_
 list.md §4, plan_2026_09_06_scheme_list_p4_apply.md;
 design_2026_09_07_scheme_list_pivot.md — CENTRE-frame + pivot).
 
-A scheme_list Entity NEVER goes through the cell clone machinery
+An imprint Entity NEVER goes through the cell clone machinery
 (placement/entity_placement._to_clone would produce ClonePlacement(cell=None)).
-Instead this module materializes each scheme_list placement node into the SAME
+Instead this module materializes each imprint placement node into the SAME
 commands the rest of the tool executes (MoveCommand/ViaCommand/TrackCommand +
 BatchExecutor), at the caller level (apply_pipeline, GUI Redraw).
 
 The record's geometry lives in the CENTRE frame of the recorded region (all
 offsets measured from the region centre, each element's angle stored as its
-real absolute angle at capture — see scheme_list_capture.py). At Redraw the
+real absolute angle at capture — see imprint_capture.py). At Redraw the
 record's `pivot` (a point in that same centre frame, default (0,0) = the
 centre) lands on the node's position, and the node's rotation turns the WHOLE
 region around the pivot:
@@ -40,8 +40,8 @@ from dataclasses import dataclass, field
 from .config import Config
 from .config.models import (
     Entity,
-    SchemeListComponentRecord,
-    SchemeListConfig,
+    ImprintComponentRecord,
+    ImprintConfig,
 )
 from .constants import ANGLE_TOLERANCE_DEG, DEFAULT_BATCH_SIZE, POSITION_TOLERANCE_MM
 from .domain.geometry import Angle, BoardLayer, Vector2
@@ -63,19 +63,19 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SchemeListNode:
-    """One scheme_list placement node, with its absolute (pos, rot) — the same
+class ImprintNode:
+    """One imprint placement node, with its absolute (pos, rot) — the same
     composition entity_placement._walk uses for cell-based placement nodes."""
 
     entity: Entity
-    scheme_list: SchemeListConfig
+    imprint: ImprintConfig
     position: Vector2
     rotation_deg: float
 
 
 @dataclass
-class SchemeListApplyPlan:
-    """Planned commands for ONE scheme_list placement node. Pure geometry —
+class ImprintApplyPlan:
+    """Planned commands for ONE imprint placement node. Pure geometry —
     nothing applied; the caller decides how to execute."""
 
     entity_name: str
@@ -133,16 +133,16 @@ def _remap_net(net: str | None, src_name: str | None, dst_name: str | None) -> s
 def _fatal_problems(problems: list[str]) -> None:
     if problems:
         raise ValidationError(format_fatal_error(
-            _("cannot apply scheme list: {count} problem(s)").format(count=len(problems)),
+            _("cannot apply imprint: {count} problem(s)").format(count=len(problems)),
             problems))
 
 
 def _layer_board(layer_str: str | None) -> BoardLayer:
-    """A scheme_lists track layer -> BoardLayer, parsed STRICTLY.
+    """An imprints track layer -> BoardLayer, parsed STRICTLY.
 
     2026-09-12 (plan_2026_09_12_strict_copper_layers.md Э2): the record stores
     the LITERAL copper layer name (any layer of the stack — see
-    SchemeListTrackRecord), so the write path must not lean on the tolerant
+    ImprintTrackRecord), so the write path must not lean on the tolerant
     parser's substring fallback: an unknown name is a fatal, not a silent F.Cu.
     `None` keeps its documented "no layer recorded" meaning and stays F.Cu,
     byte-for-byte as before."""
@@ -152,7 +152,7 @@ def _layer_board(layer_str: str | None) -> BoardLayer:
         return layer_from_str_strict(layer_str)
     except ValueError:
         raise ValidationError(format_fatal_error(
-            _("scheme_lists track has invalid copper layer {layer!r}").format(layer=layer_str),
+            _("imprints track has invalid copper layer {layer!r}").format(layer=layer_str),
             [_("a recorded track layer is a literal copper layer name: 'F.Cu', "
                "'In1.Cu'..'In30.Cu' or 'B.Cu'")])) from None
 
@@ -164,7 +164,7 @@ def _twin_sheet_uuids(groups: dict[str, dict[str, str]]) -> set[str]:
     2+ members (shared-root footprints with /Channel_N/-style local nets are
     excluded — the same rule as channel_copy._channel_sheet_uuids).
 
-    Mirrored by gui/docks/scheme_list_place.py::_twin_sibling_sheet_names,
+    Mirrored by gui/docks/imprint_place.py::_twin_sibling_sheet_names,
     which computes the SAME twin set over the GUI's CACHED snapshot (it must
     stay in lock-step with this rule so the Place page's "Target sheet" combo
     never offers a sheet Apply would reject here — if the "twin = 2+ members"
@@ -199,7 +199,7 @@ def _inner_key(chain: tuple[str, ...]) -> str | None:
     return "/" + "/".join(chain[1:])
 
 
-def _recorded_source_sheet_name(adapter, record: SchemeListConfig,
+def _recorded_source_sheet_name(adapter, record: ImprintConfig,
                                 fp_by_ref: dict[str, object]) -> str:
     """Top-level sheet name of the recorded region for the net remap: the first
     segment of `record.source_sheet` when set (a full path is fine), else the
@@ -219,7 +219,7 @@ def _recorded_source_sheet_name(adapter, record: SchemeListConfig,
     return ""
 
 
-def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
+def _resolve_onto_sibling(adapter, record: ImprintConfig, entity: Entity,
                           groups: dict[str, dict[str, str]],
                           ) -> tuple[str, str, dict[str, str], list[str]]:
     """Resolve (src_name, dst_name, ref_map, problems) for onto-sibling mode.
@@ -265,11 +265,11 @@ def _resolve_onto_sibling(adapter, record: SchemeListConfig, entity: Entity,
 
 # ── public planner ──────────────────────────────────────────────────────────
 
-def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
+def plan_imprint(entity: Entity, record: ImprintConfig, adapter,
                      node_pos: Vector2, node_rotation_deg: float,
                      groups: dict[str, dict[str, str]] | None = None,
-                     ) -> SchemeListApplyPlan:
-    """Plan the commands that materialize one scheme_list placement node.
+                     ) -> ImprintApplyPlan:
+    """Plan the commands that materialize one imprint placement node.
 
     Pure computation (no board writes): resolves target refdes (direct for in
     place, twins for onto sibling), applies the centre-frame + pivot geometry
@@ -283,7 +283,7 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
     as captured). `groups` may be passed to reuse one full-board scan across
     several nodes; otherwise built here.
     """
-    entity_name = entity.name or entity.scheme_list or "scheme_list"
+    entity_name = entity.name or entity.imprint or "imprint"
     dst_name = entity.sheet or ""
     src_name = record.source_sheet or ""
     onto = bool(dst_name) and dst_name != src_name
@@ -333,7 +333,7 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
         vias.append(_via_command(
             position=pos, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
             net=_remap_net(via.net, src_net_name, dst_name),
-            owner_ref=entity_name, key=f"scheme_list:{entity_name}:via:{i}"))
+            owner_ref=entity_name, key=f"imprint:{entity_name}:via:{i}"))
 
     tracks = []
     for i, tr in enumerate(record.tracks):
@@ -345,9 +345,9 @@ def plan_scheme_list(entity: Entity, record: SchemeListConfig, adapter,
             start=start, end=end, width_mm=tr.width_mm,
             net=_remap_net(tr.net, src_net_name, dst_name),
             layer=_layer_board(tr.layer), owner_ref=entity_name,
-            key=f"scheme_list:{entity_name}:track:{i}"))
+            key=f"imprint:{entity_name}:track:{i}"))
 
-    return SchemeListApplyPlan(
+    return ImprintApplyPlan(
         entity_name=entity_name, mode=mode,
         moves=moves, vias=vias, tracks=tracks, ref_map=ref_map)
 
@@ -375,19 +375,19 @@ def _track_command(start, end, width_mm, net, layer, owner_ref, key):
 
 # ── forest collection + aggregate planning + execution (P4.4) ───────────────
 
-def _lookup_scheme_list(cfg: Config, name: str) -> SchemeListConfig | None:
-    for rec in cfg.scheme_lists:
+def _lookup_imprint(cfg: Config, name: str) -> ImprintConfig | None:
+    for rec in cfg.imprints:
         if rec.name == name:
             return rec
     return None
 
 
-def collect_scheme_list_nodes(adapter, cfg: Config, sheet_names: dict | None = None,
-                              forest: list | None = None) -> list[SchemeListNode]:
-    """Every scheme_list placement node in the tree forest, with its ABSOLUTE
+def collect_imprint_nodes(adapter, cfg: Config, sheet_names: dict | None = None,
+                              forest: list | None = None) -> list[ImprintNode]:
+    """Every imprint placement node in the tree forest, with its ABSOLUTE
     (pos, rot) — the SAME anchor-base + node composition entity_placement uses
     to materialize cell-based placement nodes (_anchor_base + _walk), so a
-    scheme-list node's position is computed identically. Entries whose Entity
+    imprint node's position is computed identically. Entries whose Entity
     is retired/skip are excluded (they are not placed, like the cell path).
 
     Per-tree tolerance mirrors materialize_entity_placements: a tree whose
@@ -399,13 +399,13 @@ def collect_scheme_list_nodes(adapter, cfg: Config, sheet_names: dict | None = N
         return []
     sheet_names = sheet_names or {}
     forest = forest if forest is not None else link_trees(cfg, cfg.trees)
-    out: list[SchemeListNode] = []
+    out: list[ImprintNode] = []
     for tree in forest:
         try:
             anchor_pos, anchor_rot = _anchor_base(
                 adapter, cfg, tree, sheet_names, forest=forest)
         except Exception as exc:  # per-tree tolerance, like cell materialization
-            logger.warning(_("Scheme List apply: tree {tree!r} skipped — {error}")
+            logger.warning(_("Imprint apply: tree {tree!r} skipped — {error}")
                            .format(tree=tree.name, error=exc))
             continue
         _collect_scheme_nodes(tree.nodes, anchor_pos, anchor_rot, out,
@@ -416,7 +416,7 @@ def collect_scheme_list_nodes(adapter, cfg: Config, sheet_names: dict | None = N
 
 
 def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
-                          out: list[SchemeListNode], adapter, cfg, sheet_names,
+                          out: list[ImprintNode], adapter, cfg, sheet_names,
                           *, plain_tree=None, tree_base_pos: Vector2 | None = None,
                           tree_base_rot: float = 0.0) -> None:
     for ln in linked_nodes:
@@ -435,10 +435,10 @@ def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
         if node.kind == "placement" and ln.record is not None \
                 and isinstance(ln.record.obj, Entity):
             ent = ln.record.obj
-            if ent.scheme_list is not None and not ent.retired and not ent.skip:
-                rec = _lookup_scheme_list(cfg, ent.scheme_list)
+            if ent.imprint is not None and not ent.retired and not ent.skip:
+                rec = _lookup_imprint(cfg, ent.imprint)
                 if rec is not None:
-                    out.append(SchemeListNode(entity=ent, scheme_list=rec,
+                    out.append(ImprintNode(entity=ent, imprint=rec,
                                               position=node_pos, rotation_deg=node_rot))
         _collect_scheme_nodes(ln.children, node_pos, node_rot, out,
                               adapter, cfg, sheet_names,
@@ -446,21 +446,21 @@ def _collect_scheme_nodes(linked_nodes, pos: Vector2, rot: float,
                               tree_base_rot=tree_base_rot)
 
 
-def plan_all_scheme_lists(adapter, cfg: Config, sheet_names: dict | None = None,
+def plan_all_imprints(adapter, cfg: Config, sheet_names: dict | None = None,
                           *, only: list[str] | None = None,
                           groups: dict[str, dict[str, str]] | None = None
-                          ) -> list[SchemeListApplyPlan]:
-    """Plan every scheme_list placement node in the config (the caller-level
+                          ) -> list[ImprintApplyPlan]:
+    """Plan every imprint placement node in the config (the caller-level
     branch of plan §4). `only` narrows by Entity name (Redraw-of-one); empty =
     plan all. `groups` (the live twin map) is built ONCE and shared across all
     nodes so a full apply does a single board scan."""
-    nodes = collect_scheme_list_nodes(adapter, cfg, sheet_names)
+    nodes = collect_imprint_nodes(adapter, cfg, sheet_names)
     only_set = set(only) if only else None
-    plans: list[SchemeListApplyPlan] = []
+    plans: list[ImprintApplyPlan] = []
     for node in nodes:
         if only_set and node.entity.name not in only_set:
             continue
-        plan = plan_scheme_list(node.entity, node.scheme_list, adapter,
+        plan = plan_imprint(node.entity, node.imprint, adapter,
                                 node.position, node.rotation_deg, groups=groups)
         plans.append(plan)
     return plans
@@ -495,13 +495,13 @@ def _via_already_exists(live_vias, cmd) -> bool:
     return False
 
 
-def execute_scheme_list_plans(adapter, plans: list[SchemeListApplyPlan], *,
+def execute_imprint_plans(adapter, plans: list[ImprintApplyPlan], *,
                               config: Config | None = None,
                               batch_size: int = DEFAULT_BATCH_SIZE,
                               check_collisions: bool = True,
                               collision_margin_mm: float = 0.2,
                               ) -> tuple[list[str], list[str], list[str]]:
-    """Execute the aggregated Scheme List plans through BatchExecutor — moves,
+    """Execute the aggregated Imprint plans through BatchExecutor — moves,
     then vias, then tracks (one undo log), exactly like execute_channel_copy.
     No registry participation: idempotency is positional (skip a move already
     at target; skip a via/track already present at (position, net) — the
@@ -527,7 +527,7 @@ def execute_scheme_list_plans(adapter, plans: list[SchemeListApplyPlan], *,
     tracks = filter_existing_tracks(tracks, live_tracks)
 
     if not (moves or vias or tracks):
-        logger.info(_("Scheme List apply: everything already in place — nothing to do"))
+        logger.info(_("Imprint apply: everything already in place — nothing to do"))
         return [], [], []
 
     cfg = config or Config()
@@ -537,6 +537,6 @@ def execute_scheme_list_plans(adapter, plans: list[SchemeListApplyPlan], *,
         moves, vias, tracks,
         check_collisions=check_collisions,
         collision_margin_mm=collision_margin_mm)
-    logger.info(_("Scheme List apply: {moves} moves, {vias} vias, {tracks} tracks")
+    logger.info(_("Imprint apply: {moves} moves, {vias} vias, {tracks} tracks")
                 .format(moves=len(moves), vias=len(vias), tracks=len(tracks)))
     return failed_refs, failed_vias, failed_tracks

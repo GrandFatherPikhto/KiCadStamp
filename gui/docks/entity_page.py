@@ -7,8 +7,8 @@ Shows the Entity RECORD, not its placement:
   - "Справка": Name (read-only here — rename goes through the Config tree's
     F2/Rename), Comment (the only identity field edited in place), Cell /
     Sheet / Cluster read-only (set at creation from a template/extract);
-    a scheme_list-based Entity (plan_2026_09_05_scheme_list.md §5.1,
-    cell=None) shows its Scheme List identity on a dedicated row instead;
+    an imprint-based Entity (plan_2026_09_05_scheme_list.md §5.1,
+    cell=None) shows its Imprint identity on a dedicated row instead;
   - "Размещения": a clickable list of the trees: placement nodes whose
     node.ref == this Entity's name. Today at most one node (trees rule 2),
     designed for N once the rule is relaxed to per-tree uniqueness (§8.1).
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                              QListWidget, QListWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_config, load_entity
+from kicadstamp.config.aliases import read_entity_field
 from kicadstamp.config_writer import read_data, upsert_entity
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -79,16 +80,16 @@ class EntityInfoDock(QWidget):
         form.addRow(_("Comment:"), self.comment_edit)
         self.cell_label = QLabel("—")
         form.addRow(_("Cell:"), self.cell_label)
-        # Scheme List row (2026-09-06, P6 Stage 4 .cell audit): a
-        # scheme_list-based Entity (cell=None) shows its recorded-snapshot
+        # Imprint row (2026-09-06, P6 Stage 4 .cell audit): a
+        # imprint-based Entity (cell=None) shows its recorded-snapshot
         # identity here instead of a misleading blank Cell. Hidden for a
         # regular cell-based Entity. Both the label and the value are explicit
         # QWidgets so the WHOLE row can be hidden (a QFormLayout row created
         # from a string label cannot be hidden individually).
-        self._scheme_list_label_widget = QLabel(_("Scheme List:"))
-        self.scheme_list_label = QLabel("—")
-        form.addRow(self._scheme_list_label_widget, self.scheme_list_label)
-        self._set_scheme_list_visible(False)
+        self._imprint_label_widget = QLabel(_("Imprint:"))
+        self.imprint_label = QLabel("—")
+        form.addRow(self._imprint_label_widget, self.imprint_label)
+        self._set_imprint_visible(False)
         self.sheet_label = QLabel("—")
         form.addRow(_("Sheet:"), self.sheet_label)
         self.cluster_label = QLabel("—")
@@ -120,16 +121,16 @@ class EntityInfoDock(QWidget):
         self._current_name = None
         self._clear_form()
 
-    def _set_scheme_list_visible(self, visible: bool) -> None:
-        """Show/hide the Scheme List identity row (whole row: label + value)."""
-        self.scheme_list_label.setVisible(visible)
-        self._scheme_list_label_widget.setVisible(visible)
+    def _set_imprint_visible(self, visible: bool) -> None:
+        """Show/hide the Imprint identity row (whole row: label + value)."""
+        self.imprint_label.setVisible(visible)
+        self._imprint_label_widget.setVisible(visible)
 
     def _clear_form(self) -> None:
         self.name_label.setText("—")
         self.comment_edit.setText("")
         self.cell_label.setText("—")
-        self._set_scheme_list_visible(False)
+        self._set_imprint_visible(False)
         self.sheet_label.setText("—")
         self.cluster_label.setText("—")
         self.placements_list.clear()
@@ -154,14 +155,16 @@ class EntityInfoDock(QWidget):
         self.name_label.setText(str(raw.get("name", name)))
         self.comment_edit.setText(str(raw.get("comment") or ""))
         self.cell_label.setText(str(raw.get("cell") or "—"))
-        scheme = raw.get("scheme_list")
-        if scheme:
-            # scheme_list-based Entity (cell=None) — show the recorded
+        # read_entity_field tolerates the pre-2026-09-20 `scheme_list:` key of a
+        # profile that has not been written since the Imprint rename.
+        imprint = read_entity_field(raw)
+        if imprint:
+            # imprint-based Entity (cell=None) — show the recorded
             # snapshot it clones instead of a misleading blank Cell row.
-            self.scheme_list_label.setText(str(scheme))
-            self._set_scheme_list_visible(True)
+            self.imprint_label.setText(str(imprint))
+            self._set_imprint_visible(True)
         else:
-            self._set_scheme_list_visible(False)
+            self._set_imprint_visible(False)
         self.sheet_label.setText(str(raw.get("sheet") or "—"))
         self.cluster_label.setText(str(raw.get("cluster") or "—"))
         self._load_placements(name)

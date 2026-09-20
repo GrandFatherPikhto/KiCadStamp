@@ -1,11 +1,11 @@
-# gui/docks/scheme_list.py
+# gui/docks/imprint.py
 """
-SchemeListFormWidget — Config-side Scheme List record viewer + Reread (P5,
+ImprintFormWidget — Config-side Imprint record viewer + Reread (P5,
 plan_2026_09_05_scheme_list.md §5.1, design §3).
 
-A Scheme List is a NAMED snapshot of a real, already-routed board region
-(recorded via Tools -> "Scheme Lists" -> "Record..."). This dock is the
-MINIMAL Config side of that feature: it shows a loaded ``scheme_lists:``
+An Imprint is a NAMED snapshot of a real, already-routed board region
+(recorded via Tools -> "Imprints" -> "Record..."). This dock is the
+MINIMAL Config side of that feature: it shows a loaded ``imprints:``
 record — the CENTRE-frame geometry of the recorded region, a ``source_sheet``
 readout and an EDITABLE ``pivot`` (Commit B1): the record's anchor point in
 the centre-frame as x/y mm fields with a "Centre" quick-set (0,0 = the region
@@ -15,23 +15,23 @@ plan_2026_09_07_scheme_list_pivot_commit_b.md). Commit B2 adds a
 "Take from selection" quick-set (pivot_from_selection_button): it reads the
 CENTRE of the CURRENT live board selection and writes it into x/y as a pivot
 in the centre-frame (selected centre minus the LIVE centre of the recorded
-region, design_2026_09_07_scheme_list_pivot_commit_b2.md §1) — a pure live
+region, design_2026_09_07_imprint_pivot_commit_b2.md §1) — a pure live
 read into the fields, still saved only by the explicit Apply — plus the
 recorded-geometry
 summary — and offers the one board action that belongs here,
 **Reread**: re-run the capture against the live board
-(kicadstamp.scheme_list_capture.build_scheme_list_diff), show the diff
+(kicadstamp.imprint_capture.build_imprint_diff), show the diff
 dialog, and only on an explicit **Apply** rewrite the stored record in place
 (``upsert_list_entry`` by name into the file that actually owns the record).
 
 Deliberately NO Placement/Redraw in this dock (plan §5.1 / design §3/§8):
-cloning a Scheme List onto another sheet happens ONLY through the
+cloning an Imprint onto another sheet happens ONLY through the
 Entity/Placement machinery in Trees (the P4 ApplyPipeline branch + the P6
 "Instantiate..." wizard), never from a Config form. Nothing in this module
 ever applies anything to the live board.
 
-The module also hosts the PURE storage helpers every Scheme List write path
-shares (``scheme_list_to_dict``, the default storage path + the
+The module also hosts the PURE storage helpers every Imprint write path
+shares (``imprint_to_dict``, the default storage path + the
 auto-``include:`` ensure, the read/write helpers and the duplicate pre-checks),
 so the Tools "Record..." flow (DockHub) and this form's Reread Apply use ONE
 implementation instead of two copies.
@@ -49,16 +49,16 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.cli_common import api_error_message
-from kicadstamp.config import SchemeListConfig, load_scheme_list
+from kicadstamp.config import ImprintConfig, load_imprint
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.scheme_list_capture import (
-    SchemeListBoundaryNet,
-    SchemeListDiff,
+from kicadstamp.imprint_capture import (
+    ImprintBoundaryNet,
+    ImprintDiff,
     _region_centre,
-    build_scheme_list_diff,
-    capture_scheme_list,
+    build_imprint_diff,
+    capture_imprint,
 )
 from kicadstamp.utils.units import MM
 
@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 # is a single-segment membership test anywhere in the path — that would merge
 # two same-named sheets at different nesting levels. The three helpers below do
 # the prefix/equality matching correctly and are deliberately Qt-free so every
-# Scheme List write path (Tools Record... in DockHub, the Record dialog, the
+# Imprint write path (Tools Record... in DockHub, the Record dialog, the
 # future Re-source and the Reread scope recompute) shares ONE implementation.
 
 def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
@@ -91,7 +91,7 @@ def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
     schematic_dir, so a live Board's own sheet_names is always {} and every
     .sheet ends up a list of None. Selected.fp is the raw footprint handle
     kept exactly for this kind of re-resolution (its own docstring). Record/
-    Re-source call this on the snapshot BEFORE building RecordSchemeListDialog
+    Re-source call this on the snapshot BEFORE building RecordImprintDialog
     so its "By sheet" tab has real sheet paths to offer (2026-09-07 fix,
     plan_2026_09_07_scheme_list_sheet_names_empty.md).
 
@@ -113,7 +113,7 @@ def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
 def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
     """Distinct FULL sheet-path tuples across the live snapshot, sorted — the
     WHOLE Selected.sheet chain of every footprint (not flattened leaf
-    segments, unlike TreesDock._live_sheets / scheme_list_place._live_sheets),
+    segments, unlike TreesDock._live_sheets / imprint_place._live_sheets),
     so a nested sheet stays distinguishable from a same-named sheet elsewhere
     in the hierarchy. A path containing an unresolved (None/empty) segment is
     skipped — resolve_sheet_path_names can leave a gap when a .kicad_sch
@@ -126,7 +126,7 @@ def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
 
 def all_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
     """Every REAL sheet of the live hierarchy — sorted distinct FULL paths AND
-    every PREFIX of them (Commit E, plan_2026_09_07_scheme_list_by_sheet_full_
+    every PREFIX of them (Commit E, plan_2026_09_07_imprint_by_sheet_full_
     tree.md). Unlike `live_sheet_paths` (which returns only the FULL leaf path
     of each footprint-bearing sheet), this also includes the CONTAINER sheets
     that carry no footprints of their own but have footprint-bearing
@@ -210,7 +210,7 @@ def record_refs_for(snapshot: list, by_sheet: bool,
         already expresses which sub-sheets to include);
       - "By selection" — the caller's own `selection_refs` unchanged (the
         pre-existing P2 behavior).
-    Sorted + deduplicated. Shared by DockHub's record_scheme_list and the
+    Sorted + deduplicated. Shared by DockHub's record_imprint and the
     future Re-source so both modes resolve refs identically."""
     if by_sheet:
         return sorted({r for p in (checked_paths or [])
@@ -218,11 +218,11 @@ def record_refs_for(snapshot: list, by_sheet: bool,
     return sorted(set(selection_refs))
 
 
-def reread_scope_refs(stored: SchemeListConfig, snapshot: list,
+def reread_scope_refs(stored: ImprintConfig, snapshot: list,
                       selection_refs: List[str],
                       active_scope_paths: Optional[list] = None) -> List[str]:
     """The CURRENT Reread scope for a stored record (5c.4, plan_2026_09_06_
-    scheme_list_sheet_capture.md):
+    imprint_sheet_capture.md):
       - "By sheet"-record (``scope_sheet_paths`` set): recomputed from the SAME
         checked leaf paths over the LIVE snapshot (refs_on_sheet union) —
         Reread stays one-click, live state alone decides what appeared/vanish-
@@ -247,9 +247,9 @@ def reread_scope_refs(stored: SchemeListConfig, snapshot: list,
 
 # ── Pure storage helpers (shared by the Record... tool and Reread Apply) ────
 
-def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
-    """SchemeListConfig -> plain dict for JSON/.sexp writing (the compact,
-    round-trippable shape load_scheme_list() reads back). Mirror of
+def imprint_to_dict(record: ImprintConfig) -> Dict[str, Any]:
+    """ImprintConfig -> plain dict for JSON/.sexp writing (the compact,
+    round-trippable shape load_imprint() reads back). Mirror of
     net_trace_extract.net_trace_to_dict: required fields first, optional
     fields omitted when unset, geometry lists always written.
 
@@ -299,15 +299,15 @@ def scheme_list_to_dict(record: SchemeListConfig) -> Dict[str, Any]:
     return d
 
 
-# The storage side file a NEW Scheme List record lands in, and the pre-2026-09-12
+# The storage side file a NEW Imprint record lands in, and the pre-2026-09-12
 # name this code used to create unconditionally (JSON). Both names live here so
 # the backward-compatibility rule below has one source of truth.
-SCHEME_LIST_STORAGE_NAME = "scheme_lists.sexp"
-LEGACY_SCHEME_LIST_STORAGE_NAME = "scheme_lists.json"
+IMPRINT_STORAGE_NAME = "scheme_lists.sexp"
+LEGACY_IMPRINT_STORAGE_NAME = "scheme_lists.json"
 
 
-def default_scheme_list_path(root_path: Path) -> Path:
-    """The storage file for NEW Scheme List records (plan §0.8) — a
+def default_imprint_path(root_path: Path) -> Path:
+    """The storage file for NEW Imprint records (plan §0.8) — a
     ``scheme_lists.sexp`` sitting NEXT TO the main profile, auto-included on
     first Record... (records can be large — real copper, not a parametric
     template — so they never bloat the hand-readable root profile).
@@ -319,13 +319,13 @@ def default_scheme_list_path(root_path: Path) -> Path:
     does this return the s-expr name, so a fresh profile never creates a JSON
     config file. Nothing is ever converted, migrated or rewritten."""
     parent = Path(root_path).parent
-    legacy = parent / LEGACY_SCHEME_LIST_STORAGE_NAME
+    legacy = parent / LEGACY_IMPRINT_STORAGE_NAME
     if legacy.exists():
         return legacy
-    return parent / SCHEME_LIST_STORAGE_NAME
+    return parent / IMPRINT_STORAGE_NAME
 
 
-def ensure_scheme_list_storage(root_path: Path) -> Path:
+def ensure_imprint_storage(root_path: Path) -> Path:
     """Make the default storage file writable: create it when absent and wire
     its name into the ROOT profile's ``include:`` list (add_include is
     idempotent — a re-enabled/again-included file returns without a duplicate
@@ -335,24 +335,24 @@ def ensure_scheme_list_storage(root_path: Path) -> Path:
     ``(kicadstamp-config)\\n``, the empty config that reads back as ``{}``
     through sexp_to_dict (measured 2026-09-12) — the s-expr counterpart of the
     ``{}\\n`` the JSON storage used to be created as. A legacy
-    ``scheme_lists.json`` is reused as-is (see default_scheme_list_path) and is
+    ``scheme_lists.json`` is reused as-is (see default_imprint_path) and is
     NEVER rewritten or converted, so the two files can never both appear."""
-    path = default_scheme_list_path(root_path)
+    path = default_imprint_path(root_path)
     if not path.exists():
         path.write_text(dict_to_sexp({}), encoding="utf-8")
     add_include(Path(root_path), path.name)
     return path
 
 
-def read_scheme_list_records(root_path: Path) -> List[Dict[str, Any]]:
-    """Every raw ``scheme_lists:`` record across the whole include: graph
+def read_imprint_records(root_path: Path) -> List[Dict[str, Any]]:
+    """Every raw ``imprints:`` record across the whole include: graph
     rooted at root_path (read through config_writer.read_data, so a staged
     working-set write is visible too). Empty list on any load failure — this
     is a pre-write duplicate check, not validation."""
     try:
         records: List[Dict[str, Any]] = []
         for path in collect_graph_files(Path(root_path)):
-            for e in read_data(path).get("scheme_lists") or []:
+            for e in read_data(path).get("imprints") or []:
                 if isinstance(e, dict):
                     records.append(e)
         return records
@@ -360,13 +360,13 @@ def read_scheme_list_records(root_path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list,
+def imprint_duplicate_problems(root_path: Path, name: str, refs: list,
                                    *, exclude_name: Optional[str] = None) -> List[str]:
     """Cross-record pre-checks the loader would otherwise surface at the next
     load (plan §2 — the "Record..." action checks BEFORE capture, so an
     expensive board read is never wasted on a record that cannot be saved):
-      - duplicate ``name`` across scheme_lists: entries;
-      - a ref already recorded in ANOTHER Scheme List (ref-uniqueness §0.2).
+      - duplicate ``name`` across imprints: entries;
+      - a ref already recorded in ANOTHER Imprint (ref-uniqueness §0.2).
     ``exclude_name`` (Re-source, plan_2026_09_06_scheme_list_sheet_capture.md
     5b.1): the record being re-sourced is SKIPPED entirely — its own name is
     not a duplicate of itself and its own refs are being REPLACED (replace,
@@ -375,7 +375,7 @@ def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list,
     unchanged. Returns localized problem strings; empty when clean."""
     used_names = set()
     used_refs: set = set()
-    for e in read_scheme_list_records(root_path):
+    for e in read_imprint_records(root_path):
         if exclude_name is not None and e.get("name") == exclude_name:
             continue  # the record itself is being replaced, not duplicated
         used_names.add(e.get("name"))
@@ -385,28 +385,28 @@ def scheme_list_duplicate_problems(root_path: Path, name: str, refs: list,
     problems: List[str] = []
     if name in used_names:
         problems.append(
-            _("a Scheme List named {name!r} already exists — pick another name")
+            _("an Imprint named {name!r} already exists — pick another name")
             .format(name=name))
     overlap = sorted(set(refs) & used_refs)
     if overlap:
         problems.append(
-            _("component ref(s) already recorded in another Scheme List: {refs}")
+            _("component ref(s) already recorded in another Imprint: {refs}")
             .format(refs=", ".join(overlap)))
     return problems
 
 
-def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
+def write_imprint_record(root_path: Path, record: ImprintConfig,
                              target_path: Optional[Path] = None) -> Path:
-    """Persist one Scheme List record. Without ``target_path`` the record is
+    """Persist one Imprint record. Without ``target_path`` the record is
     written to the default storage file (``scheme_lists.sexp``, or the legacy
     ``scheme_lists.json`` when that already exists — created + auto-included on
     first use); with it (Reread Apply — the file that actually owns the
     loaded record) the record is upserted there by name. Returns the written
     file. Pure file operation — callable from the UI thread or a worker."""
     if target_path is None:
-        target_path = ensure_scheme_list_storage(root_path)
-    upsert_list_entry(Path(target_path), "scheme_lists",
-                      scheme_list_to_dict(record), key="name")
+        target_path = ensure_imprint_storage(root_path)
+    upsert_list_entry(Path(target_path), "imprints",
+                      imprint_to_dict(record), key="name")
     return Path(target_path)
 
 
@@ -432,7 +432,7 @@ def write_scheme_list_record(root_path: Path, record: SchemeListConfig,
 # window's poll ticks keep running on that same socket, so a click handler
 # firing a second, unsynchronized adapter.get_footprints() collided with them
 # and hung the "Take from selection" dialog. The snapshot is the same cache
-# record_scheme_list/"By sheet" already build from, so zero extra IPC and zero
+# record_imprint/"By sheet" already build from, so zero extra IPC and zero
 # race.
 
 def live_record_centre_mm(record_refs: list, footprints) -> tuple[float, float] | None:
@@ -512,8 +512,8 @@ def _pivot_mm_text(v: float) -> str:
     return f"{v:.4f}".rstrip("0").rstrip(".")
 
 
-def scheme_list_diff_lines(diff: SchemeListDiff) -> List[str]:
-    """Human-readable (already localized) summary lines of a SchemeListDiff —
+def imprint_diff_lines(diff: ImprintDiff) -> List[str]:
+    """Human-readable (already localized) summary lines of an ImprintDiff —
     shared by the diff dialog and any future log-only consumer."""
     lines: List[str] = []
     if diff.refs_not_found:
@@ -556,7 +556,7 @@ def scheme_list_diff_lines(diff: SchemeListDiff) -> List[str]:
 
 # ── Dialogs ────────────────────────────────────────────────────────────────
 
-class RecordSchemeListDialog(QDialog):
+class RecordImprintDialog(QDialog):
     """Record... / Re-source... dialog with TWO source tabs (design §2, plan
     plan_2026_09_06_scheme_list_sheet_capture.md 5a.3 — the same two-tab
     pattern "Instantiate from Cell..." already uses):
@@ -633,9 +633,9 @@ class RecordSchemeListDialog(QDialog):
                                else (0.0, 0.0))
         if fixed_name:
             self.setWindowTitle(
-                _("Re-source Scheme List {name!r}").format(name=fixed_name))
+                _("Re-source Imprint {name!r}").format(name=fixed_name))
         else:
-            self.setWindowTitle(_("Record Scheme List"))
+            self.setWindowTitle(_("Record Imprint"))
         self._snapshot = list(snapshot or [])
         # FULL live hierarchy — every real sheet incl. containers without own
         # footprints (all_sheet_paths adds the prefixes), so the "By sheet"
@@ -675,7 +675,7 @@ class RecordSchemeListDialog(QDialog):
         else:
             self.name_edit = QLineEdit()
             self.name_edit.setPlaceholderText(
-                _("name (used by --only and Entity.scheme_list, must be unique)"))
+                _("name (used by --only and Entity.imprint, must be unique)"))
             name_form.addRow(_("Name:"), self.name_edit)
             layout.addLayout(name_form)
 
@@ -855,8 +855,8 @@ class RecordSchemeListDialog(QDialog):
         connection the cached snapshot is used as before (tests/fallback)."""
         if self._adapter is None:
             # Connection state, not user input — a Log line, never a modal
-            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). RecordSchemeList
-            # Dialog has no _show_message (only the embedded SchemeListForm
+            # (plan_2026_09_11_no_modals_and_busy_kicad X.1). RecordImprint
+            # Dialog has no _show_message (only the embedded ImprintForm
             # Widget has one), so this goes through the shared helper. The
             # button is disabled without an adapter anyway; the pivot is still
             # never guessed here.
@@ -865,7 +865,7 @@ class RecordSchemeListDialog(QDialog):
         refs = self._checked_refs()
         if not refs:
             QMessageBox.warning(
-                self, _("Scheme Lists"),
+                self, _("Imprints"),
                 _("No footprints to record — pick a sheet that has footprints "
                   "on the 'By sheet' tab, or select footprints on the board "
                   "for 'By selection'."))
@@ -893,7 +893,7 @@ class RecordSchemeListDialog(QDialog):
             x, y = pivot_centre_frame_from_selection(
                 refs, self._live_snapshot(), self._live_selection())
         except ValidationError as e:
-            QMessageBox.warning(self, _("Scheme Lists"), str(e))
+            QMessageBox.warning(self, _("Imprints"), str(e))
             return
         self._set_pivot_fields(x, y)
 
@@ -951,7 +951,7 @@ class RecordSchemeListDialog(QDialog):
             self._add_tree_nodes(item, node["children"])
 
     def _on_sheet_item_changed(self, item, column) -> None:
-        """Tri-state cascade (Commit D, plan_2026_09_07_scheme_list_commit_d_
+        """Tri-state cascade (Commit D, plan_2026_09_07_imprint_commit_d_
         tristate_parent.md §3): a change to a checkable sheet row turns its
         WHOLE subtree on/off and re-syncs every ancestor (PartiallyChecked when
         some but not all sheets under it are on). Reentrancy-guarded by
@@ -1089,21 +1089,21 @@ class RecordSchemeListDialog(QDialog):
         return text or None
 
 
-class SchemeListDiffDialog(QDialog):
+class ImprintDiffDialog(QDialog):
     """Reread result (design §4): shows what changed against the live board
     and offers Apply (rewrite the stored record) — never applied silently.
     Apply is disabled when a recorded component is missing from the board
     (the record cannot be faithfully re-synced while a ref is off-board)."""
 
-    def __init__(self, name: str, diff: SchemeListDiff, parent=None):
+    def __init__(self, name: str, diff: ImprintDiff, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(_("Scheme List Reread"))
+        self.setWindowTitle(_("Imprint Reread"))
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             _("What changed for {name!r} on the live board:").format(name=name)))
         text = QPlainTextEdit()
         text.setReadOnly(True)
-        text.setPlainText("\n".join(scheme_list_diff_lines(diff)) or _("no differences"))
+        text.setPlainText("\n".join(imprint_diff_lines(diff)) or _("no differences"))
         layout.addWidget(text)
         if diff.refs_not_found:
             warn = QLabel(_("Apply is disabled while component(s) are missing from the "
@@ -1134,13 +1134,13 @@ class BoundaryNetRow:
 
 def boundary_net_rows(boundary_nets: list) -> list:
     """Filter a capture's boundary-net list down to real
-    ``SchemeListBoundaryNet`` rows (the capture always produces them, but a
+    ``ImprintBoundaryNet`` rows (the capture always produces them, but a
     stray non-model entry must not crash the dialog) — the pure input the
     boundary dialog renders. Net + external_ref only; no decision lives
     here."""
     return [
         BoundaryNetRow(net=bn.net, external_ref=bn.external_ref)
-        for bn in boundary_nets if isinstance(bn, SchemeListBoundaryNet)
+        for bn in boundary_nets if isinstance(bn, ImprintBoundaryNet)
     ]
 
 
@@ -1220,7 +1220,7 @@ def choose_boundary_actions(parent, boundary_nets: list) -> Optional[Dict[str, s
 
 # ── The Config right-page form ─────────────────────────────────────────────
 
-class SchemeListFormWidget(QWidget):
+class ImprintFormWidget(QWidget):
     """A Config-tree right-QView page (plan §5.2 — embedded via DockHub's
     add_right_page on the ConfigTreeDock's QStackedWidget), the same "plain
     QWidget, not its own QDockWidget" shape as NetTraceDock/ThermalViaArrayDock.
@@ -1330,8 +1330,8 @@ class SchemeListFormWidget(QWidget):
         note = QLabel(
             _("Reread compares this record against the live board and, after "
               "an explicit Apply, rewrites it — it never places anything. "
-              "Cloning a Scheme List onto another sheet happens through a "
-              "tree Entity (scheme_list:), not here."))
+              "Cloning an Imprint onto another sheet happens through a "
+              "tree Entity (imprint:), not here."))
         note.setWordWrap(True)
         record_lay.addWidget(note)
         buttons = QHBoxLayout()
@@ -1379,33 +1379,33 @@ class SchemeListFormWidget(QWidget):
 
     def load_entry(self, entry: Dict[str, Any],
                    file_path: Optional[Path] = None) -> None:
-        """Config-tree scheme_lists leaf click (scheme_list_picked): populate
+        """Config-tree imprints leaf click (imprint_picked): populate
         the read-only form from the saved record. The WRITE target is set back
         to the file the record actually lives in, so a Reread Apply updates
         that file instead of adding a root/duplicate record (2026-08-21 review
         fix pattern, same as net_trace.load_entry)."""
         self._show_message("")
         if file_path is None:
-            file_path = find_list_entry_file(self._root_path, "scheme_lists", entry)
+            file_path = find_list_entry_file(self._root_path, "imprints", entry)
         if file_path is not None:
             self._path = Path(file_path)
         self._entry = dict(entry)
         try:
-            record = load_scheme_list(entry)
+            record = load_imprint(entry)
         except ValidationError as e:
             # A hand-broken record must not crash the form — show the record's
             # raw identity and log the problem (it will fatal at the next load).
             self._show_message(str(e), _ERROR_STYLE)
             self.name_label.setText(
-                _("Scheme List: {name}").format(name=entry.get("name", "?")))
+                _("Imprint: {name}").format(name=entry.get("name", "?")))
             self.pivot_x_edit.clear()
             self.pivot_y_edit.clear()
             return
         self._render(record)
 
-    def _render(self, record: SchemeListConfig) -> None:
+    def _render(self, record: ImprintConfig) -> None:
         self.name_label.setText(
-            _("Scheme List: {name}").format(name=record.name))
+            _("Imprint: {name}").format(name=record.name))
         pivot = record.pivot if record.pivot is not None else (0.0, 0.0)
         self.pivot_x_edit.setText(f"{pivot[0]:.2f}")
         self.pivot_y_edit.setText(f"{pivot[1]:.2f}")
@@ -1423,7 +1423,7 @@ class SchemeListFormWidget(QWidget):
                 tracks=len(record.tracks))
         self.geometry_label.setText(geometry)
 
-    def _render_preset_combo(self, record: SchemeListConfig) -> None:
+    def _render_preset_combo(self, record: ImprintConfig) -> None:
         """Fill the named-presets selector from a loaded record (plan §8):
         the "(current)" sentinel first (data None), then one item per
         scope_presets entry carrying its sheet_paths as data. Hidden entirely
@@ -1438,11 +1438,11 @@ class SchemeListFormWidget(QWidget):
         self.preset_combo.setVisible(bool(record.scope_presets))
         self.preset_combo.blockSignals(False)
 
-    # ── Pivot editing (Commit B1 + B2, plan_2026_09_07_scheme_list_pivot_commit_b) ──
+    # ── Pivot editing (Commit B1 + B2, plan_2026_09_07_imprint_pivot_commit_b) ──
     # The record's pivot is EDITABLE on this page: x/y mm QLineEdits in the
     # record's centre-frame + a "Centre" quick-set (0/0 = the region centre)
     # and an explicit "Apply" (Save pivot) that rewrites the record's owning
-    # file (write_scheme_list_record) — a pure config write, no live board.
+    # file (write_imprint_record) — a pure config write, no live board.
     # Commit B2 adds "Take from selection" (_on_pivot_from_selection): a LIVE
     # source that fills x/y from the current board selection's centre (pure
     # helpers pivot_centre_frame_from_selection / live_record_centre_mm,
@@ -1459,12 +1459,12 @@ class SchemeListFormWidget(QWidget):
     def _on_pivot_apply(self) -> None:
         """'Apply' (Save pivot) — read/validate the x/y fields (mm in the
         record's centre-frame), then rewrite the pivot into the record's
-        owning file (write_scheme_list_record with target_path=self._path;
-        scheme_list_to_dict omits a (0,0) pivot). Pure config write, no live
+        owning file (write_imprint_record with target_path=self._path;
+        imprint_to_dict omits a (0,0) pivot). Pure config write, no live
         board. Emits saved() so ConfigTreeDock refreshes (see gui/dock_hub.py)."""
         self._show_message("")
         if not self._entry or self._path is None:
-            self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
+            self._show_message(_("Load an Imprint record first."), _ERROR_STYLE)
             return
         try:
             x = float(self.pivot_x_edit.text().strip())
@@ -1473,30 +1473,30 @@ class SchemeListFormWidget(QWidget):
             self._show_message(_("Pivot x/y must be numbers (mm)."), _ERROR_STYLE)
             return
         try:
-            record = load_scheme_list(self._entry)
+            record = load_imprint(self._entry)
         except ValidationError as e:
-            logger.warning("[SchemeList Pivot] Apply load_scheme_list failed: "
+            logger.warning("[Imprint Pivot] Apply load_imprint failed: "
                            "%r (%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
         record.pivot = (x, y)
         root_path = self._root_path if self._root_path is not None else Path(".")
         try:
-            written = write_scheme_list_record(root_path, record,
+            written = write_imprint_record(root_path, record,
                                                target_path=self._path)
         except (ValidationError, OSError) as e:
-            logger.warning("[SchemeList Pivot] Apply write failed: %r (%s)",
+            logger.warning("[Imprint Pivot] Apply write failed: %r (%s)",
                            str(e), type(e).__name__)
             self._show_message(_("Pivot save failed: {error}").format(error=e),
                                _ERROR_STYLE)
             return
         # Keep the loaded raw entry in sync so a later Reread-Apply preserves
         # the just-saved pivot instead of reverting to the stale stored one.
-        self._entry = scheme_list_to_dict(record)
+        self._entry = imprint_to_dict(record)
         self._show_message(
-            _("Pivot for Scheme List {name!r} saved -> {path}").format(
+            _("Pivot for Imprint {name!r} saved -> {path}").format(
                 name=record.name, path=display_path(written)), _SUCCESS_STYLE)
-        logger.warning("[SchemeList Pivot] Apply OK -> %s", written)
+        logger.warning("[Imprint Pivot] Apply OK -> %s", written)
         self.saved.emit()
 
     def _on_pivot_from_selection(self) -> None:
@@ -1505,7 +1505,7 @@ class SchemeListFormWidget(QWidget):
         centre-frame (selected centre minus the LIVE centre of the recorded
         region, recomputed from the recorded refs' present positions). Pure live
         read — fills the FIELDS as a preview; nothing is written until 'Apply'
-        (Save pivot) is pressed (Commit B2, plan_2026_09_07_scheme_list_pivot_
+        (Save pivot) is pressed (Commit B2, plan_2026_09_07_imprint_pivot_
         commit_b2.md §1). The recorded refs' positions come from the full-board
         footprint SNAPSHOT (self._connection.snapshot), never from a direct
         adapter.get_footprints() call on this GUI thread (Commit H,
@@ -1515,7 +1515,7 @@ class SchemeListFormWidget(QWidget):
         (R.2.1, plan_2026_09_11_stale_snapshot_positions.md)."""
         self._show_message("")
         if not self._entry or self._path is None:
-            self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
+            self._show_message(_("Load an Imprint record first."), _ERROR_STYLE)
             return
         board = getattr(self._connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None
@@ -1523,9 +1523,9 @@ class SchemeListFormWidget(QWidget):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         try:
-            record = load_scheme_list(self._entry)
+            record = load_imprint(self._entry)
         except ValidationError as e:
-            logger.warning("[SchemeList Pivot] TakeFromSel load_scheme_list "
+            logger.warning("[Imprint Pivot] TakeFromSel load_imprint "
                            "failed: %r (%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
@@ -1537,13 +1537,13 @@ class SchemeListFormWidget(QWidget):
             self._on_pivot_snapshot_refresh_failed,
             busy_text=_("reading the board"),
             owner=self.pivot_from_selection_button,
-            # Э2.5: same rule as the RecordSchemeListDialog pivot above — a
+            # Э2.5: same rule as the RecordImprintDialog pivot above — a
             # position read from a stale snapshot is wrong geometry, so refuse
             # and tell the user (ERROR, user-facing) instead of falling back.
             on_still_busy=lambda: self._on_pivot_snapshot_refresh_failed(
                 _("another operation is using the board")))
 
-    def _pivot_from_selection_now(self, record: SchemeListConfig) -> None:
+    def _pivot_from_selection_now(self, record: ImprintConfig) -> None:
         """UI thread, AFTER the snapshot rebuild (see
         _on_pivot_from_selection): the recorded refs' present positions feed the
         pivot preview. Without a refreshable connection this is the old
@@ -1554,17 +1554,17 @@ class SchemeListFormWidget(QWidget):
         snapshot = getattr(self._connection, "snapshot", None) or []
         record_refs = [c.ref for c in record.components]
         missing = missing_record_refs(record_refs, snapshot)
-        logger.warning("[SchemeList Pivot] TakeFromSel record=%r refs=%r "
+        logger.warning("[Imprint Pivot] TakeFromSel record=%r refs=%r "
                        "missing=%r", record.name, record_refs, missing)
         try:
             pivot_mm = pivot_centre_frame_from_selection(
                 record_refs, snapshot, self._selection_footprints)
         except ValidationError as e:
-            logger.warning("[SchemeList Pivot] TakeFromSel pivot failed: %r "
+            logger.warning("[Imprint Pivot] TakeFromSel pivot failed: %r "
                            "(%s)", str(e), type(e).__name__)
             self._show_message(str(e), _ERROR_STYLE)
             return
-        logger.warning("[SchemeList Pivot] TakeFromSel OK pivot=%r",
+        logger.warning("[Imprint Pivot] TakeFromSel OK pivot=%r",
                        (pivot_mm[0], pivot_mm[1]))
         self.pivot_x_edit.setText(_pivot_mm_text(pivot_mm[0]))
         self.pivot_y_edit.setText(_pivot_mm_text(pivot_mm[1]))
@@ -1591,16 +1591,16 @@ class SchemeListFormWidget(QWidget):
         connected, then snapshot the plain-data payload for the worker. The
         payload carries the CURRENT Reread ``scope_refs`` (5c.4) — recomputed
         on the UI thread from the stored scope_sheet_paths / the live board
-        selection, so the worker's build_scheme_list_diff can add/remove refs."""
+        selection, so the worker's build_imprint_diff can add/remove refs."""
         board = getattr(self._connection, "board", None)
         if board is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return None
         if not self._entry:
-            self._show_message(_("Load a Scheme List record first."), _ERROR_STYLE)
+            self._show_message(_("Load an Imprint record first."), _ERROR_STYLE)
             return None
         try:
-            stored = load_scheme_list(self._entry)
+            stored = load_imprint(self._entry)
         except ValidationError as e:
             # A hand-broken record must not crash the Reread flow either.
             self._show_message(str(e), _ERROR_STYLE)
@@ -1634,7 +1634,7 @@ class SchemeListFormWidget(QWidget):
 
     def reread(self) -> None:
         """Public Reread entry point — used by the form's button, the Config
-        tree context menu and the Tools -> Scheme Lists -> "Reread" delegate
+        tree context menu and the Tools -> Imprints -> "Reread" delegate
         (triple exposure, plan §5.3)."""
         self._on_reread()
 
@@ -1656,8 +1656,8 @@ class SchemeListFormWidget(QWidget):
         ``scope_refs``, 5c.4) makes the diff add/remove refs, not just diff the
         stored fixed set."""
         try:
-            stored = load_scheme_list(payload["stored"])
-            diff = build_scheme_list_diff(stored, payload["board"].adapter,
+            stored = load_imprint(payload["stored"])
+            diff = build_imprint_diff(stored, payload["board"].adapter,
                                           scope_refs=payload.get("scope_refs"))
         except ValidationError as e:
             return {"error": str(e)}
@@ -1668,7 +1668,7 @@ class SchemeListFormWidget(QWidget):
             return {"error": _("Reread failed: {error}").format(
                 error=api_error_message(e))}
         except Exception as e:
-            logger.exception("Scheme List Reread failed")
+            logger.exception("Imprint Reread failed")
             return {"error": _("Reread failed: {error}").format(error=e)}
         return {"diff": diff, "name": stored.name}
 
@@ -1683,7 +1683,7 @@ class SchemeListFormWidget(QWidget):
                 _("{name!r} is up to date — nothing changed on the board.")
                 .format(name=result["name"]), _SUCCESS_STYLE)
             return
-        dialog = SchemeListDiffDialog(result["name"], diff, self)
+        dialog = ImprintDiffDialog(result["name"], diff, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._apply_reread()
 
@@ -1721,7 +1721,7 @@ class SchemeListFormWidget(QWidget):
         the scope_presets LIBRARY itself is never rewritten here — only an
         explicit Record/Re-source "Save as preset" does."""
         try:
-            stored = load_scheme_list(payload["stored"])
+            stored = load_imprint(payload["stored"])
             adapter = payload["board"].adapter
             scope_refs = payload.get("scope_refs")
             refs = (scope_refs if scope_refs is not None
@@ -1733,7 +1733,7 @@ class SchemeListFormWidget(QWidget):
             scope_sheet_paths = (active_scope_paths
                                  if active_scope_paths is not None
                                  else stored.scope_sheet_paths)
-            fresh = capture_scheme_list(
+            fresh = capture_imprint(
                 name=stored.name,
                 refs=refs,
                 adapter=adapter,
@@ -1750,10 +1750,10 @@ class SchemeListFormWidget(QWidget):
                 # Apply only switches WHICH paths are current, it never edits
                 # the saved library.
                 scope_presets=stored.scope_presets)
-            load_scheme_list(scheme_list_to_dict(fresh))  # validate before writing
+            load_imprint(imprint_to_dict(fresh))  # validate before writing
             root_path = Path(payload["root"]) if payload.get("root") else Path(".")
             target_path = Path(payload["path"]) if payload.get("path") else None
-            written = write_scheme_list_record(root_path, fresh, target_path=target_path)
+            written = write_imprint_record(root_path, fresh, target_path=target_path)
         except (ValidationError, OSError) as e:
             return {"error": _("Reread apply failed: {error}").format(error=e)}
         except ApiError as e:
@@ -1761,7 +1761,7 @@ class SchemeListFormWidget(QWidget):
             return {"error": _("Reread apply failed: {error}").format(
                 error=api_error_message(e))}
         except Exception as e:
-            logger.exception("Scheme List Reread apply failed")
+            logger.exception("Imprint Reread apply failed")
             return {"error": _("Reread apply failed: {error}").format(error=e)}
         return {"name": fresh.name, "path": str(written)}
 
@@ -1771,7 +1771,7 @@ class SchemeListFormWidget(QWidget):
             self._show_message(result["error"], _ERROR_STYLE)
             return
         self._show_message(
-            _("Updated Scheme List {name!r} from the live board -> {path}")
+            _("Updated Imprint {name!r} from the live board -> {path}")
             .format(name=result["name"], path=display_path(Path(result["path"]))),
             _SUCCESS_STYLE)
         self.saved.emit()

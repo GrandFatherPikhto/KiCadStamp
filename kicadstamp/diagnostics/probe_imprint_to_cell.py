@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Stage 4 probe — what happens to the copper when a Scheme List becomes a Cell?
+"""Stage 4 probe — what happens to the copper when an Imprint becomes a Cell?
 
-2026-09-17, chat plan "Scheme List -> cell" (stage 4 of the spoke work): a
-refdes-based Scheme List record, once its components carry Roles, is turned into
-an ordinary cloneable Cell and its Entity switches from `scheme_list` to `cell`.
+2026-09-17, chat plan "Imprint -> cell" (stage 4 of the spoke work): a
+refdes-based Imprint record, once its components carry Roles, is turned into
+an ordinary cloneable Cell and its Entity switches from `imprint` to `cell`.
 The risk is duplicated copper on the next redraw. What decides it, from the code:
 
-  * Scheme List copper takes NO part in the registry
-    (scheme_list_apply.execute_scheme_list_plans: positional idempotency only),
-    its keys look like "scheme_list:{entity}:via:{i}" and are never stored;
+  * Imprint copper takes NO part in the registry
+    (imprint_apply.execute_imprint_plans: positional idempotency only),
+    its keys look like "imprint:{entity}:via:{i}" and are never stored;
   * the cell path keys its copper "{anchor_id}|{cell}|{role|__spoke__}|{i}" and
     registers it; before reconcile, adopt_matching_unowned CLAIMS a live item
     that exactly matches a planned-but-unregistered command (via_matches /
     track_matches) and is not owned by another key — so the switch is duplicate-
     free exactly when the cell reproduces the recorded copper EXACTLY.
 
-This probe measures the preconditions on the live board, per scheme_list Entity:
+This probe measures the preconditions on the live board, per imprint Entity:
 
-  1. registry: keys that mention the entity or start with "scheme_list:" (expected
+  1. registry: keys that mention the entity or start with "imprint:" (expected
      none), and the registry entries count;
-  2. the Scheme List plan (plan_all_scheme_lists, only=[entity]) — components,
+  2. the Imprint plan (plan_all_imprints, only=[entity]) — components,
      vias, tracks — or the error;
   3. conversion precondition: the target refs' Roles — missing, and Roles that
      occur more than once (a record with repeated Roles cannot become ONE cell;
@@ -35,7 +35,7 @@ READ-ONLY: own KiCad socket, closed in `finally`; registry files are read, never
 written.
 
 Usage:
-    python -m kicadstamp.diagnostics.probe_scheme_list_to_cell [config] [--entity NAME]
+    python -m kicadstamp.diagnostics.probe_imprint_to_cell [config] [--entity NAME]
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ from kicadstamp.diagnostics.probe_spoke_cell_identification import first_line  #
 from kicadstamp.exceptions import ValidationError                         # noqa: E402
 from kicadstamp.adapter_factory import create_board_adapter                    # noqa: E402
 from kicadstamp.registry import track_matches, via_matches                # noqa: E402
-from kicadstamp.scheme_list_apply import plan_all_scheme_lists            # noqa: E402
+from kicadstamp.imprint_apply import plan_all_imprints            # noqa: E402
 from kicadstamp.utils.paths import (                                      # noqa: E402
     registry_path_for_config,
     track_registry_path_for_config,
@@ -74,7 +74,7 @@ def load_registry(path: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("config", nargs="?", default=str(DEFAULT_PROFILE))
-    parser.add_argument("--entity", help="only this scheme_list Entity")
+    parser.add_argument("--entity", help="only this imprint Entity")
     args = parser.parse_args()
 
     cfg, ctx = load_config(args.config)
@@ -86,14 +86,14 @@ def main() -> int:
     print(f"profile: {args.config}")
     print(f"registries: vias {len(via_reg)} entries ({via_reg_path}), "
           f"tracks {len(track_reg)} entries ({track_reg_path})")
-    scheme_keys = [k for k in list(via_reg) + list(track_reg) if k.startswith("scheme_list:")]
-    print(f"registry keys starting with 'scheme_list:': {len(scheme_keys)} "
-          "(expected 0 — Scheme List copper is not registered)")
+    scheme_keys = [k for k in list(via_reg) + list(track_reg) if k.startswith("imprint:")]
+    print(f"registry keys starting with 'imprint:': {len(scheme_keys)} "
+          "(expected 0 — Imprint copper is not registered)")
 
-    entities = [e for e in cfg.entities if e.scheme_list
+    entities = [e for e in cfg.entities if e.imprint
                 and (args.entity is None or e.name == args.entity)]
     if not entities:
-        print("no scheme_list Entities in this profile")
+        print("no imprint Entities in this profile")
         return 0
 
     adapter = create_board_adapter(config_path=args.config)
@@ -102,23 +102,23 @@ def main() -> int:
         fp_by_ref = {fp.ref: fp for fp in adapter.get_footprints()}
         live_vias, live_tracks = adapter.get_vias(), adapter.get_tracks()
         for entity in entities:
-            print(f"\n=== entity {entity.name!r}  scheme_list {entity.scheme_list!r}  "
+            print(f"\n=== entity {entity.name!r}  imprint {entity.imprint!r}  "
                   f"sheet {entity.sheet!r}")
             # Whole-segment match only: "channel_0" is a substring of many
             # unrelated keys ("pif_dvdd_channel_0|...").
             mentions = [k for k in list(via_reg) + list(track_reg)
-                        if k.startswith(f"scheme_list:{entity.name}:")
+                        if k.startswith(f"imprint:{entity.name}:")
                         or entity.name in k.split("|")]
             print(f"  1. registry keys naming the entity as a whole segment: {len(mentions)}")
             try:
-                plans = plan_all_scheme_lists(adapter, cfg, sheet_names, only=[entity.name])
+                plans = plan_all_imprints(adapter, cfg, sheet_names, only=[entity.name])
             except ValidationError as exc:
                 print(f"  2. plan FAILS — {first_line(exc)}")
                 continue
             if not plans:
                 print("  2. no plan (the entity is not placed by any tree node) — "
                       "the copper checks need a placed entity; roles checked on the record refs")
-                record = next((s for s in cfg.scheme_lists if s.name == entity.scheme_list), None)
+                record = next((s for s in cfg.imprints if s.name == entity.imprint), None)
                 if record is not None:
                     refs = [c.ref for c in record.components]
                     roles = {r: (adapter.get_field_value(fp_by_ref[r], ROLE_FIELD_NAME)

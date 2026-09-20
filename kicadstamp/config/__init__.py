@@ -20,7 +20,7 @@ from .models import (
     CoordinatePlacement,
     NetTrace,
     Entity,
-    SchemeListConfig,
+    ImprintConfig,
     TreeInstance,
     Config,
     chain_effective_name,
@@ -30,7 +30,7 @@ from .models import (
     net_trace_effective_name,
     net_trace_pad_signature,
     entity_effective_name,
-    scheme_list_effective_name,
+    imprint_effective_name,
 )
 from .points import Point
 from ..runtime_context import RuntimeContext
@@ -49,7 +49,7 @@ from .loader import (
     _load_coordinate_placement,
     _load_net_trace,
     _load_entity,
-    _load_scheme_list,
+    _load_imprint,
     _load_tree,
     _load_tree_instance,
     _check_layer_value,
@@ -75,9 +75,9 @@ load_net_trace = _load_net_trace
 # load_entity (2026-08-30, Entity/Placement split) — same pattern, for the
 # future Entities dock / PlacerDock Source tab.
 load_entity = _load_entity
-# load_scheme_list (2026-09-06, scheme_list) — same pattern, for the future
-# Scheme List form's single-record validation/rebuild.
-load_scheme_list = _load_scheme_list
+# load_imprint (2026-09-06, imprint) — same pattern, for the future
+# Imprint form's single-record validation/rebuild.
+load_imprint = _load_imprint
 # load_tree (2026-08-27, trees-in-config) — same pattern, for the TreesDock's
 # Save round-trip validation of a single tree against the root config.
 load_tree = _load_tree
@@ -116,7 +116,7 @@ __all__ = [
     "CoordinatePlacement",
     "NetTrace",
     "Entity",
-    "SchemeListConfig",
+    "ImprintConfig",
     "TreeInstance",
     "Config",
     "RuntimeContext",
@@ -131,14 +131,14 @@ __all__ = [
     "load_coordinate_placement",
     "load_net_trace",
     "load_entity",
-    "load_scheme_list",
+    "load_imprint",
     "load_tree",
     "load_tree_instance",
     "load_point",
     "load_chain",
     "load_manual_spoke",
     "entity_effective_name",
-    "scheme_list_effective_name",
+    "imprint_effective_name",
     "chain_effective_name",
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",

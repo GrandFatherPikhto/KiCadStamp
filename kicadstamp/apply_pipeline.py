@@ -49,7 +49,7 @@ from .placement.services.coordinate_position_calculator import build_coordinate_
 from .cluster_matching import matches_any_cluster
 from .constants import DEFAULT_TIMEOUT_MS
 from .placement.executor import BatchExecutor
-from .scheme_list_apply import execute_scheme_list_plans, plan_all_scheme_lists
+from .imprint_apply import execute_imprint_plans, plan_all_imprints
 from .exceptions import PlacerError
 from .trees import _walk_nodes as _walk_tree_nodes
 from .validation import run_all_checks, check_config_structure
@@ -498,9 +498,9 @@ class ApplyPipeline:
         # the CLI layer prints and a future GUI panel could render. The
         # library itself never prints to stdout; it only produces this.
         self.dry_run_report: list[str] | None = None
-        # Scheme List placement plans (plan_2026_09_05_scheme_list.md §4) —
+        # Imprint placement plans (plan_2026_09_05_scheme_list.md §4) —
         # built in _resolve_order over the FULL cfg, executed by _execute and
-        # reported by _dry_run. [] when there are no scheme_list Entities.
+        # reported by _dry_run. [] when there are no imprint Entities.
         self._scheme_plans: list = []
 
     # ── Pipeline steps ──────────────────────────────────────────────────────
@@ -608,18 +608,18 @@ class ApplyPipeline:
                 self.cfg,
                 coordinate_placements=list(self.cfg.coordinate_placements)
                 + component_coords)
-        # Scheme List placements (plan_2026_09_05_scheme_list.md §4): the
-        # scheme_list-based Entities never materialize into clones (_walk skips
+        # Imprint placements (plan_2026_09_05_scheme_list.md §4): the
+        # imprint-based Entities never materialize into clones (_walk skips
         # them); their plans are built here over the FULL cfg (only narrowed)
         # and executed by _execute / shown by _dry_run.
         self._scheme_plans = []
         if (self.adapter is not None
-                and any(e.scheme_list is not None for e in self._full_cfg.entities)):
-            self._scheme_plans = plan_all_scheme_lists(
+                and any(e.imprint is not None for e in self._full_cfg.entities)):
+            self._scheme_plans = plan_all_imprints(
                 self.adapter, self._full_cfg, self.sheet_names,
                 only=_split_comma_values(self.only))
             if self._scheme_plans:
-                logger.info(_("Planned {count} scheme list placement(s) from trees "
+                logger.info(_("Planned {count} imprint placement(s) from trees "
                               "into the apply plan").format(count=len(self._scheme_plans)))
         logger.info(_("Resolving item execution order (dependency chain — see dependency_order.py)..."))
         self.items = resolve_execution_order(
@@ -706,7 +706,7 @@ class ApplyPipeline:
                        "board, not the post-move board of their prerequisite — a real apply may place "
                        "them differently; rerun without --dry-run for the true chained result)"))
         for p in getattr(self, "_scheme_plans", []):
-            lines.append("\n" + _("Scheme List {entity} ({mode}):")
+            lines.append("\n" + _("Imprint {entity} ({mode}):")
                          .format(entity=p.entity_name, mode=p.mode))
             for m in p.moves:
                 lines.append(_("  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°")
@@ -970,11 +970,11 @@ class ApplyPipeline:
             logger.warning(_("Failed to create tracks near: {refs}")
                            .format(refs=sorted(set(failed_tracks))))
 
-        # Scheme List placements (P4) — a self-contained command block (moves ->
+        # Imprint placements (P4) — a self-contained command block (moves ->
         # vias -> tracks, positional idempotency, no registry participation).
         if getattr(self, "_scheme_plans", None):
-            logger.info(_("Applying scheme list placements..."))
-            s_refs, s_vias, s_tracks = execute_scheme_list_plans(
+            logger.info(_("Applying imprint placements..."))
+            s_refs, s_vias, s_tracks = execute_imprint_plans(
                 self.adapter, self._scheme_plans,
                 config=self.cfg, batch_size=self.batch_size,
                 check_collisions=not self.no_collision_check,

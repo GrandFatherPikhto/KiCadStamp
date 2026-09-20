@@ -23,7 +23,7 @@ RU_MO = RU_PO.with_suffix(".mo")
 # detector that found the 2026-09-13 catalogue drift.
 CONFIG_SECTIONS = (
     "thermal_via_arrays", "clone_placements", "coordinate_placements",
-    "net_traces", "tree_instances", "scheme_lists", "extract_profiles",
+    "net_traces", "tree_instances", "imprints", "extract_profiles",
     "clone_profiles", "sheet_templates", "entities", "chains", "cells",
     "points", "rules", "trees",
 )

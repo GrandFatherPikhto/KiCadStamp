@@ -5,7 +5,7 @@ a `finished` signal — that is what destroyed it in a FOREIGN thread.
 
 Why this is a guard and not a style preference. Measured live on 2026-09-18
 (py-spy `--native`, dump kept: `diagnostics/freeze_2026_09_18_boundary_dialog_pyspy.txt`),
-the GUI froze for good on a Scheme List write:
+the GUI froze for good on an Imprint write:
 
   * the UI thread held the GIL and waited for a Qt signal/slot mutex
     (`QComboBox::insertItem` -> `QObjectPrivate::connectImpl` ->

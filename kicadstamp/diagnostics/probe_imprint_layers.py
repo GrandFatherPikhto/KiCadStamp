@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-probe_scheme_list_layers.py — read-only live probe for the Scheme List layer
+probe_imprint_layers.py — read-only live probe for the Imprint layer
 extension (plan_2026_09_05_scheme_list.md Step 0).
 
 Answers three questions for the open board:
@@ -13,7 +13,7 @@ Answers three questions for the open board:
   3. Is there any real routed copper on the inner layers (In1.Cu/In2.Cu)?
 
 Run (KiCad should be running with the test board open):
-    .venv/bin/python -m kicadstamp.diagnostics.probe_scheme_list_layers
+    .venv/bin/python -m kicadstamp.diagnostics.probe_imprint_layers
 
 The enum-introspection part (question 1) also runs without a live board.
 """

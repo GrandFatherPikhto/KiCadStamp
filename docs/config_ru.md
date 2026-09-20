@@ -489,12 +489,12 @@ top-level `clone_placement`, док пишет его ссылкой `clone_plac
 | `layer` / `mirror` | Опц. — та же перекрёстная проверка, что у `ClonePlacement` (mirror без смены слоя, или наоборот — фатал при загрузке). |
 | `comment` | Опц. свободная заметка, видна в GUI. |
 
-Entity на базе `scheme_list:` (design_2026_09_05_scheme_list.md) устроена иначе:
-вместо `cell:` она ссылается на записанный Scheme List и несёт `sheet` = ЦЕЛЕВОЙ
+Entity на базе `imprint:` (design_2026_09_05_scheme_list.md) устроена иначе:
+вместо `cell:` она ссылается на записанный Imprint и несёт `sheet` = ЦЕЛЕВОЙ
 лист. Пустой `sheet` (или равный `source_sheet` записи) = повтор «на месте»
 (двигаются свои же рефы); другой `sheet` резолвит ТВИНЫ записанных компонентов
 на этом листе и ремапит их локальные сети на него. Apply/Redraw такой Entity
-НИКОГДА не идёт через clone/cell-машинерию (`scheme_list_apply.py` — запись
+НИКОГДА не идёт через clone/cell-машинерию (`imprint_apply.py` — запись
 рефдес-литеральна, а не Role-шаблон). `mirror`/`layer` здесь бессмысленны и
 фатальны при загрузке (в v1 нет mirror-формулы).
 
@@ -981,23 +981,23 @@ find-and-replace в старом конфиге, перепроверь исхо
 
 ---
 
-## `scheme_lists:` — записанный снимок реального участка платы
+## `imprints:` — записанный снимок реального участка платы
 
 Ответ на «я уже развёл этот участок и хочу потом воспроизвести его (или его
-твин)»: Scheme List записывает реальный, уже разведённый участок как явный
+твин)»: Imprint записывает реальный, уже разведённый участок как явный
 список литеральных refdes + медь, которая достаёт до их падов (дорожки и
 переходные на ВСЕХ медных слоях стека — F.Cu/In1.Cu..In30.Cu/B.Cu). В отличие
 от Cell (абстрактный Role), идентичность здесь — литеральный `ref`, поэтому
 запись — это снимок, а не шаблон. Записи захватываются с живой платы (Tools →
-Scheme Lists → Record...) и физически живут во включаемом `scheme_lists.sexp`
+Imprints → Record...) и физически живут во включаемом `scheme_lists.sexp`
 (сама секция не зависит от формата — см. `include:`; профиль, у которого уже
 есть легаси-файл `scheme_lists.json`, продолжает пользоваться им).
 
 ```sexp
 ; например, scheme_lists.sexp — подключить через include: (s-expr синтаксис тот же)
-(scheme_lists
-  (scheme_list
-    (name "amp_avdd")               ; идентификатор — ключ для --only и Entity.scheme_list
+(imprints
+  (imprint
+    (name "amp_avdd")               ; идентификатор — ключ для --only и Entity.imprint
     ; (pivot (1.5 -2.25))           ; ОПЦИОНАЛЬНО — точка pivot записи в её центр-кадре
     ;                               ;   (design_2026_09_07_scheme_list_pivot.md): точка региона,
     ;                               ;   которая ложится в позицию узла дерева при Redraw и вокруг
@@ -1013,33 +1013,33 @@ Scheme Lists → Record...) и физически живут во включае
     ;                                           ;   снапшот. Отсутствует у записей «By selection»
     ;                                           ;   (их Reread-scope — выделение на плате).
     ; (scope_presets                  ; ТОЛЬКО у записей «By sheet» (design §9 п.12, 2026-09-06):
-    ;   (scheme_list_scope_preset
+    ;   (imprint_scope_preset
     ;     (name "full")
     ;     (sheet_paths ("Top" "Channel_0") ("Top" "Channel_1")))  ; ИМЕНОВАННЫЕ сохранённые
-    ;   (scheme_list_scope_preset      ;   альтернативы scope_sheet_paths — библиотека вариантов
+    ;   (imprint_scope_preset      ;   альтернативы scope_sheet_paths — библиотека вариантов
     ;     (name "ch0-only")            ;   чек-листа, между которыми комбобокс «Preset» на странице
     ;     (sheet_paths ("Top" "Channel_0"))))  ;   записи переключается ПЕРЕД Reread (Apply делает
                                               ;   выбранный новым scope_sheet_paths).
     (components
-      (scheme_list_component
+      (imprint_component
         (ref "R1")
         (offset_along_mm 0.0)
         (offset_across_mm 0.0)
         (rotation_deg 0.0))
-      (scheme_list_component
+      (imprint_component
         (ref "C1")
         (offset_along_mm 10.0)
         (offset_across_mm 0.0)
         (rotation_deg 90.0)))
     (vias
-      (scheme_list_via
+      (imprint_via
         (offset_along_mm 10.0)
         (offset_across_mm 0.0)
         (drill_mm 0.3)
         (diameter_mm 0.6)
         (net "/Channel_0/AMP/+5V")))
     (tracks
-      (scheme_list_track
+      (imprint_track
         (start_along_mm 0.0)
         (start_across_mm 0.0)
         (end_along_mm 10.0)
@@ -1048,13 +1048,13 @@ Scheme Lists → Record...) и физически живут во включае
         (layer "F.Cu")        ; любой медный слой: F.Cu/In1.Cu/.../In30.Cu/B.Cu
         (net "/Channel_0/AMP/+5V")))
     (boundary_nets            ; медь, касавшаяся только ИСКЛЮЧЁННЫХ футпринтов
-      (scheme_list_boundary_net
+      (imprint_boundary_net
         (net "/Channel_0/AMP/GND")
         (action "exclude")    ; v1: ТОЛЬКО exclude (отброс всей компоненты, warning)
         (external_ref "J1")))))  ; диагностика: какой внешний футпринт утащил эту медь
 ```
 
-Правила: один реальный `ref` может быть записан максимум в ОДИН Scheme List
+Правила: один реальный `ref` может быть записан максимум в ОДИН Imprint
 (фатал при загрузке — клонирование одной записи не должно утащить компонент,
 который ждёт другая). Якорь-компонента НЕТ и правила «anchor_ref среди своих
 components» тоже нет — записанные рефы это только «какие футпринты двигать»
@@ -1069,7 +1069,7 @@ components» тоже нет — записанные рефы это тольк
 (design_2026_09_07_scheme_list_pivot.md) — Apply/Redraw (P4) лишь добавляет
 поворот узла, поэтому НЕТ компенсации `anchor_rotation_deg`, и класс бага
 двойного поворота (d3326e4) исчез по построению. Клонирование записи на другой
-(твин-)лист идёт через Entity с `scheme_list:` (вместо `cell:`) — формат
+(твин-)лист идёт через Entity с `imprint:` (вместо `cell:`) — формат
 хранимой записи выше — это то, что пишут capture/Reread.
 
 `source_sheet` — ПОЛНЫЙ путь листа записи (5a — выводится из собственной
@@ -1094,19 +1094,19 @@ plan_2026_09_06_scheme_list_named_presets.md) — та же идея уровн�
 по ЕГО путям, а Apply сделает этот пресет НОВЫМ `scope_sheet_paths`, не трогая
 остальную библиотеку.
 
-GUI Config-сторона (2026-09-06, план §5 — см. секцию «Scheme Lists» в
+GUI Config-сторона (2026-09-06, план §5 — см. секцию «Imprints» в
 [docs/gui_ru.md](gui_ru.md)): записи захватываются с живой платы через
-двух-табовый диалог Record (Tools → Scheme Lists → Record... — «By sheet»
+двух-табовый диалог Record (Tools → Imprints → Record... — «By sheet»
 основной: корневой лист + чек-лист подлистов; «By selection» вторичный:
 текущее выделение на плате) в фиксированный `scheme_lists.sexp`
 (авто-`include:` при первом разе; профиль, где уже есть легаси-файл
 `scheme_lists.json`, пишет туда); Re-source... перезахватывает СУЩЕСТВУЮЩУЮ
 запись с другого источника под тем же именем; Reread (кнопка формы / пункт
-контекстного меню записи / Tools → Scheme Lists) показывает дифф с живой
+контекстного меню записи / Tools → Imprints) показывает дифф с живой
 платой (включая рефы, добавленные в scope / убранные из scope) и по явному
-Apply перезаписывает запись в её собственном файле. Категория `scheme_lists:`
+Apply перезаписывает запись в её собственном файле. Категория `imprints:`
 Config-дерева открывает просмотр записи ТОЛЬКО на чтение; отдельная страница
-«Place Scheme List...» (Tools → Scheme Lists → Place...) превращает запись в
+«Place Imprint...» (Tools → Imprints → Place...) превращает запись в
 Entity дерева. Сама Config-сторона никогда не двигает медь на плате — это
 делает Redraw узла дерева.
 

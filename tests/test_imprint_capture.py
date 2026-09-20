@@ -1,4 +1,4 @@
-"""Scheme List capture (plan_2026_09_05_scheme_list.md P2;
+"""Imprint capture (plan_2026_09_05_scheme_list.md P2;
 design_2026_09_07_scheme_list_pivot.md — CENTRE-frame + pivot, no anchor) —
 pure capture over a mock adapter.
 
@@ -21,11 +21,11 @@ import pytest
 from kicadstamp.domain.board import Footprint, Pad, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Box2, Vector2
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.scheme_list_capture import (
+from kicadstamp.imprint_capture import (
     _prefilter_copper,
     _segment_intersects_box,
-    build_scheme_list_diff,
-    capture_scheme_list,
+    build_imprint_diff,
+    capture_imprint,
 )
 from kicadstamp.utils.units import MM
 
@@ -129,7 +129,7 @@ def test_capture_keeps_each_element_absolute_rotation_and_centre_pivot():
     adapter, refs = _scenario()
     r1 = next(fp for fp in adapter._fps if fp.ref == "R1")
     r1.angle_deg = 45.0
-    cfg = capture_scheme_list("amp", refs, adapter=adapter)
+    cfg = capture_imprint("amp", refs, adapter=adapter)
     assert cfg.pivot == (0.0, 0.0)  # default = centre
     comps = {c.ref: c for c in cfg.components}
     # R1 keeps its absolute 45; offset from the centre (17,10) is (-7, 0)
@@ -143,7 +143,7 @@ def test_capture_keeps_each_element_absolute_rotation_and_centre_pivot():
 class TestCaptureHappyPath:
     def setup_method(self):
         self.adapter, self.refs = _scenario()
-        self.cfg = capture_scheme_list("amp", self.refs, adapter=self.adapter)
+        self.cfg = capture_imprint("amp", self.refs, adapter=self.adapter)
 
     def test_identity_and_centre_frame(self):
         assert self.cfg.name == "amp"
@@ -201,7 +201,7 @@ class TestCaptureHappyPath:
         """capture stores whatever pivot the caller passes (Reread passes the
         STORED pivot; the Record path passes None -> default (0,0))."""
         adapter, refs = _scenario()
-        cfg = capture_scheme_list("amp", refs, pivot=(2.0, 1.0), adapter=adapter)
+        cfg = capture_imprint("amp", refs, pivot=(2.0, 1.0), adapter=adapter)
         assert cfg.pivot == (2.0, 1.0)
 
 
@@ -217,7 +217,7 @@ class TestSourceSheetDerivation:
         for fp in adapter._fps:  # put every captured ref on the same sheet
             if fp.ref in refs:
                 fp.sheet_path_uuids = tuple(sheet_uuids) + (fp.uuid,)
-        return capture_scheme_list("amp", refs, adapter=adapter,
+        return capture_imprint("amp", refs, adapter=adapter,
                                    sheet_names=names, **kwargs)
 
     def test_derives_source_sheet_from_first_recorded_component(self):
@@ -253,19 +253,19 @@ def test_capture_carries_scope_presets_verbatim():
     whatever the caller hands in scope_presets lands VERBATIM on the record
     (capture never interprets/merges/validates it — the caller, DockHub, does,
     exactly like scope_sheet_paths in 5c)."""
-    from kicadstamp.config.models import SchemeListScopePreset
+    from kicadstamp.config.models import ImprintScopePreset
     adapter, refs = _scenario()
     presets = [
-        SchemeListScopePreset(name="full",
+        ImprintScopePreset(name="full",
                               sheet_paths=[["Top", "Channel_0"], ["Top"]]),
-        SchemeListScopePreset(name="ch0-only",
+        ImprintScopePreset(name="ch0-only",
                               sheet_paths=[["Top", "Channel_0"]]),
     ]
-    cfg = capture_scheme_list("amp", refs, adapter=adapter,
+    cfg = capture_imprint("amp", refs, adapter=adapter,
                               scope_presets=presets)
     assert cfg.scope_presets == presets
     # Absent/None -> the [] default (no preset library).
-    cfg2 = capture_scheme_list("amp", refs, adapter=adapter)
+    cfg2 = capture_imprint("amp", refs, adapter=adapter)
     assert cfg2.scope_presets == []
 
 
@@ -273,14 +273,14 @@ class TestCaptureFatals:
     def test_missing_refs_reported_in_one_fatal(self):
         adapter, refs = _scenario()
         with pytest.raises(ValidationError) as ei:
-            capture_scheme_list("amp", refs + ["ZZ9", "QQ7"], adapter=adapter)
+            capture_imprint("amp", refs + ["ZZ9", "QQ7"], adapter=adapter)
         msg = str(ei.value)
         assert "ZZ9" in msg and "QQ7" in msg
 
     def test_empty_refs_fatal(self):
         adapter, _ = _scenario()
         with pytest.raises(ValidationError):
-            capture_scheme_list("amp", [], adapter=adapter)
+            capture_imprint("amp", [], adapter=adapter)
 
     def test_no_anchor_validation_exists(self):
         """There is no anchor to validate — any recorded ref is just 'which
@@ -290,7 +290,7 @@ class TestCaptureFatals:
         # a FOREIGN component NOT among refs is fine to capture with (it is not
         # part of the recorded set) — nothing here would 'not be among own
         # components' because no component is special.
-        cfg = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        cfg = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
         assert [c.ref for c in cfg.components] == ["R1", "C1", "C2"]
 
 
@@ -301,7 +301,7 @@ class TestFarForeignCopperIsOutOfRegion:
         adapter._fps.append(far)
         adapter._pads["J2"] = [_pad("J2", 100, 100, "/Channel_1/AMP/CLK")]
         adapter._tracks.append(_track(100, 100, 100, 104, "/Channel_1/AMP/CLK", layer=B))
-        cfg = capture_scheme_list("amp", refs, adapter=adapter)
+        cfg = capture_imprint("amp", refs, adapter=adapter)
         # far copper neither recorded nor reported — it is outside the region
         assert all(t.net != "/Channel_1/AMP/CLK" for t in cfg.tracks)
         assert all(bn.net != "/Channel_1/AMP/CLK" for bn in cfg.boundary_nets)
@@ -362,8 +362,8 @@ def _line_board_plus(extra_refs, c2_x_mm=24.0):
 class TestRereadDiff:
     def test_no_changes_when_board_is_identical(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
-        diff = build_scheme_list_diff(stored, adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert diff.changed is False
         assert diff.components_moved == []
         assert diff.vias_added == [] and diff.vias_removed == []
@@ -373,10 +373,10 @@ class TestRereadDiff:
 
     def test_movement_within_tolerance_is_not_reported(self):
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        stored = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
         # C2 + 0.005 mm and its In1.Cu stub + 0.005 mm — inside the 0.01 mm tol
         adapter2 = _line_board(24.005)
-        diff = build_scheme_list_diff(stored, adapter2)
+        diff = build_imprint_diff(stored, adapter2)
         assert diff.changed is False
 
     def test_movement_beyond_tolerance_reports_component_and_redrawn_track(self):
@@ -385,9 +385,9 @@ class TestRereadDiff:
         still reports ONLY the truly moved component and its re-drawn track —
         not the whole frame drifting."""
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        stored = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
         adapter2 = _line_board(24.5)  # C2 moved +0.5 mm -> t2 re-drawn too
-        diff = build_scheme_list_diff(stored, adapter2)
+        diff = build_imprint_diff(stored, adapter2)
         moved = {c.ref for c in diff.components_moved}
         assert moved == {"C2"}
         change = next(c for c in diff.components_moved if c.ref == "C2")
@@ -401,21 +401,21 @@ class TestRereadDiff:
 
     def test_rotation_beyond_tolerance_reports_moved(self):
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        stored = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
         adapter2 = _line_board(24.0)
         # only C1's angle changes 90 -> 92 deg (> ANGLE_TOLERANCE_DEG)
         c1 = next(fp for fp in adapter2._fps if fp.ref == "C1")
         c1.angle_deg = 92.0
-        diff = build_scheme_list_diff(stored, adapter2)
+        diff = build_imprint_diff(stored, adapter2)
         assert {c.ref for c in diff.components_moved} == {"C1"}
         assert diff.changed is True
 
     def test_missing_ref_reported_not_fatal(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
         # C2 disappears from the board (copper stays behind)
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "C2"]
-        diff = build_scheme_list_diff(stored, adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert diff.refs_not_found == ["C2"]
         assert diff.changed is True
 
@@ -425,32 +425,32 @@ class TestRereadDiff:
         faithful, so the diff reports refs_not_found and skips the per-element
         geometry (the record is rewritten by Apply anyway)."""
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "R1"]
-        diff = build_scheme_list_diff(stored, adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert "R1" in diff.refs_not_found
         assert diff.components_moved == []   # geometry skipped
         assert diff.changed is True
 
     def test_all_recorded_refs_gone_guards_the_geometry_diff(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
         adapter._fps = [fp for fp in adapter._fps if fp.ref in ("J1",)]
-        diff = build_scheme_list_diff(stored, adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert diff.refs_not_found == ["R1", "C1", "C2"]
         assert diff.components_moved == []
         assert diff.changed is True
 
     def test_new_boundary_net_is_reported_for_decision(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
         assert [bn.net for bn in stored.boundary_nets] == [_GND]
         # a NEW foreign component drags a NEW boundary net near the region
         _CLK = "/Channel_0/AMP/CLK"
         adapter._fps.append(_fp("JX", 18, 11))
         adapter._pads["JX"] = [_pad("JX", 18, 11, _CLK)]
         adapter._tracks.append(_track(18, 11, 18, 13, _CLK, layer=F))
-        diff = build_scheme_list_diff(stored, adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert diff.boundary_nets_added == [_CLK]
         assert diff.boundary_nets_gone == []
         assert diff.changed is True
@@ -459,18 +459,18 @@ class TestRereadDiff:
 
     def test_boundary_net_gone_is_reported(self):
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
+        stored = capture_imprint("amp", refs, adapter=adapter)
         # J1's GND stub disappears -> GND no longer a boundary net
         adapter._tracks = [t for t in adapter._tracks if t.net_name != _GND]
         adapter._fps = [fp for fp in adapter._fps if fp.ref != "J1"]
-        diff = build_scheme_list_diff(stored, adapter)
+        diff = build_imprint_diff(stored, adapter)
         assert diff.boundary_nets_gone == [_GND]
         assert diff.boundary_nets_added == []
         assert diff.changed is True
 
 
-# ── Reread with a CHANGEABLE ref set (5c.2/5c.3, plan scheme_list 5c) ───────
-# build_scheme_list_diff(stored, adapter, scope_refs=...) adds refs that are in
+# ── Reread with a CHANGEABLE ref set (5c.2/5c.3, plan imprint 5c) ───────
+# build_imprint_diff(stored, adapter, scope_refs=...) adds refs that are in
 # the CURRENT scope but not recorded (components_added) and reports recorded
 # refs that are physically present but outside the scope (refs_removed_from_
 # scope) — distinct from refs_not_found ("must be, but absent").
@@ -481,8 +481,8 @@ class TestRereadDiffChangeableScope:
         legacy Reread: the new 5c categories stay empty, nothing is added or
         removed from the set."""
         adapter, refs = _scenario()
-        stored = capture_scheme_list("amp", refs, adapter=adapter)
-        diff = build_scheme_list_diff(stored, adapter)  # no scope_refs
+        stored = capture_imprint("amp", refs, adapter=adapter)
+        diff = build_imprint_diff(stored, adapter)  # no scope_refs
         assert diff.components_added == []
         assert diff.refs_removed_from_scope == []
         assert diff.changed is False
@@ -493,10 +493,10 @@ class TestRereadDiffChangeableScope:
         built over the widened set, whose centre-frame the record will be
         rewritten in)."""
         adapter0 = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter0)
+        stored = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter0)
         # C4 now physically exists on the board and is inside the scope.
         adapter1 = _line_board_plus(["C4"])
-        diff = build_scheme_list_diff(stored, adapter1,
+        diff = build_imprint_diff(stored, adapter1,
                                       scope_refs=["R1", "C1", "C2", "C4"])
         added = {c.ref: c for c in diff.components_added}
         assert set(added) == {"C4"}
@@ -512,9 +512,9 @@ class TestRereadDiffChangeableScope:
         """5c.3 — a ref that is physically PRESENT but no longer in the scope
         goes to refs_removed_from_scope ONLY (never also components_moved)."""
         adapter = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"], adapter=adapter)
+        stored = capture_imprint("amp", ["R1", "C1", "C2"], adapter=adapter)
         # C2 still on the board, but the current scope drops it.
-        diff = build_scheme_list_diff(stored, adapter,
+        diff = build_imprint_diff(stored, adapter,
                                       scope_refs=["R1", "C1"])
         assert diff.refs_removed_from_scope == ["C2"]
         assert {c.ref for c in diff.components_moved} == set()
@@ -527,13 +527,13 @@ class TestRereadDiffChangeableScope:
         C3 physically present but out of scope is refs_removed_from_scope. The
         two categories never double-count the same ref."""
         adapter0 = _line_board_plus(["C3"])  # C2 + C3 both physically present
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2", "C3"],
+        stored = capture_imprint("amp", ["R1", "C1", "C2", "C3"],
                                      adapter=adapter0)
         # C2 is removed from the BOARD entirely; the scope drops both C2 and C3
         # (only R1+C1 are re-selected / still on the recorded leaves).
         adapter1 = _line_board_plus(["C3"])
         adapter1._fps = [fp for fp in adapter1._fps if fp.ref != "C2"]
-        diff = build_scheme_list_diff(stored, adapter1,
+        diff = build_imprint_diff(stored, adapter1,
                                       scope_refs=["R1", "C1"])
         # C2: absent + out of scope -> ONLY refs_not_found (not double-counted)
         assert diff.refs_not_found == ["C2"]
@@ -546,10 +546,10 @@ class TestRereadDiffChangeableScope:
         (components_added), C2 leaves it while staying on the board
         (refs_removed_from_scope) — C2 is not also reported as moved."""
         adapter0 = _line_board(24.0)
-        stored = capture_scheme_list("amp", ["R1", "C1", "C2"],
+        stored = capture_imprint("amp", ["R1", "C1", "C2"],
                                      adapter=adapter0)
         adapter1 = _line_board_plus(["C4"])
-        diff = build_scheme_list_diff(stored, adapter1,
+        diff = build_imprint_diff(stored, adapter1,
                                       scope_refs=["R1", "C1", "C4"])
         assert {c.ref for c in diff.components_added} == {"C4"}
         assert diff.refs_removed_from_scope == ["C2"]
@@ -603,7 +603,7 @@ class TestTruncateCapture:
         """Without boundary_net_actions the whole GND stub is dropped and the
         record carries a plain exclude boundary_net (v1 behavior)."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, adapter=adapter)
+        cfg = capture_imprint("amp", refs, adapter=adapter)
         assert all(t.net != _GND for t in cfg.tracks)
         assert len(cfg.boundary_nets) == 1
         assert cfg.boundary_nets[0].net == _GND
@@ -615,7 +615,7 @@ class TestTruncateCapture:
         is KEPT; the out-of-region tail (to y=14) is clipped away. Offsets from
         the CENTRE (15,10): the kept part is (0,0)->(0,2)."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, adapter=adapter,
+        cfg = capture_imprint("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         gnd_tracks = [t for t in cfg.tracks if t.net == _GND]
         assert len(gnd_tracks) == 1
@@ -631,7 +631,7 @@ class TestTruncateCapture:
         """A dropped via INSIDE the boundary is kept; one OUTSIDE the boundary
         (but inside the pre-filter band) is dropped."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, adapter=adapter,
+        cfg = capture_imprint("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         gnd_vias = [v for v in cfg.vias if v.net == _GND]
         assert len(gnd_vias) == 1
@@ -641,7 +641,7 @@ class TestTruncateCapture:
 
     def test_truncate_boundary_net_persists_action(self):
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, adapter=adapter,
+        cfg = capture_imprint("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         assert len(cfg.boundary_nets) == 1
         bn = cfg.boundary_nets[0]
@@ -653,7 +653,7 @@ class TestTruncateCapture:
         """Truncate must not disturb the normal +5V copper: the recorded region
         still carries the V5 track between R1 and C1."""
         adapter, refs = _truncate_scenario()
-        cfg = capture_scheme_list("amp", refs, adapter=adapter,
+        cfg = capture_imprint("amp", refs, adapter=adapter,
                                   boundary_net_actions={_GND: "truncate"})
         v5_tracks = [t for t in cfg.tracks if t.net == _V5]
         assert len(v5_tracks) == 1
@@ -668,7 +668,7 @@ class TestTruncateCapture:
         adapter, refs = _truncate_scenario()
         no_bbox = _NoFootprintBBoxAdapter(adapter._fps, adapter._tracks,
                                           adapter._vias, adapter._pads)
-        cfg = capture_scheme_list("amp", refs, adapter=no_bbox,
+        cfg = capture_imprint("amp", refs, adapter=no_bbox,
                                   boundary_net_actions={_GND: "truncate"})
         assert all(t.net != _GND for t in cfg.tracks)
         assert len(cfg.boundary_nets) == 1

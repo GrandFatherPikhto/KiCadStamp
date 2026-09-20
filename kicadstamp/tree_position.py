@@ -145,7 +145,7 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
 
     THE single seam for the mount-base substitution in EVERY recursive tree walk
     (entity_placement._walk and its node-path walk, layout_tree_from_base,
-    scheme_list_apply) — and, since plan_2026_09_14 Э2, the rigid-redraw parent
+    imprint_apply) — and, since plan_2026_09_14 Э2, the rigid-redraw parent
     lookup too (tree_position.capture_rigid_state / _node_parent_map, through
     _mount_parent_base_pose): that was the FIFTH walk over the same trees and
     the one that had been left outside this seam, so a mount node standing as a
@@ -428,7 +428,7 @@ def tree_effective_base(tree: "Tree", marker_pos: Vector2,
     """The base a tree's CONTENT is laid out from so that the tree's INNER point
     lands exactly on its OUTER marker, with the tree's own angle added on top of
     the marker's (plan §V.2.2) — THE one seam every layout path must go through
-    (live curated redraw, materialization, scheme lists), so those paths cannot
+    (live curated redraw, materialization, imprints), so those paths cannot
     drift apart.
 
         effective_rotation = marker_rotation + tree.rotation

@@ -1,6 +1,6 @@
 # tests/test_clip_segment_to_box.py
 """Synthetic unit tests for the Liang-Barsky segment-vs-box clipping the
-Scheme List "truncate" boundary action is built on (Part A of
+Imprint "truncate" boundary action is built on (Part A of
 design_2026_09_06_boundary_truncate_and_zones.md).
 
 Pure geometry — no adapter, no GUI, no live board. The box coordinates are in
