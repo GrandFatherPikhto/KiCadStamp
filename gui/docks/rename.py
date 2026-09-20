@@ -168,6 +168,24 @@ def name_exists_in_graph(files: List[Path], section: str, name: str) -> bool:
     return False
 
 
+def name_exists_in_list_section(files: List[Path], section: str, name: str) -> bool:
+    """True if `name` is already used by an entry in a LIST section
+    (entities:/chains:/clone_placements:/...) anywhere in the graph — the
+    list-section counterpart of name_exists_in_graph() above (which only
+    covers DICT sections). Identity via entry_effective_name(), the same
+    formula the loader's own duplicate-name checks use, so a name that would
+    collide at the next load is caught here first.
+
+    Used by the "Create entity" action (Т3/С4 of
+    plan_2026_09_20_create_entity_menu.md): an Entity name must be unique
+    across the WHOLE include graph, not just the file it is written to."""
+    for path in files:
+        for item in (read_data(path).get(section) or []):
+            if isinstance(item, dict) and entry_effective_name(section, item) == name:
+                return True
+    return False
+
+
 def collect_all_point_names(root_path: Path) -> List[str]:
     """Every points: key reachable from root_path via include: — used by
     gui/docks/rules.py's Point-chain combo (a Rule's own anchor_point can

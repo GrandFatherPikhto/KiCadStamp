@@ -2047,6 +2047,10 @@ msgstr "Redraw spoke"
 msgid "Delete pad..."
 msgstr "Delete pad..."
 
+#: gui/docks/config_tree.py
+msgid "Create entity"
+msgstr ""
+
 #: gui/docks/config_tree.py:1065
 msgid "Edit cell..."
 msgstr "Edit cell..."

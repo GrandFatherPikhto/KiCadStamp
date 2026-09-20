@@ -2059,6 +2059,10 @@ msgstr "Перерисовать спицу"
 msgid "Delete pad..."
 msgstr "Удалить пад..."
 
+#: gui/docks/config_tree.py
+msgid "Create entity"
+msgstr "Создать сущность"
+
 #: gui/docks/config_tree.py:1065
 msgid "Edit cell..."
 msgstr "Изменить шаблон..."
