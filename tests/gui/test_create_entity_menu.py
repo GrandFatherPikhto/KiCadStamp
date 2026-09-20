@@ -772,3 +772,207 @@ def test_normalisation_c2_blank_sheet_on_an_imprint_comes_out_as_none(
         "пустое поле листа обязано выйти из result_data() как None, а не как "
         "пустая строка: сужение пары (imprint, sheet) работает на "
         f"`sheet is not None` (мутация М2); получили: {sheet!r}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Сквозной путь от формы — тот же план, §1 Т2 (сторож С3, мутация М3 = М1)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# С5б плана create_entity_menu проверяет ФУНКЦИЮ: он подаёт cluster=None прямо
+# в обработчик и видит, что вторая сущность не создаётся. Это правило, а не
+# путь к нему: нормализация живёт в форме, и в С5б её нет вовсе. Здесь идёт
+# ПОЛНЫЙ путь пользователя — настоящий CreateEntityDialog строит поля, его
+# собственный result_data() отдаёт значения, обработчик хаба принимает
+# решение. Ровно этот сторож обязана убивать мутация М1 (`or None` у кластера):
+# с "" сужение пойдёт по пустой строке, ни с чем не совпадёт, и на ту же
+# ячейку родится вторая — безымянная рядом с размеченной.
+
+def _accepted_real_form(*, name=None, cluster=None, sheet=None):
+    """Класс НАСТОЯЩЕЙ формы, которая «нажала OK». По умолчанию поля остаются
+    такими, как их построил диалог (имя — имя источника, кластер и лист
+    пусты); переданное сюда — то, что человек напечатал. accept() вызывается
+    по-настоящему, поэтому валидация имени внутри диалога тоже отрабатывает —
+    это не обход формы, а её принятие без показа окна."""
+    class _AcceptedRealForm(_RealCreateEntityDialog):
+        def exec(self):
+            if name is not None:
+                self._name_edit.setText(name)
+            if cluster is not None:
+                assert self._cluster_edit is not None, (
+                    "кластер передан форме отпечатка, у которой поля Cluster "
+                    "нет вовсе (Т2а)")
+                self._cluster_edit.setText(cluster)
+            if sheet is not None:
+                self._sheet_edit.setText(sheet)
+            self.accept()  # the user's OK: validation still runs
+            return self.result()
+
+    return _AcceptedRealForm
+
+
+def test_normalisation_c3_blank_cluster_through_the_real_form_finds_the_entity(
+        real_main_window, tmp_path, monkeypatch):
+    """С3 (сквозной, §1 Т2): сущность на (my_cell, CH0) уже есть, пользователь
+    открывает «Создать сущность» на ТОЙ ЖЕ ячейке и оставляет кластер пустым —
+    вторая сущность НЕ создаётся, а найденная НАЗЫВАЕТСЯ человеку.
+
+    Значения берутся от настоящей формы: фейка-диалога здесь нет, вместо него
+    подкласс настоящего CreateEntityDialog, который просто нажимает OK. Всё
+    остальное — как у пользователя: пункт меню -> сигнал дока -> обработчик
+    хаба (find_entity_for_source).
+
+    Мутация М3 (= М1, убрать `or None` у кластера) роняет этот сторож: кластер
+    придёт как "", сужение не найдёт e1 (у неё CH0), и на my_cell появится
+    вторая сущность — конфиг перестанет совпадать с собой до срабатывания.
+
+    Конфиг сравнивается ПО БАЙТАМ: отказ не имеет права оставить след."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": _cells("my_cell"),
+                  "entities": [{"name": "e1", "cell": "my_cell",
+                                "cluster": "CH0"}]})
+    _open_project(hub, root)
+    before = root.read_bytes()
+
+    action = _create_entity_action(
+        hub.config_tree_dock,
+        _find(_category(_file_item(hub.config_tree_dock.tree, root), "cells"),
+              "my_cell"),
+        monkeypatch)
+    messages = _capture_messages(monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        _accepted_real_form())
+
+    action.trigger()
+
+    assert _names(root) == ["e1"], (
+        "пустой кластер в форме — сужения нет, значит подходит ЛЮБАЯ сущность "
+        "на эту ячейку: вторая не создаётся (мутация М3 = М1); сейчас: "
+        + repr(_entities(root)))
+    assert root.read_bytes() == before, (
+        "отказ не имеет права править конфиг — ни одной строки")
+    assert any("e1" in m for m in messages), (
+        "найденная сущность обязана быть названа человеку; сообщения: "
+        + repr(messages))
+
+
+def test_normalisation_c3_blank_sheet_through_the_real_form_finds_the_entity(
+        real_main_window, tmp_path, monkeypatch):
+    """С3, половина про ОТПЕЧАТОК (сверх таблицы §2, но того же класса: тот же
+    «путь, а не правило», только вторым ключевым полем пары служит sheet — у
+    imprint-сущности кластера нет вовсе, Т2а плана create_entity_menu).
+
+    Сущность на (amp, Channel_0) уже есть, пользователь оставляет лист пустым —
+    вторая не создаётся, найденная названа. Падение этой половины не прячет
+    состояние половины про ячейку: это отдельная функция.
+
+    Мутация М2 (`or None` у листа) роняет её: sheet придёт как "", сужение
+    пары (imprint, sheet) не найдёт e1."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    _write(root, {"imprints": [_imprint("amp")],
+                  "entities": [{"name": "e1", "imprint": "amp",
+                                "sheet": "Channel_0"}]})
+    _open_project(hub, root)
+    before = root.read_bytes()
+
+    action = _create_entity_action(
+        hub.config_tree_dock,
+        _find(_category(_file_item(hub.config_tree_dock.tree, root),
+                        "imprints"), "amp"),
+        monkeypatch)
+    messages = _capture_messages(monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        _accepted_real_form())
+
+    action.trigger()
+
+    assert _names(root) == ["e1"], (
+        "пустой лист в форме — сужения нет, значит подходит любая сущность на "
+        "этот отпечаток: вторая не создаётся (мутация М2); сейчас: "
+        + repr(_entities(root)))
+    assert root.read_bytes() == before, (
+        "отказ не имеет права править конфиг — ни одной строки")
+    assert any("e1" in m for m in messages), (
+        "найденная сущность обязана быть названа человеку; сообщения: "
+        + repr(messages))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Обратная половина того же пути: ЗАПОЛНЕННОЕ поле обязано доехать до записи
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# ЗАЧЕМ. Сторожа С1–С3 держат только пустое поле: «"" → None». Обратное
+# направление — «напечатанное доехало до записи» — не держал НИ ОДИН сторож, и
+# это измерено, а не выведено: 20.09.2026, 18:18, в рабочем дереве на минуту
+# оказалась правка `cluster = None` (форма вообще не читает кластер — не пустой,
+# а любой), и полный прогон этого файла дал **18 passed, 0 failed**. Причина та
+# же, что в §0 плана: двенадцать прежних сторожей подают значения МИМО формы
+# (подменённый диалог), а новые держат только пустоту. То есть человек,
+# напечатавший кластер, мог молча получить сущность без кластера — и её нельзя
+# было бы клонировать по кластеру; ни одна проверка бы не пикнула.
+#
+# Две отдельные функции (ячейка/отпечаток) — по тому же правилу, что С5а/С5б:
+# падение одной половины не должно прятать состояние другой.
+
+def test_normalisation_extra_filled_cluster_through_the_real_form_reaches_the_record(
+        real_main_window, tmp_path, monkeypatch):
+    """Сверх таблицы §2, но того же класса. Сущностей на (my_cell, CH1) нет,
+    человек открывает «Создать сущность» на my_cell и ПЕЧАТАЕТ кластер CH1 —
+    в записи обязаны оказаться и cell:, и cluster: CH1.
+
+    Роняют сторож обе правки формы, которые оставляют его зелёным сегодня:
+      * `cluster = None` (поле не читается вовсе — тот самый замер 18:18);
+      * мутация М1 (`or None` убран): с "" запись создалась бы, но
+        `if source_field == "cell" and cluster:` выбросил бы кластер из неё.
+    Ни один из двенадцати прежних сторожей этих правок не видит."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": _cells("my_cell")})
+    _open_project(hub, root)
+
+    action = _create_entity_action(
+        hub.config_tree_dock,
+        _find(_category(_file_item(hub.config_tree_dock.tree, root), "cells"),
+              "my_cell"),
+        monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        _accepted_real_form(cluster="CH1"))
+
+    action.trigger()
+
+    assert _entities(root) == [{"name": "my_cell", "cell": "my_cell",
+                                "cluster": "CH1"}], (
+        "то, что человек напечатал в поле Cluster, обязано доехать до записи "
+        "как есть — иначе сущность нельзя клонировать по кластеру, и никто об "
+        "этом не скажет; сейчас: " + repr(_entities(root)))
+
+
+def test_normalisation_extra_filled_sheet_through_the_real_form_reaches_the_record(
+        real_main_window, tmp_path, monkeypatch):
+    """Вторая половина: отпечаток, поле Sheet ЗАПОЛНЕНО (Channel_1 — целевой
+    лист twin-резолва, config/models.py:704). В записи обязаны быть imprint: и
+    sheet: Channel_1.
+
+    Роняет сторож правка `sheet = None` — тот же класс, что `cluster = None`
+    выше, только для второго ключевого поля пары."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    _write(root, {"imprints": [_imprint("amp")]})
+    _open_project(hub, root)
+
+    action = _create_entity_action(
+        hub.config_tree_dock,
+        _find(_category(_file_item(hub.config_tree_dock.tree, root),
+                        "imprints"), "amp"),
+        monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        _accepted_real_form(sheet="Channel_1"))
+
+    action.trigger()
+
+    assert _entities(root) == [{"name": "amp", "imprint": "amp",
+                                "sheet": "Channel_1"}], (
+        "напечатанный лист обязан доехать до записи — это целевой лист "
+        "twin-резолва, без него сущность клонируется не на тот лист; сейчас: "
+        + repr(_entities(root)))
