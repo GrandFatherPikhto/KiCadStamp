@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Tuple
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.field_overrides import sheet_path_uuids_of, symbol_uuid_of
 from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
@@ -71,38 +72,29 @@ class PendingEdit:
 
 
 def _board_symbol_uuid(s) -> str | None:
-    """The board footprint's symbol uuid = fp.sheet_path.path[-1] — the same
-    uuid the schematic's (symbol ...) block carries as its top-level
-    (uuid ...). None when unavailable (fp absent in tests, empty path, IPC
-    error) — the caller then skips the identity check instead of guessing."""
-    try:
-        fp = s.fp
-        if fp is None:
-            return None
-        path = fp.sheet_path.path
-        if not path:
-            return None
-        last = path[-1]
-        return str(last.value) if hasattr(last, "value") else str(last)
-    except Exception:
-        return None
+    """The board footprint's symbol uuid — delegated to the ONE rule
+    (kicadstamp.field_overrides.symbol_uuid_of).
+
+    This used to be a second hand-rolled reader of `fp.sheet_path.path`, broken
+    exactly like the store's own copy (plan_2026_09_20_symbol_uuid_wrong_
+    attribute.md, Т2): a kipy attribute on a domain object, swallowed by
+    `except Exception`, answering None forever — which is why `mismatched` below
+    never fired since 2026-08-08. The shape of a board footprint is not this
+    module's business."""
+    return symbol_uuid_of(getattr(s, "fp", None))
 
 
 def _board_full_path(s) -> tuple | None:
-    """The footprint's full sheet_path.path as a tuple of uuid strings — the
-    same shape load_schematic_instances() keys its index with. None when
-    unavailable (fp absent in tests, empty path, IPC error) — the path_index
-    then simply can't match this footprint."""
-    try:
-        fp = s.fp
-        if fp is None:
-            return None
-        path = fp.sheet_path.path
-        if not path:
-            return None
-        return tuple(str(u.value) if hasattr(u, "value") else str(u) for u in path)
-    except Exception:
-        return None
+    """The footprint's FULL sheet-path uuid chain as a tuple — the shape
+    load_schematic_instances() keys its index with. None when there is nothing to
+    join with (no footprint, an empty chain) — the path_index then simply can't
+    match this footprint.
+
+    Through the shared chain reader for the same reason as _board_symbol_uuid
+    above: it used to read the kipy attribute by hand and was broken the same
+    way, so the per-instance join (the 2026-08-08 recon) never matched."""
+    chain = sheet_path_uuids_of(getattr(s, "fp", None))
+    return tuple(chain) if chain else None
 
 
 def _store_value(store, symbol_uuid, field) -> Optional[str]:

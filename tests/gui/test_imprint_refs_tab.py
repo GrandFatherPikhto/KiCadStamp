@@ -33,6 +33,8 @@ from gui.docks.imprint_refs_tab import ImprintRefsTab
 from kicadstamp.config import load_imprint
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.constants import ROLE_FIELD_NAME
+from kicadstamp.domain.board import Footprint
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import load_field_overrides
 from kicadstamp.utils.paths import overrides_path_for_config
@@ -367,7 +369,13 @@ class TestResolverSeesOurValue:
     def test_the_recorded_role_wins_over_the_board(self, qapp, tmp_path):
         """С13 — the same path the cell editor's table uses (Т1/Т2): the store
         the RESOLVER would bind for this profile is layered over the board, and
-        OUR value is what comes out while the board says otherwise."""
+        OUR value is what comes out while the board says otherwise.
+
+        The footprint is built as `domain.board.Footprint` — the shape the
+        ADAPTER hands over — and NOT as `SimpleNamespace(sheet_path=...)` (the
+        kipy shape) as this guard did until 2026-09-20: that mock made the guard
+        green on a base where the read side could not work at all
+        (plan_2026_09_20_symbol_uuid_wrong_attribute.md, С8)."""
         tab, root, _store, _spy = _tab(qapp, tmp_path)
         _set_role(tab, "BZ1", "OURS")
         tab.write_to_store()
@@ -376,7 +384,10 @@ class TestResolverSeesOurValue:
         store, source = store_for_config(str(root))
         assert store is not None, "the profile does not serve the store at all"
 
-        footprint = SimpleNamespace(sheet_path=SimpleNamespace(path=["uuid-BZ1"]))
+        footprint = Footprint(
+            ref="BZ1", uuid="fp-BZ1", position=Vector2.from_xy_mm(0.0, 0.0),
+            angle_deg=0.0, layer=BoardLayer.BL_F_Cu,
+            sheet_path_uuids=("uuid-sheet", UUID["BZ1"]))
         board = SimpleNamespace(get_field_value=lambda fp, field: "FROM_BOARD")
         layered = FieldOverrideAdapter(board, store, source=source)
         assert layered.get_field_value(footprint, ROLE_FIELD_NAME) == "OURS"

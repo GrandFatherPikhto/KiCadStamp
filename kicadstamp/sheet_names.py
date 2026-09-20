@@ -23,6 +23,7 @@ from pathlib import Path
 import sexpdata
 
 from .exceptions import ValidationError, format_fatal_error
+from .field_overrides import sheet_path_uuids_of
 from .i18n import _
 from .utils.file_cache import cached_file_read
 
@@ -170,14 +171,20 @@ class LazySheetNameMap(Mapping):
 
 def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None]:
     """
-    fp.sheet_path.path[:-1] (without the last — the component's own uuid),
-    translated via the dictionary into human‑readable names. None at a position
-    if that particular uuid is not found in the dictionary (e.g. schematic_dir
-    points elsewhere, or the sheet was renamed/deleted after the dictionary was
-    built) — calling code must honestly say "no match", not silently treat None
-    as a matching segment.
-    """
-    path_uuids = list(fp.sheet_path_uuids)
+    The footprint's sheet-path uuid chain WITHOUT its last hop (the component's
+    own uuid), translated via the dictionary into human‑readable names. None at a
+    position if that particular uuid is not found in the dictionary (e.g.
+    schematic_dir points elsewhere, or the sheet was renamed/deleted after the
+    dictionary was built) — calling code must honestly say "no match", not
+    silently treat None as a matching segment.
+
+    The chain is read through the ONE shared reader
+    (kicadstamp.field_overrides.sheet_path_uuids_of), so this function accepts
+    both footprint shapes (the domain one the adapter hands over, and kipy's raw
+    one) instead of naming an attribute itself — 2026-09-20, plan_2026_09_20_
+    symbol_uuid_wrong_attribute.md: a hand-rolled read of a shape is exactly how
+    the store lost its key for a week."""
+    path_uuids = list(sheet_path_uuids_of(fp))
     chain = path_uuids[:-1]
     return [sheet_names.get(u) for u in chain]
 

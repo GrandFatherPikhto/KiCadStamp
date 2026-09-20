@@ -20,11 +20,31 @@ Shape on disk: machine-only json next to the copper registries
 NEVER pulled in through `include:` — for the same reason the registry is not:
 moved to another machine or onto another board it would start lying.
 
-Key: the SYMBOL uuid (`fp.sheet_path.path[-1]`, the same uuid the schematic's
-`(symbol ...)` block carries — the bridge `gui/docks/pending.py:54` uses it), not
-the refdes. Re-annotation (F8) renames components, and a refdes-keyed value would
-silently arrive at a FOREIGN component after it. `ref` is stored next to the key
-for the Log and for `overrides-list` only — it is NOT the key.
+Key: the SYMBOL uuid — the LAST hop of the footprint's sheet-path uuid chain
+(`sheet_path_uuids_of(footprint)[-1]`; the chain lives in
+`domain.board.Footprint.sheet_path_uuids`, which is what the adapter hands over,
+with kipy's raw `sheet_path.path` accepted as the second shape). It is the same
+uuid the schematic's `(symbol ...)` block carries — the bridge
+`gui/docks/pending.py:54` uses it — and NOT the refdes. Re-annotation (F8) renames
+components, and a refdes-keyed value would silently arrive at a FOREIGN component
+after it. `ref` is stored next to the key for the Log and for `overrides-list`
+only — it is NOT the key.
+
+  2026-09-20, plan_2026_09_20_symbol_uuid_wrong_attribute.md: this paragraph used
+  to name `fp.sheet_path.path[-1]` — a kipy attribute. The read therefore raised
+  AttributeError on every domain footprint the adapter actually hands over, an
+  `except Exception` swallowed it, and the store could not record ANYTHING for a
+  week while 5455 tests stayed green (they all built the kipy shape in their mock).
+  The rule — both shapes, domain first — now lives in `symbol_uuid_of` /
+  `sheet_path_uuids_of` below, and guard С5 forbids a second hand-rolled reader.
+
+One F8 detail is worth knowing before trusting the key: the dialog's "Options"
+section has a checkbox, **Re-link footprints to schematic symbols based on their
+reference designators**. It is UNCHECKED by default, and an ordinary F8 does not
+touch the store. Ticked DELIBERATELY, it re-links footprints by refdes, which
+breaks the symbol-uuid link: the store's records are orphaned and the roles have to
+be typed again. That is a conscious action in the dialog, not a background threat —
+so no scaremongering about F8, just the one caveat next to the key it applies to.
 
 SPARSE by design (В4а of the design): only what a human typed goes in. Filling
 the store from the board is catastrophically wrong — with our value winning
@@ -71,27 +91,126 @@ SOURCE_ROLE_CLUSTER_TREE = "role_cluster_tree"
 OVERRIDABLE_FIELD_NAMES = (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)
 
 
+#: Types already reported as "not a footprint shape we understand" — so the Log
+#: carries ONE line per SHAPE, never one per row per poll tick (see
+#: _warn_foreign_shape).
+_SHAPE_WARNED: set[str] = set()
+
+
+def _uuid_strings(values) -> tuple[str, ...] | None:
+    """UUID-ish values (kipy objects with ``.value``, or plain strings) -> a tuple
+    of plain strings.
+
+    ``None`` — "this is not a sequence of uuids at all" — for an ABSENT field and
+    for a value that cannot be walked (a bare ``Mock`` raises ``TypeError`` on
+    ``iter``). The caller reads that as "this shape carries no chain here", never
+    as an exception: the reader runs on a poll tick and inside the store's write
+    path, so it must not throw on a mock, a proxy or a re-parented object."""
+    if values is None:
+        return None
+    try:
+        items = list(values)
+    except TypeError:
+        return None
+    out = []
+    for value in items:
+        out.append(str(value.value) if hasattr(value, "value") else str(value))
+    return tuple(out)
+
+
+def _footprint_uuid_chain(footprint) -> tuple[str, ...] | None:
+    """The footprint's sheet-path uuid chain — ``()`` for "nothing to read",
+    ``None`` for "an object of a shape this code does not understand".
+
+    TWO SHAPES, DOMAIN FIRST (2026-09-20, plan_2026_09_20_symbol_uuid_wrong_
+    attribute.md):
+      * ``sheet_path_uuids`` — ``kicadstamp.domain.board.Footprint``, what EVERY
+        adapter read hands over (``get_footprints``/``get_selected_items``)…;
+      * ``sheet_path.path`` — the RAW kipy shape (uuid objects with ``.value``),
+        still legal input: it is the mapper's own source (``fp._kipy``) and what
+        the diagnostics read when they talk to kipy directly.
+
+    Reading only the kipy one is exactly the defect this exists to prevent: the
+    attribute was missing, ``except Exception`` swallowed the ``AttributeError``
+    and the function answered ``None`` for every footprint on every board.
+
+    The kipy shape is consulted not only when the domain field is ABSENT but also
+    when it is present and EMPTY: the domain dataclass defaults
+    ``sheet_path_uuids`` to ``()``, so a DTO that carries its chain only in the
+    raw field (exactly what the Д2 guards' ``_fp`` fixtures build — a real domain
+    object with the id stashed in the kipy one) would otherwise answer "no symbol
+    uuid" for a footprint that does have one. Only an object where NEITHER field
+    yields a sequence is a foreign shape, and only that gets the warning."""
+    if footprint is None:
+        return ()          # no footprint is a LEGAL answer, not a defect
+    domain = _uuid_strings(getattr(footprint, "sheet_path_uuids", None))
+    if domain:
+        return domain
+    sheet_path = getattr(footprint, "sheet_path", None)
+    raw = getattr(sheet_path, "path", None) if sheet_path is not None else None
+    legacy = _uuid_strings(raw)
+    if legacy:
+        return legacy
+    if domain is None and legacy is None:
+        return None        # neither field: a shape we do not understand
+    return ()              # the field is there, it simply says nothing
+
+
+def _warn_foreign_shape(footprint) -> None:
+    """Say ONCE PER TYPE that the object is not a footprint shape we know.
+
+    A hidden defect is how this function stayed broken for a week with 5455 green
+    tests; a defect that drowns the Log (one line per row per poll tick, for a
+    whole board) is how the NEXT one gets missed. So: a named WARNING, once."""
+    type_name = type(footprint).__name__
+    if type_name in _SHAPE_WARNED:
+        return
+    _SHAPE_WARNED.add(type_name)
+    logger.warning(
+        "symbol uuid: %s is not a footprint shape this code understands — it "
+        "carries neither 'sheet_path_uuids' (the domain Footprint the adapter "
+        "hands over) nor 'sheet_path.path' (kipy's raw form), so no symbol uuid "
+        "can be read for it: the override store and Pending's identity check "
+        "will skip it", type_name)
+
+
+def sheet_path_uuids_of(footprint) -> tuple[str, ...]:
+    """The footprint's FULL sheet-path uuid chain as plain strings — the
+    hierarchical-sheet identity (the same chain ``gui/schema_model.py`` keys the
+    schematic instances by, and the one whose LAST element is the symbol uuid).
+
+    Accepts both shapes (see _footprint_uuid_chain); an empty tuple when there is
+    nothing to read, and a once-per-type WARNING when the object is foreign.
+    This is the ONE reader of the chain in the shipping tree: ``pending``'s
+    ``_board_full_path`` and ``sheet_names.resolve_sheet_path_names`` both call
+    it instead of reaching for the attribute themselves (2026-09-20)."""
+    chain = _footprint_uuid_chain(footprint)
+    if chain is None:
+        _warn_foreign_shape(footprint)
+        return ()
+    return chain
+
+
 def symbol_uuid_of(footprint) -> str | None:
-    """The SYMBOL uuid of a board footprint = ``fp.sheet_path.path[-1]``.
+    """The SYMBOL uuid of a board footprint — the LAST element of its sheet-path
+    uuid chain (``domain.board.Footprint.sheet_path_uuids[-1]``; see
+    sheet_path_uuids_of for the kipy form and the shapes).
 
     It is the same uuid the schematic's ``(symbol ...)`` block carries as its
     top-level ``(uuid ...)``: the board/schematic BRIDGE, and therefore the only
-    identity a store applied INTO THE SCHEMATIC may be keyed by. The rule was
-    already spelled out in ``gui/docks/pending.py``'s ``_board_symbol_uuid`` —
-    this is the same logic, moved here so the store, the overlay and Pending
-    cannot drift.
+    identity a store applied INTO THE SCHEMATIC may be keyed by. The rule lives
+    HERE and nowhere else, so the store, the overlay and Pending cannot drift.
 
-    None when it is unavailable (no footprint, an empty path, an IPC hiccup):
+    None when it is unavailable (no footprint, an empty chain, an IPC hiccup):
     the caller must then SKIP the override rather than guess a key — a value
-    attached to the wrong symbol is corruption nobody would trace back here."""
-    try:
-        path = footprint.sheet_path.path
-        if not path:
-            return None
-        last = path[-1]
-        return str(last.value) if hasattr(last, "value") else str(last)
-    except Exception:  # noqa: BLE001 — an unavailable id is a legal answer
+    attached to the wrong symbol is corruption nobody would trace back here. An
+    object of a FOREIGN shape is not "unavailable": it is a defect, and it is
+    named once per type in the Log (see _warn_foreign_shape)."""
+    chain = _footprint_uuid_chain(footprint)
+    if chain is None:
+        _warn_foreign_shape(footprint)
         return None
+    return chain[-1] if chain else None
 
 
 @dataclass(frozen=True)
