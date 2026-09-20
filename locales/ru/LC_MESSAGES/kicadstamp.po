@@ -17300,6 +17300,10 @@ msgid "{count} value(s) recorded for this project — they win over the board an
 msgstr "записано значений для этого проекта: {count} — они главнее платы и переживают F8"
 
 #: gui/docks/imprint_refs_tab.py
+msgid "no Cluster was recorded — the cluster field is empty"
+msgstr "кластер не записан — поле кластера пустое"
+
+#: gui/docks/imprint_refs_tab.py
 msgid "cannot convert to a cell: {reasons}"
 msgstr "не удаётся преобразовать в ячейку: {reasons}"
 

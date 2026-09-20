@@ -52,6 +52,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton,
 
 from kicadstamp.config import load_cell
 from kicadstamp.config_writer import merge_write
+from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.field_overrides import SOURCE_IMPRINT_TABLE
 from kicadstamp.i18n import _
@@ -305,7 +306,16 @@ class ImprintRefsTab(QWidget):
         is the source of the list, not of the user's typing) AND its POSITION —
         only genuinely new components are appended, in the record's own order. A
         ref that left the record loses its row (there is nothing left for the
-        value to belong to) and is reported by name, never dropped silently."""
+        value to belong to) and is reported by name, never dropped silently.
+
+        The CLUSTER is deliberately not carried here, and that is the fix for Д13
+        rather than an omission: this rebuild used to copy `role` and not
+        `cluster`, so a typed cluster stayed in the FIELD while the rows lost it —
+        the table looked complete, the write button went grey and the value could
+        not be recorded any more (Денис, 20.09). The field is the imprint's only
+        cluster (С23) and the batch reads it THERE (`_rows_with_cluster`), so the
+        rows have no cluster of their own to lose: carrying it here would only
+        reintroduce the second source of truth Д11 removed."""
         previous = {r.ref: r for r in self._rows}
         order = [r.ref for r in self._rows]
         fresh = {r.ref: r for r in self._restore_rows()}
@@ -369,6 +379,30 @@ class ImprintRefsTab(QWidget):
                     on_board=True,
                     symbol_uuid=record.symbol_uuid or row.symbol_uuid))
         return apply_overrides(out, self._overrides)
+
+    def _rows_with_cluster(self) -> list:
+        """The rows the STORE batch is built from, with the cluster FIELD applied
+        at the point of use — the single source of truth of Д11.
+
+        The field above the table is the imprint's only cluster (С23), so both
+        buttons must read it THERE: the conversion always did (`cluster_text()`),
+        while the batch read the cluster out of the rows — which is why any path
+        that filled the field programmatically (a project switch, a re-read, a
+        test) left the two disagreeing.
+
+        Reading it here is also what makes Д13 impossible BY CONSTRUCTION rather
+        than by care: a rebuild of the rows has no cluster of its own to lose, so
+        the "field has it, the rows do not" state that greyed the button out
+        cannot exist (Денис, 20.09).
+
+        A row whose footprint has no Cluster field takes the value like any other:
+        the STORE needs no field on the board — the symbol uuid is the only gate
+        (see `build_override_updates`), and the board-write path keeps its own
+        stricter rule (`apply_cluster_to_all`, the group fill)."""
+        cluster = self.cluster_text()
+        if not cluster:
+            return self._rows
+        return [replace(row, cluster=cluster) for row in self._rows]
 
     def _initial_cluster(self) -> str:
         """What the cluster field opens with: the value IN FORCE of the first
@@ -441,8 +475,11 @@ class ImprintRefsTab(QWidget):
         self._status.setStyleSheet("")
         # The store button needs a PROJECT (recording is a file write next to the
         # profile — no KiCad, no adapter: guard С12) and something that differs.
-        self._write_button.setEnabled(can_write(self._rows)
-                                      and self._overrides is not None)
+        # "Differs" is asked of the batch the button would actually record, so the
+        # button and the write can never read the cluster from different places
+        # (Д11) — a programmatic fill of the field counts at once.
+        self._write_button.setEnabled(
+            can_write(self._rows_with_cluster()) and self._overrides is not None)
         self._convert_button.setEnabled(self._record is not None)
 
     def _show(self, text: str, style: str = "") -> None:
@@ -468,12 +505,24 @@ class ImprintRefsTab(QWidget):
         self._refresh_status()
 
     def _on_cluster_changed(self, _text: str) -> None:
-        """The single cluster field IS the imprint's cluster: every row carries
-        it (Р20). Empty means "no cluster" — and the conversion refuses then."""
+        """The single cluster field IS the imprint's cluster: every row carries it
+        (Р20), so the table itself shows what a record would put in the store.
+        Empty means "no cluster" — and the conversion refuses then.
+
+        The fill is NOT gated on the board's own Cluster field: that rule belongs
+        to a write ONTO the board, while this table records into the STORE, which
+        needs no field on the footprint (only the symbol uuid). With the gate, a
+        typed cluster reached no row, `can_write` found no difference and the
+        button stayed grey with no message on a table that looked complete —
+        Денис's live case, 20.09.
+
+        The rows are a VIEW of the field, never its home (Д11): the write path
+        reads the field as well (`_rows_with_cluster`), so the two cannot
+        disagree whichever way the field was filled."""
         if self._loading:
             return
-        self._rows, _unfilled = apply_cluster_to_all(self._rows,
-                                                     self.cluster_text())
+        self._rows, _unfilled = apply_cluster_to_all(
+            self._rows, self.cluster_text(), require_field=False)
         self._refresh_status()
 
     # ── Recording into the store (no board, no KiCad) ─────────────────────
@@ -504,7 +553,7 @@ class ImprintRefsTab(QWidget):
             self._show(_("Open a project first — the override store lives next "
                          "to its profile config."), _WARN_STYLE)
             return
-        plan = build_override_updates(self._rows)
+        plan = build_override_updates(self._rows_with_cluster())
         if not plan.updates:
             message = _("nothing to record — every Role already matches what is "
                         "in force")
@@ -529,6 +578,13 @@ class ImprintRefsTab(QWidget):
         if plan.skipped:
             message += "; " + _("skipped: {refs}").format(
                 refs=skipped_text(plan.skipped))
+        # A partial write must SAY so (Д11): recording Roles while the cluster
+        # field stood empty is a legitimate half-done job, and the old line
+        # reported it as a complete success — Денис's live case, 20.09.
+        if not self.cluster_text() and not any(
+                field == CLUSTER_FIELD_NAME for _uuid, field, _value in plan.updates):
+            message += " " + _("no Cluster was recorded — the cluster field is "
+                               "empty")
         self._refresh_status()
         self._show(message, _SUCCESS_STYLE)
         if self.on_overrides_written:

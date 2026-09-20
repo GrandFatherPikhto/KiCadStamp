@@ -37,6 +37,7 @@ from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import load_field_overrides
+from kicadstamp.imprint_cell import cell_name_for_cluster
 from kicadstamp.utils.paths import overrides_path_for_config
 
 UUID = {"BZ1": "uuid-BZ1", "Q1": "uuid-Q1", "R6": "uuid-R6", "D6": "uuid-D6"}
@@ -231,6 +232,80 @@ class TestClusterIsOne:
         from_disk = load_field_overrides(overrides_path_for_config(str(root)))
         assert from_disk.get("uuid-BZ1", "Cluster") == "FPGA_PWR_BANK"
 
+    def test_a_programmatic_fill_reaches_both_buttons(self, qapp, tmp_path):
+        """Д11: the field is the ONE source of truth for both buttons — and a
+        PROGRAMMATIC fill is exactly the path that used to split them.
+
+        Typing is not the interesting case (the textChanged signal feeds the rows
+        as a side effect); `setText` under `_loading` — a project switch, a
+        re-read, this test — is: "Convert to cell" read the field while "Write to
+        the store" read the rows, and the second one saw nothing. Mutation for
+        this guard: give the batch its own source again (read the rows)."""
+        tab, root, _store, _spy = _tab(qapp, tmp_path)
+        _set_role(tab, "BZ1", "BUZZER")
+
+        tab._set_cluster_text("FPGA_PWR_BANK")     # NOT typing — no signal
+
+        assert tab.cluster_text() == "FPGA_PWR_BANK"
+        assert tab.suggested_cell_name() == cell_name_for_cluster("FPGA_PWR_BANK")
+        assert tab.write_button_enabled() is True
+        tab.write_to_store()
+        from_disk = load_field_overrides(overrides_path_for_config(str(root)))
+        assert from_disk.get("uuid-BZ1", "Cluster") == "FPGA_PWR_BANK"
+
+    def test_roles_without_a_cluster_say_so(self, qapp, tmp_path):
+        """Д11, the other half of the live case: recording Roles while the cluster
+        field stands empty is a legitimate half-done job — and the status line
+        used to report a complete success, so the user could not tell that the
+        cluster had not gone in (Денис, 20.09: «кластер нет»)."""
+        tab, root, _store, _spy = _tab(qapp, tmp_path)
+        _set_role(tab, "BZ1", "BUZZER")
+
+        tab.write_to_store()
+
+        from_disk = load_field_overrides(overrides_path_for_config(str(root)))
+        assert from_disk.get("uuid-BZ1", ROLE_FIELD_NAME) == "BUZZER"
+        assert from_disk.get("uuid-BZ1", "Cluster") is None
+        assert "Cluster" in tab.status_text()
+
+    def test_a_footprint_without_a_cluster_field_can_still_be_recorded(
+            self, qapp, tmp_path):
+        """Denis's live case, 2026-09-20: «я меняю поле Cluster, но кнопка
+        остаётся серой, не могу записать это значение».
+
+        The imprint's footprints carry no Cluster field ON THE BOARD (his
+        BZ1/D6/Q1/R6 have no Role field either). Typing the cluster pushed it into
+        the rows through apply_cluster_to_all, which deliberately LEAVES A ROW
+        ALONE when the board has no such field — a rule for writing a value ONTO
+        the board. The STORE needs no field on the footprint (build_override_updates
+        says exactly that: the KEY is the only gate), so the check kept the cluster
+        out of the batch and the button could never go live: a dead end with no
+        message, on a table that looked complete."""
+        parent = QMainWindow()
+        connection = SimpleNamespace(board=SimpleNamespace(adapter=_AdapterSpy()))
+        tab = ImprintRefsTab(connection=connection, parent=parent)
+        tab._test_parent = parent
+        root = _root(tmp_path)
+        store = load_field_overrides(overrides_path_for_config(str(root)))
+        records = ImprintRefsTab.records_from_snapshot([
+            SimpleNamespace(ref=ref, role="", cluster="", symbol_uuid=UUID[ref],
+                            sheet=("Top",), role_field_exists=False,
+                            cluster_field_exists=False)
+            for ref in ("BZ1", "Q1", "R6")])
+        tab.set_context(root, "zummer", _record(), records, store)
+        assert not tab.write_button_enabled()      # nothing differs yet
+
+        tab._cluster_edit.setText("BUZZER")
+
+        # С23 first: the field reaches every row even HERE — a table that shows
+        # the value in the field and nothing in its rows is the "looks complete"
+        # half of the same live case.
+        assert {r.cluster for r in tab.rows} == {"BUZZER"}
+        assert tab.write_button_enabled() is True
+        tab.write_to_store()
+        from_disk = load_field_overrides(overrides_path_for_config(str(root)))
+        assert from_disk.get("uuid-BZ1", "Cluster") == "BUZZER"
+
     def test_the_cluster_field_opens_with_the_value_in_force(self, qapp, tmp_path):
         """Our stored cluster wins over the board's (Т2) — a freshly OPENED tab
         must show what is IN FORCE, or the table would promise a value the
@@ -257,10 +332,19 @@ class TestTheListFollowsTheRecord:
         """Denis's case: D6 was added to the board and the record re-read — the
         table must show the new component WITHOUT throwing away the Roles already
         typed for the others (the record is the source of the LIST, never of the
-        user's typing)."""
+        user's typing).
+
+        Д13 (plan, Денис 20.09): the CLUSTER must survive the same rebuild. The
+        rebuild carried only `role` out of the old rows, so a typed cluster stayed
+        in the field above the table while the rows lost it — the table LOOKED
+        complete, the button went grey (nothing differed any more) and the cluster
+        could not be recorded any more. The plan's own conclusion: carry it, and
+        then make the loss impossible by construction — the field is the ONE
+        source of truth (Д11), so there is nothing in the rows to lose."""
         tab, root, _store, _spy = _tab(qapp, tmp_path)
         _set_role(tab, "BZ1", "BUZZER")
         _set_role(tab, "Q1", "DRIVER")
+        tab._cluster_edit.setText("BUZZER")
 
         tab.set_context(root, "zummer", _record(extra_refs=("D6",)),
                         _records({"BZ1": "", "Q1": "", "R6": "", "D6": ""}), None)
@@ -269,6 +353,10 @@ class TestTheListFollowsTheRecord:
         assert tab.roles_by_ref()["BZ1"] == "BUZZER"
         assert tab.roles_by_ref()["Q1"] == "DRIVER"
         assert "D6" in tab.status_text()                    # and it is reported
+        assert tab.cluster_text() == "BUZZER"               # Д13: field kept it
+        tab.write_to_store()
+        from_disk = load_field_overrides(overrides_path_for_config(str(root)))
+        assert from_disk.get("uuid-BZ1", "Cluster") == "BUZZER"
 
     def test_a_component_that_left_the_record_loses_its_row(self, qapp, tmp_path):
         """The other direction: the record no longer carries R6, so its row goes —

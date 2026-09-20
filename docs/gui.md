@@ -1974,7 +1974,11 @@ plan_2026_09_18_scheme_list_to_cell_and_capture.md Д2/Р20).
   the project's override store (`overrides/<config-stem>.fields.json`, one atomic save, keyed by the
   component's symbol uuid). Our values win over the board's, take effect at once and survive an F8;
   **nothing is written onto the board**, and the record itself is not changed. The table needs no KiCad
-  for this — it reads only the record, the polled snapshot and that file.
+  for this — it reads only the record, the polled snapshot and that file. It also needs no Role/Cluster
+  FIELD on the footprint: only the symbol uuid keys a record, so an imprint whose components carry
+  neither field is still recordable (found live 2026-09-20 — the button stayed grey on a table that
+  looked complete). Recording Roles while the cluster field stands empty is a legitimate half-done job,
+  and the status line names it instead of reporting a complete success.
 - **Convert to cell** — builds a `cells:` entry out of the record: its components with the roles of the
   table, its vias and tracks, and the one cluster; the record's pivot becomes the cell's mount point
   (`anchor_xy`). The cell is named after the cluster (slugged, `DAC_BUF` → `dac_buf`). It writes into
@@ -1986,7 +1990,10 @@ plan_2026_09_18_scheme_list_to_cell_and_capture.md Д2/Р20).
 The list FOLLOWS the record: a Reread that changes the composition (a component added on the board,
 another one gone) rebuilds the rows as soon as the record is rewritten — the Roles the user already
 typed stay with the components that are still there, and a component that left the record is named in
-the Log instead of vanishing silently.
+the Log instead of vanishing silently. The CLUSTER survives that rebuild because it cannot be lost at
+all: the field above the table is its ONE source of truth (Д11) — both buttons ask IT, never the rows —
+so there is nothing in the rows to lose (Д13; before this, a typed cluster stayed in the field while the
+rows lost it, and the write button went grey because nothing differed any more).
 
 ### Placing a record — Tools → Imprints → Place... (the "Place Imprint" page)
 

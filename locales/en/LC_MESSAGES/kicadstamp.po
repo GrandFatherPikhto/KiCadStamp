@@ -18618,6 +18618,10 @@ msgid "{count} value(s) recorded for this project — they win over the board an
 msgstr ""
 
 #: gui/docks/imprint_refs_tab.py
+msgid "no Cluster was recorded — the cluster field is empty"
+msgstr ""
+
+#: gui/docks/imprint_refs_tab.py
 msgid "cannot convert to a cell: {reasons}"
 msgstr ""
 

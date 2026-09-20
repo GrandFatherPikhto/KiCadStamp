@@ -308,14 +308,25 @@ def apply_overrides(rows: list, overrides) -> list:
     return out
 
 
-def apply_cluster_to_all(rows: list, cluster: str) -> tuple:
+def apply_cluster_to_all(rows: list, cluster: str, *,
+                         require_field: bool = True) -> tuple:
     """The group fill: put `cluster` into the "Cluster to write" cell of every
     row that CAN take it — (rows, unfilled_refs).
 
     Denis's case (2026-09-17): "some of them have no cluster, the others
     disagree" — one click sets them all. A footprint without a Cluster field is
     left alone and its refdes returned, so the caller can say which ones; an
-    empty value is a no-op (the field doubles as "don't touch the cluster")."""
+    empty value is a no-op (the field doubles as "don't touch the cluster").
+
+    `require_field=False` is for a caller whose batch goes to the override STORE
+    rather than onto the board: the store needs no Cluster field on the footprint
+    — only the symbol uuid gates a record (see `build_override_updates`) — so
+    gating the fill on the board's field kept the value out of the batch and left
+    the write button dead with no message on a table that looked complete (the
+    imprint table's live case, Денис 2026-09-20). The `unfilled` list keeps its
+    meaning for the board-write callers, which is why the gate is opt-out and not
+    removed: it is a fact about the BOARD, and the board write is where it
+    matters."""
     value = (cluster or "").strip()
     out = list(rows or [])
     if not value:
@@ -323,7 +334,7 @@ def apply_cluster_to_all(rows: list, cluster: str) -> tuple:
     unfilled = []
     filled = []
     for row in out:
-        if not row.cluster_field_exists:
+        if require_field and not row.cluster_field_exists:
             unfilled.append(row.ref)
             filled.append(row)
             continue
