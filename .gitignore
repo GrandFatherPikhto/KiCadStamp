@@ -126,3 +126,5 @@ gdb/**
 *.tar.xz
 
 .mcp.json
+.aider*
+!.aider.conf.yml
