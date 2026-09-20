@@ -507,6 +507,26 @@ entry point is the Tools menu's **Extract tree...** (see below): it auto-derives
 from the fully-selected clusters and captures inter-cluster copper as `net_traces:`, so the old
 standalone Extract dialog / **New Extract...** entry points are gone.
 
+Since 2026-09-20 a **cells:** or **imprints:** LEAF also carries **Create entity...** — the one action
+that gives an ALREADY EXISTING cell or imprint record its `entities:` entry. Before it an Entity
+could only be born together with a cell, inside **Extract cluster.../Extract tree...**, so a cell
+made by "Convert to cell" had nothing to place it into (a tree node references an Entity, not a
+cell). One action serves both nodes; only the source field differs: a cell leaf fills `cell:` plus an
+optional Cluster and Sheet, an imprint leaf fills `imprint:` plus an optional Sheet (a `cluster:` on
+an imprint-based Entity is fatal at load — the record is a snapshot and already carries literal refs
+and nets). The record is written to the SAME file the source lives in, so the source and its entity
+travel between profiles together.
+
+**Duplicates are never spawned, and the key is a PAIR:** `(cell, cluster)` for a cell, `(imprint,
+sheet)` for an imprint. When an Entity for that key already exists it WINS: nothing is created and
+the Log line names the one that was found. That is why the check runs AFTER the form — the second
+field is known only from it — and why one cell on two clusters, or one imprint on two twin sheets,
+are two legitimate Entities. A **blank** second field narrows nothing at all: any Entity on that
+source counts as the one already there. Deliberately strict — an untagged second record could not be
+told apart from the first afterwards; want a second one, give it a cluster or a sheet. Creating an
+Entity is config-only: no board is read (it works with KiCad closed) and no tree node is placed
+(placing is a tree-only action).
+
 Clicking a file/category switches the Detail dock to that node's own panel (a Cells leaf → Placer,
 ...; a plain file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved
 into a dialog). Chains nodes are NOT switched by a click — they are edited via DOUBLE click in the

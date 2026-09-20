@@ -178,6 +178,66 @@ def _unique_entity_name(cluster: str, sheet: Optional[str],
     return name
 
 
+def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
+                           cluster: Optional[str] = None,
+                           imprint: Optional[str] = None,
+                           sheet: Optional[str] = None) -> Optional[Any]:
+    """The Entity that already covers this source, or None — the ONE
+    "duplicates are not spawned" rule (Т3 of
+    plan_2026_09_20_create_entity_menu.md), shared by the "Create entity"
+    menu action and create_cell_and_entity_for_cluster.
+
+    The key is the SOURCE plus THAT source's own second field, i.e. a PAIR —
+    exactly one of `cell`/`imprint` is expected (the caller knows which node it
+    came from):
+
+      - `cell` set: match on entity.cell == cell, narrowed by `cluster` when
+        it is given — two instances of ONE cell on different clusters are two
+        different Entities (the same (cell, cluster) identity
+        resolve_cluster_entity uses);
+      - `imprint` set: match on entity.imprint == imprint, narrowed by `sheet`
+        when it is given — an imprint-based Entity is a "clone of a recorded
+        snapshot onto a (possibly twin) sheet" (config/models.py:704), where
+        `sheet` is the TARGET sheet of twin-resolution, so one imprint landing
+        on two twin sheets is TWO legitimate Entities. An imprint-based Entity
+        carries no cluster at all (fatal at load, config/models.py:706), so a
+        cluster-keyed search could never find one.
+
+    Each second field narrows its OWN branch and no other: `cluster` is the
+    cell branch's, `sheet` is the imprint branch's. Passing `sheet` with `cell`
+    is therefore a caller error, refused loudly rather than silently ignored.
+
+    A None second field (nothing typed into the form's Cluster/Sheet field)
+    means NO narrowing: ANY Entity on that source counts as the one already
+    there, and the caller creates nothing. Deliberately strict — an untagged
+    second record could not be told apart from the first afterwards. (No
+    caller passes a second field on the extract path, so its behaviour is
+    unchanged.)
+
+    Returns the FIRST match in cfg.entities order (the loader already
+    guarantees entity names are unique, so at most one can match a given
+    (cell, cluster) / (imprint, sheet) pair)."""
+    if (cell is None) == (imprint is None):
+        raise ValueError("exactly one of cell/imprint is required — an Entity "
+                         "has precisely one source (config/models.py)")
+    if imprint is None and sheet is not None:
+        raise ValueError("sheet narrows an imprint-based Entity only — a "
+                         "cell's own second key field is cluster")
+    for e in cfg.entities:
+        if imprint is not None:
+            if getattr(e, "imprint", None) != imprint:
+                continue
+            if sheet is not None and getattr(e, "sheet", None) != sheet:
+                continue
+            return e
+        if getattr(e, "cell", None) != cell:
+            continue
+        if cluster is not None and getattr(e, "cluster", None) != cluster:
+            continue
+        return e
+    return None
+
+
 def resolve_cluster_entity(c: ReReadCluster, cfg: Any) -> tuple[str, str, bool]:
     """(entity_name, cell_name, is_new) for one fully-selected cluster.
 
@@ -191,6 +251,13 @@ def resolve_cluster_entity(c: ReReadCluster, cfg: Any) -> tuple[str, str, bool]:
         entity = next((e for e in cfg.entities if e.name == c.entity_name), None)
         if entity is not None:
             return entity.name, entity.cell, False
+    # The (cell, cluster) identity is the same one find_entity_for_source
+    # matches on — kept here as the name-resolution path (it also returns the
+    # cell name), so the two can never drift apart.
+    existing = find_entity_for_source(
+        cfg, cell=cluster_cell_name(c.cluster), cluster=c.cluster)
+    if existing is not None:
+        return existing.name, existing.cell, False
     return _unique_entity_name(c.cluster, c.sheet, cfg.entities), \
         cluster_cell_name(c.cluster), True
 

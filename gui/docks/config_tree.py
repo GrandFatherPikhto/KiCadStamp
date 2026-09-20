@@ -253,6 +253,15 @@ class ConfigTreeDock(QWidget):
     # "open the form blank" reasoning as add_placer_requested/add_point_
     # requested/add_rule_requested/add_thermal_via_requested below.
     add_cell_requested = pyqtSignal(object)
+    # Fired by the context menu's "Create entity" (2026-09-20, plan
+    # plan_2026_09_20_create_entity_menu.md) — ONE item on BOTH a cells: leaf
+    # and an imprints leaf; the payload is (source_kind, source_name,
+    # file_path) where source_kind is "cell" or "imprint". DockHub creates
+    # the entities: record (cell: or imprint: respectively) in the SAME file
+    # the source lives in, refusing a name already used anywhere in the
+    # include graph. Deliberately NOT two separate items: the only difference
+    # is which field the source fills.
+    add_entity_requested = pyqtSignal(str, str, object)
     # Fired when a Clone placement leaf is clicked — PlacerDock listens to
     # load it back into the form.
     placement_picked = pyqtSignal(object)
@@ -1399,6 +1408,22 @@ class ConfigTreeDock(QWidget):
                 leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
                 payload = leaf_data[2] if leaf_data is not None else None
                 if payload is not None:
+                    # "Create entity" (2026-09-20, plan_2026_09_20_create_
+                    # entity_menu.md Т1): the SAME item as on a cells leaf,
+                    # only the source field differs (imprint: instead of
+                    # cell:). An imprint-based Entity carries no cluster/refs/
+                    # nets (fatal at load, config/models.py:706), so the
+                    # created record is {name, imprint, sheet?} only.
+                    create_action = menu.addAction(_("Create entity"))
+                    # С1 (plan_2026_09_20_create_entity_menu.md): the guard
+                    # finds this item by its objectName, never by the
+                    # translated label — "Create entity" depends on the locale
+                    # and on the catalogs, and a guard bound to the text would
+                    # fail for unrelated reasons.
+                    create_action.setObjectName("create_entity_action")
+                    create_action.triggered.connect(
+                        lambda checked=False, n=old_name, f=file_path:
+                        self.add_entity_requested.emit("imprint", n, f))
                     menu.addAction(_("Reread...")).triggered.connect(
                         lambda checked=False, p=payload:
                         self.imprint_reread_requested.emit(p, file_path))
@@ -1417,6 +1442,17 @@ class ConfigTreeDock(QWidget):
                         lambda checked=False, p=payload, f=file_path:
                         self.imprint_resource_requested.emit(p, f))
             if section == "cells":
+                # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
+                # menu.md Т1): the ONE item that gives an EXISTING cell an
+                # entities: record — the same item also appears on an imprints
+                # leaf below, only the source field differs.
+                create_action = menu.addAction(_("Create entity"))
+                # С1 — same objectName as the imprint leg above: the guard
+                # finds the item by it, not by the translated label.
+                create_action.setObjectName("create_entity_action")
+                create_action.triggered.connect(
+                    lambda checked=False, n=old_name, f=file_path:
+                    self.add_entity_requested.emit("cell", n, f))
                 menu.addAction(_("Edit cell...")).triggered.connect(
                     lambda: self.cell_edit_requested.emit(old_name, file_path))
                 # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_

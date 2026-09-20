@@ -1005,6 +1005,12 @@ class DockHub:
         # combobox; no live board). Same delegate shape as the two above.
         self.config_tree_dock.cell_copy_requested.connect(
             self._copy_cell_placement)
+        # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_menu.md
+        # Т1): the ONE item on BOTH a cells: leaf and an imprints: leaf — the
+        # payload's source_kind ("cell"/"imprint") decides which field the new
+        # entities: record fills. Config-only: no board access at all (Т4/С7).
+        self.config_tree_dock.add_entity_requested.connect(
+            self._create_entity_from_tree)
         # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
@@ -2864,6 +2870,113 @@ class DockHub:
         and staged by _autostage()."""
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
+
+    def _create_entity_from_tree(self, source_kind: str, source_name: str,
+                                 file_path) -> None:
+        """ConfigTreeDock's add_entity_requested delegate (2026-09-20,
+        plan_2026_09_20_create_entity_menu.md Т1/Т2/Т3/Т4) — the context menu's
+        "Create entity" on a cells: or imprints: leaf.
+
+        Config-only by design (Т4/С7): no board read, no `start_long_op`, no
+        `socket_busy` — an Entity is legitimately created with KiCad closed.
+        The record is written to the SAME file the source lives in (Т2/С8), so
+        the source and its entity travel between profiles together.
+
+        Т3: a suitable entity for the same source already existing WINS — the
+        second is not created, and the user is told which one was found. The
+        rule is NOT restated here: it lives in
+        gui.docks.tree_from_selection.find_entity_for_source, the ONE function
+        create_cell_and_entity_for_cluster also resolves through. This handler
+        used to keep a copy, and the copy had already drifted — it matched the
+        source alone, i.e. it forbade a second Entity on the same cell under a
+        DIFFERENT cluster, which the docstring of the real rule calls out."""
+        from .docks.create_entity import CreateEntityDialog
+        from .docks.rename import (collect_graph_files,
+                                   name_exists_in_list_section)
+        from .docks.tree_from_selection import find_entity_for_source
+        from kicadstamp.config import load_config
+        from kicadstamp.config_writer import read_data, upsert_list_entry
+
+        root_path = self.root_metadata_dock.root_path
+        if root_path is None:
+            show_message(_("Set the project root first."), _ERROR_STYLE, logger)
+            return
+
+        # Т2: the name must be unique across the WHOLE include graph, not just
+        # this file — the same rule the loader's own duplicate-name check uses.
+        files = collect_graph_files(root_path)
+        existing_names = set()
+        for path in files:
+            for item in (read_data(path).get("entities") or []):
+                if isinstance(item, dict) and item.get("name"):
+                    existing_names.add(item["name"])
+
+        dialog = CreateEntityDialog(self.main_window, source_kind,
+                                    source_name, existing_names)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, cluster, sheet = dialog.result_data()
+        source_field = "cell" if source_kind == "cell" else "imprint"
+
+        # Т3: the duplicate check comes AFTER the form, for BOTH sources, and
+        # its key is the source PLUS that source's OWN second field — (cell,
+        # cluster) for a cell, (imprint, sheet) for an imprint. That is exactly
+        # why it cannot be decided before the dialog (2026-09-20, plan §Т3):
+        # one cell on two clusters is two legitimate Entities, and so is one
+        # imprint on two twin sheets. The rule itself is shared, never restated
+        # here (see the docstring) — a second copy is what drifted before.
+        try:
+            cfg, _ctx = load_config(str(root_path))
+        except (ValidationError, OSError) as e:
+            show_message(_("Failed to load config: {error}").format(error=e),
+                         _ERROR_STYLE, logger)
+            return
+        if source_field == "imprint":
+            existing = find_entity_for_source(
+                cfg, imprint=source_name, sheet=sheet)
+        else:
+            existing = find_entity_for_source(
+                cfg, cell=source_name, cluster=cluster)
+        if existing is not None:
+            show_message(
+                _("Entity {name!r} already exists for this source — reused, "
+                  "nothing new was created.").format(name=existing.name),
+                _WARN_STYLE, logger)
+            return
+
+        # Т2: the name is checked against the WHOLE graph once more, now that
+        # the user has had a chance to type one — the dialog's own check is a
+        # convenience, this is the authoritative one.
+        if name_exists_in_list_section(files, "entities", name):
+            show_message(
+                _("An entity named {name!r} already exists.").format(name=name),
+                _ERROR_STYLE, logger)
+            return
+
+        entry = {"name": name, source_field: source_name}
+        # cluster: a CELL's tag ONLY — on an imprint-based Entity it is fatal at
+        # load (config/models.py:706; С3), so it is dropped here whatever the
+        # form hands back, rather than trusted to have omitted the field.
+        if source_field == "cell" and cluster:
+            entry["cluster"] = cluster
+        if sheet:
+            entry["sheet"] = sheet
+
+        try:
+            upsert_list_entry(file_path, "entities", entry,
+                              key_fn=lambda e: e.get("name"))
+        except OSError as e:
+            show_message(_("Write failed: {error}").format(error=e),
+                         _ERROR_STYLE, logger)
+            return
+
+        self.config_tree_dock.refresh()
+        self.config_tree_dock.graph_changed.emit()
+        show_message(
+            _("Entity {name!r} saved to {path}.").format(
+                name=name, path=display_path(file_path)),
+            "", logger)
+
 
     def _copy_cell_placement(self, name, file_path) -> None:
         """ConfigTreeDock's cell_copy_requested delegate (2026-09-06, plan

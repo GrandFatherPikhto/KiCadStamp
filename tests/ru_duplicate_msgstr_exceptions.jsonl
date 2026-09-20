@@ -1,6 +1,5 @@
 {"reason": "English wording variant of the same hint ('maybe'/'did you mean')", "msgids": [" (did you mean {suggestion!r}?)", " (maybe you meant {suggestion!r}?)"]}
 {"reason": "'none' vs '(none)': same notion, punctuation only", "msgids": ["(none)", "none"]}
-{"reason": "capitalisation-only difference (Entity/entity)", "msgids": ["An Entity named {name!r} already exists.", "An entity named {name!r} already exists."]}
 {"reason": "plural vs singular label of the same tab (Vias/Via)", "msgids": ["Via", "Vias"]}
 {"reason": "label with and without trailing colon", "msgids": ["X mm", "X mm:"]}
 {"reason": "label with and without trailing colon", "msgids": ["Y mm", "Y mm:"]}
