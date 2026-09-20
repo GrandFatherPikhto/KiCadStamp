@@ -231,11 +231,18 @@ class TestLegacyProfileLoadsIdentically:
 
 class TestBothSpellingsAreFatal:
     def test_both_section_keys_in_one_json_file(self, tmp_path):
+        """The SAME record name on both spellings on purpose: with the alias
+        fatal switched off nothing else could fail either (the entity resolves,
+        the record loads), so this test can only pass for the RIGHT reason.
+
+        Found by mutation М15 (2026-09-20): the first version let a legacy record
+        named differently REPLACE the canonical one, and the test stayed green on
+        the loader's unrelated "entity references a missing imprints entry"."""
         data = _profile("imprints", "imprint")
-        data["scheme_lists"] = [_record_dict("other")]
+        data["scheme_lists"] = [_record_dict("amp")]
         path = tmp_path / "both.json"
         path.write_text(json.dumps(data), encoding="utf-8")
-        with pytest.raises(ValidationError, match="imprints"):
+        with pytest.raises(ValidationError, match="scheme_lists"):
             load_config(str(path))
 
     def test_both_entity_keys_in_one_json_record(self, tmp_path):
