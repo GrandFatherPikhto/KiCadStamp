@@ -406,6 +406,18 @@ class BoardConnection:
         return self.board is not None
 
     @property
+    def snapshot_refresh_supported(self) -> bool:
+        """True when a board sits behind the door AND it can rebuild its own
+        snapshot (``Board.refresh()``) — i.e. there is fresher data to offer.
+
+        Т5-3 of plan_2026_09_21_board_door_enforcement: gui/worker.py's helper of
+        the same name used to answer this by reading ``connection.board`` on the UI
+        thread (a legal presence check, but a door read all the same). The door
+        answers its own questions now, from its own storage — not a consumer read,
+        so no sign is needed and the guard is not involved (see _is_own_read)."""
+        return callable(getattr(self._board, "refresh", None))
+
+    @property
     def snapshot(self) -> List[Selected]:
         return self._snapshot
 

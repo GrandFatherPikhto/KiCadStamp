@@ -200,8 +200,14 @@ def test_v3_logs_once_when_a_board_is_live_and_schematic_dir_is_absent(
     # No live board yet: the root load above must NOT have warned.
     assert infos == []
 
+    # The stand-in carries `is_connected` since 2026-09-21 (Т5-2 of
+    # plan_2026_09_21_board_door_enforcement): the code asks the CONNECTION
+    # whether there is a board instead of reading connection.board, so "a live
+    # board" has to be expressed the way the production API expresses it. The
+    # assertions below are untouched — this is the double following the
+    # contract, not a guard being weakened.
     real_main_window.connection = SimpleNamespace(
-        board=object(), snapshot=[], long_op_active=False)
+        board=object(), is_connected=True, snapshot=[], long_op_active=False)
     hub.set_board_selection([], [])
     assert sum("sheet-based narrowing" in m for m in infos) == 1
 
@@ -230,7 +236,9 @@ def test_v3_does_not_warn_when_schematic_dir_resolves_sheets(
     monkeypatch.setattr(dock_hub_mod.logging, "info",
                         lambda msg, *a, **k: infos.append(msg % a if a else msg))
 
+    # Same stand-in contract as the test above (the reason this one stays silent
+    # is the config's schematic_dir, not a missing connection).
     real_main_window.connection = SimpleNamespace(
-        board=object(), snapshot=[], long_op_active=False)
+        board=object(), is_connected=True, snapshot=[], long_op_active=False)
     real_main_window._dock_hub.set_board_selection([], [])
     assert infos == []

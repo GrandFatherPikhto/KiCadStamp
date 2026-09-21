@@ -437,7 +437,18 @@ def snapshot_refresh_supported(connection: Any) -> bool:
     the cached snapshot and continue — the same provider-or-fallback shape the
     docks' live providers already use (see
     ``ImprintFormWidget._live_snapshot``'s "tests/fallback" and
-    ``RecordImprintDialog._live_selection``)."""
+    ``RecordImprintDialog._live_selection``).
+
+    Т5-3 of plan_2026_09_21_board_door_enforcement: the REAL connection answers
+    this about itself now (``BoardConnection.snapshot_refresh_supported``), because
+    reading ``connection.board`` here was a door read on the UI thread — one of
+    the two legal presence checks the armed run named. The getattr fallback stays,
+    and it is checked with isinstance(bool) rather than "is not None" on purpose:
+    a stand-in connection (a Mock) answers ANY attribute name with a Mock, which
+    would otherwise be taken for the real answer."""
+    own = getattr(connection, "snapshot_refresh_supported", None)
+    if isinstance(own, bool):
+        return own
     return callable(getattr(getattr(connection, "board", None), "refresh", None))
 
 

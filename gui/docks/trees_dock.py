@@ -73,7 +73,7 @@ from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers, settings
-from ..connection import worker_timeout_ms
+from ..connection import ui_thread_board_read, worker_timeout_ms
 from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import defer_while_socket_busy, socket_busy, start_long_op
@@ -2868,7 +2868,15 @@ class TreesDock(QWidget):
         for namespace in (_TREE_ANCHOR_NS, _TREE_BASE_NS, _MOUNT_POINT_NS):
             uuids.extend(overlay_markers.owner.forget_scope(namespace))
         self._refresh_markers_button()
-        adapter = self._live_adapter()
+        # The door's sign (plan_2026_09_21_board_door_enforcement Т5-1): this read
+        # IS deliberate on the UI thread — a presence check plus handing the SHARED
+        # adapter to the worker below (which then owns the socket for the whole
+        # operation), not a board read of its own. It is also the FIRST thing a
+        # user runs into after connecting: an actual root switch lands here through
+        # set_root_file, which is how the armed run of 21.09.2026 found it.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the marker-cleanup worker"):
+            adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a

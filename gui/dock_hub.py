@@ -3271,7 +3271,11 @@ class DockHub:
         if key in self._sheet_dir_checked:
             return
         connection = getattr(self.main_window, "connection", None)
-        if getattr(connection, "board", None) is None:
+        # "Is there a board?" is `is_connected`, not a read of the board itself
+        # (plan_2026_09_21_board_door_enforcement Т5-2: this was one of the two
+        # LEGAL presence checks the armed run named — cheap, synchronous, and no
+        # socket touched, but still a door read).
+        if not getattr(connection, "is_connected", False):
             return
         self._sheet_dir_checked.add(key)
         try:
