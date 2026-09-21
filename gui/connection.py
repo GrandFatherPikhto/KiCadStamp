@@ -8,13 +8,17 @@ deliberate, retryable action polled from a QTimer, not something assumed to
 succeed once at startup.
 """
 import logging
+import os
+import sys
 import threading
 from collections import deque
+from contextlib import contextmanager
 from statistics import median
-from typing import Callable, Deque, Dict, List, Optional, Tuple
+from typing import Callable, Deque, Dict, Iterator, List, Optional, Tuple
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.explore import Board, Selected
+from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,127 @@ _CONNECT_TIMEOUT_GRACE_S = 2.0
 # tests it, so a disabled probe costs one attribute read and one branch — no
 # stack walk. Production code NEVER assigns it (Э5: no enforcement of any kind).
 board_read_probe: Optional[Callable[[], None]] = None
+
+
+# ── The door's guard: a UI-thread read needs a sign ──────────────────────────
+# plan_2026_09_21_board_door_enforcement (Т3/Т4). The getter below is the ONE
+# door to the live board (plan_2026_09_13_board_access_door Э2); this is the
+# guard that finally stands in it. What it refuses, EXACTLY: reading the board
+# from the UI thread without a sign — and nothing else. A board value of None is
+# out of its jurisdiction (that is a "is there a connection" check, no socket is
+# touched, С4), and so is every other thread (the poll worker and a dock's own
+# worker read the board legitimately, С3).
+#
+# WHO decides what "the UI thread" is: an INJECTED predicate, never this module
+# (it does not import Qt, and must not). None — the default — means no thread
+# check at all, which is what the CLI, the MCP server and every test that does
+# not install one get for free. The GUI installs gui.worker.is_ui_thread from
+# its PROCESS ENTRY POINT (kicadstamp/gui_main.py::main), deliberately NOT from
+# MainWindow.__init__: ~60 GUI tests build a real MainWindow and read a stand-in
+# board out of its real BoardConnection on the main thread, so a predicate
+# installed in the constructor would refuse every one of them.
+#
+# Deliberately NOT gated on the VALUE being a real Board: the jurisdiction is
+# the predicate, not the type (decided with Denis 2026-09-21). A type check
+# protects nothing extra — a stand-in never appears in production — while it
+# would make the guard's own watchdogs (С1–С3) unwritable: kipy's Board needs a
+# live client, so a test could not put a real one behind the door.
+
+class UiThreadBoardReadRefused(RuntimeError):
+    """Reading the live board from the UI thread without a sign (Т4).
+
+    The message names the CALLER's file:line, never the guard's own site: the
+    point of a refusal is to name the place that has to change. An exception,
+    not a None return, on purpose — None already means "there is no connection",
+    and the guard must not be mistakable for it (С4)."""
+
+
+ui_thread_predicate: Optional[Callable[[], bool]] = None
+
+# Per-thread nesting depth of the sign. threading.local() is the point (asked
+# for by Denis 2026-09-21): a sign taken on the UI thread must not travel to a
+# worker, and one taken inside a worker must not travel back.
+_ui_read_sign = threading.local()
+
+# Sites already reported through the Log, so a handler that refuses in a loop
+# does not flood it: one WARNING per file:line.
+_refused_sites: set = set()
+_refused_sites_lock = threading.Lock()
+
+# This file, resolved once — the frame test that keeps the connection's OWN
+# reads (is_connected/refresh/disconnect/_rebuild_snapshot) outside the guard's
+# jurisdiction. Same trick, same reason as board_read_probe._skip_file.
+_OWN_FILE = os.path.abspath(__file__)
+
+
+def set_ui_thread_predicate(predicate: Optional[Callable[[], bool]]) -> None:
+    """Install (or clear, with None) the "is this the UI thread" predicate.
+
+    Called by the GUI's process entry point with gui.worker.is_ui_thread — the
+    same injection board_call_timing.set_ui_thread_predicate uses, and for the
+    same reason: this module never imports Qt. There is deliberately NO switch
+    to turn the guard off "while debugging" (the door forbids one: a switch that
+    can be flipped is a guard that is not standing)."""
+    global ui_thread_predicate
+    ui_thread_predicate = predicate
+
+
+@contextmanager
+def ui_thread_board_read(*, reason: str) -> Iterator[None]:
+    """Mark a DELIBERATE board read on the UI thread — the sign the guard wants.
+
+    Usage::
+
+        with ui_thread_board_read(reason="hand the adapter to a worker"):
+            board = connection.board
+
+    The sign lives at the CALL SITE and is visible while the code is read (Т3).
+    ``reason`` is keyword-only and must be non-empty: the whole point is that the
+    reader states, in words, why this read belongs on the UI thread — where the
+    next person will see it. A flag that can be set globally and forgotten would
+    be exactly the decoration the door is written against.
+
+    Nesting is counted per thread, so leaving an inner sign does not clear an
+    outer one."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError(
+            "ui_thread_board_read() requires a non-empty reason= keyword — it is "
+            "what makes a deliberate UI-thread read visible at the call site")
+    depth = getattr(_ui_read_sign, "depth", 0)
+    _ui_read_sign.depth = depth + 1
+    try:
+        yield
+    finally:
+        _ui_read_sign.depth = depth
+
+
+def _refuse_ui_thread_read(frame) -> None:
+    """Log ONE line per site and raise — the refusal itself (Т4).
+
+    The Log line matters ON TOP of the exception: dock flows catch broadly
+    (`except Exception` with a Log message), so without it a refusal would read
+    as silence in exactly the places most likely to trip it."""
+    site = f"{frame.f_code.co_filename}:{frame.f_lineno}"
+    with _refused_sites_lock:
+        first = site not in _refused_sites
+        _refused_sites.add(site)
+    if first:
+        logger.warning(
+            _("Reading the live board from the UI thread without a sign: {site}")
+            .format(site=site))
+    raise UiThreadBoardReadRefused(
+        f"reading the live board from the UI thread without a sign: {site} — "
+        "a presence check belongs on connection.is_connected, a real board read "
+        "belongs on a worker (gui.worker.start_long_op), and a deliberate "
+        "UI-thread read must say so: with ui_thread_board_read(reason=...)")
+
+
+def _is_own_read(frame) -> bool:
+    """True when the getter's caller is THIS file — the connection reading its
+    own board (is_connected, refresh, disconnect, _rebuild_snapshot). Those are
+    not consumers of the door but the door's own hinges, and `is_connected` is
+    precisely the sanctioned UI-thread presence check (С10)."""
+    return os.path.abspath(frame.f_code.co_filename) == _OWN_FILE
 
 
 # ── The worker's own adapter and the ONE IPC timeout (Э3, ─────────────────────
@@ -185,18 +310,35 @@ class BoardConnection:
     @property
     def board(self) -> Optional[Board]:
         """The live board — the ONE door to it (plan_2026_09_13_board_access_door
-        Э2). A property, not a plain attribute, so a future read guard has a
-        single place to live; THIS step's getter deliberately checks and forbids
-        nothing and behaves exactly like the attribute it replaces. The setter
-        stays: ~20 test assignments of ``connection.board = <fake>`` catch real
-        behaviour, and the point of force belongs on the READ, not the write.
+        Э2), with the guard standing in it since plan_2026_09_21_board_door_
+        enforcement (Т4).
+
+        Reads from the UI thread need a sign (``ui_thread_board_read``) UNLESS
+        the value is None or the read comes from this file itself; every other
+        thread passes untouched (С3). The setter stays (С5): ~20 test assignments
+        of ``connection.board = <fake>`` catch real behaviour, and the point of
+        force belongs on the READ, not the write.
 
         The optional probe (module-level ``board_read_probe``) is DISABLED by
-        default and does nothing unless diagnostics has installed it — see Э3."""
+        default and does nothing unless diagnostics has installed it — see Э3.
+        It runs FIRST on purpose: a refused read is still counted as an attempt,
+        so the recorder and the guard agree about what was tried."""
         probe = board_read_probe
         if probe is not None:
             probe()
-        return self._board
+        value = self._board
+        if value is None:
+            return None                      # С4 — nothing behind the door
+        predicate = ui_thread_predicate
+        if predicate is None or not predicate():
+            return value                     # CLI/MCP/tests, or a worker (С3)
+        if getattr(_ui_read_sign, "depth", 0) > 0:
+            return value                     # signed (С2)
+        frame = sys._getframe(1)
+        if _is_own_read(frame):
+            return value                     # the door's own hinges (С10)
+        _refuse_ui_thread_read(frame)        # С1 — names the caller's site
+        return value                         # unreachable; the refusal raises
 
     @board.setter
     def board(self, value: Optional[Board]) -> None:

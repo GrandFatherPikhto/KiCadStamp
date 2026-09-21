@@ -17372,3 +17372,7 @@ msgstr "Reread остановлен — компоненты отсутству�
 #: gui/docks/imprint.py
 msgid "Reread apply failed: no project root to write the record to"
 msgstr "применение Reread не удалось: нет корня проекта, куда писать запись"
+
+#: gui/connection.py
+msgid "Reading the live board from the UI thread without a sign: {site}"
+msgstr "Чтение живой платы из UI-потока без знака: {site}"

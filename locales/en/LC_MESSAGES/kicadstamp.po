@@ -18690,3 +18690,7 @@ msgstr ""
 #: gui/docks/imprint.py
 msgid "Reread apply failed: no project root to write the record to"
 msgstr ""
+
+#: gui/connection.py
+msgid "Reading the live board from the UI thread without a sign: {site}"
+msgstr ""

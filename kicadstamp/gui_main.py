@@ -104,6 +104,28 @@ def main():
 
     app = QApplication(sys.argv)
 
+    # ── The door's guard belongs HERE (plan_2026_09_21_board_door_enforcement) ──
+    # The getter in gui/connection.py refuses a UI-thread board read that has no
+    # sign, and who counts as "the UI thread" is an INJECTED predicate — this
+    # process entry point is where the production GUI hands it over. Deliberately
+    # NOT MainWindow.__init__ (gui/connection.py carries the full rationale): ~60
+    # GUI tests build a real MainWindow and read stand-in boards from the main
+    # thread, so a constructor-installed predicate would refuse every one of them.
+    # This is also the ONE Qt entry point of the project (pyproject.toml
+    # [project.scripts] → kicadstamp-gui; gui/ has no main() of its own).
+    #
+    # THE CALL IS DELIBERATELY ABSENT (Denis, 21.09.2026): the offenders of the
+    # Т2 table (trees_dock._live_adapter, the placement dock's position and
+    # selection reads, Extract) still read the board on the UI thread, so arming
+    # the guard here would refuse them in the user's hands. Т5 closes the door,
+    # and its LAST step is to import gui.worker.is_ui_thread here and hand it to
+    # gui.connection.set_ui_thread_predicate — nothing else, at this exact place.
+    #
+    # Two watchdogs in tests/test_board_door_guard.py guard THIS decision from
+    # both sides: ..._is_either_armed_or_says_why_not fails if this note is
+    # deleted without arming the guard, and ..._arms_the_guard is xfail(strict)
+    # while the line is absent, turning XPASS — a FAILURE, on purpose — the
+    # moment it comes back, so the mark cannot be forgotten either way.
     # Snapshot the pristine palette BEFORE any override (setStyle/setPalette)
     # — stored on the app object itself as a dynamic property (the same
     # instance lives for the whole process) and reused for the clean "None"
