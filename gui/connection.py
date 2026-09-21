@@ -74,7 +74,7 @@ board_read_probe: Optional[Callable[[], None]] = None
 # live client, so a test could not put a real one behind the door.
 
 class UiThreadBoardReadRefused(RuntimeError):
-    """Reading the live board from the UI thread without a sign (Т4).
+    """Reading the live board from the UI thread without a sign (Т4, "raise" mode).
 
     The message names the CALLER's file:line, never the guard's own site: the
     point of a refusal is to name the place that has to change. An exception,
@@ -82,7 +82,29 @@ class UiThreadBoardReadRefused(RuntimeError):
     and the guard must not be mistakable for it (С4)."""
 
 
+# How a violation is ANSWERED — the two modes, and who picks which:
+#
+#   "raise" — the test rig's and the harness's answer: loud, and it kills the test.
+#             That is what a watchman is for: measuring and pinning a rule.
+#   "log"   — the USER's answer: a red (ERROR) Log line naming the caller, and the
+#             read is allowed to go on.
+#
+# Why "log" exists at all, and why it is not the soft option it looks like
+# (decided with Denis 2026-09-21, after measuring instead of guessing): an
+# exception raised inside a Qt SLOT makes PyQt6 call qFatal() and the process
+# dies with a core dump — measured, diagnostics/probe_slot_exception.py, EXIT=134.
+# In production "refuse the read" would therefore have meant "kill the session and
+# lose whatever was staged", not "report a violation". The old argument for the
+# strict option — "a Log line everyone skims is enforcement in name only" — held
+# while the offenders were unknown and counted a dozen-plus; after Т5 they are
+# zero, so a lone red line cannot drown.
+UI_READ_RAISE = "raise"
+UI_READ_LOG = "log"
+
 ui_thread_predicate: Optional[Callable[[], bool]] = None
+# The pristine, never-armed state. Only set_ui_thread_predicate changes it, and
+# that call REQUIRES the mode — see its docstring.
+ui_thread_read_refusal: str = UI_READ_LOG
 
 # Per-thread nesting depth of the sign. threading.local() is the point (asked
 # for by Denis 2026-09-21): a sign taken on the UI thread must not travel to a
@@ -100,16 +122,35 @@ _refused_sites_lock = threading.Lock()
 _OWN_FILE = os.path.abspath(__file__)
 
 
-def set_ui_thread_predicate(predicate: Optional[Callable[[], bool]]) -> None:
-    """Install (or clear, with None) the "is this the UI thread" predicate.
+def set_ui_thread_predicate(predicate: Optional[Callable[[], bool]], *,
+                            refusal: str) -> None:
+    """Install (or clear, with None) the "is this the UI thread" predicate, and
+    choose — at the SAME site, in writing — how a violation is answered.
 
-    Called by the GUI's process entry point with gui.worker.is_ui_thread — the
-    same injection board_call_timing.set_ui_thread_predicate uses, and for the
-    same reason: this module never imports Qt. There is deliberately NO switch
-    to turn the guard off "while debugging" (the door forbids one: a switch that
-    can be flipped is a guard that is not standing)."""
-    global ui_thread_predicate
+    Called by the GUI's process entry point with gui.worker.is_ui_thread (the
+    same injection board_call_timing.set_ui_thread_predicate uses: this module
+    never imports Qt), and by the test rig / the diagnostics harness with their
+    own predicate.
+
+    `refusal` is REQUIRED and has exactly two values — UI_READ_RAISE ("the read
+    raises, loud and crashing": the test rig and the harness, whose job is to
+    measure and to pin the rule) or UI_READ_LOG ("a red Log line naming the
+    caller, and the read goes on": the production GUI). The full reasoning lives
+    on the constants above; the short version is that in production an exception
+    is not a refusal at all but a core dump, measured 2026-09-21.
+
+    A required keyword on purpose: the mode is a DECISION, and a decision belongs
+    where the guard is armed, in writing, not in a default somewhere else. There
+    is still deliberately NO switch to turn the guard off "while debugging" (the
+    door forbids one: a switch that can be flipped is a guard that is not
+    standing)."""
+    global ui_thread_predicate, ui_thread_read_refusal
+    if refusal not in (UI_READ_RAISE, UI_READ_LOG):
+        raise ValueError(
+            f"refusal must be {UI_READ_RAISE!r} or {UI_READ_LOG!r}, "
+            f"not {refusal!r}")
     ui_thread_predicate = predicate
+    ui_thread_read_refusal = refusal
 
 
 @contextmanager
@@ -141,25 +182,33 @@ def ui_thread_board_read(*, reason: str) -> Iterator[None]:
         _ui_read_sign.depth = depth
 
 
-def _refuse_ui_thread_read(frame) -> None:
-    """Log ONE line per site and raise — the refusal itself (Т4).
+def _report_ui_thread_read(site: str) -> None:
+    """ONE Log line per site — the half of the answer every mode shares.
 
-    The Log line matters ON TOP of the exception: dock flows catch broadly
-    (`except Exception` with a Log message), so without it a refusal would read
-    as silence in exactly the places most likely to trip it."""
-    site = f"{frame.f_code.co_filename}:{frame.f_lineno}"
+    The LEVEL says which mode we are in, deliberately: in "raise" mode the
+    exception is the headline and this line is a warning for the flows that
+    swallow tracebacks; in "log" mode this line IS the whole report, so it is an
+    ERROR — red in the Log, which is exactly what the user has to notice."""
     with _refused_sites_lock:
         first = site not in _refused_sites
         _refused_sites.add(site)
-    if first:
-        logger.warning(
-            _("Reading the live board from the UI thread without a sign: {site}")
-            .format(site=site))
-    raise UiThreadBoardReadRefused(
-        f"reading the live board from the UI thread without a sign: {site} — "
-        "a presence check belongs on connection.is_connected, a real board read "
-        "belongs on a worker (gui.worker.start_long_op), and a deliberate "
-        "UI-thread read must say so: with ui_thread_board_read(reason=...)")
+    if not first:
+        return
+    message = _("Reading the live board from the UI thread without a sign: "
+                "{site}").format(site=site)
+    if ui_thread_read_refusal == UI_READ_RAISE:
+        logger.warning(message)
+    else:
+        logger.error(message)
+
+
+def _ui_thread_read_refused_message(site: str) -> str:
+    """The "raise" mode's message, naming the CALLER's site (С1)."""
+    return (f"reading the live board from the UI thread without a sign: {site} — "
+            "a presence check belongs on connection.is_connected, a real board "
+            "read belongs on a worker (gui.worker.start_long_op), and a "
+            "deliberate UI-thread read must say so: "
+            "with ui_thread_board_read(reason=...)")
 
 
 def _is_own_read(frame) -> bool:
@@ -315,9 +364,13 @@ class BoardConnection:
 
         Reads from the UI thread need a sign (``ui_thread_board_read``) UNLESS
         the value is None or the read comes from this file itself; every other
-        thread passes untouched (С3). The setter stays (С5): ~20 test assignments
-        of ``connection.board = <fake>`` catch real behaviour, and the point of
-        force belongs on the READ, not the write.
+        thread passes untouched (С3). A read that violates the rule is reported
+        ONCE per call site, and what happens next is the installed mode's
+        business: raise (test rig, harness) or a red Log line and the read goes
+        on (production) — see UI_READ_RAISE / UI_READ_LOG above. The setter
+        stays (С5): ~20 test assignments of ``connection.board = <fake>`` catch
+        real behaviour, and the point of force belongs on the READ, not the
+        write.
 
         The optional probe (module-level ``board_read_probe``) is DISABLED by
         default and does nothing unless diagnostics has installed it — see Э3.
@@ -337,8 +390,12 @@ class BoardConnection:
         frame = sys._getframe(1)
         if _is_own_read(frame):
             return value                     # the door's own hinges (С10)
-        _refuse_ui_thread_read(frame)        # С1 — names the caller's site
-        return value                         # unreachable; the refusal raises
+        site = f"{frame.f_code.co_filename}:{frame.f_lineno}"
+        _report_ui_thread_read(site)         # one line per site, any mode
+        if ui_thread_read_refusal == UI_READ_RAISE:
+            raise UiThreadBoardReadRefused(  # С1 — names the caller's site
+                _ui_thread_read_refused_message(site))
+        return value                         # "log" mode: red line, read goes on
 
     @board.setter
     def board(self, value: Optional[Board]) -> None:

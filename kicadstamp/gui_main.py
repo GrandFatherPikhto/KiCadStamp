@@ -116,10 +116,13 @@ def main():
     #
     # THE CALL IS DELIBERATELY ABSENT (Denis, 21.09.2026): the offenders of the
     # Т2 table (trees_dock._live_adapter, the placement dock's position and
-    # selection reads, Extract) still read the board on the UI thread, so arming
-    # the guard here would refuse them in the user's hands. Т5 closes the door,
-    # and its LAST step is to import gui.worker.is_ui_thread here and hand it to
-    # gui.connection.set_ui_thread_predicate — nothing else, at this exact place.
+    # selection reads, Extract) still read the board on the UI thread. Т5 closes
+    # the door, and its LAST step is to import gui.worker.is_ui_thread here and
+    # hand it to gui.connection.set_ui_thread_predicate WITH THE USER'S MODE —
+    # refusal="log": a red Log line naming the caller, and the read goes on.
+    # Never "raise" in production: inside a Qt slot an exception is a core dump,
+    # measured 2026-09-21 in diagnostics/probe_slot_exception.py (EXIT=134), and
+    # the user would lose the session instead of reading a message.
     #
     # Two watchdogs in tests/test_board_door_guard.py guard THIS decision from
     # both sides: ..._is_either_armed_or_says_why_not fails if this note is

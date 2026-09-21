@@ -184,10 +184,20 @@ the overlay and the copper-layer list now go through four reads declared on `IBo
 (`get_layer_name`, `get_enabled_layers`, `get_visible_layers`, `get_shapes`).
 
 **Since 2026-09-21 there is a GUARD in the same place, not just a counter** (plan
-`plan_2026_09_21_board_door_enforcement`). The probe counts; the guard refuses: reading
-`connection.board` from the UI thread **without a sign** raises `UiThreadBoardReadRefused` whose
-message names the CALLER's `file:line`, and the Log gets ONE line per site (the probe, when it is
-on, still counts the attempt — it runs first). Out of its jurisdiction, deliberately: a value of
+`plan_2026_09_21_board_door_enforcement`). The probe counts; the guard judges: reading
+`connection.board` from the UI thread **without a sign** is REPORTED — one Log line per site,
+naming the CALLER's `file:line` (the probe, when it is on, still counts the attempt: it runs
+first) — and what happens next is the mode chosen where the guard is armed:
+
+- **`raise`** (the test rig and this harness): `UiThreadBoardReadRefused`, loud and failing the
+  test. That is what a watchman is for;
+- **`log`** (the production GUI): a red ERROR line and **the read goes on**. This mode exists
+  because in production a raise is not a refusal at all: measured 2026-09-21, an unhandled
+  exception inside a Qt slot makes PyQt6 call `qFatal` and the process dies with a core dump
+  (`diagnostics/probe_slot_exception.py`, exit code 134). The user would lose the session and
+  whatever was staged, instead of reading a message.
+
+Out of its jurisdiction, deliberately: a value of
 `None` (that is a "there is no connection" check, no socket is touched) and every thread other
 than the UI one. The three sanctioned ways through are `connection.is_connected` for a presence
 check, a worker (`start_long_op`) for a real board read, and `with ui_thread_board_read(reason=...)`

@@ -24,8 +24,11 @@ that keeps the existing suite green without a single edit; С5 — the setter is
 the point of force. С9a/С9b are about the production entry point: the arming is
 deliberately ABSENT until Т5 (see gui_main.py), so С9a forbids the silent third
 state ("neither armed nor saying why") and С9b is the xfail(strict) tripwire that
-turns into an XPASS failure the moment the line comes back. С6 — the nine existing
-watchdogs in tests/test_board_access_door.py — lives in THAT file, untouched.
+turns into an XPASS failure the moment the line comes back — in the USER's mode
+(refusal="log"; a raise inside a Qt slot is a core dump, measured 2026-09-21). С12
+covers that mode: the same violation, reported at ERROR once per site with the read
+going on. С6 — the nine existing watchdogs in tests/test_board_access_door.py —
+lives in THAT file, untouched.
 
 The value's TYPE never takes part in any of this (plan §5.1, decided with Denis):
 a plain `object()` is enough to be refused, which is the whole point — kipy's
@@ -47,7 +50,7 @@ import pytest
 
 from gui import connection as connection_mod
 from gui.connection import (BoardConnection, UiThreadBoardReadRefused,
-                            ui_thread_board_read)
+                            set_ui_thread_predicate, ui_thread_board_read)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,13 +69,27 @@ def _clean_guard_state():
 
 @pytest.fixture
 def ui_thread(monkeypatch):
-    """A REAL answer to the question the guard asks: the predicate says "the
-    current thread is the UI thread" for the thread that installed this test
-    (production installs gui.worker.is_ui_thread, which compares against
-    QApplication's thread — same shape, same answer)."""
+    """A REAL answer to the question the guard asks, in the TEST RIG's mode: the
+    predicate says "the current thread is the UI thread" for the thread that
+    installed this test (production installs gui.worker.is_ui_thread, which
+    compares against QApplication's thread — same shape, same answer), and a
+    violation RAISES."""
     main = threading.current_thread()
     monkeypatch.setattr(connection_mod, "ui_thread_predicate",
                         lambda: threading.current_thread() is main)
+    monkeypatch.setattr(connection_mod, "ui_thread_read_refusal",
+                        connection_mod.UI_READ_RAISE)
+
+
+@pytest.fixture
+def ui_thread_log_mode(monkeypatch):
+    """The same predicate in the PRODUCTION mode: a violation is a red Log line
+    and the read goes on (С12)."""
+    main = threading.current_thread()
+    monkeypatch.setattr(connection_mod, "ui_thread_predicate",
+                        lambda: threading.current_thread() is main)
+    monkeypatch.setattr(connection_mod, "ui_thread_read_refusal",
+                        connection_mod.UI_READ_LOG)
 
 
 def _read_in_worker(connection):
@@ -284,6 +301,8 @@ def test_a_sign_does_not_travel_to_another_thread(monkeypatch):
     Mutation check: hold the depth in a module-global namespace instead of
     threading.local() and the worker's read stops being refused."""
     monkeypatch.setattr(connection_mod, "ui_thread_predicate", lambda: True)
+    monkeypatch.setattr(connection_mod, "ui_thread_read_refusal",
+                        connection_mod.UI_READ_RAISE)
     connection = BoardConnection()
     connection.board = object()
 
@@ -329,26 +348,73 @@ def test_a_sign_left_behind_does_not_outlive_its_block(ui_thread):
         _ = connection.board
 
 
+# ── С12 — the production mode: report, do not kill ───────────────────────────
+
+def test_log_mode_reports_the_read_and_hands_the_board_over(
+        ui_thread_log_mode, caplog):
+    """С12 — the PRODUCTION answer, decided with Denis 2026-09-21 after measuring
+    that an exception inside a Qt slot is a core dump: report the site at ERROR
+    level, ONCE, and hand the board over. A violation the user meets is a red Log
+    line, not a lost session.
+
+    Mutation checks: make the raise unconditional (m12-raise-always) and this
+    fails with UiThreadBoardReadRefused; log the line at WARNING instead of ERROR
+    and the level assertion fails."""
+    connection = BoardConnection()
+    board = object()
+    connection.board = board
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            assert connection.board is board      # handed over, never raised
+
+    errors = [record for record in caplog.records
+              if record.levelno == logging.ERROR
+              and Path(__file__).name in record.getMessage()]
+    assert len(errors) == 1, [record.getMessage() for record in errors]
+
+
+def test_the_refusal_mode_must_be_chosen_where_the_guard_is_armed():
+    """Т4 — the mode is a DECISION, made where the guard is armed, in writing:
+    `refusal` is a required keyword and only its two values are accepted.
+
+    Mutation check: give `refusal` a default in set_ui_thread_predicate
+    (m13-mode-not-required) and the first raise disappears."""
+    with pytest.raises(TypeError):
+        set_ui_thread_predicate(lambda: True)
+    with pytest.raises(ValueError):
+        set_ui_thread_predicate(lambda: True, refusal="shout")
+
+
 # ── С11 — no predicate: the guard is not looking at threads ──────────────────
 
-def test_without_a_predicate_nothing_is_refused(monkeypatch):
+def test_without_a_predicate_nothing_is_refused(monkeypatch, caplog):
     """С11 (table cell 8) — with no predicate installed (the default: the CLI,
     the MCP server, diagnostics and every test that does not install one) the
-    guard asks nothing and refuses nothing. This cell is why the existing suite
-    needed no edits.
+    guard is not looking at threads AT ALL: the read passes and NOTHING is
+    reported, not even a Log line. This cell is why the existing suite needed no
+    edits — and the Log half is what makes it hold in both modes: in "log" mode a
+    guard that looked would still hand the board over, so an assertion on the
+    value alone cannot see the difference.
 
-    Mutation check: default the predicate to "always the UI thread" and this
-    raises."""
+    Mutation check: invert the predicate test (m3b-no-predicate-treated-as-ui)
+    and this fails on the Log assertion, even though the value is still handed
+    over."""
     monkeypatch.setattr(connection_mod, "ui_thread_predicate", None)
     connection = BoardConnection()
     connection.board = object()
-    assert connection.board is not None
+    with caplog.at_level(logging.DEBUG):
+        assert connection.board is not None
+    assert [record for record in caplog.records
+            if Path(__file__).name in record.getMessage()] == []
 
 
 # ── С9 — the production entry point: absent on purpose, then mandatory ───────
 
 _ENTRY = _REPO_ROOT / "kicadstamp" / "gui_main.py"
-_ARMING = "set_ui_thread_predicate(is_ui_thread)"
+# The production form names the USER's mode: log, never raise (a raise inside a
+# Qt slot is a core dump — see UI_READ_LOG in gui/connection.py).
+_ARMING = 'set_ui_thread_predicate(is_ui_thread, refusal="log")'
 _T5_NOTE = "THE CALL IS DELIBERATELY ABSENT"
 
 
