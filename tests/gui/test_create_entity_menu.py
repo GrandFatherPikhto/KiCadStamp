@@ -976,3 +976,167 @@ def test_normalisation_extra_filled_sheet_through_the_real_form_reaches_the_reco
         "напечатанный лист обязан доехать до записи — это целевой лист "
         "twin-резолва, без него сущность клонируется не на тот лист; сейчас: "
         + repr(_entities(root)))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Имя: пустое из формы не выходит — §1 Т3 плана (сторож С4, мутация М4)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# ЗАМЕР, А НЕ РАССУЖДЕНИЕ. У имени, в отличие от кластера и листа, нет токена
+# `or None`: `name = self._name_edit.text().strip()` — и это, похоже, верно.
+# Пустое имя держит не нормализация, а гейт `if not name:` в _validate, и
+# вопрос Т3 звучит так: не выходит ли пустое имя из формы при КАКОМ-НИБУДЬ
+# порядке действий. Ответ получен перебором (заказы полей — параметром, живой
+# клик по кнопке OK — отдельным сторожем), а не чтением кода.
+#
+# Почему перебора достаточно: наружу ведёт ровно одна дверь — accept(). На
+# кнопке OK стоит сигнал QDialogButtonBox.accepted, подключённый в __init__ к
+# self.accept; Enter жмёт ту же кнопку (она default); `done(Accepted)` мимо
+# accept() пользователю недоступен, а крестик/Esc дают reject, то есть хаб
+# выходит на `dialog.exec() != Accepted` ещё до всякой проверки имени.
+
+def _form_after(parent, source_kind, source_name, actions):
+    """Настоящая форма ПОСЛЕ действий пользователя: `actions` — список
+    ("name"|"cluster"|"sheet", значение) в том порядке, в каком их делали."""
+    dlg = _RealCreateEntityDialog(parent, source_kind, source_name, [])
+    for field, value in actions:
+        {"name": dlg._name_edit, "cluster": dlg._cluster_edit,
+         "sheet": dlg._sheet_edit}[field].setText(value)
+    return dlg
+
+
+def _capture_warnings(monkeypatch) -> list:
+    """Перехват QMessageBox.warning — он модальный и в offscreen-прогоне иначе
+    просто повис бы. Тот же приём, что в
+    tests/gui/test_extract_cluster_dialog.py::test_empty_name_rejected_
+    without_accept: пишем текст и отдаём Ok."""
+    warnings: list = []
+    monkeypatch.setattr(
+        create_entity_mod.QMessageBox, "warning",
+        lambda *a, **k: warnings.append(a[2])
+        or create_entity_mod.QMessageBox.StandardButton.Ok)
+    return warnings
+
+
+# Заказы действий, которыми пользователь может получить пустое имя. Каждый —
+# отдельный случай параметра, поэтому падение одного не прячет остальные.
+C4_EMPTY_NAME_ORDERS = [
+    ("имя стёрто и оставлено пустым", "cell", "my_cell", [("name", "")]),
+    ("имя из одних пробелов", "cell", "my_cell", [("name", "   ")]),
+    ("имя стёрто, кластер заполнен", "cell", "my_cell",
+     [("name", ""), ("cluster", "CH1")]),
+    ("имя стёрто, лист заполнен", "cell", "my_cell",
+     [("name", ""), ("sheet", "Sheet_1")]),
+    ("имя набрано и стёрто", "cell", "my_cell",
+     [("name", "buf"), ("name", "")]),
+    ("имя стёрто последним действием, лист заполнен первым", "cell",
+     "my_cell", [("sheet", "Sheet_1"), ("name", "")]),
+    ("поле источника пусто (ячейка без имени)", "cell", "", []),
+    ("отпечаток без имени", "imprint", "", []),
+]
+
+
+@pytest.mark.parametrize(
+    "kind,source,actions",
+    [(k, s, a) for _label, k, s, a in C4_EMPTY_NAME_ORDERS],
+    ids=[label for label, _k, _s, _a in C4_EMPTY_NAME_ORDERS])
+def test_normalisation_c4_empty_name_never_leaves_the_form(
+        main_window, monkeypatch, kind, source, actions):
+    """С4 (§1 Т3): пустое имя не уходит из формы НИ ПРИ КАКОМ порядке действий.
+    Проверка идёт через настоящий accept() и подтверждается тремя вещами
+    сразу: диалог не принят, человеку СКАЗАНО, почему, и форма не выдумала имя
+    сама (иначе сторож проверял бы не тот случай).
+
+    Мутация М4 (пропускать пустое имя — снять `if not name:` в _validate)
+    роняет сторож: диалог принялся бы с пустым именем, и дальше в конфиг ушла
+    бы entities:-запись без имени — а её потом не назвать ни в дереве, ни по
+    кластеру."""
+    warnings = _capture_warnings(monkeypatch)
+    dlg = _form_after(main_window, kind, source, actions)
+
+    dlg.accept()
+
+    assert dlg.result() != QDialog.DialogCode.Accepted, (
+        f"порядок действий {actions!r}: форма приняла пустое имя (мутация М4); "
+        f"result_data() = {dlg.result_data()!r}")
+    assert warnings, (
+        "отказ обязан ГОВОРИТЬ, что имени нет: молчащая кнопка — это «не "
+        f"работает», а не «введите имя»; порядок действий {actions!r}")
+    assert dlg.result_data()[0] == "", (
+        "форма не имеет права выдумывать имя вместо пустого — иначе сторож "
+        f"проверял бы не тот случай: {dlg.result_data()!r}")
+
+
+def test_normalisation_c4_a_filled_name_is_accepted(main_window):
+    """КОНТРОЛЬ против ложной зелени С4: без него все сторожа выше были бы
+    зелёными и в том случае, если бы _validate отказывал ВСЕГДА («кнопка
+    никогда не работает»). Непустое имя — принимается, имя уходит как есть."""
+    dlg = _form_after(main_window, "cell", "my_cell", [])
+
+    dlg.accept()
+
+    assert dlg.result() == QDialog.DialogCode.Accepted, (
+        "с непустым именем форма обязана приниматься, иначе С4 — сторож "
+        "сломанной кнопки, а не пустого имени")
+    assert dlg.result_data()[0] == "my_cell"
+
+
+def test_normalisation_c4_ok_button_refuses_an_empty_name(main_window,
+                                                         monkeypatch):
+    """Не только прямой accept(): кнопка OK идёт тем же путём — сигнал
+    accepted -> self.accept() -> _validate. Здесь по ней КЛИКАЮТ, как человек,
+    а не зовут accept() вручную: иначе сторож держался бы за внутренний вызов,
+    а не за ту дверь, которой пользуется пользователь (Enter жмёт эту же
+    кнопку — она default)."""
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    warnings = _capture_warnings(monkeypatch)
+    dlg = _form_after(main_window, "cell", "my_cell", [("name", "")])
+    ok = dlg.findChild(QDialogButtonBox).button(
+        QDialogButtonBox.StandardButton.Ok)
+    assert ok is not None, "у формы обязана быть кнопка OK"
+
+    ok.click()
+
+    assert dlg.result() != QDialog.DialogCode.Accepted, (
+        "кнопка OK обязана идти через accept()/_validate, а не закрывать "
+        "диалог напрямую — иначе пустое имя выходит из формы мимо гейта "
+        "(мутация М4)")
+    assert warnings, "человеку обязано быть сказано, что имени нет"
+
+
+def test_normalisation_c4_empty_name_through_the_real_form_writes_nothing(
+        real_main_window, tmp_path, monkeypatch):
+    """Полный путь — то, что Т3 называет «не уходит ДАЛЬШЕ формы»: имя стёрто в
+    настоящей форме, и хаб не пишет НИЧЕГО.
+
+    Контроль против ложной зелени: отменённый диалог дал бы ровно то же «ничего
+    не записано», поэтому зелёный сторож держится ещё и на непустом списке
+    предупреждений. Отмена молчит, гейт имени — говорит.
+
+    Мутация М4 (пропускать пустое имя) роняет сторож: форма принялась бы, и хаб
+    записал бы запись с пустым именем — своего второго гейта на имя у него
+    нет (name_exists_in_list_section("") на пустом конфиге даёт False)."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": _cells("my_cell")})
+    _open_project(hub, root)
+    before = root.read_bytes()
+
+    action = _create_entity_action(
+        hub.config_tree_dock,
+        _find(_category(_file_item(hub.config_tree_dock.tree, root), "cells"),
+              "my_cell"),
+        monkeypatch)
+    warnings = _capture_warnings(monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        _accepted_real_form(name=""))
+
+    action.trigger()
+
+    assert root.read_bytes() == before, (
+        "пустое имя не имеет права доехать до конфига (мутация М4); сейчас: "
+        + repr(_entities(root)))
+    assert warnings, (
+        "человеку обязано быть сказано, что имени нет — иначе «ничего не "
+        "записано» неотличимо от отмены")
