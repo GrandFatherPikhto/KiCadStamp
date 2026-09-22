@@ -54,6 +54,7 @@ from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
 
 from . import overlay_markers
+from .connection import ui_thread_board_read
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import (
     CellAnchorView,
@@ -2132,9 +2133,27 @@ class DockHub:
         live position minus the live anchor base) and the checked inter-cluster
         nets as net_traces: records -> save through config_writer (backup +
         write + round-trip link_trees) -> refresh TreesDock / ConfigTreeDock.
+
+        Ш4 (plan_2026_09_22_board_door_finish): the entry the armed run of
+        22.09.2026 named. Its presence half is `connection.is_connected` — a
+        presence check must not open the door for an answer the connection
+        already has — and the adapter it captures for the flow's LIVE preview
+        reads (detect_inter_cluster_nets, the per-cluster/Entity positions,
+        resolve_role_anchor_base_mm, capture_units) is taken under the door's
+        sign, because that read IS deliberate on the UI thread. The flow's socket
+        discipline is the one it already had: _refresh_snapshot_then's
+        refresh_snapshot_then_with_retry owns the shared socket for the snapshot
+        rebuild that starts this continuation (one deferred retry, then the
+        documented cached-snapshot fallback).
         """
         connection = self.main_window.connection
-        board = getattr(connection, "board", None)
+        if not getattr(connection, "is_connected", False):
+            QMessageBox.warning(self.main_window, _("Extract tree"),
+                                _("Not connected."))
+            return
+        with ui_thread_board_read(
+                reason="hand the shared board to the Extract preview reads"):
+            board = connection.board
         adapter = getattr(board, "adapter", None) if board is not None else None
         if adapter is None:
             QMessageBox.warning(self.main_window, _("Extract tree"),

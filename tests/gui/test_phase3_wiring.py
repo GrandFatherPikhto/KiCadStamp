@@ -833,9 +833,12 @@ def test_extract_tree_no_fully_selected_cluster_shows_message(real_main_window,
     _write(root)
     real_main_window.root_metadata_dock.set_root_file(root)
     # Replace the live BoardConnection with a fake (its snapshot is a
-    # read-only property on the real one — this flow only reads it).
+    # read-only property on the real one — this flow only reads it). Since
+    # plan_2026_09_22_board_door_finish Ш4 the flow also asks the connection's
+    # `is_connected` for presence, so the fake must answer it.
     real_main_window.connection = SimpleNamespace(
-        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False)
+        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False,
+        is_connected=True)
     hub = real_main_window._dock_hub
     hub._selection_footprints = []
     hub._selection_raw_items = []
@@ -888,7 +891,7 @@ def test_extract_tree_happy_path_saves_tree_and_nets(real_main_window,
         get_field_value=lambda fp, name: None)
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=live_adapter),
-        snapshot=[sel1, sel2], long_op_active=False)
+        snapshot=[sel1, sel2], long_op_active=False, is_connected=True)
     # Phase F: the selection-watch state lives in DockHub, not ExtractDock.
     hub._selection_footprints = [sel1, sel2]
     hub._selection_raw_items = [
@@ -1306,7 +1309,7 @@ def test_extract_tree_remembers_new_cells_context(real_main_window,
     sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()), snapshot=[sel],
-        long_op_active=False)
+        long_op_active=False, is_connected=True)
     hub._selection_footprints = [sel]
     hub._selection_raw_items = [sel.fp]
 
@@ -2282,7 +2285,7 @@ def _refreshing_connection(snapshot_at_connect, snapshot_now):
     connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object(), refresh=lambda: None),
         snapshot=list(snapshot_at_connect),
-        long_op_active=False)
+        long_op_active=False, is_connected=True)
 
     def _refresh():
         threads.append(threading.current_thread().name)

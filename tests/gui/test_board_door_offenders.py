@@ -29,6 +29,7 @@ import pytest
 
 from gui.worker import snapshot_refresh_supported
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 
 
 @pytest.fixture
@@ -83,3 +84,57 @@ def test_snapshot_refresh_supported_does_not_read_the_board_unsigned(
     real_main_window.connection.board = SimpleNamespace(refresh=lambda: None)
 
     assert snapshot_refresh_supported(real_main_window.connection) is True
+
+
+# ── Ш4 (plan_2026_09_22_board_door_finish) — the Extract entry ───────────────
+# The place the armed run of 22.09.2026 named (dock_hub.py:2137). Its presence
+# half is is_connected; the adapter it captures for the flow's LIVE preview reads
+# is taken under the door's sign.
+
+def test_the_extract_entry_does_not_read_the_board_unsigned(
+        real_main_window, armed_door, monkeypatch):
+    """Ш4 — with the door ARMED the Extract entry refuses nothing. The flow stops
+    at the missing root (this window has none) and never reaches its dialog, so
+    the cells here are the entry itself.
+
+    Mutation check: drop the `with ui_thread_board_read(...)` wrapper and this
+    fails with a refusal naming gui/dock_hub.py."""
+    import gui.dock_hub as hub_mod
+    monkeypatch.setattr(hub_mod.QMessageBox, "warning", lambda *a, **k: None)
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+
+    real_main_window._dock_hub._extract_tree_from_selection_now()   # must not raise
+
+
+class _PresenceOnlyConnection:
+    """Answers the presence question and DIES if the door is opened anyway: the
+    Extract entry's "is there a board?" must not read `board`."""
+
+    def __init__(self):
+        self.is_connected = False
+        self.long_op_active = False
+        self.timeout_ms = DEFAULT_TIMEOUT_MS
+
+    @property
+    def board(self):
+        raise AssertionError("the presence check read the board through the door")
+
+
+def test_the_extract_presence_check_does_not_open_the_door(
+        real_main_window, monkeypatch):
+    """Ш4 — "is there a board?" is `connection.is_connected`, not a read of the
+    door (the Т5-2 idiom, applied to the Extract entry). Pinned with a connection
+    whose `board` raises when read: the flow must report "Not connected." without
+    touching it.
+
+    Mutation check: restore `getattr(connection, "board", None)` as the presence
+    check and this fails on the stand-in's AssertionError."""
+    import gui.dock_hub as hub_mod
+    warnings = []
+    monkeypatch.setattr(hub_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    real_main_window.connection = _PresenceOnlyConnection()
+
+    real_main_window._dock_hub._extract_tree_from_selection_now()
+
+    assert warnings, "the flow must report the missing connection"
