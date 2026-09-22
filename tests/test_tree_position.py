@@ -604,7 +604,10 @@ def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
         position = Vector2.from_xy(50 * MM, 60 * MM)
 
     class _FakeResolver:
-        def __init__(self, adapter, cfg, sheet_names):
+        def __init__(self, adapter, cfg, sheet_names, **kwargs):
+            # **kwargs: ComponentResolver gained a keyword-only `snapshot`
+            # (Т2-4а of plan_2026_09_22_live_adapter_class). A double that names
+            # its three arguments must tolerate the fourth.
             pass
 
         def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
@@ -918,7 +921,9 @@ def test_base_position_real_record_delegates_to_dispatcher(monkeypatch):
     sentinel = Vector2.from_xy(1, 2)
     calls = []
 
-    def _fake_dispatch(adapter, cfg, r, resolved_points, sheet_names):
+    def _fake_dispatch(adapter, cfg, r, resolved_points, sheet_names, **kwargs):
+        # **kwargs: the dispatcher gained a keyword-only `snapshot` (Т2-4а of
+        # plan_2026_09_22_live_adapter_class) and the base resolver forwards it.
         calls.append((adapter, cfg, r, resolved_points, sheet_names))
         return sentinel
 
@@ -971,7 +976,8 @@ def test_rotation_rule_via_live_footprint_angle(monkeypatch):
         angle_deg = 33.0
 
     class _FakeResolver:
-        def __init__(self, adapter, cfg, sheet_names):
+        def __init__(self, adapter, cfg, sheet_names, **kwargs):
+            # **kwargs: the resolver's keyword-only `snapshot` (Т2-4а).
             self.args = (adapter, cfg, sheet_names)
 
         def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
@@ -1037,7 +1043,8 @@ def test_base_rotation_real_record_delegates_to_dispatcher(monkeypatch):
     rec = _record("clone", "CL_A")
     calls = []
 
-    def _fake_dispatch(adapter, cfg, r, sheet_names):
+    def _fake_dispatch(adapter, cfg, r, sheet_names, **kwargs):
+        # **kwargs: the rotation dispatcher gained `snapshot` too (Т2-4а).
         calls.append((adapter, cfg, r, sheet_names))
         return 7.0
 

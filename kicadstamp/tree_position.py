@@ -128,7 +128,7 @@ def node_position(node: TreeNode, parent_position: Vector2,
 def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
                     tree_base_rot: float, adapter, cfg, sheet_names,
                     forest: "dict[str, Tree] | None" = None,
-                    visited: frozenset = frozenset()
+                    visited: frozenset = frozenset(), *, snapshot=None
                     ) -> tuple[Vector2, float]:
     """Absolute (pos, rot) of a kind "mount" node's base — the point the node's
     whole subtree hangs from. TWO methods, chosen STRUCTURALLY from the config
@@ -180,7 +180,7 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
     if match is not None:
         return _internal_mount_base(
             node, anchor, match, tree, tree_base_pos, tree_base_rot,
-            adapter, cfg, sheet_names, chain)
+            adapter, cfg, sheet_names, chain, snapshot=snapshot)
     # ── LIVE method: the role is outside the tree, its base really lives there ──
     if adapter is None:
         # There is no static fallback for an external base, so a pure
@@ -190,7 +190,7 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
             "node {ref!r}: mount node needs a live board connection — its anchor "
             "role {role!r} is not placed by this tree").format(
                 ref=node.ref, role=anchor.role))
-    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
     fp = resolver.resolve_anchor_fp(
         None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
         label=anchor.role)
@@ -203,7 +203,7 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
 
 def _node_path_pose(tree: Tree, path: list[TreeNode], base_pos: Vector2,
                     base_rot: float, adapter, cfg, sheet_names,
-                    chain: frozenset) -> tuple[Vector2, float]:
+                    chain: frozenset, *, snapshot=None) -> tuple[Vector2, float]:
     """Absolute (pos, rot) of a node reached along `path` from the tree's own
     base — the SAME composition every walk uses (node_position + rotation
     accumulation). A mount node on the path substitutes its own base with the
@@ -216,7 +216,8 @@ def _node_path_pose(tree: Tree, path: list[TreeNode], base_pos: Vector2,
     for n in path:
         if n.kind == "mount":
             pos, rot = mount_node_base(n, tree, base_pos, base_rot, adapter, cfg,
-                                       sheet_names, None, chain)
+                                       sheet_names, None, chain,
+                                       snapshot=snapshot)
         pos = node_position(n, pos, rot)
         rot = rot + n.rotation
     return pos, rot
@@ -237,7 +238,8 @@ def _footprint_relative_mirror(fp, cell, fallback: bool) -> bool:
 def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,
                          match, tree: Tree, tree_base_pos: Vector2,
                          tree_base_rot: float, adapter, cfg, sheet_names,
-                         chain: frozenset) -> tuple[Vector2, float]:
+                         chain: frozenset, *, snapshot=None
+                         ) -> tuple[Vector2, float]:
     """The INTERNAL mount base (plan §Г.3): the slot's world pose computed from
     the tree's OWN layout + the cell's own stored geometry, then — when a pad is
     named — the pad's footprint-frame offset re-applied onto that COMPUTED slot.
@@ -248,7 +250,8 @@ def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,
     entity = match.entity
     mirror = bool(getattr(entity, "mirror", False))
     pos, rot = _node_path_pose(tree, match.path, tree_base_pos, tree_base_rot,
-                               adapter, cfg, sheet_names, chain)
+                               adapter, cfg, sheet_names, chain,
+                               snapshot=snapshot)
     frame = CellFrame(placement_origin=pos, rotation_deg=rot, mirror=mirror,
                       mount=cell_mount_offset(match.cell))
     slot = match.slot
@@ -267,7 +270,7 @@ def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,
             "node {ref!r}: mount node's anchor names pad {pad!r} — reading a "
             "pad's shape needs a live board connection").format(
                 ref=node.ref, pad=anchor.anchor_pad))
-    resolver = ComponentResolver(adapter, cfg, sheet_names)
+    resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
     fp = resolver.resolve_anchor_fp(
         None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
         label=anchor.role)
@@ -445,8 +448,8 @@ def tree_effective_base(tree: "Tree", marker_pos: Vector2,
     return resolve_module_effective_base(marker_pos, eff_rot, pivot)
 
 
-def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None
-                     ) -> tuple[Vector2, float]:
+def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None, *,
+                     snapshot=None) -> tuple[Vector2, float]:
     """The EFFECTIVE layout base of a tree placed from its OWN live anchor: the
     tree's raw anchor pose (tree_position._anchor_base_live_position, every
     anchor mode) with tree_effective_base on top. The single call every caller
@@ -454,7 +457,12 @@ def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None
     POSITION indicator keeps calling the raw resolver, because it shows where
     the anchor lives, not where the content starts (plan §V.5.2)."""
     anchor_pos, anchor_rot = _anchor_base_live_position(
-        adapter, cfg, tree, sheet_names)
+        adapter, cfg, tree, sheet_names, snapshot=snapshot)
+    # NOTE (Т2-4а of plan_2026_09_22_live_adapter_class): the snapshot reaches the
+    # ANCHOR half, which is the whole-board sweep. tree_effective_base's own pivot
+    # half (tree_pivot_offset) has no snapshot parameter yet, so a PIVOT-REF tree
+    # can still sweep there — named, not hidden; that seam belongs to the step that
+    # needs it.
     return tree_effective_base(tree, anchor_pos, anchor_rot, forest,
                                adapter=adapter, cfg=cfg, sheet_names=sheet_names)
 
@@ -572,7 +580,7 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
 
 
 def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
-                                 sheet_names) -> Vector2:
+                                 sheet_names, *, snapshot=None) -> Vector2:
     """Thin kind dispatcher, called ONLY for a base with a real record:
       - "clone": ClonePositionCalculator._resolve_anchor() + clone_shift_mm()
       - "placement": resolve_entity_live_position() — the tree that places the
@@ -619,7 +627,7 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         return resolved.position
 
     if kind == "chain":
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
         fp = resolver.resolve_anchor_fp(
             rec.anchor_ref, rec.anchor_role, rec.anchor_sheet, rec.anchor_cluster,
             label=rec.name)
@@ -643,7 +651,7 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         # node its live position is that anchor point (same ComponentResolver
         # search net_trace_planner uses). Phase D, 2026-09-01.
         nt = rec.obj
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
         fp = resolver.resolve_anchor_fp(
             None, nt.anchor_role, nt.anchor_sheet, nt.anchor_cluster,
             label=rec.name)
@@ -655,7 +663,8 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
 
 
 def resolve_base_live_position(adapter, cfg, ref: str, record: Record | None,
-                               resolved_points, sheet_names) -> Vector2:
+                               resolved_points, sheet_names, *,
+                               snapshot=None) -> Vector2:
     """Entry point for a BASE (tree anchor, or a parent node outside the
     curated selection) — the only thing that needs a LIVE board position.
     record is None (external ref) -> resolve_footprint_by_ref(adapter, ref,
@@ -664,10 +673,12 @@ def resolve_base_live_position(adapter, cfg, ref: str, record: Record | None,
     if record is None:
         fp = resolve_footprint_by_ref(adapter, ref, ref)
         return fp.position
-    return resolve_record_live_position(adapter, cfg, record, resolved_points, sheet_names)
+    return resolve_record_live_position(adapter, cfg, record, resolved_points,
+                                        sheet_names, snapshot=snapshot)
 
 
-def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float | None:
+def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names, *,
+                                snapshot=None) -> float | None:
     """Kind dispatcher for a record's CURRENT rotation — NOT computed from a
     live footprint reading for clone/coordinate (they already store it
     explicitly in config, with well-established "relative to what" semantics
@@ -711,7 +722,7 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
         _, rotation_deg = resolve_target_position(cp)
         return rotation_deg
     if kind == "chain":
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
         fp = resolver.resolve_anchor_fp(
             rec.anchor_ref, rec.anchor_role, rec.anchor_sheet, rec.anchor_cluster,
             label=rec.name)
@@ -725,7 +736,7 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names) -> float
 
 
 def resolve_base_rotation_deg(adapter, cfg, ref: str, record: Record | None,
-                              sheet_names) -> float | None:
+                              sheet_names, *, snapshot=None) -> float | None:
     """Entry point for a BASE's rotation (tree anchor, or a parent/child node).
     record is None -> external ref, live footprint's own angle_deg. record is
     not None -> resolve_record_rotation_deg(...). is_origin (record=None AND
@@ -735,7 +746,8 @@ def resolve_base_rotation_deg(adapter, cfg, ref: str, record: Record | None,
     if record is None:
         fp = resolve_footprint_by_ref(adapter, ref, ref)
         return fp.angle_deg
-    return resolve_record_rotation_deg(adapter, cfg, record, sheet_names)
+    return resolve_record_rotation_deg(adapter, cfg, record, sheet_names,
+                                       snapshot=snapshot)
 
 
 def relative_rotation_deg(child_deg: float, parent_deg: float) -> float:

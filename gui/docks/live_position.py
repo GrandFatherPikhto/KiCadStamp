@@ -519,8 +519,8 @@ class LiveRecordPose:
     from_cluster: bool = False
 
 
-def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names
-                          ) -> LiveRecordPose:
+def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names, *,
+                          snapshot=None) -> LiveRecordPose:
     """THE "where this record stands on the board right now" dispatcher
     (plan_2026_09_11_tree_node_live_read_and_board_frame §2.2).
 
@@ -568,6 +568,11 @@ def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names
         resolve_base_live_position,
         resolve_base_rotation_deg,
     )
-    pos = resolve_base_live_position(adapter, cfg, ref, record, {}, sheet_names)
-    rot = resolve_base_rotation_deg(adapter, cfg, ref, record, sheet_names)
+    # snapshot (Т2-4а of plan_2026_09_22_live_adapter_class): forwarded so the
+    # role branch of the record's anchor resolves its identity in memory instead
+    # of sweeping the board. None (the default) = the sweep, byte for byte.
+    pos = resolve_base_live_position(adapter, cfg, ref, record, {}, sheet_names,
+                                     snapshot=snapshot)
+    rot = resolve_base_rotation_deg(adapter, cfg, ref, record, sheet_names,
+                                    snapshot=snapshot)
     return LiveRecordPose(position=pos, rotation_deg=rot, mirror=False)

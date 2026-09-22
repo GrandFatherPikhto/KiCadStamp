@@ -648,15 +648,15 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
         # this function's signature (and its monkeypatched test doubles).
         forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
         tree_base_pos, tree_base_rot = tree_layout_base(
-            adapter, cfg, tree, sheet_names, forest)
+            adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)
         parent_pos, parent_deg = mount_node_base(
             parent_node, tree, tree_base_pos, tree_base_rot, adapter, cfg,
-            sheet_names, forest)
+            sheet_names, forest, snapshot=snapshot)
         return parent_pos, parent_deg, False
     parent_record, _is_external = _resolve_probe_ref(
         cfg, parent_node.ref, parent_node.kind)
     pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,
-                                 sheet_names)
+                                 sheet_names, snapshot=snapshot)
     return pose.position, pose.rotation_deg, pose.mirror
 
 
@@ -3639,12 +3639,20 @@ class TreesDock(QWidget):
             # the next attempt, once the socket is free, recalculates.
             return False, None
         try:
-            # The door's sign (Т2-4 of plan_2026_09_22_live_adapter_class): two
-            # anchor resolves, made on the UI thread because the caller re-hangs the
-            # node in the SAME turn. The snapshot makes them short — the role branch
-            # of each resolve answers its identity question in memory instead of
-            # sweeping the board (measured before: 2 sweeps = 2x get_footprints +
-            # 664 get_field_value for one re-hang; probe_2026_09_22_rehang_offset_cost).
+            # The door's sign (Т2-4/Т2-4а of plan_2026_09_22_live_adapter_class):
+            # two anchor resolves, made on the UI thread because the caller re-hangs
+            # the node in the SAME turn. What this sign covers, per branch, measured
+            # (diagnostics/probe_2026_09_22_rehang_offset_cost.py, whose table is the
+            # reason Т2-4а exists — the first probe measured the CALL, and a call
+            # reaches ONE of _resolve_node_base_pose's four branches): every branch
+            # that resolves a ROLE anchor passes the snapshot on, and each of the four
+            # goes from 1/1/2/2 whole-board sweeps to 0.
+            #
+            # NOT covered, named rather than hidden: the sub-seams with no snapshot
+            # parameter of their own — tree_pivot_offset (the pivot half of a
+            # pivot-ref tree's layout), resolve_entity_live_position, the point chain
+            # and ClonePositionCalculator. A parent that is an Entity or a point, or a
+            # pivot-ref tree, can therefore still sweep the board on this path.
             with ui_thread_board_read(
                     reason="resolve the new parent's live base for a re-hang "
                            "(two anchor resolves, identity from the snapshot)"):
