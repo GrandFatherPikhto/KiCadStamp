@@ -66,9 +66,33 @@ def _rotate_native(vec: Vector2, angle_deg: float) -> Vector2:
     return vec.rotate(Angle.from_degrees(angle_deg), _ORIGIN)
 
 
+def _index_snapshot_by_cluster_role(snapshot) -> dict:
+    """Group the caller's BOARD SNAPSHOT (``connection.snapshot`` —
+    ``explore.Selected`` items, one per footprint) by its exact (Role, Cluster)
+    pair: the in-memory twin of ``_build_footprint_index`` below.
+
+    Why it exists (plan_2026_09_22_board_door_finish Ш1): answering the same
+    question from the adapter costs a whole-board sweep — one
+    ``get_footprints()`` (a poll tick's ``refresh_board()`` can leave that cache
+    cold at ~166 ms live) plus two ``get_field_value()`` per footprint (the 666
+    scans of the 21.09.2026 UI-thread measurement). The snapshot ALREADY holds
+    exactly those two values, so the IDENTITY question ("which single footprint
+    carries this Role+Cluster?") costs nothing here.
+
+    The POSITION is deliberately NOT taken from it: ``Selected.fp`` belongs to
+    the snapshot's generation, so a caller that needs to know where the
+    component IS must read the adapter's own current generation — see the
+    snapshot branch of ``resolve_footprint_by_cluster_role``."""
+    index: dict = {}
+    for selected in snapshot or ():
+        index.setdefault((selected.role, selected.cluster), []).append(selected)
+    return index
+
+
 def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: str,
                                       sheet: str | None = None,
-                                      sheet_names: dict[str, str] | None = None) -> Footprint:
+                                      sheet_names: dict[str, str] | None = None,
+                                      *, snapshot=None) -> Footprint:
     """Exact-match lookup — same convention as ClonePlacement's cluster:
     mode (resolve_by_cluster_tag in clone_role_resolver.py, 2026-08-06:
     "Cluster is meant to be unique per instance... a direct, unconditional
@@ -95,8 +119,33 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
     fatal-if-not-unique check. Sheet only narrows if it actually reduces
     the set, and a sheet matching nothing leaves the (possibly ambiguous)
     list intact for the usual fatal message — it never silently drops a
-    candidate."""
+    candidate.
+
+    snapshot (2026-09-22, plan_2026_09_22_board_door_finish Ш1) — the caller's
+    ``connection.snapshot``, when it has one. The caller that OWNS the polled
+    snapshot (the GUI's "Read current position") then identifies the footprint
+    in memory instead of sweeping the board, and the returned object comes from
+    ``adapter.get_footprint(ref)`` — the adapter's CURRENT generation, never the
+    snapshot's cached ``Selected.fp`` (whose position is as old as the snapshot;
+    a form whose whole job is "where is it NOW" must not be answered from it).
+    Default None = the historical adapter sweep, byte for byte: the apply path,
+    the CLI and the MCP server pass nothing and are unaffected."""
     field_matches = {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}
+    if snapshot is not None:
+        # Identity from the snapshot (no board scan, no field scans), position
+        # from the adapter's current generation.
+        matches = [s.fp for s in
+                   _index_snapshot_by_cluster_role(snapshot).get((role, cluster), [])]
+        matches = narrow_candidates_by_sheet(matches, sheet, sheet_names or {})
+        chosen = match_unique_footprint_by_fields(matches, field_matches, label)
+        live = adapter.get_footprint(chosen.ref)
+        if live is None:
+            # The ref the snapshot named has left the live board (deleted or
+            # renamed since the poll that built it). Called for its raise: the
+            # canonical "no component tagged ..." fatal, never the stale
+            # snapshot object — a vanished footprint is exactly that fact.
+            match_unique_footprint_by_fields([], field_matches, label)
+        return live
     matches = [fp for fp in adapter.get_footprints()
                if all(adapter.get_field_value(fp, field) == value
                       for field, value in field_matches.items())]

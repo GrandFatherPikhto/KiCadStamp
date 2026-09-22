@@ -134,6 +134,7 @@ from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.utils.units import MM
 
 from ..connection import worker_timeout_ms
+from ..connection import ui_thread_board_read
 from ..ui_utils import busy
 from ..worker import socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget
@@ -2022,9 +2023,40 @@ class PlacerDock(QWidget):
         would require the position fields to already be filled. Short
         synchronous board reads wrapped in busy(), same as Select-on-board.
         Never a silent partial write: any failure is a warning, fields
-        untouched."""
+        untouched.
+
+        Ш1 (plan_2026_09_22_board_door_finish): the IDENTITY half is answered
+        from `connection.snapshot` — the polled list this dock already displays —
+        instead of by a whole-board sweep: that sweep cost two
+        `get_field_value()` per footprint (666 scans measured 21.09.2026) plus a
+        `get_footprints()` the poll tick can leave cold (~166 ms). The POSITION
+        still comes from the live adapter (`resolve_footprint_by_cluster_role`'s
+        snapshot branch reads `adapter.get_footprint(ref)`), never from the
+        snapshot's cached footprint — see that function's docstring.
+
+        Ш1e (decided by the 22.09.2026 measurement, plan_2026_09_22_board_door_
+        finish): this place is NOT moved to a worker. After Ш1 the adapter part
+        of it is ONE `get_footprint(ref)` — 0.3 ms measured on the live board,
+        with the 666 per-footprint field scans and the whole-board
+        `get_footprints()` gone — so it is a deliberate short UI-thread read and
+        says so with the door's sign instead of paying for a worker. The sign
+        wraps only the read of the door itself; the resolver below reads through
+        the adapter handle that read handed over."""
+        connection = self._main_window.connection
+        if socket_busy(connection):
+            # The ~400ms selection tick (or a long op) owns the shared kipy REQ
+            # socket right now, and this read still touches it: the resolved
+            # footprint's live position comes off the shared adapter. REFUSED
+            # rather than interleaved with that in-flight transaction — the
+            # symptom would be "Error receiving reply from KiCad: Operation
+            # canceled", and the failure would look like a tagging mistake. A
+            # second click, once the socket is free, does the job (door rule 3;
+            # the same discipline _on_select_on_board above already carries).
+            return
         with busy(self._action_buttons()):
-            board = self._main_window.connection.board
+            with ui_thread_board_read(
+                    reason="hand the shared board to the live-position resolver"):
+                board = connection.board
             if board is None or getattr(board, "adapter", None) is None:
                 # Connection state, not user input — a Log line, never a modal
                 # (plan_2026_09_11_no_modals_and_busy_kicad X.1); the read is
@@ -2063,7 +2095,13 @@ class PlacerDock(QWidget):
             try:
                 sheet = form.sheet_edit.currentText().strip() or None
                 read = read_coordinate_live(
-                    board.adapter, cluster, role, sheet, sheet_names, label)
+                    board.adapter, cluster, role, sheet, sheet_names, label,
+                    # getattr, and deliberately so: a bare stand-in connection
+                    # may carry no snapshot at all, and None then means "sweep
+                    # the adapter" — the pre-Ш1 behaviour, pinned by
+                    # test_imprint_place_gui's "a bare fake has none" guard. A
+                    # real BoardConnection always has one.
+                    snapshot=getattr(connection, "snapshot", None))
                 anchor_position: Optional[Vector2] = None
                 if form.mode_combo.currentIndex() == 2:  # anchor-relative
                     anchor_fields, err = form._anchor_widget.build()

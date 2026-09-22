@@ -90,12 +90,20 @@ class LiveRead:
 
 
 def read_coordinate_live(adapter, cluster: str, role: str,
-                         sheet: str | None, sheet_names, label: str) -> LiveRead:
+                         sheet: str | None, sheet_names, label: str,
+                         *, snapshot=None) -> LiveRead:
     """CoordinatePlacement's referent: the ONE component with this exact
     (Role, Cluster) — resolve_footprint_by_cluster_role (the same resolver the
-    "dumb placer" apply path and Select-on-board use). Fatal on 0 or 2+."""
+    "dumb placer" apply path and Select-on-board use). Fatal on 0 or 2+.
+
+    snapshot (2026-09-22, plan_2026_09_22_board_door_finish Ш1): the caller's
+    ``connection.snapshot``, when the caller is the GUI and has one. Identity is
+    then answered from that already-read data instead of by a whole-board sweep
+    (no get_footprints, no per-footprint get_field_value); the POSITION still
+    comes from the live adapter, never from the snapshot's cached footprint."""
     fp = resolve_footprint_by_cluster_role(
-        adapter, cluster, role, label, sheet=sheet, sheet_names=sheet_names)
+        adapter, cluster, role, label, sheet=sheet, sheet_names=sheet_names,
+        snapshot=snapshot)
     return LiveRead(position=fp.position, rotation_deg=fp.angle_deg, footprint=fp)
 
 

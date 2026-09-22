@@ -16,6 +16,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.explore import Selected
 
 from gui.docks.live_position import (
     read_anchor_live,
@@ -319,4 +320,115 @@ class TestReadCloneOriginLive:
         assert read.position == Vector2.from_xy_mm(10.0, 20.0)
         assert read.rotation_deg == 0.0
         assert read.footprint is mount
+
+
+# ── Ш1 (plan_2026_09_22_board_door_finish): identity from the polled snapshot ──
+# The property: with `snapshot=` given, read_coordinate_live() answers the
+# IDENTITY question from that already-read list — no get_footprints(), no
+# get_field_value() — and takes the POSITION from the adapter's CURRENT
+# generation, never from the snapshot's cached footprint (whose position is as
+# old as the poll that built the list). The cells (rule 35): identity without a
+# sweep, position from the live generation, no match, ambiguity, sheet
+# narrowing, and the ref gone from the live board. The default (snapshot=None)
+# keeps the historical adapter sweep — TestReadCoordinateLive above pins it.
+
+def _selected(fp, role, cluster):
+    """One snapshot row (explore.Selected) — the shape connection.snapshot has."""
+    return Selected(ref=fp.ref, role=role, cluster=cluster, sheet=[], nets={}, fp=fp)
+
+
+def _snapshot_only_adapter(live_fps):
+    """An adapter that answers `get_footprint` and DIES on either call the
+    snapshot branch must not make — a whole-board sweep or a field scan then
+    fails loudly instead of passing unnoticed."""
+    adapter = _adapter(live_fps)
+
+    def _sweep(*a, **k):
+        raise AssertionError("get_footprints() was called: the board was swept")
+    adapter.get_footprints.side_effect = _sweep
+
+    def _field(*a, **k):
+        raise AssertionError("get_field_value() was called: a field was scanned")
+    adapter.get_field_value.side_effect = _field
+    return adapter
+
+
+class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
+    def test_the_snapshot_answers_identity_without_a_board_sweep(self):
+        """Cell 1 — the row in the snapshot names the footprint, so neither
+        get_footprints() nor get_field_value() is reached (both raise here)."""
+        live = _make_fp("R1", position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
+        stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0))
+        adapter = _snapshot_only_adapter([live])
+
+        read = read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
+                                    snapshot=[_selected(stale, "R_CLK", "FPGA_FLASH")])
+
+        assert read.footprint is live
+
+    def test_the_position_comes_from_the_live_board_not_from_the_snapshot(self):
+        """Cell 2 — the snapshot row carries its own (stale) footprint object;
+        the read must say where the component IS, i.e. return the adapter's
+        current object, never the snapshot's cached one."""
+        live = _make_fp("R1", position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
+        stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0), angle=0.0)
+        adapter = _snapshot_only_adapter([live])
+
+        read = read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
+                                    snapshot=[_selected(stale, "R_CLK", "FPGA_FLASH")])
+
+        assert read.position == Vector2.from_xy_mm(5.0, 6.0)
+        assert read.rotation_deg == 30.0
+
+    def test_a_snapshot_with_no_matching_row_is_fatal(self):
+        """Cell 3 — the same canonical none-match fatal the adapter sweep gives."""
+        other = _make_fp("R9")
+        adapter = _snapshot_only_adapter([other])
+
+        with pytest.raises(ValidationError, match="no component tagged"):
+            read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
+                                 snapshot=[_selected(other, "OTHER", "ELSEWHERE")])
+
+    def test_an_ambiguous_snapshot_pair_is_fatal(self):
+        """Cell 4 — two rows sharing the exact (Role, Cluster) pair: the same
+        fatal-if-not-unique check; the first is never simply taken."""
+        first = _make_fp("R1")
+        second = _make_fp("R2")
+        adapter = _snapshot_only_adapter([first, second])
+        snapshot = [_selected(first, "R_CLK", "FPGA_FLASH"),
+                    _selected(second, "R_CLK", "FPGA_FLASH")]
+
+        with pytest.raises(ValidationError, match="expected exactly one"):
+            read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
+                                 snapshot=snapshot)
+
+    def test_the_snapshot_pair_is_narrowed_by_sheet(self):
+        """Cell 5 — two rows on two instances of a reused sheet: the sheet
+        narrows to the one the form asked for, exactly as on the adapter path."""
+        ch0 = _make_fp("R1")
+        ch0.sheet_path_uuids = ("sheet-0", "own-0")
+        ch1 = _make_fp("R2")
+        ch1.sheet_path_uuids = ("sheet-1", "own-1")
+        adapter = _snapshot_only_adapter([ch0, ch1])
+        snapshot = [_selected(ch0, "R_CLK", "FPGA_FLASH"),
+                    _selected(ch1, "R_CLK", "FPGA_FLASH")]
+
+        read = read_coordinate_live(
+            adapter, "FPGA_FLASH", "R_CLK", "Channel_1",
+            {"sheet-0": "Channel_0", "sheet-1": "Channel_1"}, "R_CLK",
+            snapshot=snapshot)
+
+        assert read.footprint.ref == "R2"
+
+    def test_a_snapshot_ref_that_left_the_board_is_fatal_not_stale(self):
+        """Cell 6 — the row names a ref the live board no longer has (deleted or
+        renamed since the poll): fatal, and never the snapshot's own object —
+        the point of the cell is that a vanished footprint must not be answered
+        with the position it had when the list was built."""
+        stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0))
+        adapter = _snapshot_only_adapter([])          # no R1 on the live board
+
+        with pytest.raises(ValidationError, match="no component tagged"):
+            read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
+                                 snapshot=[_selected(stale, "R_CLK", "FPGA_FLASH")])
 

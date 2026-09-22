@@ -9,6 +9,8 @@ failure) exactly like test_trees_dock.py drives _resolve_live_offset. The
 resolvers' own correctness is covered by tests/test_live_position.py."""
 import logging
 
+import pytest
+
 import gui.docks.placer as placer_mod
 from gui.docks.live_position import LiveRead
 from gui.docks.placer import PlacerDock
@@ -47,6 +49,17 @@ def _set_identity(form, cluster="FPGA_FLASH", role="R_CLK"):
     form.role_combo.setCurrentText(role)
 
 
+@pytest.fixture
+def armed_door(monkeypatch):
+    """The door's guard ARMED in the test rig's mode (a violation raises) — the
+    same shape tests/gui/test_board_door_offenders.py uses. Only the two Ш1e tests
+    below need it: they are about the read of the door itself."""
+    from gui import connection as connection_mod
+    monkeypatch.setattr(connection_mod, "ui_thread_predicate", lambda: True)
+    monkeypatch.setattr(connection_mod, "ui_thread_read_refusal",
+                        connection_mod.UI_READ_RAISE)
+
+
 def _make_clone_dock(main_window, tmp_path):
     """A PlacerDock in Cell (ClonePlacement) mode with a selected cell and a
     cluster — rooted at a minimal valid root.sexp."""
@@ -58,6 +71,97 @@ def _make_clone_dock(main_window, tmp_path):
     dock._selected_cell = "pi_filter"
     dock.cluster_edit.setCurrentText("FPGA_FLASH")
     return dock, placer_file
+
+
+def test_coordinate_read_position_identifies_from_the_connections_snapshot(
+        main_window, tmp_path, monkeypatch):
+    """Ш1 (plan_2026_09_22_board_door_finish) — the dock hands the connection's
+    OWN polled snapshot to the resolver, so the identity comes from the list the
+    dock already displays instead of from a whole-board sweep. Pinned by
+    IDENTITY, not by equality: a fresh copy of the list would be a different
+    object and would not be the polled data.
+
+    Mutation check: drop `snapshot=connection.snapshot` from the call and the
+    captured keyword is None."""
+    dock, _ = _make_coordinate_dock(main_window, tmp_path)
+    main_window.connection.board = _FakeBoard()
+    form = dock.coordinate_form
+    _set_identity(form)
+    polled = object()                     # not a list: only identity is asserted
+    main_window.connection.snapshot = polled
+    seen = {}
+
+    def _capture(*args, **kwargs):
+        seen.update(kwargs)
+        return LiveRead(position=Vector2.from_xy(0, 0), rotation_deg=0.0,
+                        footprint=None)
+    monkeypatch.setattr(placer_mod, "read_coordinate_live", _capture)
+
+    dock._on_coordinate_read_position()
+
+    assert seen.get("snapshot") is polled
+
+
+def _real_door(main_window, board=None) -> "BoardConnection":
+    """Give the stub window a REAL BoardConnection (the `main_window` fixture's
+    `_FakeConnection` is a plain attribute bag — it has no door, so a test about
+    the door's SIGN cannot see anything through it). Used by the two Ш1e tests
+    below; every other test in this file is about orchestration and keeps the
+    fake."""
+    from gui.connection import BoardConnection
+    connection = BoardConnection()
+    if board is not None:
+        connection.board = board
+    main_window.connection = connection
+    return connection
+
+
+def test_the_position_read_is_signed_for_the_door(main_window, tmp_path, monkeypatch,
+                                                  armed_door):
+    """Ш1e — the read of `connection.board` here is DELIBERATE and short (one
+    `get_footprint(ref)`, 0.3 ms measured on the live board 22.09.2026), so it
+    carries the door's sign instead of moving to a worker. With the door ARMED
+    over a REAL connection the call must simply work.
+
+    Mutation check: drop the `with ui_thread_board_read(...)` wrapper and this
+    fails with a refusal naming gui/docks/placer.py (mutation M8 of
+    diagnostics/run_board_door_s1_mutations.py)."""
+    _real_door(main_window, _FakeBoard())
+    dock, _ = _make_coordinate_dock(main_window, tmp_path)
+    form = dock.coordinate_form
+    _set_identity(form)
+    monkeypatch.setattr(placer_mod, "read_coordinate_live", lambda *a, **k: LiveRead(
+        position=Vector2.from_xy(0, 0), rotation_deg=0.0, footprint=None))
+
+    dock._on_coordinate_read_position()          # must not raise
+
+    assert form.x_edit.text() == "0.000"
+
+
+def test_the_position_read_is_refused_while_the_socket_is_busy(
+        main_window, tmp_path, monkeypatch):
+    """Ш1e / door rule 3 — the read still touches the SHARED adapter (the resolved
+    footprint's live position), so while the ~400ms selection tick or a long op
+    owns that socket the click is refused instead of being interleaved into its
+    in-flight transaction. Nothing is resolved and nothing is written.
+
+    Mutation check: drop the `if socket_busy(connection): return` and the
+    resolver is reached (the spy records the call)."""
+    connection = _real_door(main_window, _FakeBoard())
+    connection.long_op_active = True
+    dock, _ = _make_coordinate_dock(main_window, tmp_path)
+    form = dock.coordinate_form
+    _set_identity(form)
+    calls = []
+    monkeypatch.setattr(placer_mod, "read_coordinate_live",
+                        lambda *a, **k: calls.append(a) or LiveRead(
+                            position=Vector2.from_xy(0, 0), rotation_deg=0.0,
+                            footprint=None))
+
+    dock._on_coordinate_read_position()
+
+    assert calls == []
+    assert form.x_edit.text() == ""
 
 
 def test_coordinate_read_position_fills_xy_and_rotation(main_window, tmp_path, monkeypatch):
