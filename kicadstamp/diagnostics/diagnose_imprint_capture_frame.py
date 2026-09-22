@@ -304,20 +304,27 @@ def test_read_consistency(rows: list[dict]) -> tuple[str, str]:
     return "INCONSISTENT", "angle mismatch: " + ", ".join(mismatches)
 
 
-def test_mirror_fingerprint(rows: list[dict], tol: float) -> tuple[str, str]:
-    """An exact |across| collision between two DIFFERENT refs is not something a
-    moved board produces (two parts do not land on mirrored coordinates to 1e-4);
-    it is a fingerprint of a code path."""
-    hits = []
-    values = [(r["ref"], row_across) for r in rows
-              for row_across in [r["rec_across_mm"]]]
-    for i, (ref_a, a) in enumerate(values):
-        for ref_b, b in values[i + 1:]:
-            if abs(a + b) <= tol and abs(a) > tol:
-                hits.append(f"{ref_a} {a:g} == -({ref_b} {b:g})")
-    if not hits:
-        return "CLEAN", "no exact sign-mirrored across pair"
-    return "FINGERPRINT", "exact sign-mirrored across: " + "; ".join(hits)
+def test_extent_centre_health(rows: list[dict], tol: float) -> tuple[str, str]:
+    """HEALTH invariant, not a fingerprint: the frame origin is the CENTRE of the
+    recorded position extents, so min == -max on BOTH axes by construction.
+
+    This replaces `test_mirror_fingerprint`, which read the mirrored across pair as
+    a "code fingerprint". That was wrong twice over (acceptance Ка): the check fires
+    on a HEALTHY record, so it distinguishes nothing, and it looked at one axis
+    while the along axis is mirrored just as exactly (J1 -31.7625 vs C4 +31.7625).
+    The rule it bought: a check that also passes on a healthy sample proves nothing —
+    so the mirror belongs here, with the sign turned around, as evidence OF health."""
+    healthy = True
+    report = []
+    for label, key in (("along", "rec_along_mm"), ("across", "rec_across_mm")):
+        values = [r[key] for r in rows]
+        if not values:
+            continue
+        low, high = min(values), max(values)
+        total = round(low + high, 6)
+        healthy = healthy and abs(total) <= tol
+        report.append(f"{label}: min {low:g} + max {high:g} = {total:g}")
+    return ("HEALTHY" if healthy else "DEGRADED"), "; ".join(report)
 
 
 def test_bridge_verbatim(rows: list[dict], tol: float) -> tuple[str, str]:
@@ -330,6 +337,37 @@ def test_bridge_verbatim(rows: list[dict], tol: float) -> tuple[str, str]:
     if not diffs:
         return "VERBATIM", "every cell offset equals its recorded offset (bridge innocent)"
     return "DIFFERS", "cell != record for: " + ", ".join(diffs)
+
+
+def residual_structure(rows: list[dict], tol: float) -> tuple[list, list]:
+    """Cluster the implied origins PER AXIS and report their sizes (acceptance Кв).
+
+    The earlier revision tested "a subset shares one origin" with BOTH axes
+    coinciding at once, which hid the one thing that matters: six rows share the
+    across origin to the last digit (95.9812). Under "the record was assembled from
+    several frames" that is a miracle; under "one frame, and those six did not move
+    across" it is the only sane reading. A verdict must print the structure of the
+    residual, not just its refutation."""
+
+    def clusters(key: str) -> list[tuple[float, int]]:
+        groups: list[list[float]] = []
+        for row in rows:
+            value = row.get(key)
+            if value is None:
+                continue
+            for group in groups:
+                if abs(group[0] - value) <= tol:
+                    group.append(value)
+                    break
+            else:
+                groups.append([value])
+        return sorted(((round(g[0], 4), len(g)) for g in groups), key=lambda item: -item[1])
+
+    return clusters("implied_x"), clusters("implied_y")
+
+
+def _clusters_text(clusters) -> str:
+    return ", ".join(f"{value:.4f} x{size}" for value, size in clusters) or "—"
 
 
 # ── output ───────────────────────────────────────────────────────────────────
@@ -415,7 +453,12 @@ def main(argv: list[str]) -> int:
     print(f"live from {args.operation}   (anchor C1 at {anchor_x:.4f}, {anchor_y:.4f} mm)\n")
     print_table(rows)
 
-    print("\n-- frame hypotheses --")
+    print("\n-- frame hypotheses (REFUTED means 'not the frame of the LIVE board', never "
+          "'the record is broken': the two differ exactly when live != what the capture read) --")
+    along_clusters, across_clusters = residual_structure(rows, args.tol)
+    print("implied-origin structure by axis (a cluster bigger than 1 is ONE read, not N):")
+    print(f"  along : {_clusters_text(along_clusters)}")
+    print(f"  across: {_clusters_text(across_clusters)}")
     results = test_frame_hypotheses(rows, centre, args.tol)
     for name, status, detail in results:
         print(f"{name:<42}{status:<10}{detail}")
@@ -423,7 +466,7 @@ def main(argv: list[str]) -> int:
 
     print("\n-- independent checks (not frame arithmetic) --")
     for name, verdict in (("read consistency (angle)", test_read_consistency(rows)),
-                          ("mirror fingerprint", test_mirror_fingerprint(rows, args.tol)),
+                          ("extent-centre health", test_extent_centre_health(rows, args.tol)),
                           ("bridge verbatim", test_bridge_verbatim(rows, args.tol))):
         status, detail = verdict
         print(f"{name:<42}{status:<14}{detail}")
@@ -433,10 +476,14 @@ def main(argv: list[str]) -> int:
 
     print()
     if frame_verdict:
-        print("VERDICT: a single frame explains every row — the capture is innocent here.")
+        print("VERDICT: a single frame explains every row RELATIVE TO THE LIVE BOARD — the capture "
+              "is innocent against this data.")
         return 0
-    print("VERDICT: no frame hypothesis explains all rows — the record itself is the defect; "
-          "hunt by the groups above (see plan_2026_09_22_imprint_capture_frame.md §2).")
+    print("VERDICT: no frame explains the rows relative to the LIVE board. That does NOT indict "
+          "the record: one frame fed by a STALE read (H5) produces exactly this table, and H5 "
+          "cannot be tested offline. Measure it live with "
+          "kicadstamp/diagnostics/probe_imprint_capture_staleness.py (plan §7.8.1) before "
+          "changing anything.")
     return 1
 
 
