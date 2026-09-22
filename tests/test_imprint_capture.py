@@ -673,3 +673,45 @@ class TestTruncateCapture:
         assert all(t.net != _GND for t in cfg.tracks)
         assert len(cfg.boundary_nets) == 1
         assert cfg.boundary_nets[0].action == "exclude"
+
+
+# ── Health invariant of the recorded frame (plan_2026_09_22_imprint_stale_cache_
+# sh2, Ш3 cell К5) ─────────────────────────────────────────────────────────────
+
+
+def test_a_captured_record_sits_symmetrically_about_its_own_centre():
+    """К5 of plan_2026_09_22_imprint_stale_cache_sh2 (Ш3) — a HEALTH invariant,
+    and the honest label matters more than the assertion.
+
+    Saith the frame rule: the record's origin is the MIDPOINT of the recorded
+    footprints' position extents (`_region_centre`). For offsets measured from an
+    origin `o`, `min + max = 2 * (midpoint - o)`, so `min + max == 0` on each axis
+    is EXACTLY the statement "the origin is the midpoint". Two consequences, both
+    worth naming:
+
+      * as a defect signature it is WORTHLESS — it holds for any correctly framed
+        record, whichever board state that record came from. Declaring it evidence
+        of anything is the mistake the 22.09 "mirrored footprint" reading made
+        (deepseek.md §39a: a check that also fires on a healthy specimen is
+        evidence FOR it, not against);
+      * as a RULE cell it is sharp: change the origin to the mean, to an anchor
+        component, or to one origin per element kind, and this goes red on an
+        asymmetric ref set like this one (10/20/24 mm — midpoint 17.0, mean 18.0).
+
+    What it does NOT do: detect a stale cache. The Ш1 gate's warm column satisfied
+    it exactly (min+max = 0.000000 on both axes) while sitting 1.8063 mm behind the
+    live board. Staleness is К1/К2's job, in tests/gui/test_imprint.py.
+    """
+    adapter, refs = _scenario()
+    cfg = capture_imprint("amp", refs, adapter=adapter)
+    assert len(cfg.components) == 3, "the scenario records R1/C1/C2 — stale fixture?"
+
+    along = [c.offset_along_mm for c in cfg.components]
+    across = [c.offset_across_mm for c in cfg.components]
+    assert min(along) + max(along) == pytest.approx(0.0, abs=1e-9)
+    assert min(across) + max(across) == pytest.approx(0.0, abs=1e-9)
+    # The extremes themselves, so the cell names the frame it pins: R1 at x=10
+    # and C2 at x=24 sit at -7.0/+7.0 about the midpoint (17.0), not about the
+    # mean (18.0), which would give -8.0/+6.0.
+    assert min(along) == pytest.approx(-7.0)
+    assert max(along) == pytest.approx(7.0)

@@ -3581,3 +3581,249 @@ class TestComponentsTabWiring:
         # The record is exactly as it was: the button touched cells: and nothing
         # else (С9 — the entity stays imprint-based until stage 4).
         assert data["imprints"] == imprints_before
+
+
+# ── Freshness of the imprint capture reads (plan_2026_09_22_imprint_stale_cache_
+# sh2, Ш3 cells К1–К3) ─────────────────────────────────────────────────────────
+#
+# The adapter hands out a CACHED footprint list and only refresh_board()
+# invalidates it, so a capture path that read it without refreshing first
+# recorded a frozen board. The four GUI worker bodies now call
+# `gui.worker.refresh_board_before_live_read` before starting a capture — that
+# structural half is К4 in tests/test_imprint_freshness_structure.py. What lives
+# HERE is the observable half: the record follows the board.
+#
+# Every cell below WARMS the cache explicitly before moving the board, and that
+# is the point rather than a trick: in the GUI the selection-poll tick has long
+# since filled that cache by the time the user clicks Record or Reread, which is
+# exactly the "warm cache" column the Ш1 gate measured (1.8063 mm of lag on 11
+# refs, at zero board reads).
+
+
+class _CachingFakeAdapter(FakeAdapter):
+    """FakeAdapter plus a REAL cache — the half this defect lives in.
+
+    `FakeAdapter.get_footprints()` returns `list(self._fps)` with no cache at
+    all, so a cell built on it cannot show staleness: every read is "fresh" by
+    construction. The live adapter is the other way round, and this subclass
+    models it including the ORDER of the two steps:
+
+      * `refresh_board()` INVALIDATES, it does not copy. Copying would let one
+        body's refresh silently freshen a LATER read, which is precisely what К2
+        has to be able to see (its phase 2);
+      * the next `get_footprints()` re-reads the live side and refills.
+
+    The ``board_*`` attributes are the live board; a cell moves the board by
+    swapping THOSE, never the cache."""
+
+    def __init__(self, footprints, tracks, vias, pads_by_ref):
+        super().__init__(footprints, tracks, vias, pads_by_ref)
+        self.board_footprints = list(footprints)
+        self.board_tracks = list(tracks)
+        self.board_pads = dict(pads_by_ref)
+        self._cache = None
+        self.refresh_count = 0
+
+    def get_footprints(self):
+        if self._cache is None:
+            self._cache = list(self.board_footprints)
+        return list(self._cache)
+
+    def get_tracks(self):
+        return list(self.board_tracks)
+
+    def get_footprint_pads(self, fp):
+        return list(self.board_pads.get(fp.ref, []))
+
+    def refresh_board(self):
+        self.refresh_count += 1
+        self._cache = None
+
+    def board_moved_to(self, other):
+        """The live board moved: swap its side wholesale. Tracks and pads follow
+        their refs — a component cannot move alone on a real board, and a cell
+        that moved only the footprints would be measuring its own fake."""
+        self.board_footprints = list(other._fps)
+        self.board_tracks = list(other._tracks)
+        self.board_pads = dict(other._pads)
+
+
+def _caching_line_board(c2_x_mm=24.0):
+    """`_line_board` behind the caching adapter. The cache starts EMPTY, so the
+    first read really is a board read (as on a freshly connected adapter); a cell
+    that wants the DEFECT warms it first."""
+    board = _line_board(c2_x_mm=c2_x_mm)
+    return _CachingFakeAdapter(list(board._fps), list(board._tracks),
+                               list(board._vias), dict(board._pads))
+
+
+@pytest.mark.parametrize("body", ("_run_record_capture", "_run_resource_capture"))
+def test_capture_worker_records_the_live_position_not_the_cached_one(body):
+    """К1 of plan_2026_09_22_imprint_stale_cache_sh2 (Ш3, cell 1) — one row per
+    capture STARTER body.
+
+    One user action, offline: the adapter has already served a read (its cache is
+    warm at C2 = 24 mm), the board then moves (C2 -> 30 mm), and the capture must
+    record the MOVED position. The failure mode it pins is the Ш1 gate's warm
+    column in one component: the record keeps the cached x.
+
+    Parametrized over BOTH capture bodies deliberately (deepseek.md §35): a cell
+    that says "the capture workers" while exercising one of them is a promise, not
+    a guard — and the Re-source body is exactly the one a hand-written list
+    forgets. This is not hypothetical: with cell 1 written for the Record body
+    only, М2 of run_imprint_freshness_mutations.py (remove the rebuild from
+    _run_resource_capture) left it GREEN while the structural cell noticed, which
+    is how this defect class keeps coming back one body at a time.
+
+    RED on the base commit (ca5dc2d) in BOTH rows, and that is what this cell is
+    FOR: a guard written after its own fix cannot show the fix does anything, and
+    this is the one that can — the base run is recorded in the step's hand-off.
+    """
+    from gui.dock_hub import DockHub
+
+    adapter = _caching_line_board(c2_x_mm=24.0)
+    adapter.get_footprints()                  # the cache is now warm at 24.0 mm
+    adapter.board_moved_to(_line_board(c2_x_mm=30.0))
+
+    result = getattr(DockHub.__new__(DockHub), body)(
+        {"name": "amp", "refs": ["R1", "C1", "C2"],
+         "board": SimpleNamespace(adapter=adapter), "root": ".",
+         "target_path": None})
+
+    assert "error" not in result
+    comps = {c.ref: c for c in result["record"].components}
+    # R1/C1/C2 at x = 10/20/30 -> the region centre is 20.0, so C2 reads +10.0 in
+    # the record's centre frame (the stale frame centred on 17.0 would say +7.0)
+    assert comps["C2"].offset_along_mm == pytest.approx(10.0)
+    assert comps["R1"].offset_along_mm == pytest.approx(-10.0)
+    assert adapter.refresh_count == 1, (
+        "the record was captured without rebuilding the board first — it recorded "
+        "what the cache held")
+
+
+def test_reread_diff_and_apply_read_the_same_live_board_state(main_window, tmp_path):
+    """К2 of plan_2026_09_22_imprint_stale_cache_sh2 (Ш3.2) — the Reread pair.
+
+    One user action: Reread built a diff (`_run_reread` -> build_imprint_diff),
+    the user accepted it, Apply rewrote the record (`_run_reread_apply` ->
+    capture_imprint). Both reads belong to that action and both must see the
+    board as it is, not what the adapter's cache held when the last read filled
+    it.
+
+    Two phases, because they pin different halves:
+      * phase 1 holds the board STILL between the two reads, so "one state" is
+        asserted literally — what the diff reported is what the record receives;
+      * phase 2 MOVES the board between them and asserts the apply-side read is
+        not the older one. Phase 1 alone cannot see that: a cache the diff had
+        already refilled would satisfy it while Apply kept reading the diff's
+        moment instead of its own. Phase 2 is also the half that a mutation
+        removing the refresh from `_run_reread_apply` alone turns red.
+
+    RED on the base commit in BOTH phases: with no refresh either read returns the
+    warm cache, so the diff reports "no changes" and the record keeps the old x.
+
+    NOT covered by this cell, said out loud because a cell's name is a promise
+    (deepseek.md §35): the Record dialog's PREVIEW reads a THIRD source,
+    `snapshot_provider` = `connection.snapshot` (gui/dock_hub.py). This cell says
+    nothing about that divergence — it is a named finding in the step's report
+    (§5.3), not a half of this guard.
+    """
+    stored_board = _line_board(c2_x_mm=24.0)
+    d0 = _record_dict(stored_board)
+
+    # ── phase 1: the board does not move between the diff and the Apply ──────
+    root = _record_file(tmp_path, d0)
+    dock = _make_dock(main_window, root, d0)
+    adapter = _caching_line_board(c2_x_mm=24.0)
+    adapter.get_footprints()                  # warm at 24.0, as the poll leaves it
+    adapter.board_moved_to(_line_board(c2_x_mm=30.0))
+    _connect_board(dock, adapter)
+    _select(dock, "R1", "C1", "C2")
+
+    diff = dock._do_reread()["diff"]
+    assert diff.changed is True, (
+        "the diff missed a move the board had already made — it read the cache")
+    moved = {c.ref: c for c in diff.components_moved}
+    assert set(moved) == {"C2"}
+    # The diff expresses the new offset in the STORED frame (the fresh offset
+    # minus the reference component's own shift): stored centre 17.0 (10/20/24),
+    # live centre 20.0 (10/20/30), reference C1 shifts by -3.0 -> 10.0 + 3.0.
+    assert moved["C2"].new_offset_along_mm == pytest.approx(13.0)
+
+    assert "error" not in dock._do_reread_apply()
+    comps = {c["ref"]: c for c in _load(root)["imprints"][0]["components"]}
+    assert comps["C2"]["offset_along_mm"] == pytest.approx(10.0), (
+        "Apply wrote a geometry the diff had not reported — the two reads of one "
+        "action disagreed")
+
+    # ── phase 2: the board moves between the two reads ───────────────────────
+    root2 = _record_file(tmp_path, d0, name="phase2.sexp")
+    dock2 = _make_dock(main_window, root2, d0)
+    adapter2 = _caching_line_board(c2_x_mm=24.0)
+    adapter2.get_footprints()                 # warm at 24.0
+    adapter2.board_moved_to(_line_board(c2_x_mm=30.0))
+    _connect_board(dock2, adapter2)
+    _select(dock2, "R1", "C1", "C2")
+    assert dock2._do_reread()["diff"].changed is True
+
+    # the user reads the diff and the board moves again before Apply
+    adapter2.board_moved_to(_line_board(c2_x_mm=32.0))
+    assert "error" not in dock2._do_reread_apply()
+    comps2 = {c["ref"]: c for c in _load(root2)["imprints"][0]["components"]}
+    # live centre of 10/20/32 is 21.0 -> C2 reads +11.0 (the diff's moment, 20.0,
+    # would have left +10.0 in the record)
+    assert comps2["C2"]["offset_along_mm"] == pytest.approx(11.0), (
+        "Apply wrote the position the diff had seen instead of the board as it is "
+        "at Apply time — the apply-side read was stale")
+    assert adapter2.refresh_count == 2, (
+        "each Reread read must rebuild the board once: one for the diff, one for "
+        "the Apply")
+
+
+_CAPTURE_BODIES = ("_run_record_capture", "_run_resource_capture",
+                   "_run_reread", "_run_reread_apply")
+
+
+@pytest.mark.parametrize("body", _CAPTURE_BODIES)
+def test_capture_worker_without_a_live_board_reports_an_error(
+        main_window, tmp_path, body):
+    """К3 of plan_2026_09_22_imprint_stale_cache_sh2 (Ш3, cell 3) — one row per
+    body, so a body that starts raising names itself in the failure.
+
+    The fix puts a `refresh_board_before_live_read(...)` call at the very TOP of
+    each worker body — exactly where a payload with no live board would now break
+    if the seam were written as a bare `adapter.refresh_board()`. That is not
+    theoretical: this file alone builds payloads with
+    `SimpleNamespace(adapter=None)` in a dozen existing cells, and its own
+    FakeAdapter has no `refresh_board` at all. So this is a ratchet, GREEN before
+    the fix as well; it exists so the new first statement cannot make a no-board
+    path raise, and so the tolerance is pinned by a test instead of by a comment.
+
+    The property asserted is the ERROR DICT, not "no crash by luck": these bodies
+    report a board-state failure to their caller (which is what the GUI then shows
+    the user), and none of them may raise into the worker thread. The payloads
+    mirror `_collect_reread_payload`'s keys exactly, so the failure comes from the
+    missing live board and not from a malformed payload — an error raised for the
+    wrong reason would make this row a false green.
+    """
+    from gui.dock_hub import DockHub
+
+    d0 = _record_dict(_line_board())
+    root = _record_file(tmp_path, d0)
+
+    if body in ("_run_record_capture", "_run_resource_capture"):
+        runner = getattr(DockHub.__new__(DockHub), body)
+        payload = {"name": "amp", "refs": ["R1", "C1", "C2"],
+                   "board": SimpleNamespace(adapter=None), "root": str(root)}
+    else:
+        payload = {"board": SimpleNamespace(adapter=None),
+                   "stored": dict(d0),
+                   "scope_refs": ["R1", "C1", "C2"],
+                   "active_scope_paths": None,
+                   "root": str(root), "path": str(root)}
+        runner = getattr(_make_dock(main_window, root, d0), body)
+
+    result = runner(payload)
+    assert isinstance(result, dict) and result.get("error"), (
+        f"{body} did not report a board-state failure for a payload without a live "
+        f"board: {result!r}")

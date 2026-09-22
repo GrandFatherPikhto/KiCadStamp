@@ -63,7 +63,8 @@ from kicadstamp.imprint_capture import (
 from kicadstamp.utils.paths import overrides_path_for_config
 from kicadstamp.utils.units import MM
 
-from ..worker import refresh_snapshot_then_with_retry, start_long_op
+from ..worker import (refresh_board_before_live_read,
+                      refresh_snapshot_then_with_retry, start_long_op)
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE,
                       add_include, display_path, read_data, show_message,
@@ -1706,6 +1707,10 @@ class ImprintFormWidget(QWidget):
         ``scope_refs``, 5c.4) makes the diff add/remove refs, not just diff the
         stored fixed set."""
         try:
+            # A live read: rebuild the board first, or the diff compares the
+            # stored record against a stale cache (plan_2026_09_22_imprint_
+            # stale_cache_sh2 §1.1/§2.4 — measured 1.8063 mm of lag).
+            refresh_board_before_live_read(getattr(payload.get("board"), "adapter", None))
             stored = load_imprint(payload["stored"])
             diff = build_imprint_diff(stored, payload["board"].adapter,
                                           scope_refs=payload.get("scope_refs"))
@@ -1782,6 +1787,9 @@ class ImprintFormWidget(QWidget):
         the scope_presets LIBRARY itself is never rewritten here — only an
         explicit Record/Re-source "Save as preset" does."""
         try:
+            # Same live-read rule as _run_reread above: Apply rewrites the record
+            # from the board as it is now — what the user just saw in the diff.
+            refresh_board_before_live_read(getattr(payload.get("board"), "adapter", None))
             stored = load_imprint(payload["stored"])
             adapter = payload["board"].adapter
             scope_refs = payload.get("scope_refs")

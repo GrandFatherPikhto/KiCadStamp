@@ -91,6 +91,7 @@ from .docks.imprint import (
     write_imprint_record,
 )
 from .docks.imprint_place import ImprintPlaceFormWidget
+from .worker import refresh_board_before_live_read
 
 logger = logging.getLogger(__name__)
 
@@ -1690,6 +1691,10 @@ class DockHub:
         from kicadstamp.config.models import ImprintScopePreset
         from kicadstamp.imprint_capture import capture_imprint
         try:
+            # A live read: rebuild the board first, or the capture records the
+            # positions the adapter's cache still holds (measured 1.8063 mm of
+            # lag on 11 refs — plan_2026_09_22_imprint_stale_cache_sh2 §1.1/§2.4).
+            refresh_board_before_live_read(getattr(payload.get("board"), "adapter", None))
             record = capture_imprint(
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
@@ -1803,6 +1808,9 @@ class DockHub:
         from kicadstamp.config.models import ImprintScopePreset
         from kicadstamp.imprint_capture import capture_imprint
         try:
+            # Same live-read rule as _run_record_capture above: the Re-source
+            # capture must see the board as it is now, not as the cache has it.
+            refresh_board_before_live_read(getattr(payload.get("board"), "adapter", None))
             record = capture_imprint(
                 name=payload["name"], refs=payload["refs"],
                 adapter=payload["board"].adapter,
