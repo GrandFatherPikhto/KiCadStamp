@@ -139,6 +139,7 @@ from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers
+from ..connection import ui_thread_board_read
 from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -814,7 +815,14 @@ class PointsDock(QWidget):
             return  # never interleave two IPC ops on the shared kipy REQ socket
         uuid = self._overlay.forget_key(_point_key(name))
         self._refresh_show_all_button()
-        adapter = self._live_adapter()
+        # The door's sign (Т2-3 of plan_2026_09_22_live_adapter_class, the Т2-2
+        # idiom one dock over): this read is deliberate and says so — a presence
+        # check plus handing the SHARED adapter to the worker below, which then
+        # owns the socket for the whole removal.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to this point-marker cleanup "
+                       "worker (a point is being loaded or renamed)"):
+            adapter = self._live_adapter()
         if not uuid or adapter is None:
             return
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator):
@@ -832,7 +840,12 @@ class PointsDock(QWidget):
             return
         uuids = self._overlay.forget_scope(overlay_markers.NS_POINT)
         self._refresh_show_all_button()
-        adapter = self._live_adapter()
+        # The door's sign (Т2-3): same shape as the single-point removal above, on
+        # the ROOT switch — the whole point layer goes to its own worker.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the whole point-layer cleanup "
+                       "worker (a root switch)"):
+            adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a

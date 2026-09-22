@@ -367,3 +367,68 @@ def test_the_rehang_offset_read_is_refused_while_the_socket_is_busy(
 
     assert (proceed, shift) == (False, None), "a busy socket must refuse the move"
     assert seen == [], "the resolve ran while the tick owned the socket"
+
+
+# ── Т2-3 (plan numbering, plan_2026_09_22_live_adapter_class) — PointsDock ───
+# The two point-circle cleanups of the Points dock, the same class Т2-2 closed
+# three times in TreesDock: presence plus handing the SHARED adapter to a worker
+# that then owns the socket. Missed by the first pass (its own numbering hid the
+# step), so it gets its own cells here.
+
+def test_one_point_marker_removal_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-3 — `_forget_point_marker` (a point being loaded or renamed) hands the
+    shared adapter to its worker under the door's sign.
+
+    Mutation check: drop that sign and this fails with the refusal."""
+    import gui.docks.points as points_mod
+    from gui import settings
+
+    started = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"points": {}}), encoding="utf-8")
+    dock = points_mod.PointsDock(real_main_window)
+    dock.set_root_path(root)                     # built BEFORE the door is armed
+    settings.state.set(points_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                       {points_mod._point_key("probe"): "uuid-point"})
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    _arm_the_door(monkeypatch)
+
+    dock._forget_point_marker("probe")
+
+    assert started, "the removal must reach its worker"
+
+
+def test_the_whole_point_layer_removal_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-3 — `_clear_point_markers` (an actual root switch) does the same, with
+    its own reason.
+
+    Mutation check: drop that sign and this fails with the refusal."""
+    import gui.docks.points as points_mod
+    from gui import settings
+
+    started = []
+    monkeypatch.setattr(points_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"points": {}}), encoding="utf-8")
+    dock = points_mod.PointsDock(real_main_window)
+    dock.set_root_path(root)
+    settings.state.set(points_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+                       {points_mod._point_key("probe"): "uuid-point",
+                        points_mod._point_key("other"): "uuid-point-2"})
+    adapter = object()
+    real_main_window.connection.board = SimpleNamespace(adapter=adapter)
+    _arm_the_door(monkeypatch)
+
+    dock._clear_point_markers()
+
+    # start_long_op(connection, widgets, worker_fn, on_success, on_error,
+    #               adapter, uuids) — the LAST two arguments are the handoff.
+    assert started, "the removal must reach its worker"
+    assert sorted(started[0][-1]) == ["uuid-point", "uuid-point-2"], \
+        "the whole point layer goes in ONE call"
+    assert started[0][-2] is adapter, "the shared adapter arrives with it"
