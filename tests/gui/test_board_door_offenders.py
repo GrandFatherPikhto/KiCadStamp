@@ -23,9 +23,11 @@ The three, in the order the armed run of 21.09.2026 named them:
 
 Numbers live in the docstrings, names describe the property (rule 37).
 """
+import logging
 from types import SimpleNamespace
 
 import pytest
+from PyQt6.QtWidgets import QInputDialog
 
 from gui.worker import snapshot_refresh_supported
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -345,13 +347,18 @@ def test_the_rehang_offset_read_does_not_read_the_board_unsigned(
 
 
 def test_the_rehang_offset_read_is_refused_while_the_socket_is_busy(
-        real_main_window, monkeypatch):
-    """Т2-4 — door rule 3: the resolve touches the SHARED adapter, so a busy
-    socket refuses instead of interleaving a second REQ transaction into the
-    tick's in-flight one ("Operation canceled"). The next attempt recalculates.
+        real_main_window, monkeypatch, caplog):
+    """Т2-4/Т2-4б — door rule 3: the resolve touches the SHARED adapter, so a
+    busy socket refuses instead of interleaving a second REQ transaction into the
+    tick's in-flight one ("Operation canceled"). The caller defers the whole
+    re-hang once (Т2-4б), so this branch is the RACE WINDOW — a tick may start
+    between the deferred attempt's own check and this read — and that is exactly
+    why the refusal is NAMED in the Log instead of being silent.
 
     Mutation check: drop the `socket_busy` early return and this fails — the
-    resolver is entered on a busy socket."""
+    resolver is entered on a busy socket; drop the Log line and the caplog
+    assertion below fails while the rest still passes (silence looks like a
+    no-op)."""
     import gui.docks.trees_dock as td_mod
 
     seen = []
@@ -361,12 +368,135 @@ def test_the_rehang_offset_read_is_refused_while_the_socket_is_busy(
     real_main_window.connection.board = SimpleNamespace(adapter=object())
     real_main_window.connection.long_op_active = True      # the tick is in flight
 
+    caplog.clear()
     proceed, shift = dock._rehang_offset_or_ask(
         SimpleNamespace(name="probe_tree"),
         SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
 
     assert (proceed, shift) == (False, None), "a busy socket must refuse the move"
     assert seen == [], "the resolve ran while the tick owned the socket"
+    told = [r.message for r in caplog.records]
+    assert any("busy" in m and "NOT moved" in m for m in told), \
+        f"the refusal must be NAMED in the Log, not silent — got {told!r}"
+
+
+# ── Т2-4б (plan_2026_09_22_live_adapter_class) — the refusal tells the user ──
+# "Move to…" is triggered by a DRAG, and the busy refusal used to eat the whole
+# move: the read answered (False, None), the caller returned, and nothing on
+# screen said a word. The flow now defers the whole re-hang ONCE
+# (defer_while_socket_busy, the helper every other shared-socket read here uses)
+# and, when the retry meets the busy socket again, tells the user in the same
+# words the race-window Log line uses (_REHANG_BUSY_TEXT).
+
+def _rehang_dock(window, tmp_path, monkeypatch):
+    """A TreesDock over a throwaway root plus the "Move to…" shape
+    tests/gui/test_trees_dock.py uses: two mount nodes and one record node, with
+    the base resolve and the rebuild stubbed, so the flow needs no board and no
+    widgets. Returns (dock, tree, mount_b, moved)."""
+    import gui.docks.trees_dock as trees_mod
+    from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"trees": []}), encoding="utf-8")
+    dock = trees_mod.TreesDock(window)
+    dock.set_root_file(root)             # built BEFORE the door is armed
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    monkeypatch.setattr(trees_mod, "_reparented_offset",
+                        lambda *a, **k: (None, None, 0.0))
+    mount_b = TreeNode(ref="mnt_b", kind="mount", xy=None, polar=None,
+                       rotation=0.0, name=None, group=None, children=[],
+                       anchor=TreeAnchor(role="IC2"))
+    moved = TreeNode(ref="R_MOVED", kind="external", xy=(12.0, 0.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    tree = Tree(name="rehang", anchor=TreeAnchor(is_origin=True),
+                nodes=[mount_b, moved])
+
+    def _get_item(*args, **kwargs):
+        labels = list(args[3] if len(args) > 3 else kwargs.get("items"))
+        assert "mnt_b" in labels, ("the row under test is not offered", labels)
+        return ("mnt_b", True)
+    monkeypatch.setattr(QInputDialog, "getItem", _get_item)
+    return dock, tree, mount_b, moved
+
+
+def test_a_move_deferred_by_a_busy_socket_still_happens(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-4б — the deferral is not a cosmetic Log line: the ONE armed retry
+    finishes the move the user asked for, with the door ARMED over the retry, so
+    the deferred read is proven to go through the sign as well.
+
+    Mutation check: run `_rehang` directly instead of deferring and this fails —
+    nothing is armed and the retry below never fires."""
+    import gui.worker as worker_mod
+
+    dock, tree, mount_b, moved = _rehang_dock(real_main_window, tmp_path,
+                                              monkeypatch)
+    connection = real_main_window.connection
+    connection.board = SimpleNamespace(adapter=object())
+    connection.long_op_active = True            # the poll tick is in flight
+    scheduled: list = []
+    monkeypatch.setattr(worker_mod.QTimer, "singleShot",
+                        lambda delay, callback: scheduled.append((delay, callback)))
+    _arm_the_door(monkeypatch)
+
+    dock._move_node_flow(tree, moved)
+
+    assert dock._in_list(moved, tree.nodes), \
+        "the move must not run while the tick owns the socket"
+    assert not dock._in_list(moved, mount_b.children)
+    assert len(scheduled) == 1, "the whole re-hang must be deferred EXACTLY once"
+    assert scheduled[0][0] == worker_mod.SNAPSHOT_REFRESH_RETRY_DELAY_MS, \
+        "the retry uses the helper's own delay, not a number of its own"
+
+    connection.long_op_active = False           # the tick finished
+    scheduled[0][1]()                           # the armed retry
+
+    assert dock._in_list(moved, mount_b.children) and moved not in tree.nodes, \
+        "the deferred attempt must complete the move the user asked for"
+
+
+def test_a_move_still_busy_on_the_retry_tells_the_user(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-4б — the retry is the LAST attempt, so THIS is where a drag that is not
+    going to happen stops being silent: the user gets a message box whose text
+    names the cause (the board is busy) and the outcome (the node did NOT move).
+
+    Mutation check: hand the helper a bare `lambda: None` as on_still_busy and
+    this fails on the empty `told` — the second refusal is silent again."""
+    import gui.docks.trees_dock as trees_mod
+    import gui.worker as worker_mod
+
+    dock, tree, mount_b, moved = _rehang_dock(real_main_window, tmp_path,
+                                              monkeypatch)
+    connection = real_main_window.connection
+    connection.board = SimpleNamespace(adapter=object())
+    connection.long_op_active = True
+    scheduled: list = []
+    monkeypatch.setattr(worker_mod.QTimer, "singleShot",
+                        lambda delay, callback: scheduled.append((delay, callback)))
+    told: list = []
+    monkeypatch.setattr(trees_mod.QMessageBox, "warning",
+                        lambda *a, **k: told.append(a) or None)
+
+    dock._move_node_flow(tree, moved)
+
+    assert told == [] and len(scheduled) == 1, \
+        "the FIRST busy socket defers silently — the retry is still ahead"
+
+    scheduled[0][1]()                           # the retry: STILL busy
+
+    assert len(told) == 1, "a second busy socket must TELL the user, not whisper"
+    text = str(told[0][2])
+    assert "busy" in text and "NOT moved" in text, (
+        "the message must name the cause AND the fact that nothing moved", text)
+    assert dock._in_list(moved, tree.nodes) and not dock._in_list(
+        moved, mount_b.children), "nothing may move while the retry is refused"
+    # The retry is not called a second time on purpose: the stub above is a LIST,
+    # not a timer, so re-running it would fake a third attempt the real
+    # QTimer.singleShot never makes. "EXACTLY ONE retry" is the assertion above
+    # (`len(scheduled) == 1`) plus the helper's own sentinel in
+    # tests/gui/test_snapshot_freshness.py.
+    assert len(scheduled) == 1
 
 
 # ── Т2-3 (plan numbering, plan_2026_09_22_live_adapter_class) — PointsDock ───

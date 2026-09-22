@@ -7104,7 +7104,13 @@ def test_move_to_rebuilds_immediately_and_never_defers(
         main_window, tmp_path, monkeypatch):
     """Л.4: the one-turn deferral exists ONLY because the form's combo calls
     _reparent_node from inside its own apply(). The menu has no form to destroy,
-    so it must keep rebuilding immediately — one trigger, QTimer never used."""
+    so it must keep rebuilding immediately — one trigger, QTimer never used.
+
+    The ONE QTimer the menu path may arm is defer_while_socket_busy's single
+    retry for a busy SHARED socket (Т2-4б of plan_2026_09_22_live_adapter_class),
+    and this test's socket is free — so `deferred == []` stays the right reading
+    of "the rebuild itself is never put off". The busy-socket arm has its own two
+    cells in tests/gui/test_board_door_offenders.py."""
     dock, _root = _dock_with(main_window, tmp_path)
     rebuilt: list = []
     monkeypatch.setattr(dock, "_rebuild_tabs", lambda: rebuilt.append(True))

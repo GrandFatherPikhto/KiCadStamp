@@ -17380,3 +17380,7 @@ msgstr "применение Reread не удалось: нет корня пр�
 #: gui/connection.py
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr "Чтение живой платы из UI-потока без знака: {site}"
+
+#: gui/docks/trees_dock.py
+msgid "Move to…: the board is busy right now — the node was NOT moved. Try the move again."
+msgstr "Переместить…: плата сейчас занята — узел НЕ перемещён. Попробуйте переместить снова."

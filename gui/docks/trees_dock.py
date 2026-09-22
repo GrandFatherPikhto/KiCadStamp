@@ -115,6 +115,15 @@ _PIVOT_HANDLE_TOOLTIP = _(
     "this node is the tree's suspension point (pivot-ref) — the tree is "
     "positioned and rotated around it")
 
+# The ONE wording for "the shared socket was busy, the node did NOT move"
+# (Т2-4б of plan_2026_09_22_live_adapter_class). It has TWO channels — the Log
+# line of _rehang_offset_or_ask (the race window) and the message box the
+# deferred retry shows when it finds the socket busy AGAIN — and both take the
+# text from here, so "the user was told" cannot drift between them.
+_REHANG_BUSY_TEXT = _(
+    "Move to…: the board is busy right now — the node was NOT moved. "
+    "Try the move again.")
+
 # Short kind tags, shown next to a node's ref when the kind is set. "external"
 # is included here — trees need it.
 _KIND_TAGS = {
@@ -3600,20 +3609,37 @@ class TreesDock(QWidget):
             # form's combo treats it the same way (its _apply_parent_change
             # returns early): no board read, no dirty flag, no rebuild.
             return
-        proceed, shift = self._rehang_offset_or_ask(tree, node, old_parent,
-                                                    new_parent)
-        if not proceed:
-            return       # the user refused a re-hang that cannot be held still
-        previous = (node.xy, node.polar, node.rotation)
-        if shift is not None:
-            # Written BEFORE the structural move so the (immediate) rebuild
-            # renders the node in its new frame; rolled back below if the
-            # structural half refuses — its guards are programming-error covers
-            # (the candidate list never offers such a parent), and a refused
-            # move must leave the node byte-for-byte as it was.
-            node.xy, node.polar, node.rotation = shift
-        if not self._reparent_node(tree, node, new_parent, defer_rebuild=False):
-            node.xy, node.polar, node.rotation = previous
+        def _rehang() -> None:
+            proceed, shift = self._rehang_offset_or_ask(tree, node, old_parent,
+                                                        new_parent)
+            if not proceed:
+                return   # the user refused a re-hang that cannot be held still
+            previous = (node.xy, node.polar, node.rotation)
+            if shift is not None:
+                # Written BEFORE the structural move so the (immediate) rebuild
+                # renders the node in its new frame; rolled back below if the
+                # structural half refuses — its guards are programming-error
+                # covers (the candidate list never offers such a parent), and a
+                # refused move must leave the node byte-for-byte as it was.
+                node.xy, node.polar, node.rotation = shift
+            if not self._reparent_node(tree, node, new_parent,
+                                       defer_rebuild=False):
+                node.xy, node.polar, node.rotation = previous
+
+        # ONE deferred retry when another owner holds the shared socket, then the
+        # user is TOLD — the file's own measure (Т2-4б of
+        # plan_2026_09_22_live_adapter_class). The refusal used to be SILENT: the
+        # read returned (False, None) and the caller's `if not proceed: return`
+        # said nothing, while the trigger is a DRAG — the node simply stayed put.
+        # The tick holds that socket 16.4 % of a run (the figure this file measured
+        # for _anchor_base_then), so the re-hang now gets the same single deferred
+        # attempt every other shared-socket read here gets; if the retry still finds
+        # the socket busy, the user is TOLD (`_warn_rehang_busy` — NOT
+        # _warn_no_node_offset, whose wording is the Instantiate flow's and would
+        # send the user looking for a selection this flow never had).
+        defer_while_socket_busy(getattr(self._main_window, "connection", None),
+                                (), _rehang, self._warn_rehang_busy,
+                                owner=self)
 
     def _rehang_offset_or_ask(self, tree: Tree, node: TreeNode,
                               old_parent: Optional[TreeNode],
@@ -3624,19 +3650,27 @@ class TreesDock(QWidget):
         is its own anchor, a node with no stored offset, or the user choosing to
         keep them).
 
-        proceed is False ONLY when the offset cannot be held still — the new
-        parent's base does not resolve (no live board, a component that is not
-        on it) — and the user then answers "No" to the question. The Log line
-        and the question are the node form's own (_apply_parent_change, §Э1.3
-        option 2), word for word, so both re-hang paths refuse in exactly the
-        same terms and neither can re-hang silently."""
+        proceed is False when the offset cannot be held still — the new parent's
+        base does not resolve (no live board, a component that is not on it) — and
+        the user then answers "No" to the question. The Log line and the question
+        are the node form's own (_apply_parent_change, §Э1.3 option 2), word for
+        word, so both re-hang paths refuse in exactly the same terms and neither can
+        re-hang silently.
+
+        proceed is ALSO False when the shared socket is busy as the read starts —
+        but that is no longer an END of the flow (Т2-4б): the caller defers the
+        whole re-hang once (defer_while_socket_busy) and, if the retry finds the
+        socket busy again, tells the user in the SAME words a message box shows
+        (_REHANG_BUSY_TEXT, via _warn_rehang_busy), so this branch is the race
+        window only (a tick may start between the deferred attempt's own check and
+        this read). It says so in the Log, because the alternative it replaced was
+        silence — a drag that did nothing and explained nothing. Door rule 3 asks
+        for exactly one of the two (defer, or name it); this place now does both,
+        each where it fits, and the user hears about it on both channels.
+        """
         connection = getattr(self._main_window, "connection", None)
         if socket_busy(connection):
-            # Door rule 3: the base resolve touches the SHARED adapter, so while
-            # the ~400ms selection tick (or a long op) owns that socket nothing may
-            # be sent. The refusal is the one the node FORM beside this dock already
-            # gives in the same situation (_on_read_position / _apply_parent_change);
-            # the next attempt, once the socket is free, recalculates.
+            logger.warning(_REHANG_BUSY_TEXT)
             return False, None
         try:
             # The door's sign (Т2-4/Т2-4а of plan_2026_09_22_live_adapter_class):
@@ -4024,6 +4058,14 @@ class TreesDock(QWidget):
         self._active_op = None
         logger.warning("Instantiate from Cell: anchor base read failed: %s", message)
         self._warn_no_node_offset()
+
+    def _warn_rehang_busy(self) -> None:
+        """The user is TOLD when the deferred re-hang meets a busy socket AGAIN
+        (Т2-4б of plan_2026_09_22_live_adapter_class): the retry inside
+        defer_while_socket_busy is the LAST attempt, so this is where a drag that
+        is not going to happen stops being silent. Same sentence as the Log line
+        of _rehang_offset_or_ask (_REHANG_BUSY_TEXT) — one reason, two channels."""
+        QMessageBox.warning(self, _("Move to…"), _REHANG_BUSY_TEXT)
 
     def _warn_no_node_offset(self) -> None:
         """The ONE wording for "the offset cannot be derived" (text unchanged)."""
