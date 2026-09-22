@@ -386,6 +386,12 @@ class _NoBoardAdapter:
     def refresh_board(self) -> None:
         pass
 
+    def close(self) -> None:
+        """The worker hands its socket back in a `finally` (Кn of
+        plan_2026_09_22_door_guard_aim_and_socket_close), so this double needs the
+        method or the worker's `finally` would fail on an AttributeError."""
+        pass
+
 
 class _TimerSpy:
     """Records the retry timer instead of firing it — which is what makes "EXACTLY

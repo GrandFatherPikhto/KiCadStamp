@@ -223,10 +223,11 @@ def test_worker_only_reads_the_selection(tmp_path, monkeypatch):
     nt = _record()
     track = _live_track("hand-trk")
     adapter = _fake_adapter(live_tracks=[track], selected=[track])
-    # Accepts the payload timeout the worker now passes (Э3,
-    # plan_2026_09_13_timeout_sweep).
-    monkeypatch.setattr(copper_select_mod, "_live_adapter",
-                        lambda *_args, **_kwargs: adapter)
+    # The worker builds its OWN adapter through the FACTORY — the `_live_adapter`
+    # helper is gone (both of its callers leaked their socket), and the lazy import
+    # inside the worker means the stand-in goes on the factory's own attribute.
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda *args, **kwargs: adapter)
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
 

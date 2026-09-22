@@ -61,17 +61,27 @@ def _dock_with(main_window, tmp_path, trees):
 
 
 class _FakeAdapter:
-    """Stands in for KiCadBoardAdapter in the worker: records how it was built
-    and whether the board was refreshed, touches nothing else."""
+    """Stands in for KiCadBoardAdapter in the worker: records how it was built,
+    whether the board was refreshed and whether the socket was handed back,
+    touches nothing else."""
 
     def __init__(self, timeout_ms=None, **_factory_kwargs):
         # The FACTORY also passes the profile's config_path (the override store,
         # plan field_overrides_store Т2) — irrelevant here, the timeout is not.
         self.timeout_ms = timeout_ms
         self.refreshed = False
+        self.closed = False
 
     def refresh_board(self) -> None:
         self.refreshed = True
+
+    def close(self) -> None:
+        """The worker hands its socket back in a `finally` (Кn of
+        plan_2026_09_22_door_guard_aim_and_socket_close), so a stand-in HAS to
+        answer close() — and recording it lets a test see the call. This is a
+        double being EXTENDED, not an assertion being relaxed: `refreshed` and
+        every existing assert are untouched."""
+        self.closed = True
 
 
 def _tree(ref=None):
@@ -103,6 +113,13 @@ def test_reading_runs_under_start_long_op(main_window, tmp_path, monkeypatch,
         def refresh_board(self):
             seen["token_when_reading"] = connection.long_op_active
             raise ValidationError("no board in this test")
+
+        def close(self):
+            # The worker's `finally` calls this even when the read raised (which is
+            # the point of the test), so the stand-in must have it — without it an
+            # AttributeError out of the `finally` would replace the worker's honest
+            # "unavailable" answer with a puzzling failure.
+            pass
 
     monkeypatch.setattr(td_mod, "create_board_adapter", _TokenWatchingAdapter)
 

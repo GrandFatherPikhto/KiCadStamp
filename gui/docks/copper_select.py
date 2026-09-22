@@ -12,6 +12,14 @@ Everything that touches the live board runs on the WORKER thread
 (gui/worker.start_long_op), the shared kipy socket's only in-flight owner, so the
 UI never freezes and a second IPC request cannot interleave into this one.
 
+Each worker below builds its OWN adapter and hands that socket back in a `finally`
+(cascade.py's shape, on the happy path and on an exception alike). There used to be
+a `_live_adapter()` factory here that RETURNED the adapter: a factory cannot know
+when the operation ends, so the closing duty fell to whoever called it — and both
+callers leaked one pynng socket per action, the very class the "pynng Socket.close()
+did not return within 2.0s" measurement is about (plan ...socket_leak P.0-P.1). The
+factory is gone for that reason, not to save two lines.
+
 The matching itself is `kicadstamp.net_trace_planner.find_live_copper` — the same
 routine `apply` adopts copper through, so "select" can never point at different
 copper than a redraw manages (the "one mechanism" contract).
@@ -19,32 +27,11 @@ copper than a redraw manages (the "one mechanism" contract).
 import logging
 from dataclasses import dataclass, field
 
-from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.i18n import _
 
 from ..connection import worker_timeout_ms
 
 logger = logging.getLogger(__name__)
-
-
-def _live_adapter(timeout_ms: int = DEFAULT_TIMEOUT_MS, config_path=None):
-    """A fresh live-board adapter for the worker. Same construction the other
-    live-reading workers use (trees_dock.run_internode_reread_worker,
-    cascade), so the whole op owns the board connection on the worker thread.
-
-    ``timeout_ms`` is taken from the worker payload (Э3, plan_2026_09_13_
-    timeout_sweep): the very number the main connection runs with, never a
-    literal of our own. The default only serves callers that carry none
-    (probes, tests).
-
-    ``config_path`` (2026-09-18, plan_2026_09_18_field_overrides_store Т2) is
-    the profile the payload carries: this worker resolves records and roles, so
-    its adapter must see OUR stored Role/Cluster values, exactly like the main
-    connection. None (probes, tests) means no store."""
-    from kicadstamp.adapter_factory import create_board_adapter
-    adapter = create_board_adapter(timeout_ms=timeout_ms, config_path=config_path)
-    adapter.refresh_board()
-    return adapter
 
 
 def _readonly_registries(adapter, config_path):
@@ -107,34 +94,52 @@ def run_select_record_copper_worker(payload: dict) -> dict:
 
     The selection is REPLACED wholesale by adapter.select_items() — the report
     carries the previous selection size so the UI can warn about it in the Log.
-    """
+
+    It builds its OWN adapter (a new adapter IS a new pynng REQ socket, and one
+    socket has one owner) and hands that socket back in the `finally`, on both
+    paths. The construction is the one every live-reading worker uses
+    (trees_dock.run_internode_reread_worker): the timeout travels in the payload
+    (Э3, plan_2026_09_13_timeout_sweep) — the number the main connection runs with,
+    never a literal of our own — and `config_path` (plan_2026_09_18_field_overrides_
+    store Т2) is the profile the payload carries, so the adapter sees OUR stored
+    Role/Cluster values, exactly like the main connection."""
+    from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.domain.board import Track, Via
     from kicadstamp.net_trace_planner import find_live_copper
 
-    adapter = _live_adapter(worker_timeout_ms(payload), payload["config_path"])
-    via_registry, track_registry = _readonly_registries(adapter, payload["config_path"])
-    result = find_live_copper(adapter, payload["record"],
-                              via_registry=via_registry,
-                              track_registry=track_registry,
-                              sheet_names=payload.get("sheet_names") or {})
-    # Read the CURRENT selection before replacing it (select_items clears it).
+    adapter = None
     try:
-        previous = len(adapter.get_selected_items() or [])
-    except Exception:  # noqa: BLE001 — a selection read can never block the action
-        previous = 0
-    items = result.found
-    adapter.select_items(items)
-    return {
-        "identity": result.identity,
-        "found": len(items),
-        "expected": result.expected_count,
-        "missing": result.missing_count,
-        "tracks": sum(1 for i in items if isinstance(i, Track)),
-        "vias": sum(1 for i in items if isinstance(i, Via)),
-        "tier": _tier_label(result.found_by_registry, result.found_by_geometry),
-        "reason": result.reason,
-        "previous_selection": previous,
-    }
+        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                       config_path=payload.get("config_path"))
+        adapter.refresh_board()
+        via_registry, track_registry = _readonly_registries(
+            adapter, payload["config_path"])
+        result = find_live_copper(adapter, payload["record"],
+                                  via_registry=via_registry,
+                                  track_registry=track_registry,
+                                  sheet_names=payload.get("sheet_names") or {})
+        # Read the CURRENT selection before replacing it (select_items clears it).
+        try:
+            previous = len(adapter.get_selected_items() or [])
+        except Exception:  # noqa: BLE001 — a selection read never blocks the action
+            previous = 0
+        items = result.found
+        adapter.select_items(items)
+        return {
+            "identity": result.identity,
+            "found": len(items),
+            "expected": result.expected_count,
+            "missing": result.missing_count,
+            "tracks": sum(1 for i in items if isinstance(i, Track)),
+            "vias": sum(1 for i in items if isinstance(i, Via)),
+            "tier": _tier_label(result.found_by_registry,
+                                result.found_by_geometry),
+            "reason": result.reason,
+            "previous_selection": previous,
+        }
+    finally:
+        if adapter is not None:
+            adapter.close()
 
 
 def select_copper_report_lines(report: dict) -> list[str]:
@@ -332,11 +337,25 @@ def identify_copper_report_lines(result: IdentifyResult,
 def run_identify_copper_worker(payload: dict) -> IdentifyResult:
     """start_long_op worker entry point for "Whose copper is this?" (Э3).
     Plain data in, plain data out; the selection read and every board call
-    happen HERE, on the worker. READ-ONLY: nothing is selected or written."""
-    adapter = _live_adapter(worker_timeout_ms(payload), payload["config_path"])
-    selected = list(adapter.get_selected_items() or [])
-    via_registry, track_registry = _readonly_registries(adapter, payload["config_path"])
-    return identify_selected_copper(
-        adapter, payload["cfg"], selected,
-        via_registry=via_registry, track_registry=track_registry,
-        sheet_names=payload.get("sheet_names") or {})
+    happen HERE, on the worker. READ-ONLY: nothing is selected or written.
+
+    It builds its OWN adapter and hands the socket back in the `finally`, on both
+    paths — the same shape and the same reason as run_select_record_copper_worker
+    above (this file's second caller used to be the one that leaked)."""
+    from kicadstamp.adapter_factory import create_board_adapter
+
+    adapter = None
+    try:
+        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                       config_path=payload.get("config_path"))
+        adapter.refresh_board()
+        selected = list(adapter.get_selected_items() or [])
+        via_registry, track_registry = _readonly_registries(
+            adapter, payload["config_path"])
+        return identify_selected_copper(
+            adapter, payload["cfg"], selected,
+            via_registry=via_registry, track_registry=track_registry,
+            sheet_names=payload.get("sheet_names") or {})
+    finally:
+        if adapter is not None:
+            adapter.close()

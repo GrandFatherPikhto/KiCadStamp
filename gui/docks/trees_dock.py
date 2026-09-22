@@ -455,6 +455,15 @@ def run_internode_reread_worker(payload: dict) -> dict:
     narrows the read to its own items, an empty one means the WHOLE board —
     the tree already knows its nodes, clusters and pads, so asking the user to
     select them again with the mouse would be work the config can do itself.
+
+    It builds its OWN adapter (a pynng REQ socket is single-owner, so it cannot be
+    shared with the UI's poll ticks) and hands that socket back in a `finally` — on
+    the happy path AND when a read raises through it. Not pedantry: unclosed sockets
+    are exactly the "pynng Socket.close() did not return within 2.0s" class measured
+    live (23 per click, 6.0 s of an 18.7 s action, plan ...socket_leak P.0-P.1), and
+    KiCadBoardAdapter.close() was written for the same incident (a silent Windows
+    access violation while the GC finalized live sockets on unpredictable threads).
+    The shape is cascade.py's (run_curated_tree_redraw / run_curated_forest_redraw).
     """
     from kicadstamp.internode_capture import (
         apply_reread_plan,
@@ -465,27 +474,30 @@ def run_internode_reread_worker(payload: dict) -> dict:
     # the value the main connection actually runs with, decided on the UI side.
     adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
                                    config_path=payload.get("config_path"))
-    adapter.refresh_board()
-    selected = list(adapter.get_selected_items() or [])
-    if selected:
-        footprints = [i for i in selected if isinstance(i, Footprint)]
-        items = [i for i in selected if isinstance(i, (Track, Via))]
-    else:
-        footprints = list(adapter.get_footprints())
-        items = list(adapter.get_tracks()) + list(adapter.get_vias())
+    try:
+        adapter.refresh_board()
+        selected = list(adapter.get_selected_items() or [])
+        if selected:
+            footprints = [i for i in selected if isinstance(i, Footprint)]
+            items = [i for i in selected if isinstance(i, (Track, Via))]
+        else:
+            footprints = list(adapter.get_footprints())
+            items = list(adapter.get_tracks()) + list(adapter.get_vias())
 
-    cfg = payload["cfg"]
-    tree = payload["tree"]
-    plan = plan_internode_reread(
-        adapter, cfg, tree, area_items=items, area_footprints=footprints,
-        sheet_names=payload.get("sheet_names") or {})
-    return {
-        "plan": plan,
-        "cfg": apply_reread_plan(cfg, plan),
-        "tree": tree,
-        "added": [c.identity for c in plan.added],
-        "narrowed_to_selection": bool(selected),
-    }
+        cfg = payload["cfg"]
+        tree = payload["tree"]
+        plan = plan_internode_reread(
+            adapter, cfg, tree, area_items=items, area_footprints=footprints,
+            sheet_names=payload.get("sheet_names") or {})
+        return {
+            "plan": plan,
+            "cfg": apply_reread_plan(cfg, plan),
+            "tree": tree,
+            "added": [c.identity for c in plan.added],
+            "narrowed_to_selection": bool(selected),
+        }
+    finally:
+        adapter.close()
 
 
 def run_anchor_live_position_worker(payload: dict) -> dict:
@@ -507,8 +519,13 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
     failed IPC read or an unresolvable anchor comes back as
     {"available": False, "reason": ...} with one Log warning — the same
     "unavailable" the synchronous read used to show, only decided off the UI
-    thread."""
+    thread.
+
+    The socket this worker builds is handed back in the `finally`, on BOTH paths —
+    see run_internode_reread_worker for why that is not pedantry. `adapter` is None
+    only when create_board_adapter itself raised, and then there is no socket."""
     tree = payload["tree"]
+    adapter = None
     try:
         # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as
         # the reread worker above.
@@ -521,6 +538,9 @@ def run_anchor_live_position_worker(payload: dict) -> dict:
         logger.warning(_("anchor live position unavailable: {error}")
                        .format(error=exc))
         return {"available": False, "reason": str(exc)}
+    finally:
+        if adapter is not None:
+            adapter.close()
     return {"available": True, "x": pos.x, "y": pos.y, "rotation": rot,
             "ref": tree.anchor.ref}
 
@@ -539,8 +559,13 @@ def run_anchor_base_mm_worker(payload: dict) -> dict:
 
     NEVER raises: an anchor that does not resolve — or a failed IPC read — comes back as
     {"base": None}, and the UI half answers with the very warning the synchronous read
-    gave. Failures are logged at DEBUG (diagnostic detail, no user-facing wording)."""
+    gave. Failures are logged at DEBUG (diagnostic detail, no user-facing wording).
+
+    The socket this worker builds is handed back in the `finally`, on BOTH paths —
+    see run_internode_reread_worker for why that is not pedantry. `adapter` is None
+    only when create_board_adapter itself raised, and then there is no socket."""
     tree = payload["tree"]
+    adapter = None
     try:
         adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
                                        config_path=payload.get("config_path"))
@@ -550,6 +575,9 @@ def run_anchor_base_mm_worker(payload: dict) -> dict:
     except Exception:  # noqa: BLE001 — best-effort read, never crash the flow
         logger.debug("tree anchor base read failed", exc_info=True)
         return {"base": None}
+    finally:
+        if adapter is not None:
+            adapter.close()
     return {"base": (pos.x / MM, pos.y / MM)}
 
 
@@ -575,9 +603,14 @@ def run_extract_new_cell_worker(payload: dict) -> dict:
     NEVER raises: `extract_new_cell_for_instantiation` already answers None on a
     failed extraction (logging its own reason); an exception from the origin
     detection is caught here and reported the same way. The UI half shows the
-    very modal the synchronous read showed."""
+    very modal the synchronous read showed.
+
+    The socket this worker builds is handed back in the `finally`, on BOTH paths —
+    see run_internode_reread_worker for why that is not pedantry. `adapter` is None
+    only when create_board_adapter itself raised, and then there is no socket."""
     from .tree_from_selection import extract_new_cell_for_instantiation
 
+    adapter = None
     try:
         adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
                                        config_path=payload.get("config_path"))
@@ -591,6 +624,9 @@ def run_extract_new_cell_worker(payload: dict) -> dict:
     except Exception:  # noqa: BLE001 — best-effort read, never crash the flow
         logger.debug("new-cell extraction failed", exc_info=True)
         return {"cell": None}
+    finally:
+        if adapter is not None:
+            adapter.close()
     return {"cell": cell}
 
 
@@ -610,7 +646,11 @@ def run_node_reread_worker(payload: dict) -> dict:
     modal warning it always showed, with the node left untouched. The dock's
     OWN live adapter travels in the payload instead of a second one being built
     here — it is the adapter this read always used, and start_long_op holds the
-    shared socket for the whole call."""
+    shared socket for the whole call.
+
+    It therefore builds NO adapter and must NOT close anything: the adapter in the
+    payload belongs to the dock and lives past this call (the four workers above
+    build their own sockets and hand them back; this one borrows the shared one)."""
     try:
         offset_mm, rotation = _resolve_live_offset(
             payload["cfg"], payload["adapter"], payload["sheet_names"],
