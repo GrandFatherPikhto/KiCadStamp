@@ -501,21 +501,29 @@ def test_a_move_still_busy_on_the_retry_tells_the_user(
 
 
 # ── Т2-6 (plan_2026_09_22_live_adapter_class) — the tab-2 extraction ──────────
-# "Instantiate from Cell…" tab 2 used to read the door RIGHT HERE (`adapter =
-# self._live_adapter()`) and then run a whole-board extraction inline. It now asks
-# the CONNECTION for presence (the Т5-2 idiom) and the read happens on a WORKER
-# that builds its OWN adapter — so the UI half has no adapter read at all.
+# "Instantiate from Cell…" tab 2 used to read the door and then run a whole-board
+# extraction inline: `adapter = self._live_adapter()  # lazy: tab 1 stays usable
+# offline` followed by `if adapter is None:`, both in `_instantiate_from_cell_now`.
+# It now asks the CONNECTION for presence (the Т5-2 idiom) and the read happens on
+# a WORKER that builds its OWN adapter — so the UI half has no adapter read at all.
 
 def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
         real_main_window, tmp_path, monkeypatch, qapp):
     """Т2-6 — with the door ARMED, driving the tab-2 continuation reads nothing
     unsigned. The worker is stubbed here (its own thread and the shared-socket
     token are pinned in tests/gui/test_ui_thread_board_reads.py), so what this
-    cell adds is the DOOR: the UI half must not reach for the adapter object at
-    all — it used to, one line before the extraction.
+    cell adds is the DOOR: the continuation must not reach for the adapter object
+    at all.
 
-    Mutation check: put the pre-Т2-6 read back — `adapter = self._live_adapter()`
-    in `_extract_new_cell_then` — and this fails with the refusal (m22)."""
+    The continuation is `_extract_new_cell_then` — a function the fix CREATED, so
+    this cell cannot vouch for the place the read used to stand: that was
+    `_instantiate_from_cell_now`, one level up, and it has its own cell below
+    (Кm of plan_2026_09_22_door_guard_aim_and_socket_close —
+    test_instantiate_tab_2_does_not_read_the_board_unsigned).
+
+    Mutation check: mutation m22 restores the pre-Т2-6 inline extraction (the door
+    read included) INSIDE `_extract_new_cell_then`, and this fails with the
+    refusal."""
     import gui.docks.trees_dock as trees_mod
     from tests.gui.conftest import _pump
 
@@ -547,6 +555,115 @@ def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
     assert started, "the extraction must go to its worker"
     assert started[0]["cluster"].cluster == "CL", \
         "the detected cluster must travel in the payload"
+
+
+# ── Кm (plan_2026_09_22_door_guard_aim_and_socket_close) — the place the defect
+# REALLY lived ────────────────────────────────────────────────────────────────
+# The Т2-6 cell above drives `_extract_new_cell_then`, which commit e4ddc5a
+# CREATED. The read the fix removed stood one level up, in
+# `_instantiate_from_cell_now` — verbatim, from
+# `git show e4ddc5a -- gui/docks/trees_dock.py`:
+#     adapter = self._live_adapter()  # lazy: tab 1 stays usable offline
+#     if adapter is None:
+# Nothing watched that place, so the defect could be put back in silence: the proof
+# is the mutation of the acceptance, which passed EVERY watchdog. That is why this
+# cell exists and why its mutation's pattern is taken from the diff, not from memory.
+
+def test_instantiate_tab_2_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch, qapp):
+    """Кm (plan_2026_09_22_door_guard_aim_and_socket_close) — with the door ARMED,
+    driving "Instantiate from Cell…" TAB 2 through its REAL entry reads nothing
+    unsigned, and the flow still reaches its worker.
+
+    It drives `_instantiate_from_cell_now` itself, because that is where the
+    pre-Т2-6 read lived: the presence check opened the door
+    (`adapter = self._live_adapter()`) and the extraction behind it ran inline on
+    the UI thread. The Т2-6 cell above drives only the continuation the fix created
+    and says nothing about this place.
+
+    Every seam the flow crosses is stubbed BELOW the door, so the only thing that can
+    refuse is the door itself: the modal dialog (its answers are plain data), the
+    fully-selected-cluster detection (exactly ONE cluster, so the dialog's own gate
+    is passed), the tab-2 worker, and `_rebuild_tabs` (the tab rebuild still reads
+    the board through the forms it builds — that is Т2-8's business, not this
+    cell's).
+
+    Mutation check: put the removed lines back —
+    `adapter = self._live_adapter()  # lazy: tab 1 stays usable offline` followed by
+    `if adapter is None:` in `_instantiate_from_cell_now` (the pattern is the `-`
+    half of the diff of the commit that removed them) — and this fails with the
+    door's refusal naming gui/docks/trees_dock.py."""
+    import gui.docks.instantiate_cell_dialog as dialog_mod
+    import gui.docks.reead as reead_mod
+    import gui.docks.trees_dock as trees_mod
+    from PyQt6.QtWidgets import QDialog
+    from tests.gui.conftest import _pump
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"trees": [
+        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}), encoding="utf-8")
+    dock = trees_mod.TreesDock(real_main_window)
+    dock.set_root_file(root)                     # built BEFORE the door is armed
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+
+    class _NewCellDialog:
+        """The modal of "Instantiate from Cell…", answered on TAB 2: `exec()`
+        returns Accepted so the flow goes on, and every answer the flow reads comes
+        back as plain data — no widget is ever shown."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def entity_name(self):
+            return "ENT_A"
+
+        def result_cell(self):
+            return "new_cell"
+
+        def cluster(self):
+            return "CL"
+
+        def sheet(self):
+            return ""
+
+        def is_new_cell(self):
+            return True
+
+        def origin_override(self):
+            return None, None
+
+        def absolute_origin(self):
+            return False
+
+        def from_selection(self):
+            return False
+
+        def manual_xy(self):
+            return (1.0, 2.0)
+
+    monkeypatch.setattr(dialog_mod, "InstantiateCellDialog", _NewCellDialog)
+    # Exactly ONE fully selected cluster: the dialog only enables OK in that case,
+    # and the real detection needs live snapshot items this cell does not model.
+    monkeypatch.setattr(reead_mod, "fully_selected_clusters",
+                        lambda *a, **k: [SimpleNamespace(cluster="CL", sheet="")])
+    started: list = []
+    monkeypatch.setattr(
+        trees_mod, "run_extract_new_cell_worker",
+        lambda payload: started.append(payload)
+        or {"cell": {"new_cell": {"components": [{"role": "R1"}]}}})
+    _arm_the_door(monkeypatch)
+
+    dock._instantiate_from_cell_now([])          # must not raise
+    _pump(qapp, lambda: not real_main_window.connection.long_op_active)
+
+    assert started, "the flow must reach its worker"
+    assert started[0]["cluster"].cluster == "CL", \
+        "the detected cluster must travel in the payload"
+    assert started[0]["cell_name"] == "new_cell"
 
 
 # ── Кj (plan_2026_09_22_live_adapter_class) — the sign NAMES the refresh ─────
