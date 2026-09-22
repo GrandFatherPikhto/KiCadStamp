@@ -1,0 +1,11 @@
+{"ref": "C1", "role": "C_IN_BULK", "live_rel_along": 0.0, "live_rel_across": 0.0, "record_rel_along": 0.0, "record_rel_across": 0.0}
+{"ref": "C2", "role": "C_IN_BYPASS", "live_rel_along": 8.0, "live_rel_across": -4.1375, "record_rel_along": 9.5, "record_rel_across": -4.1375}
+{"ref": "C3", "role": "C_OUT_BULK", "live_rel_along": 35.25, "live_rel_across": 0.0, "record_rel_along": 42.0, "record_rel_across": 0.0}
+{"ref": "C4", "role": "C_OUT_BYPASS", "live_rel_along": 42.5, "live_rel_across": -4.1375, "record_rel_along": 51.0, "record_rel_across": -4.1375}
+{"ref": "D1", "role": "LED_P12V", "live_rel_along": 47.75, "live_rel_across": -3.975, "record_rel_along": 45.85, "record_rel_across": 4.675}
+{"ref": "D7", "role": "LED_P5V", "live_rel_along": 5.725, "live_rel_across": 4.1, "record_rel_along": 19.68, "record_rel_across": 57.1999}
+{"ref": "F1", "role": "FUSE", "live_rel_along": -8.825, "live_rel_across": 2.85, "record_rel_along": 20.76, "record_rel_across": 53.19}
+{"ref": "J1", "role": "CONN_P12V", "live_rel_along": -11.125, "live_rel_across": -2.5, "record_rel_along": -12.525, "record_rel_across": -2.5}
+{"ref": "R1", "role": "R_LED_P12V", "live_rel_along": 45.25, "live_rel_across": -4.0875, "record_rel_along": 41.35, "record_rel_across": 4.675}
+{"ref": "R13", "role": "R_LED_P5V", "live_rel_along": 6.75, "live_rel_across": 0.85, "record_rel_along": 24.225, "record_rel_across": 56.9349}
+{"ref": "U1", "role": "MINI360", "live_rel_along": 13.25, "live_rel_across": -0.5, "record_rel_along": 17.695, "record_rel_across": -0.5}
