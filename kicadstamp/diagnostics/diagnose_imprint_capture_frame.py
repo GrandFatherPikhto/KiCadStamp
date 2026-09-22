@@ -373,7 +373,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--imprint", default="pwr_mini360_in")
     parser.add_argument("--cell", default="mini360_p12v_p5v")
     parser.add_argument("--cluster", default="MINI360_P12V_P5V")
-    parser.add_argument("--operation", required=True)
+    parser.add_argument("--operation",
+                        help="operation log of the apply (original_position/original_angle_deg); "
+                             "required unless --list is given")
     parser.add_argument("--tol", type=float, default=DEFAULT_TOL_MM)
     parser.add_argument("--fixture")
     parser.add_argument("--list", action="store_true",
@@ -387,6 +389,9 @@ def main(argv: list[str]) -> int:
             print(f"  {entry.get('name')!r}  components={len(_components(entry))}  "
                   f"source_sheet={entry.get('source_sheet')!r}")
         return 0
+
+    if not args.operation:
+        parser.error("--operation is required unless --list is given")
     record = load_record(Path(args.scheme_lists) if args.scheme_lists
                          else profile / "scheme_lists.sexp", args.imprint)
     cell = load_cell(Path(args.config) if args.config
