@@ -2816,7 +2816,15 @@ class TreesDock(QWidget):
         if not uuids:
             return
         self._refresh_markers_button()
-        adapter = self._live_adapter()
+        # The door's sign (Т2-2 of plan_2026_09_22_live_adapter_class, the Т5-1
+        # idiom one trigger over): this read is deliberate and says so — a
+        # presence check plus handing the SHARED adapter to the worker below,
+        # which then owns the socket for the whole removal. The trigger is a
+        # rename or leaving the tree, not the marker toggle itself.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to this tree's marker-cleanup "
+                       "worker (a rename, or leaving the tree)"):
+            adapter = self._live_adapter()
         if adapter is None:
             return
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): the
@@ -2847,7 +2855,12 @@ class TreesDock(QWidget):
             if uuid:
                 uuids.append(uuid)
         self._refresh_markers_button()
-        adapter = self._live_adapter()
+        # The door's sign (Т2-2): same shape as Т5-1/`_clear_tree_markers`, on the
+        # tree-TAB switch — the other trees' circles go to their own worker.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the other trees' "
+                       "marker-cleanup worker (a tree-tab switch)"):
+            adapter = self._live_adapter()
         if not uuids or adapter is None:
             return
         # No guard widget, deliberately (Э2, plan_2026_09_12_busy_indicator): a
@@ -3124,7 +3137,12 @@ class TreesDock(QWidget):
         the ~400ms selection tick's in-flight one. No guard widget, deliberately:
         the trigger is a context-menu action, which has no button of its own to
         grey out (the same call the marker-cleanup entries make)."""
-        adapter = self._live_adapter()
+        # The door's sign (Т2-2): the read itself is the WORKER's (Э1 above) and
+        # this half only hands the shared adapter over — its own `socket_busy`
+        # check below stays where it was, ahead of the token.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the node-reread worker"):
+            adapter = self._live_adapter()
         if adapter is None:
             # Connection state, not user input — a Log line, never a modal
             # (plan_2026_09_11_no_modals_and_busy_kicad X.1). The node is

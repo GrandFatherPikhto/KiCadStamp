@@ -32,17 +32,25 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 
 
-@pytest.fixture
-def armed_door(qapp, monkeypatch):
+def _arm_the_door(monkeypatch) -> None:
     """The door's guard, ARMED for this test's UI thread in the rig's mode: a
     violation raises instead of writing a red Log line, which is what makes these
-    watchdogs able to fail."""
+    watchdogs able to fail. Callable in the MIDDLE of a test too — the Т2-2 guards
+    arm it only after their setup, because `set_root_file` still reads the board
+    unsigned through the forms it builds (that is Т2-7's business, and a guard for
+    a LATER read must not depend on it)."""
     from gui import connection as connection_mod
     from gui.worker import is_ui_thread
 
     monkeypatch.setattr(connection_mod, "ui_thread_predicate", is_ui_thread)
     monkeypatch.setattr(connection_mod, "ui_thread_read_refusal",
                         connection_mod.UI_READ_RAISE)
+
+
+@pytest.fixture
+def armed_door(qapp, monkeypatch):
+    """The door armed for the WHOLE test — see `_arm_the_door`."""
+    _arm_the_door(monkeypatch)
 
 
 def test_opening_a_root_does_not_read_the_board_unsigned(
@@ -179,3 +187,85 @@ def test_the_instantiate_continuation_does_not_read_the_board_unsigned(
 
     assert warnings == [], "the presence check refused a connection that is there"
     assert started, "the continuation must reach its worker"
+
+
+# ── Т2-2 (plan_2026_09_22_live_adapter_class) — the three handoff reads ──────
+# Three more `_live_adapter()` callers hand the SHARED adapter to a worker and own
+# the socket through start_long_op for the whole operation: one tree's marker
+# cleanup, the other trees' marker cleanup, and the node reread. Same fix as Т5-1,
+# each with its OWN reason at its own call site.
+
+def test_one_trees_marker_cleanup_does_not_read_the_board_unsigned(
+        real_main_window, monkeypatch):
+    """Т2-2 — `_clear_tree_markers` (a rename, or leaving the tree) hands the
+    shared adapter to its worker under the door's sign.
+
+    Mutation check: drop that `with ui_thread_board_read(...)` and this fails with
+    a refusal naming gui/docks/trees_dock.py."""
+    import gui.docks.trees_dock as td_mod
+
+    started = []
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    dock = real_main_window._dock_hub.trees_dock
+    td_mod.settings.state.set(
+        td_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+        {key: "uuid-1" for key in td_mod._tree_marker_keys("probe_tree")})
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    _arm_the_door(monkeypatch)
+
+    dock._clear_tree_markers("probe_tree")
+
+    assert started, "the removal must reach its worker"
+
+
+def test_other_trees_marker_cleanup_does_not_read_the_board_unsigned(
+        real_main_window, monkeypatch):
+    """Т2-2 — `_clear_other_tree_markers` (a tree-tab switch) does the same, with
+    its own reason.
+
+    Mutation check: drop that sign and this fails with the refusal."""
+    import gui.docks.trees_dock as td_mod
+
+    started = []
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    dock = real_main_window._dock_hub.trees_dock
+    td_mod.settings.state.set(
+        td_mod.overlay_markers.OVERLAY_MARKERS_KEY,
+        {td_mod._TREE_ANCHOR_NS + "/some_other_tree": "uuid-2"})
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    _arm_the_door(monkeypatch)
+
+    dock._clear_other_tree_markers()
+
+    assert started, "the removal must reach its worker"
+
+
+def test_the_node_reread_flow_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-2 — "Reread current position" hands the shared adapter to its worker
+    under the sign; its own `socket_busy` refusal stays where it was.
+
+    Mutation check: drop that sign and this fails with the refusal."""
+    import gui.docks.trees_dock as td_mod
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"trees": [
+        {"name": "probe_tree", "anchor": {"ref": "U1"},
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}),
+        encoding="utf-8")
+    dock = real_main_window._dock_hub.trees_dock
+    dock.set_root_file(root)                     # built BEFORE the door is armed
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+
+    started = []
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    _arm_the_door(monkeypatch)
+
+    dock._reread_node_flow(tree, node)
+
+    assert started, "the read must reach its worker"
