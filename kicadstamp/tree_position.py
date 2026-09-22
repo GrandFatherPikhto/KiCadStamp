@@ -851,12 +851,31 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
     warning (never a silent partial write, never a crash).
 
     snapshot (2026-09-22, plan_2026_09_22_live_adapter_class, the А+ decision) —
-    forwarded to the ROLE branch only, which is the branch that sweeps the whole
-    board to answer "which footprint carries this role". The other branches
-    already resolve a single named thing (a record ref, a point chain, the board
-    origin). `None` (the default, and what every apply-path caller passes) keeps
-    the sweep byte for byte; the position itself is always the adapter's current
-    generation (resolve_footprint_by_role re-reads the chosen ref)."""
+    forwarded to the ROLE branch and, since Т2-7 of plan_2026_09_22_door_t2_7_
+    imprint_place, to the REF branch as well. The ref branch was never "a single
+    named thing" as this docstring used to claim: a ref anchor pointing at a
+    config RECORD dispatches into the same kind dispatch
+    `resolve_base_live_position` uses, so the money under it is spent by the
+    RECORD KIND's leaves — and the forward reaches exactly the ones that own a
+    snapshot parameter of their own:
+      chain / net_trace  -> ComponentResolver(..., snapshot=snapshot):
+                            332 field scans -> 0 (probe row A5b, 332 -> 0)
+      clone              -> ClonePositionCalculator._resolve_anchor, which has NO
+                            snapshot parameter: unchanged (row A5b', 332 -> 332)
+      point / placement / coordinate(anchor-relative) -> their own sub-seams, no
+                            snapshot parameter either: unchanged (rows A4/B3/B6b)
+    So the forward is real but NARROW, and the probe prints the column each leaf
+    lands in rather than one comfortable sentence about "the ref branch". Both
+    calls take the keyword (the rotation twin was left out of Т2-4а's threading
+    and pays its own sweep for a chain record: row A5b's second cache walk).
+    Т2-4а's leaf table declared this whole sub-leaf free ("the tree's own anchor,
+    1 sweep -> 0"); that row was measured on the ROLE sub-branch, and the ref one
+    kept paying whatever its record's kind decided. The SELF branch still takes no
+    snapshot either (row A2, 332 -> 332), for the same reason: no parameter to
+    reach (`entity_placement._entity_own_zero_slot_live_position`).
+    `None` (the default, and what every apply-path caller passes) keeps the sweep
+    byte for byte; the position itself is always the adapter's current generation
+    (resolve_footprint_by_role re-reads the chosen ref)."""
     anchor = tree.anchor
     if anchor.is_origin:
         pos, deg = _ORIGIN, 0.0
@@ -891,11 +910,25 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
         pos, deg = resolved.position, None
     else:
         # A ref anchor — record-or-external, the pre-existing path.
+        #
+        # snapshot (Т2-7): BOTH calls take it, and what the forward REACHES is
+        # decided by the record's KIND, not by this branch — the probe prints both
+        # columns instead of one (diagnostics/probe_2026_09_22_imprint_place_leaf_
+        # cost.py):
+        #   * a CHAIN (or net_trace) record ends in ComponentResolver(..., snapshot
+        #     =snapshot): 332 field scans -> 0 on both calls (row A5b);
+        #   * a CLONE record ends in ClonePositionCalculator._resolve_anchor, which
+        #     has no snapshot parameter of its own: 332 -> 332 (row A5b');
+        #   * an EXTERNAL refdes resolves through both calls without ever building
+        #     a resolver, so the snapshot is inert there (row A5a: 2 cache walks,
+        #     no sweep, unchanged by the snapshot).
         records = build_records(cfg)
         by_name = _build_by_name_index(records)
         record, _is_external = _resolve_anchor_ref(anchor, by_name)
-        pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {}, sheet_names)
-        deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names)
+        pos = resolve_base_live_position(adapter, cfg, anchor.ref, record, {},
+                                         sheet_names, snapshot=snapshot)
+        deg = resolve_base_rotation_deg(adapter, cfg, anchor.ref, record, sheet_names,
+                                        snapshot=snapshot)
     # The anchor's OWN (shift x y), in its base frame (§X.2): applied to the
     # resolved position at the anchor's angle. `deg` None (a point/origin has no
     # orientation) leaves the shift in board axes — documented, not silent. A

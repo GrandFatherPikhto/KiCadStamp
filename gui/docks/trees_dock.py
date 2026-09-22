@@ -3783,6 +3783,16 @@ class TreesDock(QWidget):
             # placement node whose Entity has cell+cluster — the TYPICAL tree node)
             # from 5 sweeps + 1665 field scans to 0.
             #
+            # SCOPED, and Т2-7 of plan_2026_09_22_door_t2_7_imprint_place made the
+            # scope explicit: that 1/1/2/2 was measured on ROLE anchors, and branch
+            # 2 is a fork of FIVE modes — a REF anchor dispatches by the RECORD's
+            # kind, so the kinds that reach a ComponentResolver (chain, net_trace)
+            # were paying a sweep on both calls until Т2-7 forwarded the snapshot
+            # into that branch, while a clone / point / placement / anchor-relative
+            # coordinate record under the same anchor STILL sweeps (332 field scans,
+            # no snapshot parameter to reach — probe_2026_09_22_imprint_place_leaf_
+            # cost.py, rows A5b vs A5b').
+            #
             # The cost this sign does NOT remove is named IN THE REASON itself, not
             # just here. An Entity-typed parent still pays TWO board-wide reads:
             # `adapter.refresh_board()` (one get_board() round trip that DROPS both

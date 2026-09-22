@@ -19,23 +19,42 @@ the LEAVES, which is the lesson learned three times over (Т2-4 measured the CAL
 Т2-4а the BRANCHES, and Кj found that branch 4 has two SUB-branches and only the
 fallback one had been threaded):
 
-  1  the node's OWN anchor     base_anchor            1 sweep   -> 0
-  2  the tree's own anchor     parent_node=None       1 sweep   -> 0
-  3  a MOUNT parent            kind == "mount"        2 sweeps  -> 0
-  4  any other parent NODE     read_record_live_pose  2 sweeps  -> 0
-  5  an ENTITY parent          sub-branch of 4        5 sweeps  -> 0   (Кj)
-                               (cell+cluster)         1665 field scans -> 0
+  1  the node's OWN anchor     base_anchor                 1 sweep   -> 0
+  2a the tree's own anchor     parent_node=None, ROLE      1 sweep   -> 0
+  2b the tree's own anchor     parent_node=None, REF       2 sweeps  -> 0  (Т2-7)
+                               (a RECORD: chain/nettrace)
+  3  a MOUNT parent            kind == "mount"             2 sweeps  -> 0
+  4  any other parent NODE     read_record_live_pose       2 sweeps  -> 0
+  5  an ENTITY parent          sub-branch of 4             5 sweeps  -> 0  (Кj)
+                               (cell+cluster)              1665 field scans -> 0
+
+Row 2 is SPLIT, and the merge it replaces was WRONG in the way rule 35 keeps
+describing: it said "the tree's own anchor -> 0" while its only cell drove the
+ROLE mode. An anchor's mode is a fork of FIVE (origin/self/role/point/ref), and a
+REF anchor is not "a single named thing" either — it dispatches by the RECORD's
+kind, so a kind that reaches a ComponentResolver (chain, net_trace) paid a sweep
+on BOTH calls, position and rotation, until Т2-7 forwarded the snapshot into that
+branch. Rows 2a/2b are those two modes, one cell each.
 
 Cells left empty ON PURPOSE: nothing here asserts the sub-seams that have no
 snapshot parameter of their own (tree_pivot_offset's pivot half,
 resolve_entity_live_position, point chains, ClonePositionCalculator) — nor the
 two whole-board reads on `_live_cluster_frame`'s FAILURE path
-(role_multiplicity_in_cluster and the "is the cluster on the board at all"
-check), which run once, right before a fatal message. And nothing here asserts
-the ONE cost the snapshot does NOT remove: `adapter.refresh_board()` per
-Entity-typed parent. All of them are named in the code beside the door's sign —
-the sign does not claim them, and the re-hang's sign NAMES that refresh instead
-(its own cell lives in tests/gui/test_board_door_offenders.py).
+(role_multiplicity_in_cluster and "is the cluster on the board at all", which run
+once, right before a fatal message), nor the ONE cost the snapshot does NOT remove:
+`adapter.refresh_board()` per Entity-typed parent. All of them are named in the code
+beside the door's sign — the sign does not claim them, and the re-hang's sign NAMES
+that refresh instead (its own cell lives in tests/gui/test_board_door_offenders.py).
+
+Since Т2-7 that list is MEASURED, not merely named
+(diagnostics/probe_2026_09_22_imprint_place_leaf_cost.py): the leaves whose
+sub-seam takes no snapshot still pay 332 field scans WITH a snapshot in hand — the
+tree anchor's SELF mode (row A2, `entity_placement.
+_entity_own_zero_slot_live_position`) and POINT mode (row A4,
+`point_resolver.resolve_point_chain`), and a ref anchor whose RECORD is a clone
+(row A5b', `ClonePositionCalculator`), a point, a placement or an anchor-relative
+coordinate. They are carried into the plan's named residual rather than papered
+over.
 """
 from types import SimpleNamespace
 
@@ -163,8 +182,13 @@ def test_branch_1_the_nodes_own_anchor_resolves_from_the_snapshot():
     assert swept.sweeps == 1, "the historical path must still sweep"
 
 
-def test_branch_2_the_trees_own_anchor_resolves_from_the_snapshot():
-    """Cell 2 — `parent_node is None` (the tree's own anchor, every mode)."""
+def test_branch_2a_the_tree_anchors_ROLE_mode_resolves_from_the_snapshot():
+    """Cell 2a — `parent_node is None` with a ROLE anchor (the tree's own anchor
+    resolving a role on the live board).
+
+    It is "2a" and not "2" because this cell drives ONE of the anchor's five modes
+    and used to say "the tree's own anchor, every mode": the merged row claimed a
+    sweep it never measured on the REF mode. The sibling below is that other mode."""
     adapter, tree = _CountingAdapter(), _tree()
     cfg = _cfg(tree)
 
@@ -176,6 +200,51 @@ def test_branch_2_the_trees_own_anchor_resolves_from_the_snapshot():
     _assert_resolved_anchor(td_mod._resolve_node_base_pose(
         cfg, swept, {}, tree, None, None))
     assert swept.sweeps == 1, "the historical path must still sweep"
+
+
+def test_branch_2b_the_tree_anchors_REF_mode_resolves_from_the_snapshot():
+    """Cell 2b — `parent_node is None` with a REF anchor (Т2-7 of plan_2026_09_22_
+    door_t2_7_imprint_place).
+
+    A ref anchor dispatches by the RECORD's kind, and this record is a CHAIN — a
+    kind whose branch owns a `snapshot` parameter. Before Т2-7 it was never handed
+    one, so the anchor swept the board TWICE per base — the position call and the
+    rotation call each build their own resolver, 332 field scans apiece — while the
+    caller held the snapshot. The row it belonged to declared that free.
+
+    Mutation check: drop `snapshot=snapshot` from EITHER call in
+    `_anchor_base_live_position`'s ref branch and this fails on the sweep — the
+    second call is the rotation twin, and it is the one Т2-4а left out."""
+    from kicadstamp.anchor_graph import chain_effective_name
+
+    chain = SimpleNamespace(name="probe_chain", sheet=None, params={}, retired=False,
+                            skip=False, anchor_ref=None, anchor_role=ANCHOR_ROLE,
+                            anchor_sheet=None, anchor_cluster=ANCHOR_CLUSTER,
+                            anchor_point=None, anchor_pad=None)
+    tree = td_mod.Tree(name="ref_tree",
+                       anchor=td_mod.TreeAnchor(ref=chain_effective_name(chain)),
+                       nodes=[])
+    # A ref anchor goes through `build_records`, which walks EVERY config section —
+    # so this rig carries them all (empty), not just the one under test.
+    cfg = SimpleNamespace(trees=[tree], chains=[chain], clone_placements=[],
+                          entities=[], coordinate_placements=[], net_traces=[],
+                          thermal_via_arrays=[], points={})
+
+    adapter = _CountingAdapter()
+    _assert_resolved_anchor(td_mod._resolve_node_base_pose(
+        cfg, adapter, {}, tree, None, None, snapshot=_snapshot(adapter)))
+    assert adapter.sweeps == 0 and adapter.field_scans == 0, (
+        "the ref sub-branch of the tree anchor swept the board even though a "
+        f"snapshot was given (sweeps={adapter.sweeps}, "
+        f"field_scans={adapter.field_scans})")
+
+    swept = _CountingAdapter()
+    _assert_resolved_anchor(td_mod._resolve_node_base_pose(
+        cfg, swept, {}, tree, None, None))
+    assert swept.sweeps == 2 and swept.field_scans == 2 * FOOTPRINTS, (
+        "the historical ref path must still sweep BOTH calls — position and "
+        "rotation, one resolver each — or this cell would pass with no threading "
+        f"at all (sweeps={swept.sweeps}, field_scans={swept.field_scans})")
 
 
 def test_branch_3_a_mount_parent_resolves_from_the_snapshot():

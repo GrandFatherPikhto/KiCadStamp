@@ -18702,3 +18702,7 @@ msgstr ""
 #: gui/docks/trees_dock.py
 msgid "Move to…: the board is busy right now — the node was NOT moved. Try the move again."
 msgstr ""
+
+#: gui/docks/imprint_place.py
+msgid "The board is busy right now (a selection tick or a long operation holds the shared KiCad socket) — the X/Y offset was NOT filled from the selection. “Take from selection” was turned off; try again in a moment."
+msgstr ""

@@ -60,6 +60,8 @@ from kicadstamp.config_writer import append_tree_child_node, upsert_entity
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
+from ..connection import UiThreadBoardReadRefused, ui_thread_board_read
+from ..worker import defer_while_socket_busy, socket_busy
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       configure_searchable, set_combo_items, show_message)
 from .rename import find_list_entry_file
@@ -75,6 +77,15 @@ logger = logging.getLogger(__name__)
 # reachable record / are regenerated on every load) are excluded up front so a
 # wrong pick never fails deep inside link_trees.
 _TOP_LEVEL = _("— top level (no parent) —")
+
+# ONE wording for "the shared socket is busy", used on BOTH channels (the Log line
+# and the message box) — the same shape trees_dock's _REHANG_BUSY_TEXT uses after
+# Т2-4б: it names the cause AND the outcome (the offset was not filled, the
+# checkbox was turned off), so the action never ends as a tick that did nothing.
+_BOARD_BUSY_TEXT = _(
+    "The board is busy right now (a selection tick or a long operation holds the "
+    "shared KiCad socket) — the X/Y offset was NOT filled from the selection. "
+    "“Take from selection” was turned off; try again in a moment.")
 
 
 def collect_parent_candidates(tree) -> List[tuple[Optional[str], str]]:
@@ -454,10 +465,71 @@ class ImprintPlaceFormWidget(QWidget):
         """Opt-in hint (design decision 4): when checked, try to fill x/y from
         the live board (center of the current selection minus the chosen
         parent's live base). On any failure show a warning and fall back to
-        manual entry (never a silent partial write)."""
+        manual entry (never a silent partial write).
+
+        The read costs board time, so it ASKS THE SOCKET FIRST (door rule 3; Т2-7
+        of plan_2026_09_22_door_t2_7_imprint_place): one deferred retry through
+        `defer_while_socket_busy` while another owner holds the shared kipy REQ
+        socket, and the continuation checks `socket_busy` once more one line
+        before the read, because a tick can start inside the 120 ms delay. The
+        ~400 ms selection tick holds that socket 16.4 % of a run (measured,
+        trees_dock.py), so a refusal that said nothing would eat roughly every
+        sixth click — the silence Т2-4б cleared on the re-hang path."""
         if not checked:
             return
-        offset_mm = self._read_from_selection_offset()
+        defer_while_socket_busy(self._connection, (),
+                                self._fill_offset_from_selection,
+                                self._tell_board_busy, owner=self)
+
+    def _fill_offset_from_selection(self) -> None:
+        """The continuation: read the offset and write the spin boxes.
+
+        This is the SECOND legitimate shape of `defer_while_socket_busy`'s own
+        contract (gui/worker.py): the continuation is short, synchronous and
+        guards the socket itself one line before the read, so the helper
+        contributes the deferral and the liveness check. A continuation that
+        neither starts a worker nor checks the socket itself must not be passed
+        there — and this one keeps that promise below."""
+        connection = self._connection
+        if socket_busy(connection):
+            # The race window: the poll tick (or a long operation) took the socket
+            # between the helper's own check and this line. The SAME refusal the
+            # message box shows — returning silently here would eat exactly the
+            # click the deferral was added to save (Т2-4б: the last attempt never
+            # whispers).
+            logger.warning(_BOARD_BUSY_TEXT)
+            self._tell_board_busy()
+            return
+        # The door's sign (Т2-7). The read is deliberate and stays on the UI
+        # thread; the table of leaves says WHY that is affordable and WHAT it does
+        # not cover (diagnostics/probe_2026_09_22_imprint_place_leaf_cost.py,
+        # 332-footprint board):
+        #   * identity comes from the connection's cached snapshot (up to 5 s old
+        #     by default — В31) and the position from ONE live footprint walk, so
+        #     the role leaves (a role tree anchor, a chain node parent) go from a
+        #     whole-board sweep — 1 get_footprints + 332 get_field_value, the
+        #     ~110 ms cache-miss class Ш1 measured — to at most one cache walk,
+        #     i.e. 0 IPC round trips while the poll's own cache is warm;
+        #   * NAMED RESIDUAL, not covered here: a self / point / clone /
+        #     coordinate-anchor leaf has no snapshot parameter to reach
+        #     (entity_placement._entity_own_zero_slot_live_position,
+        #     point_resolver.resolve_point_chain, ClonePositionCalculator,
+        #     coordinate_position_calculator._resolve_external_anchor), so such a
+        #     parent still pays the same 1 + 332 round trips on the UI thread. It
+        #     is NOT moved to a worker: a checkbox must not cost a 120 ms deferral
+        #     plus a socket of its own to close (Кn) for a sweep the user's own
+        #     config asks for — the trade trees_dock's re-hang sign names for its
+        #     own sub-seams.
+        with ui_thread_board_read(
+                reason="fill the node X/Y offset from the live board selection on "
+                       "the checkbox tick — identity from the connection's cached "
+                       "snapshot (up to 5 s old), position from one live "
+                       "footprint walk instead of the whole-board 1 + 332 "
+                       "exchange sweep (diagnostics/probe_2026_09_22_imprint_"
+                       "place_leaf_cost.py) — NAMED as NOT covered: a self / "
+                       "point / clone / coordinate-anchor parent still sweeps, "
+                       "because those sub-seams take no snapshot"):
+            offset_mm = self._read_from_selection_offset()
         if offset_mm is None:
             QMessageBox.warning(
                 self, _("Take from selection"),
@@ -468,15 +540,40 @@ class ImprintPlaceFormWidget(QWidget):
         self.x_spin.setValue(offset_mm[0])
         self.y_spin.setValue(offset_mm[1])
 
+    def _tell_board_busy(self) -> None:
+        """The user is TOLD when the socket is busy — on the deferred retry's last
+        attempt, or in the race window — and the checkbox is turned OFF, so the
+        action leaves a visible trace instead of a tick that did nothing
+        (`defer_while_socket_busy`'s on_still_busy half, the Т2-4б idiom)."""
+        QMessageBox.warning(self, _("Take from selection"), _BOARD_BUSY_TEXT)
+        self.from_selection_check.setChecked(False)
+
     def _read_from_selection_offset(self) -> Optional[tuple[float, float]]:
         """(x_offset_mm, y_offset_mm) from the CURRENT board selection center
         minus the chosen parent's live base (tree anchor for top level), or
         None when the live prerequisites are missing (no adapter / no cfg /
         no selection / unresolvable base). Best-effort — a failure is a
-        warning, never a crash."""
-        adapter = self._live_adapter()
+        warning, never a crash.
+
+        The DOOR'S refusal is NOT one of those failures (Т2-7): it is re-raised,
+        never folded into None, because `None` is answered with "Cannot derive
+        the node offset from the selection — enter the X/Y offset manually" and a
+        door violation is not the selection's fault. That is the same false
+        message Т2-4's mutation m9 found on the re-hang path. Be honest about the
+        clause's reach: in production the guard runs in "log" mode
+        (gui/connection.py UI_READ_LOG) and never raises at all, so this is a
+        TEST-RIG guarantee — its value is that the false modal becomes impossible
+        BY CONSTRUCTION, so a read added above the sign later cannot quietly
+        become one.
+
+        The `try` covers the WHOLE read, `self._live_adapter()` included: that is
+        what gives the clause something to guard. The first version of the cell
+        below proved the opposite — the door read stood ABOVE the `try`, so it
+        escaped the `except Exception` no matter which clauses came after it, and
+        the mutation that removes the clause stayed green."""
+        connection = self._connection
         cfg = self._cfg
-        if adapter is None or cfg is None:
+        if cfg is None:
             return None
         center = selected_center_mm(self._selection)
         if center is None:
@@ -485,18 +582,44 @@ class ImprintPlaceFormWidget(QWidget):
         if tree is None:
             return None
         try:
-            base = self._live_parent_base_mm(adapter, cfg, tree)
+            adapter = self._live_adapter()
+            if adapter is None:
+                return None
+            base = self._live_parent_base_mm(
+                adapter, cfg, tree, snapshot=getattr(connection, "snapshot", None))
+        except UiThreadBoardReadRefused:
+            # The door's own refusal — never "the selection did not resolve".
+            raise
         except Exception:  # noqa: BLE001 — live read, best-effort
             return None
         if base is None:
             return None
         return (center[0] - base[0], center[1] - base[1])
 
-    def _live_parent_base_mm(self, adapter, cfg, tree) -> Optional[tuple[float, float]]:
+    def _live_parent_base_mm(self, adapter, cfg, tree, *,
+                             snapshot=None) -> Optional[tuple[float, float]]:
         """(x_mm, y_mm) live base of the chosen parent — the tree anchor for a
         top-level node, the parent node's own record otherwise (same
         parent-base semantics as TreesDock's "Read current position"; the
-        offset is measured from THIS base). None when unresolvable."""
+        offset is measured from THIS base). None when unresolvable.
+
+        `snapshot` (Т2-7): the connection's cached `List[Selected]`, forwarded to
+        BOTH branches so the IDENTITY question ("which footprint carries this
+        role / this cluster") is answered in memory instead of sweeping the
+        board. The POSITION still comes from the adapter's current generation —
+        `Selected.fp` is frozen at poll time (В31). Default None = the historical
+        sweep, byte for byte, which is what apply/CLI/MCP keep getting.
+
+        A NAMED NOTE on the node branch (§2(в) of the Т2-7 task): it calls
+        `resolve_base_live_position` DIRECTLY, not `read_record_live_pose` the way
+        TreesDock's base resolve does (`_resolve_node_base_pose`). For a parent
+        that IS an Entity the two therefore answer DIFFERENT questions —
+        `resolve_base_live_position` derives the position from the TREE that
+        places the Entity, `read_record_live_pose` reads that Entity's LIVE
+        CLUSTER — and they diverge the moment the cluster was moved in KiCad
+        after the last redraw (measured: probe row D, (0,0) against (5,0) for a
+        5 mm move). That divergence is a FINDING for the plan; it is NOT repaired
+        here, silently or otherwise."""
         from kicadstamp.tree_position import (
             _anchor_base_live_position,
             resolve_base_live_position,
@@ -506,7 +629,8 @@ class ImprintPlaceFormWidget(QWidget):
         sheet_names = dict(getattr(self._ctx, "sheet_names", {}) or {})
         parent_ref = self.parent_combo.currentData()
         if parent_ref is None:
-            pos, _rot = _anchor_base_live_position(adapter, cfg, tree, sheet_names)
+            pos, _rot = _anchor_base_live_position(adapter, cfg, tree, sheet_names,
+                                                   snapshot=snapshot)
             return (pos.x / MM, pos.y / MM)
         # Parent is an existing node: resolve its own record (same rules as a
         # real tree node — external refs resolve directly, records via the
@@ -518,7 +642,7 @@ class ImprintPlaceFormWidget(QWidget):
         record, _is_external = _resolve_probe_ref(cfg, parent_node.ref,
                                                   parent_node.kind)
         pos = resolve_base_live_position(adapter, cfg, parent_node.ref, record,
-                                         {}, sheet_names)
+                                         {}, sheet_names, snapshot=snapshot)
         return (pos.x / MM, pos.y / MM)
 
     def _find_node_by_ref(self, tree, ref: str):
