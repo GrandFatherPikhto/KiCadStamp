@@ -107,11 +107,12 @@ def test_the_extract_entry_does_not_read_the_board_unsigned(
 
 
 class _PresenceOnlyConnection:
-    """Answers the presence question and DIES if the door is opened anyway: the
-    Extract entry's "is there a board?" must not read `board`."""
+    """Answers the presence question and DIES if the door is opened anyway: a
+    presence check must not read `board` — the Т5-2 idiom, applied to the Extract
+    entry (Ш4) and to the Instantiate-from-selection continuation (Т2-1)."""
 
-    def __init__(self):
-        self.is_connected = False
+    def __init__(self, is_connected=False):
+        self.is_connected = is_connected
         self.long_op_active = False
         self.timeout_ms = DEFAULT_TIMEOUT_MS
 
@@ -138,3 +139,43 @@ def test_the_extract_presence_check_does_not_open_the_door(
     real_main_window._dock_hub._extract_tree_from_selection_now()
 
     assert warnings, "the flow must report the missing connection"
+
+
+# ── Т2-1 (plan_2026_09_22_live_adapter_class) — the Instantiate continuation ──
+# `_anchor_base_then` (the "from selection" half of Instantiate from Cell) asked
+# "is there a board?" BY READING THE DOOR and handed nothing through that read:
+# the base read itself runs on the WORKER, which builds its own adapter
+# (run_anchor_base_mm_worker). The presence question is the connection's now.
+
+def test_the_instantiate_continuation_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, armed_door, monkeypatch):
+    """Т2-1 — with the door ARMED the continuation refuses nothing: it asks the
+    connection whether a board is there and goes on to its worker. The stand-in's
+    `board` RAISES when read, so a door read fails the test outright.
+
+    The root comes first (a continuation without a config refuses for that reason,
+    not for the board's) and the modal is recorded rather than shown, so a
+    regression fails on the assert instead of waiting for a click.
+
+    Mutation check: restore `self._live_adapter() is None` and this fails — the
+    door refuses first, and the stand-in would raise anyway."""
+    import gui.docks.trees_dock as td_mod
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"cells": {}, "trees": []}), encoding="utf-8")
+    dock = real_main_window._dock_hub.trees_dock
+    dock.set_root_file(root)
+
+    started = []
+    warnings = []
+    monkeypatch.setattr(td_mod, "start_long_op",
+                        lambda *a, **k: started.append(a) or None)
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    real_main_window.connection = _PresenceOnlyConnection(is_connected=True)
+
+    dock._anchor_base_then((1.0, 2.0), "cell1", "ENT_A", "CL", "",
+                           SimpleNamespace(name="probe_tree"))
+
+    assert warnings == [], "the presence check refused a connection that is there"
+    assert started, "the continuation must reach its worker"

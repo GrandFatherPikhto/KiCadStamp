@@ -3927,7 +3927,12 @@ class TreesDock(QWidget):
         `center` — the selection's centre in mm (already known); `tree` — the tree the
         dialog was opened for, re-checked by the continuation."""
         connection = getattr(self._main_window, "connection", None)
-        if self._live_adapter() is None or self._cfg is None or connection is None:
+        # Т2-1 (plan_2026_09_22_live_adapter_class): "is there a board?" is asked of
+        # the CONNECTION (is_connected — the Т5-2 idiom), never by reading the door.
+        # The base read itself runs on the WORKER, which builds its OWN adapter
+        # (run_anchor_base_mm_worker), so this half needs no adapter object at all;
+        # reading one here was a UI-thread door read with nothing behind it.
+        if self._cfg is None or not getattr(connection, "is_connected", False):
             self._warn_no_node_offset()
             return
         payload = {
