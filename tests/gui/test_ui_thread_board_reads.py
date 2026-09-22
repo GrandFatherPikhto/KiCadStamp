@@ -328,21 +328,38 @@ def test_anchor_form_base_orientation_refuses_while_the_poll_tick_owns_the_socke
     every caller already handles safely (raw values shown, conversions
     refused) — the 9887468 trap is never re-interpreted.
 
-    Pre-fix this fails: the base orientation was read on the UI thread."""
+    Pre-fix this fails: the base orientation was read on the UI thread.
+
+    Т2-8 moved WHERE the adapter lives, not what this cell guards: it used to end
+    with `form._adapter is adapter` — the adapter parked on the form at build time.
+    The form parks none any more (the dock no longer hands one over, variant B), so
+    the SAME property is asserted where it lives now: the adapter the resolve is
+    handed IS the shared one, taken from the connection at read time. The refusal
+    half is unchanged, and the new half is stronger — it pins WHICH adapter the
+    read uses, not merely that one was stored."""
     adapter = _board(main_window, object())
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     form = dock._build_anchor_form(tree)
 
-    seen = []
-    monkeypatch.setattr(td_mod, "_anchor_base_live_position",
-                        _spy_read(seen, (Vector2.from_xy(0, 0), 90.0)))
+    reads = []
+
+    def _record(adapter_arg, *args, **kwargs):
+        reads.append(adapter_arg)
+        return Vector2.from_xy(0, 0), 90.0
+
+    monkeypatch.setattr(td_mod, "_anchor_base_live_position", _record)
     main_window.connection.long_op_active = True
 
     assert form._conversion_base_deg() is None
-    assert seen == [], \
+    assert reads == [], \
         "the base orientation was read while the poll tick owned the socket"
-    assert form._adapter is adapter
+
+    main_window.connection.long_op_active = False
+    form._conversion_base_deg()
+    assert reads == [adapter], (
+        "the base orientation must be read through the SHARED adapter taken from "
+        f"the connection — got {reads!r}")
 
 
 def test_anchor_form_base_orientation_resolves_when_the_socket_is_free(

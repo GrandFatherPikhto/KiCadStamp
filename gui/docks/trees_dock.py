@@ -680,6 +680,34 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     return _resolve_node_ref(probe, by_key, by_name)
 
 
+def _connection_snapshot(connection):
+    """The connection's cached whole-board snapshot, or None without one — the
+    IDENTITY half of a base resolve (the geometry stays live: `Selected.fp` is
+    frozen, В31). `[]` (from connect until the first poll tick) is passed through
+    as `[]`, never normalised to None: the resolvers read it as "no snapshot"
+    themselves (`if snapshot:`, Кl) and a cell pins that here too."""
+    if connection is None:
+        return None
+    return getattr(connection, "snapshot", None)
+
+
+def _live_adapter_for(adapter, connection):
+    """The adapter ONE form read must use: the INJECTED one when the form was given
+    it (tests, standalone, headless — no door involved), else the LIVE board's, taken
+    from the connection at the moment of the read.
+
+    Deliberately does NOT sign: the door's sign belongs to the CALL SITE that names
+    that point's own cost (deepseek.md §31 — one reason per place, never one per
+    class). A caller whose adapter was injected still wraps its read, because the
+    same read happens and its measured cost is what the reason is about."""
+    if adapter is not None:
+        return adapter
+    if connection is None:
+        return None
+    board = getattr(connection, "board", None)
+    return getattr(board, "adapter", None)
+
+
 def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
                             parent_node: Optional[TreeNode],
                             base_anchor: Optional[TreeAnchor], *, snapshot=None
@@ -870,7 +898,8 @@ def _component_footprint_is_mirrored(fp) -> bool:
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
                          base_anchor: Optional[TreeAnchor] = None,
-                         component_address: Optional[TreeAnchor] = None
+                         component_address: Optional[TreeAnchor] = None, *,
+                         snapshot=None
                          ) -> tuple[tuple[float, float], Optional[float]]:
     """((local_offset_x_mm, local_offset_y_mm), relative_rotation_deg | None) for
     the "would-be" child `ref`/`kind` relative to its base (parent_node None =
@@ -907,6 +936,12 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     one), so a mirrored read is refused with an honest message instead of being
     silently imported as an unmirrored pose (plan §2.3).
 
+    `snapshot` (Т2-8): the caller's `connection.snapshot`, forwarded to every
+    sub-seam that takes one — the base resolve, the record dispatcher and the
+    ref/rotation pair. Identity comes from it; the POSITION still comes from the
+    live adapter (the caller's own sign names that cost). Default None = the
+    historical behaviour byte for byte, which is what apply/CLI/MCP keep getting.
+
     A note on the historic path: `resolve_base_live_position` /
     `resolve_base_rotation_deg` stay on THIS module's names, so the existing
     tests' monkeypatches of them keep driving the pass-through kinds (clone/
@@ -923,7 +958,8 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     # board, ...) are ValidationErrors, caught by the callers
     # (_on_read_position / _reread_node_flow), which turn them into a warning.
     base_pos, base_deg, base_mirror = _resolve_node_base_pose(
-        cfg, adapter, sheet_names, tree, parent_node, base_anchor)
+        cfg, adapter, sheet_names, tree, parent_node, base_anchor,
+        snapshot=snapshot)
     if base_mirror:
         raise ValidationError(format_fatal_error(
             _("the base of this node is MIRRORED on the live board"),
@@ -945,16 +981,16 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
         child_mirror = _component_footprint_is_mirrored(fp)
     elif child_record is not None and getattr(child_record, "kind", None) == "placement":
         child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
-                                          sheet_names)
+                                          sheet_names, snapshot=snapshot)
         child_pos = child_pose.position
         child_deg = child_pose.rotation_deg
         child_mirror = child_pose.mirror
     else:
         # Historic path, kept on THIS module's names for the monkeypatch seam.
         child_pos = resolve_base_live_position(adapter, cfg, ref, child_record,
-                                               {}, sheet_names)
+                                               {}, sheet_names, snapshot=snapshot)
         child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record,
-                                              sheet_names)
+                                              sheet_names, snapshot=snapshot)
         child_mirror = False
     if child_mirror:
         raise ValidationError(format_fatal_error(
@@ -2198,7 +2234,10 @@ class TreesDock(QWidget):
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
             existing=tree.anchor, tree=tree,
-            adapter=self._live_adapter(), all_trees=self._trees)
+            # No `adapter=`: the form takes the LIVE one at each of its own read
+            # points, under its own sign (Т2-8) — handing one over here would open
+            # the door for reads nobody has named (plan §1).
+            all_trees=self._trees)
 
     def _build_node_form(self, tree: Tree, node: TreeNode) -> "NodeFormWidget":
         """A NodeFormWidget (EDIT mode, existing=node) for the master-detail
@@ -2206,7 +2245,8 @@ class TreesDock(QWidget):
         Parent combo's rows (Э1, plan_2026_09_12_node_dialog_usability)."""
         return NodeFormWidget(
             self, self._all_ref_candidates(), self._used_refs(), _("Edit node"),
-            cfg=self._cfg, adapter=self._live_adapter(),
+            # No `adapter=`: see the note in _build_anchor_form (Т2-8).
+            cfg=self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             tree=tree, parent_node=self._find_parent(tree, node), existing=node,
             module_candidates=self._module_tree_candidates(tree),
@@ -3062,7 +3102,7 @@ class TreesDock(QWidget):
         dialog = _NodeDialog(
             self, self._all_ref_candidates(), self._used_refs(), title,
             cfg=self._cfg,
-            adapter=self._live_adapter(),
+            # No `adapter=`: see the note in _build_anchor_form (Т2-8).
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             tree=tree,
             parent_node=parent_node,
@@ -4859,6 +4899,15 @@ class NodeFormWidget(QWidget):
         self._used_refs = used_refs
         self._cfg = cfg
         self._adapter = adapter
+        # Set by _base_pose: whether the last base resolve had anything to read
+        # WITH. _no_live_base_reason keys its "no live board connection" text on
+        # THIS — not on the adapter slot (None in production since Т2-8, where the
+        # form takes the live adapter per read) and not on `connection.is_connected`
+        # (False for a form handed an injected adapter, which is exactly the
+        # create-tree dialog and every test; asked of the connection, it made a
+        # resolvable-but-empty board read as "no board", caught by
+        # test_child_of_a_mount_parent_with_an_unresolvable_anchor_names_the_cause).
+        self._base_had_adapter = False
         self._sheet_names = sheet_names if sheet_names is not None else {}
         self._tree = tree
         self._parent_node = parent_node
@@ -5368,7 +5417,13 @@ class NodeFormWidget(QWidget):
         self._base_resolved = True
         self._base_pose_value = None
         self._base_error = None
-        if self._adapter is None or self._cfg is None or self._tree is None:
+        with ui_thread_board_read(
+                reason="resolve the node's base for the form — identity from the "
+                       "connection's snapshot, geometry live; the leaves this does "
+                       "NOT cover are named in the leaf table on _live_adapter"):
+            adapter = self._live_adapter()
+        self._base_had_adapter = adapter is not None
+        if adapter is None or self._cfg is None or self._tree is None:
             return None
         try:
             if self.kind_combo.currentData() == "mount":
@@ -5378,8 +5433,9 @@ class NodeFormWidget(QWidget):
             else:
                 base_anchor = None
             _pos, rot, _mirror = _resolve_node_base_pose(
-                self._cfg, self._adapter, self._sheet_names, self._tree,
-                self._selected_parent_node(), base_anchor)
+                self._cfg, adapter, self._sheet_names, self._tree,
+                self._selected_parent_node(), base_anchor,
+                snapshot=self._live_snapshot())
             self._base_pose_value = (_pos, rot if rot is not None else 0.0)
         except Exception as e:  # noqa: BLE001 — "no base" is a UI state, not a crash
             # The exception is a UI STATE, never a crash — but it is also never
@@ -5408,13 +5464,15 @@ class NodeFormWidget(QWidget):
         live board connection" with KiCad plainly connected. Three cases, in
         order of specificity:
 
-        * no adapter/cfg/tree — the connection really IS the reason;
+        * no cfg/tree, or the last resolve had no adapter to read with — the live
+          board really IS the reason (see _base_had_adapter);
         * the base did not resolve — the exception's own text, which names the
           role/ref that failed (captured by _base_pose);
         * the node's OWN anchor is still incomplete (a mount node with an empty
           Role — build_node refuses to save one) — there is nothing to name
           yet, so the anchor text is the honest one."""
-        if self._adapter is None or self._cfg is None or self._tree is None:
+        if (self._cfg is None or self._tree is None
+                or not self._base_had_adapter):
             return _("No live board connection — showing the STORED values in "
                      "the base's own frame; editing the offset and rotation is "
                      "disabled until KiCad is connected.")
@@ -5689,6 +5747,43 @@ class NodeFormWidget(QWidget):
         dock = self._dock
         return getattr(getattr(dock, "_main_window", None), "connection", None)
 
+    # ── This form's board reads: what the snapshot removes, what it does not ──
+    # Т2-8. The dock no longer hands the adapter over (variant B): every read below
+    # takes the LIVE one at its own point, under its OWN sign, so no point can
+    # inherit another point's justification. What each leaf costs — measured, not
+    # guessed (diagnostics/probe_2026_09_22_form_widget_leaf_cost.py, fake board of
+    # 332 footprints, warm caches = the state a form opens in):
+    #
+    #   base resolve, ROLE anchor            332 field scans -> 0, 1 cache walk
+    #   mount / record parent                332 -> 0 scans, 2 cache walks
+    #   ENTITY parent (the typical node)     332 -> 0 scans, 5 cache walks AND one
+    #                                        `refresh_board()` + the cold full read
+    #                                        it forces — the cost the snapshot does
+    #                                        NOT remove (Кk), named in the reason
+    #   the pivot button (tree_pivot_offset) 332 -> 332: that sub-seam takes no
+    #                                        `snapshot` at all (named residual)
+    #   self / point / clone sub-seams       332 -> 332: likewise, no parameter
+    #   the mount-point buttons (R3/R4/R5)   shapes, not footprints: one shapes read
+    #                                        (+ one refresh for the read-back)
+    #
+    # The snapshot answers IDENTITY only — the geometry stays live, because
+    # `Selected.fp` is frozen (В31) and this form's whole job is "where is it NOW".
+
+    def _live_adapter(self):
+        """The adapter ONE read of this form must use — the INJECTED one when the
+        form was given it (tests, standalone, headless), else the LIVE board's, read
+        from the connection at THIS moment (a form that kept the adapter it was built
+        with would hold a dead one after a reconnect). Called inside
+        `ui_thread_board_read(...)` at each point, never signed here: the reason
+        belongs to the point that knows what its read costs."""
+        return _live_adapter_for(self._adapter, self._live_connection())
+
+    def _live_snapshot(self):
+        """The connection's cached whole-board snapshot for THIS resolve — the
+        identity half. `[]` before the first poll tick travels through as `[]` (the
+        resolvers read it as "no snapshot"), and None without a connection."""
+        return _connection_snapshot(self._live_connection())
+
     def _update_read_button_state(self) -> None:
         """Button enabled only once BOTH a ref and an explicit kind are set —
         a live position read needs the record's section to resolve against."""
@@ -5716,7 +5811,12 @@ class NodeFormWidget(QWidget):
         kind = self.kind_combo.currentData()
         if not ref:
             return
-        if self._adapter is None:
+        with ui_thread_board_read(
+                reason="read the record's current position for the button — base "
+                       "identity from the connection's snapshot, geometry live, "
+                       "ONE live footprint read per resolve"):
+            adapter = self._live_adapter()
+        if adapter is None:
             # Connection state, not user input — a Log line, never a modal
             # (plan_2026_09_11_no_modals_and_busy_kicad X.1). NodeFormWidget
             # has no _show_message (the inline read_status_label is the READ
@@ -5767,9 +5867,10 @@ class NodeFormWidget(QWidget):
             base_anchor = None
         try:
             offset_mm, rotation = _resolve_live_offset(
-                self._cfg, self._adapter, self._sheet_names,
+                self._cfg, adapter, self._sheet_names,
                 self._tree, self._selected_parent_node(), ref, kind,
-                base_anchor=base_anchor, component_address=component_address)
+                base_anchor=base_anchor, component_address=component_address,
+                snapshot=self._live_snapshot())
         except ValidationError as e:
             QMessageBox.warning(self, _("Read current position"), str(e))
             return
@@ -5884,7 +5985,11 @@ class NodeFormWidget(QWidget):
         # path reaches cleanup() from _invalidate_base BEFORE the base cache is
         # dropped, so this can never claim "no base" while there is one.
         self._update_mount_point_buttons()
-        self._remove_mount_marker_shapes(self._adapter, uuids)
+        with ui_thread_board_read(
+                reason="take this form's mount-point figures down on close — an "
+                       "operation on the board (remove + repaint), not a read"):
+            adapter = self._live_adapter()
+        self._remove_mount_marker_shapes(adapter, uuids)
 
     def _on_show_mount_point(self) -> None:
         """"Show point on board" (Т1.1): draw the circle where a SAVE would put
@@ -5896,7 +6001,11 @@ class NodeFormWidget(QWidget):
         node_position against the form's own base pose (_base_pose, the SAME
         frame _prefill displayed and build_node converts back through). Unsaved
         field edits therefore count, which is the whole point of the button."""
-        adapter = self._adapter
+        with ui_thread_board_read(
+                reason="draw this form's mount-point figures at their CURRENT "
+                       "positions — a board operation (the shapes read plus the "
+                       "create/repaint pair), not an identity scan"):
+            adapter = self._live_adapter()
         if adapter is None:
             show_message(_("No live board connection — connect KiCad first."),
                          _ERROR_STYLE, logger)
@@ -5957,7 +6066,11 @@ class NodeFormWidget(QWidget):
         form — the config is NOT written (only Save writes it) and the rotation
         is not touched. Both figures come down afterwards (Р5/Т2.2), exactly
         like the cell anchor's "Read position"."""
-        adapter = self._adapter
+        with ui_thread_board_read(
+                reason="read the drawn mount-point marker back — it refreshes the "
+                       "board FIRST, so the next resolve pays a cold whole-board "
+                       "read on top of this one (Кk)"):
+            adapter = self._live_adapter()
         if adapter is None:
             show_message(_("No live board connection — connect KiCad first."),
                          _ERROR_STYLE, logger)
@@ -5998,7 +6111,11 @@ class NodeFormWidget(QWidget):
             return
         uuids = self._forget_mount_marker_keys()
         self._update_mount_point_buttons()
-        self._remove_mount_marker_shapes(self._adapter, uuids)
+        with ui_thread_board_read(
+                reason="remove the mount-point figures on the button — an "
+                       "operation on the board (remove + repaint), not a read"):
+            adapter = self._live_adapter()
+        self._remove_mount_marker_shapes(adapter, uuids)
 
     def _set_ref_items(self, items: list[tuple[str, Optional[str], str]]) -> None:
         """Repopulate ref_combo with (display_text, kind, name) triples,
@@ -7134,8 +7251,14 @@ class AnchorFormWidget(QWidget):
             return
         forest = {t.name: t for t in self._all_trees}
         probe = replace(self._tree, pivot_ref=ref)
+        with ui_thread_board_read(
+                reason="read the selected node's offset as it stands now for the "
+                       "pivot field — the pivot seam takes no snapshot parameter, "
+                       "so this one keeps its sweep (the residual named on "
+                       "_live_adapter)"):
+            adapter = self._live_adapter()
         try:
-            offset = tree_pivot_offset(probe, forest, adapter=self._adapter,
+            offset = tree_pivot_offset(probe, forest, adapter=adapter,
                                        cfg=self._cfg, sheet_names=self._sheet_names)
         except Exception as exc:  # noqa: BLE001 — a UI action, report not crash
             self.apply_status_label.setText(str(exc))
@@ -7200,9 +7323,15 @@ class AnchorFormWidget(QWidget):
         if err or anchor is None:
             return None
         probe = replace(self._tree, anchor=anchor)
+        with ui_thread_board_read(
+                reason="convert the anchor form's fields on an anchor edit — "
+                       "identity from the connection's snapshot, geometry live; "
+                       "the leaves this does NOT cover are named on _live_adapter"):
+            adapter = self._live_adapter()
         try:
             _pos, anchor_rot = _anchor_base_live_position(
-                self._adapter, self._cfg, probe, self._sheet_names)
+                adapter, self._cfg, probe, self._sheet_names,
+                snapshot=self._live_snapshot())
         except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
             return None
         anchor_rot = 0.0 if anchor_rot is None else anchor_rot
@@ -7597,17 +7726,47 @@ class AnchorFormWidget(QWidget):
         SAME reach-out the base-orientation read uses (_live_connection)."""
         return self._live_connection()
 
+    # ── This form's board reads: what the snapshot removes, what it does not ──
+    # Т2-8. Same discipline as NodeFormWidget (whose leaf table names the measured
+    # numbers): no adapter is handed to this form by the dock, so every read below
+    # takes the LIVE one at its own point, under its OWN sign.
+    #
+    #   A1 the anchor base (role mode)   332 field scans -> 0, 1 cache walk
+    #   A2 the pivot button              0 exchanges when the pivot rides no mount,
+    #                                    332 -> 332 scans when it hangs under one —
+    #                                    `tree_pivot_offset` takes no snapshot
+    #   A3 the marker toggle             shapes, not footprints: one shapes read per
+    #                                    drawn figure, on a worker
+
+    def _live_adapter(self):
+        """The adapter ONE read of this form must use — the INJECTED one when the
+        form was given it (tests, standalone, the create-tree dialog), else the LIVE
+        board's, read from the connection at THIS moment. Called inside
+        `ui_thread_board_read(...)`; never signed here (deepseek.md §31)."""
+        return _live_adapter_for(self._adapter, self._live_connection())
+
+    def _live_snapshot(self):
+        """The connection's cached whole-board snapshot for THIS resolve — the
+        identity half; `[]` before the first poll tick travels through as `[]`."""
+        return _connection_snapshot(self._live_connection())
+
     def _marker_adapter(self):
         """The LIVE board adapter at the moment the button is pressed (not the
-        one cached when the form was built), or None without a board."""
+        one cached when the form was built), or None without a board.
+
+        It reads the door DIRECTLY, so every caller wraps it in
+        `ui_thread_board_read(reason=...)` with its own reason (deepseek.md §31):
+        the toggle, its synchronous twin and the removal half each name their own
+        cost."""
         connection = self._marker_connection()
         board = getattr(connection, "board", None) if connection is not None else None
         return getattr(board, "adapter", None) if board is not None else None
 
-    def _marker_payload(self) -> dict:
+    def _marker_payload(self, adapter) -> dict:
         """The worker payload — plain data only, no widgets. The forest lets
-        tree_layout_base lay a pivot-ref tree out."""
-        return {"adapter": self._marker_adapter(), "cfg": self._cfg,
+        tree_layout_base lay a pivot-ref tree out. `adapter` is the one the CALLER
+        took under its own sign, so one action opens the door once, not twice."""
+        return {"adapter": adapter, "cfg": self._cfg,
                 "tree": self._tree, "sheet_names": self._sheet_names,
                 "forest": {t.name: t for t in self._all_trees}}
 
@@ -7618,7 +7777,11 @@ class AnchorFormWidget(QWidget):
         lock the whole-tree redraw uses."""
         if self._tree is None:
             return
-        if self._marker_adapter() is None:
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the tree-marker worker — the "
+                       "draw half resolves every marker position live on it"):
+            adapter = self._marker_adapter()
+        if adapter is None:
             show_message(_("Not connected."), _ERROR_STYLE, logger)
             return
         if self._tree_markers_shown():
@@ -7627,7 +7790,7 @@ class AnchorFormWidget(QWidget):
         self._active_op = start_long_op(
             self._marker_connection(), (self.show_markers_button,),
             _show_tree_markers_worker, self._finish_show_tree_markers,
-            self._on_show_markers_failed, self._marker_payload())
+            self._on_show_markers_failed, self._marker_payload(adapter))
 
     def _finish_show_tree_markers(self, result: dict) -> None:
         if result.get("error"):
@@ -7660,7 +7823,10 @@ class AnchorFormWidget(QWidget):
         namespaces/consumers on the same layer are never touched."""
         uuids = self._forget_tree_marker_keys()
         self._refresh_show_markers_button()
-        adapter = self._marker_adapter()
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the marker-removal worker (the "
+                       "toggle being turned off) — an operation on the board"):
+            adapter = self._marker_adapter()
         if not uuids or adapter is None:
             return
         self._active_op = start_long_op(
@@ -7675,7 +7841,10 @@ class AnchorFormWidget(QWidget):
         `_do_*` idiom PointsDock uses for its own toggle)."""
         if self._tree is None:
             return
-        adapter = self._marker_adapter()
+        with ui_thread_board_read(
+                reason="drive the whole marker toggle synchronously for a headless "
+                       "caller — the same adapter the worker would own"):
+            adapter = self._marker_adapter()
         if adapter is None:
             show_message(_("Not connected."), _ERROR_STYLE, logger)
             return
@@ -7686,7 +7855,7 @@ class AnchorFormWidget(QWidget):
             self._refresh_show_markers_button()
             return
         self._finish_show_tree_markers(
-            _show_tree_markers_worker(self._marker_payload()))
+            _show_tree_markers_worker(self._marker_payload(adapter)))
 
     def redraw(self) -> None:
         """Anchor-tab Phase B Redraw (plan §2.3): apply() first, then the

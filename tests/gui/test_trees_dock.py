@@ -2546,13 +2546,17 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
     dock, _root = _dock_with(main_window, tmp_path, DENIS_CFG)
     tree = dock._current_tree()
 
+    # Т2-8: `_resolve_live_offset` now forwards `snapshot=` to this pair (the
+    # identity half of the base resolve), so the doubles carry the keyword —
+    # the fake is COMPLETED, never the assert relaxed.
     monkeypatch.setattr(
         td_mod, "resolve_base_live_position",
-        lambda adapter, cfg, ref, record, resolved_points, sheet_names:
+        lambda adapter, cfg, ref, record, resolved_points, sheet_names,
+        snapshot=None:
         Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)))
     monkeypatch.setattr(
         td_mod, "resolve_base_rotation_deg",
-        lambda adapter, cfg, ref, record, sheet_names: 0.0)
+        lambda adapter, cfg, ref, record, sheet_names, snapshot=None: 0.0)
 
     offset_mm, rotation = td_mod._resolve_live_offset(
         dock._cfg, object(), {}, tree, None, "CH1_DAC_BUF", "clone")

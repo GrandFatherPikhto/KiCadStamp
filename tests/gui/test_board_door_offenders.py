@@ -403,7 +403,10 @@ def _rehang_dock(window, tmp_path, monkeypatch):
     root.write_text(dict_to_sexp({"trees": []}), encoding="utf-8")
     dock = trees_mod.TreesDock(window)
     dock.set_root_file(root)             # built BEFORE the door is armed
-    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    # Т2-8 removed the `_rebuild_tabs` stub that stood here: the tab rebuild builds
+    # the forms, and those forms are now built WITHOUT a door read, so this cell no
+    # longer has to look away from them (the property it guards is unchanged, and
+    # it is now proven against the real rebuild).
     monkeypatch.setattr(trees_mod, "_reparented_offset",
                         lambda *a, **k: (None, None, 0.0))
     mount_b = TreeNode(ref="mnt_b", kind="mount", xy=None, polar=None,
@@ -536,10 +539,9 @@ def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
     dock.set_root_file(root)                     # built BEFORE the door is armed
     tree = dock._trees[0]
     real_main_window.connection.board = SimpleNamespace(adapter=object())
-    # The rebuild builds the FORM widgets, and those still read the board unsigned
-    # — Т2-8's business, not this cell's. Stubbed exactly like _rehang_dock does, so
-    # this guard measures the extraction path and nothing else.
-    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    # Т2-8 closed the gap this comment used to point at: the tab rebuild's forms no
+    # longer read the board unsigned, so the stub that hid them is gone — this cell
+    # now drives the real rebuild and still measures the extraction path.
     started: list = []
     monkeypatch.setattr(
         trees_mod, "run_extract_new_cell_worker",
@@ -607,7 +609,8 @@ def test_instantiate_tab_2_does_not_read_the_board_unsigned(
     dock = trees_mod.TreesDock(real_main_window)
     dock.set_root_file(root)                     # built BEFORE the door is armed
     real_main_window.connection.board = SimpleNamespace(adapter=object())
-    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    # Т2-8: the `_rebuild_tabs` stub that stood here is gone — the forms the rebuild
+    # builds take their adapter at their own points now, under their own signs.
 
     class _NewCellDialog:
         """The modal of "Instantiate from Cell…", answered on TAB 2: `exec()`
@@ -1097,3 +1100,258 @@ def test_the_connections_empty_snapshot_is_passed_through_not_refused(
     assert seen and seen[0].get("snapshot") == [], (
         "the empty list must travel as the CONNECTION has it — normalising it to "
         "None would be the dock's own opinion, not the cache's state")
+
+
+# ── Т2-8 (plan_2026_09_22_door_t2_8_form_widget) — the two form widgets ───────
+# The dock used to hand the adapter to AnchorFormWidget/NodeFormWidget at build
+# time: one unsigned door read per built form, legalising every read the widget
+# would make afterwards (`_live_adapter` at 2201/2209/3065 — and `_marker_adapter`
+# at 7600, the FOURTH place of the scope, dropped from Т2-2's report with no
+# mutation able to notice its absence).
+#
+# Variant B (Denis, 22.09.2026): the production call sites pass NO adapter; each
+# widget read point takes the LIVE one from the connection under its OWN sign, with
+# its own reason; the base resolve takes the connection's SNAPSHOT for identity
+# only, so a form open goes from 996 field scans to 0 (measured leaf by leaf:
+# diagnostics/probe_2026_09_22_form_widget_leaf_cost.py). The geometry stays live —
+# `Selected.fp` is frozen (В31).
+
+_FORM_TREE = {"trees": [{"name": "t1", "anchor": {"origin": True},
+                         "nodes": [{"ref": "R_DEBUG", "kind": "external",
+                                    "xy": [1.0, 2.0]}]}]}
+
+
+def _form_dock(window, tmp_path):
+    """(dock, adapter, tree, node) over a throwaway root. The dock is built with the
+    door UNARMED on purpose: every cell below arms it itself, because the sign under
+    test belongs to a read that happens AFTER the build — that is the whole point of
+    this step (before it, the adapter was taken once, at build time, for good)."""
+    import gui.docks.trees_dock as trees_mod
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(_FORM_TREE), encoding="utf-8")
+    dock = trees_mod.TreesDock(window)
+    dock.set_root_file(root)
+    adapter = SimpleNamespace(name="the-shared-adapter")
+    window.connection.board = SimpleNamespace(adapter=adapter)
+    tree = dock._trees[0]
+    return dock, adapter, tree, tree.nodes[0]
+
+
+def test_building_the_anchor_form_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8 — the dock no longer opens the door to hand the anchor form an adapter.
+
+    Mutation check: put `adapter=self._live_adapter()` back into
+    `_build_anchor_form` and this fails with the door's refusal."""
+    dock, _adapter, tree, _node = _form_dock(real_main_window, tmp_path)
+    _arm_the_door(monkeypatch)
+
+    form = dock._build_anchor_form(tree)         # must not raise
+
+    assert form._adapter is None, (
+        "the dock must not park an adapter on the form — the form takes the live "
+        "one per read (variant B)")
+
+
+def test_building_the_node_form_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8 — the same for the Node tab's form (the Edit-mode page).
+
+    Mutation check: put `adapter=self._live_adapter()` back into
+    `_build_node_form` and this fails with the door's refusal."""
+    dock, _adapter, tree, node = _form_dock(real_main_window, tmp_path)
+    _arm_the_door(monkeypatch)
+
+    form = dock._build_node_form(tree, node)     # must not raise
+
+    assert form._adapter is None
+
+
+def test_opening_the_node_dialog_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8 — the modal Add/Edit path (`_prompt_node` -> `_NodeDialog` -> the same
+    form). `exec()` is stubbed to Rejected so no modal is shown; the door is armed
+    over the CONSTRUCTION, which is the read that used to happen.
+
+    Mutation check: put `adapter=self._live_adapter()` back into `_prompt_node` and
+    this fails with the door's refusal."""
+    import gui.docks.trees_dock as trees_mod
+
+    dock, _adapter, tree, _node = _form_dock(real_main_window, tmp_path)
+    monkeypatch.setattr(trees_mod._NodeDialog, "exec", lambda self: 0)  # Rejected
+    _arm_the_door(monkeypatch)
+
+    assert dock._prompt_node("Edit node", tree) is None
+
+
+def test_the_marker_toggle_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8 — the fourth place of the scope: `_marker_adapter` reads the door
+    DIRECTLY (`getattr(connection, "board", None)`), so it escaped both the sweep
+    that looked for `_live_adapter()` and Т2-2's report, which named it in the plan
+    and then did not sign it. The toggle now wraps that read in its own sign.
+
+    Mutation check: drop the `with ui_thread_board_read(...)` around
+    `self._marker_adapter()` in `_on_show_markers` and this fails with the
+    refusal."""
+    import gui.docks.trees_dock as trees_mod
+
+    dock, _adapter, tree, _node = _form_dock(real_main_window, tmp_path)
+    form = dock._build_anchor_form(tree)         # built BEFORE the door is armed
+    monkeypatch.setattr(trees_mod, "start_long_op", lambda *a, **k: None)
+    _arm_the_door(monkeypatch)
+
+    form._on_show_markers()                      # must not raise
+
+
+@pytest.mark.parametrize("point", ["A1 the anchor form's base",
+                                   "R1 the node form's base",
+                                   "R2 the read-position button"])
+def test_the_form_hands_the_connections_snapshot_to_its_base_resolve(
+        real_main_window, tmp_path, monkeypatch, point):
+    """Т2-8 — one cell per LEAF the form's base resolve reaches (rule 35: a row
+    naming three leaves is a promise that all three were driven). The resolver is
+    SPYED rather than run: what this pins is that the ARGUMENT arrives from the
+    connection's own cache (the resolvers' own handling of it is celled in
+    tests/test_tree_position_snapshot_threading.py).
+
+    Mutation check: drop `snapshot=self._live_snapshot()` from the row this cell
+    names and the spy records None."""
+    import gui.docks.trees_dock as trees_mod
+
+    dock, _adapter, tree, node = _form_dock(real_main_window, tmp_path)
+    snapshot = [SimpleNamespace(role="R_CLK", cluster="C", fp=object())]
+    real_main_window.connection._snapshot = snapshot
+    seen: list = []
+
+    # The spies go on THIS module: trees_dock imported both names into its own
+    # namespace (`from kicadstamp.tree_position import ...`), so patching the
+    # origin would leave the dock's call site untouched and the spy silent.
+    if point.startswith("A1"):
+        form = dock._build_anchor_form(tree)
+        monkeypatch.setattr(
+            trees_mod, "_anchor_base_live_position",
+            lambda *a, **k: seen.append(k) or (Vector2.from_xy(0, 0), 90.0))
+        driver = form._conversion_base_deg
+    elif point.startswith("R1"):
+        form = dock._build_node_form(tree, node)
+        monkeypatch.setattr(
+            trees_mod, "_resolve_node_base_pose",
+            lambda *a, **k: seen.append(k) or (Vector2.from_xy(0, 0), 0.0, False))
+        # The build already resolved the base once (the form shows the frame), so
+        # the cache is dropped the way an anchor change drops it — otherwise this
+        # cell would measure the cache, not the read.
+        form._invalidate_base()
+        driver = form._base_pose
+    else:
+        form = dock._build_node_form(tree, node)
+        form.ref_combo.setCurrentText("R_DEBUG")
+        form.kind_combo.setCurrentIndex(form.kind_combo.findData("external"))
+        monkeypatch.setattr(
+            trees_mod, "_resolve_live_offset",
+            lambda *a, **k: seen.append(k) or ((0.0, 0.0), 0.0))
+        driver = form._on_read_position
+    _arm_the_door(monkeypatch)
+
+    driver()
+
+    assert seen, f"the {point} leaf never reached its resolver"
+    assert seen[0].get("snapshot") is snapshot, (
+        f"the {point} leaf lost the connection's snapshot — got "
+        f"{seen[0].get('snapshot')!r}")
+
+
+def test_the_read_position_seam_forwards_the_snapshot_to_its_base_resolve(
+        monkeypatch):
+    """Т2-8 — `_resolve_live_offset` gained the `snapshot` keyword in this step, and
+    this pins that it FORWARDS it to the base resolve it delegates to, not merely
+    accepts it. Driven on the module function (no widget, no board): the base
+    resolver and the child pair are spies, so the child half never runs.
+
+    Mutation check: drop `snapshot=snapshot` from the `_resolve_node_base_pose` call
+    inside `_resolve_live_offset` and this fails on the spy's kwargs."""
+    import gui.docks.trees_dock as trees_mod
+    from kicadstamp.trees import Tree, TreeAnchor
+
+    seen: list = []
+    monkeypatch.setattr(
+        trees_mod, "_resolve_node_base_pose",
+        lambda *a, **k: seen.append(k) or (Vector2.from_xy(0, 0), 0.0, False))
+    monkeypatch.setattr(
+        trees_mod, "resolve_base_live_position",
+        lambda *a, **k: seen.append(k) or Vector2.from_xy(0, 0))
+    monkeypatch.setattr(
+        trees_mod, "resolve_base_rotation_deg",
+        lambda *a, **k: seen.append(k) or 0.0)
+    cfg = SimpleNamespace(trees=[], cells={}, entities=[], points={},
+                          clone_placements=[], chains=[], coordinate_placements=[],
+                          net_traces=[], thermal_via_arrays=[])
+    tree = Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[])
+    cfg.trees = [tree]
+    snapshot = [object()]
+
+    trees_mod._resolve_live_offset(cfg, object(), {}, tree, None, "R_DEBUG",
+                                   "external", snapshot=snapshot)
+
+    assert seen, "the seam never reached the base resolve"
+    assert seen[0].get("snapshot") is snapshot, (
+        "the seam accepted the snapshot but did not forward it to the base resolve "
+        f"— got {seen[0].get('snapshot')!r}")
+
+
+def test_the_forms_empty_snapshot_is_passed_through_not_refused(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8 — the CLASS property, third time in this заход (Кl): from connect until
+    the first poll tick `connection._snapshot` IS `[]`, and an empty snapshot is NOT
+    "no snapshot" — the resolvers read a falsy snapshot as the historical sweep. The
+    form must hand the EMPTY LIST through and go on resolving, never refuse.
+
+    Mutation check: make the form pass `snapshot or None`, or refuse on an empty
+    one, and this fails."""
+    import gui.docks.trees_dock as trees_mod
+
+    dock, _adapter, tree, _node = _form_dock(real_main_window, tmp_path)
+    assert real_main_window.connection._snapshot == [], \
+        "the pre-first-poll state this cell is about"
+    form = dock._build_anchor_form(tree)
+    seen: list = []
+    monkeypatch.setattr(
+        trees_mod, "_anchor_base_live_position",
+        lambda *a, **k: seen.append(k) or (Vector2.from_xy(0, 0), 90.0))
+    _arm_the_door(monkeypatch)
+
+    form._conversion_base_deg()                  # must not raise
+
+    assert seen and seen[0].get("snapshot") == [], (
+        "the empty list must travel as the CONNECTION has it — the form has no "
+        "opinion about the cache's state")
+
+
+def test_the_form_reads_the_live_adapter_not_the_one_it_was_built_with(
+        real_main_window, tmp_path, monkeypatch):
+    """Т2-8, variant B's own point — and the reason it is a FIX, not a price: a
+    form that kept the adapter it was built with holds a DEAD one after a
+    reconnect. The form is built while `first` is live, the board is then swapped
+    for `second`, and the read must go through `second`.
+
+    Mutation check: make the form fall back to `self._adapter` (i.e. hand the
+    adapter over at build time again) and this fails on `handed == [first]`."""
+    import gui.docks.trees_dock as trees_mod
+
+    dock, first, tree, _node = _form_dock(real_main_window, tmp_path)
+    form = dock._build_anchor_form(tree)         # built while `first` was live
+    second = SimpleNamespace(name="the-adapter-after-a-reconnect")
+    real_main_window.connection.board = SimpleNamespace(adapter=second)
+    handed: list = []
+    monkeypatch.setattr(
+        trees_mod, "_anchor_base_live_position",
+        lambda adapter, *a, **k: handed.append(adapter)
+        or (Vector2.from_xy(0, 0), 0.0))
+    _arm_the_door(monkeypatch)
+
+    form._conversion_base_deg()
+
+    assert handed == [second], (
+        f"the form must read through the LIVE adapter — got {handed!r} while "
+        f"{first!r} is the dead one it was built with")
