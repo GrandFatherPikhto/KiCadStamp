@@ -817,7 +817,7 @@ def _self_entity_record(cfg, tree: Tree, anchor: TreeAnchor | None) -> object | 
 
 
 def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
-                               ) -> tuple[Vector2, float | None]:
+                               *, snapshot=None) -> tuple[Vector2, float | None]:
     """(position_nm, rotation_deg | None) of a tree's OWN anchor base, resolved
     LIVE — the worker-safe twin of the apply-time materializer's anchor-base
     dispatch (entity_placement._anchor_base), so curated redraw ("Read current
@@ -836,7 +836,15 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
       - point  -> the points: entry's resolved chain position (no rotation)
       - ref    -> the referenced config record / external refdes (existing path)
     Raises ValidationError on any resolution failure — callers surface it as a
-    warning (never a silent partial write, never a crash)."""
+    warning (never a silent partial write, never a crash).
+
+    snapshot (2026-09-22, plan_2026_09_22_live_adapter_class, the А+ decision) —
+    forwarded to the ROLE branch only, which is the branch that sweeps the whole
+    board to answer "which footprint carries this role". The other branches
+    already resolve a single named thing (a record ref, a point chain, the board
+    origin). `None` (the default, and what every apply-path caller passes) keeps
+    the sweep byte for byte; the position itself is always the adapter's current
+    generation (resolve_footprint_by_role re-reads the chosen ref)."""
     anchor = tree.anchor
     if anchor.is_origin:
         pos, deg = _ORIGIN, 0.0
@@ -857,7 +865,7 @@ def _anchor_base_live_position(adapter, cfg, tree: Tree, sheet_names: dict,
             adapter, cfg, entity, sheet_names, pad=anchor.self_pad,
             label=_("tree {name!r} self-anchor").format(name=tree.name))
     elif anchor.role:
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
         label = anchor.role
         fp = resolver.resolve_anchor_fp(
             None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,

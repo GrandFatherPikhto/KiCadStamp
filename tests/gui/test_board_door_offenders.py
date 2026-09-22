@@ -297,3 +297,73 @@ def test_the_first_run_copper_probe_does_not_read_the_board_unsigned(
 
     assert dock._confirm_first_run_redraw() is True
     assert handed == [adapter], "the probe must receive the shared adapter"
+
+
+# ── Т2-4 (plan_2026_09_22_live_adapter_class) — the re-hang base resolve ─────
+# `_rehang_offset_or_ask` resolves the OLD and the NEW parent's base to keep the
+# node physically still. Measured before the fix (probe_2026_09_22_rehang_offset_
+# cost): TWO whole-board sweeps — 2x get_footprints + 664 get_field_value for one
+# re-hang. It now reads through the door's sign, passes the connection's snapshot
+# (so each resolve answers the identity question in memory) and refuses while the
+# shared socket is busy (door rule 3 — the read this handler never guarded).
+
+def test_the_rehang_offset_read_does_not_read_the_board_unsigned(
+        real_main_window, armed_door, monkeypatch):
+    """Т2-4 — with the door ARMED the re-hang read refuses nothing, and the
+    snapshot the dock owns travels into the resolver (the spy proves both).
+
+    Mutation check: drop the sign and this fails with the refusal."""
+    import gui.docks.trees_dock as td_mod
+
+    seen = []
+    questions = []
+    monkeypatch.setattr(td_mod, "_reparented_offset",
+                        lambda *a, **k: seen.append(k) or (None, None, 0.0))
+    # The refusal path below this read asks the user "re-hang WITHOUT recalculating?"
+    # — recorded rather than shown, so a regression FAILS instead of waiting for a
+    # click (the first version of this test hung, and the mutation harness refused
+    # to call that a kill: a timeout shows no FAILED line).
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: questions.append(a)
+                        or td_mod.QMessageBox.StandardButton.No)
+    dock = real_main_window._dock_hub.trees_dock
+    connection = real_main_window.connection
+    connection.board = SimpleNamespace(adapter=object())
+    snapshot = [object()]
+    monkeypatch.setattr(type(connection), "snapshot",
+                        property(lambda self: snapshot))
+
+    proceed, shift = dock._rehang_offset_or_ask(
+        SimpleNamespace(name="probe_tree"),
+        SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
+
+    assert questions == [], \
+        "an unsigned read must not degrade into the 'cannot hold still' question"
+    assert (proceed, shift) == (True, (None, None, 0.0))
+    assert seen and seen[0]["snapshot"] is snapshot, \
+        "the connection's snapshot must travel to the resolver"
+
+
+def test_the_rehang_offset_read_is_refused_while_the_socket_is_busy(
+        real_main_window, monkeypatch):
+    """Т2-4 — door rule 3: the resolve touches the SHARED adapter, so a busy
+    socket refuses instead of interleaving a second REQ transaction into the
+    tick's in-flight one ("Operation canceled"). The next attempt recalculates.
+
+    Mutation check: drop the `socket_busy` early return and this fails — the
+    resolver is entered on a busy socket."""
+    import gui.docks.trees_dock as td_mod
+
+    seen = []
+    monkeypatch.setattr(td_mod, "_reparented_offset",
+                        lambda *a, **k: seen.append(k) or (None, None, 0.0))
+    dock = real_main_window._dock_hub.trees_dock
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    real_main_window.connection.long_op_active = True      # the tick is in flight
+
+    proceed, shift = dock._rehang_offset_or_ask(
+        SimpleNamespace(name="probe_tree"),
+        SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
+
+    assert (proceed, shift) == (False, None), "a busy socket must refuse the move"
+    assert seen == [], "the resolve ran while the tick owned the socket"

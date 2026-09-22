@@ -592,7 +592,7 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
 
 def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
                             parent_node: Optional[TreeNode],
-                            base_anchor: Optional[TreeAnchor]
+                            base_anchor: Optional[TreeAnchor], *, snapshot=None
                             ) -> tuple[Vector2, Optional[float], bool]:
     """(position_nm, rotation_deg | None, mirror) of the frame a node's stored
     xy/rotation are expressed against — shared by the live read
@@ -619,7 +619,7 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
     Raises ValidationError on any resolution failure — the callers turn it into
     a warning (read) / a raw+disabled form (no connection), never a guess."""
     if base_anchor is not None:
-        resolver = ComponentResolver(adapter, cfg, sheet_names)
+        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
         fp = resolver.resolve_anchor_fp(
             None, base_anchor.role, base_anchor.anchor_sheet,
             base_anchor.anchor_cluster, label=base_anchor.role)
@@ -631,7 +631,7 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
         return parent_pos, parent_deg, False
     if parent_node is None:
         parent_pos, parent_deg = _anchor_base_live_position(
-            adapter, cfg, tree, sheet_names)
+            adapter, cfg, tree, sheet_names, snapshot=snapshot)
         return parent_pos, parent_deg, False
     if parent_node.kind == "mount":
         # Л.2.1: a mount node's ref is a local NAME (never a config record), so
@@ -689,7 +689,7 @@ def _pivot_ref_mount_parent(tree: Tree, node: TreeNode,
 
 def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
                        old_parent: Optional[TreeNode],
-                       new_parent: Optional[TreeNode]
+                       new_parent: Optional[TreeNode], *, snapshot=None
                        ) -> Optional[tuple[Optional[tuple[float, float]],
                                            Optional[tuple[float, float]],
                                            float]]:
@@ -730,9 +730,9 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
         return None
 
     old_pos, old_deg, _old_mirror = _resolve_node_base_pose(
-        cfg, adapter, sheet_names, tree, old_parent, None)
+        cfg, adapter, sheet_names, tree, old_parent, None, snapshot=snapshot)
     new_pos, new_deg, _new_mirror = _resolve_node_base_pose(
-        cfg, adapter, sheet_names, tree, new_parent, None)
+        cfg, adapter, sheet_names, tree, new_parent, None, snapshot=snapshot)
     # A base with no angle concept (origin/point anchor) stores rotation exactly
     # like the form does — 0.0 is the definition there, not a guess.
     old_rot = old_deg if old_deg is not None else 0.0
@@ -3630,11 +3630,30 @@ class TreesDock(QWidget):
         and the question are the node form's own (_apply_parent_change, §Э1.3
         option 2), word for word, so both re-hang paths refuse in exactly the
         same terms and neither can re-hang silently."""
+        connection = getattr(self._main_window, "connection", None)
+        if socket_busy(connection):
+            # Door rule 3: the base resolve touches the SHARED adapter, so while
+            # the ~400ms selection tick (or a long op) owns that socket nothing may
+            # be sent. The refusal is the one the node FORM beside this dock already
+            # gives in the same situation (_on_read_position / _apply_parent_change);
+            # the next attempt, once the socket is free, recalculates.
+            return False, None
         try:
+            # The door's sign (Т2-4 of plan_2026_09_22_live_adapter_class): two
+            # anchor resolves, made on the UI thread because the caller re-hangs the
+            # node in the SAME turn. The snapshot makes them short — the role branch
+            # of each resolve answers its identity question in memory instead of
+            # sweeping the board (measured before: 2 sweeps = 2x get_footprints +
+            # 664 get_field_value for one re-hang; probe_2026_09_22_rehang_offset_cost).
+            with ui_thread_board_read(
+                    reason="resolve the new parent's live base for a re-hang "
+                           "(two anchor resolves, identity from the snapshot)"):
+                adapter = self._live_adapter()
             return True, _reparented_offset(
-                self._cfg, self._live_adapter(),
+                self._cfg, adapter,
                 self._ctx.sheet_names if self._ctx is not None else {},
-                tree, node, old_parent, new_parent)
+                tree, node, old_parent, new_parent,
+                snapshot=getattr(connection, "snapshot", None))
         except Exception:  # noqa: BLE001 — "no base" is a UI state, not a crash
             show_message(
                 _("Node {ref!r}: the base of the new parent did not resolve on "

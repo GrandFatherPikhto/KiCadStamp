@@ -196,10 +196,15 @@ class ComponentResolver:
     """
 
     def __init__(self, adapter: KiCadBoardAdapter, config: Config,
-                 sheet_names: dict[str, str]):
+                 sheet_names: dict[str, str], *, snapshot=None):
         self.adapter = adapter
         self.cfg = config
         self.sheet_names = sheet_names
+        # The caller's board snapshot, when it OWNS one (plan_2026_09_22_live_
+        # adapter_class, the А+ decision): the role branch of resolve_anchor_fp
+        # then answers the identity question in memory instead of sweeping the
+        # board. None (the default, and what apply/CLI/MCP pass) = the sweep.
+        self.snapshot = snapshot
 
     def resolve_anchor_fp(self,
                           anchor_ref: str | None,
@@ -216,7 +221,7 @@ class ComponentResolver:
             return resolve_footprint_by_ref(self.adapter, anchor_ref, label)
         return resolve_footprint_by_role(
             self.adapter, anchor_role, anchor_sheet, anchor_cluster,
-            self.sheet_names, label=label,
+            self.sheet_names, label=label, snapshot=self.snapshot,
         )
 
     @staticmethod

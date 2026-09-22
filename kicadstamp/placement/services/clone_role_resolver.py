@@ -838,9 +838,65 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
     return role_to_ref
 
 
+def _raise_role_not_found(label: str, role: str | None) -> None:
+    """The canonical "this Role is on nothing" fatal — ONE wording for both
+    sources of candidates (the sweep and the snapshot), so a caller can never be
+    told two different things about the same absence."""
+    raise ValidationError(format_fatal_error(
+        _("{label}: anchor_role {role!r} not found on any component on the board")
+        .format(label=label, role=role),
+        [_("check that the Role field is set in the schematic and propagated to the PCB "
+           "(Update PCB from Schematic)")]
+    ))
+
+
+def _role_candidates(adapter, role: str, snapshot) -> list:
+    """Every footprint carrying `role` — the IDENTITY half of the resolver.
+
+    From the caller's board snapshot (``connection.snapshot``, one ``Selected``
+    per footprint, its ``role`` being the same store-aware value the adapter's
+    own ``get_field_value`` answers) when the caller has one, else by sweeping
+    the board: one ``get_footprints()`` plus one ``get_field_value()`` PER
+    footprint (the 996 field scans of the 22.09.2026 UI-thread measurement).
+
+    The position is deliberately NOT taken from here: ``Selected.fp`` belongs to
+    the snapshot's generation, so the caller of this module's snapshot branch
+    re-reads the CHOSEN ref from the adapter — see `_current_generation`.
+
+    An EMPTY snapshot is treated as NO snapshot, deliberately: the connection
+    carries ``[]`` until its first poll rebuilds it, and "the board has nothing"
+    would be a lie about a board nobody has looked at yet (found live — the
+    re-hang guard of tests/gui/test_trees_dock.py went from green to a fatal the
+    moment a stand-in's empty snapshot was believed). Both ends of the question
+    — the emptiest board and the missing role — are the same fatal anyway."""
+    if snapshot:
+        return [selected.fp for selected in snapshot if selected.role == role]
+    return [fp for fp in adapter.get_footprints()
+            if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role]
+
+
+def _current_generation(adapter, chosen: Footprint, snapshot, label: str,
+                        role: str | None) -> Footprint:
+    """The object the resolver RETURNS: `chosen` itself when the candidates came
+    from the adapter, and the adapter's OWN current generation of it when they
+    came from a snapshot.
+
+    Why the re-read (plan_2026_09_22_board_door_finish §4.3): a snapshot answers
+    "which footprint is this", never "where is it NOW" — its ``Selected.fp`` was
+    copied at poll time. A ref the live board no longer has (deleted or renamed
+    since that poll) stays the canonical "not found" fatal, never the stale
+    object."""
+    if not snapshot:
+        return chosen
+    live = adapter.get_footprint(chosen.ref)
+    if live is None:
+        _raise_role_not_found(label, role)
+    return live
+
+
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
                               anchor_cluster: str | None, sheet_names: dict[str, str],
-                              label: str) -> Footprint:
+                              label: str, *, snapshot=None) -> Footprint:
     """
     Resolves ANY anchor component by anchor_role (Role field on the board,
     NOT a cell role — this is different: here we search for the anchor itself
@@ -866,18 +922,20 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     sheet_names — {uuid: Sheetname}, see Config.sheet_names; empty dictionary
     (schematic_dir/schematic_files not set) — anchor_sheet then never narrows
     anything (fatal checked earlier in validation.py).
-    """
-    all_fps = adapter.get_footprints()
-    candidates = [fp for fp in all_fps
-                  if adapter.get_field_value(fp, ROLE_FIELD_NAME) == anchor_role]
+
+    snapshot (2026-09-22, plan_2026_09_22_live_adapter_class Т2-4/Т2-7, the А+
+    decision) — the caller's ``connection.snapshot`` when it OWNS one. Then the
+    candidate LIST (the identity question, which is what the whole-board sweep
+    was paying for) comes from the snapshot in memory, the narrowing cascade
+    below runs unchanged — its cluster step still asks the adapter, but only
+    when the role is genuinely ambiguous, i.e. when 2+ candidates survive the
+    sheet narrowing — and the returned object comes from the adapter's CURRENT
+    generation. `None` (the default, and what apply/CLI/MCP pass) = the sweep,
+    byte for byte."""
+    candidates = _role_candidates(adapter, anchor_role, snapshot)
 
     if not candidates:
-        raise ValidationError(format_fatal_error(
-            _("{label}: anchor_role {role!r} not found on any component on the board")
-            .format(label=label, role=anchor_role),
-            [_("check that the Role field is set in the schematic and propagated to the PCB "
-               "(Update PCB from Schematic)")]
-        ))
+        _raise_role_not_found(label, anchor_role)
 
     selected_items = adapter.get_selected_items()
     selected_refs = {i.ref for i in selected_items
@@ -890,7 +948,8 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     )
 
     if len(narrowed) == 1:
-        return narrowed[0]
+        return _current_generation(adapter, narrowed[0], snapshot, label,
+                                   anchor_role)
 
     refs = sorted(fp.ref for fp in narrowed)
     raise ValidationError(format_fatal_error(

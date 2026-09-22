@@ -5005,7 +5005,8 @@ def _fake_base_pose(monkeypatch, *, parent, components=None):
     import gui.docks.trees_dock as td_mod
     components = components or {}
 
-    def fake(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+    def fake(cfg, adapter, sheet_names, tree, parent_node, base_anchor,
+             **kwargs):          # **kwargs = the resolver's snapshot= (Т2-4)
         if base_anchor is None:
             return (parent[0], parent[1], False)
         pose = components.get(base_anchor.role)
@@ -6662,7 +6663,8 @@ def _rehang_form(dock, tree, moved, parent_node):
 def _stub_bases(monkeypatch, td_mod, base_for):
     """Replace the live base resolver with a parent -> mm-map, so the test needs
     no board: `base_for(parent_node)` is a (x_mm, y_mm) pair."""
-    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor,
+                   **kwargs):        # **kwargs = the resolver's snapshot= (Т2-4)
         x_mm, y_mm = base_for(parent_node)
         return Vector2.from_xy(int(x_mm * MM), int(y_mm * MM)), 0.0, False
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose", _fake_base)
@@ -6913,7 +6915,12 @@ def _pose_stub(monkeypatch, base_for):
     """Replace the live base resolver with a map so the recalculation needs no
     board: `base_for(parent)` is called with the parent the function asks about
     (None = the tree's own anchor)."""
-    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor):
+    def _fake_base(cfg, adapter, sheet_names, tree, parent_node, base_anchor,
+                   **kwargs):
+        # **kwargs: the resolver gained a keyword-only `snapshot` (Т2-4 of
+        # plan_2026_09_22_live_adapter_class) — a double that names its six
+        # arguments must tolerate the seventh rather than blow up in the caller's
+        # except, where the failure reads as "the base did not resolve".
         x_mm, y_mm, rot = base_for(parent_node)
         return (Vector2.from_xy(int(round(x_mm * MM)), int(round(y_mm * MM))),
                 rot, False)
