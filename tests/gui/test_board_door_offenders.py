@@ -269,3 +269,31 @@ def test_the_node_reread_flow_does_not_read_the_board_unsigned(
     dock._reread_node_flow(tree, node)
 
     assert started, "the read must reach its worker"
+
+
+# ── Т2-3 (plan_2026_09_22_live_adapter_class) — the first-run copper probe ────
+# `_confirm_first_run_redraw` hands the SHARED adapter to the Bug-3 heads-up, which
+# reads the whole board's copper (get_tracks + get_vias, measured 30.1 + 14.2 ms,
+# one exchange each). It stays on the UI thread on purpose — the callers branch on
+# its answer BEFORE the redraw worker starts — and behind a socket_busy gate.
+
+def test_the_first_run_copper_probe_does_not_read_the_board_unsigned(
+        real_main_window, monkeypatch):
+    """Т2-3 — with the door ARMED the heads-up refuses nothing, and the adapter the
+    probe receives is the live one (the spy proves it really arrived).
+
+    Mutation check: drop the `with ui_thread_board_read(...)` from
+    `_confirm_first_run_redraw` and this fails with the refusal."""
+    import gui.docks.trees_dock as td_mod
+
+    adapter = object()
+    handed = []
+    monkeypatch.setattr(
+        td_mod, "confirm_first_run_adoption",
+        lambda parent, config_path, adapter=None: handed.append(adapter) or True)
+    dock = real_main_window._dock_hub.trees_dock
+    real_main_window.connection.board = SimpleNamespace(adapter=adapter)
+    _arm_the_door(monkeypatch)
+
+    assert dock._confirm_first_run_redraw() is True
+    assert handed == [adapter], "the probe must receive the shared adapter"

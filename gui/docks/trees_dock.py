@@ -4269,8 +4269,18 @@ class TreesDock(QWidget):
         if socket_busy(getattr(self._main_window, "connection", None)):
             return True
         config_path = str(self._root_path) if self._root_path else ""
-        return confirm_first_run_adoption(self, config_path,
-                                          adapter=self._live_adapter())
+        # The door's sign (Т2-3, plan_2026_09_22_live_adapter_class): the probe is
+        # two whole-board reads through the SHARED adapter, made on the UI thread on
+        # purpose (see the docstring: the callers branch on its answer BEFORE the
+        # redraw worker starts) and already gated on a free socket above. Measured
+        # 22.09.2026 on the 332-footprint test board: get_tracks 30.1 ms +
+        # get_vias 14.2 ms, one exchange each — a deliberate short read, and by the
+        # §4.4 criterion of the door plan it earns the sign, not a worker.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the first-run copper probe "
+                       "(the get_tracks/get_vias the dialog branches on)"):
+            adapter = self._live_adapter()
+        return confirm_first_run_adoption(self, config_path, adapter=adapter)
 
     def _run_curated_redraw(self, selected_refs: set, trigger=None) -> None:
         """Worker invocation of the TREE-scoped curated redraw, used by "Redraw
