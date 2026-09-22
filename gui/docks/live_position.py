@@ -341,7 +341,8 @@ def _reference_slot(cell, role_to_ref: dict[str, str]):
 
 
 def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
-                        role_to_ref: dict[str, str] | None = None):
+                        role_to_ref: dict[str, str] | None = None, *,
+                        snapshot=None):
     """(mount, rotation_deg, mirror) of ONE cell EXACTLY as it stands on the
     board right now — derived from the LIVE CLUSTER alone (2026-09-10, plan
     overlay_frame_from_cluster).
@@ -391,9 +392,39 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     moved in KiCad would draw its overlay at the OLD position ("Show bbox" after
     moving the cluster, Denis 2026-09-10). Every other live-reading path in the
     project refreshes before it reads (board_overlay.read_marker/sweep_layer,
-    cascade, apply_pipeline, cli); this one did not. The refresh happens inside
-    the worker (all three overlay workers are dispatched through start_long_op,
-    which holds the socket exclusively), so it creates no extra races."""
+    cascade, apply_pipeline, cli); this one did not.
+
+    That refresh is NOT free, and it is NOT always inside a worker — corrected
+    2026-09-22 (Кj of plan_2026_09_22_live_adapter_class). It is one
+    `adapter.refresh_board()`: a `get_board()` round trip that also drops BOTH
+    adapter caches, so the next read pays a full 332-footprint re-read over IPC.
+    The three overlay workers do hold the socket exclusively, but the re-hang
+    path reaches this function from the UI THREAD, synchronously, under the
+    door's sign — and gui/docks/trees_dock.py's _rehang_offset_or_ask NAMES that
+    price in its reason rather than reciting the worker story. The UI-thread
+    caller is kept from interleaving with the poll tick by the door's own
+    `socket_busy` check plus ONE deferred retry (defer_while_socket_busy). Either
+    way the refresh STAYS where it is: without it the frame comes from a cache
+    that can predate a manual move in KiCad, which is the bug this paragraph
+    exists for.
+
+    `snapshot` (2026-09-22, Кj): the caller's `connection.snapshot`. The role →
+    footprint IDENTITY then comes from it — one exact (Role, Cluster) match in
+    memory — instead of a whole-board sweep PER CELL ROLE: an ordinary five-role
+    cell cost five `get_footprints()` and 1665 `get_field_value()` reads for ONE
+    parent, measured (diagnostics/probe_2026_09_22_rehang_entity_parent.py, the
+    Кj acceptance killer). The POSITION still comes from the adapter's CURRENT
+    generation — the resolver reads `adapter.get_footprint(ref)`, a lookup in the
+    adapter's own cache the refresh above has just filled, never the snapshot's
+    frozen `Selected.fp` (whose position is as old as the snapshot). Default None
+    = the historical sweep, byte for byte: cell_anchor_view, extract_spoke,
+    tree_from_selection and the diagnostic probes pass nothing and are untouched.
+
+    NOT covered, named rather than hidden: the two board-wide reads on this
+    function's FAILURE path — `role_multiplicity_in_cluster` and the "is the
+    cluster on the board at all" check — take no snapshot and still sweep. They
+    run once, immediately before a fatal message, and are paid on an error, not
+    on the ordinary resolve."""
     adapter.refresh_board()
     label = _("cell {cell!r} on cluster {cluster!r}").format(
         cell=getattr(cell, "name", "?"), cluster=cluster)
@@ -420,7 +451,7 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
             try:
                 role_to_fp[slot.role] = resolve_footprint_by_cluster_role(
                     adapter, cluster, slot.role, label, sheet=sheet or None,
-                    sheet_names=sheet_names)
+                    sheet_names=sheet_names, snapshot=snapshot)
             except ValidationError:
                 # Absent, or ambiguous (several footprints carry it — a spoke).
                 # The COUNT tells the two apart; that is what the check below is
@@ -549,9 +580,16 @@ def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names, *,
         cell = (cfg.cells.get(cell_name)
                 if cfg is not None and cell_name else None)
         if cell is not None and cluster:
+            # snapshot (Кj of plan_2026_09_22_live_adapter_class): this is the
+            # TYPICAL tree node — an Entity with a cell and a cluster — and it is
+            # the sub-branch that had no snapshot until Кj, so its cell's roles
+            # were resolved with one whole-board sweep EACH (five for an ordinary
+            # five-role cell) while the snapshot sat in the caller's hand.
+            # `_live_cluster_frame` passes it to the role resolver; the POSITION
+            # still comes from the adapter's current generation.
             pos, rot, mirror = _live_cluster_frame(
                 adapter, cell, cluster, getattr(entity, "sheet", None) or "",
-                sheet_names)
+                sheet_names, snapshot=snapshot)
             return LiveRecordPose(position=pos, rotation_deg=rot,
                                   mirror=mirror, from_cluster=True)
         reason = entity_mount_fallback_reason(cfg, entity)

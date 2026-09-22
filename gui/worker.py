@@ -678,6 +678,15 @@ def defer_while_socket_busy(
     worker, which is what raises the token; that is why the free-socket check belongs
     here, on the UI thread, and not inside the worker.
 
+    SECOND legitimate shape (2026-09-22, Т2-4б of plan_2026_09_22_live_adapter_class):
+    a SHORT synchronous continuation that guards itself instead of starting a worker —
+    TreesDock's ``_rehang`` runs the whole re-hang inline and its own ``socket_busy``
+    check refuses one line before the read touches the shared adapter. The helper then
+    contributes the DEFERRAL and the liveness check, and the "must not touch the
+    adapter" half of the rule above is met by the continuation's OWN guard. It is the
+    second half of that rule, never a licence to skip it: a continuation that neither
+    starts a worker nor checks the socket itself must not be passed here.
+
     Returns True when ``proceed()`` already ran, False when the retry was armed or
     ``on_still_busy()`` already ran (i.e. the deadline was skipped)."""
     if not socket_busy(connection):

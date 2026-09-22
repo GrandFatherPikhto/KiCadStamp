@@ -24,6 +24,7 @@ The three, in the order the armed run of 21.09.2026 named them:
 Numbers live in the docstrings, names describe the property (rule 37).
 """
 import logging
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -497,6 +498,51 @@ def test_a_move_still_busy_on_the_retry_tells_the_user(
     # (`len(scheduled) == 1`) plus the helper's own sentinel in
     # tests/gui/test_snapshot_freshness.py.
     assert len(scheduled) == 1
+
+
+# ── Кj (plan_2026_09_22_live_adapter_class) — the sign NAMES the refresh ─────
+# `_live_cluster_frame` refreshes the board before it reads (bug of 2026-09-10)
+# and the re-hang reaches it from the UI THREAD, so covering that call with a sign
+# is not enough: the sign has to NAME its price. The acceptance was exact about it
+# — "либо он уходит из этого пути, либо знак обязан называть его ценой отдельной
+# строкой"; "подписать и не назвать" is what it refused.
+
+def test_the_rehang_sign_names_the_whole_board_refresh(
+        real_main_window, monkeypatch):
+    """Кj — the reason the door's sign carries must say that an Entity-typed
+    parent pays ONE whole-board `adapter.refresh_board()` from the UI thread: the
+    cost the snapshot does NOT remove is the cost the sign has to name.
+
+    Mutation check: drop the refresh sentence from the reason and this fails
+    (m20 of the mutation run) while every other cell stays green — the resolve
+    itself is unaffected, which is exactly why the naming needs its own cell."""
+    import gui.docks.trees_dock as td_mod
+
+    reasons: list = []
+
+    @contextmanager
+    def _spy(*, reason):
+        reasons.append(reason)
+        yield
+
+    monkeypatch.setattr(td_mod, "ui_thread_board_read", _spy)
+    monkeypatch.setattr(td_mod, "_reparented_offset",
+                        lambda *a, **k: (None, None, 0.0))
+    dock = real_main_window._dock_hub.trees_dock
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+
+    dock._rehang_offset_or_ask(
+        SimpleNamespace(name="probe_tree"),
+        SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
+
+    assert reasons, "the re-hang resolve must go through the door's sign"
+    text = reasons[0]
+    assert "refresh_board" in text, (
+        "the sign must NAME the whole-board refresh it covers, not only the two "
+        "resolves — signing a cost without naming it was refused", text)
+    assert "Entity" in text, (
+        "…and say WHICH parent pays it (the Entity-typed one, the typical node)",
+        text)
 
 
 # ── Т2-3 (plan numbering, plan_2026_09_22_live_adapter_class) — PointsDock ───

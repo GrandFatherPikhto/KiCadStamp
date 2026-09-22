@@ -528,7 +528,15 @@ def test_c12_read_record_live_pose_still_uses_the_cluster_search(monkeypatch):
     A spy on _live_cluster_frame sees role_to_ref=None."""
     seen = []
 
-    def spy(adapter, cell, cluster, sheet, sheet_names, role_to_ref=None):
+    def spy(adapter, cell, cluster, sheet, sheet_names, role_to_ref=None,
+            **kwargs):
+        # **kwargs — `_live_cluster_frame` gained the keyword-only `snapshot`
+        # (Кj of plan_2026_09_22_live_adapter_class). This spy names five
+        # arguments plus role_to_ref, so without it the new keyword would blow up
+        # INSIDE the dispatcher and read as "the read is broken". The property
+        # this cell pins (no refs are handed over) is untouched: the assert below
+        # still holds, and the snapshot it now forwards is the caller's own,
+        # defaulted to None here.
         seen.append(role_to_ref)
         raise ValidationError("spy: stop before the read")
 

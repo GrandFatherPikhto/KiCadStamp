@@ -3637,6 +3637,23 @@ class TreesDock(QWidget):
         # the socket busy, the user is TOLD (`_warn_rehang_busy` — NOT
         # _warn_no_node_offset, whose wording is the Instantiate flow's and would
         # send the user looking for a selection this flow never had).
+        #
+        # TWO THINGS THIS SHAPE DOES NOT GUARD — named (Кj's "мелочи"), not hidden:
+        #
+        # 1. `_rehang` does its work SYNCHRONOUSLY instead of starting a worker, so
+        #    defer_while_socket_busy's "proceed() must NOT touch the adapter itself"
+        #    is bent here. What closes the race is not the helper but the
+        #    `socket_busy` check INSIDE _rehang_offset_or_ask, made one line before
+        #    the read; the helper contributes the deferral and the liveness check.
+        #    The helper's docstring carries that second legitimate shape, so the
+        #    document and the code agree again (Кj asked for exactly that).
+        # 2. The retry's liveness check asks only whether the DOCK was deleted
+        #    (the helper's own _gone(); `owner=self` is the dock). `tree`, `node` and
+        #    `new_parent` are CAPTURED BY THE CLOSURE, so a root switch inside the
+        #    120 ms window would write into a tree the config no longer holds. There
+        #    is no board write, the window is 120 ms and the owner usually loses
+        #    liveness first — accepted and named here rather than growing a second
+        #    staleness mechanism beside the dock's own root tracking.
         defer_while_socket_busy(getattr(self._main_window, "connection", None),
                                 (), _rehang, self._warn_rehang_busy,
                                 owner=self)
@@ -3673,23 +3690,40 @@ class TreesDock(QWidget):
             logger.warning(_REHANG_BUSY_TEXT)
             return False, None
         try:
-            # The door's sign (Т2-4/Т2-4а of plan_2026_09_22_live_adapter_class):
+            # The door's sign (Т2-4/Т2-4а/Кj of plan_2026_09_22_live_adapter_class):
             # two anchor resolves, made on the UI thread because the caller re-hangs
-            # the node in the SAME turn. What this sign covers, per branch, measured
-            # (diagnostics/probe_2026_09_22_rehang_offset_cost.py, whose table is the
-            # reason Т2-4а exists — the first probe measured the CALL, and a call
-            # reaches ONE of _resolve_node_base_pose's four branches): every branch
-            # that resolves a ROLE anchor passes the snapshot on, and each of the four
-            # goes from 1/1/2/2 whole-board sweeps to 0.
+            # the node in the SAME turn. What this sign covers is measured to the
+            # LEAVES, not to the call and not to the branch
+            # (diagnostics/probe_2026_09_22_rehang_offset_cost.py — its table is the
+            # reason Т2-4а AND Кj exist: the first probe measured the CALL, a call
+            # reaches ONE branch, and a branch has sub-branches): every branch that
+            # resolves a ROLE anchor passes the snapshot on — the four branches go
+            # from 1/1/2/2 whole-board sweeps to 0, and the ENTITY sub-branch (a
+            # placement node whose Entity has cell+cluster — the TYPICAL tree node)
+            # from 5 sweeps + 1665 field scans to 0.
+            #
+            # The ONE cost this sign does NOT remove is named IN THE REASON itself,
+            # not just here: an Entity-typed parent still pays
+            # `adapter.refresh_board()` — one get_board() round trip that drops both
+            # adapter caches, so the next read re-reads the whole board (~110 ms
+            # live for 325 footprints, the figure that call's own docstring
+            # measures). One or two per re-hang, because _reparented_offset resolves
+            # the OLD and the NEW parent. Signing a cost without naming it is what
+            # this comment refuses to do (see _live_cluster_frame's docstring for
+            # why that refresh must stay).
             #
             # NOT covered, named rather than hidden: the sub-seams with no snapshot
             # parameter of their own — tree_pivot_offset (the pivot half of a
             # pivot-ref tree's layout), resolve_entity_live_position, the point chain
-            # and ClonePositionCalculator. A parent that is an Entity or a point, or a
-            # pivot-ref tree, can therefore still sweep the board on this path.
+            # and ClonePositionCalculator — plus the two whole-board reads on
+            # _live_cluster_frame's FAILURE path (role_multiplicity_in_cluster and the
+            # "is the cluster on the board at all" check), which run once, right
+            # before a fatal message.
             with ui_thread_board_read(
                     reason="resolve the new parent's live base for a re-hang "
-                           "(two anchor resolves, identity from the snapshot)"):
+                           "(two anchor resolves, identity from the snapshot) — "
+                           "plus ONE whole-board adapter.refresh_board() per "
+                           "Entity-typed parent, sent from the UI thread"):
                 adapter = self._live_adapter()
             return True, _reparented_offset(
                 self._cfg, adapter,
