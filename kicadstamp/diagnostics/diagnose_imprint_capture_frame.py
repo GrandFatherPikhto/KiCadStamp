@@ -86,7 +86,7 @@ def _mm(value) -> float:
 
 
 def load_record(path: Path, imprint_name: str) -> dict:
-    """``path`` is the scheme-lists file — the live one OR a .history backup: the
+    """``path`` is the imprints storage file — the live one OR a .history backup: the
     whole point of comparing them is to date the numbers, i.e. to tell a STALE
     record (kept from an older board state) from a fresh capture."""
     raw = read_data(path)
@@ -406,7 +406,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--profile", default="profiles/heating-table")
-    parser.add_argument("--scheme-lists", help="override the scheme-lists file (e.g. a .history backup)")
+    parser.add_argument("--imprints-file",
+                        help="override the imprints storage file (e.g. a .history backup)")
     parser.add_argument("--config", help="override the config file holding the cell (e.g. a .history backup)")
     parser.add_argument("--imprint", default="pwr_mini360_in")
     parser.add_argument("--cell", default="mini360_p12v_p5v")
@@ -417,12 +418,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--tol", type=float, default=DEFAULT_TOL_MM)
     parser.add_argument("--fixture")
     parser.add_argument("--list", action="store_true",
-                        help="list the imprints in the scheme-lists file and stop")
+                        help="list the imprints in the storage file and stop")
     args = parser.parse_args(argv)
 
     profile = Path(args.profile)
     if args.list:
-        listed = Path(args.scheme_lists) if args.scheme_lists else profile / "scheme_lists.sexp"
+        listed = (Path(args.imprints_file) if args.imprints_file
+                  else profile / "scheme_lists.sexp")
         for entry in _as_list(read_data(listed), "imprints"):
             print(f"  {entry.get('name')!r}  components={len(_components(entry))}  "
                   f"source_sheet={entry.get('source_sheet')!r}")
@@ -430,7 +432,7 @@ def main(argv: list[str]) -> int:
 
     if not args.operation:
         parser.error("--operation is required unless --list is given")
-    record = load_record(Path(args.scheme_lists) if args.scheme_lists
+    record = load_record(Path(args.imprints_file) if args.imprints_file
                          else profile / "scheme_lists.sexp", args.imprint)
     cell = load_cell(Path(args.config) if args.config
                      else profile / "config.sexp", args.cell)
