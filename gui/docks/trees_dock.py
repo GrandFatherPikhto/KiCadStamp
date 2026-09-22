@@ -553,6 +553,47 @@ def run_anchor_base_mm_worker(payload: dict) -> dict:
     return {"base": (pos.x / MM, pos.y / MM)}
 
 
+def run_extract_new_cell_worker(payload: dict) -> dict:
+    """start_long_op worker entry point for "Instantiate from Cell…" TAB 2 — the
+    NEW-CELL extraction (Т2-6 of plan_2026_09_22_live_adapter_class).
+
+    What it saves (measured BEFORE the choice, on the 332-footprint test board
+    with an ordinary five-role selection — diagnostics/probe_2026_09_22_
+    instantiate_extract_cost.py): ONE whole-board read + 352 Role field scans +
+    15 pad reads per press, all of it on the UI thread in the handler that
+    returns from the modal dialog. `_auto_net_pattern_map` alone walks the whole
+    board (get_footprints + a field scan AND a pad read per footprint) to learn
+    the selected roles' net patterns, and the zero-slot origin detection scans
+    the same way. That is the sweep class Ш1 measured at 166/186 ms — and the
+    OTHER half of this same dialog (the anchor base) measured 138.6 ms for its
+    own sweep and moved to a worker in Э2. So this half follows Ш3's pattern.
+
+    It builds its OWN adapter (like run_anchor_base_mm_worker, not the shared
+    one): the UI half therefore never reads the door at all, and the extraction
+    cannot interleave with the ~400 ms poll tick.
+
+    NEVER raises: `extract_new_cell_for_instantiation` already answers None on a
+    failed extraction (logging its own reason); an exception from the origin
+    detection is caught here and reported the same way. The UI half shows the
+    very modal the synchronous read showed."""
+    from .tree_from_selection import extract_new_cell_for_instantiation
+
+    try:
+        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
+                                       config_path=payload.get("config_path"))
+        adapter.refresh_board()
+        cell = extract_new_cell_for_instantiation(
+            adapter, payload["cluster"], payload["cell_name"],
+            payload["selected"], payload["raw_items"],
+            absolute=payload["absolute"],
+            origin_role=payload.get("origin_role"),
+            origin_pad=payload.get("origin_pad"))
+    except Exception:  # noqa: BLE001 — best-effort read, never crash the flow
+        logger.debug("new-cell extraction failed", exc_info=True)
+        return {"cell": None}
+    return {"cell": cell}
+
+
 def run_node_reread_worker(payload: dict) -> dict:
     """start_long_op worker entry point for a NODE's "Reread current position"
     (the tree node's context menu). Plain data in, plain data out — no widget is
@@ -4225,11 +4266,33 @@ class TreesDock(QWidget):
         cell_name = dialog.result_cell()
         cluster = dialog.cluster()
         sheet = dialog.sheet()
+        # The dialog's remaining answers are read HERE, while it is still alive:
+        # the positioning half may now run AFTER a worker trip (the tab-2
+        # extraction), and a QDialog must not be touched from a continuation.
+        tail = {
+            "cell_name": cell_name,
+            "entity_name": entity_name,
+            "cluster": cluster,
+            "sheet": sheet,
+            "tree": tree,
+            "selected": list(selected or []),
+            "from_selection": dialog.from_selection(),
+            "manual_xy": dialog.manual_xy(),
+        }
         if dialog.is_new_cell():
             # Tab 2 — extract a NEW Cell right from the current selection's ONE
             # fully-selected cluster (the dialog only enables OK in that case).
-            adapter = self._live_adapter()  # lazy: tab 1 stays usable offline
-            if adapter is None:
+            #
+            # The extraction itself is a LIVE whole-board read and now runs on a
+            # WORKER (Т2-6 of plan_2026_09_22_live_adapter_class): this half
+            # returns here, and the continuation writes the Cell and rejoins the
+            # positioning tail (_finish_extract_new_cell -> _place_instantiated_node).
+            #
+            # Т5-2 idiom: "is there a board?" is asked of the CONNECTION, never by
+            # reading the door — the worker builds its OWN adapter, so this half
+            # needs no adapter object at all (it used to read one here).
+            if not getattr(getattr(self._main_window, "connection", None),
+                           "is_connected", False):
                 QMessageBox.warning(self, _("Instantiate from Cell"),
                                     _("Not connected."))
                 return
@@ -4247,37 +4310,24 @@ class TreesDock(QWidget):
                     self, _("Instantiate from Cell"),
                     _("A cell named {name!r} already exists.").format(name=cell_name))
                 return
-            from .tree_from_selection import extract_new_cell_for_instantiation
             origin_role, origin_pad = dialog.origin_override()
-            cell_dict = extract_new_cell_for_instantiation(
-                adapter, c, cell_name, selected, raw_items,
-                absolute=dialog.absolute_origin(),
-                origin_role=origin_role, origin_pad=origin_pad)
-            if cell_dict is None:
-                QMessageBox.warning(
-                    self, _("Instantiate from Cell"),
-                    _("Failed to extract the new Cell from the selection — "
-                      "see the log."))
-                return
-            # Strict addressing: the new Entity points at the cluster the Cell
-            # was extracted from (the dialog validated the shared combos match
-            # the detected cluster — see InstantiateCellDialog.validate).
-            cluster = c.cluster
-            sheet = c.sheet
-            # Stage the NEW Cell before the entity write — the same
-            # read_data/write_data read-merge-write path _stage_trees uses
-            # (WORKING_SET-aware; no per-edit backup — the flush backs up to
-            # history/, cf. _stage_trees's docstring).
-            try:
-                data = read_data(self._root_path)
-                data.setdefault("cells", {})[cell_name] = cell_dict[cell_name]
-                write_data(self._root_path, data)
-            except Exception as e:  # noqa: BLE001 — history/.bak is fresh; report
-                QMessageBox.warning(
-                    self, _("Instantiate from Cell"),
-                    _("Failed to save the new Cell: {error}").format(error=e))
-                return
-        if dialog.from_selection():
+            self._extract_new_cell_then(
+                c, raw_items=raw_items, absolute=dialog.absolute_origin(),
+                origin_role=origin_role, origin_pad=origin_pad, **tail)
+            return
+        self._place_instantiated_node(**tail)
+
+    def _place_instantiated_node(self, *, cell_name: str, entity_name: str,
+                                 cluster: str, sheet: str, tree: Tree, selected,
+                                 from_selection: bool, manual_xy) -> None:
+        """The positioning half shared by BOTH tabs of the dialog (behaviour
+        unchanged): "Take from selection" resolves the tree anchor's live base on
+        a worker of its own (_anchor_base_then, Э2) and the manual mode stores the
+        typed xy. Split out in Т2-6 so the tab-2 continuation — which returns from
+        a worker — rejoins it instead of carrying a second copy of either rule."""
+        from .tree_from_selection import selected_center_mm
+
+        if from_selection:
             center = selected_center_mm(selected)
             if center is None:
                 self._warn_no_node_offset()
@@ -4287,10 +4337,121 @@ class TreesDock(QWidget):
             # is known (see _anchor_base_then / _finish_anchor_base).
             self._anchor_base_then(center, cell_name, entity_name, cluster, sheet, tree)
             return
-        xy = dialog.manual_xy()
-        if xy is None:
+        if manual_xy is None:
             return
-        self._stage_instantiated_node(cell_name, entity_name, cluster, sheet, tree, xy)
+        self._stage_instantiated_node(cell_name, entity_name, cluster, sheet, tree,
+                                      manual_xy)
+
+    def _extract_new_cell_then(self, c, raw_items, *, absolute: bool,
+                               origin_role, origin_pad, cell_name: str,
+                               entity_name: str, cluster: str, sheet: str,
+                               tree: Tree, selected, from_selection: bool,
+                               manual_xy) -> None:
+        """Continue "Instantiate from Cell…" TAB 2 once the NEW Cell is extracted —
+        the extraction runs on a WORKER (Т2-6 of plan_2026_09_22_live_adapter_class).
+
+        Measured BEFORE the choice (diagnostics/probe_2026_09_22_
+        instantiate_extract_cost.py, 332-footprint board, an ordinary five-role
+        selection): ONE whole-board read + 352 Role field scans + 15 pad reads per
+        press, on the UI thread, in the handler that returns from the modal dialog.
+        `_auto_net_pattern_map` walks the whole board on its own (a field scan AND
+        a pad read per footprint) to learn the selected roles' net patterns, and
+        the zero-slot origin detection scans the same way. That is the sweep class
+        Ш1 measured at 166/186 ms — and the class this SAME dialog's other half
+        (the anchor base) measured at 138.6 ms before Э2 moved it to a worker.
+
+        So this half follows Ш3, the shape of _anchor_base_then: presence first,
+        ONE deferred retry on a busy socket, the read on a worker, the write in the
+        continuation. The dialog's answers travel as plain data in the payload —
+        the worker never touches a widget."""
+        connection = getattr(self._main_window, "connection", None)
+        if self._cfg is None or not getattr(connection, "is_connected", False):
+            self._warn_extract_failed()
+            return
+        payload = {
+            "cluster": c,
+            "cell_name": cell_name,
+            "selected": list(selected or []),
+            "raw_items": list(raw_items or ()),
+            "absolute": absolute,
+            "origin_role": origin_role,
+            "origin_pad": origin_pad,
+            "config_path": str(self._root_path) if self._root_path else "",
+            "timeout_ms": worker_timeout_ms(connection),
+        }
+
+        def _proceed() -> None:
+            self._active_op = start_long_op(
+                connection, (), run_extract_new_cell_worker,
+                lambda result: self._finish_extract_new_cell(
+                    result, c, cell_name=cell_name, entity_name=entity_name,
+                    cluster=cluster, sheet=sheet, tree=tree, selected=selected,
+                    from_selection=from_selection, manual_xy=manual_xy),
+                self._on_extract_new_cell_failed, payload,
+                busy_text=_("reading the board"))
+
+        # ONE deferred retry when another owner holds the shared socket, then the
+        # existing "failed to extract" answer — the same shape _anchor_base_then
+        # uses for the other half of this dialog.
+        defer_while_socket_busy(connection, (), _proceed,
+                                self._warn_extract_failed, owner=self)
+
+    def _finish_extract_new_cell(self, result, c, *, cell_name: str,
+                                 entity_name: str, cluster: str, sheet: str,
+                                 tree: Tree, selected, from_selection: bool,
+                                 manual_xy) -> None:
+        """The worker's Cell, on the UI thread — the only half that writes config,
+        and it then rejoins the ordinary positioning tail.
+
+        Re-checks that `tree` is still one of ours: the extraction can outlive a
+        root switch or a reload, exactly like _finish_anchor_base."""
+        self._active_op = None
+        if not any(t is tree for t in self._trees):
+            return
+        cell_dict = (result or {}).get("cell")
+        if not cell_dict:
+            self._warn_extract_failed()
+            return
+        # Strict addressing: the new Entity points at the cluster the Cell was
+        # extracted from (the dialog validated the shared combos match the
+        # detected cluster — see InstantiateCellDialog.validate). These OVERRIDE
+        # the dialog's own values, exactly as the synchronous code did.
+        cluster = c.cluster
+        sheet = c.sheet
+        # Stage the NEW Cell before the entity write — the same read_data/write_data
+        # read-merge-write path _stage_trees uses (WORKING_SET-aware; no per-edit
+        # backup — the flush backs up to history/, cf. _stage_trees's docstring).
+        try:
+            data = read_data(self._root_path)
+            data.setdefault("cells", {})[cell_name] = cell_dict[cell_name]
+            write_data(self._root_path, data)
+        except Exception as e:  # noqa: BLE001 — history/.bak is fresh; report
+            QMessageBox.warning(
+                self, _("Instantiate from Cell"),
+                _("Failed to save the new Cell: {error}").format(error=e))
+            return
+        self._place_instantiated_node(
+            cell_name=cell_name, entity_name=entity_name, cluster=cluster,
+            sheet=sheet, tree=tree, selected=selected,
+            from_selection=from_selection, manual_xy=manual_xy)
+
+    def _on_extract_new_cell_failed(self, message: str) -> None:
+        """start_long_op's failure path for the tab-2 extraction (an IPC error or a
+        worker bug). The dialog's choices are NOT lost for it: the user gets the
+        same "failed to extract" answer the synchronous read gave, the reason goes
+        to the Log — never a second modal."""
+        self._active_op = None
+        logger.warning("Instantiate from Cell: new-cell extraction failed: %s",
+                       message)
+        self._warn_extract_failed()
+
+    def _warn_extract_failed(self) -> None:
+        """The ONE wording for "the new Cell could not be extracted" — the worker's
+        None answer AND the still-busy retry both come through here (text unchanged
+        from the synchronous read)."""
+        QMessageBox.warning(
+            self, _("Instantiate from Cell"),
+            _("Failed to extract the new Cell from the selection — see the log."))
 
     def _on_rename_tree(self) -> None:
         tree = self._current_tree()

@@ -500,6 +500,55 @@ def test_a_move_still_busy_on_the_retry_tells_the_user(
     assert len(scheduled) == 1
 
 
+# ── Т2-6 (plan_2026_09_22_live_adapter_class) — the tab-2 extraction ──────────
+# "Instantiate from Cell…" tab 2 used to read the door RIGHT HERE (`adapter =
+# self._live_adapter()`) and then run a whole-board extraction inline. It now asks
+# the CONNECTION for presence (the Т5-2 idiom) and the read happens on a WORKER
+# that builds its OWN adapter — so the UI half has no adapter read at all.
+
+def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
+        real_main_window, tmp_path, monkeypatch, qapp):
+    """Т2-6 — with the door ARMED, driving the tab-2 continuation reads nothing
+    unsigned. The worker is stubbed here (its own thread and the shared-socket
+    token are pinned in tests/gui/test_ui_thread_board_reads.py), so what this
+    cell adds is the DOOR: the UI half must not reach for the adapter object at
+    all — it used to, one line before the extraction.
+
+    Mutation check: put the pre-Т2-6 read back — `adapter = self._live_adapter()`
+    in `_extract_new_cell_then` — and this fails with the refusal (m22)."""
+    import gui.docks.trees_dock as trees_mod
+    from tests.gui.conftest import _pump
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"trees": [
+        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}), encoding="utf-8")
+    dock = trees_mod.TreesDock(real_main_window)
+    dock.set_root_file(root)                     # built BEFORE the door is armed
+    tree = dock._trees[0]
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    # The rebuild builds the FORM widgets, and those still read the board unsigned
+    # — Т2-8's business, not this cell's. Stubbed exactly like _rehang_dock does, so
+    # this guard measures the extraction path and nothing else.
+    monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
+    started: list = []
+    monkeypatch.setattr(
+        trees_mod, "run_extract_new_cell_worker",
+        lambda payload: started.append(payload)
+        or {"cell": {"new_cell": {"components": [{"role": "R1"}]}}})
+    _arm_the_door(monkeypatch)
+
+    dock._extract_new_cell_then(
+        SimpleNamespace(cluster="CL", sheet=""), [], absolute=False,
+        origin_role=None, origin_pad=None, cell_name="new_cell",
+        entity_name="ENT_A", cluster="CL", sheet="", tree=tree, selected=[],
+        from_selection=False, manual_xy=(1.0, 2.0))
+    _pump(qapp, lambda: not real_main_window.connection.long_op_active)
+
+    assert started, "the extraction must go to its worker"
+    assert started[0]["cluster"].cluster == "CL", \
+        "the detected cluster must travel in the payload"
+
+
 # ── Кj (plan_2026_09_22_live_adapter_class) — the sign NAMES the refresh ─────
 # `_live_cluster_frame` refreshes the board before it reads (bug of 2026-09-10)
 # and the re-hang reaches it from the UI THREAD, so covering that call with a sign

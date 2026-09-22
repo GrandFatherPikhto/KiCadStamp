@@ -432,14 +432,22 @@ def _new_cell_fake(monkeypatch, *, name="pif_avdd", absolute=False,
 
 
 def test_instantiate_from_cell_extracts_and_stages_new_cell(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, qapp):
     """Tab 2 end-to-end (strict): the dock detects the ONE fully-selected
     cluster, extracts the NEW Cell through the helper, stages it into cells:,
     then stages the Entity ADDRESSING that cluster + the placement node — all
-    staged, nothing on disk until Save."""
+    staged, nothing on disk until Save.
+
+    Т2-6: the extraction now runs on a WORKER, so the flow is driven to
+    completion the way the Э2 anchor-base tests drive theirs — the failure path
+    (no adapter to build) would answer "failed to extract" and stage nothing, so
+    the adapter the worker builds is this test's double and the assertions run
+    after the completion signal, never on "the side effect looks visible"."""
     import gui.docks.trees_dock as td_mod
     from types import SimpleNamespace
     from gui.docks.reead import ReReadCluster
+    from tests.gui.conftest import _pump
+
     dock, root = _dock(main_window, tmp_path)
     tree = dock._trees[0]
     main_window.connection.board = SimpleNamespace(adapter=object())
@@ -450,8 +458,12 @@ def test_instantiate_from_cell_extracts_and_stages_new_cell(
     monkeypatch.setattr(
         "gui.docks.tree_from_selection.extract_new_cell_for_instantiation",
         lambda *a, **k: helper_calls.append((a, k)) or fake_cell)
+    # The worker builds its OWN adapter (Ш3's shape) — hand it this double.
+    monkeypatch.setattr(td_mod, "create_board_adapter",
+                        lambda **k: MagicMock())
 
     dock._instantiate_from_cell([], [])
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert helper_calls, "the extraction helper must be called on tab 2"
     # The helper gets the detected ReReadCluster (strict full-selection), the

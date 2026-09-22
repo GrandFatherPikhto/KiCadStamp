@@ -34,7 +34,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QMessageBox
 
-from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -587,3 +587,132 @@ def test_first_run_heads_up_still_reads_and_asks_when_the_socket_is_free(
     monkeypatch.setattr(QMessageBox, "question",
                         lambda *a, **k: QMessageBox.StandardButton.Cancel)
     assert dock._confirm_first_run_redraw() is False
+
+
+# ── Т2-6 (plan_2026_09_22_live_adapter_class): the tab-2 NEW-CELL extraction ──
+# "Instantiate from Cell…" tab 2 extracts a brand-NEW Cell from the selection, and
+# the helper behind it is a WHOLE-BOARD read: `_auto_net_pattern_map` walks every
+# footprint (a Role field scan AND a pad read per footprint) to learn the selected
+# roles' net patterns, and the zero-slot origin detection scans the same way.
+# Measured on the 332-footprint board with an ordinary five-role selection: ONE
+# get_footprints + 352 get_field_value(Role) + 15 get_footprint_pads per press
+# (diagnostics/probe_2026_09_22_instantiate_extract_cost.py) — the sweep class Ш1
+# measured at 166/186 ms, and the class this SAME dialog's other half measured at
+# 138.6 ms before Э2 moved IT to a worker. Same cure, same shape (Ш3).
+
+def _patch_extract_read(main_window, monkeypatch, seen):
+    """Install the two seams the extraction crosses: the worker's own adapter
+    (`create_board_adapter` — never a real KiCad socket) and the extraction itself.
+    `seen` records (token, thread) AT THE EXTRACTION, so a read that still happens
+    inline on the UI thread is caught by its own record, not by a new symbol."""
+    connection = main_window.connection
+    monkeypatch.setattr(td_mod, "create_board_adapter", _NoBoardAdapter)
+
+    def _spy(adapter, c, cell_name, selected, raw_items, **kwargs):
+        seen.append({"token": connection.long_op_active,
+                     "thread": threading.current_thread(),
+                     "cluster": getattr(c, "cluster", None)})
+        # One REAL component: an EMPTY list does not survive the s-expr round trip
+        # (it is written as nothing and read back as {}), so a non-empty Cell is
+        # what makes "the finish half wrote it" observable in the file.
+        return {cell_name: {"components": [{"role": "R1"}]}}
+
+    monkeypatch.setattr(
+        "gui.docks.tree_from_selection.extract_new_cell_for_instantiation", _spy)
+
+
+def _extract_now(dock, tree, **over):
+    """Drive the tab-2 continuation with the dialog's answers as plain data — the
+    same call _instantiate_from_cell_now makes once the modal has closed."""
+    kwargs = dict(cell_name="new_cell", entity_name="ENT_A", cluster="CL",
+                  sheet="", tree=tree, selected=[], from_selection=False,
+                  manual_xy=(1.0, 2.0), absolute=False, origin_role=None,
+                  origin_pad=None)
+    kwargs.update(over)
+    raw_items = kwargs.pop("raw_items", [])
+    dock._extract_new_cell_then(SimpleNamespace(cluster="CL", sheet=""),
+                                raw_items, **kwargs)
+
+
+def test_the_new_cell_extraction_reads_on_a_worker_under_the_token(
+        main_window, tmp_path, monkeypatch, qapp):
+    """Т2-6 — the extraction runs on ANOTHER thread with the shared-socket token
+    held for the whole of it, and the UI half gets plain data back.
+
+    The mutation behind this guard is putting the read back inline (the code before
+    Т2-6): then the seam records the MAIN thread with the token FALSE, and this test
+    fails on its own record — no new symbol is asserted on."""
+    _board(main_window, object())
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    connection = main_window.connection
+    seen = []
+    _patch_extract_read(main_window, monkeypatch, seen)
+
+    _extract_now(dock, tree)
+
+    assert connection.long_op_active is True, \
+        "the extraction read does not take the shared-socket token"
+    assert seen == [], "the board was read on the UI thread, synchronously"
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    assert seen and seen[0]["token"] is True, \
+        "the extraction was read without the shared-socket token"
+    assert seen[0]["thread"] is not threading.main_thread(), \
+        "the extraction was read on the UI thread"
+    assert seen[0]["cluster"] == "CL", \
+        "the worker must receive the detected cluster as plain data"
+
+
+def test_the_new_cell_is_written_and_the_node_staged_by_the_finish_half(
+        main_window, tmp_path, monkeypatch, qapp):
+    """Т2-6 — the worker hands back PLAIN DATA, and the UI half does the only config
+    write (the new Cell into cells:) and then rejoins the ordinary positioning tail
+    (manual xy here).
+
+    Mutation check: skip the write, and the cells: assert fails; skip the rejoin
+    (drop the _place_instantiated_node call), and the node assert fails — nothing
+    else in the suite notices either one."""
+    _board(main_window, object())
+    dock, root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    connection = main_window.connection
+    seen = []
+    _patch_extract_read(main_window, monkeypatch, seen)
+
+    _extract_now(dock, tree)
+    _pump(qapp, lambda: not connection.long_op_active)
+
+    data = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert data["cells"]["new_cell"]["components"] == [{"role": "R1"}], \
+        "the finish half must write the worker's Cell into cells:"
+    node = next(n for n in data["trees"][0]["nodes"]
+                if n.get("ref") == "ENT_A")
+    assert list(node["xy"]) == [1.0, 2.0], \
+        "the positioning tail must run for the tab-2 path too (manual xy here)"
+
+
+def test_a_failed_extraction_tells_the_user(main_window, tmp_path, monkeypatch):
+    """Т2-6 — the worker answers {"cell": None} for a failed extraction (its own
+    contract) and the UI half must SAY so, with the very modal the synchronous read
+    showed; nothing is staged.
+
+    Mutation check: drop _warn_extract_failed from the finish half and this fails —
+    a silent failure would leave the user with a dialog that closed and nothing
+    that happened."""
+    _board(main_window, object())
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    warned = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warned.append(a) or None)
+
+    dock._finish_extract_new_cell(
+        {"cell": None}, SimpleNamespace(cluster="CL", sheet=""),
+        cell_name="new_cell", entity_name="ENT_A", cluster="CL", sheet="",
+        tree=tree, selected=[], from_selection=False, manual_xy=(1.0, 2.0))
+
+    assert warned, "a failed extraction must be TOLD, not swallowed"
+    assert "Failed to extract" in str(warned[0]), warned
+    assert not any(n.ref == "ENT_A" for n in tree.nodes), \
+        "nothing may be staged when the extraction failed"
