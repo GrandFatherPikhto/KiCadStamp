@@ -17256,6 +17256,10 @@ msgstr "placing"
 msgid "re-reading copper"
 msgstr "re-reading copper"
 
+#: gui/docks/placer.py
+msgid "selecting on the board"
+msgstr "selecting on the board"
+
 #: gui/docks/cell_layers.py
 msgid "Layers to read"
 msgstr ""

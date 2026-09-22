@@ -1937,67 +1937,124 @@ class PlacerDock(QWidget):
         builds the entry with for_highlight=True (placeholder origin), instead
         of failing with "X is required." on a form whose Origin tab was never
         filled. Save/Redraw keep the full strictness (_build_entry_dict's
-        default)."""
-        if socket_busy(getattr(self._main_window, "connection", None)):
+        default).
+
+        Ш3 (plan_2026_09_22_board_door_finish): the read AND the highlight run on
+        a WORKER under start_long_op's token now; this half only builds the payload
+        (placement, config/context, the two registry paths) and hands the SHARED
+        adapter over under the door's sign. Measured 21.09.2026, the resolver's
+        sweep cost 333 get_field_value() on the UI thread and adapter.select_items()
+        was ONE 134–225 ms exchange — the most expensive single UI-thread action
+        found — so every highlight used to freeze the window. `_finish_select_on_board`
+        is the only half that touches the screen."""
+        connection = self._main_window.connection
+        if socket_busy(connection):
             return
-        with busy(self._action_buttons()):
-            board = self._main_window.connection.board
-            if board is None or getattr(board, "adapter", None) is None:
-                self._show_message(_("Not connected."), _ERROR_STYLE)
-                return
-            entry = self._build_entry_dict(for_highlight=True)
-            if entry is None:
-                return
-            if self._placer_path is None:
-                self._show_message(_("Set the project root first."), _ERROR_STYLE)
-                return
-            try:
-                if self.is_coordinate:
-                    placement = load_coordinate_placement(entry)
-                else:
-                    placement = load_clone_placement(entry)
-            except ValidationError as e:
-                self._show_message(str(e), _ERROR_STYLE)
-                return
+        with ui_thread_board_read(
+                reason="hand the shared board to the highlight worker"):
+            board = connection.board
+        if board is None or getattr(board, "adapter", None) is None:
+            self._show_message(_("Not connected."), _ERROR_STYLE)
+            return
+        entry = self._build_entry_dict(for_highlight=True)
+        if entry is None:
+            return
+        if self._placer_path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        try:
+            if self.is_coordinate:
+                placement = load_coordinate_placement(entry)
+            else:
+                placement = load_clone_placement(entry)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return
 
-            loaded = self._load_target_config()
-            if loaded is None:
-                return
-            cfg, ctx = loaded
+        loaded = self._load_target_config()
+        if loaded is None:
+            return
+        cfg, ctx = loaded
 
-            if not self.is_coordinate and placement.cell not in cfg.cells:
-                self._show_message(
-                    _("Cell {cell!r} isn't reachable from the Placer file's include: — "
-                      "extract/save it and make sure include: is wired (see Extract).")
-                    .format(cell=placement.cell), _ERROR_STYLE)
-                return
+        if not self.is_coordinate and placement.cell not in cfg.cells:
+            self._show_message(
+                _("Cell {cell!r} isn't reachable from the Placer file's include: — "
+                  "extract/save it and make sure include: is wired (see Extract).")
+                .format(cell=placement.cell), _ERROR_STYLE)
+            return
 
-            from kicadstamp.placement.services.board_items_resolver import resolve_clone_board_items
-            from kicadstamp.registry import (registry_path_for_config,
-                                             track_registry_path_for_config)
+        # Read on the UI side (the name is a pure function of the placement — the
+        # worker must not read a widget), carried into the worker's answer.
+        name = (coordinate_placement_effective_name(placement)
+                if self.is_coordinate else clone_placement_effective_name(placement))
+        from kicadstamp.registry import (registry_path_for_config,
+                                         track_registry_path_for_config)
 
-            registry_path = ctx.registry_path or registry_path_for_config(str(self._placer_path))
-            track_registry_path = (ctx.track_registry_path
-                                   or track_registry_path_for_config(str(self._placer_path)))
-            try:
-                items = resolve_clone_board_items(
-                    board.adapter, cfg, ctx, placement,
-                    registry_path=registry_path, track_registry_path=track_registry_path)
-            except ValidationError as e:
-                self._show_message(str(e), _ERROR_STYLE)
-                return
+        payload = {
+            # The dock's OWN adapter — the one this click always used, held by
+            # start_long_op's token for the whole worker call (door rule 4: a
+            # worker sharing the socket does not build a second one).
+            "adapter": board.adapter,
+            "cfg": cfg,
+            "ctx": ctx,
+            "placement": placement,
+            "registry_path": (ctx.registry_path
+                              or registry_path_for_config(str(self._placer_path))),
+            "track_registry_path": (ctx.track_registry_path
+                                    or track_registry_path_for_config(str(self._placer_path))),
+        }
+        self._active_op = start_long_op(
+            connection, self._action_buttons(),
+            self._run_select_on_board,
+            lambda result: self._finish_select_on_board(result, name),
+            self._on_select_on_board_failed, payload,
+            busy_text=_("selecting on the board"))
 
-            if not items:
-                self._show_message(
-                    _("nothing found on the board for this placement — has it been placed yet?"),
-                    _WARN_STYLE)
-                return
+    def _run_select_on_board(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """WORKER thread: resolve the placement to its live board items and
+        highlight them. Pure data in, pure data out — no widget is touched here,
+        and the resolver's refusal is turned into an `error` string (the UI half
+        shows the very wording the synchronous handler showed) instead of an
+        exception whose text would drown in a traceback."""
+        from kicadstamp.placement.services.board_items_resolver import resolve_clone_board_items
+        try:
+            items = resolve_clone_board_items(
+                payload["adapter"], payload["cfg"], payload["ctx"],
+                payload["placement"],
+                registry_path=payload["registry_path"],
+                track_registry_path=payload["track_registry_path"])
+        except ValidationError as e:
+            return {"error": str(e)}
+        if not items:
+            return {"count": 0}
+        payload["adapter"].select_items(items)
+        return {"count": len(items)}
 
-            board.adapter.select_items(items)
-            name = (coordinate_placement_effective_name(placement)
-                    if self.is_coordinate else clone_placement_effective_name(placement))
-            self._show_message(_("Selected {count} item(s) on the board for {name!r}.")
-                               .format(count=len(items), name=name), _SUCCESS_STYLE)
+    def _finish_select_on_board(self, result: Dict[str, Any], name: str) -> None:
+        """UI thread: the worker's answer — the ONLY half that touches the screen
+        (Э1). Wording and styles unchanged from the synchronous version: a real
+        refusal is an ERROR line naming the resolver's message, nothing found is
+        the old WARN line, and a hit is the same success line."""
+        self._active_op = None
+        if result.get("error"):
+            self._show_message(result["error"], _ERROR_STYLE)
+            return
+        if not result.get("count"):
+            self._show_message(
+                _("nothing found on the board for this placement — has it been placed yet?"),
+                _WARN_STYLE)
+            return
+        self._show_message(_("Selected {count} item(s) on the board for {name!r}.")
+                           .format(count=result["count"], name=name), _SUCCESS_STYLE)
+
+    def _on_select_on_board_failed(self, message: str) -> None:
+        """start_long_op's failure path — something the worker could not turn
+        into a refusal itself (a KiCad IPC error, say). A Log line, and — unlike
+        the old synchronous handler, where such an exception escaped into the Qt
+        slot that called it — never a crash: an unhandled exception in a slot is
+        a core dump (measured 21.09.2026, EXIT=134)."""
+        self._active_op = None
+        self._show_message(message, _ERROR_STYLE)
 
     @staticmethod
     def _anchor_origin_filled(aw: AnchorOriginWidget) -> Tuple[bool, bool]:

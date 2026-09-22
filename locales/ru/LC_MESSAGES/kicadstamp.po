@@ -15937,6 +15937,10 @@ msgstr "расстановка"
 msgid "re-reading copper"
 msgstr "перечитывание меди"
 
+#: gui/docks/placer.py
+msgid "selecting on the board"
+msgstr "выделение на плате"
+
 #: gui/docks/cell_layers.py
 msgid "Layers to read"
 msgstr "Слои для чтения"
