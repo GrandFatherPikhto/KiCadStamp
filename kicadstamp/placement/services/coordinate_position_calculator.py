@@ -129,9 +129,22 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
     snapshot's cached ``Selected.fp`` (whose position is as old as the snapshot;
     a form whose whole job is "where is it NOW" must not be answered from it).
     Default None = the historical adapter sweep, byte for byte: the apply path,
-    the CLI and the MCP server pass nothing and are unaffected."""
+    the CLI and the MCP server pass nothing and are unaffected.
+
+    An EMPTY snapshot is treated as NO snapshot, deliberately — the SAME rule and
+    the same reason as its neighbour ``clone_role_resolver.resolve_footprint_by_role``
+    (``_role_candidates``), which got this check one заход earlier: the connection
+    carries ``[]`` from connect until the first poll rebuilds it, and "the board has
+    nothing" would be a lie about a board nobody has looked at yet. This resolver
+    read ``if snapshot is not None``, so an empty snapshot made EVERY role of a cell
+    unresolvable — and Кj of plan_2026_09_22_live_adapter_class connected the
+    re-hang path HERE, whose caller turns that into a false "cluster X is not on
+    the board" instead of resolving it (visible when re-hanging right after
+    connecting). The lesson is the class, not the function: a cure found by a live
+    red test belongs to every resolver that shares the parameter, so both now carry
+    the check AND a cell of their own."""
     field_matches = {ROLE_FIELD_NAME: role, CLUSTER_FIELD_NAME: cluster}
-    if snapshot is not None:
+    if snapshot:
         # Identity from the snapshot (no board scan, no field scans), position
         # from the adapter's current generation.
         matches = [s.fp for s in

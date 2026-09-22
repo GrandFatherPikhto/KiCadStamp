@@ -543,6 +543,12 @@ def test_the_rehang_sign_names_the_whole_board_refresh(
     assert "Entity" in text, (
         "…and say WHICH parent pays it (the Entity-typed one, the typical node)",
         text)
+    assert "full-board" in text, (
+        "…AND name the full-board re-read that refresh FORCES on the next line: a "
+        "call count is not what the board costs, because the adapter caches and "
+        "refresh_board() empties that cache (Кk of the acceptance) — a reason that "
+        "mentions refresh_board alone would read as if the cost were a round trip "
+        "and nothing else", text)
 
 
 # ── Т2-3 (plan numbering, plan_2026_09_22_live_adapter_class) — PointsDock ───

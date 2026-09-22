@@ -304,3 +304,35 @@ def test_leaf_4a_an_entity_parent_resolves_from_the_snapshot(monkeypatch):
         "otherwise this cell would pass without the threading existing")
     assert swept.live_reads == 0, \
         "without a snapshot the refs come FROM the sweep, not from get_footprint"
+
+
+def test_leaf_4a_survives_the_connections_EMPTY_snapshot(monkeypatch):
+    """Cell 6 (Кl) — `connection.snapshot` is `[]` from connect until the first
+    poll rebuilds it, and a re-hang right after connecting must still resolve its
+    parent's base. It did not: the resolver under this leaf read
+    `if snapshot is not None`, so every role of the cell went unresolved and the
+    user got a false "cluster X is not on the board" instead of an answer — the
+    exact state in which
+    tests/gui/test_trees_dock.py::test_move_to_recalculates_the_offset_after_the_re_hang
+    went red when an empty snapshot was first believed.
+
+    The property is the CLASS's (the neighbour `resolve_footprint_by_role` got
+    this check one заход earlier); this cell is the same property at the LEAF the
+    re-hang actually reaches.
+
+    Mutation check: put `is not None` back in
+    coordinate_position_calculator.resolve_footprint_by_cluster_role and this
+    fails with the false fatal (m21)."""
+    adapter, tree = _CountingAdapter(), _tree()
+    cfg, record, ref, parent_node = _entity_rig(tree)
+    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda _cfg, _ref, _kind: (record, False))
+
+    pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,
+                                          None, snapshot=[])
+
+    assert pose[0] is not None, \
+        "an empty snapshot must not turn into a refusal about a board nobody read"
+    assert adapter.sweeps == len(ENTITY_ROLES), \
+        ("an empty snapshot is NO snapshot: the historical sweep must run, or the "
+         "re-hang would silently claim the cluster is missing")

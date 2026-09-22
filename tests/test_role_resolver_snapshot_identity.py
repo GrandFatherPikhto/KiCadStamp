@@ -1,7 +1,15 @@
 # tests/test_role_resolver_snapshot_identity.py
-"""The snapshot branch of `resolve_footprint_by_role` — the А+ decision of
-plan_2026_09_22_live_adapter_class (measured in Т2-4: 2 whole-board sweeps
--> 0, 668 adapter calls -> 4 for one node re-hang).
+"""The snapshot branch of BOTH role resolvers — the А+ decision of
+plan_2026_09_22_live_adapter_class, and the class-level rule Кl had to put back.
+
+`resolve_footprint_by_role` (clone_role_resolver) is where the branch was born
+(Т2-4: 2 whole-board sweeps -> 0, 668 adapter calls -> 4 for one node re-hang).
+`resolve_footprint_by_cluster_role` (coordinate_position_calculator) is its
+exact-match twin, and Кj connected the re-hang path to it — at which point the
+ONE rule that had been cured in only one of them became a live bug: an empty
+snapshot. Its cell lives here, next to the neighbour's, because the property
+belongs to the CLASS: a cure found by a live red test is not a property of one
+function (the working lesson of Кl).
 
 The property table (rule 35), one test per cell:
 
@@ -18,11 +26,14 @@ The property table (rule 35), one test per cell:
   8  EMPTY list             counting: the sweep must run   an empty snapshot is NO
                                                            snapshot (the state before
                                                            the connection's first poll)
+  9  EMPTY list, the CLUSTER twin resolver                 same rule, same sweep —
+     (cell 9, added in Кl)                                 it read `is not None` and
+                                                           answered with a fatal
 
-Cells left empty ON PURPOSE: nothing asserts the CLUSTER step's adapter reads,
-because that step only runs when 2+ candidates survive the sheet narrowing — i.e.
-exactly cell 7's shape, where it is the very thing being narrowed. A test for the
-cluster prefix step belongs with that step's own change, not here.
+Cells left empty ON PURPOSE: nothing asserts the CLUSTER prefix step's adapter
+reads, because that step only runs when 2+ candidates survive the sheet narrowing
+— i.e. exactly cell 7's shape, where it is the very thing being narrowed. A test
+for the cluster prefix step belongs with that step's own change, not here.
 """
 from types import SimpleNamespace
 
@@ -34,6 +45,9 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.clone_role_resolver import (
     resolve_footprint_by_role,
+)
+from kicadstamp.placement.services.coordinate_position_calculator import (
+    resolve_footprint_by_cluster_role,
 )
 
 ROLE = "R_CLK"
@@ -219,3 +233,38 @@ def test_an_empty_snapshot_is_no_snapshot():
 
     assert resolved is anchor, "an empty snapshot must not answer for the board"
     assert adapter.calls["get_footprints"] == 1
+
+
+def test_the_cluster_twin_treats_an_empty_snapshot_as_no_snapshot():
+    """Cell 9 (Кl) — the SAME rule for `resolve_footprint_by_cluster_role`,
+    whose exact-match lookup is what every role of an Entity-typed parent goes
+    through once Кj threaded the snapshot there.
+
+    It read `if snapshot is not None`, so a connection that had not polled yet
+    (`connection.snapshot == []`) made EVERY role of the cell unresolvable — and
+    the re-hang path reports that as a false "cluster X is not on the board"
+    instead of resolving it (visible when re-hanging right after connecting).
+
+    Both halves are asserted, so a resolver that simply stopped using the
+    snapshot would fail the second one."""
+    anchor = _fp("R_ANCHOR")
+
+    empty = _CountingAdapter([anchor])
+    resolved = resolve_footprint_by_cluster_role(
+        empty, CLUSTER, ROLE, "probe", snapshot=[])
+
+    assert resolved.ref == "R_ANCHOR", \
+        "an empty snapshot must fall back to the sweep, not to an empty answer"
+    assert empty.calls["get_footprints"] == 1
+    assert empty.calls["get_field_value"] >= 1
+
+    given = _CountingAdapter([anchor])
+    given.calls = {key: 0 for key in given.calls}
+    resolved_given = resolve_footprint_by_cluster_role(
+        given, CLUSTER, ROLE, "probe", snapshot=[_selected(anchor)])
+
+    assert resolved_given.ref == "R_ANCHOR"
+    assert given.calls["get_footprints"] == 0, \
+        "a snapshot that HAS rows must still answer in memory"
+    assert given.calls["get_footprint"] == 1, \
+        "…and the position still comes from the adapter's current generation"

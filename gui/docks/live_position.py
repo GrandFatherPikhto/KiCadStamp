@@ -411,14 +411,31 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     `snapshot` (2026-09-22, Кj): the caller's `connection.snapshot`. The role →
     footprint IDENTITY then comes from it — one exact (Role, Cluster) match in
     memory — instead of a whole-board sweep PER CELL ROLE: an ordinary five-role
-    cell cost five `get_footprints()` and 1665 `get_field_value()` reads for ONE
-    parent, measured (diagnostics/probe_2026_09_22_rehang_entity_parent.py, the
-    Кj acceptance killer). The POSITION still comes from the adapter's CURRENT
-    generation — the resolver reads `adapter.get_footprint(ref)`, a lookup in the
-    adapter's own cache the refresh above has just filled, never the snapshot's
-    frozen `Selected.fp` (whose position is as old as the snapshot). Default None
-    = the historical sweep, byte for byte: cell_anchor_view, extract_spoke,
-    tree_from_selection and the diagnostic probes pass nothing and are untouched.
+    cell made five `get_footprints()` calls plus 1665 `get_field_value()` reads for
+    ONE parent (adapter CALLS, probe_2026_09_22_rehang_entity_parent.py). The
+    POSITION still comes from the adapter's CURRENT generation — the resolver reads
+    `adapter.get_footprint(ref)`, never the snapshot's frozen `Selected.fp` (whose
+    position is as old as the snapshot). Default None = the historical sweep, byte
+    for byte: cell_anchor_view, extract_spoke, tree_from_selection and the
+    diagnostic probes pass nothing and are untouched.
+
+    WHAT THE SNAPSHOT DOES **NOT** REMOVE — corrected in Кl/Кk of the acceptance,
+    because a call count is not what the board costs (the real adapter CACHES,
+    kicadstamp/kicad/adapter.py): those five `get_footprints()` calls were ONE
+    cache rebuild, and the refresh above EMPTIED that cache — so the first
+    `adapter.get_footprint(ref)` of the snapshot path rebuilds all 332 footprints
+    over IPC, i.e. it IS a full-board read (the ~110 ms miss the adapter's own
+    docstring measures, the class Ш1 counted at 166/186 ms). The measured cache
+    contract for ONE Entity-typed parent is therefore:
+
+        get_board                          1  ->  1   (refresh_board)
+        whole-board footprint read         1  ->  1   (the next line forces it)
+        per-footprint field scan         332  ->  0   <-- the win, and it is real
+
+    (diagnostics/probe_2026_09_22_rehang_entity_ipc.py — the Кk acceptance killer,
+    which counts IPC round trips instead of calls.) So one Entity parent costs TWO
+    board-wide reads on the UI thread, and a re-hang resolves two parents. The door
+    sign names exactly that; the millisecond decision belongs to Т3.
 
     NOT covered, named rather than hidden: the two board-wide reads on this
     function's FAILURE path — `role_multiplicity_in_cluster` and the "is the

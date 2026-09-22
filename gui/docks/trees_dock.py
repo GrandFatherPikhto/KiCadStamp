@@ -3702,15 +3702,22 @@ class TreesDock(QWidget):
             # placement node whose Entity has cell+cluster — the TYPICAL tree node)
             # from 5 sweeps + 1665 field scans to 0.
             #
-            # The ONE cost this sign does NOT remove is named IN THE REASON itself,
-            # not just here: an Entity-typed parent still pays
-            # `adapter.refresh_board()` — one get_board() round trip that drops both
-            # adapter caches, so the next read re-reads the whole board (~110 ms
-            # live for 325 footprints, the figure that call's own docstring
-            # measures). One or two per re-hang, because _reparented_offset resolves
-            # the OLD and the NEW parent. Signing a cost without naming it is what
-            # this comment refuses to do (see _live_cluster_frame's docstring for
-            # why that refresh must stay).
+            # The cost this sign does NOT remove is named IN THE REASON itself, not
+            # just here. An Entity-typed parent still pays TWO board-wide reads:
+            # `adapter.refresh_board()` (one get_board() round trip that DROPS both
+            # adapter caches) and the full-board footprint read the very NEXT line
+            # forces — the first `get_footprint(ref)` of the snapshot path walks the
+            # cache the refresh just emptied, so it rebuilds all 332 footprints over
+            # IPC (the ~110 ms miss the adapter's own docstring measures, the class
+            # Ш1 counted as 166/186 ms). What the snapshot removes is the 332
+            # per-footprint FIELD scans, not those two (Кk of the acceptance:
+            # diagnostics/probe_2026_09_22_rehang_entity_ipc.py counts the cache
+            # contract, not the fake's call count — the counting fake showed "0
+            # sweeps" and hid exactly this). One such pair per Entity-typed parent,
+            # so up to two per re-hang: _reparented_offset resolves the OLD and the
+            # NEW parent. Signing a cost without naming it is what this comment
+            # refuses to do (see _live_cluster_frame's docstring for why that
+            # refresh must stay).
             #
             # NOT covered, named rather than hidden: the sub-seams with no snapshot
             # parameter of their own — tree_pivot_offset (the pivot half of a
@@ -3722,8 +3729,9 @@ class TreesDock(QWidget):
             with ui_thread_board_read(
                     reason="resolve the new parent's live base for a re-hang "
                            "(two anchor resolves, identity from the snapshot) — "
-                           "plus ONE whole-board adapter.refresh_board() per "
-                           "Entity-typed parent, sent from the UI thread"):
+                           "plus, per Entity-typed parent, ONE whole-board "
+                           "adapter.refresh_board() AND the full-board re-read it "
+                           "forces on the next line, both sent from the UI thread"):
                 adapter = self._live_adapter()
             return True, _reparented_offset(
                 self._cfg, adapter,
