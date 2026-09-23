@@ -69,22 +69,56 @@ def _get_board_not_found_error():
     return BoardNotFoundError
 
 
-# The reconnectable tuple above needs the real class at module level, so it is
-# built lazily by _reconnectable_errors() below instead of at import time.
-_BOARD_NOT_FOUND_ERROR = None
+def _get_kipy_connection_error():
+    """kipy's OWN ConnectionError — the class every real IPC break raises.
+
+    ``kipy/client.py`` does ``from kipy.errors import ApiError, ConnectionError``,
+    which SHADOWS the built-in name inside kipy; the two classes are not related
+    by inheritance (measured cold, 24.09.2026:
+    ``issubclass(kipy.errors.ConnectionError, ConnectionError)`` is False, and so
+    is ``issubclass(..., OSError)``). A reconnect tuple holding only the built-in
+    one therefore caught nothing, and a dropped link left the seam as a crash.
+
+    Imported lazily, for the same reason as the class above: this module stays
+    kipy-free at import. That is what keeps the price of the import chain off a
+    process that only needs the seam, and what lets a test drive
+    ConnectionManager with a fake in a process that has no kipy at all.
+    """
+    from kipy.errors import ConnectionError as KipyConnectionError
+
+    return KipyConnectionError
+
+
+# The reconnectable tuple needs those classes at module level, so it is built
+# lazily by _reconnectable_errors() below instead of at import time. The cache
+# holds the WHOLE TUPLE — the name used to promise a single class.
+_RECONNECTABLE_ERRORS = None
 
 
 def _reconnectable_errors():
     """Return the tuple of connection-level exception types to reconnect on.
 
-    ``kicadstamp.exceptions.BoardNotFoundError`` is imported lazily to keep
-    connection.py importable without kipy; the tuple is cached after the first
-    call.
+    Three classes, each there for a different producer:
+      * the BUILT-IN ``ConnectionError`` — raised by Python itself on OS-level
+        socket errors, so dropping it would be a regression in the other
+        direction;
+      * kipy's OWN ``ConnectionError`` — what an IPC break actually raises
+        (kipy/client.py:47 "Failed to connect to KiCad", :67 "Failed to send
+        command", :72 "Error receiving reply");
+      * ``kicadstamp.exceptions.BoardNotFoundError`` — the seam's own "the board
+        vanished" signal.
+
+    The two non-built-in classes are imported lazily to keep connection.py
+    importable without kipy; the tuple is cached after the first call.
     """
-    global _BOARD_NOT_FOUND_ERROR
-    if _BOARD_NOT_FOUND_ERROR is None:
-        _BOARD_NOT_FOUND_ERROR = _get_board_not_found_error()
-    return (ConnectionError, _BOARD_NOT_FOUND_ERROR)
+    global _RECONNECTABLE_ERRORS
+    if _RECONNECTABLE_ERRORS is None:
+        _RECONNECTABLE_ERRORS = (
+            ConnectionError,
+            _get_kipy_connection_error(),
+            _get_board_not_found_error(),
+        )
+    return _RECONNECTABLE_ERRORS
 
 
 class ConnectionManager:
