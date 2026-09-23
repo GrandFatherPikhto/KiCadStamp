@@ -22,10 +22,22 @@ blink on an idle GUI.
 
 Serialization model:
   * The shared BoardConnection carries a plain `long_op_active` flag.
-  * LongOpController.start() sets it on the UI thread BEFORE the worker
-    thread starts, and _release() clears it on the UI thread AFTER the op
+  * LongOpController.start() raises it on the UI thread BEFORE the worker
+    thread starts, _release() drops it on the UI thread AFTER the op
     finishes (completion handlers run back on the UI thread via queued
-    signal connections — the worker lives in a different thread).
+    signal connections — the worker lives in a different thread), and
+    _release() clears it ONLY when THIS controller raised it: the poll tick
+    raises the same flag for its own request, so an unconditional clear
+    dropped a foreign token while its request was still in flight (Д2,
+    2026-09-23).
+  * start() first ASKS whether the socket is free (socket_busy). When the poll
+    tick holds it, the controller does NOT raise the flag — that would break a
+    second REQ into the tick's in-flight transaction (Д1, measured live at
+    16.4 % of a run) — it puts up the busy visual and arms EXACTLY ONE
+    deferred retry (SNAPSHOT_REFRESH_RETRY_DELAY_MS); if the retry still meets
+    a busy socket the op is refused through the `failed` signal, which every
+    start_long_op caller already wires to on_error. Refusal and retry live in
+    this ONE seam, so all 56 call sites are covered without changing one.
   * While the flag is set, MainWindow._poll / _poll_board_selection and the
     embedded fieldstool's _push_selection_to_board skip their ticks, so the
     socket has exactly one active owner for the whole op. Extract uses the
@@ -295,6 +307,13 @@ class LongOpController(QObject):
     connections, since the worker lives in a different thread) and release
     the socket exactly once.
 
+    When the socket is already held by another owner (the ~400 ms poll tick),
+    start() does NOT acquire it: it shows the busy state and arms exactly one
+    deferred retry, which either starts the worker once the socket frees or
+    refuses the operation through the `failed` signal. The controller is still
+    returned synchronously in every case — the 52 callers that store it and
+    ask "is an operation running?" would be lied to by a None.
+
     It is also the ONE place that reports "the user's operation is running" to
     the GUI (see the busy-indicator block above): ``busy_text`` is a short,
     already-translated word naming the operation, or None for the generic
@@ -318,15 +337,78 @@ class LongOpController(QObject):
         self._worker: Optional[_LongOpWorker] = None
         self._released = False
         self._prior_enabled: Dict[Any, bool] = {}
+        # True only while THIS controller holds the shared socket itself — the
+        # flag is cleared in _release() on this condition ALONE, because the
+        # ~400 ms poll tick raises the same connection.long_op_active for its
+        # own request and clearing somebody else's token let a third party into
+        # a socket that was still in flight (Д2, 2026-09-23).
+        self._acquired = False
+        # fn/args of the op being started, kept so the ONE deferred retry
+        # (armed when start() found the socket busy) can start the same worker.
+        self._fn: Optional[Callable[..., Any]] = None
+        self._args: tuple = ()
+        # True while THIS op turned on the visual busy state (guard widgets off,
+        # wait cursor, busy indicator). The deferred path shows it BEFORE the
+        # retry and _acquire() shows it again — this flag is what keeps each of
+        # the three halves set exactly once (Qt counts override-cursor pushes).
+        self._visual_shown = False
         # True while THIS op pushed the application-wide override cursor — Qt
         # restores override cursors by call count, so the pop is made
         # conditional on the matching push rather than on QApplication existing.
         self._cursor_set = False
 
     def start(self, fn: Callable[..., Any], *args) -> None:
+        """Start the op — or, when the shared socket is held by another owner,
+        arm EXACTLY ONE deferred retry instead of breaking in.
+
+        Two independent owners share the kipy REQ socket: this controller and
+        the ~400 ms selection-poll tick (PollWorkerHandle.submit), both through
+        connection.long_op_active. The refusal and the retry live HERE, in the
+        one seam all 56 start_long_op callers pass through, and the controller
+        is STILL returned synchronously (52 of those callers store it and ask
+        "is an operation running?" — a None on the busy path would lie to every
+        one of them)."""
+        self._fn = fn
+        self._args = args
+        if socket_busy(self._connection):
+            # Do NOT _acquire(): raising the flag here is exactly the intrusion
+            # of Д1 (a second REQ inside the tick's in-flight transaction). Show
+            # the user the op began, arm the single retry, and wait for a free
+            # socket — the retry starts the worker or refuses through failed.
+            self._show_busy()
+            QTimer.singleShot(SNAPSHOT_REFRESH_RETRY_DELAY_MS,
+                              self._deferred_start)
+            return
         self._acquire()
+        self._start_worker()
+
+    def _deferred_start(self) -> None:
+        """The single retry armed by :meth:`start` when the socket was busy.
+
+        Three outcomes, each named so no path silently leaks the keep-alive
+        registry or a stuck busy visual: the owner is gone (stand down), the
+        socket is free (start the op on today's path, byte for byte), or the
+        socket is STILL busy (refuse through failed and leave the registry)."""
+        if qt_object_gone(self) or any(
+                qt_object_gone(w) for w in self._widgets):
+            # The dock/dialog was destroyed during the 120 ms delay. No deleted
+            # widget may be touched — but the two APPLICATION-wide visuals are
+            # not widgets and must still come down, or a stuck hourglass
+            # outlives the window that asked for the operation.
+            self._abandon()
+            return
+        if socket_busy(self._connection):
+            self._refuse_busy()
+            return
+        self._acquire()
+        self._start_worker()
+
+    def _start_worker(self) -> None:
+        """Build the QThread + worker and start it. Split out of :meth:`start`
+        so the deferred retry runs the SAME code as the immediate path."""
         self._thread = QThread(self)
-        self._worker = _LongOpWorker(fn, args, connection=self._connection)
+        self._worker = _LongOpWorker(self._fn, self._args,
+                                     connection=self._connection)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.succeeded.connect(self._on_worker_succeeded)
@@ -358,10 +440,26 @@ class LongOpController(QObject):
         self._thread.start()
 
     def _acquire(self) -> None:
-        # Set on the UI thread BEFORE the worker starts so no polling tick
-        # can race the op's first socket request.
+        # Raise the shared-socket token on the UI thread BEFORE the worker
+        # starts so no polling tick can race the op's first socket request, then
+        # put up the visual state (idempotent — the deferred path already did).
         if self._connection is not None:
             self._connection.long_op_active = True
+            self._acquired = True
+        self._show_busy()
+
+    def _show_busy(self) -> None:
+        """Turn ON the one visual "an operation the user started is running"
+        state: guard widgets off, wait cursor, busy indicator.
+
+        Idempotent on purpose. The deferred path shows it before the retry and
+        _acquire() is its only other caller, so each of the three halves is set
+        exactly once — a doubled _notify_busy would need a second clear, and Qt
+        restores override cursors by call count (an unmatched push leaks an
+        hourglass into the rest of the session)."""
+        if self._visual_shown:
+            return
+        self._visual_shown = True
         for w in self._widgets:
             self._prior_enabled[w] = w.isEnabled()
             w.setEnabled(False)
@@ -369,11 +467,52 @@ class LongOpController(QObject):
         _notify_busy(GENERIC_BUSY_TEXT if self._busy_text is None
                      else self._busy_text)
 
+    def _refuse_busy(self) -> None:
+        """The retry met a still-busy socket: undo the visuals, tell the caller
+        in words, and leave the keep-alive registry.
+
+        failed.emit is the ONE signal every start_long_op caller already wires
+        to its on_error, so the refusal reaches all of them without touching a
+        single call site. The wording is the one this codebase already uses for
+        a busy-socket refusal (gui/dock_hub.py) — one reason, one sentence,
+        already translated."""
+        self._release()
+        self.failed.emit(_("the board is busy — try again in a moment"))
+        self._retire()
+
+    def _abandon(self) -> None:
+        """Give up before any worker existed — the owner was destroyed during
+        the deferred retry's delay. No message (the window is gone), but the
+        application-wide visuals come down and the registry entry goes."""
+        self._set_wait_cursor(False)
+        _notify_busy(None)
+        self._retire()
+
+    def _retire(self) -> None:
+        """Leave the module-level keep-alive set explicitly.
+
+        start_long_op puts every controller into _ACTIVE_CONTROLLERS and removes
+        it only on thread_stopped. A controller that never started a QThread
+        (this refusal, or an abandoned deferred start) would otherwise sit there
+        for the rest of the session — the leak the plan names as trap 1. The set
+        itself is not optional: it is the 2026-08-03 fix against "QThread:
+        Destroyed while thread is still running"."""
+        try:
+            self.thread_stopped.emit()
+        except RuntimeError:
+            # The C++ object is already gone (see qt_object_gone). Nothing can
+            # start a thread on it any more, so the registry entry is inert.
+            pass
+
     def _release(self) -> None:
         if self._released:
             return
         self._released = True
-        if self._connection is not None:
+        # Clear the shared-socket token ONLY if THIS controller raised it. The
+        # poll tick raises the same flag for its own request, so an
+        # unconditional clear here dropped a foreign token while that request
+        # was still in flight (Д2, 2026-09-23).
+        if self._connection is not None and self._acquired:
             self._connection.long_op_active = False
         for w, enabled in self._prior_enabled.items():
             w.setEnabled(enabled)

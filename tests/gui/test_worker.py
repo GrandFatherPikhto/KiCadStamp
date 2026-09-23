@@ -752,3 +752,169 @@ def test_the_qthread_is_still_deleted_by_finished_delete_later(qapp):
     assert sip.isdeleted(thread), (
         "the QThread was not deleted — the finished -> deleteLater chain is "
         "gone and every long operation now leaks its thread")
+
+
+# ── A socket without an owner: the refusal and the one deferred retry ────────
+# plan_2026_09_23_socket_owner_and_door_docs.md, Ш1. connection.long_op_active
+# has TWO independent owners — LongOpController and the ~400ms selection-poll
+# tick (PollWorkerHandle.submit) — and until 2026-09-23 start() raised it
+# unconditionally, so a click inside the tick's in-flight request ran a second
+# REQ in the same transaction (Д1) and _release() cleared a token it had not
+# raised (Д2). The refusal and the retry now live in LongOpController.start()
+# alone, which is where all 56 start_long_op callers reach them unchanged.
+#
+# Measured live before the fix (kicadstamp/diagnostics/probe_socket_owner.py):
+# Д1 ALIVE (two owners, the op ran into the tick's transaction), Д2 ALIVE (the
+# tick's flag came back False). After the fix: both closed, one deferral only.
+
+
+def _capture_retries(monkeypatch) -> list:
+    """Capture QTimer.singleShot calls made by gui.worker (start()'s single
+    deferred retry) WITHOUT waiting on real time. Returns
+    [(delay_ms, callback), ...] — the idiom tests/gui/test_snapshot_freshness.py
+    already uses."""
+    scheduled: list = []
+    monkeypatch.setattr(
+        worker_mod.QTimer, "singleShot",
+        lambda delay, callback: scheduled.append((delay, callback)))
+    return scheduled
+
+
+def _drain_controller(qapp, controller) -> None:
+    """Wait for a controller's QThread (when one was started) to stop — a test
+    must never leave a thread running, which aborts the process at exit with
+    the 2026-08-03 "QThread: Destroyed while thread is still running"."""
+    if controller._thread is not None:
+        _pump(qapp, lambda: controller not in worker_mod._ACTIVE_CONTROLLERS)
+        controller._thread.wait(2000)
+
+
+def _fire_retry_and_drain(qapp, scheduled, controller) -> None:
+    """Fire the armed retry, then drain whatever it started (a mutated build
+    may start a worker where the real one refuses)."""
+    scheduled[0][1]()
+    _drain_controller(qapp, controller)
+
+
+def test_a_busy_socket_defers_the_op_and_does_not_seize_the_flag(
+        qapp, monkeypatch):
+    """С1 of plan_2026_09_23_socket_owner_and_door_docs.md (Д1). Another owner
+    holds the shared socket: start() must NOT raise the flag and must NOT start
+    the worker — it arms exactly ONE deferred retry instead."""
+    connection = SimpleNamespace(long_op_active=True)
+    started = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(
+        connection, (), lambda: started.append(True) or "x",
+        lambda _r: None, lambda _m: None)
+
+    try:
+        assert controller._thread is None, (
+            "the worker started into the tick's in-flight transaction")
+        assert started == [], "the op ran against a busy socket"
+        assert connection.long_op_active is True, "the tick's token was seized"
+        assert len(scheduled) == 1, "more than one deferred retry was armed"
+        assert scheduled[0][0] == worker_mod.SNAPSHOT_REFRESH_RETRY_DELAY_MS
+    finally:
+        # Drain: the retry's OWN outcome is С3/С4/С5's subject, not this test's.
+        # On a mutated build the assertions above are exactly what fails, and the
+        # worker they let start must not outlive the test.
+        if scheduled:
+            _fire_retry_and_drain(qapp, scheduled, controller)
+        else:
+            _drain_controller(qapp, controller)
+
+
+def test_the_deferred_op_runs_once_the_socket_frees(qapp, monkeypatch):
+    """С2 of plan_2026_09_23_socket_owner_and_door_docs.md. The socket frees
+    within the 120 ms delay: the single retry acquires it, the worker runs, and
+    the result reaches on_success exactly as on the immediate path."""
+    connection = SimpleNamespace(long_op_active=True)
+    results = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(connection, (), lambda: "done",
+                               results.append, lambda _m: None)
+    try:
+        assert scheduled and controller._thread is None
+        connection.long_op_active = False      # the tick finished
+        scheduled[0][1]()                      # fire the one retry
+        thread = controller._thread
+        assert thread is not None, "the deferred op never started its worker"
+        _pump(qapp, lambda: bool(results) and
+              controller not in worker_mod._ACTIVE_CONTROLLERS)
+        assert thread.wait(2000), "worker thread did not finish"
+
+        assert results == ["done"]
+        assert connection.long_op_active is False
+    finally:
+        _drain_controller(qapp, controller)
+
+
+def test_a_second_busy_socket_refuses_through_one_on_error(qapp, monkeypatch):
+    """С3 of plan_2026_09_23_socket_owner_and_door_docs.md. The retry meets a
+    STILL-busy socket: on_error is called exactly once, no worker starts, and
+    no third attempt is armed."""
+    connection = SimpleNamespace(long_op_active=True)
+    started = []
+    results = []
+    errors = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(
+        connection, (), lambda: started.append(True) or "x",
+        results.append, errors.append)
+    try:
+        assert scheduled and controller._thread is None
+        scheduled[0][1]()                      # the retry; socket still busy
+
+        assert len(errors) == 1, "on_error must be called exactly once"
+        assert errors[0] == worker_mod._(
+            "the board is busy — try again in a moment")
+        assert results == [], "a refused op still reported success"
+        assert started == [], "the worker ran against a busy socket"
+        assert controller._thread is None
+        assert len(scheduled) == 1, "a third attempt was armed"
+    finally:
+        # A mutated build that starts the worker here must not leave it running.
+        _drain_controller(qapp, controller)
+
+
+def test_a_refused_controller_leaves_the_keep_alive_registry(qapp, monkeypatch):
+    """С4 of plan_2026_09_23_socket_owner_and_door_docs.md (trap 1). On the
+    refusal path no QThread is ever created, so thread_stopped would never come
+    from a finished thread — the controller would sit in _ACTIVE_CONTROLLERS
+    for the rest of the session. The refusal must retire it explicitly."""
+    connection = SimpleNamespace(long_op_active=True)
+    errors = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(connection, (), lambda: "x",
+                               lambda _r: None, errors.append)
+    try:
+        assert scheduled, "no deferred retry was armed"
+        assert controller in worker_mod._ACTIVE_CONTROLLERS
+        scheduled[0][1]()
+
+        assert errors, "the op was not refused"
+        assert controller not in worker_mod._ACTIVE_CONTROLLERS, (
+            "a controller whose refusal path never started a thread stayed in "
+            "the keep-alive set forever")
+    finally:
+        _drain_controller(qapp, controller)
+
+
+def test_a_controller_that_did_not_acquire_never_clears_the_flag(
+        qapp, monkeypatch):
+    """С5 of plan_2026_09_23_socket_owner_and_door_docs.md (Д2). A controller
+    that never raised the flag must not clear it when it finishes: the flag
+    belongs to the poll tick, whose request is still in flight — clearing it
+    would let a third party into that transaction."""
+    connection = SimpleNamespace(long_op_active=True)
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(connection, (), lambda: "x",
+                               lambda _r: None, lambda _m: None)
+    try:
+        assert scheduled, "no deferred retry was armed"
+        scheduled[0][1]()                      # refusal: this op never acquired
+        assert connection.long_op_active is True, (
+            "the refusal path cleared a token the poll tick still holds")
+    finally:
+        _drain_controller(qapp, controller)
