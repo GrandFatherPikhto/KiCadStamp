@@ -15346,6 +15346,13 @@ msgid "this node duplicates the tree's own anchor (role {role}) — safe to dele
 msgstr ""
 
 # ===== Copy placement from cell (2026-09-06) — kicadstamp/cell_placement_copy.py + gui/docks/cell_editor.py
+# 2026-09-23: the cell copper now REPLACES the target's (plan plan_2026_09_23_cell_placement_copy_replaces_copper): the confirmation + the reworded success line; the old additive "...{copper} via/track record(s) added..." entry below is retired.
+#, python-brace-format
+msgid "Cell {name!r} already has copper: {target_vias} via(s) and {target_tracks} track(s) will be REPLACED with {source_vias} via(s) and {source_tracks} track(s) from {source!r}."
+msgstr ""
+#, python-brace-format
+msgid "Copied placement from {source!r} into {name!r} — {components} component(s) updated, {added} via/track record(s), {replaced} old record(s) discarded. Save to write the change."
+msgstr ""
 msgid "Component vias"
 msgstr ""
 msgid "Components to update"

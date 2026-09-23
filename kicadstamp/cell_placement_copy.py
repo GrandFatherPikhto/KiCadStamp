@@ -19,14 +19,20 @@ Semantics (confirmed with Denis; the offline, board-free counterpart of
      are NEVER touched — those are rail-correct for the target (pif_n5v keeps
      its -5V literals) and baking a donor's foreign rail literals is exactly the
      bug net_autoresolve.md §4.3 warns about.
-  2. Copper — ADDITIVE append of deep copies of the source's cell-level
-     vias/tracks to the target (existing target copper untouched, Import-style).
-     Nets are NOT resolved here: copied copper must be net_from_role(-pad)
-     (role-relative -> the actual net is defined by the placing ENTITY instance
-     at apply time, net_autoresolve.md §4.1) or a rule-net literal (GND,
-     rail-independent). Any literal non-rule / parametrized / net-less copper
-     record cannot be transported and makes the WHOLE copy a collected fatal —
-     never a silent copy of garbage.
+  2. Copper — REPLACEMENT of the target's cell-level vias/tracks with deep
+     copies of the source's (NOT an additive append; 2026-09-23, plan
+     plan_2026_09_23_cell_placement_copy_replaces_copper). The two semantics in
+     one action now agree: components are OVERWRITTEN by role and the
+     cell-level copper is OVERWRITTEN too, so the result is the donor's layout,
+     never the union of both routings. A target that already carries copper
+     (e.g. pif_n5v after a previous copy) is what the replacement cleans up; a
+     copperless target (the 2026-09-06 case) is unchanged byte-for-byte since
+     there is nothing to discard. Nets are NOT resolved here: copied copper must
+     be net_from_role(-pad) (role-relative -> the actual net is defined by the
+     placing ENTITY instance at apply time, net_autoresolve.md §4.1) or a
+     rule-net literal (GND, rail-independent). Any literal non-rule /
+     parametrized / net-less copper record cannot be transported and makes the
+     WHOLE copy a collected fatal — never a silent copy of garbage.
 
 This module is PURE and Qt/board-free: it works on the same list-of-dicts
 representation CellDock keeps (gui/docks/cell_editor.py's
@@ -36,7 +42,7 @@ matching build_refresh_plan/build_import_plan in cell_geometry_refresh.py.
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
@@ -68,10 +74,16 @@ class PlacementCopyPlan:
     `record.update(new_geo)` can never touch a semantic key). Only slots whose
     donor geometry genuinely differs are listed — an identical overlay (e.g.
     pif_p5v -> pif_n5v components) contributes nothing, so Apply is a no-op on
-    components and the copy is purely additive copper.
+    components and the copy is purely the copper replacement.
     new_via_records / new_track_records — brand-new deep copies of the donor's
-    cell-level vias/tracks to APPEND (extend, never replace). Never the donor's
-    own dict objects.
+    cell-level vias/tracks that REPLACE the target's own cell-level copper. The
+    caller assigns them BY SLICE (`self._vias[:] = ...`), never appends and
+    never rebinds the list (the dock's tables hold references to it). Never the
+    donor's own dict objects.
+    replaced_vias / replaced_tracks — how many of the TARGET's own cell-level
+    records the replacement discards (the counts the caller reports in the
+    confirmation dialog and the Log). Zero for a copperless target, so the
+    2026-09-06 scenario is unchanged.
     skipped_roles — donor component roles absent from the target that are NOT
     referenced by the copied copper's net_from_role (harmless; reported in the
     preview, not a fatal).
@@ -80,6 +92,8 @@ class PlacementCopyPlan:
     new_via_records: list[dict] = field(default_factory=list)
     new_track_records: list[dict] = field(default_factory=list)
     skipped_roles: list[str] = field(default_factory=list)
+    replaced_vias: int = 0
+    replaced_tracks: int = 0
 
 
 def _iter_source_copper(source_components: list[dict], source_vias: list[dict],
@@ -184,7 +198,9 @@ def _component_overlay_differs(target: dict, source: dict, new_geo: dict) -> boo
 def build_placement_copy_plan(source_components: list[dict],
                               source_vias: list[dict],
                               source_tracks: list[dict],
-                              target_components: list[dict]) -> PlacementCopyPlan:
+                              target_components: list[dict],
+                              target_vias: Optional[list[dict]] = None,
+                              target_tracks: Optional[list[dict]] = None) -> PlacementCopyPlan:
     """Build the full copy plan for one loaded target cell.
 
     source_components/source_vias/source_tracks — the donor cell's lists (as
@@ -194,9 +210,20 @@ def build_placement_copy_plan(source_components: list[dict],
     rule-net literal; every net_from_role role must exist among the target's
     component roles — otherwise a collected ValidationError
     (format_fatal_error), the same "never a silent copy of garbage" gate as
-    Import/Refresh. Raises when the target has no components, or when there is
-    genuinely nothing to copy. NEVER mutates its inputs; new records are
-    deep copies (never the donor's own dicts).
+    Import/Refresh.
+
+    target_vias/target_tracks (keyword-only in spirit, default None) — the
+    TARGET's current cell-level copper. They are read ONLY to count what the
+    replacement discards (replaced_vias/replaced_tracks); None and [] both mean
+    "a copperless target", so every existing caller that omits them keeps the
+    exact 2026-09-06 behaviour (nothing discarded).
+
+    Raises when the target has no components, or when there is genuinely nothing
+    to copy: no component updates AND no donor copper AND nothing to discard.
+    The last clause is new (2026-09-23): a donor with no copper against a target
+    that HAS copper is a meaningful ERASURE, not "nothing to copy". NEVER
+    mutates its inputs; new records are deep copies (never the donor's own
+    dicts).
 
     Component overlays are computed only for roles present in BOTH cells; a
     donor role absent from the target that the copied copper does not reference
@@ -245,11 +272,15 @@ def build_placement_copy_plan(source_components: list[dict],
         if new_geo and _component_overlay_differs(target_slot, source_slot, new_geo):
             component_updates.append((target_slot, new_geo))
 
-    # ── Copper append ─────────────────────────────────────────────────────
+    # ── Copper replacement (2026-09-23: the donor's cell copper REPLACES the
+    #    target's; the discarded target count is what the dialog reports). ──
     new_via_records = [deepcopy(v) for v in source_vias]
     new_track_records = [deepcopy(t) for t in source_tracks]
+    replaced_vias = len(target_vias) if target_vias else 0
+    replaced_tracks = len(target_tracks) if target_tracks else 0
 
-    if not component_updates and not new_via_records and not new_track_records:
+    if (not component_updates and not new_via_records and not new_track_records
+            and not replaced_vias and not replaced_tracks):
         raise ValidationError(format_fatal_error(
             _("nothing to copy from this cell"),
             [_("the source cell has no overlapping component roles to overlay "
@@ -262,6 +293,8 @@ def build_placement_copy_plan(source_components: list[dict],
         new_via_records=new_via_records,
         new_track_records=new_track_records,
         skipped_roles=skipped_roles,
+        replaced_vias=replaced_vias,
+        replaced_tracks=replaced_tracks,
     )
 
 

@@ -14019,6 +14019,13 @@ msgid "this node duplicates the tree's own anchor (role {role}) — safe to dele
 msgstr "Этот узел дублирует собственный якорь дерева (роль {role}) — его можно безопасно удалить: якорь дерева резолвится независимо от списка узлов."
 
 # ===== Copy placement from cell (2026-09-06) — kicadstamp/cell_placement_copy.py + gui/docks/cell_editor.py
+# 2026-09-23: медь уровня шаблона теперь ЗАМЕНЯЕТ медь цели (plan plan_2026_09_23_cell_placement_copy_replaces_copper): подтверждение + переписанная строка успеха; старый «дописывающий» вариант ниже выведен из употребления.
+#, python-brace-format
+msgid "Cell {name!r} already has copper: {target_vias} via(s) and {target_tracks} track(s) will be REPLACED with {source_vias} via(s) and {source_tracks} track(s) from {source!r}."
+msgstr "В шаблоне {name!r} уже есть медь: {target_vias} via и {target_tracks} track будут ЗАМЕНЕНЫ на {source_vias} via и {source_tracks} track из {source!r}."
+#, python-brace-format
+msgid "Copied placement from {source!r} into {name!r} — {components} component(s) updated, {added} via/track record(s), {replaced} old record(s) discarded. Save to write the change."
+msgstr "Скопирована расстановка из {source!r} в {name!r} — обновлено компонентов: {components}, добавлено via/track записей: {added}, отброшено старых записей: {replaced}. Сохраните, чтобы записать изменение."
 msgid "Component vias"
 msgstr "Vias компонента"
 msgid "Components to update"

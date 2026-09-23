@@ -9,7 +9,7 @@ validates/writes.
 from types import SimpleNamespace
 
 from kipy.board_types import BoardLayer as KipyBoardLayer
-from PyQt6.QtWidgets import QCheckBox, QLabel
+from PyQt6.QtWidgets import QCheckBox, QLabel, QMessageBox
 
 import pytest
 
@@ -1495,14 +1495,40 @@ def _copy_target_components():
     ]
 
 
+def _copy_target_vias():
+    """Rule-net (GND) OLD copper on the copper-bearing twin target — the records
+    a replacement must discard."""
+    return [
+        {"offset_along_mm": 1.0, "offset_across_mm": 1.0, "drill_mm": 0.4,
+         "diameter_mm": 0.8, "net": "GND"},
+        {"offset_along_mm": 2.0, "offset_across_mm": 2.0, "drill_mm": 0.4,
+         "diameter_mm": 0.8, "net": "GND"},
+    ]
+
+
+def _copy_target_tracks():
+    return [
+        {"start_along_mm": 1.0, "start_across_mm": 1.0, "end_along_mm": 2.0,
+         "end_across_mm": 2.0, "width_mm": 0.5, "net": "GND"},
+    ]
+
+
 def _copy_cells_data():
-    """A root file carrying a copperless target (tgt), a fully-routed donor and
-    an invalid donor (copper references a role the target lacks)."""
+    """A root file carrying a copperless target (tgt — the 2026-09-06
+    regression fixture), its copper-bearing TWIN (tgt_copper — the cell that
+    did not exist before, plan_2026_09_23_...replaces_copper), a fully-routed
+    donor (donor), a copperless donor (bare, same roles), and an invalid donor
+    (ghost: copper references a role the target lacks)."""
     return {"cells": {
         "tgt": {"layer": "F.Cu", "components": _copy_target_components(),
                 "vias": [], "tracks": []},
+        "tgt_copper": {"layer": "F.Cu", "components": _copy_target_components(),
+                       "vias": _copy_target_vias(),
+                       "tracks": _copy_target_tracks()},
         "donor": {"layer": "F.Cu", "components": _copy_donor_components(),
                   "vias": _copy_donor_vias(), "tracks": _copy_donor_tracks()},
+        "bare": {"layer": "F.Cu", "components": _copy_donor_components(),
+                 "vias": [], "tracks": []},
         "ghost": {"layer": "F.Cu", "components": _copy_donor_components(),
                   "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
                             "drill_mm": 0.3, "diameter_mm": 0.6,
@@ -1602,6 +1628,115 @@ def test_copy_placement_no_fitting_donor_shows_message(main_window, tmp_path,
 
     assert dock._vias == [] and dock._tracks == []
     assert any("fits" in r.message for r in caplog.records)
+
+
+def _install_msgbox(monkeypatch, *, answer):
+    """Install a fresh QMessageBox stand-in on the cell_editor module (records
+    warning/question calls, returns the scripted `answer` for question) while
+    exposing the REAL StandardButton enum, so the dock's `!= Yes` comparison
+    still works. Avoids a modal event loop in tests."""
+    class _Spy:
+        StandardButton = QMessageBox.StandardButton
+        warnings = []
+        questions = []
+
+        @classmethod
+        def warning(cls, parent, title, text):
+            cls.warnings.append((title, text))
+
+        @classmethod
+        def question(cls, parent, title, text, *args, **kwargs):
+            cls.questions.append((title, text))
+            return answer
+
+    monkeypatch.setattr(cell_editor_mod, "QMessageBox", _Spy)
+    return _Spy
+
+
+def test_copy_placement_replaces_copper_when_confirmed(main_window, tmp_path,
+                                                       monkeypatch):
+    """K5 (plan_2026_09_23_cell_placement_copy_replaces_copper) — the target
+    carries copper, so the confirmation is shown with the exact numbers, and on
+    Yes dock._vias is the DONOR set (the old target copper is gone, not merged)."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_copper", target_file)
+    assert dock._vias == _copy_target_vias()  # old copper loaded
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    spy = _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Yes)
+
+    dock.copy_placement_from_cell()
+
+    assert len(spy.questions) == 1
+    text = spy.questions[0][1]
+    # numbers of target (2 vias / 1 track) and donor (1 via / 1 track) present
+    assert "2 via(s)" in text and "1 track(s)" in text
+    # donor copper installed; the target's own 2 vias are NOT in the union
+    assert len(dock._vias) == 1
+    assert dock._vias[0]["net_from_role"] == "C_IN_BYPASS"
+    assert len(dock._tracks) == 1
+    assert dock._tracks[0]["net_from_role"] == "C_OUT_BULK"
+    # component geometry overlaid as before
+    bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
+    assert bulk["offset_along_mm"] == 7.0
+
+
+def test_copy_placement_declined_changes_nothing(main_window, tmp_path,
+                                                 monkeypatch, caplog):
+    """K6 — the confirmation's Cancel is the safe default: neither copper nor
+    components change, the list objects are untouched, and nothing is staged
+    (the on-disk file is byte-identical)."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_copper", target_file)
+    before_components = [dict(c) for c in dock._components]
+    before_disk = target_file.read_text(encoding="utf-8")
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    spy = _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Cancel)
+
+    dock.copy_placement_from_cell()
+
+    assert len(spy.questions) == 1
+    assert [dict(c) for c in dock._components] == before_components
+    assert dock._vias == _copy_target_vias()
+    assert dock._tracks == _copy_target_tracks()
+    assert target_file.read_text(encoding="utf-8") == before_disk  # no autostage
+
+
+def test_copy_placement_keeps_list_identity(main_window, tmp_path, monkeypatch):
+    """K7 — the replacement assigns BY SLICE, so the _vias/_tracks list objects
+    are the same before and after (id()). This catches a rebinding
+    `self._vias = [...]`, which would orphan the table's reference."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_copper", target_file)
+    vias_id, tracks_id = id(dock._vias), id(dock._tracks)
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Yes)
+
+    dock.copy_placement_from_cell()
+
+    assert id(dock._vias) == vias_id
+    assert id(dock._tracks) == tracks_id
+    assert len(dock._vias) == 1 and len(dock._tracks) == 1  # replaced on SAME list
+
+
+def test_copy_placement_donor_without_copper_erases_after_confirmation(
+        main_window, tmp_path, monkeypatch):
+    """K4, GUI half — a copperless donor ('bare') against a copper target is a
+    meaningful ERASE, not the old fatal: the confirmation is shown and after Yes
+    the target's cell copper is EMPTY."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_copper", target_file)
+    _FakeCopyPicker.source_choice = "bare"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    spy = _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Yes)
+
+    dock.copy_placement_from_cell()
+
+    assert len(spy.questions) == 1  # not a fatal warning
+    assert spy.warnings == []
+    assert dock._vias == [] and dock._tracks == []
 
 
 # ── N (2026-09-11): nested clone_placements in "Update from selection" ──────

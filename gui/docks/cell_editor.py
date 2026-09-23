@@ -2312,9 +2312,16 @@ class CellDock(QWidget):
         THIS loaded cell. The donor is picked in a MINIMAL dialog holding only
         a combobox of the cells that FIT by role set (Denis 2026-09-06 — no
         preview tables). build_placement_copy_plan still validates on Apply: a
-        fatal is shown as a warning BEFORE anything changes; a clean plan is
-        applied through the dock's normal overlay/append/autostage path. Purely
-        config-level — no live board, no worker."""
+        fatal is shown as a warning BEFORE anything changes.
+
+        The cell-level copper is REPLACED, not appended (2026-09-23, plan
+        plan_2026_09_23_cell_placement_copy_replaces_copper). When the target
+        already carries copper, a confirmation with the exact numbers is shown
+        (Yes/Cancel, Cancel the safe default); declining changes NOTHING. A
+        copperless target takes the 2026-09-06 path unchanged — no dialog. The
+        clean plan is then applied through the dock's normal
+        overlay/replace/autostage path. Purely config-level — no live board, no
+        worker."""
         self._show_message("")
         current = self.name_edit.text().strip()
         if not current:
@@ -2343,19 +2350,41 @@ class CellDock(QWidget):
                 list(entry.get("components") or []),
                 list(entry.get("vias") or []),
                 list(entry.get("tracks") or []),
-                list(self._components))
+                list(self._components),
+                target_vias=self._vias,
+                target_tracks=self._tracks)
         except ValidationError as e:
             QMessageBox.warning(
                 self, _("Copy placement from cell"), str(e))
             return
+        # Replacement is destructive: the target's own cell copper is dropped.
+        # Ask first whenever there is anything to lose; a copperless target
+        # (the 2026-09-06 case) never sees a dialog.
+        if plan.replaced_vias or plan.replaced_tracks:
+            answer = QMessageBox.question(
+                self, _("Copy placement from cell"),
+                _("Cell {name!r} already has copper: {target_vias} via(s) and "
+                  "{target_tracks} track(s) will be REPLACED with {source_vias} "
+                  "via(s) and {source_tracks} track(s) from {source!r}.")
+                .format(name=current,
+                        target_vias=plan.replaced_vias,
+                        target_tracks=plan.replaced_tracks,
+                        source_vias=len(entry.get("vias") or []),
+                        source_tracks=len(entry.get("tracks") or []),
+                        source=source),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         added_copper = self._apply_copy_plan(plan)
         self._show_message(
             _("Copied placement from {source!r} into {name!r} — {components} "
-              "component(s) updated, {copper} via/track record(s) added. "
-              "Save to write the change.")
+              "component(s) updated, {added} via/track record(s), {replaced} old "
+              "record(s) discarded. Save to write the change.")
             .format(source=source, name=current,
                     components=len(plan.component_updates),
-                    copper=added_copper),
+                    added=added_copper,
+                    replaced=plan.replaced_vias + plan.replaced_tracks),
             _SUCCESS_STYLE)
 
     def copy_from_cell_requested(self, name: str, file_path) -> None:
@@ -2370,17 +2399,27 @@ class CellDock(QWidget):
     def _apply_copy_plan(self, plan) -> int:
         """Apply a PlacementCopyPlan to the loaded cell: overlay the geometric
         keys on the SAME target component dict objects already in
-        self._components (the plan's slots ARE those dicts), then APPEND the
-        deep-copied donor vias/tracks to self._vias/self._tracks (extend,
-        never replace), then refresh tables + autostage exactly like
-        Refresh/Import. The target's net_template fields are untouched by
-        construction — a plan's new_geo never carries them. Returns how many
-        via/track records were appended. Nothing is written to disk here —
-        Save remains a separate explicit action, as everywhere in this dock."""
+        self._components (the plan's slots ARE those dicts), then REPLACE the
+        cell-level copper — `self._vias[:] = plan.new_via_records` and likewise
+        for tracks — then refresh tables + autostage exactly like
+        Refresh/Import. Slice assignment, NOT rebinding: the vias/tracks tables
+        hold references to these list objects, so `self._vias = [...]` would
+        leave them pointing at the old list (2026-09-23, plan
+        plan_2026_09_23_cell_placement_copy_replaces_copper). The target's
+        net_template fields are untouched by construction — a plan's new_geo
+        never carries them. Returns how many via/track records the replacement
+        now holds.
+
+        Disk note (measured 2026-09-23): this dock's writes are STAGED. With a
+        project root set (required to reach a copy), DockHub enables the
+        ConfigWorkingSet, so _autostage -> _on_save -> merge_write lands in the
+        working set, not on disk; the on-disk file stays byte-identical until
+        the global Save (which backs up to .history/ first). Save remains a
+        separate explicit action, and an unsaved replacement is discardable."""
         for record, new_geo in plan.component_updates:
             record.update(new_geo)
-        self._vias.extend(plan.new_via_records)
-        self._tracks.extend(plan.new_track_records)
+        self._vias[:] = plan.new_via_records
+        self._tracks[:] = plan.new_track_records
         count = len(plan.new_via_records) + len(plan.new_track_records)
         self._refresh_all_tables()
         self._autostage()
