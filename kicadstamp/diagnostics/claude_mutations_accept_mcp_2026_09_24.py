@@ -6,7 +6,20 @@ import pathlib
 import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PY_BIN = str(ROOT / ".venv" / "bin" / "python")
+def _interpreter() -> str:
+    """The project interpreter. A git WORKTREE has no .venv of its own and must
+    not grow one (canon rule 41: .venv is per machine, gitignored, never synced),
+    so fall back to the one running this rig, then to the main checkout's."""
+    import os
+    import sys
+    local = ROOT / ".venv" / "bin" / "python"
+    if local.exists():
+        return str(local)
+    env = os.environ.get("KICADSTAMP_PYTHON")
+    return env if env else sys.executable
+
+
+PY_BIN = _interpreter()
 
 REFRESH = "                if not just_loaded:\n                    refresh_board_before_live_read(adapter)\n"
 FRESH_T = ["tests/test_mcp_board_freshness.py"]
@@ -25,7 +38,12 @@ MUTATIONS = [
     ("B5 drop the gui re-export", "gui/worker.py",
      "from kicadstamp.board_freshness import (  # noqa: F401  (re-export, see above)\n    refresh_board_before_live_read,",
      "from kicadstamp.board_freshness import (  # noqa: F401\n    _absent_on_purpose,",
-     ["tests/test_mcp_board_freshness.py", "tests/gui/test_worker.py"]),
+     # NOT tests/gui/*: that package's conftest imports the GUI at module level,
+     # so a mutation that breaks `gui/worker.py`'s import kills pytest BEFORE
+     # collection (exit 4, zero FAILED lines) and the rig can only call it a
+     # MISS. Aimed at a GUI-free file the same mutant reddens the intended cell
+     # by id. Found by the Daemon while running this rig, 2026-09-24.
+     ["tests/test_mcp_board_freshness.py"]),
 ]
 
 
