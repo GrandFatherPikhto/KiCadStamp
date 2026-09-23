@@ -70,6 +70,18 @@ from PyQt6.QtWidgets import QApplication
 
 from kicadstamp.i18n import _
 
+# The live-read freshness seam MOVED to kicadstamp/board_freshness.py
+# (plan_2026_09_24_mcp_stale_board §5): the MCP server needs the same remedy,
+# and mcp_server must not import gui.* — that would drag PyQt6 into the server
+# process (docs/mcp.md, "optional dependency"). Re-exported, never re-defined,
+# so the four GUI call sites AND the mutation harness that matches their text
+# stay byte for byte (kicadstamp/diagnostics/run_imprint_freshness_mutations.py
+# templates a whole comment block plus the call line; rule 38 — a silent miss of
+# such a template is indistinguishable from a healthy guard).
+from kicadstamp.board_freshness import (  # noqa: F401  (re-export, see above)
+    refresh_board_before_live_read,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -193,52 +205,13 @@ def socket_busy(connection: Any) -> bool:
     return bool(getattr(connection, "long_op_active", False))
 
 
-def refresh_board_before_live_read(adapter: Any) -> bool:
-    """Rebuild the board behind `adapter` so the read that follows is LIVE.
-
-    The adapter caches the footprint list (`_footprints_cache`) and invalidates
-    it ONLY in `refresh_board()`, so a capture that reads `get_footprints()`
-    without refreshing first records whatever the cache happens to hold. Measured
-    on the test board (Ш1 of plan_2026_09_22_imprint_stale_cache_sh2): the warm
-    read returned the pre-move positions EXACTLY — max |Δ| = 0.0000 mm against
-    the state at the last refresh, 1.8063 mm against the live board on 11 refs —
-    and it cost ZERO board reads, which is why counting ADAPTER calls cannot see
-    this defect (the count says "6 adapter calls" while the board was read once,
-    in the other column).
-
-    The price of the call is the other side of the same coin, and it is not
-    free: `refresh_board()` is `get_board()` PLUS a forced cache miss on the next
-    `get_footprints()`, i.e. a full board read — measured class 166/186 ms on the
-    325-footprint board. It is paid once per capture, which is what "live read"
-    means; a caller that cannot afford it must not be reading a live position at
-    all.
-
-    Call it at the TOP of a worker body (as the first statement of its `try`),
-    never from the UI thread. The caller already owns the shared kipy REQ socket
-    for the whole operation — `LongOpController.start()` set
-    `connection.long_op_active = True` BEFORE the thread started — so there is
-    nothing to refuse here. A `socket_busy(connection)` check in a worker body
-    would therefore be wrong twice over: inside a worker it is ALWAYS True
-    (plan_2026_09_22_imprint_stale_cache_sh2 §2.3), while the synchronous test
-    hooks (`ImprintFormWidget._do_reread` / `_do_reread_apply`) call the same
-    bodies WITHOUT `start_long_op`, where the flag is not raised — the check
-    would read False in the tests and True in production, i.e. report the
-    OPPOSITE of what ships. The "one owner of the socket" property is justified
-    by this comment instead, which is what the plan asks for.
-
-    Tolerant on purpose, so a path with no live board keeps working unchanged:
-      * `adapter=None` — a payload built without a board, which several existing
-        GUI tests build — is a no-op, not a crash;
-      * an adapter without `refresh_board` (the docks' smaller test doubles) is a
-        no-op too: there is nothing to invalidate.
-    Returns True when a refresh actually happened, so a caller or a test can
-    assert that the seam RAN instead of inferring it from a later side effect.
-    """
-    refresh = getattr(adapter, "refresh_board", None)
-    if not callable(refresh):
-        return False
-    refresh()
-    return True
+# `refresh_board_before_live_read` used to BE here. It now lives in
+# kicadstamp/board_freshness.py (moved by plan_2026_09_24_mcp_stale_board §5,
+# because the MCP server needs the same remedy and cannot import gui.*) and is
+# re-exported at the top of this module, so `from gui.worker import
+# refresh_board_before_live_read` keeps working for the four call sites below.
+# The docstring moved with the function — it carries the Ш1 measurement, which
+# is the whole reason a bare `adapter.refresh_board()` is not enough here.
 
 
 class _LongOpWorker(QObject):
