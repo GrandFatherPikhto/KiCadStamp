@@ -15,6 +15,7 @@ from functools import wraps
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.i18n import _
@@ -26,11 +27,29 @@ from .connection import ConnectionManager
 def _tool_error(fn):
     """Convert deliberate user-facing failures into MCP ``ToolError``.
 
-    PlacerError (base of ValidationError/BoardNotFoundError/... — every fatal
-    the project raises deliberately with an informative message) and ValueError
-    (e.g. "footprint not found") become a clean error result for the host
-    instead of mcp's "unexpected crash" wrapper. Anything else is a real bug
-    and propagates unchanged so it stays distinguishable as a crash.
+    Two families are "the tool is telling the user something", and each gets the
+    project's EXISTING words for it rather than a new text:
+
+      * PlacerError (base of ValidationError/BoardNotFoundError/... — every
+        fatal the project raises deliberately with an informative message) and
+        ValueError (e.g. "footprint not found"): the message IS the answer, so it
+        is passed through unchanged;
+      * kipy's ``ApiError`` — "we did reach KiCad and it refused": a busy KiCad
+        (AS_BUSY), a machine with no PCB document open at all (kipy's
+        ``get_board()`` raises "Expected to be able to retrieve at least one
+        board"), an IPC timeout. It is NOT a PlacerError, so before this it left
+        as a crash and the client saw only mcp's "unexpected crash" wrapper. The
+        text comes from :func:`kicadstamp.cli_common.api_error_message`, the ONE
+        message the CLI and fourteen GUI call sites already use — including its
+        long AS_BUSY explanation, whose usual real-world cause is an unfinished
+        tool in the KiCad GUI (the easiest of all failures to misread as a hang).
+
+    Anything else is a real bug and propagates unchanged, so it stays
+    distinguishable as a crash: mcp wraps it as ``UnexpectedToolError``, whose
+    message is only "Error executing tool <name>", and logs the traceback.
+    Widening this to ``except Exception`` would erase the "bug / deliberate
+    fatal" boundary the project's exit codes are built on (cell Э4 of
+    plan_2026_09_25_mcp_error_contract pins that boundary).
     """
 
     @wraps(fn)
@@ -39,6 +58,15 @@ def _tool_error(fn):
             return fn(*args, **kwargs)
         except (PlacerError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            # ApiError is imported lazily, in the same form as run_cli
+            # (kicadstamp/cli_common.py): only an actual IPC failure pays for
+            # the kipy import chain.
+            from kipy.errors import ApiError
+
+            if isinstance(exc, ApiError):
+                raise ToolError(api_error_message(exc)) from exc
+            raise
 
     return wrapper
 
