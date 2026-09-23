@@ -51,6 +51,45 @@ DRC сознательно вне области задач: коллизии д
 - **KiCad 10.0.4** или новее с включённым IPC API (*Preferences → Plugins → Enable IPC API server*).
 - Для графического интерфейса — рабочий Qt-стек (ставится вместе с зависимостями).
 
+### Системные пакеты (Linux)
+
+PyQt6 приезжает колесом вместе со своими бинарниками Qt, но системные библиотеки, на которые те
+слинкованы, за собой **не тянет** — их надо поставить отдельно. На Debian/Ubuntu:
+
+```bash
+sudo apt install python3-venv python3-dev build-essential libxcb-cursor0
+```
+
+- `python3-venv` — без него `python -m venv` падает с `No module named 'ensurepip'`;
+- `python3-dev` и `build-essential` — нужны, когда для вашей версии Python у зависимости нет колеса
+  и она собирается из исходников;
+- `libxcb-cursor0` — требуется плагину платформы `xcb` начиная с Qt 6.5. Без него GUI умирает на
+  старте:
+
+  ```
+  qt.qpa.plugin: From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load the Qt xcb platform plugin.
+  qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it was found.
+  ```
+
+  Обратите внимание на формулировку: плагин **найден** — не хватает библиотеки, от которой он
+  зависит. Чтобы увидеть, какой именно, натравите `ldd` на плагин и поищите `not found`:
+
+  ```bash
+  ldd .venv/lib/python3.*/site-packages/PyQt6/Qt6/plugins/platforms/libqxcb.so | grep "not found"
+  ```
+
+Если после установки выше `ldd` всё ещё показывает недостающие библиотеки, доставьте остальной
+набор xcb:
+
+```bash
+sudo apt install libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+                 libxcb-render-util0 libxcb-shape0 libxcb-xinerama4 libxcb-xkb1 libxkbcommon-x11-0
+```
+
+В других дистрибутивах те же библиотеки называются по-своему. В Wayland-сессиях плагин `xcb`
+по-прежнему используется по умолчанию и требует тех же пакетов; `QT_QPA_PLATFORM=wayland` меняет
+плагин, но установку не заменяет.
+
 ### Установка
 
 ```bash
