@@ -918,3 +918,164 @@ def test_a_controller_that_did_not_acquire_never_clears_the_flag(
             "the refusal path cleared a token the poll tick still holds")
     finally:
         _drain_controller(qapp, controller)
+
+
+# ── the DEFERRED path keeps the busy visual honest (2026-09-24) ───────────
+#
+# §6.1 of `plan_2026_09_24_reload_store_snapshot`. Every cell below goes through
+# the DEFERRED path — busy socket, start() arms the one retry, the retry then
+# acquires, refuses or abandons — because that is the ONLY path on which
+# `_show_busy()` runs twice and these properties can be violated at all. The
+# direct path calls it once, and the guards it already has stayed green under
+# every mutation measured on 2026-09-23 (plan §6.0: idempotence of the visual was
+# claimed but guarded by nothing).
+
+def test_a_deferred_op_leaves_the_guard_widgets_enabled(qapp, monkeypatch):
+    """§6.1 of `plan_2026_09_24_reload_store_snapshot` — `_show_busy()` is
+    idempotent, and this is the cell that says WHY it must be.
+
+    The deferred path shows the busy visual BEFORE the retry (start() met a busy
+    socket) and `_acquire()` shows it again once the socket frees. Without the
+    `if self._visual_shown: return` guard the second pass records each widget's
+    state as it is NOW — disabled — into `_prior_enabled`, and `_release()` then
+    honestly restores the buttons to DISABLED. Measured on a live button:
+    original enabled=True, without the guard enabled=False."""
+    connection = SimpleNamespace(long_op_active=True)
+    button = _Button()
+    results = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(connection, (button,), lambda: "done",
+                               results.append, lambda _m: None)
+    try:
+        assert scheduled and controller._thread is None, (
+            "the deferred path was not taken, so this cell would be measuring "
+            "the direct one — where _show_busy() runs once")
+        assert button.isEnabled() is False, "the busy visual never went up"
+
+        connection.long_op_active = False          # the poll tick finished
+        scheduled[0][1]()                          # the single retry
+        thread = controller._thread
+        assert thread is not None, "the deferred op never started its worker"
+        _pump(qapp, lambda: bool(results) and
+              controller not in worker_mod._ACTIVE_CONTROLLERS)
+        assert thread.wait(2000), "worker thread did not finish"
+
+        assert results == ["done"]
+        assert button.isEnabled() is True, (
+            "the guard widget is still DISABLED after the op finished: "
+            "_show_busy() ran twice and the second pass remembered the state it "
+            "had just created")
+    finally:
+        _drain_controller(qapp, controller)
+
+
+def test_a_refused_deferred_op_leaves_the_guard_widgets_enabled(qapp, monkeypatch):
+    """§6.1 of `plan_2026_09_24_reload_store_snapshot` — the refusal half:
+    `_refuse_busy()` must call `_release()`.
+
+    A retry that meets a STILL-busy socket gives up. Without the `_release()`
+    there, the widgets `_show_busy()` disabled stay disabled for the rest of the
+    session: the visual of an operation that never ran."""
+    connection = SimpleNamespace(long_op_active=True)
+    button = _Button()
+    errors = []
+    scheduled = _capture_retries(monkeypatch)
+    controller = start_long_op(connection, (button,), lambda: "x",
+                               lambda _r: None, errors.append)
+    try:
+        assert scheduled and button.isEnabled() is False
+        scheduled[0][1]()                          # still busy → refusal
+
+        assert errors, "the op was not refused"
+        assert button.isEnabled() is True, (
+            "the guard widget is still DISABLED after the refusal: the visual of "
+            "an operation that never started outlived it")
+    finally:
+        _drain_controller(qapp, controller)
+
+
+class _DisposableWidget:
+    """A widget that answers normally until it `die()`s — the shape of the real
+    thing: it is alive when start() raises the busy visual, and its C++ object is
+    gone by the time the retry fires, because the dialog was destroyed during the
+    120 ms delay. A touch after death raises exactly what PyQt6 raises."""
+
+    _MESSAGE = "wrapped C/C++ object of type QPushButton has been deleted"
+
+    def __init__(self):
+        self._enabled = True
+        self.gone = False
+
+    def die(self) -> None:
+        self.gone = True
+
+    def isEnabled(self):
+        self._check()
+        return self._enabled
+
+    def setEnabled(self, enabled):
+        self._check()
+        self._enabled = enabled
+
+    def _check(self) -> None:
+        if self.gone:
+            raise RuntimeError(self._MESSAGE)
+
+
+def _abandoned_deferred_start(qapp, monkeypatch):
+    """(controller, widget, started) after an armed retry finds its OWNER
+    destroyed — the one path that ends in `_abandon()`.
+
+    `qt_object_gone` is monkeypatched to answer what the real one answers from
+    `sip.isdeleted`: True for the widget that died, False for everything else.
+    Patching the PREDICATE (not the widget's Python methods) is the point — the
+    guard under test is the predicate's call site."""
+    connection = SimpleNamespace(long_op_active=True)
+    widget = _DisposableWidget()
+    started = []
+    scheduled = _capture_retries(monkeypatch)
+    monkeypatch.setattr(worker_mod, "qt_object_gone",
+                        lambda obj: getattr(obj, "gone", False))
+    controller = start_long_op(connection, (widget,),
+                               lambda: started.append(True),
+                               lambda _r: None, lambda _m: None)
+    assert scheduled, "no deferred retry was armed"
+    widget.die()                                   # the dialog went away
+    scheduled[0][1]()                              # the retry: the owner is gone
+    return controller, widget, started
+
+
+def test_an_abandoned_deferred_start_never_touches_the_dead_widget(
+        qapp, monkeypatch):
+    """§6.1 of `plan_2026_09_24_reload_store_snapshot` — `_deferred_start()`
+    checks `qt_object_gone()` BEFORE it acquires.
+
+    The QTimer outlives the dialog it was armed for, so the retry can run for an
+    owner that no longer exists. Without the check it would `_acquire()` and put
+    the busy visual on a deleted widget — every touch here raises, which is what
+    a real deleted QPushButton does."""
+    controller, _widget, started = _abandoned_deferred_start(qapp, monkeypatch)
+    try:
+        assert started == [], "a worker was started for a destroyed owner"
+        assert controller._thread is None
+    finally:
+        _drain_controller(qapp, controller)
+
+
+def test_an_abandoned_deferred_start_leaves_the_keep_alive_registry(
+        qapp, monkeypatch):
+    """§6.1 of `plan_2026_09_24_reload_store_snapshot` — `_abandon()` must call
+    `_retire()`.
+
+    No QThread is ever created on this path, so `thread_stopped` would never come
+    from a finished thread and the controller would sit in `_ACTIVE_CONTROLLERS`
+    for the rest of the session. That is the same leak С4 of
+    plan_2026_09_23_socket_owner_and_door_docs closed for the refusal path; the
+    "owner destroyed during the delay" path had no cell of its own until now."""
+    controller, _widget, _started = _abandoned_deferred_start(qapp, monkeypatch)
+    try:
+        assert controller not in worker_mod._ACTIVE_CONTROLLERS, (
+            "an abandoned deferred start leaked its controller in the keep-alive "
+            "set for ever")
+    finally:
+        _drain_controller(qapp, controller)
