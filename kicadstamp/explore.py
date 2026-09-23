@@ -204,6 +204,59 @@ class Board:
         self._nets_cache.clear()
         self._sheet_cache.clear()
 
+    def forget_role_cluster_values(self) -> None:
+        """Forget the Role/Cluster values this snapshot holds, WITHOUT reading
+        the board (plan_2026_09_24_reload_store_snapshot §3.1).
+
+        When the override STORE changes — our own write, or a project switch —
+        the board is exactly as it was while the values IN FORCE are not: the two
+        role/cluster pairs cached here were resolved against the store that was
+        bound at the time, so a snapshot rebuilt out of these caches would
+        describe a store nobody has any more. This drops that resolution and
+        nothing else; the caller then rebuilds (BoardConnection._rebuild_snapshot)
+        and the reads go to the freshly bound store.
+
+        WHICH CACHES, and why exactly these four. Eight derived caches live on
+        this object (see __init__), plus the footprint list itself:
+
+          * `_role_cache` / `_cluster_cache` — the values IN FORCE, i.e. THE
+            store-dependent pair. Dropped;
+          * `_board_role_cache` / `_board_cluster_cache` — the PHYSICAL values,
+            filled by the SAME statement as the pair above (`_both`: one board
+            read per field, both truths kept together). Dropped WITH them, as a
+            pair — see the trap below;
+          * `_role_exists_cache` / `_cluster_exists_cache` — LEFT ALONE. They
+            answer "does this footprint carry the field at all", and the override
+            layer deliberately answers THAT about the board
+            (field_override_adapter.py's has_field), so the store cannot make
+            them stale;
+          * `_nets_cache` / `_sheet_cache` — LEFT ALONE. Nets and sheet chains do
+            not depend on the store either, and `_nets` builds one `Pad` object
+            per footprint: real processor work for no new information;
+          * `_footprints` (the list) — NEVER. Dropping it means
+            `adapter.get_footprints()`, i.e. the full IPC round-trip this method
+            exists to avoid.
+
+        THE TRAP, because these four are TWO PAIRS and not four independent
+        cells. Dropping the PHYSICAL pair alone is not a redundant flush but a
+        crash: `_board_role()` calls `_role()` first, and with `_role_cache` still
+        warm that returns at once, leaving the physical lookup to index a key
+        nobody will refill — a KeyError in the middle of a snapshot. Dropping the
+        EFFECTIVE pair alone is behaviourally sufficient for the values in force
+        (`_role()` writes both halves in one statement), and that is exactly why
+        this method does all four: the next person to "optimise it down to two
+        caches" must not be free to pick the pair that falls over. Both readings
+        were measured — plan §5.3а.
+
+        By construction it costs ZERO accesses to KiCad: the four dictionaries are
+        in memory, `_footprints` is kept, and the adapter's own per-footprint
+        field map is untouched (it holds the BOARD's values, which did not
+        change)."""
+        self._role_cache.clear()
+        self._cluster_cache.clear()
+        self._board_role_cache.clear()
+        self._board_cluster_cache.clear()
+
     @staticmethod
     def _ref(fp: Footprint) -> str:
         return fp.ref

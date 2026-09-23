@@ -16,7 +16,9 @@ at a throwaway project, and then walks EVERY holder by hand. It is the guard
 
 No live KiCad is involved and none must be: the poll adapter's layer is a real
 FieldOverrideAdapter over an EMPTY stub, and nothing here calls it — which is
-itself the point (door §2 of the plan: the reload is a FILE operation).
+itself the point (door §2 of the plan: the reload touches a FILE, never the
+board; since 2026-09-24 it also reprojects the snapshot from what is already in
+memory, so "never the board" is about the socket, not about the snapshot).
 """
 import logging
 from pathlib import Path
@@ -95,8 +97,24 @@ def test_c5_the_write_event_refreshes_every_holder_in_the_wired_gui(qapp, tmp_pa
             "{stale} — the GUI contradicts itself and С25 breaks for whatever "
             "reads them".format(stale=stale))
 
-        # ... and none of it cost the board a thing (door §2): no snapshot was
-        # rebuilt, no long op was started, the socket was never touched.
+        # ... and none of it cost the board a thing (door §2): no long op was
+        # started and the socket was never touched.
+        #
+        # WHY THE SNAPSHOT ASSERTION BELOW IS GREEN, said out loud because a
+        # green that does not say why is worse than no guard at all (rule 35;
+        # plan_2026_09_24_reload_store_snapshot §5.1б, decided by Denis on
+        # 2026-09-24). This connection's board is a `SimpleNamespace` carrying an
+        # adapter and NOTHING ELSE: it has no `select` and no forget-method, so
+        # there is nothing to reproject, BoardConnection asks the capability
+        # question with getattr/callable and stops (see
+        # override_reprojection_supported), and the version cannot move.
+        #
+        # So this green means "THIS BOARD CANNOT REPROJECT". It must never be read
+        # as "a store write does not rebuild the snapshot" — that was the second
+        # claim the old guard made, and it IS the defect (the split of С3, and its
+        # reasoning, in tests/test_overrides_store_reload.py). The cell carrying
+        # the real claim is Н3 there: a REAL Board over a counting stand-in whose
+        # counters sit BELOW the adapter's field cache.
         assert connection.snapshot_version == version_before
         assert connection.long_op_active is False
     finally:

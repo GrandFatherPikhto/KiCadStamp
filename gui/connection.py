@@ -418,6 +418,47 @@ class BoardConnection:
         return callable(getattr(self._board, "refresh", None))
 
     @property
+    def override_reprojection_supported(self) -> bool:
+        """True when the board behind the door can FORGET the Role/Cluster values
+        it resolved against the previously bound store — i.e. it can be
+        reprojected without reading the board.
+
+        The same shape as snapshot_refresh_supported above, and asked the same
+        way (getattr/callable, never a try/except around a whole method), because
+        a board that simply cannot do it is a LEGITIMATE case, not an error:
+        tests' stand-ins and a bare adapter on a bench have nothing to reproject
+        (plan_2026_09_24_reload_store_snapshot §3.4). Getting this wrong is not
+        theoretical — an unguarded call raises, DockHub._safe_call swallows it,
+        and a `GUI: ... failed` ERROR lands in the Log on every single write."""
+        return callable(getattr(self._board, "forget_role_cluster_values", None))
+
+    def _reproject_snapshot_after_store_change(self) -> None:
+        """Rebuild the snapshot from the store that was JUST rebound, with no
+        board read at all (plan_2026_09_24_reload_store_snapshot §3.2/§3.3).
+
+        The ONE place the connection answers "the store changed", shared by both
+        methods that rebind it — ``reload_store`` (another holder wrote) and
+        ``set_project_config`` (the project switched) — because this is a
+        property of the CLASS rather than of one call path: either way a rebind
+        leaves the snapshot describing the PREVIOUS store, and the automatic poll
+        tick will not save us (an idle tick is a deliberate no-op once connected,
+        gui/main_window.py:983).
+
+        Costs nothing: the board did not change, so there is no round-trip to
+        spend — only the resolution of the values in force is dropped (see
+        Board.forget_role_cluster_values). Silent when the board cannot do it;
+        see override_reprojection_supported.
+
+        Reading ``self._board`` here is the door's own storage (as in
+        snapshot_refresh_supported and _store_layer), and the rebuild below reads
+        it through the property from THIS file — one of the door's own hinges, so
+        no ui_thread_board_read sign belongs here (see _is_own_read)."""
+        if not self.override_reprojection_supported:
+            return
+        self._board.forget_role_cluster_values()
+        self._rebuild_snapshot()
+
+    @property
     def snapshot(self) -> List[Selected]:
         return self._snapshot
 
@@ -511,6 +552,10 @@ class BoardConnection:
         store, source = (store_for_config(self._config_path)
                          if self._config_path else (None, None))
         binder(store, source=source)
+        # The rebind alone leaves the snapshot describing the PREVIOUS profile
+        # (plan_2026_09_24_reload_store_snapshot §3.3): same defect as the write
+        # path below, so the same one call, under the same capability check.
+        self._reproject_snapshot_after_store_change()
 
     def reload_store(self) -> None:
         """Re-read the poll adapter's store from ITS OWN FILE (Т5г's tail).
@@ -526,10 +571,25 @@ class BoardConnection:
         trick gui/fieldstool_window.py's reload_overrides uses), so nothing here
         needs the project root — and the layer is REBOUND (``bind_store``),
         exactly as set_project_config does, so the kipy client and its REQ socket
-        are never touched. "Never touched" includes the board's own snapshot:
-        the board did not change, and re-reading it would spend a socket
-        round-trip on a board nobody changed — the rule spelled out in
-        gui/main_window.py's request_refresh (door rule 3).
+        are never touched by THIS step.
+
+        **Corrected 2026-09-24 (plan_2026_09_24_reload_store_snapshot §3.2).**
+        This paragraph used to end with "never touched includes the board's own
+        snapshot: the board did not change, and re-reading it would spend a socket
+        round-trip". That is true of ``Board.refresh()`` and was read as if it
+        covered the reprojection too — and the sentence was believed instead of
+        the code: a role recorded in the fieldstool reached every picker and the
+        Components tree only after a manual Refresh, because the automatic tick
+        never rebuilds a connected snapshot (gui/main_window.py:983).
+
+        What stays true is what the paragraph is FOR: the reload must not RE-READ
+        THE BOARD. The board did not change, and a socket round-trip on it is
+        exactly what gui/main_window.py's request_refresh forbids (door rule 3).
+        What it must do is drop the values that were resolved against the
+        PREVIOUS store and let the snapshot be rebuilt — free, because the
+        reprojection re-reads the footprints the board already handed over (§2.3
+        of that plan; the price is measured on the layer where the adapter's
+        field cache lives, not by counting adapter calls).
 
         Silently does nothing when there is no bound store (no project open, a
         profile whose switch says "board", a bare adapter a caller built
@@ -544,6 +604,9 @@ class BoardConnection:
             return
         from kicadstamp.field_overrides import load_field_overrides
         binder(load_field_overrides(str(path)))
+        # The file is now in memory: the values in force are the new ones, while
+        # the snapshot still holds the resolution against the previous store.
+        self._reproject_snapshot_after_store_change()
 
     def connect(self) -> Optional[str]:
         """Attempts a fresh connection. Returns None on success, or an error

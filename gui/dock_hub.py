@@ -3184,6 +3184,30 @@ class DockHub:
         if self._reload_poll_store is not None:
             self._safe_call("poll adapter override reload",
                             self._reload_poll_store)
+        # ... and the FRESH SNAPSHOT has to be HANDED OUT (§4 of
+        # plan_2026_09_24_reload_store_snapshot). A rebuilt snapshot is invisible
+        # on its own: its only consumer is MainWindow._finish_poll, which does
+        # not run on this path, so the two stops below are what the user actually
+        # sees — the Roles/Clusters the pickers offer, and the Components tree's
+        # rows.
+        #
+        # Deliberately NOT push_snapshot (it wants the net-name lists this path
+        # does not have, and would clear four net combos with empty ones) and NOT
+        # refresh_snapshot_and_push (that one goes through connection.refresh(),
+        # i.e. a full IPC re-read on a worker — the round-trip request_refresh's
+        # own docstring forbids for a store write). Nothing here re-reads the
+        # board: the snapshot was reprojected from what was already in memory
+        # (see BoardConnection._reproject_snapshot_after_store_change).
+        #
+        # AFTER the rebind above, which is push_known_lists' own contract ("this
+        # call must simply happen AFTER the rebuild"): the two tree docks read
+        # the live cache themselves, and the rows below are handed the very
+        # snapshot the rebuild produced.
+        snapshot = list(getattr(self._connection, "snapshot", None) or [])
+        self._safe_call("known-value lists after a store write",
+                        self.push_known_lists, snapshot)
+        self._safe_call("components tree rows after a store write",
+                        self.tree_dock.set_footprints, snapshot)
 
     def _safe_call(self, what: str, fn, *args) -> None:
         """Run a dock's root-notification callable safely: a BROKEN root
