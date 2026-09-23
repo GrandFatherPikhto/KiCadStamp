@@ -146,6 +146,28 @@ class ConnectionManager:
         §1/§6.2: always, not per tool — the invalidation itself is free, and only
         the call that then reads footprints pays for a board read).
 
+        THE PRICE, measured live on the 332-footprint board
+        (``kicadstamp.diagnostics.probe_mcp_call_cost``, counted at the kipy
+        boundary — ``KiCad.get_open_documents`` and ``Board.get_footprints`` —
+        because the adapter caches and its own call counter reads zero where the
+        board was read; the Ш1 lesson, one layer up). One call that reads
+        footprints costs 1 re-mint + 1 FULL READ of the footprint list:
+        ``kicadstamp_get_footprint`` 26 ms, ``kicadstamp_list_footprints`` 30 ms,
+        ``kicadstamp_get_items_by_uuid`` 38 ms; the first call of a process is the
+        same class (26-37 ms cold), so this is not a cold-start artefact. The
+        tools that never look at a footprint pay the re-mint only: 0.7-10 ms
+        total, against 0.5-7.5 ms with the seam switched off in the same probe —
+        and those tools read live copper either way, which dominates their number
+        (``list_tracks`` 9.9 vs 7.5 ms). Told apart on purpose: the 166/186 ms
+        class quoted in ``refresh_board_before_live_read``'s docstring comes from
+        a DIFFERENT probe (plan_2026_09_22_imprint_stale_cache_sh2) and does not
+        reproduce here — this probe puts the whole footprint-reading call at
+        ~30 ms. The two numbers are not the same measurement and must not be
+        averaged.
+
+        No TTL or staleness policy is introduced with this (plan §7): the number
+        above is the INPUT such a decision would need, not the decision.
+
         Refresh ONCE per call, never twice: when ``_ensure_open`` had to create
         the adapter it already loaded the board, and that is reported to us as a
         fact (see its docstring, §6.1).
