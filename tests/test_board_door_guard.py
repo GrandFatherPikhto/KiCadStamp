@@ -21,11 +21,15 @@ here:
 С2 = cell 2; С3 = cell 3; С4 = cell 4 (and its quiet half); С10 = cell 5; С7 =
 cell 6; С8 = cell 7 (plus the balanced-exit half); С11 = cell 8 — the jurisdiction
 that keeps the existing suite green without a single edit; С5 — the setter is not
-the point of force. С9a/С9b are about the production entry point: the arming is
-deliberately ABSENT until Т5 (see gui_main.py), so С9a forbids the silent third
-state ("neither armed nor saying why") and С9b is the xfail(strict) tripwire that
-turns into an XPASS failure the moment the line comes back — in the USER's mode
-(refusal="log"; a raise inside a Qt slot is a core dump, measured 2026-09-21). С12
+the point of force. С9a/С9b are about the production entry point, where the guard
+became ARMED on 23.09.2026 (Ш6, plan_2026_09_23_door_s6_entry — the door effort's
+last step; the call had been deliberately ABSENT until then, Denis 21.09.2026):
+С9a forbids the silent third state ("neither armed nor saying why"), and С9b pins
+the arming itself, in the USER's mode (refusal="log"; a raise inside a Qt slot is
+a core dump, measured 2026-09-21). С9b spent the un-armed era marked
+@pytest.mark.xfail(strict=True) — which turns XPASS, a FAILURE on purpose, the
+moment the line returns, so the mark could not be forgotten in either direction;
+the day Ш6 landed the line, the mark was removed, exactly as it required. С12
 covers that mode: the same violation, reported at ERROR once per site with the read
 going on. С6 — the nine existing watchdogs in tests/test_board_access_door.py —
 lives in THAT file, untouched.
@@ -409,46 +413,54 @@ def test_without_a_predicate_nothing_is_refused(monkeypatch, caplog):
             if Path(__file__).name in record.getMessage()] == []
 
 
-# ── С9 — the production entry point: absent on purpose, then mandatory ───────
+# ── С9 — the production entry point: the guard is ARMED there ────────────────
 
 _ENTRY = _REPO_ROOT / "kicadstamp" / "gui_main.py"
 # The production form names the USER's mode: log, never raise (a raise inside a
 # Qt slot is a core dump — see UI_READ_LOG in gui/connection.py).
 _ARMING = 'set_ui_thread_predicate(is_ui_thread, refusal="log")'
+# The phrase the entry point must carry if it is EVER deliberately un-armed again
+# — the state С9a exists to forbid is "un-armed AND silent". It was the sentinel of
+# the un-armed era (the call absent by decision, Denis 21.09.2026) and is kept as
+# the forward-looking half of С9a's either/or: gui_main.py does not say it today.
 _T5_NOTE = "THE CALL IS DELIBERATELY ABSENT"
 
 
 def test_the_entry_point_is_either_armed_or_says_why_not():
     """С9a — no silent third state. The guard is only STANDING if the production
     GUI arms it — the ONE Qt entry point of the project (pyproject.toml
-    [project.scripts] → kicadstamp-gui) is kicadstamp/gui_main.py — and until Т5
-    lands the arming line is absent BY DECISION (Denis, 21.09.2026): the Т2
-    offenders still read the board on the UI thread, so arming it would refuse
-    them in the user's hands. Absent must never mean FORGOTTEN, so the entry
-    point has to say why it is not there.
+    [project.scripts] → kicadstamp-gui) is kicadstamp/gui_main.py. Since Ш6
+    (23.09.2026) that entry point IS armed, so the first half of the either/or
+    below carries the test; the second half (_T5_NOTE) keeps the state it once
+    described from ever coming back SILENTLY — an entry point that is neither
+    armed nor documented would look protected while nothing stands in the door.
 
-    Mutation check: delete the Т5 note from the entry point and this fails (that
-    is mutation m10 of diagnostics/run_board_door_guard_mutations.py)."""
+    Mutation check: remove the arming line and leave no note saying why, and this
+    fails — that is mutation m32 of diagnostics/run_board_door_guard_mutations.py.
+    (Its predecessor m10, which deleted the un-armed era's note, was retired when
+    the note itself left the file and the state it described became unreachable.)"""
     text = _ENTRY.read_text(encoding="utf-8")
     assert _ARMING in text or _T5_NOTE in text, (
         "kicadstamp/gui_main.py neither arms the guard nor says why it does not: "
         "the app would look protected while nothing stands in the door")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Т5 closes the door: arming the guard in the process entry point is its LAST "
-    "step. This tripwire is xfail while the line is deliberately absent and turns "
-    "XPASS — a failure, on purpose — the moment it returns, so the mark can be "
-    "forgotten in neither direction"))
 def test_the_entry_point_arms_the_guard():
-    """С9b — the tripwire on the door's last step, in both directions.
+    """С9b — the arming itself, pinned. Ш6 (23.09.2026) landed the two things this
+    asserts on: the import of the production predicate (gui.worker.is_ui_thread —
+    the same answer the diagnostics recorder is given) and the call that hands it
+    to the door in the USER's mode.
 
-    While the line is absent (the agreed state of this commit) the two asserts
-    below fail and strict xfail reports them as the EXPECTED failure. When Т5
-    restores the line they pass, strict xfail turns that into XPASS, and pytest
-    fails: the implementer has to delete the mark as part of closing the door.
-    Without this, the line could be forgotten and the guard would stay the
-    decoration the door is written against."""
+    This test spent the un-armed era marked @pytest.mark.xfail(strict=True): the
+    asserts below failed ON PURPOSE and strict xfail reported that as EXPECTED. The
+    moment the arming line returned they passed, strict turned it into XPASS — a
+    FAILURE by design — and the mark was removed as PART of closing the door (Ш6),
+    not as a clean-up afterwards. That is the tripwire's whole point: the mark
+    could not be forgotten in either direction.
+
+    Mutation check: remove the set_ui_thread_predicate(is_ui_thread, refusal="log")
+    line and the second assert goes red — "assert ... in text" (m32 of
+    diagnostics/run_board_door_guard_mutations.py, the row Ш6 added)."""
     text = _ENTRY.read_text(encoding="utf-8")
     assert "from gui.worker import is_ui_thread" in text
     assert _ARMING in text

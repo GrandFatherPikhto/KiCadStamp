@@ -31,9 +31,11 @@ from kicadstamp.logging_setup import setup_logging
 from gui import settings
 from gui.app_icon import build_app_icon
 from gui.color_schemes import available_color_schemes, load_color_scheme
+from gui.connection import set_ui_thread_predicate
 from gui.docks._common import apply_compact_field_minimums
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
+from gui.worker import is_ui_thread
 
 _SINGLE_INSTANCE_NAME = "kicadstamp-gui-singleton"
 
@@ -104,7 +106,7 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # ── The door's guard belongs HERE (plan_2026_09_21_board_door_enforcement) ──
+    # ── The door's guard is ARMED HERE (plan_2026_09_23_door_s6_entry) ──────────
     # The getter in gui/connection.py refuses a UI-thread board read that has no
     # sign, and who counts as "the UI thread" is an INJECTED predicate — this
     # process entry point is where the production GUI hands it over. Deliberately
@@ -114,21 +116,29 @@ def main():
     # This is also the ONE Qt entry point of the project (pyproject.toml
     # [project.scripts] → kicadstamp-gui; gui/ has no main() of its own).
     #
-    # THE CALL IS DELIBERATELY ABSENT (Denis, 21.09.2026): the offenders of the
-    # Т2 table (trees_dock._live_adapter, the placement dock's position and
-    # selection reads, Extract) still read the board on the UI thread. Т5 closes
-    # the door, and its LAST step is to import gui.worker.is_ui_thread here and
-    # hand it to gui.connection.set_ui_thread_predicate WITH THE USER'S MODE —
-    # refusal="log": a red Log line naming the caller, and the read goes on.
+    # ARMED SINCE 2026-09-23 (Ш6, the LAST step of the door effort; the call was
+    # deliberately absent before that, Denis 21.09.2026). The mode is the USER'S —
+    # refusal="log": an unsigned UI-thread read writes ONE red Log line naming the
+    # caller, and the read goes ON. That dedup keeps the armed app usable: an
+    # offender that runs in a loop cannot flood the Log (one line per file:line,
+    # see gui/connection.py's _report_ui_thread_read), so the armed session is a
+    # LIVE CENSUS of the places that really fire, not a wall of red.
     # Never "raise" in production: inside a Qt slot an exception is a core dump,
     # measured 2026-09-21 in diagnostics/probe_slot_exception.py (EXIT=134), and
     # the user would lose the session instead of reading a message.
     #
+    # Ш6 ARMS THE GUARD AND DOES NOT FIX OFFENDERS: the remaining UI-thread reads
+    # are closed in SEPARATE steps, one class at a time — presence ->
+    # connection.is_connected; a hand-off -> a signed read whose cost is measured;
+    # a live read on the UI thread -> a worker.
+    #
     # Two watchdogs in tests/test_board_door_guard.py guard THIS decision from
-    # both sides: ..._is_either_armed_or_says_why_not fails if this note is
-    # deleted without arming the guard, and ..._arms_the_guard is xfail(strict)
-    # while the line is absent, turning XPASS — a FAILURE, on purpose — the
-    # moment it comes back, so the mark cannot be forgotten either way.
+    # both sides: ..._is_either_armed_or_says_why_not fails if the arming line is
+    # gone and nothing says why, and ..._arms_the_guard asserts the line below IS
+    # here. That second one was xfail(strict) while the call was deliberately
+    # absent, so it turned XPASS — a FAILURE, on purpose — the moment the call
+    # came back; the mark was removed the same day, exactly as it required.
+    set_ui_thread_predicate(is_ui_thread, refusal="log")
     # Snapshot the pristine palette BEFORE any override (setStyle/setPalette)
     # — stored on the app object itself as a dynamic property (the same
     # instance lives for the whole process) and reused for the clean "None"
