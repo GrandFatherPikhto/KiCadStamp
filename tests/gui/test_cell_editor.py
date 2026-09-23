@@ -1516,15 +1516,21 @@ def _copy_target_tracks():
 def _copy_cells_data():
     """A root file carrying a copperless target (tgt — the 2026-09-06
     regression fixture), its copper-bearing TWIN (tgt_copper — the cell that
-    did not exist before, plan_2026_09_23_...replaces_copper), a fully-routed
-    donor (donor), a copperless donor (bare, same roles), and an invalid donor
-    (ghost: copper references a role the target lacks)."""
+    did not exist before, plan_2026_09_23_...replaces_copper), a TRACKS-ONLY
+    target (tgt_tracks_only — added 2026-09-24: it is the ONLY target whose
+    vias half of `plan.replaced_vias or plan.replaced_tracks` is zero, which is
+    what makes the tracks half testable at all), a fully-routed donor (donor), a
+    copperless donor (bare, same roles), and an invalid donor (ghost: copper
+    references a role the target lacks)."""
     return {"cells": {
         "tgt": {"layer": "F.Cu", "components": _copy_target_components(),
                 "vias": [], "tracks": []},
         "tgt_copper": {"layer": "F.Cu", "components": _copy_target_components(),
                        "vias": _copy_target_vias(),
                        "tracks": _copy_target_tracks()},
+        "tgt_tracks_only": {"layer": "F.Cu",
+                            "components": _copy_target_components(),
+                            "vias": [], "tracks": _copy_target_tracks()},
         "donor": {"layer": "F.Cu", "components": _copy_donor_components(),
                   "vias": _copy_donor_vias(), "tracks": _copy_donor_tracks()},
         "bare": {"layer": "F.Cu", "components": _copy_donor_components(),
@@ -1634,7 +1640,12 @@ def _install_msgbox(monkeypatch, *, answer):
     """Install a fresh QMessageBox stand-in on the cell_editor module (records
     warning/question calls, returns the scripted `answer` for question) while
     exposing the REAL StandardButton enum, so the dock's `!= Yes` comparison
-    still works. Avoids a modal event loop in tests."""
+    still works. Avoids a modal event loop in tests.
+
+    The question records its ARGUMENTS too (2026-09-24): the 4th and 5th are the
+    buttons and the DEFAULT button, and until then the stand-in swallowed them —
+    so nothing in the suite could pin "a destructive copy does not confirm on a
+    stray Enter" (plan_2026_09_24_reload_store_snapshot §6.2)."""
     class _Spy:
         StandardButton = QMessageBox.StandardButton
         warnings = []
@@ -1646,7 +1657,7 @@ def _install_msgbox(monkeypatch, *, answer):
 
         @classmethod
         def question(cls, parent, title, text, *args, **kwargs):
-            cls.questions.append((title, text))
+            cls.questions.append((title, text, args, kwargs))
             return answer
 
     monkeypatch.setattr(cell_editor_mod, "QMessageBox", _Spy)
@@ -1701,6 +1712,75 @@ def test_copy_placement_declined_changes_nothing(main_window, tmp_path,
     assert dock._vias == _copy_target_vias()
     assert dock._tracks == _copy_target_tracks()
     assert target_file.read_text(encoding="utf-8") == before_disk  # no autostage
+
+
+# ── the confirmation's SECOND half and its default button (2026-09-24) ────
+#
+# §6.2 of `plan_2026_09_24_reload_store_snapshot`. Not live defects: the code is
+# right, and the CELLS were missing. Both mutations below survived the whole
+# tests/gui run of 2026-09-23, for the same reason — the fixture made the thing
+# being checked invisible.
+
+def test_copy_placement_confirms_when_only_tracks_would_be_replaced(
+        main_window, tmp_path, monkeypatch):
+    """§6.2 of `plan_2026_09_24_reload_store_snapshot` — the RIGHT-hand operand
+    of the confirmation's condition, which no fixture reached until now.
+
+    `if plan.replaced_vias or plan.replaced_tracks:` was only ever exercised
+    against a target carrying 2 vias AND 1 track, so the left operand was never
+    zero and the right one was NEVER checked: dropping `target_tracks=self._tracks`
+    from the plan call changed nothing in any test, while a cell with tracks and
+    no vias silently copied over them without asking.
+
+    This target has one track and no vias, so only `plan.replaced_tracks` can open
+    the dialog, and the numbers in it must be about tracks."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_tracks_only", target_file)
+    assert dock._tracks == _copy_target_tracks()      # one track loaded
+    assert dock._vias == []                          # and no vias at all
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    spy = _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Yes)
+
+    dock.copy_placement_from_cell()
+
+    assert len(spy.questions) == 1, (
+        "the target's track was replaced WITHOUT asking: only the vias half of "
+        "`replaced_vias or replaced_tracks` was ever load-bearing")
+    title, text, _args, _kwargs = spy.questions[0]
+    assert "0 via(s)" in text and "1 track(s)" in text, (
+        "the confirmation's numbers are the target's own copper: {text}".format(
+            text=text))
+    assert len(dock._tracks) == 1
+    assert dock._tracks[0]["net_from_role"] == "C_OUT_BULK"   # the donor's
+
+
+def test_copy_placement_dialog_defaults_to_cancel(main_window, tmp_path,
+                                                  monkeypatch):
+    """§6.2 of `plan_2026_09_24_reload_store_snapshot` — the confirmation's
+    DEFAULT button is Cancel.
+
+    Replacement is destructive, so a stray Enter must not confirm it. Until now
+    nothing checked which button was default — the QMessageBox stand-in swallowed
+    `*args, **kwargs`, so the 4th and 5th arguments of `QMessageBox.question`
+    were never looked at by anyone."""
+    dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
+    dock.load_entry("tgt_copper", target_file)
+    _FakeCopyPicker.source_choice = "donor"
+    monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
+    spy = _install_msgbox(monkeypatch, answer=QMessageBox.StandardButton.Cancel)
+
+    dock.copy_placement_from_cell()
+
+    assert len(spy.questions) == 1
+    _title, _text, args, _kwargs = spy.questions[0]
+    buttons, default = args
+    assert buttons == (QMessageBox.StandardButton.Yes
+                       | QMessageBox.StandardButton.Cancel), (
+        "the confirmation must offer a way out: {buttons}".format(buttons=buttons))
+    assert default == QMessageBox.StandardButton.Cancel, (
+        "the DEFAULT button of a destructive copy is {default}: a stray Enter "
+        "would confirm it".format(default=default))
 
 
 def test_copy_placement_keeps_list_identity(main_window, tmp_path, monkeypatch):

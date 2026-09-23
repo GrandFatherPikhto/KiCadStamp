@@ -452,11 +452,21 @@ class LongOpController(QObject):
         """Turn ON the one visual "an operation the user started is running"
         state: guard widgets off, wait cursor, busy indicator.
 
-        Idempotent on purpose. The deferred path shows it before the retry and
-        _acquire() is its only other caller, so each of the three halves is set
-        exactly once — a doubled _notify_busy would need a second clear, and Qt
-        restores override cursors by call count (an unmatched push leaks an
-        hourglass into the rest of the session)."""
+        Idempotent on purpose — and the reason is NOT the cursor (corrected
+        2026-09-24, plan_2026_09_24_reload_store_snapshot §6.1; the wording here
+        used to blame the cursor and the busy indicator, and BOTH of those are
+        already protected a layer below: _set_wait_cursor has its own
+        `if not self._cursor_set`, and the indicator is reported with the same
+        text twice).
+
+        The real reason is `_prior_enabled`: it records what each widget's state
+        IS when the visual goes up. This method runs TWICE on the deferred path —
+        once from start() while the socket was busy, once more from _acquire()
+        when the retry finally gets it — and without the guard the second pass
+        overwrites "was enabled" with "is disabled NOW", so _release() faithfully
+        restores the buttons to DISABLED. Measured on a live button: original
+        enabled=True, without this guard enabled=False — a dock whose buttons stay
+        dead for the rest of the session."""
         if self._visual_shown:
             return
         self._visual_shown = True
