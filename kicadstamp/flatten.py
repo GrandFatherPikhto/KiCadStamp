@@ -144,7 +144,7 @@ def flatten_config(root: str, output: Optional[str] = None,
     # `with open(target, "w")` around dict_to_sexp truncated first, so a
     # serialization error left a 0-byte root.
     new_text = dict_to_sexp(out)
-    sexp_to_dict(new_text)
+    sexp_to_dict(new_text, path=str(target))
     backup_path = backup_file(target) if not output else None
     write_text_atomic(target, new_text)
     invalidate_path(target)

@@ -264,7 +264,7 @@ def _collect_include_files(root: Path) -> Dict[Path, Dict[str, Any]]:
         except OSError as exc:
             raise FieldsToolError(f"cannot read profile file {path}: {exc}") from exc
         try:
-            data = sexp_to_dict(text) or {}
+            data = sexp_to_dict(text, path=str(path)) or {}
         except ValidationError as exc:
             raise FieldsToolError(f"cannot parse profile file {path}: {exc}") from exc
         files[path] = data
@@ -363,7 +363,9 @@ def write_profile_files(mutated_by_file: Dict[str, Dict[str, Any]]) -> Tuple[Lis
             fh.write(original)
         try:
             new_text = dict_to_sexp(data)
-            sexp_to_dict(new_text)  # self-verify before touching the target
+            # self-verify before touching the target; path= so a "format too
+            # new" refusal and a future step's context name the FILE
+            sexp_to_dict(new_text, path=str(file))
         except Exception as exc:
             logger.error("%s: result does not serialize/parse as s-expr (%s: %s) — "
                          "restoring from %s",

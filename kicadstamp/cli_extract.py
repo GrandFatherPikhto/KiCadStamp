@@ -84,7 +84,7 @@ def load_profile(profiles_path: str, top_key: str, profile_name: str,
     with open(p, "r", encoding="utf-8") as f:
         suffix = p.suffix.lower()
         if suffix == ".sexp":
-            data = sexp_to_dict(f.read()) or {}
+            data = sexp_to_dict(f.read(), path=str(p)) or {}
         elif suffix in (".yaml", ".yml"):
             raise yaml_removed_config_error(p)
         else:

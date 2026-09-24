@@ -100,6 +100,19 @@ def test_a_file_newer_than_this_build_is_refused():
     assert f"format {CURRENT_FORMAT + 1}" in str(excinfo.value)
 
 
+def test_a_newer_file_is_refused_by_name_even_with_a_section_after_it():
+    """Д2 of the Т2 acceptance (the surviving mutation G5). The refusal has to
+    name the FILE. Every other "newer" cell has nothing after `(version N)`, so
+    the root loop never rebinds `path` and the message text was never checked —
+    which is exactly why the mutation that restores the defect lived."""
+    with pytest.raises(ValidationError) as excinfo:
+        sexp_to_dict(_wrap(f"  (version {CURRENT_FORMAT + 1})\n  (cells)\n"),
+                     path="/tmp/profiles/p/c.sexp")
+    text = str(excinfo.value)
+    assert "c.sexp" in text
+    assert "<cells>" not in text
+
+
 # ── shape: what is NOT a number ────────────────────────────────────────────
 
 @pytest.mark.parametrize("body, why", [
@@ -511,6 +524,92 @@ def test_a_reader_that_opens_the_profile_itself_lifts_too(monkeypatch, tmp_path)
     assert "lifted2" in _read_root_dict(p)["cells"]
 
 
+# ── the reader table (Д1 of the Т2 acceptance) ─────────────────────────────
+# Every reader × every starting format, with COUNTING steps: each step must run
+# exactly once, and only for the versions BELOW the file's own. Д1 was found by
+# a probe (diagnostics/probe_format_double_lift.py) precisely because this was a
+# case and not a rule — config_writer._read_data lifted a .sexp a second time,
+# so a file already at the current format went through the whole chain again.
+_READER_NAMES = [
+    "includes._load_config_file",
+    "config_writer._read_data",
+    "config_writer._load_data_tolerant",
+    "config_io.load_data",
+    "adapter_factory._read_root_dict",
+    "cli_common._read_root_yaml",
+    "net_trace_extract.read_net_trace_flags",
+    "format_version.read_version",
+]
+
+# The probe reads the file as it IS — it must run no step at all.
+_READERS_THAT_DO_NOT_LIFT = {"format_version.read_version"}
+
+
+def _call_reader(name: str, path: Path):
+    """One call per reader. Imports are local: several of these modules sit on
+    the CLI's early path on purpose and import the config package lazily."""
+    if name == "includes._load_config_file":
+        from kicadstamp.config.includes import _load_config_file
+        return _load_config_file(path)
+    if name == "config_writer._read_data":
+        from kicadstamp.config_writer import _read_data
+        return _read_data(Path(path))
+    if name == "config_writer._load_data_tolerant":
+        from kicadstamp.config_writer import _load_data_tolerant
+        return _load_data_tolerant(Path(path))
+    if name == "config_io.load_data":
+        from gui.config_io import load_data
+        return load_data(Path(path))
+    if name == "adapter_factory._read_root_dict":
+        from kicadstamp.adapter_factory import _read_root_dict
+        return _read_root_dict(Path(path))
+    if name == "cli_common._read_root_yaml":
+        from kicadstamp.cli_common import _read_root_yaml
+        return _read_root_yaml(Path(path))
+    if name == "net_trace_extract.read_net_trace_flags":
+        from kicadstamp.net_trace_extract import read_net_trace_flags
+        return read_net_trace_flags(str(path), "N")
+    if name == "format_version.read_version":
+        from kicadstamp.config.format_version import read_version
+        return read_version(path)
+    raise AssertionError(name)  # pragma: no cover
+
+
+@pytest.mark.parametrize("reader_name", _READER_NAMES)
+@pytest.mark.parametrize("suffix", [".sexp", ".json"])
+@pytest.mark.parametrize("fmt", [1, 2, 3])
+def test_every_reader_runs_each_step_exactly_once(monkeypatch, tmp_path,
+                                                  reader_name, suffix, fmt):
+    calls: list[str] = []
+
+    def _count(name):
+        def step(data, _ctx):
+            calls.append(name)
+            return data
+        return step
+
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 3)
+    monkeypatch.setattr(fv, "STEPS", {1: _count("1->2"), 2: _count("2->3")})
+
+    p = tmp_path / f"f{fmt}{suffix}"
+    if suffix == ".sexp":
+        body = "" if fmt == 1 else f"  (version {fmt})\n"
+        p.write_text(f"(kicadstamp-config\n{body}  (cells)\n)\n", encoding="utf-8")
+    else:
+        payload = {"cells": {}} if fmt == 1 else {"version": fmt, "cells": {}}
+        p.write_text(json.dumps(payload), encoding="utf-8")
+
+    _call_reader(reader_name, p)
+
+    if reader_name in _READERS_THAT_DO_NOT_LIFT:
+        expected: list[str] = []
+    else:
+        expected = [n for v, n in ((1, "1->2"), (2, "2->3")) if v >= fmt]
+    assert calls == expected, (
+        f"{reader_name} on a format-{fmt} {suffix} file ran {calls}, "
+        f"expected {expected}")
+
+
 # ── the structural cell ────────────────────────────────────────────────────
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -538,10 +637,18 @@ _RAW_READERS: set[tuple[str, str]] = {
 }
 
 
-def _sexp_to_dict_call_sites() -> list[tuple[str, str, bool]]:
-    """[(relative path, enclosing function, passes upgrade=False)] for every
-    `sexp_to_dict(...)` call in the ship code."""
-    sites: list[tuple[str, str, bool]] = []
+# Callers that parse text with NO file behind it, so they cannot pass `path=`
+# (Д3 of the Т2 acceptance). Empty by design: every config parse in the ship
+# code reads a real file, whose path is ALWAYS available — and a step that needs
+# it (UUID, format 3) refuses "<config>" rather than inventing a seed. A truly
+# pathless call would have to be listed here with its reason.
+_PATHLESS_READERS: set[tuple[str, str]] = set()
+
+
+def _sexp_to_dict_call_sites() -> list[tuple[str, str, bool, bool]]:
+    """[(relative path, enclosing function, passes upgrade=False, passes
+    path=)] for every `sexp_to_dict(...)` call in the ship code."""
+    sites: list[tuple[str, str, bool, bool]] = []
 
     class _Finder(ast.NodeVisitor):
         def __init__(self, relpath: str) -> None:
@@ -564,9 +671,10 @@ def _sexp_to_dict_call_sites() -> list[tuple[str, str, bool]]:
                           and isinstance(kw.value, ast.Constant)
                           and kw.value.value is False
                           for kw in node.keywords)
+                has_path = any(kw.arg == "path" for kw in node.keywords)
                 sites.append((self.relpath,
                               self.owners[-1] if self.owners else "<module>",
-                              raw))
+                              raw, has_path))
             self.generic_visit(node)
 
     for root_name in _SCANNED_ROOTS:
@@ -591,15 +699,28 @@ def test_only_documented_callers_read_the_raw_file():
         ("kicadstamp/config/includes.py", "_load_config_file"),
         ("kicadstamp/config/format_version.py", "_read_version_uncached"),
     }
-    found = {(relpath, owner) for relpath, owner, _ in sites}
+    found = {(relpath, owner) for relpath, owner, _, _ in sites}
     assert anchors <= found, (
         f"the scan did not even see {sorted(anchors - found)} — a blind scan "
         "must not pass this cell")
 
-    raw = {(relpath, owner) for relpath, owner, is_raw in sites if is_raw}
+    raw = {(relpath, owner) for relpath, owner, is_raw, _ in sites if is_raw}
     assert raw == _RAW_READERS, (
         "these callers read the file RAW without being on the documented list: "
         f"{sorted(raw - _RAW_READERS)}")
+
+
+def test_every_config_parse_names_the_file_it_reads():
+    """Д3 of the Т2 acceptance. A file-based parse that does not pass `path=`
+    loses two things: the refusal names "<config>" instead of the file, and a
+    step that needs the profile path (UUID, format 3) refuses although the path
+    was right there."""
+    no_path = {(relpath, owner)
+               for relpath, owner, _, has_path in _sexp_to_dict_call_sites()
+               if not has_path}
+    assert no_path == _PATHLESS_READERS, (
+        "these callers parse a file without passing path=: "
+        f"{sorted(no_path - _PATHLESS_READERS)}")
 
 
 if __name__ == "__main__":  # pragma: no cover

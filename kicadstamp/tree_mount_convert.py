@@ -447,7 +447,7 @@ def convert_config_file(root: str, output: Optional[str] = None,
     # each file is converted); a config whose trees live in an included file
     # gets a warning line below, never a silent half-conversion.
     text = root_path.read_text(encoding="utf-8")
-    data = sexp_to_dict(text, raw_trees=True)
+    data = sexp_to_dict(text, raw_trees=True, path=str(root_path))
     converted, report = convert_trees_dict(data)
 
     report_lines = _format_report(report)
@@ -465,7 +465,7 @@ def convert_config_file(root: str, output: Optional[str] = None,
     # converter output the standard loader refuses must fail HERE, leaving the
     # user's file untouched.
     new_text = dict_to_sexp(converted)
-    sexp_to_dict(new_text)
+    sexp_to_dict(new_text, path=str(target))
 
     # §В.1.2 step 3: in-place overwrite snapshots the old content first
     # (timestamped, never clobbers an earlier backup). With --output the root

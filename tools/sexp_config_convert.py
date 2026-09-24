@@ -61,7 +61,7 @@ def _eq(a, b) -> bool:
 
 def _read_dict(path: Path) -> dict:
     if path.suffix.lower() == ".sexp":
-        return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
+        return sexp_to_dict(path.read_text(encoding="utf-8"), path=str(path)) or {}
     # normalize_section_aliases: legacy `rules:` key -> `chains:` (2026-09-01
     # rename) so a YAML profile still carrying the old key converts to the
     # canonical `(chains ...)` sexp and the round-trip self-verify passes.

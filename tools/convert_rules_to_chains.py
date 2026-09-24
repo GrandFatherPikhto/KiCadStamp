@@ -48,7 +48,7 @@ def _read_raw(path: Path) -> dict:
             import json
             return json.load(f) or {}
         if path.suffix.lower() == ".sexp":
-            return sexp_to_dict(f.read(), apply_aliases=False) or {}
+            return sexp_to_dict(f.read(), apply_aliases=False, path=str(path)) or {}
         raise ValueError(f"unsupported config format: {path.suffix} (expected .sexp or .json)")
 
 

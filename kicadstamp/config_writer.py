@@ -97,23 +97,42 @@ def _read_data(path: Path) -> dict:
 
     def _uncached_read(p: Path) -> dict:
         suffix = p.suffix.lower()
+        # EACH BRANCH LIFTS EXACTLY ONCE, and it lifts at the parse site.
+        #
+        # Д1 (Т2 acceptance): this used to run ONE shared parser and then wrap
+        # the result in lift_loaded_dict for both formats. For .sexp the parser
+        # had ALREADY taken the number out and lifted the content, so the
+        # wrapper read the numberless dict as "format 1" and ran the whole chain
+        # a SECOND time — a file already at the current format went through
+        # 1 -> 2 and 2 -> 3 all over again (measured: diagnostics/
+        # probe_format_double_lift.py). Invisible at 1 -> 2 (identity); the
+        # zero-origin step would add the body angle twice and move the board —
+        # and this is the GUI docks' read-merge-write path, so the doubly-lifted
+        # content reaches the disk.
         if suffix == ".json":
-            kind, parser = "JSON", json.load
+            kind = "JSON"
+
+            def parser(f):
+                # A raw JSON dict has no parse layer of its own, so the lift
+                # belongs here. normalize_section_aliases runs FIRST, like
+                # includes._load_config_file does, so a step sees canonical keys
+                # (legacy `rules:` -> `chains:`, 2026-09-01 rename).
+                return lift_loaded_dict(
+                    normalize_section_aliases(json.load(f) or {}), str(p))
         elif suffix == ".sexp":
             kind = "s-expr"
-            parser = lambda f: sexp_to_dict(f.read(), path=str(p))  # noqa: E731
+
+            def parser(f):
+                # sexp_to_dict applies the aliases (apply_aliases default True)
+                # AND lifts; path= names the FILE in a "format too new"
+                # refusal, and it is the step context (a step needing the
+                # profile path refuses a bare "<config>").
+                return sexp_to_dict(f.read(), path=str(p))
         else:
             _raise_unsupported_config_format(p, suffix)
         try:
             with open(p, "r", encoding="utf-8") as f:
-                # normalize_section_aliases: legacy `rules:` key -> `chains:`
-                # (2026-09-01 rename) so the GUI write paths and their
-                # read-merge-write never create a duplicate rules:/chains: pair.
-                # lift_loaded_dict: the format number comes out and the content
-                # is lifted to CURRENT_FORMAT — the s-expr branch gets both from
-                # sexp_to_dict itself, so the two formats cannot drift apart.
-                return lift_loaded_dict(
-                    normalize_section_aliases(parser(f) or {}), str(p))
+                return parser(f)
         except (json.JSONDecodeError, ValidationError) as e:
             raise OSError(_("{path} is not valid {kind}: {error}").format(
                 path=path, kind=kind, error=e)) from e

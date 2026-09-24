@@ -40,7 +40,7 @@ def load_fields_config(path: Path, section: str) -> tuple[str, dict[str, dict[st
         suffix = path.suffix.lower()
         if suffix == '.sexp':
             from .config.sexp_format import sexp_to_dict
-            data = sexp_to_dict(f.read()) or {}
+            data = sexp_to_dict(f.read(), path=str(path)) or {}
         elif suffix in ('.yaml', '.yml'):
             err = yaml_removed_config_error(path)
             raise FieldsToolError(str(err)) from err
