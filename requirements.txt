@@ -1,10 +1,24 @@
-# KiCadStamp — RUNTIME dependencies (direct).
-# Transitive dependencies are resolved by pip automatically and are NOT
-# pinned here (this used to be a `pip freeze` dump — see the 2026-08-25
-# architecture audit, P0-2).
+# KiCadStamp — direct dependencies: RUNTIME and TEST.
+#
+# RUNTIME is what the GUI/CLI/MCP need to run; TEST is what the suite needs and
+# nothing at runtime touches. They share this one file because CI installs exactly
+# this file (.github/workflows/ci.yml). Before 2026-09-24 it was runtime-only, so
+# CI's `python -m pytest` had no runner in the environment at all.
+# Transitive dependencies are resolved by pip automatically and are NOT pinned
+# here (this used to be a `pip freeze` dump — see the 2026-08-25 architecture
+# audit, P0-2).
+
+# ── runtime ───────────────────────────────────────────────────────────────────
 kicad-python==0.7.1   # kipy — KiCad IPC client
 PyYAML==6.0.3         # config loading
 sexpdata==1.0.2       # .kicad_sch parsing (sheet-name map)
 PyQt6==6.11.0         # GUI
 pynng==0.9.0          # IPC transport (patched on import by kicadstamp/kicad/pynng_safety.py)
 protobuf==5.29.6      # kipy message schemas
+
+# ── test ──────────────────────────────────────────────────────────────────────
+# pytest.ini lists all three under `required_plugins`, so a missing one refuses
+# the run instead of weakening it (plan_2026_09_24_kq_pytest_qt).
+pytest==9.1.1         # runner
+pytest-timeout==2.4.0 # per-test timeout + thread dump; without it `timeout = 60` in pytest.ini is ignored
+pytest-qt==4.5.0      # turns an exception in a Qt slot from a core dump (EXIT=134) into a FAILED naming the line

@@ -28,6 +28,14 @@ dev = [
     # it kills the whole run and names nothing. This one names the test and
     # prints where it hung — see pytest.ini's timeout_method.
     "pytest-timeout==2.4.0",
+    # pytest-qt (2026-09-24, plan_2026_09_24_kq_pytest_qt). PyQt6 calls qFatal()
+    # when an exception escapes a Qt SLOT and sys.excepthook is the default one:
+    # measured `Fatal Python error: Aborted`, EXIT=134, the whole run gone — and in
+    # diagnostics/run_board_door_offender_mutations.py that same dump READ AS "every
+    # watchdog survived". pytest-qt replaces the hook on every test phase and turns
+    # such an exception into a FAILED that names the file and line of the refusal.
+    # Dev-only: the battle code keeps its own hook untouched (see the plan's §7).
+    "pytest-qt==4.5.0",
     "babel==2.18.0",
     "pyflakes==3.4.0",
 ]

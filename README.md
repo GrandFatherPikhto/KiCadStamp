@@ -108,10 +108,15 @@ Dependencies are installed automatically and version-pinned. The ones that carry
 Optional extras:
 
 ```bash
-pip install -e ".[dev]"           # pytest, babel, pyflakes
+pip install -e ".[dev]"           # pytest, pytest-qt, babel, pyflakes
 pip install -e ".[diagnostics]"   # numpy, scipy, psutil, rich, watchdog
 pip install -e ".[mcp]"           # mcp — only needed for the MCP server
 ```
+
+`.[dev]` carries **pytest-qt**. Without it a GUI test whose Qt slot raises does not fail — it kills
+the whole run with `Fatal Python error: Aborted` (`EXIT=134`). All three test plugins are listed
+under `required_plugins` in `pytest.ini`, so a forgotten install refuses to start the suite instead
+of running it weakened.
 
 ### Entry points
 

@@ -18,7 +18,10 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 
 from gui import hotkeys
 from gui import settings
-from gui.color_schemes import available_color_schemes, load_color_scheme
+# `load_color_scheme` used to be imported here and never used (pyflakes flagged it
+# on the base commit too); it went when this file was touched for Т2, because
+# "pyflakes clean on the touched files" is part of the plan's acceptance.
+from gui.color_schemes import available_color_schemes
 from gui.docks.config_tree import ConfigTreeDock
 from gui.docks.configurator import ConfiguratorDock
 from gui.docks.role_cluster_tree import RoleClusterTreeDock
@@ -27,6 +30,27 @@ from gui.hotkeys import build_action
 
 import gui.board_overlay as overlay_mod
 import gui.docks.configurator as configurator_mod
+
+
+def _fake_application(monkeypatch, fake) -> None:
+    """Answer `QApplication.instance()` with `fake` FOR THE MODULE UNDER TEST.
+
+    The patch targets the NAME inside gui.docks.configurator, never the method of
+    the global PyQt6 class. The code under test cannot tell the difference — it
+    only ever calls `QApplication.instance()` (configurator.py lines 810/824/832)
+    — while pytest-qt very much can: after every test phase it calls
+    `QApplication.instance().processEvents()`, and a fake patched onto the GLOBAL
+    class is exactly what it gets. `_RecordingApp` and its neighbours carry no
+    `processEvents`, so the plugin raised inside its own hook and every later test
+    of the run reported E (measured 2026-09-24, plan_2026_09_24_kq_pytest_qt §2.4).
+
+    The assertions of the cells below are NOT touched: only the target of the
+    substitution moves. If configurator.py ever grows another `QApplication.<x>`
+    call, this SimpleNamespace does not carry it and the cell fails with
+    AttributeError — an honest red that points at the new call.
+    """
+    monkeypatch.setattr(configurator_mod, "QApplication",
+                        SimpleNamespace(instance=lambda: fake))
 
 
 # ── Category tree / pages (2026-09-01, plan project_settings_dialogs) ─────
@@ -274,8 +298,7 @@ def test_apply_concrete_style_persists_and_applies_live(main_window, qapp, monke
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     valid = sorted(QStyleFactory.keys())[0]
     calls = []
-    monkeypatch.setattr(configurator_mod.QApplication, "instance",
-                        lambda: _RecordingApp(calls))
+    _fake_application(monkeypatch, _RecordingApp(calls))
     dock.style_combo.setCurrentText(valid)
     assert settings.state.get("qt_style") is None  # draft only
     dock.apply()
@@ -292,8 +315,7 @@ def test_apply_system_default_clears_key_and_skips_setstyle(main_window, qapp,
     valid = sorted(QStyleFactory.keys())[0]
     settings.state.set("qt_style", valid)  # previously chosen
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
-    monkeypatch.setattr(configurator_mod.QApplication, "instance",
-                        lambda: _ForbiddingApp())
+    _fake_application(monkeypatch, _ForbiddingApp())
     dock.style_combo.setCurrentIndex(0)  # System default
     dock.apply()
     assert settings.state.get("qt_style") is None
@@ -381,7 +403,7 @@ def test_apply_concrete_scheme_persists_and_applies_live(
     applied live via QApplication.instance().setPalette() with that scheme's
     QPalette (the dialog's immediate-apply contract — no restart needed)."""
     fake = _PaletteRecordingApp(original_palette=QPalette())
-    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    _fake_application(monkeypatch, fake)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.color_scheme_combo.setCurrentText("Airy")
     assert settings.state.get("color_scheme") is None  # draft only
@@ -407,7 +429,7 @@ def test_apply_none_clears_key_and_restores_original_palette(
     settings.state.set("color_scheme", "Airy")  # previously chosen
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     fake = _PaletteRecordingApp(original_palette=original)
-    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    _fake_application(monkeypatch, fake)
     dock.color_scheme_combo.setCurrentIndex(0)  # "None"
     dock.apply()
     assert settings.state.get("color_scheme") is None
@@ -422,7 +444,7 @@ def test_apply_none_falls_back_to_standard_palette_without_snapshot(
     app.style().standardPalette() instead of crashing."""
     standard = QPalette()
     fake = _PaletteRecordingApp(original_palette=None, standard_palette=standard)
-    monkeypatch.setattr(configurator_mod.QApplication, "instance", lambda: fake)
+    _fake_application(monkeypatch, fake)
     dock = ConfiguratorDock(main_window, connection=main_window.connection)
     dock.color_scheme_combo.setCurrentIndex(0)  # "None"
     dock.apply()

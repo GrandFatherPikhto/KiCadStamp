@@ -107,10 +107,15 @@ pip install -e .
 Дополнительные наборы:
 
 ```bash
-pip install -e ".[dev]"           # pytest, babel, pyflakes
+pip install -e ".[dev]"           # pytest, pytest-qt, babel, pyflakes
 pip install -e ".[diagnostics]"   # numpy, scipy, psutil, rich, watchdog
 pip install -e ".[mcp]"           # mcp — только для MCP-сервера
 ```
+
+`.[dev]` включает **pytest-qt**. Без него GUI-тест, у которого исключение бросает Qt-слот, не
+краснеет, а убивает весь прогон: `Fatal Python error: Aborted` (`EXIT=134`). Три тестовых плагина
+перечислены в `required_plugins` в `pytest.ini`, поэтому забытая установка отказывается стартовать,
+а не идёт ослабленной.
 
 ### Точки входа
 

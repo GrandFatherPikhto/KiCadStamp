@@ -104,6 +104,28 @@ pytest tests/ -v -m "not integration"
 pytest tests/test_spoke_layout.py -v
 ```
 
+### Test plugins (required — the suite refuses to start without them)
+
+The three test plugins are declared in `pytest.ini` under `required_plugins`
+(`pytest-qt`, `pytest-timeout`), so a checkout that lacks them does not run a
+weakened suite — it stops with `ERROR: Missing required plugins`:
+
+- **pytest-qt** is not optional for the GUI tests. PyQt6 calls `qFatal()` when an
+  exception escapes a Qt slot while `sys.excepthook` is still the default one —
+  a core dump, `Fatal Python error: Aborted`, `EXIT=134`. The whole run is gone,
+  and only the tests that had already finished reported anything. pytest-qt
+  replaces the hook on every test phase and turns such an exception into a
+  `FAILED` that names the file and line of the refusal (for the board door, the
+  line that has to change). Declared `qt_api = pyqt6` on purpose: the measured
+  behaviour is PyQt6's, and a machine may also carry PySide6.
+- **pytest-timeout** is required because `timeout = 60` in `pytest.ini` does
+  nothing at all without it: a hanging GUI test would be killed by the outer
+  `timeout <N>` command instead, and the name of the test that hung would be
+  lost.
+
+Install them with `pip install -e ".[dev]"`; the same pins live in
+`requirements.txt`, which is what CI installs.
+
 ### Integration tests (with real KiCad)
 
 **Important:** Before running, make sure that:
