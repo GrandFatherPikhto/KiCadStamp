@@ -5284,6 +5284,11 @@ msgstr ""
 msgid "KiCad returned API error: {e}"
 msgstr "KiCad вернул ошибку API: {e}"
 
+#: kicadstamp/cli_common.py:77
+#, python-brace-format
+msgid "KiCad is not answering — it is probably not running, or it was closed while the call was in flight. Start KiCad with the board open and try again. Original error: {e}"
+msgstr "KiCad не отвечает — вероятно, он не запущен или был закрыт во время вызова. Запустите KiCad с открытой платой и повторите попытку. Исходная ошибка: {e}"
+
 #: kicadstamp/cli_common.py:71
 #, python-brace-format
 msgid "Error: {e}"

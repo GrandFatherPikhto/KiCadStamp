@@ -15,7 +15,7 @@ from functools import wraps
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from kicadstamp.cli_common import api_error_message
+from kicadstamp.cli_common import api_error_message, connection_error_message
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.i18n import _
@@ -27,8 +27,8 @@ from .connection import ConnectionManager
 def _tool_error(fn):
     """Convert deliberate user-facing failures into MCP ``ToolError``.
 
-    Two families are "the tool is telling the user something", and each gets the
-    project's EXISTING words for it rather than a new text:
+    Three families are "the tool is telling the user something", and each gets
+    the project's EXISTING words for it rather than a new text:
 
       * PlacerError (base of ValidationError/BoardNotFoundError/... — every
         fatal the project raises deliberately with an informative message) and
@@ -42,7 +42,22 @@ def _tool_error(fn):
         text comes from :func:`kicadstamp.cli_common.api_error_message`, the ONE
         message the CLI and fourteen GUI call sites already use — including its
         long AS_BUSY explanation, whose usual real-world cause is an unfinished
-        tool in the KiCad GUI (the easiest of all failures to misread as a hang).
+        tool in the KiCad GUI (the easiest of all failures to misread as a hang);
+      * kipy's ``ConnectionError`` — "there was no answer at all": KiCad is not
+        running, or the IPC link died while the call was in flight. It is a bare
+        Exception subclass that SHADOWS the built-in name inside kipy, which is
+        why a reconnect tuple built from the built-in one catches nothing (see
+        mcp_server/connection.py). This is the case the entry grew from — close
+        KiCad, call any tool — and on that path it is the SECOND failure, not the
+        first: the seam has already retried once by the time it arrives here.
+        Text: :func:`kicadstamp.cli_common.connection_error_message`.
+
+    The BUILT-IN ``ConnectionError`` is deliberately NOT converted here. It
+    belongs to the seam's retry (the reconnect tuple holds both classes, because
+    Python raises the built-in one on OS-level socket errors); a built-in one
+    reaching this wrapper means the retry itself failed with an OS-level error,
+    which plan_2026_09_25_mcp_error_contract does not cover. Kept as a named empty
+    cell rather than widened silently.
 
     Anything else is a real bug and propagates unchanged, so it stays
     distinguishable as a crash: mcp wraps it as ``UnexpectedToolError``, whose
@@ -59,13 +74,16 @@ def _tool_error(fn):
         except (PlacerError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
         except Exception as exc:
-            # ApiError is imported lazily, in the same form as run_cli
-            # (kicadstamp/cli_common.py): only an actual IPC failure pays for
-            # the kipy import chain.
+            # kipy's classes are imported lazily, in the same form as run_cli
+            # (kicadstamp/cli_common.py): only an actual IPC failure pays for the
+            # kipy import chain.
             from kipy.errors import ApiError
+            from kipy.errors import ConnectionError as KipyConnectionError
 
             if isinstance(exc, ApiError):
                 raise ToolError(api_error_message(exc)) from exc
+            if isinstance(exc, KipyConnectionError):
+                raise ToolError(connection_error_message(exc)) from exc
             raise
 
     return wrapper
