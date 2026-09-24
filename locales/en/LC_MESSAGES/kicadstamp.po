@@ -18797,3 +18797,49 @@ msgstr ""
 #, python-brace-format
 msgid "The same Qt failure has now happened {count} times — entered at {entry}, failed at {site}; it keeps failing and whatever it does keeps not completing."
 msgstr ""
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "the config format number must be a positive whole number, got {value}"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "in {path}: the number is a plain whole number of 1 or more (like (version 2))"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "config {path} is written in format {found}; this version of KiCadStamp understands the format up to {supported}"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+msgid "update KiCadStamp: the file is not read on purpose, so that nothing this version does not know about is lost. Once a newer KiCadStamp has lifted the profile, do not open it with an older one"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "no format converter from {from_version} to {to_version}"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+msgid "the converter chain has a hole — this is an internal error, not a problem with the file"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+msgid "s-expr: more than one root format number"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+#, python-brace-format
+msgid "in {path}: (version N) appears more than once at the top level — keep exactly one"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+msgid "s-expr: the root format number takes exactly one value"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+#, python-brace-format
+msgid "in {path}: got {n} atom(s); write (version 2)"
+msgstr ""

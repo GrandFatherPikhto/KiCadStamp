@@ -47,6 +47,7 @@ from ..trees import (
     tree_to_sexp,
 )
 from .aliases import _ENTITY_KEY_ALIASES, _SECTION_ALIASES
+from .format_version import VERSION_KEY, check_version_value, refuse_newer
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -996,8 +997,29 @@ def _parse_include(node, path: str) -> list:
     return entries
 
 
+def _root_version(child, path: str, seen: list[int]) -> int:
+    """Root `(version N)` -> the format number, shape-checked.
+
+    Lives in the parse layer on purpose (see sexp_to_dict's docstring): taken
+    out where the file is parsed, the number can never reach a caller's dict as
+    a free-form root field, and it is gone before the include merge — a
+    `(version N)` inside an INCLUDED file used to be a fatal there."""
+    if seen:
+        raise _fatal(
+            "s-expr: more than one root format number",
+            [_("in {path}: (version N) appears more than once at the top level — keep exactly one")
+             .format(path=path)])
+    if len(child) != 2:
+        raise _fatal(
+            "s-expr: the root format number takes exactly one value",
+            [_("in {path}: got {n} atom(s); write (version 2)").format(
+                path=path, n=len(child) - 1)])
+    return check_version_value(child[1], path, display=repr(sval(child[1])))
+
+
 def sexp_to_dict(text: str, apply_aliases: bool = True,
-                 raw_trees: bool = False) -> dict:
+                 raw_trees: bool = False, path: str = "<config>",
+                 version_out: list[int] | None = None) -> dict:
     """Parse s-expr config text back into the dict that yaml.safe_load would
     have produced for the equivalent YAML. The top-level node MUST be
     (kicadstamp-config ...).
@@ -1011,7 +1033,18 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
     raw_trees=True skips trees.py's grammar validation for the trees: section
     (trees.raw_tree_from_sexp): the one-way own_anchor -> mount converter
     (kicadstamp/tree_mount_convert.py) must be able to READ a config written
-    in the removed grammar. Every normal reader keeps the default False."""
+    in the removed grammar. Every normal reader keeps the default False.
+
+    A root-level `(version N)` — the file's FORMAT number, config/format_
+    version.py — is TAKEN OUT here, in the parse layer, and never appears in the
+    returned dict; `version_out` (an optional list) receives it when a caller
+    needs the number. Doing it here, and not one layer up, is what keeps a
+    `(version N)` inside an INCLUDED file from reaching `_resolve`'s
+    "unsupported top-level key" fatal, and what keeps every existing caller's
+    dict shape unchanged. The reader is liberal about WHERE the node sits (a
+    hand edit may move it); the writer always puts it first. A file written in a
+    format NEWER than CURRENT_FORMAT is refused right here, for all callers at
+    once (refuse_newer) — `path` only names the file in those messages."""
     try:
         root = sexpdata.loads(text)
     except Exception as e:  # sexpdata raises on unbalanced parens etc.
@@ -1026,12 +1059,24 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
                "{value!r}").format(value=root)])
 
     out: dict = {}
+    version_seen: list[int] = []
     for child in root[1:]:
         if not isinstance(child, list) or not child:
             raise _fatal(
                 "s-expr: expected a (key ...) node at the top level",
                 [_("got {value!r}").format(value=child)])
         key = sval(child[0])
+        # Root `(version N)` — the file's format number, taken out HERE (see the
+        # docstring): it must never survive into the dict, and it must be gone
+        # before the include merge (a non-root file carrying it used to be a
+        # fatal in includes.py::_resolve).
+        if key == VERSION_KEY:
+            found = _root_version(child, path, version_seen)
+            refuse_newer(found, path)
+            version_seen.append(found)
+            if version_out is not None:
+                version_out.append(found)
+            continue
         # Legacy section-key aliases (2026-09-01 Rule -> Chain, 2026-09-20
         # Scheme List -> Imprint): an old profile written with `(rules ...)` or
         # `(scheme_lists ...)` must parse as the canonical record class, not as

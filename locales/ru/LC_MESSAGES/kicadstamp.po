@@ -17479,3 +17479,49 @@ msgstr "Файл отчёта записать не удалось — трас�
 #, python-brace-format
 msgid "The same Qt failure has now happened {count} times — entered at {entry}, failed at {site}; it keeps failing and whatever it does keeps not completing."
 msgstr "Одно и то же падение в Qt произошло уже {count} раз — вход: {entry}, отказ: {site}; оно повторяется, и то, что оно делает, снова не выполняется."
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "the config format number must be a positive whole number, got {value}"
+msgstr "номер формата конфига должен быть целым положительным числом, получено {value}"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "in {path}: the number is a plain whole number of 1 or more (like (version 2))"
+msgstr "в {path}: число — целое, 1 или больше (например (version 2))"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "config {path} is written in format {found}; this version of KiCadStamp understands the format up to {supported}"
+msgstr "файл {path} записан в формате {found}; эта версия KiCadStamp понимает формат до {supported}"
+
+#: kicadstamp/config/format_version.py
+msgid "update KiCadStamp: the file is not read on purpose, so that nothing this version does not know about is lost. Once a newer KiCadStamp has lifted the profile, do not open it with an older one"
+msgstr "обновите KiCadStamp: файл не читается намеренно, чтобы не потерять то, чего эта версия не знает. Профиль, поднятый новой версией KiCadStamp, не открывайте старой"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "no format converter from {from_version} to {to_version}"
+msgstr "нет конвертера формата из {from_version} в {to_version}"
+
+#: kicadstamp/config/format_version.py
+msgid "the converter chain has a hole — this is an internal error, not a problem with the file"
+msgstr "в цепочке конвертеров дыра — это внутренняя ошибка, а не проблема файла"
+
+#: kicadstamp/config/sexp_format.py
+msgid "s-expr: more than one root format number"
+msgstr "s-expr: номеров формата в корне больше одного"
+
+#: kicadstamp/config/sexp_format.py
+#, python-brace-format
+msgid "in {path}: (version N) appears more than once at the top level — keep exactly one"
+msgstr "в {path}: (version N) встречается на верхнем уровне больше одного раза — оставьте ровно один"
+
+#: kicadstamp/config/sexp_format.py
+msgid "s-expr: the root format number takes exactly one value"
+msgstr "s-expr: номер формата в корне принимает ровно одно значение"
+
+#: kicadstamp/config/sexp_format.py
+#, python-brace-format
+msgid "in {path}: got {n} atom(s); write (version 2)"
+msgstr "в {path}: получено {n} атом(ов); пишите (version 2)"
