@@ -25,8 +25,17 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
 def _load(path: Path):
+    """Read the file back the way the PRODUCT reads a config: with the FORMAT
+    number taken out. Since Т3 every written file carries one (`(version N)` in
+    s-expr, `"version": N` in JSON): `sexp_to_dict` strips it on its own, and for
+    JSON the product's own `take_version` does it — note it RETURNS the number
+    and pops the key, so it is called for that side effect, not for its value."""
     if path.suffix.lower() == ".json":
-        return json.loads(path.read_text(encoding="utf-8"))
+        from kicadstamp.config.format_version import take_version
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        take_version(data)
+        return data
     return sexp_to_dict(path.read_text(encoding="utf-8"))
 
 

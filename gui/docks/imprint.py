@@ -334,15 +334,17 @@ def ensure_imprint_storage(root_path: Path) -> Path:
     idempotent — a re-enabled/again-included file returns without a duplicate
     line). Returns the storage path.
 
-    A file created HERE is always s-expr: ``dict_to_sexp({})`` is exactly
-    ``(kicadstamp-config)\\n``, the empty config that reads back as ``{}``
-    through sexp_to_dict (measured 2026-09-12) — the s-expr counterpart of the
-    ``{}\\n`` the JSON storage used to be created as. A legacy
+    A file created HERE is always s-expr, written through the ONE config writer
+    (Т3): the empty config carries the CURRENT format number and reads back as
+    ``{}`` through sexp_to_dict (measured 2026-09-12) — the s-expr counterpart
+    of the ``{}\\n`` the JSON storage used to be created as. A legacy
     ``scheme_lists.json`` is reused as-is (see default_imprint_path) and is
     NEVER rewritten or converted, so the two files can never both appear."""
     path = default_imprint_path(root_path)
     if not path.exists():
-        path.write_text(dict_to_sexp({}), encoding="utf-8")
+        from kicadstamp.config_writer import write_config_file
+
+        write_config_file(path, {})
     add_include(Path(root_path), path.name)
     return path
 

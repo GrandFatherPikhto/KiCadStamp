@@ -441,10 +441,15 @@ def test_the_writer_writes_the_number_first_and_only_once():
     assert text.count("(version") == 1
 
 
-def test_the_writer_needs_the_number_told_to_it():
-    """The number is never taken from the dict — today's default writes none,
-    so Т3 is the step that flips the default to CURRENT_FORMAT."""
-    assert "(version" not in dict_to_sexp({"version": 1, "cells": {}})
+def test_the_writer_stamps_the_current_number_by_default():
+    """Т3 flipped this default: every writer stamps the number itself, so a new
+    file is born in the current format and no write site can forget. (Т2 shipped
+    the opposite default on purpose — the plumbing landed with its first user —
+    and this row IS the flip.)"""
+    assert dict_to_sexp({}).splitlines()[1].strip() == f"(version {CURRENT_FORMAT})"
+    assert dict_to_sexp({"cells": {}}).count("(version") == 1
+    # The number still is NEVER taken from the dict.
+    assert dict_to_sexp({"version": 1, "cells": {}}).count("(version") == 1
 
 
 def test_a_raw_rewrite_puts_back_the_number_it_read():
@@ -721,6 +726,176 @@ def test_every_config_parse_names_the_file_it_reads():
     assert no_path == _PATHLESS_READERS, (
         "these callers parse a file without passing path=: "
         f"{sorted(no_path - _PATHLESS_READERS)}")
+
+
+# ── Т3: the ONE config writer, and its `.bak` contract ─────────────────────
+
+def test_write_config_file_stamps_the_number_for_a_new_file(tmp_path):
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "new.sexp"
+    write_config_file(p, {"cells": {}})
+    assert p.read_text(encoding="utf-8").splitlines()[1].strip() == (
+        f"(version {CURRENT_FORMAT})")
+    assert list(tmp_path.glob("new.sexp.bak.*")) == [], "a fresh file has nothing to lose"
+
+
+def test_write_config_file_takes_one_bak_when_the_file_is_older(tmp_path):
+    """The `.bak` the whole decision (Denis, 24.09.2026) is about: this write
+    changes the FORMAT, so the old-format bytes survive nowhere else — the reader
+    already lifted the content in memory."""
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "old.sexp"
+    original = "(kicadstamp-config\n  (cells)\n)\n"
+    p.write_text(original, encoding="utf-8")
+
+    write_config_file(p, {"cells": {}})
+
+    baks = list(tmp_path.glob("old.sexp.bak.*"))
+    assert len(baks) == 1
+    assert baks[0].read_text(encoding="utf-8") == original, "the PREVIOUS bytes"
+    assert f"(version {CURRENT_FORMAT})" in p.read_text(encoding="utf-8")
+
+
+def test_write_config_file_leaves_a_current_file_without_a_bak(tmp_path):
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "cur.sexp"
+    p.write_text(_wrap(f"  (version {CURRENT_FORMAT})\n  (cells)\n"), encoding="utf-8")
+
+    write_config_file(p, {"cells": {}})
+
+    assert list(tmp_path.glob("*.bak.*")) == []
+
+
+def test_write_config_file_can_be_asked_for_the_copy_always(tmp_path):
+    """A one-time migration changes CONTENT irreversibly, so it must be
+    reversible whatever the file's format is — that is what `always_backup` is
+    for, and why the migration tool no longer takes its own copy (two copies of
+    one file was measured there)."""
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "mig.sexp"
+    original = _wrap(f"  (version {CURRENT_FORMAT})\n  (cells)\n")
+    p.write_text(original, encoding="utf-8")
+
+    write_config_file(p, {"cells": {}}, always_backup=True)
+
+    baks = list(tmp_path.glob("mig.sexp.bak.*"))
+    assert len(baks) == 1
+    assert baks[0].read_text(encoding="utf-8") == original
+
+
+def test_write_config_file_writes_json_with_the_number_first(tmp_path):
+    """The JSON rule of Т3, read back by the product's OWN reader: the number
+    goes in first and comes out on read, so both formats behave alike."""
+    from kicadstamp.config_writer import read_data, write_config_file
+
+    p = tmp_path / "c.json"
+    write_config_file(p, {"cells": {"a": {}}})
+
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    assert list(raw)[0] == "version"
+    assert raw["version"] == CURRENT_FORMAT
+    assert read_data(p) == {"cells": {"a": {}}}
+
+
+def test_write_config_file_refuses_to_overwrite_a_file_that_became_newer(tmp_path):
+    """A newer file (another machine lifted it and Syncthing delivered it) must
+    stop the write — our content is older, so writing would destroy what we do
+    not know. OSError, not a bare ValidationError: this path is reached from Qt
+    slots, where an escaping non-OSError aborts PyQt6."""
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "newer.sexp"
+    text = _wrap(f"  (version {CURRENT_FORMAT + 1})\n  (cells)\n")
+    p.write_text(text, encoding="utf-8")
+
+    with pytest.raises(OSError):
+        write_config_file(p, {"cells": {}})
+    assert p.read_text(encoding="utf-8") == text, "untouched"
+
+
+# ── the structural cell for the WRITER side ────────────────────────────────
+
+# Config-text writes allowed to bypass write_config_file, keyed by
+# (path relative to the repo root, enclosing function) -> the reason.
+# The scan below finds `X.write_text(dict_to_sexp(...))` and
+# `f.write(dict_to_sexp(...))`; it does NOT find a write of a text built earlier
+# (config_rename.write_profile_files and schematic_editing both write a
+# pre-built string, and both take their own unconditional `.bak` — the former
+# writes profile configs, the latter a schematic's text, which is not a config).
+_CONFIG_WRITE_BYPASSES: dict[tuple[str, str], str] = {
+    ("gui/include_recovery.py", "_create_empty"): (
+        "creates the missing include file and deliberately does NOT create "
+        "parent directories (documented: a missing parent is more likely a wrong "
+        "path than a directory worth inventing). The format number still comes "
+        "from dict_to_sexp."),
+    ("tools/convert_rules_to_chains.py", "_write_raw"): (
+        "the raw rule->chain converter: it reads WITHOUT aliases and writes back "
+        "the number it READ (Т3b), so it cannot go through the config writer"),
+    ("tools/sexp_config_convert.py", "_write_dict"): (
+        "the s-expr <-> YAML converter: its output is the OTHER format, not a "
+        "config-graph file"),
+    ("tools/generate_config.py", "<module>"): "one-time generator (see the row below)",
+    ("tools/generate_test_profile.py", "main"): (
+        "a one-time generator that AUTHORS a fresh file from scratch; it still "
+        "gets the CURRENT number from dict_to_sexp inside"),
+    ("tools/generate_10cl006.py", "write_sexp"): "one-time generator (see above)",
+}
+
+
+def _config_text_write_sites() -> set[tuple[str, str]]:
+    """(relpath, enclosing function) for every `write_text(dict_to_sexp(...))` /
+    `write(dict_to_sexp(...))` in the ship code."""
+    sites: set[tuple[str, str]] = set()
+
+    class _Finder(ast.NodeVisitor):
+        def __init__(self, relpath: str) -> None:
+            self.relpath = relpath
+            self.owners: list[str] = []
+
+        def visit_FunctionDef(self, node):
+            self.owners.append(node.name)
+            self.generic_visit(node)
+            self.owners.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            func = node.func
+            is_write = (isinstance(func, ast.Attribute)
+                        and func.attr in ("write_text", "write"))
+            if is_write and node.args:
+                first = node.args[0]
+                inner = first.func if isinstance(first, ast.Call) else None
+                called = (inner.id if isinstance(inner, ast.Name)
+                          else inner.attr if isinstance(inner, ast.Attribute) else None)
+                if called == "dict_to_sexp":
+                    sites.add((self.relpath,
+                               self.owners[-1] if self.owners else "<module>"))
+            self.generic_visit(node)
+
+    for root_name in _SCANNED_ROOTS:
+        for path in sorted((_REPO_ROOT / root_name).rglob("*.py")):
+            if _SCAN_SKIP_DIRS.intersection(path.parts):
+                continue
+            _Finder(str(path.relative_to(_REPO_ROOT))).visit(
+                ast.parse(path.read_text(encoding="utf-8")))
+    return sites
+
+
+def test_every_config_write_goes_through_the_one_config_writer():
+    """Т3's structural cell (plan §Т3 + Denis's `.bak` decision). The writer owns
+    the number, the atomic write and the `.bak`; a site that writes config text
+    itself must be a conscious, listed decision — otherwise the fourth path added
+    tomorrow is the one that forgets."""
+    found = _config_text_write_sites()
+    assert found == set(_CONFIG_WRITE_BYPASSES), (
+        "these sites write config text outside write_config_file without being "
+        f"listed: {sorted(found - set(_CONFIG_WRITE_BYPASSES))}; listed but not "
+        f"found: {sorted(set(_CONFIG_WRITE_BYPASSES) - found)}")
 
 
 if __name__ == "__main__":  # pragma: no cover

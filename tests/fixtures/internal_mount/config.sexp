@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 1)
+  (version 2)
   (trees
     (tree
       (name "internal_mount")
@@ -46,43 +46,30 @@
   (cells
     (cell
       "dac_cell"
-      (layer "F.Cu")
       (components
         (component
           (role "DAC")
-          (offset_along_mm 0.0)
-          (offset_across_mm 0.0)
-          (angle_deg 0.0)
         )
         (component
           (role "DAC_ALT")
           (offset_along_mm 2.0)
-          (offset_across_mm 0.0)
           (angle_deg 90.0)
         )
       )
     )
     (cell
       "pif_cell"
-      (layer "F.Cu")
       (components
         (component
           (role "PIF")
-          (offset_along_mm 0.0)
-          (offset_across_mm 0.0)
-          (angle_deg 0.0)
         )
       )
     )
     (cell
       "ext_cell"
-      (layer "F.Cu")
       (components
         (component
           (role "EXT_C")
-          (offset_along_mm 0.0)
-          (offset_across_mm 0.0)
-          (angle_deg 0.0)
         )
       )
     )

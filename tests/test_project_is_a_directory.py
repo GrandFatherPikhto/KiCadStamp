@@ -175,7 +175,13 @@ def test_create_project_writes_the_config_and_its_infrastructure(tmp_path):
     config = create_project(project)
 
     assert config == project / "Clean-Project.sexp"
-    assert config.read_text(encoding="utf-8").strip() == "(kicadstamp-config)"
+    # The file IS a valid empty config, and it is written by the product's OWN
+    # writer: since Т3 that writer stamps the FORMAT number, so the expected text
+    # is produced by asking the writer rather than by pinning a literal that
+    # would have to be kept in step with CURRENT_FORMAT by hand.
+    from kicadstamp.config.sexp_format import dict_to_sexp
+
+    assert config.read_text(encoding="utf-8").strip() == dict_to_sexp({}).strip()
     assert sorted(p.name for p in project.iterdir()) == sorted(
         ["Clean-Project.sexp", *_INFRA])
 

@@ -18,8 +18,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from kicadstamp.config.aliases import normalize_section_aliases
-from kicadstamp.config.format_version import lift_loaded_dict
+from kicadstamp.config.format_version import (
+    VERSION_KEY,
+    current_format,
+    lift_loaded_dict,
+    read_version,
+)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.utils.safe_write import backup_file, write_text_atomic
 from kicadstamp.exceptions import (
     ValidationError,
     unknown_extension_config_error,
@@ -140,33 +146,98 @@ def _read_data(path: Path) -> dict:
     return cached_file_read(path, _uncached_read)
 
 
-def _serialize(path: Path, data: dict) -> str:
+def _serialize(path: Path, data: dict,
+               format_number: int | None = None) -> str:
     """Serialize `data` to the text form for `path`'s extension — shared by
-    the physical _write_data() below and by the working set's atomic flush
-    (which writes to a temp sibling then os.replace(), see
+    write_config_file() below and by the working set's atomic flush (which
+    writes to a temp sibling then os.replace(), see
     kicadstamp/config_working_set.py). .json -> JSON, .sexp -> s-expr,
     anything else -> fatal OSError (ValidationError as __cause__), raised
-    BEFORE any file is opened."""
+    BEFORE any file is opened.
+
+    BOTH formats stamp the FORMAT number here, so a flushed file is born in the
+    current format exactly like a directly written one: the s-expr side through
+    dict_to_sexp (which does it itself), the JSON side right here — the readers
+    of both formats are the same readers, so the two must not disagree.
+    `format_number=None` means CURRENT_FORMAT; the raw converters are the only
+    callers that pass their own, and they do not come through here."""
     suffix = path.suffix.lower()
     if suffix == ".json":
-        return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=False)
+        # current_format() at CALL time — see format_version.current_format for
+        # why the constant must not be bound by a from-import.
+        number = current_format() if format_number is None else format_number
+        # The number is FIRST, and it is never taken from `data`: a `version`
+        # key already in the dict is dropped, so it can neither be duplicated
+        # nor win over the parameter (the same rule as dict_to_sexp).
+        out = {VERSION_KEY: number}
+        out.update({k: v for k, v in data.items() if k != VERSION_KEY})
+        return json.dumps(out, indent=2, ensure_ascii=False, sort_keys=False)
     if suffix == ".sexp":
-        return dict_to_sexp(data)
+        return dict_to_sexp(data, format_number)
     _raise_unsupported_config_format(path, suffix)
 
 
+def write_config_file(path: Path, data: dict, *,
+                      format_number: int | None = None,
+                      always_backup: bool = False) -> None:
+    """Write ONE config file — the single place the `.bak` contract lives.
+
+    The rule (Denis, 24.09.2026): when the file on disk is still an OLDER
+    format, take `backup_file(path)` FIRST, then write. That is the one write
+    that is not just an edit — the reader lifts the content in memory, so once
+    the new bytes land the old-format content survives nowhere else, and the
+    `.bak` is the only way back. An ordinary edit of a current-format file
+    needs no copy from here (the existing conventions — the delete/rename flows,
+    the tree converter — take their own).
+
+    Putting it in ONE function is deliberate, for the same reason the read side
+    lifts by default: three read-modify-write paths plus the GUI save plus the
+    on-disk upgrade (Т4) all need it, and a fourth path added tomorrow must not
+    be able to forget. `dict_to_sexp` could not own this: it is a pure
+    serialization to a string and knows no path, and half its callers write
+    nothing.
+
+    The write is atomic (`write_text_atomic`), so a crash or a full disk leaves
+    the target with its previous bytes, and `newline=""` keeps the output
+    byte-identical across platforms. Both cache layers are dropped afterwards
+    (mtime alone cannot separate two writes microseconds apart on a coarse-timer
+    filesystem — see kicadstamp/utils/file_cache.py).
+
+    A file that has become NEWER underneath us (another machine lifted it and
+    Syncthing delivered it) raises instead of being overwritten: our content is
+    older, so writing would destroy what we do not know. The ValidationError is
+    wrapped in OSError for the same reason `_read_data` wraps its parse errors —
+    a raw ValidationError escaping into a Qt slot aborts PyQt6 (measured, see
+    the module docstring).
+
+    `always_backup=True` is for a caller that changes CONTENT irreversibly, not
+    the format — a one-time migration tool. Such a caller must be reversible
+    whatever the file's format is, so it asks for the copy unconditionally
+    instead of taking its own (which would put TWO copies of one file next to
+    it, measured in test_migrate_legacy_pad_anchors). The default stays "only
+    when the format changes"."""
+    target = Path(path)
+    if target.exists():
+        try:
+            stale = read_version(target) < current_format()
+        except ValidationError as e:
+            raise OSError(str(e)) from e
+        if stale or always_backup:
+            backup_file(target)
+    write_text_atomic(target, _serialize(target, data,
+                                         format_number=format_number))
+    invalidate_path(target)
+    invalidate_graph_path(target)
+
+
 def _write_data(path: Path, data: dict) -> None:
-    """Write merged content back in the same format (YAML/JSON/s-expr by file
+    """Write merged content back in the same format (JSON/s-expr by file
     extension) it was read in. Every GUI dock write path
     (merge_write/add_list_entry/upsert_*/_remove_entry) funnels through
-    this ONE physical-write chokepoint, which is why invalidate_path() AND
-    invalidate_graph_path() live here and nowhere else: mtime alone can't
-    tell two writes to the same file microseconds apart apart on a
-    coarse-timer filesystem (the delete-then-upsert shape of
-    PlacerDock._do_save), so BOTH cache layers are explicitly dropped for
-    this path right after the write — the single-file cache and the
-    graph-level result cache (see kicadstamp/utils/file_cache.py's
-    invalidate_path()/invalidate_graph_path() docstrings).
+    this ONE chokepoint, and the physical part — the atomic write, the `.bak`
+    rule and the BOTH-cache invalidation — now lives in write_config_file(),
+    so every other writer in the codebase gets the same contract instead of
+    having to remember it.
 
     Format is selected by file extension, symmetric to _read_data (2026-08-28,
     core_yaml_removal — YAML support removed): .json -> JSON, .sexp -> s-expr,
@@ -182,13 +253,7 @@ def _write_data(path: Path, data: dict) -> None:
     if WORKING_SET.enabled:
         WORKING_SET.stage_write(path, data)
         return
-    # Serialize BEFORE opening the file — a bad extension must raise with no
-    # (empty) file left behind.
-    text = _serialize(path, data)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
-    invalidate_path(path)
-    invalidate_graph_path(path)
+    write_config_file(path, data)
 
 
 # Public aliases — these two are consumed across the gui/ package boundary

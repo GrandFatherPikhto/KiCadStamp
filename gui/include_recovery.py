@@ -182,10 +182,13 @@ def _entry_target(entry, base_dir: Path) -> Optional[Path]:
 
 
 def _write_physical(path: Path, data: dict) -> None:
-    if path.suffix.lower() == ".json":
-        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    else:
-        path.write_text(dict_to_sexp(data), encoding="utf-8")
+    """Through the ONE config writer (Т3): this is a read-modify-write path, and
+    it runs precisely when the include graph is BROKEN — so the on-disk upgrade
+    (Т4) may not have lifted the file yet. The writer takes the `.bak` itself in
+    that case, instead of this path having to remember."""
+    from kicadstamp.config_writer import write_config_file
+
+    write_config_file(path, data)
 
 
 def _remove_include_line(error: MissingIncludeError) -> bool:

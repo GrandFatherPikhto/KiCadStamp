@@ -175,22 +175,21 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
 
     existing_cells.update(template_dict)
 
+    if suffix in (".yaml", ".yml"):
+        raise yaml_removed_config_error(output_path)
+    if suffix not in (".json", ".sexp"):
+        raise unknown_extension_config_error(output_path, suffix)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        if is_json:
-            json.dump(existing, f, indent=2, ensure_ascii=False)
-        elif is_sexp:
-            # render_uncertain_comments was the YAML-write branch's comment
-            # post-processor (it splices "# field: hint" lines into yaml.dump
-            # output). YAML output was removed from the core (2026-08-28,
-            # core_yaml_removal) — the call is gone; the function/module stay
-            # alive (unit-tested, re-exported from template_extraction) per
-            # plan §0.5, but .sexp output carries no uncertainty annotations.
-            f.write(dict_to_sexp(existing))
-        elif suffix in (".yaml", ".yml"):
-            raise yaml_removed_config_error(output_path)
-        else:
-            raise unknown_extension_config_error(output_path, suffix)
+    # Through the ONE config writer (Т3): it selects the format by extension,
+    # stamps the CURRENT number and — since this is a read-modify-write path —
+    # takes the `.bak` itself when the file on disk is still an older format.
+    # (render_uncertain_comments was the YAML-write branch's comment
+    # post-processor; YAML output was removed from the core 2026-08-28, so the
+    # .sexp output carries no uncertainty annotations — the function/module stay
+    # alive per plan §0.5.)
+    from .config_writer import write_config_file
+
+    write_config_file(output_path, existing)
 
     logger.info(_("✅ Template {name!r} written to {output}").format(name=name, output=output_path))
     return template_dict

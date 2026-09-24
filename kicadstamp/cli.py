@@ -265,11 +265,12 @@ def cmd_clone_plan(args) -> None:
     names = ", ".join(p.get("name") or p.get("cluster") or "?" for p in placements)
 
     if args.output:
-        # The main config is s-expr (.sexp) — the generated block is serialized
-        # with the same dict->s-expr converter the rest of the config uses.
-        from kicadstamp.config.sexp_format import dict_to_sexp
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(dict_to_sexp(clone_placements_to_dict(placements)))
+        # The main config is s-expr (.sexp) — through the ONE config writer (Т3):
+        # it stamps the CURRENT format number, writes atomically, and takes the
+        # `.bak` itself when the target is still an older format.
+        from kicadstamp.config_writer import write_config_file
+
+        write_config_file(args.output, clone_placements_to_dict(placements))
         logger.info(_("clone_placements for {channels} (cell {cell!r}) written: {output}")
                     .format(channels=names, cell=args.cell, output=args.output))
     else:

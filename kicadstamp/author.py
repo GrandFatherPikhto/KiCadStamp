@@ -85,16 +85,22 @@ def dump_clone_placements(clones: list[ClonePlacement], path: str) -> None:
     profile. The caller is responsible for naming the output .sexp (the
     config graph is s-expr/.json only since 2026-08-28)."""
     data = {"clone_placements": [_prune_defaults(c) for c in clones]}
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(dict_to_sexp(data))
+    # Through the ONE config writer (Т3): it stamps the CURRENT format number,
+    # writes atomically, and takes the `.bak` itself when the target is still an
+    # older format.
+    from .config_writer import write_config_file
+
+    write_config_file(path, data)
 
 
 def dump_chains(chains: list[Chain], path: str) -> None:
     """Writes {'chains': [...]} to path as s-expr — same include:-ready shape
     as dump_clone_placements."""
     data = {"chains": [_prune_defaults(c) for c in chains]}
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(dict_to_sexp(data))
+    # Through the ONE config writer (Т3), same contract as dump_clone_placements.
+    from .config_writer import write_config_file
+
+    write_config_file(path, data)
 
 
 # Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
@@ -113,8 +119,10 @@ def dump_template(template_dict: dict, path: str) -> None:
     regeneration of its own dedicated file, not accumulate into a shared one.
     Use cmd_extract/the CLI directly if you want the merge behaviour
     instead."""
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(dict_to_sexp({"cells": template_dict}))
+    # Through the ONE config writer (Т3), same contract as dump_clone_placements.
+    from .config_writer import write_config_file
+
+    write_config_file(path, {"cells": template_dict})
 
 
 def apply_config(cfg: Config, config_path: str, *, ctx: RuntimeContext | None = None,

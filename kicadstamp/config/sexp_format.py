@@ -47,7 +47,13 @@ from ..trees import (
     tree_to_sexp,
 )
 from .aliases import _ENTITY_KEY_ALIASES, _SECTION_ALIASES
-from .format_version import VERSION_KEY, check_version_value, refuse_newer, upgrade_data
+from .format_version import (
+    VERSION_KEY,
+    check_version_value,
+    current_format,
+    refuse_newer,
+    upgrade_data,
+)
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -585,24 +591,31 @@ def dict_to_sexp(data: dict, format_number: int | None = None) -> str:
     """Serialize a config dict (what yaml.safe_load returns) into s-expr text,
     wrapped in (kicadstamp-config ...).
 
-    `format_number` — the FORMAT number to write as the root's FIRST child
-    (config/format_version.py). None (today's default) writes none; Т3 flips the
-    default to CURRENT_FORMAT, so every LIFTED write stamps the current number.
+    `format_number` — the FORMAT number written as the root's FIRST child
+    (config/format_version.py). None (the default) means CURRENT_FORMAT,
+    resolved at CALL time so a substituted current format is honoured; the RAW
+    path passes the number it READ, never the current one, or format-1 content
+    would be stamped as current.
+
+    So EVERY writer stamps a number, and the writer does it itself: a new file
+    is born in the current format and none of the ~twenty write sites can forget
+    (the whole reason this lives here rather than there) — the same reasoning, on
+    the write side, as the reader lifting by default on the read side (Т2).
 
     The number is NEVER taken from `data`: a `version` key inside the dict is
-    dropped, so it can neither be duplicated nor win over the parameter. That is
-    what the RAW path depends on — a converter that read a file with its number
-    taken out must put THE SAME number back, never the current one, or format-1
-    content would be stamped as current. The parameter is the only way in, so a
-    raw writer has to say the number out loud, and that is checkable."""
+    dropped, so it can neither be duplicated nor win over the parameter."""
     if not isinstance(data, dict):
         raise ValidationError(format_fatal_error(
             _("s-expr: top level must be a mapping, got {type}").format(type=type(data).__name__),
             [_("(kicadstamp-config ...) must wrap a config mapping")]
         ))
+    if format_number is None:
+        # current_format(), not the imported constant: the number must be the
+        # CURRENT one at write time, never whatever was current when this module
+        # happened to be imported first (see format_version.current_format).
+        format_number = current_format()
     root = [sym(TOP_TAG)]
-    if format_number is not None:
-        root.append([sym(VERSION_KEY), format_number])
+    root.append([sym(VERSION_KEY), format_number])
     for key, value in data.items():
         if key == VERSION_KEY:
             continue

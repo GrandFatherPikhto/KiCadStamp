@@ -54,31 +54,26 @@ def migrate_cells_data(data: Dict[str, Any]) -> List[str]:
     return sorted(migrated)
 
 
-def _backup(path: Path) -> None:
-    """Timestamped copy of `path` next to itself (e.g. config.sexp.bak.
-    20260909_101500) — a real migration run rewrites the input and the
-    original must never be lost (same backup-the-write-target convention as
-    tools/convert_placements.py)."""
-    import shutil
-    from datetime import datetime
-
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    shutil.copy2(path, path.with_name(f"{path.name}.bak.{stamp}"))
 
 
 def migrate_file(path: Path) -> List[str]:
     """Migrate ONE physical config file (.sexp/.json): read, deep-copy (the
     cache returns a SHARED object — an in-place mutation would corrupt the
-    in-process cache if write_data() failed after mutating), migrate its own
-    `cells:`, and write back only when something changed (after a timestamped
-    .bak). Returns the migrated cell names."""
-    from kicadstamp.config_writer import read_data, write_data
+    in-process cache if write_config_file() failed after mutating), migrate its
+    own `cells:`, and write back only when something changed.
+
+    The `.bak` comes from the ONE config writer, which already owns that
+    contract: `always_backup=True` because a one-time migration changes CONTENT
+    irreversibly and must be reversible whatever the file's format is. This
+    function used to take its own copy on top — since write_data() now goes
+    through write_config_file(), that produced TWO timestamped copies of one
+    file (measured in test_migrate_legacy_pad_anchors)."""
+    from kicadstamp.config_writer import read_data, write_config_file
 
     data = copy.deepcopy(read_data(path))
     migrated = migrate_cells_data(data)
     if migrated:
-        _backup(path)
-        write_data(path, data)
+        write_config_file(path, data, always_backup=True)
     return migrated
 
 

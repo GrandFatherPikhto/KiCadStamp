@@ -1,4 +1,5 @@
 (kicadstamp-config
+  (version 2)
   (trees
     (tree
       (name "ch0_dac_buf")

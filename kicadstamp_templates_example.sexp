@@ -1,4 +1,5 @@
 (kicadstamp-config
+  (version 2)
   (layer "B.Cu")
   (thermal_via_arrays
     (thermal_via_array
@@ -43,8 +44,8 @@
       )
     )
   )
-  (rules
-    (rule
+  (chains
+    (chain
       (net "+1V2_VCCINT")
       (name "+1V2_VCCINT")
       (anchor_ref "IC1")

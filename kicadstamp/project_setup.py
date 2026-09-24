@@ -48,7 +48,14 @@ def create_project(project_dir) -> Path:
     if config.exists():
         raise ProjectConfigExists(config)
     config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    # Through the ONE config writer, not a hand-written literal: a project born
+    # here is CURRENT format, and a literal is a second place that has to be
+    # kept in step with CURRENT_FORMAT (the bypass the Т3 acceptance's
+    # structural cell exists to catch). A fresh file needs no `.bak`.
+    # Local import: this module is on the CLI/project-creation path.
+    from .config_writer import write_config_file
+
+    write_config_file(config, {})
     for name in PROJECT_INFRA_DIRS:
         (config.parent / name).mkdir(exist_ok=True)
     return config

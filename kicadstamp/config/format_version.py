@@ -57,6 +57,22 @@ from ..i18n import _
 # that does not change the grammar must NOT bump it.
 CURRENT_FORMAT = 2
 
+
+def current_format() -> int:
+    """The format THIS build writes — CURRENT_FORMAT, read at CALL time.
+
+    Every other module must ask through here rather than `from .format_version
+    import CURRENT_FORMAT`: a from-import binds the VALUE at import time, and a
+    module first imported while the constant is temporarily substituted (a test
+    swapping the current format to exercise a future step) would freeze the
+    substituted number forever. Measured 24.09.2026: `config_writer` was first
+    imported inside a cell that had patched CURRENT_FORMAT to 3, and went on
+    writing `"version": 3` for the rest of the session while `format_version`
+    itself was back at 2 — the two sides of one file disagreeing about its
+    format, silently. Nothing substitutes the constant in production, but that
+    is exactly the class of failure this заход exists to remove."""
+    return CURRENT_FORMAT
+
 # The root key / node name carrying the number, in both formats.
 VERSION_KEY = "version"
 

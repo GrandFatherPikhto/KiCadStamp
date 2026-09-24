@@ -100,7 +100,10 @@ def extract_channel(net_path: str, pcb_path: str, channel: str,
     snap = doc.snapshot_channel(channel, twin.channels[channel].sheet_uuid)
     d = snapshot_to_dict(snap, twin)
 
-    with open(output, 'w', encoding='utf-8') as f:
-        f.write(dict_to_sexp(d))
+    # Through the ONE config writer (Т3): the CURRENT format number, an atomic
+    # write, and the `.bak` rule when the target is still an older format.
+    from ..config_writer import write_config_file
+
+    write_config_file(output, d)
     logger.info(_("Snapshot of {channel} written: {output}").format(channel=channel, output=output))
     return d
