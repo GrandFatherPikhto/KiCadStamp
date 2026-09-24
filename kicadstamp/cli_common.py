@@ -47,6 +47,36 @@ def api_error_message(e) -> str:
     return _("KiCad returned API error: {e}").format(e=e)
 
 
+def connection_error_message(e) -> str:
+    """Human-readable message for kipy's connection-level ``ConnectionError``.
+
+    The counterpart of :func:`api_error_message` for the OTHER kipy failure: not
+    "KiCad answered and refused" but "there was no answer at all" — KiCad is not
+    running, was closed while the call was in flight, or the IPC socket broke.
+    That is the most ordinary thing that happens in real use ("I closed KiCad"),
+    and until now the project had no text for it anywhere: the CLI sends it to
+    ``logging.exception("Unexpected error")`` + exit 2, i.e. reports it as a BUG,
+    and the MCP server let it out as a crash. This function exists here, next to
+    :func:`api_error_message`, so that both surfaces can use one text: the MCP
+    error contract uses it today (mcp_server/tools.py), the CLI can pick it up
+    without a second msgid.
+
+    Both halves matter, and neither is enough on its own:
+      * the ADVICE is ours and localized — "it is probably not running, start it
+        with the board open and try again": kipy never says what to do;
+      * the DIAGNOSIS stays kipy's own words (``{e}``): kipy raises THREE
+        different failures with the same opening words — "Failed to connect to
+        KiCad" (client.py:47), "Failed to send command" (:67), "Error receiving
+        reply" (:72) — and only that detail, pynng internals included, tells them
+        apart.
+
+    No kipy import here: formatting needs neither the class nor a status code,
+    which is exactly why the text lives beside the helper it mirrors rather than
+    beside the exception it describes.
+    """
+    return _("KiCad is not answering — it is probably not running, or it was closed while the call was in flight. Start KiCad with the board open and try again. Original error: {e}").format(e=e)
+
+
 def run_cli(main_fn: Callable[[], None]) -> int:
     """Run a CLI body and translate exceptions into a process exit code.
 

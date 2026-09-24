@@ -205,6 +205,29 @@ class KiCadBoardAdapter(IBoardAdapter):
             self.ignore_selection = previous
 
     def refresh_board(self):
+        """Re-mint the board handle and drop both caches (invalidation itself is free).
+
+        DEAD BRANCH INSIDE, kept on purpose (plan_2026_09_25_mcp_error_contract
+        §6.4). ``kipy.kicad.get_board()`` does NOT return ``None`` when KiCad has
+        no PCB document open: it reads ``get_open_documents`` and, on an empty
+        list, raises ``ApiError("Expected to be able to retrieve at least one
+        board")`` (kipy/kicad.py, ``get_board``). So the ``is None`` check below
+        can never fire, and neither can anything promised on top of it:
+
+          * ``mcp_server/connection.py``'s ``_ensure_open`` docstring tells its
+            tools layer to expect ``BoardNotFoundError`` from this path — an
+            unreachable promise, read off the code, not guessed. What a closed or
+            document-less KiCad really produces here is an ``ApiError``, which is
+            why the MCP error contract answers with an ``ApiError`` sentence
+            instead (and why plan_2026_09_25_mcp_error_contract exists at all);
+          * a live probe of the previous entry measured that shape twelve times in
+            ~24 s while the editor switched documents.
+
+        The branch is deliberately NOT removed here: it is the contract of
+        ``refresh_board`` for EVERY caller (the GUI, the CLI and the MCP server),
+        so removing it is its own entry with its own analysis. This note is here
+        so the next reader does not believe the promise.
+        """
         logger.debug(_("Refreshing board from KiCad"))
         self._board = self._kicad.get_board()
         if self._board is None:
