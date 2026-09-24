@@ -21,14 +21,18 @@ The load-bearing row is `test_the_number_never_reaches_the_returned_dict`: the
 T0 census measured 132 non-text tests that go red the moment the number leaks
 into a caller's dict (plan §10.1), and rule 33 gives no permission to touch them.
 """
+import ast
+import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 from kicadstamp.config import format_version as fv
 from kicadstamp.config.format_version import (
     CURRENT_FORMAT,
+    lift_loaded_dict,
     read_version,
     take_version,
     upgrade_data,
@@ -146,7 +150,7 @@ def test_every_step_runs_exactly_once_and_in_order(monkeypatch):
     calls: list[int] = []
 
     def _mark(n):
-        def step(data):
+        def step(data, _ctx):
             calls.append(n)
             return {**data, f"step{n}": True}
         return step
@@ -163,9 +167,9 @@ def test_every_step_runs_exactly_once_and_in_order(monkeypatch):
 def test_a_file_already_at_current_runs_no_step(monkeypatch):
     calls: list[int] = []
     monkeypatch.setattr(fv, "CURRENT_FORMAT", 4)
-    monkeypatch.setattr(fv, "STEPS", {1: lambda d: calls.append(1) or d,
-                                     2: lambda d: calls.append(2) or d,
-                                     3: lambda d: calls.append(3) or d})
+    monkeypatch.setattr(fv, "STEPS", {1: lambda d, _c: calls.append(1) or d,
+                                     2: lambda d, _c: calls.append(2) or d,
+                                     3: lambda d, _c: calls.append(3) or d})
     assert upgrade_data({"cells": {}}, 4) == {"cells": {}}
     assert calls == []
 
@@ -184,7 +188,7 @@ def test_a_raising_step_propagates_and_leaves_the_input_alone(monkeypatch):
     what to write only after this returns."""
     original = {"cells": {"a": {}}}
 
-    def boom(_data):
+    def boom(_data, _ctx):
         raise RuntimeError("step failed")
 
     monkeypatch.setattr(fv, "CURRENT_FORMAT", 3)
@@ -307,6 +311,295 @@ def test_the_probe_cache_never_leaks_between_paths(tmp_path):
     b.write_text(_wrap("  (version 1)\n"), encoding="utf-8")
     assert (read_version(a), read_version(b)) == (2, 1)
     assert (read_version(b), read_version(a)) == (1, 2)
+
+
+# ── Т2: the lift is the READER's job, by construction (decision A) ─────────
+
+def _stepped(monkeypatch, *, current=3, mark="lifted"):
+    """A fake chain with CURRENT=current and one MARKING step per version below
+    it, so a cell can SEE whether the lift ran."""
+    calls: list[int] = []
+
+    def _mark(n):
+        def step(data, _ctx):
+            calls.append(n)
+            return {**data, mark: n}
+        return step
+
+    monkeypatch.setattr(fv, "STEPS", {v: _mark(v) for v in range(1, current)})
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", current)
+    return calls
+
+
+def test_the_parse_lifts_by_default_even_when_nobody_asks_for_the_number(monkeypatch):
+    """The cell the trap decision (A) rests on: a caller that never passes
+    `version_out` still receives content of the CURRENT format, so it cannot
+    take format-2 content for current once a real step exists."""
+    calls = _stepped(monkeypatch, current=3)
+    back = sexp_to_dict(_wrap("  (version 2)\n  (cells)\n"))
+    assert calls == [2], "the 2 -> 3 step must have run"
+    assert back == {"cells": {}, "lifted": 2}
+
+
+def test_the_raw_flag_leaves_the_content_alone_but_still_reports_the_number(monkeypatch):
+    """A converter gets the file as written, plus the number it carried — the
+    two facts it needs to put the number back when it rewrites."""
+    calls = _stepped(monkeypatch, current=3)
+    found: list[int] = []
+    back = sexp_to_dict(_wrap("  (version 2)\n  (cells)\n"),
+                        version_out=found, upgrade=False)
+    assert calls == []
+    assert back == {"cells": {}}
+    assert found == [2]
+
+
+def test_a_step_that_needs_the_file_path_refuses_a_bare_string(monkeypatch):
+    """Денис's caveat 2: a step building an identity (UUID) seeds it from the
+    profile path, so a parse of a bare string must REFUSE, not invent a seed —
+    two machines seeding differently would mint two UUIDs for one record."""
+    def _needs_path(data, ctx):
+        if ctx.path == "<config>":
+            fv.refuse_step(1, "the profile path", ctx.path)
+        return data
+
+    monkeypatch.setattr(fv, "STEPS", {1: _needs_path})
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 2)
+
+    with pytest.raises(ValidationError, match="cannot run here"):
+        sexp_to_dict(_wrap("  (cells)\n"))
+    assert sexp_to_dict(_wrap("  (cells)\n"),
+                        path="profiles/p/config.sexp") == {"cells": {}}
+
+
+def test_a_step_that_needs_the_board_refuses_at_parse_time(monkeypatch):
+    """The zero-origin step (Р38) changes the MEANING of zero and needs the live
+    board — it cannot run inside a read at all, and says so."""
+    def _needs_board(data, ctx):
+        if ctx.at_parse_time:
+            fv.refuse_step(1, "the live board", ctx.path)
+        return data
+
+    monkeypatch.setattr(fv, "STEPS", {1: _needs_board})
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 2)
+
+    with pytest.raises(ValidationError, match="cannot run here"):
+        sexp_to_dict(_wrap("  (cells)\n"), path="profiles/p/config.sexp")
+    assert upgrade_data({"cells": {}}, 1, "profiles/p/config.sexp",
+                        at_parse_time=False) == {"cells": {}}
+
+
+def test_the_number_on_disk_is_reported_even_when_there_is_none():
+    """`version_out` answers what the FILE says (1 = no number), not what this
+    build understands — Т4's sweep reads it to decide what to write."""
+    found: list[int] = []
+    sexp_to_dict(_wrap("  (cells)\n"), version_out=found)
+    assert found == [1]
+
+
+def test_read_version_does_not_lift(monkeypatch, tmp_path):
+    """The probe wants what is ON DISK, not a transformed copy: lifting here
+    would pay a whole step (and, at 2 -> 3, mint UUIDs) just to read one int."""
+    calls = _stepped(monkeypatch, current=3)
+    p = tmp_path / "c.sexp"
+    p.write_text(_wrap("  (version 2)\n  (cells)\n"), encoding="utf-8")
+    assert read_version(p) == 2
+    assert calls == []
+
+
+@pytest.mark.parametrize("suffix", [".sexp", ".json"])
+def test_read_version_refuses_a_newer_file_in_both_formats(tmp_path, suffix):
+    """F9 of the Т1 acceptance: only the .sexp row of this cell existed, so the
+    JSON branch's refusal could be deleted with nothing going red (rule 35 —
+    a row naming two branches must be checked on both)."""
+    p = tmp_path / f"c{suffix}"
+    if suffix == ".sexp":
+        p.write_text(_wrap(f"  (version {CURRENT_FORMAT + 1})\n"), encoding="utf-8")
+    else:
+        p.write_text(json.dumps({"version": CURRENT_FORMAT + 1}), encoding="utf-8")
+    with pytest.raises(ValidationError):
+        read_version(p)
+
+
+def test_the_writer_writes_the_number_first_and_only_once():
+    """The plan's Т3 cell, landed early because the raw path needs the
+    parameter: a `version` key inside the dict never duplicates the node."""
+    text = dict_to_sexp({"version": 1, "cells": {}}, format_number=2)
+    assert text.splitlines()[1].strip() == "(version 2)"
+    assert text.count("(version") == 1
+
+
+def test_the_writer_needs_the_number_told_to_it():
+    """The number is never taken from the dict — today's default writes none,
+    so Т3 is the step that flips the default to CURRENT_FORMAT."""
+    assert "(version" not in dict_to_sexp({"version": 1, "cells": {}})
+
+
+def test_a_raw_rewrite_puts_back_the_number_it_read():
+    """Денис's caveat 1: a raw reader that writes back must restore the SAME
+    number it read — stamping the CURRENT one on unlifted content would be
+    harmless at 1 -> 2 and corruption at 2 -> 3."""
+    found: list[int] = []
+    data = sexp_to_dict(_wrap("  (version 1)\n  (cells)\n"),
+                        version_out=found, upgrade=False)
+    assert found == [1]
+    again = dict_to_sexp(data, format_number=found[0])
+    assert again.splitlines()[1].strip() == "(version 1)"
+    assert sexp_to_dict(again, version_out=[]) == {"cells": {}}
+
+
+def test_a_json_config_is_lifted_inside_the_parse_too(monkeypatch):
+    """Both formats go through the same decision, or they drift apart."""
+    calls = _stepped(monkeypatch, current=3, mark="lifted")
+    assert lift_loaded_dict({"version": 2, "cells": {}}, "p.json") == {
+        "cells": {}, "lifted": 2}
+    assert calls == [2]
+
+
+def test_lift_loaded_dict_reports_the_number_while_leaving_the_content_alone():
+    data = {"version": 2, "cells": {}}
+    assert lift_loaded_dict(data, "p.json", upgrade=False) == {"cells": {}}
+
+
+def _adds_a_cell(n):
+    """A step whose effect is observable through a KNOWN key, so the lift can be
+    asserted on the loaded Config instead of on a mock.
+
+    It marks ONLY a file that itself declares `cells:` — an include graph has
+    several files, and a step that created cells everywhere would collide in the
+    dict-section merge (measured: "duplicate cells key", my own cell's bug, not
+    the code's)."""
+    def step(data, _ctx):
+        if "cells" not in data:
+            return data
+        cells = dict(data["cells"])
+        cells[f"lifted{n}"] = {"components": []}
+        return {**data, "cells": cells}
+    return step
+
+
+@pytest.mark.parametrize("kind", ["json-root", "json-included"])
+def test_a_json_config_is_lifted_where_it_is_parsed(monkeypatch, tmp_path, kind):
+    """Every reader, both formats. The JSON side goes through lift_loaded_dict,
+    and for an INCLUDED file the lift has to happen BEFORE the merge — the
+    cell's key arrives through `cells`, which the merge knows how to carry."""
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 3)
+    monkeypatch.setattr(fv, "STEPS", {1: fv._step_1_to_2, 2: _adds_a_cell(2)})
+
+    if kind == "json-root":
+        root = tmp_path / "root.json"
+        root.write_text(json.dumps({"version": 2, "cells": {}}), encoding="utf-8")
+    else:
+        (tmp_path / "child.json").write_text(
+            json.dumps({"version": 2, "cells": {}}), encoding="utf-8")
+        root = tmp_path / "root.sexp"
+        root.write_text(_wrap('  (include "child.json")\n'), encoding="utf-8")
+
+    cfg, _ctx = load_config(str(root))
+    assert "lifted2" in cfg.cells, f"the JSON parse did not lift ({kind})"
+
+
+def test_a_reader_that_opens_the_profile_itself_lifts_too(monkeypatch, tmp_path):
+    """Not only the shared load path: a reader that opens the profile on its own
+    must lift as well, or the two disagree about the content of one file."""
+    from kicadstamp.adapter_factory import _read_root_dict
+
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 3)
+    monkeypatch.setattr(fv, "STEPS", {1: fv._step_1_to_2, 2: _adds_a_cell(2)})
+
+    p = tmp_path / "profile.json"
+    p.write_text(json.dumps({"version": 2, "cells": {}}), encoding="utf-8")
+    assert "lifted2" in _read_root_dict(p)["cells"]
+
+
+# ── the structural cell ────────────────────────────────────────────────────
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SCANNED_ROOTS = ("kicadstamp", "gui", "mcp_server", "tools")
+# NOT scanned: kicadstamp/diagnostics/ — measuring rigs, not ship code (rule 34
+# keeps them in the tree on purpose, and a rig may read raw whenever it likes).
+_SCAN_SKIP_DIRS = {"diagnostics", "__pycache__"}
+
+# Callers allowed to read the file's OWN bytes (upgrade=False), keyed by
+# (path relative to the repo root, enclosing function).
+#
+# ONE entry in Т2: the on-disk probe. It reads the number precisely BECAUSE it
+# must not transform anything — it reports what the file carries, and Т4 decides
+# whether to write. Lifting there would pay a whole step just to read one int.
+#
+# The three format converters (tools/convert_rules_to_chains.py,
+# tools/sexp_config_convert.py, kicadstamp/tree_mount_convert.py) are NOT here
+# yet, and that is deliberate: a raw reader that writes back must be able to put
+# the number it READ back (Денис, caveat 1), and that needs
+# `dict_to_sexp(format_number=...)` — Т3's parameter. Until then they take the
+# default lift, which at 1 -> 2 is the identity. Half-wired would be worse: the
+# number would be dropped on rewrite with nothing to catch it.
+_RAW_READERS: set[tuple[str, str]] = {
+    ("kicadstamp/config/format_version.py", "_read_version_uncached"),
+}
+
+
+def _sexp_to_dict_call_sites() -> list[tuple[str, str, bool]]:
+    """[(relative path, enclosing function, passes upgrade=False)] for every
+    `sexp_to_dict(...)` call in the ship code."""
+    sites: list[tuple[str, str, bool]] = []
+
+    class _Finder(ast.NodeVisitor):
+        def __init__(self, relpath: str) -> None:
+            self.relpath = relpath
+            self.owners: list[str] = []
+
+        def visit_FunctionDef(self, node):
+            self.owners.append(node.name)
+            self.generic_visit(node)
+            self.owners.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            func = node.func
+            called = (func.id if isinstance(func, ast.Name)
+                      else func.attr if isinstance(func, ast.Attribute) else None)
+            if called == "sexp_to_dict":
+                raw = any(kw.arg == "upgrade"
+                          and isinstance(kw.value, ast.Constant)
+                          and kw.value.value is False
+                          for kw in node.keywords)
+                sites.append((self.relpath,
+                              self.owners[-1] if self.owners else "<module>",
+                              raw))
+            self.generic_visit(node)
+
+    for root_name in _SCANNED_ROOTS:
+        for path in sorted((_REPO_ROOT / root_name).rglob("*.py")):
+            if _SCAN_SKIP_DIRS.intersection(path.parts):
+                continue
+            _Finder(str(path.relative_to(_REPO_ROOT))).visit(
+                ast.parse(path.read_text(encoding="utf-8")))
+    return sites
+
+
+def test_only_documented_callers_read_the_raw_file():
+    """Т2's structural cell (plan §Т2). The default now LIFTS, so the only way
+    to receive content of an older format is to say `upgrade=False` — and that
+    has to be a conscious, listed decision, because such a caller also owes the
+    file the number it read (Денис, caveat 1)."""
+    sites = _sexp_to_dict_call_sites()
+    # Sanity by ANCHOR, not by count: a scan that has gone blind (19 call sites
+    # measured 24.09.2026, diagnostics excluded) must FAIL rather than pass the
+    # cell vacuously (rule 38).
+    anchors = {
+        ("kicadstamp/config/includes.py", "_load_config_file"),
+        ("kicadstamp/config/format_version.py", "_read_version_uncached"),
+    }
+    found = {(relpath, owner) for relpath, owner, _ in sites}
+    assert anchors <= found, (
+        f"the scan did not even see {sorted(anchors - found)} — a blind scan "
+        "must not pass this cell")
+
+    raw = {(relpath, owner) for relpath, owner, is_raw in sites if is_raw}
+    assert raw == _RAW_READERS, (
+        "these callers read the file RAW without being on the documented list: "
+        f"{sorted(raw - _RAW_READERS)}")
 
 
 if __name__ == "__main__":  # pragma: no cover

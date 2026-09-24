@@ -158,9 +158,12 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
     if output_path.exists():
         with open(output_path, "r", encoding="utf-8") as f:
             if is_json:
-                existing = json.load(f) or {}
+                # Local import: this module is on the CLI's early path.
+                from .config.format_version import lift_loaded_dict
+
+                existing = lift_loaded_dict(json.load(f) or {}, str(output_path))
             elif is_sexp:
-                existing = sexp_to_dict(f.read()) or {}
+                existing = sexp_to_dict(f.read(), path=str(output_path)) or {}
             elif suffix in (".yaml", ".yml"):
                 raise yaml_removed_config_error(output_path)
             else:

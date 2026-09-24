@@ -17525,3 +17525,13 @@ msgstr "s-expr: номер формата в корне принимает ро�
 #, python-brace-format
 msgid "in {path}: got {n} atom(s); write (version 2)"
 msgstr "в {path}: получено {n} атом(ов); пишите (version 2)"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "the converter from format {from_version} to {to_version} cannot run here: it needs {requirement}"
+msgstr "конвертер формата из {from_version} в {to_version} здесь работать не может: ему нужно {requirement}"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "in {path}: this step needs {requirement}, which parsing the file alone does not give — the file can only be lifted where that data exists. Refusing loudly is on purpose: skipping the step would hand out content of an older format as if it were current"
+msgstr "в {path}: этому шагу нужно {requirement}, а разбор файла этого не даёт — файл можно поднять только там, где такие данные есть. Отказ громкий намеренно: пропуск шага выдал бы содержимое старого формата за текущее"

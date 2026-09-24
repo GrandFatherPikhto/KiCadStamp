@@ -47,7 +47,7 @@ from ..trees import (
     tree_to_sexp,
 )
 from .aliases import _ENTITY_KEY_ALIASES, _SECTION_ALIASES
-from .format_version import VERSION_KEY, check_version_value, refuse_newer
+from .format_version import VERSION_KEY, check_version_value, refuse_newer, upgrade_data
 from .includes import _DICT_SECTIONS, _LIST_SECTIONS
 from .models import (
     Cell,
@@ -581,16 +581,31 @@ def _root_child_to_sexp(key: str, value):
     return _free_field_to_sexp(key, value)
 
 
-def dict_to_sexp(data: dict) -> str:
+def dict_to_sexp(data: dict, format_number: int | None = None) -> str:
     """Serialize a config dict (what yaml.safe_load returns) into s-expr text,
-    wrapped in (kicadstamp-config ...)."""
+    wrapped in (kicadstamp-config ...).
+
+    `format_number` — the FORMAT number to write as the root's FIRST child
+    (config/format_version.py). None (today's default) writes none; Т3 flips the
+    default to CURRENT_FORMAT, so every LIFTED write stamps the current number.
+
+    The number is NEVER taken from `data`: a `version` key inside the dict is
+    dropped, so it can neither be duplicated nor win over the parameter. That is
+    what the RAW path depends on — a converter that read a file with its number
+    taken out must put THE SAME number back, never the current one, or format-1
+    content would be stamped as current. The parameter is the only way in, so a
+    raw writer has to say the number out loud, and that is checkable."""
     if not isinstance(data, dict):
         raise ValidationError(format_fatal_error(
             _("s-expr: top level must be a mapping, got {type}").format(type=type(data).__name__),
             [_("(kicadstamp-config ...) must wrap a config mapping")]
         ))
     root = [sym(TOP_TAG)]
+    if format_number is not None:
+        root.append([sym(VERSION_KEY), format_number])
     for key, value in data.items():
+        if key == VERSION_KEY:
+            continue
         child = _root_child_to_sexp(key, value)
         if child is not None:
             root.append(child)
@@ -1019,7 +1034,8 @@ def _root_version(child, path: str, seen: list[int]) -> int:
 
 def sexp_to_dict(text: str, apply_aliases: bool = True,
                  raw_trees: bool = False, path: str = "<config>",
-                 version_out: list[int] | None = None) -> dict:
+                 version_out: list[int] | None = None,
+                 upgrade: bool = True) -> dict:
     """Parse s-expr config text back into the dict that yaml.safe_load would
     have produced for the equivalent YAML. The top-level node MUST be
     (kicadstamp-config ...).
@@ -1037,14 +1053,25 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
 
     A root-level `(version N)` — the file's FORMAT number, config/format_
     version.py — is TAKEN OUT here, in the parse layer, and never appears in the
-    returned dict; `version_out` (an optional list) receives it when a caller
-    needs the number. Doing it here, and not one layer up, is what keeps a
-    `(version N)` inside an INCLUDED file from reaching `_resolve`'s
-    "unsupported top-level key" fatal, and what keeps every existing caller's
-    dict shape unchanged. The reader is liberal about WHERE the node sits (a
-    hand edit may move it); the writer always puts it first. A file written in a
-    format NEWER than CURRENT_FORMAT is refused right here, for all callers at
-    once (refuse_newer) — `path` only names the file in those messages."""
+    returned dict; `version_out` (an optional list) receives the number that was
+    ON DISK (1 when the file carries none). Doing it here, and not one layer up,
+    is what keeps a `(version N)` inside an INCLUDED file from reaching
+    `_resolve`'s "unsupported top-level key" fatal, and what keeps every
+    existing caller's dict shape unchanged. The reader is liberal about WHERE the
+    node sits (a hand edit may move it); the writer always puts it first. A file
+    written in a format NEWER than CURRENT_FORMAT is refused right here, for all
+    callers at once (refuse_newer) — `path` only names the file in those
+    messages.
+
+    upgrade=True (the default) also LIFTS the content to CURRENT_FORMAT before
+    returning, so a caller that never asks for the number still gets current
+    content and cannot take an older format for the current one (decision A,
+    Т2 — see format_version.py's module docstring on why discipline was
+    rejected). upgrade=False is for a caller whose job is the file's OWN bytes
+    (a format converter): it gets the content as written, and it is then its own
+    duty to put the number it read back into the file it rewrites. `path` doubles
+    as the step context: a future step needing the profile path refuses
+    "<config>" instead of inventing a seed."""
     try:
         root = sexpdata.loads(text)
     except Exception as e:  # sexpdata raises on unbalanced parens etc.
@@ -1060,6 +1087,12 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
 
     out: dict = {}
     version_seen: list[int] = []
+    # The FILE's own label, kept apart from the loop's per-field `path`: the loop
+    # REBINDS `path` to "<section>" as it walks the root, and the number belongs
+    # to the FILE — a message about a malformed number, a file newer than this
+    # build, or a step refusing for a missing path must name the file, not
+    # whichever section happened to be parsed last.
+    file_path = path
     for child in root[1:]:
         if not isinstance(child, list) or not child:
             raise _fatal(
@@ -1071,11 +1104,7 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
         # before the include merge (a non-root file carrying it used to be a
         # fatal in includes.py::_resolve).
         if key == VERSION_KEY:
-            found = _root_version(child, path, version_seen)
-            refuse_newer(found, path)
-            version_seen.append(found)
-            if version_out is not None:
-                version_out.append(found)
+            version_seen.append(_root_version(child, file_path, version_seen))
             continue
         # Legacy section-key aliases (2026-09-01 Rule -> Chain, 2026-09-20
         # Scheme List -> Imprint): an old profile written with `(rules ...)` or
@@ -1101,7 +1130,16 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
             out[key] = _parse_field(child, _field_type(Config, key), path)
         else:
             out[key] = _parse_free_field(child, path)
-    return out
+
+    # The number, once, after the whole root is read: the node may sit anywhere
+    # (see the docstring), so the lift cannot happen mid-loop.
+    version = version_seen[0] if version_seen else 1
+    refuse_newer(version, file_path)
+    if version_out is not None:
+        version_out.append(version)
+    if not upgrade:
+        return out
+    return upgrade_data(out, version, file_path, at_parse_time=True)
 
 
 # ── default-stripping helper (kept for the YAML-equivalence tests) ─────────

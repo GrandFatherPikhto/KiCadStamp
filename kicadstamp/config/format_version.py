@@ -24,11 +24,26 @@ there ("unsupported top-level key 'version'", measured 24.09.2026 — see the
 plan's §10.2); taking it out at the parse site fixes that for every reader at
 once.
 
+**Taking the number out and LIFTING the content are the same act**, and both
+happen by default (decision A, Т2, 24.09.2026): the reader hands back content of
+the CURRENT format, so a caller cannot silently receive format-2 content and
+take it for current. Discipline was the alternative and it was rejected — a
+structural cell can check the callers that exist today, but every NEW reader
+would have to remember, and that is exactly how the trap appeared. Parse and
+write are symmetric now: the writer stamps the current number itself (Т3), the
+reader lifts itself. Neither can be forgotten.
+
+A caller whose job is the file's OWN bytes (a format converter) says
+`upgrade=False` out loud, and then it is that caller's duty to put the number it
+read back into the file it rewrites — never the current one, or format-1 content
+would be stamped as current.
+
 Converters go UP only, one step per number, and are NEVER reversed: the only way
 back is the ``.bak`` the on-disk upgrade leaves next to the file.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import threading
@@ -100,26 +115,67 @@ def refuse_newer(version: int, path: str = "<config>") -> None:
         [_("update KiCadStamp: the file is not read on purpose, so that nothing this version does not know about is lost. Once a newer KiCadStamp has lifted the profile, do not open it with an older one")]))
 
 
-def _step_1_to_2(data: dict[str, Any]) -> dict[str, Any]:
+# ── steps, and what a step is allowed to demand ────────────────────────────
+
+@dataclasses.dataclass(frozen=True)
+class UpgradeContext:
+    """What a converter step is told about WHERE the lift is happening.
+
+    Two facts, both load-bearing for the steps that come after the identity one:
+
+    - `path` is the file being lifted, and it may be ``<config>`` — which means
+      the text came from a bare string, not from a file on disk. The UUID step
+      (2 -> 3) builds an identity, and an identity needs a STABLE seed, which is
+      the profile path; a step must therefore refuse ``<config>`` instead of
+      inventing a seed. Two machines seeding differently would produce two
+      different UUIDs for the same record.
+    - `at_parse_time` says the lift is running inside a read. The zero-origin
+      step (Р38) changes the MEANING of zero and needs the live board, so it
+      cannot run inside a parse at all.
+
+    Both cases are refusals, never silent skips: a skipped step hands out
+    content of an older format as if it were current, which is the one failure
+    the number exists to prevent. A step that cannot run here calls
+    :func:`refuse_step`."""
+    path: str
+    at_parse_time: bool
+
+
+def refuse_step(from_version: int, requirement: str, path: str = "<config>") -> None:
+    """A converter step that cannot run where it was asked to. Loud, always.
+
+    `requirement` names what the step needs ("the profile path", "the live
+    board"), so the message tells the reader which of the two situations above
+    they hit instead of looking like a corrupt file."""
+    raise ValidationError(format_fatal_error(
+        _("the converter from format {from_version} to {to_version} cannot run here: it needs {requirement}")
+        .format(from_version=from_version, to_version=from_version + 1,
+                requirement=requirement),
+        [_("in {path}: this step needs {requirement}, which parsing the file alone does not give — the file can only be lifted where that data exists. Refusing loudly is on purpose: skipping the step would hand out content of an older format as if it were current")
+         .format(path=path, requirement=requirement)]))
+
+
+def _step_1_to_2(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
     """Format 1 -> 2: an IDENTITY step, and deliberately so.
 
     Step 1 -> 2 only adds the number itself, and the number is written by the
     serializer (``sexp_format.dict_to_sexp``), never carried in the dict. So
     there is nothing for a converter to DO here — the step exists so the chain
     has no hole and so 2 -> 3 has a neighbour to follow. When a step really
-    changes content (UUID in 2 -> 3), it returns a new dict; this one returns
-    the same object, which is why `upgrade_data` is safe to run on every load."""
+    changes content (UUID in 2 -> 3), it returns a new dict and may consult
+    `ctx`; this one ignores it, which is why it is safe to run on every load."""
     return data
 
 
 # version -> the converter taking that version to the next one.
-STEPS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+STEPS: dict[int, Callable[[dict[str, Any], UpgradeContext], dict[str, Any]]] = {
     1: _step_1_to_2,
 }
 
 
 def upgrade_data(data: dict[str, Any], from_version: int,
-                 path: str = "<config>") -> dict[str, Any]:
+                 path: str = "<config>", *, at_parse_time: bool = False
+                 ) -> dict[str, Any]:
     """Lift parsed config content from `from_version` to CURRENT_FORMAT, in
     memory, by running every step in order exactly once.
 
@@ -130,8 +186,11 @@ def upgrade_data(data: dict[str, Any], from_version: int,
     :func:`refuse_newer`) — otherwise a newer file would fall through the
     `while` loop untouched and be read as if it were current, the exact failure
     the number exists to prevent. A hole in the chain is a fatal too: a missing
-    converter is an internal error, never a reason to silently skip a step."""
+    converter is an internal error, never a reason to silently skip a step. A
+    step that cannot run in this context refuses through :func:`refuse_step`.
+    """
     refuse_newer(from_version, path)
+    ctx = UpgradeContext(path=path, at_parse_time=at_parse_time)
     version = from_version
     while version < CURRENT_FORMAT:
         step = STEPS.get(version)
@@ -140,9 +199,35 @@ def upgrade_data(data: dict[str, Any], from_version: int,
                 _("no format converter from {from_version} to {to_version}")
                 .format(from_version=version, to_version=version + 1),
                 [_("the converter chain has a hole — this is an internal error, not a problem with the file")]))
-        data = step(data)
+        data = step(data, ctx)
         version += 1
     return data
+
+
+def lift_loaded_dict(data: dict[str, Any], path: str = "<config>",
+                     upgrade: bool = True) -> dict[str, Any]:
+    """The one in-memory normalization a RAW parsed JSON config dict passes:
+    take the root number out, refuse a file newer than this build, and — unless
+    the caller is a raw converter — lift the content to CURRENT_FORMAT.
+
+    Every JSON reader calls this; the s-expr readers get the same treatment
+    inside ``sexp_to_dict``, so the two formats cannot drift apart. The DEFAULT
+    lifts, which is the point: a caller that never asks for the number still
+    receives content of the current format (see the module docstring on why
+    discipline was rejected).
+
+    `upgrade=False` is for a caller whose job is the file's OWN bytes (a format
+    converter). It still TAKES the number out — leaving it in would put a
+    `version` free-form root key back into the dict, and an included file
+    carrying it is a fatal in the include merge — and it still refuses a newer
+    file. The number is lost to such a caller unless it asks for it (see
+    :func:`take_version`), and it must put that same number back when it writes,
+    never the current one."""
+    version = take_version(data, path)
+    refuse_newer(version, path)
+    if not upgrade:
+        return data
+    return upgrade_data(data, version, path, at_parse_time=True)
 
 
 # ── the on-disk probe: what number does THIS file carry right now? ─────────
@@ -168,6 +253,10 @@ def read_version(path: str | Path) -> int:
     CURRENT_FORMAT is refused here too. That refusal is what lets the on-disk
     upgrade sweep prove "nothing in the graph is newer" BEFORE it writes
     anything.
+
+    The probe asks for the number WITHOUT lifting (`upgrade=False`): it wants to
+    know what is on disk, not to transform it, and the on-disk sweep (Т4) is
+    what decides whether to write.
 
     A missing file reports 1 and invents no error message of its own: the
     callers already disagree on purpose about a missing config (includes.py
@@ -199,7 +288,8 @@ def _read_version_uncached(path: Path) -> int:
 
         found: list[int] = []
         with open(path, "r", encoding="utf-8") as f:
-            sexp_to_dict(f.read(), path=str(path), version_out=found)
+            sexp_to_dict(f.read(), path=str(path), version_out=found,
+                         upgrade=False)
         version = found[0] if found else 1
     elif suffix == ".json":
         with open(path, "r", encoding="utf-8") as f:

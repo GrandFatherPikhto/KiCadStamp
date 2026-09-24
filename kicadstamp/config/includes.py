@@ -37,6 +37,7 @@ from ..exceptions import (
 from ..i18n import _
 from ..utils.file_cache import cached_file_read, cached_graph_result
 from .aliases import normalize_section_aliases
+from .format_version import lift_loaded_dict
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +78,27 @@ def _load_config_file(path: Path) -> dict:
 
     sexp_to_dict is imported here (function-level), not at module top: it
     would create a circular import (sexp_format.py imports _LIST_SECTIONS/
-    _DICT_SECTIONS from this module at its own module level)."""
+    _DICT_SECTIONS from this module at its own module level).
+
+    EITHER branch takes the root FORMAT number out and lifts the content to
+    CURRENT_FORMAT before returning (config/format_version.py): the s-expr
+    branch gets both from sexp_to_dict itself, the JSON branch from
+    lift_loaded_dict. Doing it per FILE, here, is what makes the include merge
+    safe — a `(version N)` in an included file used to be the fatal
+    "unsupported top-level key" below, because the merge only knows list/dict
+    sections (measured 24.09.2026, plan §10.2)."""
     with open(path, 'r', encoding='utf-8') as f:
         suffix = Path(path).suffix.lower()
         if suffix == '.sexp':
             from .sexp_format import sexp_to_dict
-            return normalize_section_aliases(sexp_to_dict(f.read()) or {})
+            # path= names the FILE in a "format too new" refusal, and it is the
+            # step context: a step that needs the profile path refuses a bare
+            # "<config>" instead of inventing a seed.
+            return normalize_section_aliases(
+                sexp_to_dict(f.read(), path=str(path)) or {})
         if suffix == '.json':
-            return normalize_section_aliases(json.load(f) or {})
+            return lift_loaded_dict(
+                normalize_section_aliases(json.load(f) or {}), str(path))
         if suffix in ('.yaml', '.yml'):
             raise yaml_removed_config_error(path)
         raise unknown_extension_config_error(path, suffix)

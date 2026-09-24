@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 from kicadstamp.config.aliases import normalize_section_aliases
+from kicadstamp.config.format_version import lift_loaded_dict
 from kicadstamp.config.sexp_format import sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.file_cache import cached_file_read
@@ -45,9 +46,14 @@ def load_data(path: Optional[Path]) -> dict:
             if p.suffix.lower() == ".json":
                 # normalize_section_aliases: legacy `rules:` key -> `chains:`
                 # (2026-09-01 rename) so read-only browsing sees the canonical key.
-                return normalize_section_aliases(json.load(f) or {})
+                # lift_loaded_dict: the format number comes out and the content
+                # is lifted to CURRENT_FORMAT (the s-expr branch gets both from
+                # sexp_to_dict itself).
+                return lift_loaded_dict(
+                    normalize_section_aliases(json.load(f) or {}), str(p))
             if p.suffix.lower() == ".sexp":
-                return normalize_section_aliases(sexp_to_dict(f.read()) or {})
+                return normalize_section_aliases(
+                    sexp_to_dict(f.read(), path=str(p)) or {})
             return {}  # .yaml/.yml and any other extension — not a supported config format
 
     try:

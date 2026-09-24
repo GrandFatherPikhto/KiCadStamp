@@ -163,9 +163,11 @@ def _read_physical(path: Path) -> Optional[dict]:
         return None
     try:
         if path.suffix.lower() == ".json":
-            return json.loads(text) or {}
+            from kicadstamp.config.format_version import lift_loaded_dict
+
+            return lift_loaded_dict(json.loads(text) or {}, str(path))
         if path.suffix.lower() == ".sexp":
-            return sexp_to_dict(text) or {}
+            return sexp_to_dict(text, path=str(path)) or {}
     except (ValueError, ValidationError) as e:
         logger.warning("include recovery: could not parse %s: %s", path, e)
         return None

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from kicadstamp.config.aliases import normalize_section_aliases
+from kicadstamp.config.format_version import lift_loaded_dict
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import (
     ValidationError,
@@ -100,7 +101,7 @@ def _read_data(path: Path) -> dict:
             kind, parser = "JSON", json.load
         elif suffix == ".sexp":
             kind = "s-expr"
-            parser = lambda f: sexp_to_dict(f.read())  # noqa: E731
+            parser = lambda f: sexp_to_dict(f.read(), path=str(p))  # noqa: E731
         else:
             _raise_unsupported_config_format(p, suffix)
         try:
@@ -108,7 +109,11 @@ def _read_data(path: Path) -> dict:
                 # normalize_section_aliases: legacy `rules:` key -> `chains:`
                 # (2026-09-01 rename) so the GUI write paths and their
                 # read-merge-write never create a duplicate rules:/chains: pair.
-                return normalize_section_aliases(parser(f) or {})
+                # lift_loaded_dict: the format number comes out and the content
+                # is lifted to CURRENT_FORMAT — the s-expr branch gets both from
+                # sexp_to_dict itself, so the two formats cannot drift apart.
+                return lift_loaded_dict(
+                    normalize_section_aliases(parser(f) or {}), str(p))
         except (json.JSONDecodeError, ValidationError) as e:
             raise OSError(_("{path} is not valid {kind}: {error}").format(
                 path=path, kind=kind, error=e)) from e
@@ -659,9 +664,9 @@ def _load_data_tolerant(path: Path) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
             if suffix == ".json":
-                return json.load(f) or {}
+                return lift_loaded_dict(json.load(f) or {}, str(path))
             if suffix == ".sexp":
-                return sexp_to_dict(f.read()) or {}
+                return sexp_to_dict(f.read(), path=str(path)) or {}
             return {}
     except (OSError, json.JSONDecodeError, ValidationError) as e:
         logger.warning("Failed to read %s: %s", path, e)

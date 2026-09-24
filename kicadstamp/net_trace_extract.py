@@ -278,9 +278,12 @@ def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
         text = p.read_text(encoding="utf-8")
         suffix = p.suffix.lower()
         if suffix == ".sexp":
-            data = sexp_to_dict(text) or {}
+            data = sexp_to_dict(text, path=str(p)) or {}
         elif suffix == ".json":
-            data = json.loads(text) or {}
+            # Local import: this module is on the CLI's early path.
+            from .config.format_version import lift_loaded_dict
+
+            data = lift_loaded_dict(json.loads(text) or {}, str(p))
         else:
             return False, False
     except (OSError, json.JSONDecodeError, ValidationError):

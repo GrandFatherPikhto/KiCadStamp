@@ -165,12 +165,15 @@ def _read_root_dict(path: Path) -> dict:
     creations do not re-parse a multi-thousand-line profile."""
     def _uncached(p: Path) -> dict:
         if p.suffix.lower() == ".json":
+            # Local import, same reason as the s-expr one below.
+            from .config.format_version import lift_loaded_dict
+
             with open(p, "r", encoding="utf-8") as handle:
-                return json.load(handle) or {}
+                return lift_loaded_dict(json.load(handle) or {}, str(p))
         # Local import: `.config.sexp_format` pulls the config dataclasses, and
         # a bare adapter (no config path) must not pay for them.
         from .config.sexp_format import sexp_to_dict
         with open(p, "r", encoding="utf-8") as handle:
-            return sexp_to_dict(handle.read()) or {}
+            return sexp_to_dict(handle.read(), path=str(p)) or {}
 
     return cached_file_read(path, _uncached)

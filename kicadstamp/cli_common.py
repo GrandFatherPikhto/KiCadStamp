@@ -124,13 +124,17 @@ def _read_root_yaml(path: Path) -> dict:
     warning + None, never a silent YAML read."""
     suffix = path.suffix.lower()
     if suffix == ".json":
+        # Local import, like sexp_to_dict below: this module sits on the CLI's
+        # early path and must not drag the config package in at import time.
+        from .config.format_version import lift_loaded_dict
+
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f) or {}
+            return lift_loaded_dict(json.load(f) or {}, str(path))
     if suffix == ".sexp":
         from .config.sexp_format import sexp_to_dict
 
         with open(path, "r", encoding="utf-8") as f:
-            return sexp_to_dict(f.read()) or {}
+            return sexp_to_dict(f.read(), path=str(path)) or {}
     return {}
 
 
