@@ -59,6 +59,39 @@ register it:
 Tool names and descriptions are English only (machine interface); server log
 messages and results follow the project's bilingual gettext setup.
 
+## Errors
+
+When a tool cannot do its job, the client gets a sentence — not a stack trace —
+for every failure a user can act on:
+
+- **KiCad is closed** (or was closed while the call was in flight): *"KiCad is
+  not answering — it is probably not running, or it was closed while the call was
+  in flight. Start KiCad with the board open and try again…"*, with kipy's own
+  error text kept as the detail. The message is localized (the project's usual
+  gettext catalogue) and lives where the CLI can use the same text later — one
+  message, two surfaces.
+- **KiCad is busy** (an unfinished tool in the GUI: interactive routing, the move
+  tool, a dimension): the `AS_BUSY` refusal gets the project's long explanation —
+  finish that tool in KiCad (Esc or right-click → Cancel), then call again; the
+  board was not modified.
+- **The link dies mid-call**: the server tears the dead adapter down and retries
+  the call **exactly once** with a fresh one. There is no queue, no TTL and no
+  retry policy beyond that single attempt; if the retry fails as well, the answer
+  is the same clear message as above.
+
+Anything else is a real defect, and it stays distinguishable: MCP's own crash
+wrapper is returned (its message names only the tool, the traceback goes to the
+server log), so a bug is never presented to the model as a user-facing failure.
+
+**What a call costs.** Every tool call rebuilds the board before answering, so a
+read is LIVE instead of served from the cache filled when KiCad was first
+connected. Measured on the test boards: the calls that read footprints (e.g.
+`kicadstamp_get_footprint`, `kicadstamp_list_footprints`,
+`kicadstamp_get_items_by_uuid`) pay ONE full board read — 26–38 ms on a
+332-footprint board, 36–40 ms on a 414-footprint one — while the tools that never
+look at a footprint pay 0.7–10 ms. The number is a fact about the price, not a
+policy: no TTL is in force.
+
 ## Security model
 
 - **Validated** tools (read + `apply_config`) are always available and go
