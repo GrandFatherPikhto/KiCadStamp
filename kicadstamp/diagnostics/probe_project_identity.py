@@ -266,18 +266,63 @@ def _wait_for_switch(adapter, before: tuple, timeout_s: int) -> tuple:
     `probe_document_switch.py`), and a fixed sleep would either waste the operator's
     patience or lie. Waiting for the probe's own STIMULUS is also what makes the vacuity
     fuse exact.
+
+    THE POLL IS NOT SILENT, and that is a FIX, not a nicety. Measured live 24.09.2026 on
+    the first run of this probe: the operator switched the board, said so, and the probe
+    sat at "waiting for the switch" with nothing else on screen — because
+    `get_open_documents` refuses with kipy's ApiError for seconds at a time while the
+    editor is switching (the same behaviour `probe_document_switch.py` measured: 12
+    refusals over ~24 s). A silent loop cannot tell a refusal storm from a slow change,
+    so every state change is now printed WITH the poll's own elapsed time, plus a 15 s
+    heartbeat: a miss has to be READABLE, not merely long.
+
+    An UNKNOWN baseline is handled explicitly. When reading 1 could not query the live
+    list, `before` is empty — and taking the first successful poll as a change would
+    report a switch that never happened, i.e. a false verdict about freezing. The first
+    successful poll becomes the baseline instead, and says so.
     """
-    deadline = time.monotonic() + timeout_s
+    started_at = time.monotonic()
+    deadline = started_at + timeout_s
     last_error = None
+    last_reported = None
+    last_heartbeat = started_at
+    polls = 0
+    if not before:
+        print("    (the baseline list is UNKNOWN — the first successful poll becomes it)")
     while True:
+        tick = time.monotonic()
         rows, error = _live_documents(adapter)
+        took_ms = (time.monotonic() - tick) * 1000.0
+        polls += 1
         if error is None:
-            last_error = None
-            if _fingerprint(rows) != before:
+            current = _fingerprint(rows)
+            if current != last_reported:
+                if not before:
+                    label = "BASELINE (was unknown)"
+                elif current != before:
+                    label = "CHANGED"
+                else:
+                    label = "unchanged"
+                print(f"\n    poll {polls}: {len(rows)} document(s) in {took_ms:.0f} ms — "
+                      f"{label}")
+                for row in rows:
+                    print(f"        {row}")
+                last_reported = current
+                if not before:
+                    before = current   # adopted, never mistaken for a switch
+            if before and current != before:
                 return rows, None
         else:
             last_error = error
-        if time.monotonic() > deadline:
+            if error != last_reported:
+                print(f"\n    poll {polls}: query refused after {took_ms:.0f} ms — {error}")
+                last_reported = error
+        now = time.monotonic()
+        if now - last_heartbeat >= 15.0:
+            print(f"    ... still waiting ({now - started_at:.0f} s of {timeout_s} s, "
+                  f"{polls} polls)", flush=True)
+            last_heartbeat = now
+        if now > deadline:
             return None, last_error
         time.sleep(2.0)
 
