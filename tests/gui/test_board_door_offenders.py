@@ -588,9 +588,12 @@ def test_instantiate_tab_2_does_not_read_the_board_unsigned(
     Every seam the flow crosses is stubbed BELOW the door, so the only thing that can
     refuse is the door itself: the modal dialog (its answers are plain data), the
     fully-selected-cluster detection (exactly ONE cluster, so the dialog's own gate
-    is passed), the tab-2 worker, and `_rebuild_tabs` (the tab rebuild still reads
-    the board through the forms it builds — that is Т2-8's business, not this
-    cell's).
+    is passed) and the tab-2 worker. NOT stubbed, on purpose: the tab rebuild. A
+    `_rebuild_tabs` stub stood here until Т2-8 and is gone — the forms the rebuild
+    builds take their own adapter at their own read points now — so this cell
+    drives the REAL rebuild and still measures the door. Measured, not assumed
+    (Т5 of plan_2026_09_24_kq_pytest_qt): with m42 restored it is exactly this
+    rebuild that refuses first, naming gui/docks/trees_dock.py:2896.
 
     Mutation check: put the removed lines back —
     `adapter = self._live_adapter()  # lazy: tab 1 stays usable offline` followed by
