@@ -55,10 +55,25 @@ MUTATIONS = [
 ]
 
 
+def _drop_pyc(source: pathlib.Path) -> None:
+    """Delete the cached bytecode of `source`.
+
+    Python validates a .pyc by the source's SIZE and its mtime in WHOLE
+    SECONDS. A mutation that keeps the size (one character: `< 1` -> `< 0`) and
+    lands in the same second as the previous restore is then run from STALE
+    bytecode — measured 24.09.2026: F11 read SURVIVED on the first full run and
+    KILLED on every rerun. A stale cache can fake a kill as easily as a
+    survival, so every rig that mutates in place needs this."""
+    for cached in source.parent.glob(f"__pycache__/{source.stem}.*.pyc"):
+        cached.unlink()
+
+
 def run(paths):
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     r = subprocess.run([PY_BIN, "-m", "pytest", *paths, "-q", "--no-header",
                         "-p", "no:cacheprovider"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=400)
+                       cwd=ROOT, capture_output=True, text=True, timeout=400,
+                       env=env)
     return r.returncode, r.stdout + r.stderr
 
 
@@ -76,6 +91,7 @@ def main():
             continue
         try:
             f.write_text(original.replace(old, new, 1), encoding="utf-8")
+            _drop_pyc(f)
             code, out = run(T)
             failed = [l for l in out.splitlines() if l.startswith("FAILED")]
             if code == 0:
@@ -99,6 +115,7 @@ def main():
             print(f"{name:<40} {expect:<8} {verdict:<9} {detail}{flag}", flush=True)
         finally:
             f.write_text(original, encoding="utf-8")
+            _drop_pyc(f)
 
 
 if __name__ == "__main__":
