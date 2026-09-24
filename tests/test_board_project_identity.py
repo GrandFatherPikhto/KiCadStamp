@@ -99,6 +99,11 @@ class _FakeAdapter:
     def get_board_project(self):
         return self._project
 
+    def get_version(self):
+        """The identity tool reads it - a real round trip in production, a constant
+        here. It is exactly why the envelope must NOT carry it (П4)."""
+        return "10.0.6"
+
     def get_footprints(self):
         return list(self._footprints)
 
@@ -361,3 +366,137 @@ def test_the_envelope_carries_no_version_round_trip():
     adapter = _adapter_over_a_real_document()
     adapter._kicad = _NeverTouchTheKicadClient()
     assert set(handlers.board_brief(adapter)) == {"board_name", "project"}
+
+
+# --- П7: the envelope and the payload describe ONE board -----------------------
+
+class _BoardSwitchingAdapter:
+    """A stand-in whose board CHANGES ON EVERY REFRESH.
+
+    М1 of plan_2026_09_24_mcp_stale_board, where this shape of stand-in was first
+    built: the seam refreshes the board once per tool call, so an adapter that advances
+    a generation on every ``refresh_board()`` IS the "the board can be switched at any
+    moment" case of М8. One ``execute`` then answers about ONE board; assembling the
+    envelope in a SECOND ``execute`` answers with an envelope about one board and
+    records about the NEXT one.
+
+    Nothing here counts calls. The generation is CARRIED BY THE DATA - the board name,
+    the project, the ref of every footprint, the net of every track - so a cell using
+    this stand-in asserts the CONSISTENCY of an answer and would survive any refactor
+    that keeps the answer coherent."""
+
+    def __init__(self):
+        self.generation = 0
+
+    def refresh_board(self):
+        self.generation += 1
+
+    def get_board_filename(self):
+        return f"board-{self.generation}.kicad_pcb"
+
+    def get_board_project(self):
+        return (f"project-{self.generation}", f"/tmp/project-{self.generation}")
+
+    def get_footprints(self):
+        return [_fp(f"R{self.generation}")]
+
+    def get_footprint(self, ref):
+        return next((fp for fp in self.get_footprints() if fp.ref == ref), None)
+
+    def get_field_value(self, fp, name):
+        return None
+
+    def get_footprint_pads(self, fp):
+        return []
+
+    def get_tracks(self):
+        return [Track(uuid="t-1", start=Vector2(0, 0), end=Vector2(1_000_000, 0),
+                      net_name=f"N{self.generation}", width_mm=0.25,
+                      layer=BoardLayer.BL_F_Cu)]
+
+    def get_vias(self):
+        return []
+
+
+def _generation_of_the_envelope(answer):
+    """The generation the ENVELOPE names: 'board-3.kicad_pcb' -> '3'."""
+    return answer["board"]["board_name"].split("-")[1].split(".")[0]
+
+
+def _generation_of_the_payload(answer, tool):
+    """The generation the PAYLOAD carries, read off the record the tool returned."""
+    if tool == "kicadstamp_list_footprints":
+        return answer["footprints"][0]["ref"].lstrip("R")
+    if tool == "kicadstamp_get_footprint":
+        return answer["footprint"]["ref"].lstrip("R")
+    return answer["items"][0]["net"].lstrip("N")
+
+
+@pytest.mark.parametrize("tool,arguments", [
+    ("kicadstamp_list_footprints", {}),
+    ("kicadstamp_get_footprint", {"ref": "R1"}),
+    ("kicadstamp_get_items_by_uuid", {"uuids": ["t-1"]}),
+], ids=["list_footprints", "get_footprint", "get_items_by_uuid"])
+def test_the_envelope_and_the_payload_describe_one_and_the_same_board(tool, arguments):
+    """П7 of ДОПОЛНЕНИЕ 1 to plan_2026_09_24_project_identity_from_ipc: the envelope and
+    the payload describe ONE AND THE SAME board.
+
+    The cell the acceptance mutation L1 walked through. The stand-in switches the board
+    on every refresh, so ONE manager.execute yields an answer about one board, while
+    assembling the envelope in a SECOND execute yields an envelope about one board and
+    records about the NEXT one - i.e. the mutant reproduces by hand the very race the
+    envelope was built to close.
+
+    WHY nothing caught it before: in every other cell the stand-in served the same board
+    in every call, so two executes were indistinguishable BY CONSTRUCTION (see the П4
+    cells' sentinel, which never varies either). The freshness cells of the MCP entry do
+    not help: they count refreshes PER ``execute``, and two executes give them one each.
+    A comment explaining "one execute" is not a guard (rule: a named trap without a cell
+    is conjured away, not closed).
+
+    All THREE enveloped tools are checked, and the generation is read off the DATA (the
+    board name against the ref of the record / the net of the item), so what is asserted
+    is the answer's coherence - never the number of manager calls, which is an
+    implementation detail. The project half is checked too: a neighbour board's project
+    would be just as wrong as a neighbour board's name.
+    """
+    server = build_server(adapter_factory=lambda ms: _BoardSwitchingAdapter())
+    answer = _payload(server, tool, arguments)
+    from_envelope = _generation_of_the_envelope(answer)
+    from_payload = _generation_of_the_payload(answer, tool)
+    assert from_payload == from_envelope, (
+        f"{tool} named board {answer['board']['board_name']!r} while its payload "
+        f"carries generation {from_payload!r} - the answer describes two instants")
+    assert answer["board"]["project"]["name"] == f"project-{from_envelope}"
+
+
+# --- Т5: the FORM an absent project takes -------------------------------------
+
+@pytest.mark.parametrize("adapter_project", [None, ()],
+                         ids=["none", "empty-tuple"])
+def test_an_absent_project_is_none_in_the_payload(adapter_project):
+    """Т5 of ДОПОЛНЕНИЕ 1 to plan_2026_09_24_project_identity_from_ipc: the form an
+    absent project takes in the payload is ``None``, and it is now PINNED rather than
+    left to the shape of an ``if``.
+
+    The acceptance mutation L5 turned ``if not project`` into ``if project is None``.
+    On the reachable input they agree (the adapter answers None for a missing project),
+    so the difference shows exactly on the values the seam promises never to return -
+    an empty container - which is why that row is here: L5 must die on it, and the
+    death must be an assertion about the payload, not an IndexError nobody looks at.
+
+    Both places the payload is built are asserted, because they share one mapping and
+    must not drift apart.
+
+    NAMED GAP (24.09.2026, reported rather than papered over): the third shape the
+    addition lists - a tuple of EMPTY STRINGS, ``("", "")`` - is NOT covered here, and
+    deliberately. A non-empty tuple is TRUTHY, so ``if not project`` does not catch it
+    and the payload today becomes ``{"name": "", "path": ""}``; pinning that would
+    enshrine junk as the contract, and making the handler defensive about it would be a
+    code change the addition did not ask for. The seam cannot produce such a value at
+    all: KiCadBoardAdapter.get_board_project answers None for every half-empty project
+    (pinned by П1/П3). Left for Denis to rule on: a cell on that row, or the handler
+    made defensive the way the adapter is."""
+    adapter = _FakeAdapter(project=adapter_project)
+    assert handlers.board_brief(adapter)["project"] is None
+    assert handlers.get_board_identity(adapter)["project"] is None

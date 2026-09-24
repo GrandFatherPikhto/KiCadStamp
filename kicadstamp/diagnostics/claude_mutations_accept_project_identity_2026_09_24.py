@@ -124,6 +124,29 @@ M6_NEW = """        "connected": board_name is not None,
         "board_file": board_name,
 """
 
+# --- m7: assemble the envelope in a SECOND execute (ДОПОЛНЕНИЕ 1, Т4) ------------
+# The text is taken VERBATIM from the acceptance rig
+# (kicadstamp/diagnostics/claude_mutations_accept_pi_2026_09_24.py, row L1), not
+# reinvented: the addition was written after that rig's L1 SURVIVED every cell of this
+# entry, and the point is to close exactly that hole. Two executes = two refreshes, so
+# the envelope and the payload can describe DIFFERENT instants - the race route Г was
+# accepted on, and П7 is the cell that has to see it.
+M7_OLD = """        return manager.execute(lambda a: {
+            "board": handlers.board_brief(a),
+            "footprints": handlers.list_footprints(a, ref_prefix=ref_prefix),
+        })"""
+M7_NEW = """        board = manager.execute(handlers.board_brief)
+        return {"board": board,
+                "footprints": manager.execute(
+                    lambda a: handlers.list_footprints(a, ref_prefix=ref_prefix))}"""
+
+# --- m8: `if not project` -> `if project is None` (ДОПОЛНЕНИЕ 1, Т5) ---------------
+# Also verbatim from the acceptance rig (row L5). On the REACHABLE input the two agree,
+# which is why the Т5 cell pins the empty container: that is where the difference shows,
+# and the death must be an assertion about the payload rather than an IndexError.
+M8_OLD = "    if not project:\n        return None"
+M8_NEW = "    if project is None:\n        return None"
+
 MUTATIONS = [
     ("m1 project name only", "kicadstamp/kicad/adapter.py",
      M1_OLD, M1_NEW, IDENTITY_T),
@@ -137,6 +160,10 @@ MUTATIONS = [
      M5_OLD, M5_NEW, ["tests/test_mcp_error_contract.py"]),
     ("m6 board_name renamed", "mcp_server/handlers.py",
      M6_OLD, M6_NEW, IDENTITY_AND_HANDLERS),
+    ("m7 envelope in a 2nd execute", "mcp_server/tools.py",
+     M7_OLD, M7_NEW, IDENTITY_T),
+    ("m8 absent project is None", "mcp_server/handlers.py",
+     M8_OLD, M8_NEW, IDENTITY_T),
 ]
 
 
