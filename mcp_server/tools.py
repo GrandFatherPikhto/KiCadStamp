@@ -92,17 +92,24 @@ def _tool_error(fn):
 # i18n policy agreed in design doc §2.4.
 _DESC_GET_BOARD_IDENTITY = (
     "Read the identity of the board currently open in KiCad: the board name "
-    "(stem of the .kicad_pcb) and the KiCad version. Read-only, validated."
+    "(stem of the .kicad_pcb), the PROJECT it belongs to (name + directory) and "
+    "the KiCad version. Read-only, validated."
 )
 _DESC_LIST_FOOTPRINTS = (
     "List footprints on the board (ref, Role/Cluster fields, position in mm, "
     "rotation in degrees, layer). Optional ref_prefix filters by reference "
-    "prefix (e.g. 'U' lists every U*). Read-only, validated."
+    "prefix (e.g. 'U' lists every U*). Answers with {'board': {board_name, "
+    "project}, 'footprints': [...]} — the board is named even when the list is "
+    "EMPTY, so 'nothing matched' can never be mistaken for an answer about some "
+    "other board. Read-only, validated."
 )
 _DESC_GET_FOOTPRINT = (
     "Get one footprint in detail: position/rotation/layer, Role/Cluster "
     "fields, its pads (number, net, position) and the nets on its pads. "
-    "Read-only, validated. Fails clearly when the ref is not on the board."
+    "Answers with {'board': {board_name, project}, 'footprint': {...}} — the "
+    "board is named in the answer, so a confident-looking position is never "
+    "attributable to the wrong board. Read-only, validated. Fails clearly when "
+    "the ref is not on the board."
 )
 _DESC_GET_SELECTION = (
     "What the PCB editor currently has selected (groups expanded): refs and "
@@ -117,9 +124,11 @@ _DESC_GET_ITEMS_BY_UUID = (
     "footprints). Each requested uuid appears exactly once in the result: "
     "found items get their full detail (kind, net, layer, mm coordinates); "
     "items not on the board return {'kind': None, 'found': False} — never "
-    "raising and never silently skipping. Prefer this over listing the whole "
-    "board when the uuids already come from kicadstamp_get_selection. "
-    "Read-only, validated."
+    "raising and never silently skipping. Answers with {'board': {board_name, "
+    "project}, 'items': [...]} — the board is named even when EVERY uuid is "
+    "missing, so a false 'not found' cannot pass for a legitimate answer. "
+    "Prefer this over listing the whole board when the uuids already come from "
+    "kicadstamp_get_selection. Read-only, validated."
 )
 _DESC_LIST_TRACKS = (
     "List track segments with optional net and/or layer filters (e.g. "
@@ -160,16 +169,30 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
 
     @server.tool(name="kicadstamp_list_footprints", description=_DESC_LIST_FOOTPRINTS)
     @_tool_error
-    def _list_footprints(ref_prefix: str | None = None) -> list[dict]:
-        return manager.execute(lambda a: handlers.list_footprints(a, ref_prefix=ref_prefix))
+    def _list_footprints(ref_prefix: str | None = None) -> dict:
+        # ONE manager.execute for the WHOLE answer: the envelope and the payload
+        # must describe the SAME instant. A second execute would refresh the board
+        # in between, reproducing by hand the very race this envelope is about (the
+        # board can be switched at any moment — М8).
+        return manager.execute(lambda a: {
+            "board": handlers.board_brief(a),
+            "footprints": handlers.list_footprints(a, ref_prefix=ref_prefix),
+        })
 
     @server.tool(name="kicadstamp_get_footprint", description=_DESC_GET_FOOTPRINT)
     @_tool_error
     def _get_footprint(ref: str) -> dict:
-        result = manager.execute(lambda a: handlers.get_footprint(a, ref=ref))
-        if result is None:
-            raise ValueError(_("footprint {ref!r} not found on the board").format(ref=ref))
-        return result
+        def _build(a) -> dict:
+            # The "not found" fatal is raised INSIDE the single execute, for the same
+            # reason the envelope is built there: one refresh, one instant. It travels
+            # out unchanged and still reaches the client as a deliberate ToolError.
+            result = handlers.get_footprint(a, ref=ref)
+            if result is None:
+                raise ValueError(
+                    _("footprint {ref!r} not found on the board").format(ref=ref))
+            return {"board": handlers.board_brief(a), "footprint": result}
+
+        return manager.execute(_build)
 
     @server.tool(name="kicadstamp_get_selection", description=_DESC_GET_SELECTION)
     @_tool_error
@@ -183,8 +206,11 @@ def register_tools(server: MCPServer, manager: ConnectionManager) -> None:
 
     @server.tool(name="kicadstamp_get_items_by_uuid", description=_DESC_GET_ITEMS_BY_UUID)
     @_tool_error
-    def _get_items_by_uuid(uuids: list[str]) -> list[dict]:
-        return manager.execute(lambda a: handlers.get_items_by_uuid(a, uuids=uuids))
+    def _get_items_by_uuid(uuids: list[str]) -> dict:
+        return manager.execute(lambda a: {
+            "board": handlers.board_brief(a),
+            "items": handlers.get_items_by_uuid(a, uuids=uuids),
+        })
 
     @server.tool(name="kicadstamp_list_tracks", description=_DESC_LIST_TRACKS)
     @_tool_error

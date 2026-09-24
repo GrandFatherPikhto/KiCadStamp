@@ -45,16 +45,37 @@ register it:
 
 | Tool | Risk | What it does |
 |---|---|---|
-| `kicadstamp_get_board_identity` | low | Board name + KiCad version of the open board |
-| `kicadstamp_list_footprints` | low | ref, Role/Cluster, position (mm), rotation, layer; optional `ref_prefix` |
-| `kicadstamp_get_footprint` | low | One footprint in detail: pads (number/net/position) and the nets on them |
+| `kicadstamp_get_board_identity` | low | Board name + the project it belongs to (name + directory) + KiCad version of the open board |
+| `kicadstamp_list_footprints` | low | ref, Role/Cluster, position (mm), rotation, layer; optional `ref_prefix`; answers with a board-signed envelope (below) |
+| `kicadstamp_get_footprint` | low | One footprint in detail: pads (number/net/position) and the nets on them; answers with a board-signed envelope (below) |
 | `kicadstamp_get_selection` | low | What the PCB editor currently has selected (groups expanded) |
 | `kicadstamp_list_nets` | low | All board net names |
-| `kicadstamp_get_items_by_uuid` | low | Resolve board item uuids (tracks/vias/footprints) to detailed records; each requested uuid appears exactly once, missing ones report `found: false` |
+| `kicadstamp_get_items_by_uuid` | low | Resolve board item uuids (tracks/vias/footprints) to detailed records; each requested uuid appears exactly once, missing ones report `found: false`; answers with a board-signed envelope (below) |
 | `kicadstamp_list_tracks` | low | Track segments with optional `net`/`layer` filters (e.g. `net='GND'`); prefer filters or `get_items_by_uuid` on large boards |
 | `kicadstamp_list_vias` | low | Vias with optional `net` filter (e.g. `net='GND'`); prefer the filter or `get_items_by_uuid` on large boards |
 | `kicadstamp_apply_config` | low (validated) | Run the existing validated apply pipeline on a `.sexp`/`.json` profile; `dry_run` only plans. It runs the SAME `run_apply` the CLI runs, on the config the CALL named — so THAT profile's override store is what is in force (our stored Role/Cluster wins over the board; the profile's `role_cluster_source` switch still decides — see [docs/config.md](config.md)) |
 | `kicad_raw_move_footprint` | **high (raw)** | Move one footprint by ref directly over kipy; off by default; requires `expected_board_name` (mandatory board-identity guard) |
+
+**The board-signed envelope.** The three tools that read footprints
+(`list_footprints`, `get_footprint`, `get_items_by_uuid`) answer with the payload
+under its own key, beside the identity of the board it describes:
+
+```
+{"board": {"board_name": "...", "project": {"name": "...", "path": "..."}},
+ "footprints": [...]}          # or "footprint": {...} / "items": [...]
+```
+
+It exists because a wrong answer used to be indistinguishable from a right one: one
+and the same `get_footprint("J6")` answered confidently about two different open
+boards, and only the uuid gave it away — by coordinates the answers were identical.
+The envelope signs the EMPTY answers as well: `footprints: []`, `items: []` or a
+record with `found: false` still says which board said so, because a wrong "not
+found" reads as a legitimate answer. The identity is read inside the SAME board
+refresh that produced the payload (one refresh, one instant), and it costs the board
+NOTHING — both fields come off the document specifier the adapter already holds, i.e.
+zero IPC round trips, measured (`kicadstamp/diagnostics/probe_project_identity.py`).
+The KiCad version is deliberately NOT part of the envelope: `get_version()` is a real
+round trip, so `kicadstamp_get_board_identity` remains the place that pays for it.
 
 Tool names and descriptions are English only (machine interface); server log
 messages and results follow the project's bilingual gettext setup.

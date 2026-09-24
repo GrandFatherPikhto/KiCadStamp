@@ -5,6 +5,12 @@ Deliberately imports NO MCP SDK — only ``kicadstamp.*`` (design doc §2.1).
 Each function takes the live adapter as its first argument and returns plain
 JSON-serialisable dicts/lists, which makes them unit-testable with a fake
 adapter and trivially wrappable by tools.py.
+
+The BOARD-SIGNED ENVELOPE of the three footprint-reading tools is built in
+tools.py, not here (plan_2026_09_24_project_identity_from_ipc §3): the record
+shapes this module returns keep their existing fields and their exact pins, while
+the identity of the board they describe is a property of the CALL. `board_brief`
+below is the free half of that envelope; the assembly is one layer up.
 """
 
 from __future__ import annotations
@@ -39,12 +45,61 @@ def _fp_brief(adapter, fp: Footprint) -> dict[str, Any]:
     }
 
 
+def _project_payload(adapter) -> dict[str, str] | None:
+    """``{name, path}`` of the live board's project, or None when there is none.
+
+    ONE mapping, used by both get_board_identity and board_brief — the two answers
+    must agree, and two hand-written dicts would be free to drift."""
+    project = adapter.get_board_project()
+    if not project:
+        return None
+    return {"name": project[0], "path": project[1]}
+
+
+def board_brief(adapter) -> dict[str, Any]:
+    """The identity carried by EVERY answer of the footprint-reading tools.
+
+    ``{board_name, project}`` and nothing else, deliberately: both fields come off
+    the stored DocumentSpecifier, so this costs ZERO kipy round trips — measured
+    live 24.09.2026 (kicadstamp.diagnostics.probe_project_identity, question (б)):
+    0 against a positive control of 1, so the zero is a reading and not a broken
+    counter. The KiCad VERSION is NOT here on purpose: ``get_version()`` is a real
+    IPC round trip, and putting it in this envelope would hang a network call on
+    every call of every enveloped tool. Full identity WITH the version stays where
+    it was — ``get_board_identity``.
+
+    WHY the envelope exists (М8 of design_2026_09_24_project_identity_and_kicad_pro):
+    one and the same call ``get_footprint("J6")`` answered confidently about
+    3CH-AWG-TIA-v103 and then about HiPiMS-v099, and NOT ONE field of the answer
+    named the board — they were told apart only by uuid, and by coordinates a wrong
+    answer is indistinguishable from a right one. The envelope is the remedy, and
+    it is assembled at the TOOLS layer so that it also signs the EMPTY answers: an
+    empty list or a "nothing found" is the quietest form of the same defect, since
+    a wrong "not found" reads as a legitimate answer.
+
+    ``project`` is None when the IPC carries none — defensive, and the only part of
+    this value that is NOT verified live (see KiCadBoardAdapter.
+    get_board_project's docstring: a board without a project could not be
+    reproduced on this machine).
+    """
+    return {
+        "board_name": adapter.get_board_filename(),
+        "project": _project_payload(adapter),
+    }
+
+
 def get_board_identity(adapter) -> dict[str, Any]:
-    """``{connected, board_name, kicad_version}`` for the live board."""
+    """``{connected, board_name, project, kicad_version}`` for the live board.
+
+    ``project`` is an ADDITION (plan §4): this is the tool a client asks "which
+    board are we talking about", so it has to answer with the project too. The
+    three keys that existed keep their names and meanings — clients read them.
+    """
     board_name = adapter.get_board_filename()
     return {
         "connected": board_name is not None,
         "board_name": board_name,
+        "project": _project_payload(adapter),
         "kicad_version": adapter.get_version(),
     }
 
