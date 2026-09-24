@@ -26,7 +26,7 @@ WHAT IT DOES. Logs CRITICAL with the traceback through the standard logging
 pipeline — which the GUI already marshals to the UI thread (gui/docks/log_panel.py:
 `_QtLogHandler.emit` emits a signal instead of touching the widget, so writing a
 record is safe from ANY thread) — and writes one report file per failure IDENTITY
-(the `dedup_key()` triple below) into `<repo>/diagnostics/`, where this project's
+(the `dedup_key()` identity below) into `<repo>/diagnostics/`, where this project's
 other diagnostics reports already live (kicadstamp/diagnostics/board_read_probe.py:
 75 — "gitignored, and where the report tool looks"; the GUI has no log file of its
 own, `setup_logging()` runs without `log_file`). It NEVER touches a widget: after a
@@ -37,20 +37,39 @@ DEDUPLICATION, and why it is not cosmetics. A failing eventFilter fires on EVERY
 event delivered to that widget: measured, ONE broken filter produced 17 hook calls
 in 0.5 s of event pumping. Every Log line is appended to a QPlainTextEdit on the
 UI thread, so an undeduplicated hook would trade one crash for a frozen Log. The
-identity counted here is NOT the raising line alone — that was the first version's
-defect: every failure born in one shared library line (a closed KiCad — one kipy
-`client.py` line; one `_live_adapter`; one door refusal) collapsed into ONE record,
-so the second, DIFFERENT action said nothing at all. The identity is the triple
-`dedup_key()` builds — the ENTRY frame (the OUTERMOST one: the slot or eventFilter
-PyQt called), the FAILURE frame (the deepest: where the exception was raised) and
-the exception TYPE. A storm of one eventFilter stays one key (entry and failure are
-the same every time), while two different actions — and two different failures on
-one line — are told apart. The Log line and the report name BOTH places, so the
-reader can open the action that failed as well as the line that raised. The policy:
-ONE full entry per triple per session (report file written once, with the traceback
-of the first case), and the SAME triple speaks again only when its count crosses
-the next power of ten — bounded lines (about log10 of the repeats) that keep the
-count visible while the storm is happening instead of hiding it.
+identity counted here is the WHOLE STACK — the tuple of `file:line` of every frame
+of the traceback, outermost first (`stack_sites`) — plus the exception TYPE. Two
+narrower keys came before it, and each of them silenced real failures. The first
+was the raising line ALONE: every failure born in one shared library line (a
+closed KiCad — one kipy `client.py` line; one `_live_adapter`; one door refusal)
+collapsed into ONE record, so the second, DIFFERENT action said nothing at all.
+The second was the pair (OUTERMOST frame, raising line): it did fix that one, but
+an OUTERMOST frame stops being unique as soon as what PyQt calls is a SHARED
+WRAPPER — gui/worker.py's `refresh_snapshot_then` hands its continuation to
+`start_long_op` as ONE `lambda _result: on_ready()` line shared by all ten of its
+callers (and `defer_while_socket_busy`'s `_retry` -> `proceed()` for four more),
+so a second, different action through that wrapper died in silence again. A whole
+stack cannot have that: a storm of one eventFilter — or of one wrapper line —
+repeats the same frames every event and stays ONE key, while any two different
+actions differ in at least one frame, wherever the wrapper happens to sit. (This
+is Н8 of plan_2026_09_24_slot_exception_hook; it was measured on a MODEL of the
+wrapper's shape — the guard's `_INNER_SHARED_WRAPPER` and `_INNER_REAL_WRAPPER`
+say which is which, rule 39 — never yet on the live `refresh_snapshot_then`.)
+
+WHAT THE READER IS SHOWN, and why it is not the key. The Log line and the report
+name TWO addresses: the failure frame (the deepest — where the exception was
+raised) and the entry (the action to redo). The entry is the OUTERMOST frame
+OUTSIDE gui/worker.py. That is a choice of what to SHOW, never of what to count
+(the key above is the whole stack): for a continuation a shared wrapper armed, the
+outermost frame is the wrapper's own lambda line, which names no action the reader
+could redo, while the first frame outside the wrapper is the action that was
+pressed. A traceback living entirely inside the wrapper falls back to its
+outermost frame.
+
+The policy: ONE full entry per identity per session (report file written once, with
+the traceback of the first case), and the same identity speaks again only when its
+count crosses the next power of ten — bounded lines (about log10 of the repeats)
+that keep the count visible while the storm is happening instead of hiding it.
 
 `SystemExit` and `KeyboardInterrupt` are NOT swallowed: they are handed to the
 previous hook, so a future `sys.exit()` from inside a slot keeps behaving exactly
@@ -109,23 +128,66 @@ def report_dir() -> Path:
         Path(__file__).resolve().parent.parent / "diagnostics")
 
 
-def entry_site(tb) -> str:
-    """`file:line` of the frame PyQt ENTERED — the OUTERMOST one: the slot, or the
-    eventFilter that raised. One half of the deduplication identity.
+# gui/worker.py is the one SHARED WRAPPER this project's slots go through:
+# `refresh_snapshot_then` hands the continuation to `start_long_op` as a single
+# lambda line and `start_long_op` connects THAT callable to `controller.finished`,
+# so the OUTERMOST frame of a failure can belong to the wrapper instead of to the
+# action. Wrapper frames are skipped when choosing what to SHOW as the entry
+# (`entry_site`); they stay in the dedup key, which is the whole stack.
+_WRAPPER_FRAME_PARTS = ("gui", "worker.py")
 
-    This is the half the first version was missing. Two DIFFERENT actions whose
-    exception is born in one shared helper line have the SAME failing site, so
-    counting by the deepest frame alone merged them and the second action said
-    nothing. The entry frame tells them apart."""
-    if tb is None:
+
+def _is_wrapper_frame(filename: str) -> bool:
+    """True for a frame whose file is gui/worker.py — decided by path SUFFIX, not
+    by an import: the hook must not drag gui.worker (and its worker machinery) into
+    every process that imports it, and a suffix cannot mistake one checkout for
+    another."""
+    parts = Path(filename).parts
+    return len(parts) >= 2 and parts[-2:] == _WRAPPER_FRAME_PARTS
+
+
+def stack_sites(tb) -> tuple:
+    """`file:line` of EVERY frame of the traceback, outermost first — the dedup
+    identity (`dedup_key`).
+
+    One frame is not an identity. The deepest one is shared by every failure born
+    in one shared library line; the outermost one is shared by every action that
+    goes through one shared wrapper (gui/worker.py's `lambda _result: on_ready()`
+    is the same line for all ten callers of `refresh_snapshot_then`). The whole
+    stack is: two different actions always differ in at least one frame, while a
+    storm of one site repeats the same tuple and stays one key."""
+    frames = []
+    while tb is not None:
+        frames.append(f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}")
+        tb = tb.tb_next
+    return tuple(frames)
+
+
+def entry_site(tb) -> str:
+    """`file:line` of the ACTION the reader has to redo — the OUTERMOST frame
+    OUTSIDE gui/worker.py, falling back to the outermost frame when the whole
+    traceback lives inside the wrapper.
+
+    This is the SHOWN half of the pair the Log line and the report carry, NOT the
+    dedup identity (`stack_sites` is). It is deliberately not the frame PyQt
+    entered: when a shared wrapper armed the continuation, that frame is the
+    wrapper's own lambda line — true, but useless, because the reader is told to
+    redo an action, not a wrapper."""
+    outermost = tb
+    while tb is not None:
+        if not _is_wrapper_frame(tb.tb_frame.f_code.co_filename):
+            return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
+        tb = tb.tb_next
+    if outermost is None:
         return "<unknown>"
-    return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
+    return f"{outermost.tb_frame.f_code.co_filename}:{outermost.tb_lineno}"
 
 
 def failing_site(tb) -> str:
     """`file:line` of the frame that RAISED — the deepest one, and the other half
-    of the deduplication identity (`dedup_key`). Same shape as the board door's
-    refusal, and for the same reason: an address the reader can open."""
+    of the pair the Log line and the report carry (`entry_site`). Same shape as
+    the board door's refusal, and for the same reason: an address the reader can
+    open."""
     while tb is not None and tb.tb_next is not None:
         tb = tb.tb_next
     if tb is None:
@@ -134,15 +196,17 @@ def failing_site(tb) -> str:
 
 
 def dedup_key(tb, exc_type) -> tuple:
-    """What `_counts` is keyed by: `(entry frame, failure frame, exception type)`.
+    """What `_counts` is keyed by: `(every frame of the traceback, exception
+    type)`.
 
-    All three are part of the identity on purpose. The entry frame separates two
-    ACTIONS that die in one shared line; the failure frame is the address to open;
-    the type separates two different failures raised on one line (a ValueError and
-    a RuntimeError are not "the same failure"). A storm of ONE eventFilter stays
-    one key — same entry, same failure, same type — which is what keeps the Log
-    from freezing."""
-    return (entry_site(tb), failing_site(tb), exc_type.__name__)
+    Both parts are the identity on purpose. The STACK is what separates two
+    ACTIONS that die in one shared line AND two actions that go through one shared
+    wrapper — a single frame can do neither (see the module docstring); the type
+    separates two different failures raised on one line (a ValueError and a
+    RuntimeError are not "the same failure"). A storm of ONE eventFilter — or of
+    ONE wrapper line — repeats the same tuple every time, which is what keeps the
+    Log from freezing."""
+    return (stack_sites(tb), exc_type.__name__)
 
 
 def _write_report(exc_type, exc_value, tb, entry: str, site: str) -> Path | None:
@@ -151,7 +215,9 @@ def _write_report(exc_type, exc_value, tb, entry: str, site: str) -> Path | None
 
     `entry` and `site` are BOTH written: the failure frame is what the reader has
     to open to fix the bug, and the entry frame says WHICH action has to be redone
-    — the two halves the deduplication keys by, so the file and the Log agree."""
+    — the two addresses the Log line also carries, so the file and the Log agree.
+    They are the SHOWN pair, not the identity: the dedup key is the whole stack
+    (`dedup_key`), which is wider than this pair on purpose."""
     try:
         directory = report_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -295,9 +361,10 @@ def is_installed() -> bool:
 
 
 def failure_counts() -> dict:
-    """`(entry, failure, type)` -> how many times it fired in this session (a
-    copy). The same identity `dedup_key()` counts by — NOT the failing line alone:
-    two actions that die in one shared line are two keys, and that is the fix this
-    dict carried."""
+    """`(every frame of the traceback, exception type)` -> how many times it fired
+    in this session (a copy). The same identity `dedup_key()` counts by — the WHOLE
+    stack, never one frame: two actions that die in one shared line, and two
+    actions that go through one shared wrapper, are two keys each, and the narrower
+    keys that missed those cases are the defects this dict carried."""
     with _lock:
         return dict(_counts)

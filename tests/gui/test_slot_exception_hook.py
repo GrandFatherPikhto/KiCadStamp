@@ -10,17 +10,32 @@ supposed to report on. Every row below therefore runs a tiny program in a
 subprocess and asserts on ITS exit code, ITS stdout and the report files IT wrote.
 
 The rig repeats the shape of tests/gui/test_qt_slot_exception_capture.py (the Кq
-watchdog, rule 38), including its hardest-won detail: PYTHONPATH entries are made
-ABSOLUTE before the inner run, because the pre-merge recipe
-(`PYTHONPATH=$PWD:../KiCadStamp-kq-site`) contains a RELATIVE entry that the
-interpreter resolves against the inner run's cwd — tmp_path, where that path does
-not exist — and then the inner run silently loses the plugins it needs.
+watchdog, rule 38) and adds one thing that watchdog did not need: the tree's OWN
+root goes FIRST on the inner PYTHONPATH, ALWAYS, next to the absolutised inherited
+entries. Both halves are needed, for different reasons:
 
-Three functions, because the cells have three different meanings (rule 35):
+  * the root (Н9): the inner programs run with `cwd=tmp_path` and `import gui.*`.
+    Without the root on PYTHONPATH the interpreter falls back to the `.venv`
+    editable install — the MAIN checkout — so every cell here would measure another
+    tree's hook. That was an honest red while `main` had no hook module at all, and
+    it turns into a FALSE GREEN the moment this branch is merged: a change verified
+    in the worktree would pass on `main`'s older hook. Rule 39, exactly — a probe
+    firing on the wrong sample.
+  * absolute inherited entries: the pre-merge recipe
+    (`PYTHONPATH=$PWD:../KiCadStamp-kq-site`) contains a RELATIVE entry that the
+    interpreter resolves against the inner run's cwd — tmp_path, where that path
+    does not exist — and then the inner run silently loses the plugins it needs.
+
+The cells have several different meanings, so they are several functions (rule 35):
   * the process survives, and the switch really turns that off;
   * the hook itself behaves: one install, no escape from its own failure,
     SystemExit not dressed up as a crash;
-  * a site that keeps failing is reported ONCE, with a count.
+  * a site that keeps failing is reported ONCE, with a count;
+  * TWO actions through ONE shared wrapper are BOTH reported (Н8) — the wrapper is
+    what makes the OUTERMOST frame non-unique, so this is the cell the narrower
+    dedup keys died on;
+  * the inner run imports THIS tree's code (Н9), asserted on the imported module's
+    own `__file__`.
 """
 import ast
 import os
@@ -227,21 +242,250 @@ for level, message in records:
     print("record", level, message, flush=True)
 '''
 
+_INNER_WHICH_HOOK = '''\
+"""Which copy of the hook did the inner interpreter import? (Н9)
+
+Nothing about Qt: this program asks ONE question — whose
+`gui/slot_exception_hook.py` is on the path — and answers it with the imported
+module's own `__file__`, which is what the guard asserts on.
+"""
+from gui import slot_exception_hook
+
+print("hook_file", slot_exception_hook.__file__, flush=True)
+'''
+
+_INNER_SHARED_WRAPPER = '''\
+"""MODEL of the shared-wrapper shape Н8 is about — a MODEL, not the live code.
+
+Rule 39 in its other direction: this program reproduces the DEVICE that makes the
+OUTERMOST frame non-unique, and says so, instead of pretending to measure
+`gui/worker.py`. The device is small and real: ONE function is the outermost frame
+of every failure it arms, so every action it arms SHARES that frame, while the
+exception itself is born in ONE shared helper line. `refresh_snapshot_then` is
+exactly that shape — it hands the caller's continuation to `start_long_op` as ONE
+`lambda _result: on_ready()` line, and PyQt calls that lambda when the worker
+finishes, so the outermost frame of a failure born in the continuation is the
+WRAPPER's line, the same for all ten callers. Reaching the live function needs a
+connection, a controller and a worker thread; that is why the model is here and the
+real thing is in `_INNER_REAL_WRAPPER` below.
+
+Shapes (PROBE_SHAPE):
+  two-callbacks — two DIFFERENT actions through ONE wrapper, ONE shared failing
+                  line: the case the narrower dedup key silenced;
+  one-callback  — ONE action xN through the same wrapper: the storm that must stay
+                  ONE key.
+"""
+import collections
+import functools
+import logging
+import os
+import sys
+import time
+
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
+
+from gui import slot_exception_hook as hook
+
+hook.install_slot_exception_hook(report_dir=os.environ["PROBE_REPORT_DIR"])
+app = QApplication.instance() or QApplication(sys.argv)
+
+records = []
+
+
+class _Keep(logging.Handler):
+    def emit(self, record):
+        records.append((record.levelname, record.getMessage()))
+
+
+logging.getLogger(hook.LOGGER_NAME).addHandler(_Keep())
+
+
+def _helper(what):
+    raise RuntimeError(f"wrapper failed for {what}")   # ONE shared failing line
+
+
+def _wrapper(continuation):
+    """The shared wrapper: Qt calls THIS one function (functools.partial adds no
+    Python frame of its own), and it goes on into whichever continuation it was
+    armed with — the shape of the one lambda line inside `start_long_op`."""
+    continuation()
+
+
+def _action_a():
+    _helper("a")
+
+
+def _action_b():
+    _helper("b")
+
+
+SHAPES = {
+    "two-callbacks": (_action_a, _action_b),
+    "one-callback": (_action_a,),
+}
+runs = int(os.environ["PROBE_RUNS"])
+actions = SHAPES[os.environ["PROBE_SHAPE"]]
+for index in range(runs):
+    QTimer.singleShot(index + 1,
+                      functools.partial(_wrapper, actions[index % len(actions)]))
+done = []
+QTimer.singleShot(runs + 50, lambda: done.append(True))
+
+while not done:
+    app.processEvents()
+    time.sleep(0.002)
+
+print("levels", dict(collections.Counter(level for level, _ in records)), flush=True)
+for level, message in records:
+    print("record", level, message, flush=True)
+print("counts", hook.failure_counts(), flush=True)
+'''
+
+_INNER_REAL_WRAPPER = '''\
+"""The REAL gui.worker.refresh_snapshot_then, reached with `start_long_op` replaced.
+
+Why on top of the model above: the model is the shape as it is understood, this one
+pins that gui/worker.py REALLY has it — that `refresh_snapshot_then` wraps the
+caller's continuation in ONE line of its own and hands THAT to the machinery which
+later calls it from the event loop. The replacement keeps the hand-over as the real
+one does (`on_success` is what `start_long_op` connects to `controller.finished`)
+and drops only the thread and the socket: the probe keeps that callable and lets Qt
+call it, which is how PyQt calls it when a worker finishes — through a
+`functools.partial`, so the wrapper's OWN lambda line is the OUTERMOST frame of the
+traceback, the way it is in battle.
+
+Two different actions (two callers, two continuations), ONE shared wrapper line,
+ONE shared failing helper line — the Н8 case. The guard then asserts that the
+report and the Log line name the ACTION as the entry and NOT the wrapper's lambda
+line: that half is what `entry_site` skipping wrapper frames buys, and the reports'
+tracebacks are there to prove the wrapper really was on the stack.
+"""
+import collections
+import functools
+import logging
+import os
+import sys
+import time
+
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
+
+import gui.worker as worker
+from gui import slot_exception_hook as hook
+
+hook.install_slot_exception_hook(report_dir=os.environ["PROBE_REPORT_DIR"])
+app = QApplication.instance() or QApplication(sys.argv)
+
+records = []
+
+
+class _Keep(logging.Handler):
+    def emit(self, record):
+        records.append((record.levelname, record.getMessage()))
+
+
+logging.getLogger(hook.LOGGER_NAME).addHandler(_Keep())
+
+
+def _helper(what):
+    raise RuntimeError(f"wrapper failed for {what}")   # ONE shared failing line
+
+
+class _Connection:
+    """Only what refresh_snapshot_then asks BEFORE it hands the work over: a
+    refreshable snapshot and a socket nobody holds."""
+
+    long_op_active = False
+    snapshot_refresh_supported = True
+
+
+armed = []
+
+
+def _fake_start_long_op(connection, widgets, fn, on_success, on_error, *args,
+                        **kwargs):
+    """`start_long_op` without a thread: it keeps the callable the real one would
+    have connected to `controller.finished`, so the probe can let Qt call it."""
+    armed.append(on_success)
+    return None
+
+
+worker.start_long_op = _fake_start_long_op
+
+
+def _on_error(message):
+    print("error", message, flush=True)
+
+
+def _on_ready_a():
+    _helper("a")
+
+
+def _on_ready_b():
+    _helper("b")
+
+
+def _save_slot():
+    worker.refresh_snapshot_then(_Connection(), [], _on_ready_a, _on_error)
+
+
+def _redraw_slot():
+    worker.refresh_snapshot_then(_Connection(), [], _on_ready_b, _on_error)
+
+
+# The two callers run first, exactly as the two buttons' slots would: they only
+# REGISTER a continuation and return — the failure happens long after, on the event
+# loop, which is why the caller's own frame is not in the traceback at all.
+_save_slot()
+_redraw_slot()
+if len(armed) != 2:
+    # A verdict must never depend on a timer race: say so loudly instead of raising
+    # IndexError out of a timer callback.
+    print("NOT-ARMED", len(armed), flush=True)
+else:
+    # Qt then calls the two continuations — the wrapper's own lambda line. The
+    # partial is load-bearing: it adds no Python frame of its own, so the wrapper's
+    # lambda IS the outermost frame of the traceback, exactly as when PyQt delivers
+    # controller.finished. A plain probe lambda here would become the outermost
+    # frame and the cell would stop measuring the wrapper at all.
+    QTimer.singleShot(1, functools.partial(armed[0], None))
+    QTimer.singleShot(2, functools.partial(armed[1], None))
+done = []
+QTimer.singleShot(60, lambda: done.append(True))
+
+while not done:
+    app.processEvents()
+    time.sleep(0.002)
+
+print("levels", dict(collections.Counter(level for level, _ in records)), flush=True)
+for level, message in records:
+    print("record", level, message, flush=True)
+'''
+
 
 def _inner_env(report_dir=None, **extra):
-    """The inner run's environment: offscreen, an ABSOLUTE PYTHONPATH, and the
-    row's own variables.
+    """The inner run's environment: offscreen, THIS tree's root FIRST on
+    PYTHONPATH, the inherited entries after it (made ABSOLUTE), and the row's own
+    variables.
 
-    The absolutisation is not decoration — see the module docstring: a relative
-    entry of the pre-merge recipe resolves against the INNER cwd (tmp_path), where
-    it points at nothing. When there is no PYTHONPATH at all (after the merge
-    pytest-qt lives in the venv) the key is simply not set.
+    The root is not optional and not conditional (Н9): the inner programs run with
+    `cwd=tmp_path`, so without it `import gui.*` resolves through the `.venv`
+    editable install — the MAIN checkout — and every cell below would be measuring
+    another tree. See the module docstring for why that matters more after the
+    merge than before it.
+
+    The absolutisation of the inherited entries is the other half, and it is not
+    decoration either: a relative entry of the pre-merge recipe resolves against
+    the INNER cwd (tmp_path), where it points at nothing, and the inner run
+    silently loses the plugins it needs. An entry that repeats the root is dropped,
+    so the root cannot be pushed back by a duplicate the caller exported.
     """
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen", **extra)
-    entries = [os.path.abspath(entry) for entry
-               in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry]
-    if entries:
-        env["PYTHONPATH"] = os.pathsep.join(entries)
+    entries = [str(_REPO_ROOT)]
+    entries += [os.path.abspath(entry) for entry
+                in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry]
+    env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(entries))
     if report_dir is not None:
         env["PROBE_REPORT_DIR"] = str(report_dir)
     return env
@@ -555,3 +799,166 @@ def test_a_storm_keeps_the_log_bounded_and_speaks_at_each_power_of_ten(
         f"got {levels}\n{output}")
     assert len(_report_texts(reports)) == 1, (
         f"one report for one identity however many times it repeats\n{output}")
+
+
+# ── Н8: two actions through ONE shared wrapper are both reported ────────────
+
+@pytest.mark.parametrize("shape,runs,expect_critical,expect_reports,expect_counts", [
+    ("two-callbacks", 2, 2, 2, (1, 1)),
+    ("one-callback", 25, 1, 1, (25,)),
+], ids=["two-callbacks-one-wrapper", "one-callback-many-repeats"])
+def test_two_actions_through_one_shared_wrapper_are_both_reported(
+        tmp_path, shape, runs, expect_critical, expect_reports, expect_counts):
+    """Н8 — the other half of the entry-frame defect, and the reason the dedup key
+    is now the WHOLE STACK: the OUTERMOST frame stops being an identity as soon as
+    what PyQt calls is a SHARED WRAPPER.
+
+    gui/worker.py's `refresh_snapshot_then` hands its continuation to
+    `start_long_op` as ONE `lambda _result: on_ready()` line, shared by all ten of
+    its callers (`defer_while_socket_busy` adds four more through `_retry` ->
+    `proceed()`). Two different actions through such a wrapper, dying in one shared
+    library line, produce ONE (outermost, deepest, type) triple — so the SECOND
+    action said NOTHING: the user pressed, nothing happened, no line anywhere. This
+    cell drives exactly that corner and demands two identities.
+
+    The inner program is a MODEL of the wrapper's DEVICE, not the live
+    `refresh_snapshot_then` (rule 39), and it says so itself; the live function is
+    the next cell's business. The model is not a shortcut around the point: ONE
+    function is the outermost frame of every failure it arms, which is precisely
+    what makes the entry frame non-unique.
+
+    The second row is the storm's own cell: ONE action x25 through the same wrapper
+    must stay ONE identity, or the fix for the first row re-opens the flood the
+    dedup exists to prevent.
+    """
+    reports = tmp_path / "reports"
+    proc = _run_inner(tmp_path, _INNER_SHARED_WRAPPER,
+                      _inner_env(reports, PROBE_SHAPE=shape,
+                                 PROBE_RUNS=str(runs)))
+    output = proc.stdout + proc.stderr
+
+    assert proc.returncode == 0, output
+    levels = _level_counts(proc.stdout, output)
+    assert levels.get("CRITICAL", 0) == expect_critical, (
+        f"through ONE wrapper and ONE shared failing line the number of CRITICAL "
+        f"Log lines must still be the number of DIFFERENT actions — got "
+        f"{levels}\n{output}")
+    texts = _report_texts(reports)
+    assert len(texts) == expect_reports, (
+        f"one report per identity — got {len(texts)}, expected "
+        f"{expect_reports}\n{output}")
+    counts_line = next(line for line in proc.stdout.splitlines()
+                       if line.startswith("counts "))
+    counts = ast.literal_eval(counts_line[len("counts "):])
+    assert sorted(counts.values(), reverse=True) == list(expect_counts), (
+        f"the counted identities must be per ACTION: two different actions through "
+        f"one wrapper are two keys, one action xN is ONE key — got {counts}\n"
+        f"{output}")
+    if shape == "two-callbacks":
+        # The frame that tells them apart is the ACTION, not the wrapper: every
+        # traceback here starts at the SAME wrapper line and ends at the SAME
+        # helper line, so the stacks can differ only between those two.
+        stacks = [key[0] for key in counts]
+        assert len({stack[0] for stack in stacks}) == 1, (
+            f"both failures must start at the ONE wrapper frame — that is the "
+            f"corner this cell exists for; got {stacks}\n{output}")
+        assert len({stack[-1] for stack in stacks}) == 1, (
+            f"both failures must end at the ONE shared failing line; got "
+            f"{stacks}\n{output}")
+
+
+def test_the_real_shared_wrapper_is_not_the_reported_entry(tmp_path):
+    """Н8 — the same corner measured on the REAL
+    `gui.worker.refresh_snapshot_then` instead of a model: its wrapper line must be
+    ON the stack while the SHOWN entry must be the action that was pressed.
+
+    Why the display is asserted here and not only the count: the wrapper's lambda
+    line is now the outermost frame of the traceback, and a reader sent to
+    `lambda _result: on_ready()` learns nothing about which action to redo. The pair
+    the Log line and the report carry is the SHOWN pair, so it must name the caller
+    — `entry_site` skipping gui/worker.py frames is what does that, and this is its
+    cell.
+
+    `start_long_op` is replaced, the wrapper is NOT: the substitute keeps the
+    hand-over as the real one does (it holds on to the callable `start_long_op`
+    would have connected to `controller.finished`), and the probe calls that same
+    callable from a QTimer — which is how PyQt calls it when a worker finishes. So
+    gui/worker.py runs its own code and the traceback really goes through it, which
+    the report's own text is asked to prove.
+    """
+    reports = tmp_path / "reports"
+    proc = _run_inner(tmp_path, _INNER_REAL_WRAPPER, _inner_env(reports))
+    output = proc.stdout + proc.stderr
+
+    assert proc.returncode == 0, output
+    assert "NOT-ARMED" not in proc.stdout, (
+        f"a continuation was never armed — the verdict below would then not be "
+        f"about the wrapper at all\n{output}")
+    assert "error" not in proc.stdout, output
+    levels = _level_counts(proc.stdout, output)
+    assert levels.get("CRITICAL", 0) == 2, (
+        f"two different actions through the real wrapper, one shared failing line: "
+        f"two CRITICAL Log lines, not one — got {levels}\n{output}")
+    texts = _report_texts(reports)
+    assert len(texts) == 2, (
+        f"two identities, two reports — got {len(texts)}\n{output}")
+
+    pairs = [(_report_field(t, "entry"), _report_field(t, "site")) for t in texts]
+    entries = {entry for entry, _ in pairs}
+    sites = {site for _, site in pairs}
+    assert len(entries) == 2, (
+        f"the entry must be the ACTION, and two actions are two entries — got "
+        f"{pairs}\n{output}")
+    assert len(sites) == 1, (
+        f"one shared failing line for both actions — got {pairs}\n{output}")
+    for entry in entries:
+        assert "gui/worker.py" not in entry, (
+            f"the entry must NOT be the wrapper's own lambda line: the reader is "
+            f"told to redo an action, not a wrapper — got {entry}\n{output}")
+        assert Path(entry.rsplit(":", 1)[0]).name == "probe.py", (
+            f"the entry must lie inside the action (the inner program) — got "
+            f"{entry}\n{output}")
+    for text in texts:
+        assert "gui/worker.py" in text, (
+            f"the report must carry the wrapper on its stack, or this cell is not "
+            f"measuring the wrapper at all:\n{text}")
+
+    critical = [message for level, message in _record_lines(proc.stdout)
+                if level == "CRITICAL"]
+    for entry, site in pairs:
+        assert any(entry in message and site in message for message in critical), (
+            f"a CRITICAL Log line must name BOTH the entry ({entry}) and the "
+            f"failing frame ({site})\n{output}")
+
+
+# ── Н9: the inner run must import THIS tree, not the main checkout ──────────
+
+def test_the_inner_run_imports_the_hook_from_this_tree(tmp_path):
+    """Н9 — every cell above is worth only what the code it measures is worth: the
+    inner programs run with `cwd=tmp_path` and `import gui.*`, so without this
+    tree's root on their PYTHONPATH they resolve through the `.venv` editable
+    install, i.e. the MAIN checkout.
+
+    Measured 2026-09-24 in this tree, pytest-qt already in the venv, no PYTHONPATH:
+    `13 failed, 1 passed` in this file, every failure `ModuleNotFoundError: No
+    module named 'gui.slot_exception_hook'` — an honest red while `main` had no hook
+    module at all, and a FALSE GREEN the moment the branch is merged. That is rule
+    39 precisely: a probe firing on the wrong sample.
+
+    The cell asks the inner process for the imported module's own `__file__` and
+    demands it lie under THIS tree's root (the tree the guard itself belongs to),
+    so the answer cannot depend on what the environment happens to export.
+    """
+    proc = _run_inner(tmp_path, _INNER_WHICH_HOOK, _inner_env())
+    output = proc.stdout + proc.stderr
+
+    assert proc.returncode == 0, output
+    line = next(line for line in proc.stdout.splitlines()
+                if line.startswith("hook_file "))
+    hook_file = Path(line[len("hook_file "):]).resolve()
+    assert hook_file.is_relative_to(_REPO_ROOT), (
+        f"the inner run imported the hook from OUTSIDE this tree — the cells above "
+        f"would be measuring another checkout's code ({hook_file})\n{output}")
+    assert hook_file == (_REPO_ROOT / "gui" / "slot_exception_hook.py").resolve(), (
+        f"the inner run must import THIS tree's hook module — got {hook_file}\n"
+        f"{output}")
