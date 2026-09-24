@@ -17460,3 +17460,22 @@ msgstr "Переместить…: плата сейчас занята — уз
 #: gui/docks/imprint_place.py
 msgid "The board is busy right now (a selection tick or a long operation holds the shared KiCad socket) — the X/Y offset was NOT filled from the selection. “Take from selection” was turned off; try again in a moment."
 msgstr "Плата сейчас занята (тик выделения или длинная операция держит общий сокет KiCad) — смещение X/Y из выделения НЕ заполнено. Галочка «Взять из выделения» снята; попробуйте ещё раз через момент."
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (at {site}). {report}"
+msgstr "Действие в Qt упало и было перехвачено — сессия продолжается, но действие НЕ выполнено: {kind}: {error} (место: {site}). {report}"
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "A report was written to {path}."
+msgstr "Отчёт записан в {path}."
+
+#: gui/slot_exception_hook.py
+msgid "The report file could not be written — the traceback below is the only copy."
+msgstr "Файл отчёта записать не удалось — трассировка ниже остаётся единственной копией."
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "The same Qt failure at {site} has now happened {count} times — it keeps failing and whatever it does keeps not completing."
+msgstr "Одно и то же падение в Qt (место: {site}) произошло уже {count} раз — оно повторяется, и то, что оно делает, снова не выполняется."

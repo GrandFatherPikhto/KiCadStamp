@@ -35,6 +35,7 @@ from gui.connection import set_ui_thread_predicate
 from gui.docks._common import apply_compact_field_minimums
 from gui.main_window import MainWindow
 from gui.single_instance import SingleInstanceGuard
+from gui.slot_exception_hook import install_slot_exception_hook
 from gui.worker import is_ui_thread
 
 _SINGLE_INSTANCE_NAME = "kicadstamp-gui-singleton"
@@ -105,6 +106,35 @@ def main():
     listener = setup_logging(verbose=args.verbose)
 
     app = QApplication(sys.argv)
+
+    # ── The Qt-slot crash hook is ARMED HERE (plan_2026_09_24_slot_exception_hook) ─
+    # An exception escaping a Qt slot makes PyQt6 call qFatal() while sys.excepthook
+    # is the interpreter's default one: the process dies with SIGABRT and the user
+    # loses the session. Measured 2026-09-24
+    # (diagnostics/probe_slot_excepthook.py, one process per shape): 134 without the
+    # hook and 0 with it — for a slot on the UI thread, for a slot on a QThread, and
+    # even for a raise inside Qt's own C++ event dispatch (the shape
+    # gui/ui_utils.py:277 writes its liveness guards for). The hook logs CRITICAL
+    # with the traceback through the GUI's own Log bridge and writes a report into
+    # diagnostics/; it never touches a widget, so it is safe on any thread.
+    #
+    # Deliberately NOT at import time: ~60 GUI tests import gui.main_window and
+    # friends, and a hook installed then would hide a core dump from the Кq
+    # watchdog (tests/gui/test_qt_slot_exception_capture.py) — the watchdog exists
+    # to measure exactly that dump. And deliberately HERE, before MainWindow: the
+    # window's constructor is covered too. Switchable off for a diagnostic run with
+    # KICADSTAMP_SLOT_EXCEPTION_HOOK=0.
+    #
+    # NOT the board door's switch (set_ui_thread_predicate below): the door
+    # testifies about a read left unsigned, this keeps a Python failure from ending
+    # the session. Different jobs — and this line does NOT change the door's refusal
+    # mode, which stays "log" for its own reason (an armed session is a live census).
+    #
+    # What it does NOT cover, measured and named: Qt's own qFatal (a QThread
+    # destroyed while still running) has no Python exception in it, so no hook can
+    # catch it; and a NON-Qt thread's failure is reported by threading, which
+    # already keeps the process alive.
+    install_slot_exception_hook()
 
     # ── The door's guard is ARMED HERE (plan_2026_09_23_door_s6_entry) ──────────
     # The getter in gui/connection.py refuses a UI-thread board read that has no

@@ -18778,3 +18778,22 @@ msgstr ""
 #: gui/docks/imprint_place.py
 msgid "The board is busy right now (a selection tick or a long operation holds the shared KiCad socket) — the X/Y offset was NOT filled from the selection. “Take from selection” was turned off; try again in a moment."
 msgstr ""
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (at {site}). {report}"
+msgstr ""
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "A report was written to {path}."
+msgstr ""
+
+#: gui/slot_exception_hook.py
+msgid "The report file could not be written — the traceback below is the only copy."
+msgstr ""
+
+#: gui/slot_exception_hook.py
+#, python-brace-format
+msgid "The same Qt failure at {site} has now happened {count} times — it keeps failing and whatever it does keeps not completing."
+msgstr ""

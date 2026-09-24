@@ -148,6 +148,35 @@ structural ast tripwire `tests/gui/test_no_worker_deleted_in_foreign_thread.py`.
 thread is observed through a `weakref` callback instead
 (`diagnostics/probe_worker_teardown_instrument.py`).
 
+## A failed Qt action no longer ends the session (2026-09-24)
+
+An exception escaping a Qt slot used to abort the whole process: PyQt6 calls `qFatal()` while
+`sys.excepthook` is still the interpreter's default one, so the window vanished and the session was
+lost. `kicadstamp/gui_main.py` now installs the hook from `gui/slot_exception_hook.py` right after
+`QApplication` is built and **before** `MainWindow` — the window's own constructor is covered too.
+
+When it fires, this is what you get — and all you get:
+
+* **one CRITICAL line in the Log**, naming the failing `file:line`, the exception and the report path
+  (see `## Log`). One line per failing SITE per session; the same site speaks again only when its
+  count crosses the next power of ten — a broken `eventFilter` fires on every event delivered to its
+  widget (measured: 17 times in half a second), and the Log is a widget on the UI thread.
+* **a report file** in `diagnostics/` (`slot_exception_<UTC>.txt`) with the environment and the full
+  traceback. That directory is where this project's other diagnostics reports live, and it is
+  gitignored.
+
+No dialog, and no widget touched at all: the hook may be running on a worker thread, and after a
+failed slot the widget state is not to be trusted. **The action that raised is NOT completed** — the
+session lives, the work does not: read the Log (and check the board) before carrying on.
+
+What it does **not** cover, measured (`diagnostics/probe_slot_excepthook.py`, one process per shape):
+Qt's own `qFatal` — a `QThread` destroyed while still running, for instance — carries no Python
+exception at all, so no Python hook can catch it; and an exception in a NON-Qt thread is reported by
+`threading`, which already keeps the process alive. This is not "the GUI never crashes".
+
+A diagnostic run that wants the old, loud behaviour back — a real abort instead of a Log line — only
+needs `KICADSTAMP_SLOT_EXCEPTION_HOOK=0`.
+
 ## Widget height and scrolling (2026-09-12)
 
 **A field's height is not cosmetics.** Qt computes the height of a `QComboBox`,
