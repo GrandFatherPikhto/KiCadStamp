@@ -1,4 +1,7 @@
 # tests/gui/test_root_metadata.py
+import logging
+import os
+
 import gui.docks.root_metadata as root_metadata_mod
 from PyQt6.QtGui import QKeySequence
 
@@ -60,32 +63,94 @@ def test_open_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path,
     assert dock._path == root
 
 
-def test_new_root_creates_an_empty_file_and_opens_it(main_window, tmp_path, monkeypatch):
-    new_root = tmp_path / "brand_new.sexp"
-    assert not new_root.exists()
+# ── New = pick a DIRECTORY (2026-09-24, plan_2026_09_24_project_is_a_directory) ──
+#
+# The guards in this block used to mock QFileDialog.getSaveFileName: the old
+# "New Root file..." flow created an EMPTY FILE wherever the save dialog pointed.
+# The requirement changed on 2026-09-24 (Denis: "У KiCad создаётся проект
+# директорией, а открывается файл проекта. Вот так и делаем"): a project is
+# created by picking (or making) a DIRECTORY, and the config inside it is named
+# after that directory. The guards were therefore RE-POINTED to
+# getExistingDirectory — none of them was weakened, and each still asserts the
+# property it always asserted:
+#   * "creates it and opens it" -> creates <dir>/<dir>.sexp and opens THAT;
+#   * "does not overwrite"      -> now a REFUSAL: one ERROR line plus a warning
+#                                  box, and neither the existing file NOR the
+#                                  current root is touched (Denis, 2026-09-24 —
+#                                  the modal is deliberate here: it answers the
+#                                  user's own pick, so it is form validation,
+#                                  not a connection-state error);
+#   * "dialog cancelled"        -> unchanged in intent.
+#
+# Every test below also stubs getSaveFileName to ("", ""): on the BASE worktree
+# the code still calls it, and a real save dialog would BLOCK the offscreen Qt run
+# (that is why the stub exists at all). It cannot let a regressed implementation
+# pass — the assertions are about a file the NEW code must create and the old code
+# cannot — so on the base these cells read as clean FAILED lines, not a hang.
+
+
+def _pick_directory(monkeypatch, path) -> None:
+    """Both dialog stubs for a New-project test: the directory picker (the real
+    flow) and the old save dialog (the base-probe fuse described above)."""
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getExistingDirectory",
+                        staticmethod(lambda *a, **k: path))
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: ("", "")))
+
+
+def test_new_root_creates_the_config_in_the_chosen_directory_and_opens_it(
+        main_window, tmp_path, monkeypatch):
+    """Н1 (plan_2026_09_24_project_is_a_directory): the project appears as
+    <dir>/<dir>.sexp and becomes the current root, recent list included."""
+    d = tmp_path / "HiPiMS-v099"
+    d.mkdir()
 
     dock = RootMetadataDock(main_window)
-    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: (str(new_root), "")))
+    _pick_directory(monkeypatch, str(d))
     dock._on_new_root()
 
-    assert new_root.exists()
-    assert sexp_to_dict(new_root.read_text(encoding="utf-8")) == {}
-    assert dock._path == new_root
+    created = d / "HiPiMS-v099.sexp"
+    assert created.exists()
+    assert sexp_to_dict(created.read_text(encoding="utf-8")) == {}
+    assert dock._path == created
+    assert dock.root_path == created
+    assert settings.state.get("last_root_file") == str(created)
+    assert settings.state.get("recent_root_files") == [str(created)]
 
 
-def test_new_root_does_not_overwrite_an_existing_file(main_window, tmp_path, monkeypatch):
-    existing = tmp_path / "already_here.sexp"
+def test_new_root_refuses_a_directory_that_already_holds_the_config(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Н4 (plan_2026_09_24_project_is_a_directory): a directory where <dir>.sexp
+    already lives is REFUSED — one ERROR line and a warning box, with NEITHER the
+    existing config NOR the current root touched. A silent overwrite here would
+    destroy a real project's config."""
+    d = tmp_path / "already_taken"
+    d.mkdir()
+    existing = d / "already_taken.sexp"
     _write(existing, MINIMAL_CELL)
     before = existing.read_text(encoding="utf-8")
 
+    root = tmp_path / "some_open_project.sexp"
+    _write(root, MINIMAL_CELL)
     dock = RootMetadataDock(main_window)
-    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: (str(existing), "")))
+    dock.set_root_file(root)
+
+    _pick_directory(monkeypatch, str(d))
+    warned = []
+    monkeypatch.setattr(root_metadata_mod.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: warned.append(a[2])))
+    caplog.clear()
+
     dock._on_new_root()
 
     assert existing.read_text(encoding="utf-8") == before
-    assert dock._path == existing
+    assert sorted(os.listdir(d)) == ["already_taken.sexp"]
+    assert dock._path == root, "the open project must stay open"
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(existing) in errors[0].message
+    assert len(warned) == 1
+    assert str(existing) in warned[0]
 
 
 def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, monkeypatch):
@@ -95,8 +160,7 @@ def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, 
     dock = RootMetadataDock(main_window)
     dock.set_root_file(root)
 
-    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: ("", "")))
+    _pick_directory(monkeypatch, "")
     dock._on_new_root()
 
     assert dock._path == root
@@ -104,25 +168,44 @@ def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, 
 
 # .sexp root (parallel config format, 2026-08-27)
 
-def test_new_root_sexp_creates_empty_kicadstamp_config(main_window, tmp_path, monkeypatch):
+def test_new_root_writes_the_canonical_empty_sexp_template(main_window, tmp_path, monkeypatch):
     """A brand-new .sexp root starts with the (kicadstamp-config) template —
     a perfectly valid empty config, the s-expr analog of YAML's '{}'."""
-    new_root = tmp_path / "brand_new.sexp"
-    assert not new_root.exists()
+    d = tmp_path / "brand_new"
+    d.mkdir()
 
     dock = RootMetadataDock(main_window)
-    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: (str(new_root), "")))
+    _pick_directory(monkeypatch, str(d))
     dock._on_new_root()
 
-    assert new_root.exists()
-    text = new_root.read_text(encoding="utf-8")
+    created = d / "brand_new.sexp"
+    assert created.exists()
+    text = created.read_text(encoding="utf-8")
     assert text.strip().startswith("(kicadstamp-config")
-    assert dock._path == new_root
+    assert dock._path == created
     # and the template is a loadable empty config
     from kicadstamp.config.loader import load_config
-    cfg, _ = load_config(str(new_root))
+    cfg, _ = load_config(str(created))
     assert cfg is not None
+
+
+def test_new_root_creates_only_the_config_file_no_infrastructure_dirs(
+        main_window, tmp_path, monkeypatch):
+    """Н5 (plan_2026_09_24_project_is_a_directory, §5), a property cell (rule 35):
+    after creating a project the directory holds the config file and NOTHING else.
+    The empty infrastructure directories (logs/registry/tracks/overrides/
+    operational/) are made by their consumers on demand — the 2026-09-11 decision
+    the Files tab was removed for — so their appearance here would mean the dock
+    started pre-creating them. One row, and it IS the whole property: the listing
+    right after creation equals ["Clean-Project.sexp"]."""
+    d = tmp_path / "Clean-Project"
+    d.mkdir()
+
+    dock = RootMetadataDock(main_window)
+    _pick_directory(monkeypatch, str(d))
+    dock._on_new_root()
+
+    assert sorted(os.listdir(d)) == ["Clean-Project.sexp"]
 
 
 def test_open_root_sexp_via_dialog(main_window, tmp_path, monkeypatch):
@@ -139,14 +222,17 @@ def test_open_root_sexp_via_dialog(main_window, tmp_path, monkeypatch):
     assert settings.state.get("last_root_file") == str(root)
 
 
-def test_default_new_name_uses_root_stem_with_sexp_extension(main_window, tmp_path):
-    dock = RootMetadataDock(main_window)
-    dock._path = tmp_path / "3ch-awg-tia.yaml"
-    assert dock._default_new_name() == "3ch-awg-tia.sexp"
-
-    # no root open yet -> generic 'config.sexp'
-    dock2 = RootMetadataDock(main_window)
-    assert dock2._default_new_name() == "config.sexp"
+# REMOVED 2026-09-24 (plan_2026_09_24_project_is_a_directory): the guard
+# test_default_new_name_uses_root_stem_with_sexp_extension is gone TOGETHER WITH
+# the method it guarded. _default_new_name() returned the pre-filled FILENAME for
+# the old save-mode dialog ("<root-stem>.sexp", or "config.sexp" with no root
+# open). A project is now named after the directory the user picks, so no filename
+# is ever suggested and nothing is left of that method but dead code. The guard
+# was not weakened, renamed or skipped — its SUBJECT stopped existing with the
+# requirement. The property it stood for ("a fresh project gets a sensible name
+# without the user typing one") is carried over by Н1 in
+# tests/test_project_is_a_directory.py:
+# test_new_project_config_is_named_after_its_directory.
 
 
 def test_set_root_file_emits_root_changed(main_window, tmp_path):

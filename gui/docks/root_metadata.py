@@ -17,6 +17,19 @@ demand, so the tab solved a problem the code already solves a layer below.
 The keys stay part of the FORMAT — merge_write leaves keys it is not given
 untouched, so a profile that declares them keeps its values.
 
+2026-09-24 (plan_2026_09_24_project_is_a_directory): creating a project is now
+"pick (or make) a DIRECTORY", and the root config inside it is named after that
+directory — <dir>/<dir>.sexp — Denis: "У KiCad создаётся проект директорией, а
+открывается файл проекта. Вот так и делаем." Only the config FILE is written;
+an empty logs/registry/tracks/overrides/operational/ is still NOT created, every
+consumer keeps making its own on demand (see the Files tab paragraph above —
+pre-creating them empty would re-introduce exactly what that removal fixed).
+OPENING is unchanged (a file, via Open Root file...), and EXISTING profiles keep
+their config.sexp stem: renaming one would drag the derived registry/tracks/
+overrides file names along, and the next redraw would double the copper already
+on the board (the numbers are in kicadstamp.utils.paths.
+project_config_path_for_dir).
+
 root_sheet (added 2026-08-07, Denis: "рутовый шит надо перетащить хотя бы
 в настройки проекта") — used to live only in the GUI's fieldstool dock as a
 QSettings value, global rather than per-project, so switching projects
@@ -107,6 +120,7 @@ from kicadstamp.constants import (ROLE_CLUSTER_SOURCE_BOARD,
                                   ROLE_CLUSTER_SOURCES)
 from kicadstamp.i18n import _
 from kicadstamp.schematic_discovery import walk_schematic_hierarchy
+from kicadstamp.utils.paths import project_config_path_for_dir
 
 from .. import settings, config_io
 from ..hotkeys import build_action
@@ -417,14 +431,6 @@ class RootMetadataDock(QWidget):
         old root_path property had)."""
         return self._path
 
-    def _default_new_name(self) -> str:
-        """Default filename for the New Root dialog — the current root's stem
-        with the parallel .sexp extension (2026-08-27: .sexp is now a first-
-        class root format, so a fresh root defaults to it; the Open/New
-        filters accept both YAML and s-expr)."""
-        stem = self._path.stem if self._path else "config"
-        return f"{stem}.sexp"
-
     def _on_open_root(self) -> None:
         chosen, _filter = QFileDialog.getOpenFileName(
             self, _("Open Root file"), str(self._path.parent if self._path else ""),
@@ -434,23 +440,47 @@ class RootMetadataDock(QWidget):
         self.set_root_file(Path(chosen))
 
     def _on_new_root(self) -> None:
-        """Save-mode dialog (not Open) lets a not-yet-existing filename be
-        typed — a brand new root starts out as an empty, perfectly valid
-        config (every Config field is optional/defaulted). The empty template
-        is format-aware: YAML gets '{}\n', s-expr gets '(kicadstamp-config)'."""
+        """Create a NEW project: pick (or make) a DIRECTORY, and the root config
+        inside it is named after that directory (2026-09-24, plan
+        plan_2026_09_24_project_is_a_directory, §3). Denis: "У KiCad
+        создаётся проект директорией, а открывается файл проекта. Вот так и
+        делаем." The name is NOT asked for separately — it comes from the
+        directory through project_config_path_for_dir(), exactly as KiCad names
+        <dir>/<dir>.kicad_pro. There is no "default new filename" any more.
+
+        A brand new root starts out as an empty, perfectly valid config (every
+        Config field is optional/defaulted), so the file gets the canonical
+        '(kicadstamp-config)' template.
+
+        ONLY the config file is written. An empty logs/registry/tracks/
+        overrides/operational/ is deliberately NOT created: every consumer makes
+        its own directory on demand (2026-09-11, plan project_settings_single_
+        source, Этап 1 — the very problem the Files tab was removed to solve).
+
+        A directory that already holds <dir>.sexp is REFUSED, never silently
+        overwritten (Denis, 2026-09-24): a warning box plus one ERROR line in the
+        Log, and neither the existing config nor the current root is touched. A
+        silent overwrite here would destroy a real project's config."""
         default_dir = str(self._path.parent if self._path else "")
-        chosen, _filter = QFileDialog.getSaveFileName(
-            self, _("New Root file"), str(Path(default_dir) / self._default_new_name()),
-            "Config files (*.sexp *.json)")
+        chosen = QFileDialog.getExistingDirectory(
+            self, _("New project directory"), default_dir)
         if not chosen:
             return
-        chosen_path = Path(chosen)
-        if not chosen_path.exists():
-            if chosen_path.suffix.lower() == ".sexp":
-                chosen_path.write_text("(kicadstamp-config)\n", encoding="utf-8")
-            else:
-                chosen_path.write_text("{}\n", encoding="utf-8")
-        self.set_root_file(chosen_path)
+        target = Path(project_config_path_for_dir(chosen))
+        if target.exists():
+            message = _(
+                "A project config already exists here: {path} — nothing was "
+                "created. Open it instead, or choose another directory."
+            ).format(path=target)
+            self._show_message(message, _ERROR_STYLE)
+            QMessageBox.warning(self, _("New project directory"), message)
+            return
+        try:
+            target.write_text("(kicadstamp-config)\n", encoding="utf-8")
+        except OSError as e:
+            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
+            return
+        self.set_root_file(target)
 
     def _on_recent_selected(self, index: int) -> None:
         path_str = self.recent_combo.itemData(index)

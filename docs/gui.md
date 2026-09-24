@@ -451,7 +451,11 @@ dedicated file per role is just the default habit, not a requirement enforced an
 ## Config tree
 
 A tree mirroring the actual `include:` file graph from a single root config file — pick it via
-**Open Root file...**/**New Root file...**/the **Recent** dropdown. Every file node shows its own
+**Open Root file...**/**New Root file...**/the **Recent** dropdown. **Open** picks the config FILE;
+**New** (since 2026-09-24) picks — or makes — a project DIRECTORY and creates `<dir>/<dir>.sexp`
+inside it, so a project is created as a directory and opened as a file, exactly as KiCad does; a
+directory that already holds that config is refused with a warning rather than overwritten. Every
+file node shows its own
 sections (Cells/Clone placements/Thermal via arrays/Points/Chains/Extract profiles/Clone profiles)
 and its own included files, recursively.
 
@@ -1649,6 +1653,12 @@ the config unless you actually type a value. Those defaults now point into SUBFO
 config instead of beside it: `registry/<config-stem>.registry.json`, `tracks/<config-stem>.tracks.
 registry.json`, `logs/actions.log`, and `operational/` for the `operation_*.json` undo logs. Config
 backups made on Save live in a hidden `.history/` next to the root config.
+
+For a project created with **New Root file...** the three stem-derived names above follow the
+DIRECTORY name, because the config itself is `<dir>.sexp` (2026-09-24). An EXISTING profile is never
+renamed to match: the stores on its disk are named after its own `config.sexp` stem, so renaming that
+config would make `registry/<stem>.registry.json` point at a file that is not there — the registry
+would read as EMPTY, and the next redraw would double the copper already on the board.
 
 ## Points
 

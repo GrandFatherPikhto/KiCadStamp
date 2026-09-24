@@ -37,6 +37,39 @@ def resolve_config_relative_path(base_dir: Path, raw: str) -> str:
 # unchanged for all existing consumers (apply_pipeline, placer dock, tests).
 
 
+def project_config_path_for_dir(project_dir: str | Path) -> str:
+    """<project-dir> -> <project-dir>/<project-dir-name>.sexp.
+
+    The "the project is a DIRECTORY" rule (2026-09-24, Denis: "У KiCad
+    создаётся проект директорией, а открывается файл проекта. Вот так и
+    делаем"). Picking (or making) a directory is the whole act of creation; the
+    config inside it is NAMED AFTER THAT DIRECTORY and its name is never asked
+    for separately — exactly as KiCad writes ``<dir>/<dir>.kicad_pro``.
+
+    The name reaches further than the config itself: the three stem-derived
+    machine stores below take their file names from the CONFIG STEM, so a
+    project created this way is self-consistent out of the box
+    (``registry/<dir>.registry.json`` and friends).
+
+    CREATION ONLY. This must never be used to "unify" the names of EXISTING
+    profiles: they keep their ``config.sexp`` stem, and the stores already on
+    disk are named after THAT stem. Renaming a live ``config.sexp`` to
+    ``<dir>.sexp`` makes :func:`registry_path_for_config` point at a file that
+    does not exist, the registry then reads as EMPTY, and the next redraw
+    DOUBLES the copper already on the board. Measured 2026-09-24 on
+    ``profiles/3ch-awg-tia-v103``: ``registry/config.registry.json`` is 96 393
+    bytes and ``tracks/config.tracks.registry.json`` 310 983 bytes, and the
+    config declares none of the four path keys — so those names came from the
+    stem default, and they are the only names that lead to the real files.
+    """
+    p = Path(project_dir)
+    if not p.name:
+        # A filesystem root ("/") has no name, so there is nothing to name the
+        # project after. Refuse loudly here rather than create ".sexp".
+        raise ValueError(f"project directory has no name: {project_dir!r}")
+    return str(p / (p.name + ".sexp"))
+
+
 def registry_path_for_config(config_path: str) -> str:
     """<config>.yaml -> <config-dir>/registry/<config-stem>.registry.json.
 

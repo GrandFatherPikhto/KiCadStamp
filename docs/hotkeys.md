@@ -12,7 +12,7 @@ below.
 |--------|---------------|--------------|
 | `F2` | Config tree (any leaf) | **Rename** — the same as the context menu's "Rename...". |
 | `Ctrl+O` | App-wide (Project dock / File menu) | **Open Root file...** — pick the project's root config. |
-| `Ctrl+N` | App-wide (Project dock / File menu) | **New Root file...** — create a new root config. |
+| `Ctrl+N` | App-wide (Project dock / File menu) | **New Root file...** — pick (or make) a project DIRECTORY; the root config `<dir>/<dir>.sexp` is created inside it (since 2026-09-24). |
 | `Ctrl+S` | App-wide (File menu) | **Save** — commit all staged config changes of the whole project to disk (see the "Save model" section in [docs/gui.md](gui.md)). |
 | `Ctrl+Shift+R` | Project dock | **Reload schematic sheets** — re-walk the project hierarchy and rewrite the root's `schematic_files`. |
 

@@ -3551,6 +3551,14 @@ msgstr "Открыть корневой файл"
 msgid "New Root file"
 msgstr "Новый корневой файл"
 
+#: gui/docks/root_metadata.py:436
+msgid "New project directory"
+msgstr "Каталог нового проекта"
+
+#: gui/docks/root_metadata.py:455
+msgid "A project config already exists here: {path} — nothing was created. Open it instead, or choose another directory."
+msgstr "Здесь уже есть конфиг проекта: {path} — ничего не создано. Откройте его или выберите другой каталог."
+
 #: gui/docks/root_metadata.py:556 gui/docks/root_metadata.py:566
 #: gui/docks/root_metadata.py:577 gui/docks/root_metadata.py:592
 #: gui/docks/root_metadata.py:631
