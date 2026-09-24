@@ -31,9 +31,11 @@ class _FakeAdapter:
     """Minimal adapter stand-in injected into the ConnectionManager factory."""
 
     def __init__(self, name="fake.kicad_pcb", version="10.0.6",
-                 footprints=(), tracks=(), vias=()):
+                 footprints=(), tracks=(), vias=(),
+                 project=("fake_project", "/tmp/fake_project")):
         self._name = name
         self._version = version
+        self._project = project
         self._footprints = list(footprints)
         self._tracks = list(tracks)
         self._vias = list(vias)
@@ -43,6 +45,11 @@ class _FakeAdapter:
 
     def get_board_filename(self):
         return self._name
+
+    def get_board_project(self):
+        """The project half of the identity — the envelope of the three reading
+        tools (and get_board_identity) reads both halves together."""
+        return self._project
 
     def get_version(self):
         return self._version

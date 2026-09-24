@@ -106,6 +106,13 @@ class _FakeAdapter:
         self._raise_if_failing("get_board_filename")
         return self._name
 
+    def get_board_project(self):
+        """Fail-on-demand like every other read here: the identity envelope of the
+        three reading tools calls this before the payload, so a test that wants the
+        envelope itself to fail can say so by name."""
+        self._raise_if_failing("get_board_project")
+        return ("fake_project", "/tmp/fake_project")
+
     def get_version(self):
         self._raise_if_failing("get_version")
         return self._version

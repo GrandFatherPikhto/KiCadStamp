@@ -39,7 +39,7 @@ class FakeAdapter:
 
     def __init__(self, footprints=(), nets=(), selected=(), pads_by_ref=None,
                  fields=None, board_name="test_board.kicad_pcb", version="10.0.6",
-                 tracks=(), vias=()):
+                 tracks=(), vias=(), project=("test_project", "/tmp/test_project")):
         self._fps = list(footprints)
         self._nets = list(nets)
         self._selected = list(selected)
@@ -47,12 +47,19 @@ class FakeAdapter:
         self._fields = fields or {}
         self._board_name = board_name
         self._version = version
+        self._project = project
         self._tracks = list(tracks)
         self._vias = list(vias)
         self.updated: list = []  # every update_items() push, for assertions
 
     def get_board_filename(self):
         return self._board_name
+
+    def get_board_project(self):
+        """The project half of the board identity (plan_2026_09_24_project_identity_
+        from_ipc Т2/Т3): handlers.board_brief and get_board_identity read it, so a
+        stand-in without it stands in for a different adapter."""
+        return self._project
 
     def get_version(self):
         return self._version
@@ -99,11 +106,24 @@ class FakeAdapter:
 # --- identity ---------------------------------------------------------------
 
 def test_board_identity_connected():
+    """П2 of plan_2026_09_24_project_identity_from_ipc: the identity tool carries the
+    PROJECT as well.
+
+    This pin is an EXTENDED CONTRACT, not a weakened guard (rule 33) - agreed with
+    Denis 24.09.2026. The assertion is still an equality over the WHOLE dict, so a
+    key that disappears, gets renamed or changes shape still fails; what changed is
+    the expected VALUE, because §4/П2 deliberately widens this payload: a client
+    asking "which board is this answer about" must get the project (the board name
+    alone is what М8 showed to be insufficient in the other half, and the name
+    already existed here). The three pre-existing keys keep their names - clients
+    read them.
+    """
     adapter = FakeAdapter(board_name="3CH-AWG-TIA-v103.kicad_pcb", version="10.0.6")
     info = handlers.get_board_identity(adapter)
     assert info == {
         "connected": True,
         "board_name": "3CH-AWG-TIA-v103.kicad_pcb",
+        "project": {"name": "test_project", "path": "/tmp/test_project"},
         "kicad_version": "10.0.6",
     }
 

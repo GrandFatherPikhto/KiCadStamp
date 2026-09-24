@@ -115,6 +115,12 @@ class _CachingBoardAdapter:
     def get_board_filename(self):
         return self._name
 
+    def get_board_project(self):
+        """The project half of the identity: get_board_identity reads it, and the
+        identity must cost nothing here — the cells of this file count FULL reads,
+        so a stand-in answering from memory is exactly the right stand-in."""
+        return ("fake_project", "/tmp/fake_project")
+
     def get_version(self):
         return self._version
 
