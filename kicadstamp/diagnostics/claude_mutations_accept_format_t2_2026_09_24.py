@@ -1,5 +1,6 @@
 """Acceptance mutations for step Т2 of plan_2026_09_24_config_format_version
 (lifting the content where it is parsed, by construction), Claude, 2026-09-24.
+Rounds: 6bdd453 (G1-G7), 9362dd5 (D1, D3, D4 added for the fixes).
 
 Built from claude_mutations_accept_format_t1_2026_09_24.py (stale-.pyc guard included) (rule 38): the pattern must
 match EXACTLY once, a red run with zero FAILED lines is a miss, and a dump is only
@@ -45,6 +46,17 @@ MUTATIONS = [
     ("G7 included JSON file not lifted", "kicadstamp/config/includes.py",
      "            return lift_loaded_dict(\n                normalize_section_aliases(json.load(f) or {}), str(path))",
      "            return normalize_section_aliases(json.load(f) or {})", "unknown"),
+    # Round 2 (9362dd5): the fixes Д1-Д3 got cells of their own.
+    ("D1 the GUI write reader lifts .sexp twice again", "kicadstamp/config_writer.py",
+     "                return sexp_to_dict(f.read(), path=str(p))",
+     "                return lift_loaded_dict(\n"
+     "                    sexp_to_dict(f.read(), path=str(p)), str(p))", "die"),
+    ("D3 a file parse without path=", "kicadstamp/cli_extract.py",
+     "            data = sexp_to_dict(f.read(), path=str(p)) or {}",
+     "            data = sexp_to_dict(f.read()) or {}", "die"),
+    ("D4 one table reader drops the JSON lift", "kicadstamp/adapter_factory.py",
+     "                return lift_loaded_dict(json.load(handle) or {}, str(p))",
+     "                return json.load(handle) or {}", "die"),
 ]
 
 
