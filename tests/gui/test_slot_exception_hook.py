@@ -136,6 +136,91 @@ print("reports", len(reports), flush=True)
 print("counts", hook.failure_counts(), flush=True)
 '''
 
+_INNER_SLOT_SITES = '''\
+"""Real Qt slots on the UI thread, driven through Qt's own dispatch, with the
+hook's Log records counted BY LEVEL.
+
+Why through Qt and not by calling `_handle` directly: the OUTERMOST frame of the
+traceback — the half Н6 adds to the dedup identity — is the slot PyQt called, and
+only a real slot gives it that shape (`save_slot -> helper`). Two DIFFERENT slots
+sharing ONE helper line is exactly the case the old key silenced.
+
+Shapes:
+  two-slots-one-helper — two different actions, ONE shared failing line;
+  one-slot             — one action, N repeats (the storm);
+  one-slot-two-lines   — one action, two different failing lines.
+"""
+import collections
+import logging
+import os
+import sys
+import time
+
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
+
+from gui.slot_exception_hook import LOGGER_NAME, install_slot_exception_hook
+
+install_slot_exception_hook(report_dir=os.environ["PROBE_REPORT_DIR"])
+app = QApplication.instance() or QApplication(sys.argv)
+
+levels = []
+
+
+class _Keep(logging.Handler):
+    """The records the POINT of the deduplication is about: the Log lines."""
+
+    def emit(self, record):
+        levels.append(record.levelname)
+
+
+logging.getLogger(LOGGER_NAME).addHandler(_Keep())
+
+
+def _helper(what):
+    raise RuntimeError(f"helper failed for {what}")   # ONE shared failing line
+
+
+def _save_slot():
+    _helper("save")
+
+
+def _redraw_slot():
+    _helper("redraw")
+
+
+_line_switch = {"n": 0}
+
+
+def _two_line_slot():
+    _line_switch["n"] += 1
+    if _line_switch["n"] % 2:
+        raise ValueError("first failure line")
+    raise ValueError("second failure line")
+
+
+SHAPES = {
+    "two-slots-one-helper": (_save_slot, _redraw_slot),
+    "one-slot": (_save_slot,),
+    "one-slot-two-lines": (_two_line_slot,),
+}
+runs = int(os.environ["PROBE_RUNS"])
+slots = SHAPES[os.environ["PROBE_SHAPE"]]
+done = []
+
+for index in range(runs):
+    # Increasing intervals, so the sentinel below is guaranteed to come last: the
+    # storm must be FULLY counted before the numbers are printed.
+    QTimer.singleShot(index + 1, slots[index % len(slots)])
+QTimer.singleShot(runs + 50, lambda: done.append(True))
+
+while not done:
+    app.processEvents()
+    time.sleep(0.002)
+
+print("levels", dict(collections.Counter(levels)), flush=True)
+'''
+
 
 def _inner_env(report_dir=None, **extra):
     """The inner run's environment: offscreen, an ABSOLUTE PYTHONPATH, and the
@@ -167,6 +252,12 @@ def _run_inner(tmp_path, source, env, name="probe.py"):
 def _report_texts(directory) -> list:
     return sorted(path.read_text(encoding="utf-8") for path
                   in Path(directory).glob("slot_exception_*.txt"))
+
+
+def _level_counts(stdout, output) -> dict:
+    """Parse the inner program's `levels {LEVEL: n, ...}` line into a dict."""
+    line = next(line for line in stdout.splitlines() if line.startswith("levels "))
+    return ast.literal_eval(line[len("levels "):])
 
 
 def test_the_battle_entry_point_arms_the_hook_before_the_window():
@@ -328,3 +419,85 @@ def test_a_failing_site_is_reported_once_whatever_its_repeat_count(
     assert sorted(counts.values(), reverse=True) == list(expect_counts), (
         f"each site must be counted, and the counts must be per site — got "
         f"{counts}, expected {expect_counts}\n{output}")
+
+
+# ── Н6: different actions dying in ONE shared line are not silent ───────────
+
+@pytest.mark.parametrize("shape,runs,expect_critical,expect_reports", [
+    ("two-slots-one-helper", 2, 2, 2),
+    ("one-slot", 25, 1, 1),
+    ("one-slot-two-lines", 2, 2, 2),
+], ids=["two-slots-one-helper", "one-slot-many-repeats",
+        "one-slot-two-failure-lines"])
+def test_two_actions_dying_in_one_shared_line_are_both_reported(
+        tmp_path, shape, runs, expect_critical, expect_reports):
+    """Н6 — the deduplication identity is (ENTRY frame, FAILURE frame, type), and
+    this measures the half that was MISSING: two DIFFERENT slots whose exception is
+    born in ONE shared helper line must each get a Log line and a report.
+
+    Why this is a defect and not a nicety: counting by the deepest frame alone
+    collapsed every failure born in one shared library line — a closed KiCad (one
+    kipy `client.py` line), one `_live_adapter`, one door refusal — into ONE
+    record, so the SECOND action printed nothing at all: the user pressed, nothing
+    happened, and no line said so. Same shape as the "a refusal does not go silent"
+    rule the door and `socket_busy` already follow.
+
+    The third row keeps the OTHER half honest: one action failing on two DIFFERENT
+    lines is two identities, not one. The second row is the storm's own cell — the
+    entry fix must NOT re-open the flood (one action ×25 stays one CRITICAL).
+    """
+    reports = tmp_path / "reports"
+    proc = _run_inner(tmp_path, _INNER_SLOT_SITES,
+                      _inner_env(reports, PROBE_SHAPE=shape,
+                                 PROBE_RUNS=str(runs)))
+    output = proc.stdout + proc.stderr
+
+    assert proc.returncode == 0, output
+    levels = _level_counts(proc.stdout, output)
+    assert levels.get("CRITICAL", 0) == expect_critical, (
+        f"the number of CRITICAL Log lines must be the number of DIFFERENT actions "
+        f"(entry+failure+type), not the number of failing lines — got "
+        f"{levels}\n{output}")
+    assert len(_report_texts(reports)) == expect_reports, (
+        f"one report per identity — got {len(_report_texts(reports))}, expected "
+        f"{expect_reports}\n{output}")
+
+
+# ── Н7: the Log lines themselves, by level ─────────────────────────────────
+
+@pytest.mark.parametrize("runs,expect_critical,expect_error", [
+    (3, 1, 0),
+    (25, 1, 1),
+    (100, 1, 2),
+], ids=["three-repeats", "twenty-five-repeats", "hundred-repeats"])
+def test_a_storm_keeps_the_log_bounded_and_speaks_at_each_power_of_ten(
+        tmp_path, runs, expect_critical, expect_error):
+    """Н7 — the policy the report argues for ("without dedup the Log would freeze")
+    had NO cell measuring Log lines: the rows above count report files and
+    `failure_counts()`, not the records the `kicadstamp.slot_exception` logger
+    emits — and the Log lines are the whole reason the dedup exists.
+
+    This intercepts those records INSIDE the inner process and asserts by level:
+    exactly ONE CRITICAL for the first occurrence (and one report), plus ONE ERROR
+    each time the count crosses a power of ten. The growth is log10(N), not N —
+    measured: 3 repeats say nothing after the first, 25 add one line (at the 10th),
+    100 add two (10th and 100th). Both mutations of the policy go red on this cell:
+    a line on every repeat (too many) and a policy that never speaks again (too
+    few).
+    """
+    reports = tmp_path / "reports"
+    proc = _run_inner(tmp_path, _INNER_SLOT_SITES,
+                      _inner_env(reports, PROBE_SHAPE="one-slot",
+                                 PROBE_RUNS=str(runs)))
+    output = proc.stdout + proc.stderr
+
+    assert proc.returncode == 0, output
+    levels = _level_counts(proc.stdout, output)
+    assert levels.get("CRITICAL", 0) == expect_critical, (
+        f"one action, {runs} repeats: exactly one CRITICAL Log line — got "
+        f"{levels}\n{output}")
+    assert levels.get("ERROR", 0) == expect_error, (
+        f"{runs} repeats of ONE identity must speak again at 10 (and 100) only — "
+        f"got {levels}\n{output}")
+    assert len(_report_texts(reports)) == 1, (
+        f"one report for one identity however many times it repeats\n{output}")

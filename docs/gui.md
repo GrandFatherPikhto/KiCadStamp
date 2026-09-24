@@ -157,10 +157,13 @@ lost. `kicadstamp/gui_main.py` now installs the hook from `gui/slot_exception_ho
 
 When it fires, this is what you get — and all you get:
 
-* **one CRITICAL line in the Log**, naming the failing `file:line`, the exception and the report path
-  (see `## Log`). One line per failing SITE per session; the same site speaks again only when its
-  count crosses the next power of ten — a broken `eventFilter` fires on every event delivered to its
-  widget (measured: 17 times in half a second), and the Log is a widget on the UI thread.
+* **one CRITICAL line in the Log**, naming BOTH `file:line` places — the entry frame (the slot or
+  filter PyQt called) and the failing frame (where the exception was raised) — plus the exception and
+  the report path (see `## Log`). The deduplication identity is that PAIR of frames together with the
+  exception type, so two DIFFERENT actions that die in one shared library line get two lines, not
+  one; one line per identity per session, and the same identity speaks again only when its count
+  crosses the next power of ten — a broken `eventFilter` fires on every event delivered to its widget
+  (measured: 17 times in half a second), and the Log is a widget on the UI thread.
 * **a report file** in `diagnostics/` (`slot_exception_<UTC>.txt`) with the environment and the full
   traceback. That directory is where this project's other diagnostics reports live, and it is
   gitignored.

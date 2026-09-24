@@ -25,21 +25,32 @@ it is "a Python failure no longer ends the session".
 WHAT IT DOES. Logs CRITICAL with the traceback through the standard logging
 pipeline — which the GUI already marshals to the UI thread (gui/docks/log_panel.py:
 `_QtLogHandler.emit` emits a signal instead of touching the widget, so writing a
-record is safe from ANY thread) — and writes one report file per failing SITE
-into `<repo>/diagnostics/`, where this project's other diagnostics reports already
-live (kicadstamp/diagnostics/board_read_probe.py:75 — "gitignored, and where the
-report tool looks"; the GUI has no log file of its own, `setup_logging()` runs
-without `log_file`). It NEVER touches a widget: after a failed slot the widget
-state is unpredictable, and the hook may be running on a worker thread.
+record is safe from ANY thread) — and writes one report file per failure IDENTITY
+(the `dedup_key()` triple below) into `<repo>/diagnostics/`, where this project's
+other diagnostics reports already live (kicadstamp/diagnostics/board_read_probe.py:
+75 — "gitignored, and where the report tool looks"; the GUI has no log file of its
+own, `setup_logging()` runs without `log_file`). It NEVER touches a widget: after a
+failed slot the widget state is unpredictable, and the hook may be running on a
+worker thread.
 
 DEDUPLICATION, and why it is not cosmetics. A failing eventFilter fires on EVERY
 event delivered to that widget: measured, ONE broken filter produced 17 hook calls
 in 0.5 s of event pumping. Every Log line is appended to a QPlainTextEdit on the
 UI thread, so an undeduplicated hook would trade one crash for a frozen Log. The
-policy: ONE full entry per SITE per session (report file written once, with the
-traceback of the first case), and the SAME site speaks again only when its count
-crosses the next power of ten — bounded lines (about log10 of the repeats) that
-keep the count visible while the storm is happening instead of hiding it.
+identity counted here is NOT the raising line alone — that was the first version's
+defect: every failure born in one shared library line (a closed KiCad — one kipy
+`client.py` line; one `_live_adapter`; one door refusal) collapsed into ONE record,
+so the second, DIFFERENT action said nothing at all. The identity is the triple
+`dedup_key()` builds — the ENTRY frame (the OUTERMOST one: the slot or eventFilter
+PyQt called), the FAILURE frame (the deepest: where the exception was raised) and
+the exception TYPE. A storm of one eventFilter stays one key (entry and failure are
+the same every time), while two different actions — and two different failures on
+one line — are told apart. The Log line and the report name BOTH places, so the
+reader can open the action that failed as well as the line that raised. The policy:
+ONE full entry per triple per session (report file written once, with the traceback
+of the first case), and the SAME triple speaks again only when its count crosses
+the next power of ten — bounded lines (about log10 of the repeats) that keep the
+count visible while the storm is happening instead of hiding it.
 
 `SystemExit` and `KeyboardInterrupt` are NOT swallowed: they are handed to the
 previous hook, so a future `sys.exit()` from inside a slot keeps behaving exactly
@@ -98,10 +109,23 @@ def report_dir() -> Path:
         Path(__file__).resolve().parent.parent / "diagnostics")
 
 
+def entry_site(tb) -> str:
+    """`file:line` of the frame PyQt ENTERED — the OUTERMOST one: the slot, or the
+    eventFilter that raised. One half of the deduplication identity.
+
+    This is the half the first version was missing. Two DIFFERENT actions whose
+    exception is born in one shared helper line have the SAME failing site, so
+    counting by the deepest frame alone merged them and the second action said
+    nothing. The entry frame tells them apart."""
+    if tb is None:
+        return "<unknown>"
+    return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
+
+
 def failing_site(tb) -> str:
-    """`file:line` of the frame that RAISED — the deepest one, and the identity
-    the deduplication counts by. Same shape as the board door's refusal, and for
-    the same reason: an address the reader can open."""
+    """`file:line` of the frame that RAISED — the deepest one, and the other half
+    of the deduplication identity (`dedup_key`). Same shape as the board door's
+    refusal, and for the same reason: an address the reader can open."""
     while tb is not None and tb.tb_next is not None:
         tb = tb.tb_next
     if tb is None:
@@ -109,9 +133,25 @@ def failing_site(tb) -> str:
     return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
 
 
-def _write_report(exc_type, exc_value, tb, site: str) -> Path | None:
-    """The report file for a site's FIRST failure. Never raises: a report that
-    cannot be written must not become the second failure."""
+def dedup_key(tb, exc_type) -> tuple:
+    """What `_counts` is keyed by: `(entry frame, failure frame, exception type)`.
+
+    All three are part of the identity on purpose. The entry frame separates two
+    ACTIONS that die in one shared line; the failure frame is the address to open;
+    the type separates two different failures raised on one line (a ValueError and
+    a RuntimeError are not "the same failure"). A storm of ONE eventFilter stays
+    one key — same entry, same failure, same type — which is what keeps the Log
+    from freezing."""
+    return (entry_site(tb), failing_site(tb), exc_type.__name__)
+
+
+def _write_report(exc_type, exc_value, tb, entry: str, site: str) -> Path | None:
+    """The report file for a failure identity's FIRST failure. Never raises: a
+    report that cannot be written must not become the second failure.
+
+    `entry` and `site` are BOTH written: the failure frame is what the reader has
+    to open to fix the bug, and the entry frame says WHICH action has to be redone
+    — the two halves the deduplication keys by, so the file and the Log agree."""
     try:
         directory = report_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -133,6 +173,7 @@ def _write_report(exc_type, exc_value, tb, site: str) -> Path | None:
             f"version: {__version__}",
             f"timestamp: {datetime.now(timezone.utc).isoformat()}",
             f"thread: {threading.current_thread().name}",
+            f"entry: {entry}",
             f"site: {site}",
             f"exception: {exc_type.__name__}: {exc_value}",
             "occurrence: 1 (the first for this site; later ones are counted in"
@@ -178,12 +219,14 @@ def _handle(exc_type, exc_value, tb) -> None:
             previous = _previous_hook or sys.__excepthook__
             previous(exc_type, exc_value, tb)
             return
+        entry = entry_site(tb)
         site = failing_site(tb)
+        key = dedup_key(tb, exc_type)
         with _lock:
-            repeats = _counts.get(site, 0) + 1
-            _counts[site] = repeats
+            repeats = _counts.get(key, 0) + 1
+            _counts[key] = repeats
         if repeats == 1:
-            path = _write_report(exc_type, exc_value, tb, site)
+            path = _write_report(exc_type, exc_value, tb, entry, site)
             if path is not None:
                 report_note = _("A report was written to {path}.").format(
                     path=path)
@@ -195,16 +238,17 @@ def _handle(exc_type, exc_value, tb) -> None:
                                 "traceback below is the only copy.")
             _logger.critical(
                 _("A Qt action failed and was caught — the session continues, "
-                  "but that action was NOT completed: {kind}: {error} (at {site})."
-                  " {report}").format(
-                      kind=exc_type.__name__, error=exc_value, site=site,
-                      report=report_note),
+                  "but that action was NOT completed: {kind}: {error} "
+                  "(entered at {entry}, failed at {site}). {report}").format(
+                      kind=exc_type.__name__, error=exc_value, entry=entry,
+                      site=site, report=report_note),
                 exc_info=(exc_type, exc_value, tb))
         elif repeats in _REPEAT_STEPS:
             _logger.error(
-                _("The same Qt failure at {site} has now happened {count} times — "
-                  "it keeps failing and whatever it does keeps not completing.")
-                .format(site=site, count=repeats))
+                _("The same Qt failure has now happened {count} times — entered "
+                  "at {entry}, failed at {site}; it keeps failing and whatever "
+                  "it does keeps not completing.")
+                .format(entry=entry, site=site, count=repeats))
     except Exception as hook_error:         # noqa: BLE001 — see the docstring
         _fallback(type(hook_error), hook_error, hook_error.__traceback__)
 
@@ -251,6 +295,9 @@ def is_installed() -> bool:
 
 
 def failure_counts() -> dict:
-    """site -> how many times it fired in this session (a copy)."""
+    """`(entry, failure, type)` -> how many times it fired in this session (a
+    copy). The same identity `dedup_key()` counts by — NOT the failing line alone:
+    two actions that die in one shared line are two keys, and that is the fix this
+    dict carried."""
     with _lock:
         return dict(_counts)

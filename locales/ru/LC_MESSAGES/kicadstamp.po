@@ -17463,8 +17463,8 @@ msgstr "Плата сейчас занята (тик выделения или �
 
 #: gui/slot_exception_hook.py
 #, python-brace-format
-msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (at {site}). {report}"
-msgstr "Действие в Qt упало и было перехвачено — сессия продолжается, но действие НЕ выполнено: {kind}: {error} (место: {site}). {report}"
+msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (entered at {entry}, failed at {site}). {report}"
+msgstr "Действие в Qt упало и было перехвачено — сессия продолжается, но действие НЕ выполнено: {kind}: {error} (вход: {entry}, отказ: {site}). {report}"
 
 #: gui/slot_exception_hook.py
 #, python-brace-format
@@ -17477,5 +17477,5 @@ msgstr "Файл отчёта записать не удалось — трас�
 
 #: gui/slot_exception_hook.py
 #, python-brace-format
-msgid "The same Qt failure at {site} has now happened {count} times — it keeps failing and whatever it does keeps not completing."
-msgstr "Одно и то же падение в Qt (место: {site}) произошло уже {count} раз — оно повторяется, и то, что оно делает, снова не выполняется."
+msgid "The same Qt failure has now happened {count} times — entered at {entry}, failed at {site}; it keeps failing and whatever it does keeps not completing."
+msgstr "Одно и то же падение в Qt произошло уже {count} раз — вход: {entry}, отказ: {site}; оно повторяется, и то, что оно делает, снова не выполняется."

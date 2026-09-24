@@ -18781,7 +18781,7 @@ msgstr ""
 
 #: gui/slot_exception_hook.py
 #, python-brace-format
-msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (at {site}). {report}"
+msgid "A Qt action failed and was caught — the session continues, but that action was NOT completed: {kind}: {error} (entered at {entry}, failed at {site}). {report}"
 msgstr ""
 
 #: gui/slot_exception_hook.py
@@ -18795,5 +18795,5 @@ msgstr ""
 
 #: gui/slot_exception_hook.py
 #, python-brace-format
-msgid "The same Qt failure at {site} has now happened {count} times — it keeps failing and whatever it does keeps not completing."
+msgid "The same Qt failure has now happened {count} times — entered at {entry}, failed at {site}; it keeps failing and whatever it does keeps not completing."
 msgstr ""
