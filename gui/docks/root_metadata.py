@@ -109,10 +109,10 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout,
-                              QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                              QMessageBox, QPushButton, QTabWidget,
-                              QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
+                              QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+                              QListWidget, QMessageBox, QPushButton,
+                              QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.config.models import Config
 from kicadstamp.constants import (ROLE_CLUSTER_SOURCE_BOARD,
@@ -120,7 +120,6 @@ from kicadstamp.constants import (ROLE_CLUSTER_SOURCE_BOARD,
                                   ROLE_CLUSTER_SOURCES)
 from kicadstamp.i18n import _
 from kicadstamp.schematic_discovery import walk_schematic_hierarchy
-from kicadstamp.utils.paths import project_config_path_for_dir
 
 from .. import settings, config_io
 from ..hotkeys import build_action
@@ -129,6 +128,7 @@ from kicadstamp.config_working_set import WORKING_SET
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE,
                       display_path, merge_write, show_message)
+from .create_project_dialog import CreateProjectDialog
 from .rename import collect_graph_files
 
 logger = logging.getLogger(__name__)
@@ -292,8 +292,8 @@ class RootMetadataDock(QWidget):
         open_button.clicked.connect(self._on_open_root)
         open_row.addWidget(open_button)
         self.action_new = build_action(
-            self._main_window, ACTION_NEW, _("New Root file..."), "Ctrl+N", self._on_new_root)
-        new_button = QPushButton(_("New Root file..."))
+            self._main_window, ACTION_NEW, _("Create Project..."), "Ctrl+N", self._on_new_root)
+        new_button = QPushButton(_("Create Project..."))
         new_button.clicked.connect(self._on_new_root)
         open_row.addWidget(new_button)
         self.recent_combo = QComboBox()
@@ -440,47 +440,23 @@ class RootMetadataDock(QWidget):
         self.set_root_file(Path(chosen))
 
     def _on_new_root(self) -> None:
-        """Create a NEW project: pick (or make) a DIRECTORY, and the root config
-        inside it is named after that directory (2026-09-24, plan
-        plan_2026_09_24_project_is_a_directory, §3). Denis: "У KiCad
-        создаётся проект директорией, а открывается файл проекта. Вот так и
-        делаем." The name is NOT asked for separately — it comes from the
-        directory through project_config_path_for_dir(), exactly as KiCad names
-        <dir>/<dir>.kicad_pro. There is no "default new filename" any more.
+        """Create a NEW project through CreateProjectDialog (2026-09-24, Denis:
+        "В File будет «Создать проект». Открываем диалог создания проекта. Там
+        указываем имя, как в кикад, автоматически создаётся директория с нужной
+        инфраструктурой").
 
-        A brand new root starts out as an empty, perfectly valid config (every
-        Config field is optional/defaulted), so the file gets the canonical
-        '(kicadstamp-config)' template.
-
-        ONLY the config file is written. An empty logs/registry/tracks/
-        overrides/operational/ is deliberately NOT created: every consumer makes
-        its own directory on demand (2026-09-11, plan project_settings_single_
-        source, Этап 1 — the very problem the Files tab was removed to solve).
-
-        A directory that already holds <dir>.sexp is REFUSED, never silently
-        overwritten (Denis, 2026-09-24): a warning box plus one ERROR line in the
-        Log, and neither the existing config nor the current root is touched. A
-        silent overwrite here would destroy a real project's config."""
-        default_dir = str(self._path.parent if self._path else "")
-        chosen = QFileDialog.getExistingDirectory(
-            self, _("New project directory"), default_dir)
-        if not chosen:
+        The dialog owns everything the act of creation needs: the form (name +
+        parent folder), the refusal, and the writing itself
+        (kicadstamp.project_setup.create_project, which lays out the five
+        infrastructure directories). This method only launches it and opens what
+        it reports — ONE creation path for the dock button, for Ctrl+N and for the
+        File menu, so the cells guard a single flow instead of three."""
+        parent_of_projects = str(self._path.parent.parent) if self._path else ""
+        dialog = CreateProjectDialog(self, start_dir=parent_of_projects)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        target = Path(project_config_path_for_dir(chosen))
-        if target.exists():
-            message = _(
-                "A project config already exists here: {path} — nothing was "
-                "created. Open it instead, or choose another directory."
-            ).format(path=target)
-            self._show_message(message, _ERROR_STYLE)
-            QMessageBox.warning(self, _("New project directory"), message)
-            return
-        try:
-            target.write_text("(kicadstamp-config)\n", encoding="utf-8")
-        except OSError as e:
-            self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
-            return
-        self.set_root_file(target)
+        if dialog.created_config_path is not None:
+            self.set_root_file(dialog.created_config_path)
 
     def _on_recent_selected(self, index: int) -> None:
         path_str = self.recent_combo.itemData(index)

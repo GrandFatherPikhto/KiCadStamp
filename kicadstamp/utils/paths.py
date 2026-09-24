@@ -122,3 +122,17 @@ def default_operation_log_dir_for_config(config_path: str) -> str:
     """<config>.yaml -> <config-dir>/operational/."""
     p = Path(config_path)
     return str(p.parent / "operational")
+
+
+# Every directory a NEW project is born with (2026-09-24, Denis: "автоматически
+# создаётся директория с нужной инфраструктурой"). Kept as a tuple NEXT TO the
+# five builders above, and pinned against them by
+# tests/test_project_is_a_directory.py::test_the_infra_dir_list_covers_every_derived_store,
+# so adding a sixth derived store without its directory here fails a CELL instead
+# of silently producing projects that are missing it.
+#
+# This REVERSES the 2026-09-11 decision ("every consumer makes its own directory
+# on demand — the reason the Files tab was removed"), deliberately, by Denis on
+# 2026-09-24, for projects created FROM NOW ON. An existing profile keeps whichever
+# of these directories it happens to have: nothing here reads or writes one.
+PROJECT_INFRA_DIRS = ("registry", "tracks", "logs", "overrides", "operational")

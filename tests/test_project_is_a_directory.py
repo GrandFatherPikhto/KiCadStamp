@@ -146,3 +146,105 @@ def test_a_project_directory_without_a_name_is_refused_loudly(raw):
 
     with pytest.raises(ValueError):
         project_config_path_for_dir(raw)
+
+
+# ── create_project(): the project directory and what is born with it ───────
+#
+# 2026-09-24, SECOND step — Denis: "В File будет «Создать проект». Открываем
+# диалог создания проекта. Там указываем имя, как в кикад, автоматически
+# создаётся директория с нужной инфраструктурой." The cells live HERE rather than
+# in the GUI file because the writing is Qt-free (kicadstamp/project_setup.py): the
+# dialog only collects a name and a folder and calls it.
+
+# The literal expectation, deliberately NOT imported: this file must still COLLECT
+# on the base commit (that is how Н2's green is measured), and PROJECT_INFRA_DIRS
+# does not exist there. Drift between this tuple and the module's own is exactly
+# what test_the_infra_dir_list_covers_every_derived_store forbids.
+_INFRA = ("registry", "tracks", "logs", "overrides", "operational")
+
+
+def test_create_project_writes_the_config_and_its_infrastructure(tmp_path):
+    """The §5 row, FLIPPED by Denis on 2026-09-24 ("автоматически создаётся
+    директория с нужной инфраструктурой") — consciously overriding the 2026-09-11
+    decision that every consumer creates its own directory on demand. A new project
+    is now born with the five, and the row is the WHOLE listing: the config plus
+    exactly those five, nothing else."""
+    from kicadstamp.project_setup import create_project
+
+    project = tmp_path / "Clean-Project"
+    config = create_project(project)
+
+    assert config == project / "Clean-Project.sexp"
+    assert config.read_text(encoding="utf-8").strip() == "(kicadstamp-config)"
+    assert sorted(p.name for p in project.iterdir()) == sorted(
+        ["Clean-Project.sexp", *_INFRA])
+
+
+@pytest.mark.parametrize("name", _INFRA)
+def test_each_infrastructure_directory_is_created(tmp_path, name):
+    """One row per directory (rule 35), so a missing one names itself instead of
+    leaving "the listing differs" to be diffed by eye — and each is asserted
+    EMPTY, because creating a project must not start writing stores into them."""
+    from kicadstamp.project_setup import create_project
+
+    project = create_project(tmp_path / "Proj")
+
+    assert (project.parent / name).is_dir(), name
+    assert list((project.parent / name).iterdir()) == []
+
+
+def test_create_project_creates_the_directory_and_its_parents(tmp_path):
+    """The dialog asks for a name and a folder, so the directory is frequently
+    NEW and sometimes more than one level deep — the creation must make it, not
+    fail on a missing parent."""
+    from kicadstamp.project_setup import create_project
+
+    config = create_project(tmp_path / "deep" / "er" / "Proj")
+
+    assert config == tmp_path / "deep" / "er" / "Proj" / "Proj.sexp"
+    assert config.is_file()
+
+
+def test_create_project_refuses_to_overwrite_an_existing_config(tmp_path):
+    """Н4's core half: an existing config is never overwritten — the call raises
+    ProjectConfigExists BEFORE writing, and the bytes on disk stay as they were.
+    The dialog's half (a warning box, one ERROR line, the dialog left open) is in
+    tests/gui/test_create_project_dialog.py."""
+    from kicadstamp.project_setup import ProjectConfigExists, create_project
+
+    project = tmp_path / "taken"
+    (project / "registry").mkdir(parents=True)
+    existing = project / "taken.sexp"
+    existing.write_text('(kicadstamp-config\n  (layer "B.Cu"))\n', encoding="utf-8")
+    before = existing.read_text(encoding="utf-8")
+
+    with pytest.raises(ProjectConfigExists):
+        create_project(project)
+
+    assert existing.read_text(encoding="utf-8") == before
+    # Nothing was added either: the refusal happens before ANY write.
+    assert sorted(p.name for p in project.iterdir()) == ["registry", "taken.sexp"]
+
+
+def test_the_infra_dir_list_covers_every_derived_store(tmp_path):
+    """The drift guard. Every directory the five default builders point into (the
+    containing directory for the four file-returning ones, the path itself for
+    `operational/`) must be one of PROJECT_INFRA_DIRS — otherwise adding a sixth
+    derived store silently produces projects that are missing its directory, and
+    nobody sees it until a consumer writes into a path that was never made."""
+    from kicadstamp.project_setup import create_project
+    from kicadstamp.utils.paths import (PROJECT_INFRA_DIRS,
+                                        default_log_file_for_config,
+                                        default_operation_log_dir_for_config,
+                                        overrides_path_for_config,
+                                        registry_path_for_config,
+                                        track_registry_path_for_config)
+
+    project = create_project(tmp_path / "Proj")
+    config = str(project)
+    file_builders = (registry_path_for_config, track_registry_path_for_config,
+                     overrides_path_for_config, default_log_file_for_config)
+    derived = {Path(bst(config)).parent for bst in file_builders}
+    derived.add(Path(default_operation_log_dir_for_config(config)))
+
+    assert derived == {project.parent / d for d in PROJECT_INFRA_DIRS}

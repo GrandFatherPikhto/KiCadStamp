@@ -97,7 +97,7 @@ from .connection import (BoardConnection, LATENCY_KIND_FAST,
                          LATENCY_KIND_SLOW)
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
-from .docks._common import format_ms
+from .docks._common import display_path, format_ms
 from .docks.profile_import import run_import_dialog
 from .hotkeys import build_action
 from .kicad_processes_dialog import KicadProcessesDialog
@@ -230,6 +230,22 @@ class MainWindow(QMainWindow):
         self.project_action.triggered.connect(
             lambda: self._dock_hub._open_project_dialog())
         file_menu.addAction(self.project_action)
+
+        # "Create Project..." (2026-09-24, Denis: "В File будет «Создать
+        # проект»") — the dock's OWN action object, reused here for its third
+        # exposure (button + Ctrl+N + menu entry, the 2026-08-30 "one action,
+        # three exposures" rule), so the hotkey and the Settings row stay single
+        # and there is exactly ONE creation path to guard.
+        file_menu.addAction(self.root_metadata_dock.action_new)
+
+        # File > Recent project (2026-09-24, Denis: "добавим список File ->
+        # Recent project"). The 2026-09-01 move took Open/New/Recent into the
+        # Project dialog; this one comes back because opening a project is an
+        # entry point of its own. It is rebuilt from the SAME recent_root_files
+        # the dock's combo reads — see _rebuild_recent_project_menu.
+        self.recent_project_menu = file_menu.addMenu(_("Recent project"))
+        self.recent_project_menu.aboutToShow.connect(
+            self._rebuild_recent_project_menu)
 
         # Save / Discard (2026-09-01, plan project_save_model) — the ONE global
         # save model: every dock's edits stage into the working set, and only
@@ -632,6 +648,32 @@ class MainWindow(QMainWindow):
     @property
     def pending_dock(self):
         return self._dock_hub.pending_dock
+
+    def _rebuild_recent_project_menu(self) -> None:
+        """File > Recent project — rebuilt from the dock's OWN list every time the
+        menu opens (2026-09-24, Denis: "добавим список File -> Recent project").
+
+        The dock stays the single owner of `recent_root_files` (see
+        RootMetadataDock._remember_recent); this menu only reads it, so the two
+        views of one list cannot drift, and opening an entry takes the same path
+        the dock's own combo takes (set_root_file, unsaved-changes guard and all).
+
+        Rebuilding on aboutToShow rather than on every write keeps the wiring at
+        zero: no signal, no cached copy, no staleness. The empty case gets a
+        DISABLED row instead of an empty menu, so the user can see that the list
+        is a real feature that has nothing in it yet.
+        """
+        self.recent_project_menu.clear()
+        recent = settings.state.get("recent_root_files", [])
+        if not recent:
+            empty = self.recent_project_menu.addAction(_("No recent projects"))
+            empty.setEnabled(False)
+            return
+        dock = self.root_metadata_dock
+        for path_str in recent:
+            action = self.recent_project_menu.addAction(display_path(Path(path_str)))
+            action.triggered.connect(
+                lambda _checked=False, p=path_str: dock.set_root_file(Path(p)))
 
     def _restore_window_state(self) -> None:
         """Plain x/y/width/height ints in gui_state.json, not Qt's own

@@ -162,18 +162,88 @@ def _file_menu(real_main_window):
     return file_menus[0].menu()
 
 
-def test_file_menu_has_project_close_quit(real_main_window):
-    """&File (2026-09-01, plan project_settings_dialogs): Open/New/Recent
-    moved INTO the Project dialog, so the menu now has just &Project..., Save,
-    Discard, Close and &Quit."""
+def test_file_menu_has_project_create_recent_close_quit(real_main_window):
+    """&File. 2026-09-01 (plan project_settings_dialogs) moved Open/New/Recent INTO
+    the Project dialog; on 2026-09-24 Denis brought two of them BACK — "В File будет
+    «Создать проект»" and "добавим список File -> Recent project" — while OPEN stays
+    inside the dialog, because opening is a file operation and this menu carries
+    project operations.
+
+    RE-POINTED, not weakened: the guard still says exactly which entries the menu
+    must and must not have, just against the new requirement."""
     menu = _file_menu(real_main_window)
     texts = [a.text() for a in menu.actions()]
     assert "&Project..." in texts
+    assert "Create Project..." in texts
     assert "Close" in texts
     assert "&Quit" in texts
+    # "Recent project" is the same recent_root_files list as the dock's combo.
+    assert "Recent project" in texts
     assert "Open Root file..." not in texts
-    assert "New Root file..." not in texts
-    assert not any(a.text() == "Recent" and a.menu() is not None for a in menu.actions())
+
+
+def test_file_menu_create_project_is_the_docks_own_action(real_main_window):
+    """One action, three exposures (2026-08-30 rule): File's "Create Project..." IS
+    RootMetadataDock.action_new — the very object the dock's button uses — so Ctrl+N
+    stays a single binding, the Settings row stays single, and there is exactly ONE
+    creation path in the code to guard.
+
+    Asserted by IDENTITY rather than by triggering: build_action connects the signal
+    to the bound method as it was at build time, so a monkeypatched handler would
+    prove nothing (same caveat as the Close cell below)."""
+    from PyQt6.QtGui import QKeySequence
+
+    menu = _file_menu(real_main_window)
+    create_action = next(a for a in menu.actions() if a.text() == "Create Project...")
+
+    assert create_action is real_main_window.root_metadata_dock.action_new
+    assert create_action.shortcut() == QKeySequence("Ctrl+N")
+
+
+def test_file_menu_recent_project_is_rebuilt_from_the_recent_root_list(
+        real_main_window, tmp_path):
+    """File > Recent project is a VIEW of the dock's own recent_root_files, rebuilt
+    every time the menu opens — so the menu and the dock's combo cannot drift, and
+    no second copy of the list exists anywhere. Triggering an entry opens the project
+    through set_root_file, i.e. the same guarded path the combo takes."""
+    from gui.docks._common import display_path
+
+    first = tmp_path / "First"
+    first.mkdir()
+    root_a = first / "First.sexp"
+    root_a.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    root_b = tmp_path / "b.sexp"
+    root_b.write_text("(kicadstamp-config)\n", encoding="utf-8")
+    dock = real_main_window.root_metadata_dock
+    dock.set_root_file(root_a)
+    dock.set_root_file(root_b)
+
+    menu = real_main_window.recent_project_menu
+    menu.aboutToShow.emit()                    # what opening the menu does
+
+    enabled = [a for a in menu.actions() if a.isEnabled()]
+    assert [a.text() for a in enabled] == [display_path(root_b), display_path(root_a)]
+
+    enabled[1].trigger()
+    assert dock._path == root_a
+
+
+def test_file_menu_recent_project_with_an_empty_list_shows_one_dead_row(
+        real_main_window):
+    """The empty cell (rule 35): with nothing in the list the submenu carries ONE
+    DISABLED row instead of an empty menu — the feature stays visible and there is
+    nothing to click. A disabled SUBMENU was the alternative and was rejected: Qt
+    would then never fire aboutToShow on it, so it could never come back to life."""
+    from gui import settings
+
+    settings.state.set("recent_root_files", [])
+    menu = real_main_window.recent_project_menu
+
+    menu.aboutToShow.emit()
+
+    actions = menu.actions()
+    assert len(actions) == 1
+    assert actions[0].isEnabled() is False
 
 
 def test_file_menu_project_opens_the_project_dialog(real_main_window):

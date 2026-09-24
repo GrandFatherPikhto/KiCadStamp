@@ -17,21 +17,17 @@ the fuses come along):
     MUTANT's .pyc (that is how the 24.09.2026 verdicts lied until the purge was
     added).
 
-н2 AND н5 ARE DELIBERATELY DIFFERENT EDITS of the same idea (the plan's §7 allows
-either wording), and the verdicts show why both exist:
+THE ENTRY HAS TWO STEPS, AND THE RIG HAS A ROW FOR BOTH. Step 1 (Denis: "создаётся
+проект директорией") is н1/н2/н5. Step 2 (Denis, same day: "В File будет «Создать
+проект»... автоматически создаётся директория с нужной инфраструктурой") added the
+dialog, the File menu and the five infrastructure directories — н3/н4/н6/н7/н8/н9.
 
-  * н2 moves the registry store OUT to the parent — it kills Н3[registry] AND Н2,
-    not Н3[registry] alone as this docstring first claimed: "points at the file
-    that IS there" is false for an OLD profile too once the store walks up a
-    level. Left in place rather than re-cut, because a mutation that reddens a
-    neighbour is a FINDING, not a defect of the rig (rule 38: "красное не на той
-    клетке — находка"). It leaves Н3[tracks]/Н3[overrides] green, which is the
-    point of a parametrized row.
-  * н5 keeps the store where it is and takes the STEM from the DIRECTORY instead
-    of the config — it kills Н2 ONLY, because for a NEW project the directory name
-    and the config stem coincide, so Н3 cannot see this change at all. That is the
-    §4 trap in its most likely disguise, and the pair н2/н5 is the evidence that
-    Н2 and Н3 are not two names for one cell.
+н4 IS THE FLIPPED ONE, and it is the whole reason the flip must be visible here: the
+old requirement forbade pre-created infrastructure, so the mutation was "helpfully
+create the directories". Denis reversed it on 2026-09-24, so the mutation is now the
+opposite — "skip the loop" — and a cell that still asserted "only the config file"
+would have gone RED on correct code. A guard is only meaningful against the
+requirement it was written for.
 
 Input        - nothing; needs the entry's working tree and its interpreter.
 Expected     - one verdict line per mutation: УБИТА / ВЫЖИЛА / НЕДЕЙСТВИТЕЛЬНА /
@@ -65,51 +61,49 @@ def _interpreter() -> str:
 
 PY_BIN = _interpreter()
 
-CELLS = ["tests/test_project_is_a_directory.py", "tests/gui/test_root_metadata.py"]
+CORE = ["tests/test_project_is_a_directory.py"]
+DIALOG = ["tests/gui/test_create_project_dialog.py"]
+DOCK = ["tests/gui/test_root_metadata.py"]
+MENU = ["tests/gui/test_main_window.py"]
+CREATION = CORE + DIALOG + DOCK
 
-# --- н1: the created config is a fixed "config.sexp", not the directory name -----
-# Н1. Also kills Н5, whose row names the file (["Clean-Project.sexp"]): that is not
-# a defect of the cell, the created NAME is part of "only the config file" too.
+# --- н1: the created config is a fixed "config.sexp", not the project name -------
+# Kills the name cells AND, because a listing names the file, the whole-listing row:
+# that is expected, not a defect of the cell.
 N1_OLD = """    return str(p / (p.name + ".sexp"))
 """
 N1_NEW = """    return str(p / "config.sexp")
 """
 
 # --- н2: a store lands in the PARENT of the project directory -------------------
-# Н3, and only its [registry] row: tracks/overrides have their own rows, and a
-# half-applied path rule is exactly what a parametrized cell is there to expose.
+# Its own row [registry] plus Н2, because "points at the file that IS there" is
+# false for an OLD profile too once the store walks up a level. Left as measured
+# (rule 38: a neighbour going red is a finding, not a rig defect).
 N2_OLD = """    return str(p.parent / "registry" / (p.stem + ".registry.json"))
 """
 N2_NEW = """    return str(p.parent.parent / "registry" / (p.stem + ".registry.json"))
 """
 
-# --- н3: creation silently overwrites an existing config ------------------------
-# Н4 — the §4-adjacent destruction: the guard is removed, so the template is
-# written OVER a real project's config and the current root is switched under it.
-N3_OLD = """        if target.exists():
-            message = _(
-                "A project config already exists here: {path} — nothing was "
-                "created. Open it instead, or choose another directory."
-            ).format(path=target)
-            self._show_message(message, _ERROR_STYLE)
-            QMessageBox.warning(self, _("New project directory"), message)
-            return
-        try:
+# --- н3: create_project("tak") overwrites instead of refusing -------------------
+# Kills the core refusal cell and the dialog's refusal cell — the §4-adjacent
+# destruction, and the row that must stay red now that the guard belongs to the
+# widget and to the setup module rather than to the dock.
+N3_OLD = """    config = Path(project_config_path_for_dir(project_dir))
+    if config.exists():
+        raise ProjectConfigExists(config)
 """
-N3_NEW = """        try:
+N3_NEW = """    config = Path(project_config_path_for_dir(project_dir))
 """
 
-# --- н4: the empty infrastructure directories get pre-created -------------------
-# Н5. The plausible "let me be helpful and lay out the project" edit — and the
-# exact thing the 2026-09-11 decision removed the Files tab for.
-N4_OLD = """            target.write_text("(kicadstamp-config)\\n", encoding="utf-8")
-        except OSError as e:
+# --- н4: THE FLIPPED ROW — the infrastructure loop is skipped -------------------
+# Step 1 asserted exactly the opposite. Denis reversed the requirement on
+# 2026-09-24 ("автоматически создаётся директория с нужной инфраструктурой"), so
+# now the OMISSION is the bug and this mutation must die on three cells: the
+# whole-listing row, the per-directory row [logs], and the end-to-end dialog row.
+N4_OLD = """    for name in PROJECT_INFRA_DIRS:
+        (config.parent / name).mkdir(exist_ok=True)
 """
-N4_NEW = """            target.write_text("(kicadstamp-config)\\n", encoding="utf-8")
-            for _sub in ("logs", "registry", "tracks"):
-                (target.parent / _sub).mkdir(exist_ok=True)
-        except OSError as e:
-"""
+N4_NEW = ""
 
 # --- н5: the stem of a store comes from the DIRECTORY, always -------------------
 # Н2 — the plan's §4 trap in its most likely disguise ("let us unify the names"):
@@ -121,17 +115,64 @@ N5_OLD = """    return str(p.parent / "registry" / (p.stem + ".registry.json"))
 N5_NEW = """    return str(p.parent / "registry" / (p.parent.name + ".registry.json"))
 """
 
+# --- н6: the dialog stops validating the folder ---------------------------------
+# "mkdir(parents=True) will make it anyway" is the plausible slip, and it silently
+# turns a typo in the Folder field into a new tree of directories. Kills the
+# missing-folder row.
+N6_OLD = """        if not Path(folder).is_dir():
+            QMessageBox.warning(self, _("Create Project"),
+                                _("Pick an existing folder first."))
+            return
+"""
+N6_NEW = ""
+
+# --- н7: the dialog stops refusing a name with a path separator -----------------
+# The escape hatch this closes: a name like "../../somewhere/Proj" walking out of
+# the folder the user picked. Kills the separator row, which calls _on_ok DIRECTLY
+# (the disabled button is not the guard).
+N7_OLD = """        name, folder = self._project_text(), self._folder_text()
+        if not name or "/" in name or "\\\\" in name:
+"""
+N7_NEW = """        name, folder = self._project_text(), self._folder_text()
+        if not name:
+"""
+
+# --- н8: File > Recent project stops reading the dock's list --------------------
+# A frozen/emptied view of recent_root_files. Kills the rebuilt-from-the-list row;
+# the empty-list row still passes, which is the point of having both.
+N8_OLD = """        self.recent_project_menu.clear()
+        recent = settings.state.get("recent_root_files", [])
+"""
+N8_NEW = """        self.recent_project_menu.clear()
+        recent = []
+"""
+
+# --- н9: the infrastructure list quietly loses a row ----------------------------
+# Exactly what the drift cell exists to catch: a project then comes out missing a
+# directory that a consumer will write into. Kills the drift cell, the whole-listing
+# row and the per-directory row [logs].
+N9_OLD = 'PROJECT_INFRA_DIRS = ("registry", "tracks", "logs", "overrides", "operational")'
+N9_NEW = 'PROJECT_INFRA_DIRS = ("registry", "tracks", "overrides", "operational")'
+
 MUTATIONS = [
     ("н1 config named config.sexp", "kicadstamp/utils/paths.py",
-     N1_OLD, N1_NEW, CELLS),
+     N1_OLD, N1_NEW, CREATION),
     ("н2 store in the parent dir", "kicadstamp/utils/paths.py",
-     N2_OLD, N2_NEW, CELLS),
-    ("н3 silent overwrite", "gui/docks/root_metadata.py",
-     N3_OLD, N3_NEW, CELLS),
-    ("н4 pre-created infra dirs", "gui/docks/root_metadata.py",
-     N4_OLD, N4_NEW, CELLS),
+     N2_OLD, N2_NEW, CREATION),
+    ("н3 create_project overwrites", "kicadstamp/project_setup.py",
+     N3_OLD, N3_NEW, CREATION),
+    ("н4 infra loop skipped", "kicadstamp/project_setup.py",
+     N4_OLD, N4_NEW, CREATION),
     ("н5 stem from the directory", "kicadstamp/utils/paths.py",
-     N5_OLD, N5_NEW, CELLS),
+     N5_OLD, N5_NEW, CREATION),
+    ("н6 no folder validation", "gui/docks/create_project_dialog.py",
+     N6_OLD, N6_NEW, DIALOG),
+    ("н7 no separator guard", "gui/docks/create_project_dialog.py",
+     N7_OLD, N7_NEW, DIALOG),
+    ("н8 recent menu not rebuilt", "gui/main_window.py",
+     N8_OLD, N8_NEW, MENU),
+    ("н9 infra list loses a row", "kicadstamp/utils/paths.py",
+     N9_OLD, N9_NEW, CREATION),
 ]
 
 

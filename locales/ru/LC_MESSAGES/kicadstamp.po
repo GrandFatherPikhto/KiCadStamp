@@ -3559,6 +3559,50 @@ msgstr "Каталог нового проекта"
 msgid "A project config already exists here: {path} — nothing was created. Open it instead, or choose another directory."
 msgstr "Здесь уже есть конфиг проекта: {path} — ничего не создано. Откройте его или выберите другой каталог."
 
+#: gui/docks/create_project_dialog.py:41
+msgid "Create Project"
+msgstr "Создать проект"
+
+#: gui/docks/root_metadata.py:295
+msgid "Create Project..."
+msgstr "Создать проект..."
+
+#: gui/docks/create_project_dialog.py:44
+msgid "My new project"
+msgstr "Мой новый проект"
+
+#: gui/docks/create_project_dialog.py:52
+msgid "Project name:"
+msgstr "Имя проекта:"
+
+#: gui/docks/create_project_dialog.py:53
+msgid "Folder:"
+msgstr "Папка:"
+
+#: gui/docks/create_project_dialog.py:105
+msgid "Pick a folder and type a project name (no slashes)."
+msgstr "Укажите папку и введите имя проекта (без косых черт)."
+
+#: gui/docks/create_project_dialog.py:108
+msgid "Will create {path}"
+msgstr "Будет создано: {path}"
+
+#: gui/docks/create_project_dialog.py:120
+msgid "Type a project name without path separators."
+msgstr "Введите имя проекта без разделителей пути."
+
+#: gui/docks/create_project_dialog.py:124
+msgid "Pick an existing folder first."
+msgstr "Сначала выберите существующую папку."
+
+#: gui/main_window.py:243
+msgid "Recent project"
+msgstr "Недавний проект"
+
+#: gui/main_window.py:311
+msgid "No recent projects"
+msgstr "Нет недавних проектов"
+
 #: gui/docks/root_metadata.py:556 gui/docks/root_metadata.py:566
 #: gui/docks/root_metadata.py:577 gui/docks/root_metadata.py:592
 #: gui/docks/root_metadata.py:631

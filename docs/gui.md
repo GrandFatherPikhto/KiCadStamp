@@ -451,10 +451,11 @@ dedicated file per role is just the default habit, not a requirement enforced an
 ## Config tree
 
 A tree mirroring the actual `include:` file graph from a single root config file — pick it via
-**Open Root file...**/**New Root file...**/the **Recent** dropdown. **Open** picks the config FILE;
-**New** (since 2026-09-24) picks — or makes — a project DIRECTORY and creates `<dir>/<dir>.sexp`
-inside it, so a project is created as a directory and opened as a file, exactly as KiCad does; a
-directory that already holds that config is refused with a warning rather than overwritten. Every
+**Open Root file...**/**Create Project...**/the **Recent project** menu. **Open** picks the config
+FILE; **Create Project...** (since 2026-09-24) asks for a NAME and a FOLDER and makes
+`<folder>/<name>/<name>.sexp` plus the project's five infrastructure directories, so a project is
+created as a directory and opened as a file, exactly as KiCad does; a folder that already holds that
+project is refused with a warning rather than overwritten. Every
 file node shows its own
 sections (Cells/Clone placements/Thermal via arrays/Points/Chains/Extract profiles/Clone profiles)
 and its own included files, recursively.
@@ -1640,8 +1641,8 @@ values that were not applied yet. **Board** restores the pre-2026-09-18 behaviou
 "Board" is announced in the Log — the stored values keep existing but stop taking effect. The key
 itself is documented in [docs/config.md](config.md).
 
-Always targets the project's single root file — the one opened via "Open Root file..."/"New Root
-file..."/the Recent dropdown inside this dialog — regardless of which included file is currently
+Always targets the project's single root file — the one opened via "Open Root file..."/"Create
+Project..."/the Recent dropdown inside this dialog — regardless of which included file is currently
 browsed in the Config tree. Browsing into an included file does not retarget this panel: these
 fields are only valid on an actual root (an included file setting any of them is fatal at load — see
 [docs/config.md](config.md)), and a project only ever has one.
@@ -1654,8 +1655,10 @@ config instead of beside it: `registry/<config-stem>.registry.json`, `tracks/<co
 registry.json`, `logs/actions.log`, and `operational/` for the `operation_*.json` undo logs. Config
 backups made on Save live in a hidden `.history/` next to the root config.
 
-For a project created with **New Root file...** the three stem-derived names above follow the
-DIRECTORY name, because the config itself is `<dir>.sexp` (2026-09-24). An EXISTING profile is never
+For a project created with **Create Project...** the three stem-derived names above follow the
+DIRECTORY name, because the config itself is `<folder>/<name>/<name>.sexp` — and that dialog also lays
+out the five directories (registry/, tracks/, logs/, overrides/, operational/) inside the new project
+(2026-09-24). An EXISTING profile is never
 renamed to match: the stores on its disk are named after its own `config.sexp` stem, so renaming that
 config would make `registry/<stem>.registry.json` point at a file that is not there — the registry
 would read as EMPTY, and the next redraw would double the copper already on the board.
