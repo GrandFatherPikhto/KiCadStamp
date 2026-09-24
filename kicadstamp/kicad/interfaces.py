@@ -73,6 +73,18 @@ class IBoardAdapter(ABC):
     @abstractmethod
     def get_shapes(self) -> list[Any]: ...
 
+    # Board IDENTITY reads (plan_2026_09_24_project_identity_from_ipc Т2). The
+    # project is the ONE piece of identity the door did not carry: `project`
+    # arrives in the same DocumentSpecifier as `board_filename`, and it is what
+    # lets a caller say WHICH board an answer is about. Declared here because it
+    # is a new READ (door rule 1). Note the sibling omission this declaration
+    # does NOT fix: `get_board_filename` and `get_version` have lived on the
+    # concrete adapter since the 2026-08-20 board-identity check without ever
+    # being declared on the seam. The gap is named rather than widened in this
+    # entry; nothing else implements this ABC, so declaring is safe.
+    @abstractmethod
+    def get_board_project(self) -> tuple[str, str] | None: ...
+
     @abstractmethod
     def get_vias(self) -> list[Via]: ...
 
