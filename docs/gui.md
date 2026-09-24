@@ -452,7 +452,8 @@ dedicated file per role is just the default habit, not a requirement enforced an
 
 A tree mirroring the actual `include:` file graph from a single root config file — pick it via
 **Open Root file...**/**Create Project...**/the **Recent project** menu. **Open** picks the config
-FILE; **Create Project...** (since 2026-09-24) asks for a NAME and a FOLDER and makes
+FILE, and since 2026-09-24 only a `*.sexp` is accepted as a root; **Create Project...** (since
+2026-09-24) asks for a NAME and a FOLDER and makes
 `<folder>/<name>/<name>.sexp` plus the project's five infrastructure directories, so a project is
 created as a directory and opened as a file, exactly as KiCad does; a folder that already holds that
 project is refused with a warning rather than overwritten. Every
@@ -1611,8 +1612,13 @@ open it from the main menu's **File → Project...**. It hosts the whole RootMet
 (displayed "Project" since 2026-08-05, Denis: "давай не root, а project"; the panel underneath is
 still called RootMetadataDock in code, since it edits the project's ROOT config file, same concept
 the Config tree's "Open Root file..." uses). Open/New/Recent moved INTO this dialog too (2026-09-01)
-— the File menu now only has **Project...**, Save, Discard, Close, Quit; the `Ctrl+O`/`Ctrl+N`
-hotkeys stay app-wide regardless of the dialog's visibility.
+— and since 2026-09-24 the File menu carries **Project...**, **Create Project...** and the
+**Recent project** submenu back alongside Save, Discard, Close and Quit; the `Ctrl+O`/`Ctrl+N`
+hotkeys stay app-wide regardless of the dialog's visibility. Opening accepts **`*.sexp` only**
+(2026-09-24): the dialog filter offers nothing else, and `set_root_file` — the ONE door every path
+into the project goes through — refuses anything else, because "Recent", restore-on-startup and a
+hand-typed path never see the filter. Files a root `include:`s are NOT affected: a profile may still
+include its legacy `scheme_lists.json`.
 
 Edits the project's root-config-only scalar keys: Layer/Place components/Skip existing components,
 the **KiCad project** (`*.kicad_pro`) picker and the read-only schematic-sheets list (all shown

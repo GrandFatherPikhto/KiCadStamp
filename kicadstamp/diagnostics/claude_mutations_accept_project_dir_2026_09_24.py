@@ -130,12 +130,17 @@ N6_NEW = ""
 # The escape hatch this closes: a name like "../../somewhere/Proj" walking out of
 # the folder the user picked. Kills the separator row, which calls _on_ok DIRECTLY
 # (the disabled button is not the guard).
-N7_OLD = """        name, folder = self._project_text(), self._folder_text()
-        if not name or "/" in name or "\\\\" in name:
+# RE-AIMED 24.09.2026 (ДОПОЛНЕНИЕ 1): `_on_ok` no longer spells the separator check
+# out itself — it consults `_name_problem`, ONE helper shared with `_target_dir`. The
+# original text therefore matched 0 times and the fuse said НЕДЕЙСТВИТЕЛЬНА instead of
+# quietly applying to a chance occurrence, which is exactly what it is for. The cut is
+# now aimed at the separator BRANCH inside that helper: removing it lets `sub/Proj`
+# through, the directory is really created under the picked folder, and the row that
+# calls _on_ok directly goes red.
+N7_OLD = """        if "/" in name or "\\\\" in name:
+            return _("Type a project name without path separators.")
 """
-N7_NEW = """        name, folder = self._project_text(), self._folder_text()
-        if not name:
-"""
+N7_NEW = ""
 
 # --- н8: File > Recent project stops reading the dock's list --------------------
 # A frozen/emptied view of recent_root_files. Kills the rebuilt-from-the-list row;
@@ -153,6 +158,120 @@ N8_NEW = """        self.recent_project_menu.clear()
 # row and the per-directory row [logs].
 N9_OLD = 'PROJECT_INFRA_DIRS = ("registry", "tracks", "logs", "overrides", "operational")'
 N9_NEW = 'PROJECT_INFRA_DIRS = ("registry", "tracks", "overrides", "operational")'
+
+# ══ ДОПОЛНЕНИЕ 1 (24.09.2026): the relative names, the dotted name, *.sexp only ══
+
+# --- д1: the GREYED BUTTON stops seeing "." and ".." ---------------------------
+# Д1/Д2's button half. `_name_problem` is ONE helper shared by `_target_dir` and
+# `_on_ok` (deliberately — the two halves must never disagree), so the per-NAME cut
+# the task sketched is not available: the honest cuts are per-HALF. This one drops the
+# helper from `_target_dir`, so the button goes live; the refusal in `_on_ok` still
+# refuses, which is why Д3 stays green under it.
+D1_OLD = """        if not name or not folder or self._name_problem(name):
+            return None
+"""
+D1_NEW = """        if not name or not folder:
+            return None
+"""
+
+# --- д2: the REFUSAL stops seeing "." and ".." ---------------------------------
+# Д1/Д2's guard half: `_on_ok` no longer consults `_name_problem`, so both names walk
+# on. "." then really creates its files inside the picked folder (measured by Denis),
+# and ".." is stopped only by the CORE, which raises — the dialog loses its half while
+# the core holds. The separator row dies with this too: same helper, same call site.
+D2_OLD = """        problem = self._name_problem(name)
+        if not name or problem:
+"""
+D2_NEW = """        problem = None
+        if not name:
+"""
+
+# --- д3: the dialog CREATES first and refuses after ----------------------------
+# Д3's whole point: nothing may appear on disk after a refusal. This mutation writes
+# the project and only THEN refuses — the "be helpful, create it anyway" slip — so the
+# picked folder is no longer empty. ".." dies on the core's ValueError instead, which
+# is the second layer doing its job.
+D3_OLD = """        problem = self._name_problem(name)
+        if not name or problem:
+            QMessageBox.warning(self, _("Create Project"),
+                                problem or _("Type a project name without path separators."))
+            return
+"""
+D3_NEW = """        problem = self._name_problem(name)
+        if not name or problem:
+            if name and folder and Path(folder).is_dir():
+                create_project(Path(folder) / name)
+            QMessageBox.warning(self, _("Create Project"),
+                                problem or _("Type a project name without path separators."))
+            return
+"""
+
+# --- д4: the CORE stops refusing the relative names ----------------------------
+# Д4. Without this layer ".." reaches create_project and a project is born OUTSIDE the
+# picked folder — the escape only the raw-text check can see, because pathlib eats "."
+# at construction and keeps ".." without a separator.
+D4_OLD = """    if raw.rsplit("/", 1)[-1] in (".", ".."):
+        raise ValueError(
+            f"project directory is a relative path name: {project_dir!r} — "
+            "'.' would create nothing and '..' would put the project outside the "
+            "folder it was created in")
+"""
+D4_NEW = ""
+
+# --- д5: the name comes from the STEM, not from the NAME -----------------------
+# Д5. `v1.03` would get a config named `v1.sexp`, and the three stem-derived stores
+# would follow it — the §4 trap arriving from the other side. Before the cell existed
+# this substituted cleanly and every cell stayed green (Denis's rig K5).
+D5_OLD = """    return str(p / (p.name + ".sexp"))
+"""
+D5_NEW = """    return str(p / (p.stem + ".sexp"))
+"""
+
+# --- д6: the open filter offers *.json again -----------------------------------
+# Д6, the cosmetic half. It cannot hide the refusal (Д7), which is why Д7 is the cell
+# that carries the rule.
+D6_OLD = """            "Config files (*.sexp)")"""
+D6_NEW = """            "Config files (*.sexp *.json)")"""
+
+# --- д7: the refusal moves AFTER _remember_recent ------------------------------
+# Д7, and the ordering trap Denis measured: the rejected path then lands in "Recent"
+# and keeps coming back from there.
+D7_OLD = """        if path is not None and path.suffix.lower() != _ROOT_SUFFIX:
+            self._show_message(
+                _("Only a .sexp config can be opened as a project root: {path}")
+                .format(path=path), _ERROR_STYLE)
+            return
+        if WORKING_SET.is_dirty() and not self._confirm_discard_changes():
+            return
+        if path is not None:
+            self._remember_recent(path)
+"""
+D7_NEW = """        if WORKING_SET.is_dirty() and not self._confirm_discard_changes():
+            return
+        if path is not None:
+            self._remember_recent(path)
+        if path is not None and path.suffix.lower() != _ROOT_SUFFIX:
+            self._show_message(
+                _("Only a .sexp config can be opened as a project root: {path}")
+                .format(path=path), _ERROR_STYLE)
+            return
+"""
+
+# --- д8: the refusal swallows None (the CLOSE operation) -----------------------
+# Д8. `None` is not a path, it is how File > Close and the empty state work.
+D8_OLD = "        if path is not None and path.suffix.lower() != _ROOT_SUFFIX:"
+D8_NEW = "        if path is None or path.suffix.lower() != _ROOT_SUFFIX:"
+
+# --- д9: the include graph is narrowed to .sexp --------------------------------
+# Д9. The ban is about what may be OPENED as a root, not about what a root may
+# INCLUDE: a legacy `scheme_lists.json` side file must keep being followed.
+D9_OLD = """    def walk(n) -> None:
+        seen.setdefault(n.path.resolve(), n.path)
+"""
+D9_NEW = """    def walk(n) -> None:
+        if n.path.suffix == ".sexp":
+            seen.setdefault(n.path.resolve(), n.path)
+"""
 
 MUTATIONS = [
     ("н1 config named config.sexp", "kicadstamp/utils/paths.py",
@@ -173,6 +292,24 @@ MUTATIONS = [
      N8_OLD, N8_NEW, MENU),
     ("н9 infra list loses a row", "kicadstamp/utils/paths.py",
      N9_OLD, N9_NEW, CREATION),
+    ("д1 button ignores relatives", "gui/docks/create_project_dialog.py",
+     D1_OLD, D1_NEW, DIALOG),
+    ("д2 refusal ignores relatives", "gui/docks/create_project_dialog.py",
+     D2_OLD, D2_NEW, DIALOG),
+    ("д3 creates before refusing", "gui/docks/create_project_dialog.py",
+     D3_OLD, D3_NEW, DIALOG),
+    ("д4 core stops refusing", "kicadstamp/utils/paths.py",
+     D4_OLD, D4_NEW, CORE),
+    ("д5 name from the stem", "kicadstamp/utils/paths.py",
+     D5_OLD, D5_NEW, CORE),
+    ("д6 filter offers json again", "gui/docks/root_metadata.py",
+     D6_OLD, D6_NEW, DOCK),
+    ("д7 refusal after remember", "gui/docks/root_metadata.py",
+     D7_OLD, D7_NEW, DOCK),
+    ("д8 refusal swallows None", "gui/docks/root_metadata.py",
+     D8_OLD, D8_NEW, DOCK),
+    ("д9 include narrowed to sexp", "gui/docks/rename.py",
+     D9_OLD, D9_NEW, DOCK),
 ]
 
 

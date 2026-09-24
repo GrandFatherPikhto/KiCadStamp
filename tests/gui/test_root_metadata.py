@@ -1,4 +1,6 @@
 # tests/gui/test_root_metadata.py
+import logging
+
 import gui.docks.create_project_dialog as create_project_dialog_mod
 import gui.docks.root_metadata as root_metadata_mod
 from PyQt6.QtGui import QKeySequence
@@ -208,6 +210,104 @@ def test_new_root_dialog_cancelled_leaves_root_untouched(main_window, tmp_path, 
 #     инфраструктурой") into "the config AND the five directories", asserted in those
 #     same two files both per-directory and as a whole listing. A dock-level copy
 #     here would assert a path the dock no longer owns.
+
+
+# ── ДОПОЛНЕНИЕ 1, Д-3: only *.sexp can be OPENED as a project root ─────────
+
+def test_open_root_filter_offers_only_sexp(main_window, monkeypatch):
+    """Д6 (ДОПОЛНЕНИЕ 1, Д-3) — the COSMETIC half, pinned anyway: a filter that still
+    offered *.json would invite a click that set_root_file must then refuse. The
+    weight of the rule is in Д7, because three of the four ways into the project
+    never see this filter at all."""
+    seen = {}
+
+    def fake(parent, caption, directory, filter_str=""):
+        seen["filter"] = filter_str
+        return ("", "")
+
+    monkeypatch.setattr(root_metadata_mod.QFileDialog, "getOpenFileName",
+                        staticmethod(fake))
+    RootMetadataDock(main_window)._on_open_root()
+
+    assert seen["filter"] == "Config files (*.sexp)"
+
+
+def test_set_root_file_refuses_a_non_sexp_path_and_never_remembers_it(
+        main_window, tmp_path, caplog):
+    """Д7 (ДОПОЛНЕНИЕ 1, Д-3): the refusal that counts, in the ONE door every path
+    into the project goes through.
+
+    Three separate things are asserted, because each is its own way to get this
+    wrong: the root does not move (and root_changed stays silent), the GUI survives
+    (a raise inside a Qt slot kills PyQt6 — measured, EXIT=134, which is why this is
+    a log line), and the refused path NEVER lands in "recent" — the ordering trap
+    Denis measured: _remember_recent sits BEFORE the try, so a refusal placed any
+    later would file the rejected path under "Recent" and it would return from
+    there."""
+    root = tmp_path / "open.sexp"
+    _write(root, MINIMAL_CELL)
+    # A real, loadable .json — and still not a project root.
+    not_a_root = tmp_path / "scheme_lists.json"
+    not_a_root.write_text("{}", encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+    settings.state.set("recent_root_files", [str(root)])
+    received = []
+    dock.root_changed.connect(received.append)
+    caplog.clear()
+
+    dock.set_root_file(not_a_root)
+
+    assert dock._path == root, "the root must not move"
+    assert received == [], "a refused path must not broadcast root_changed"
+    assert settings.state.get("recent_root_files") == [str(root)], \
+        "a refused path must not be remembered"
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(not_a_root) in errors[0].message
+
+
+def test_set_root_file_none_still_closes_the_project(main_window, tmp_path):
+    """Д8 (ДОПОЛНЕНИЕ 1, Д-3): the suffix refusal must not swallow the CLOSE path.
+    `None` is not a path — it is how File > Close and the empty state work, and it
+    has to keep working with the same broadcast every listener relies on."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+    received = []
+    dock.root_changed.connect(received.append)
+
+    dock.set_root_file(None)
+
+    assert dock._path is None
+    assert received == [None]
+
+
+def test_a_root_may_still_include_a_json_store(main_window, tmp_path):
+    """Д9 (ДОПОЛНЕНИЕ 1, Д-3) — the REGRESSION cell: GREEN before this change and
+    after it, like Н2. The ban is about what may be OPENED as a project root, not
+    about what a root may INCLUDE. The legacy Imprint store is a
+    `scheme_lists.json` side file that a profile includes, and the include graph
+    must keep following it."""
+    import json
+
+    from gui.docks.rename import collect_graph_files
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({"include": ["scheme_lists.json"]}), encoding="utf-8")
+    store = tmp_path / "scheme_lists.json"
+    store.write_text(json.dumps({"imprints": []}), encoding="utf-8")
+
+    dock = RootMetadataDock(main_window)
+    dock.set_root_file(root)
+
+    assert dock._path == root
+    assert store in collect_graph_files(root)
+    files = [dock.working_file_combo.itemData(i)
+             for i in range(dock.working_file_combo.count())]
+    assert str(store) in files
 
 
 def test_open_root_sexp_via_dialog(main_window, tmp_path, monkeypatch):

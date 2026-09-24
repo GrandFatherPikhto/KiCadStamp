@@ -156,6 +156,12 @@ ACTION_RELOAD_SHEETS = "root_metadata.reload_schematic_sheets"
 _KICAD_ROOT_SUFFIX = ".kicad_sch"
 _KICAD_PRO_SUFFIX = ".kicad_pro"
 
+# The only suffix a project root may carry (2026-09-24, ДОПОЛНЕНИЕ 1, Д-3: "Открывать
+# можно только *.sexp"). Enforced in set_root_file — the single door every path into
+# the project goes through — and mirrored by Open's dialog filter, which three of the
+# four entry points (Recent, restore-on-startup, a hand-typed path) never see.
+_ROOT_SUFFIX = ".sexp"
+
 # Config's own field defaults — single source of truth, read via
 # dataclasses instead of duplicated literals here (default_factory fields,
 # e.g. schematic_files, are called; this dock only uses the list ones for
@@ -432,9 +438,13 @@ class RootMetadataDock(QWidget):
         return self._path
 
     def _on_open_root(self) -> None:
+        """Pick a project root. The filter offers ONLY *.sexp (ДОПОЛНЕНИЕ 1, Д-3) — but
+        the filter is the cosmetic half of that rule: "Recent", restore-on-startup and
+        a hand-typed path never see it, so the refusal that counts lives in
+        set_root_file, the one door that changes the root."""
         chosen, _filter = QFileDialog.getOpenFileName(
             self, _("Open Root file"), str(self._path.parent if self._path else ""),
-            "Config files (*.sexp *.json)")
+            "Config files (*.sexp)")
         if not chosen:
             return
         self.set_root_file(Path(chosen))
@@ -491,7 +501,22 @@ class RootMetadataDock(QWidget):
         combobox's choices for the new include graph, and broadcasts
         root_changed to every other dock (see gui/dock_hub.py). The
         unsaved-changes guard (Save/Discard/Cancel on a dirty working set)
-        runs here, so no root switch can silently drop staged edits."""
+        runs here, so no root switch can silently drop staged edits.
+
+        A path that is not a *.sexp is REFUSED at the very top (2026-09-24,
+        ДОПОЛНЕНИЕ 1, Д-3). This is the real door: Open's dialog filter, "Recent",
+        restore-on-startup and a hand-typed path are FOUR ways in and only one of
+        them sees the filter. The refusal is a log line, never an exception — a
+        raise inside a Qt slot kills PyQt6 (measured, EXIT=134), the same reason
+        the load failure below only logs. The ORDER is the point: _remember_recent
+        sits BEFORE the try, so a refusal placed any later would file the rejected
+        path under "Recent" and it would keep coming back from there. `None` is not
+        a path but the CLOSE operation, and it must keep working."""
+        if path is not None and path.suffix.lower() != _ROOT_SUFFIX:
+            self._show_message(
+                _("Only a .sexp config can be opened as a project root: {path}")
+                .format(path=path), _ERROR_STYLE)
+            return
         if WORKING_SET.is_dirty() and not self._confirm_discard_changes():
             return
         if path is not None:

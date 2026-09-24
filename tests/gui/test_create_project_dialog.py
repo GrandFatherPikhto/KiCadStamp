@@ -172,3 +172,47 @@ def test_cancel_creates_nothing(qapp, tmp_path):
     assert dialog.result() == QDialog.DialogCode.Rejected
     assert dialog.created_config_path is None
     assert list(tmp_path.iterdir()) == []
+
+
+# ── ДОПОЛНЕНИЕ 1, Д-1: the relative names "." and ".." ─────────────────────
+
+@pytest.mark.parametrize("name", [".", ".."], ids=["dot", "dot-dot"])
+def test_a_relative_name_is_refused_in_both_halves(qapp, tmp_path, monkeypatch, name):
+    """Д1 / Д2 (ДОПОЛНЕНИЕ 1, Д-1) — one row per name (rule 35), each asserting BOTH
+    halves: the button is dead (UX) and `_on_ok` refuses with a message (the guard —
+    a shortcut or a programmatic accept never touches a greyed button, and the cell
+    below calls `_on_ok` directly for exactly that reason).
+
+    Neither name contains a path separator, so the separator guard cannot see them;
+    Denis measured both producing real files outside the picked folder."""
+    dialog = CreateProjectDialog(None, start_dir=str(tmp_path))
+    dialog.name_edit.setText(name)
+    ok = dialog.buttons.button(QDialogButtonBox.StandardButton.Ok)
+
+    assert ok.isEnabled() is False, "the button must be dead before the click"
+
+    warned = []
+    monkeypatch.setattr(create_dialog_mod.QMessageBox, "warning", _no_boxes(warned))
+    dialog._on_ok()
+
+    assert len(warned) == 1
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    assert dialog.created_config_path is None
+
+
+@pytest.mark.parametrize("name", [".", ".."], ids=["dot", "dot-dot"])
+def test_a_relative_name_leaves_the_disk_empty(qapp, tmp_path, monkeypatch, name):
+    """Д3 (ДОПОЛНЕНИЕ 1, Д-1): after the refusal NOTHING exists — no config and no
+    infrastructure directories, neither INSIDE the picked folder nor BESIDE it. The
+    parent is asserted explicitly and on its own line, because that is exactly where
+    ".." deposited the five directories when this was probed by hand."""
+    picked = tmp_path / "picked"
+    picked.mkdir()
+    dialog = CreateProjectDialog(None, start_dir=str(picked))
+    dialog.name_edit.setText(name)
+    monkeypatch.setattr(create_dialog_mod.QMessageBox, "warning", _no_boxes([]))
+
+    dialog._on_ok()
+
+    assert list(picked.iterdir()) == [], "nothing inside the picked folder"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["picked"], "and nothing beside it"

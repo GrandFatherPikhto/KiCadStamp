@@ -33,6 +33,12 @@ from kicadstamp.utils.paths import project_config_path_for_dir
 
 logger = logging.getLogger(__name__)
 
+# Names that are NOT project names (2026-09-24, ДОПОЛНЕНИЕ 1, Д-1): "." makes the
+# target directory EQUAL the picked folder — no project directory is created at all
+# — and ".." walks OUT of it. Neither carries a path separator, so the separator
+# guard below cannot see them, and both were measured producing real files on disk.
+_RELATIVE_DIR_NAMES = (".", "..")
+
 
 class CreateProjectDialog(QDialog):
     """Name + parent folder -> a created project directory."""
@@ -85,19 +91,41 @@ class CreateProjectDialog(QDialog):
     def _folder_text(self) -> str:
         return self.folder_edit.text().strip()
 
+    def _name_problem(self, name: str) -> Optional[str]:
+        """Why this project name cannot be used, or None.
+
+        ONE place, so the greyed button and the refusal in _on_ok can never
+        disagree — Д-1 requires both halves, because the button is UX and the
+        refusal is the guard (a shortcut or a programmatic accept bypasses the
+        button, and there is a cell that calls _on_ok directly for exactly that).
+        """
+        if name in _RELATIVE_DIR_NAMES:
+            return _("A project name cannot be a relative path name like '.' or '..'.")
+        if "/" in name or "\\" in name:
+            return _("Type a project name without path separators.")
+        return None
+
     def _target_dir(self) -> Optional[Path]:
         """<folder>/<name> — the directory the dialog would create, or None when
-        the pair is not usable yet. A name carrying a path separator is NOT
-        usable: it would let the project escape the folder the user picked."""
+        the pair is not usable yet. Unusable means: an empty name or folder, a name
+        carrying a path separator (it would let the project escape the picked
+        folder), or a relative name "." / ".." (which escapes WITHOUT a separator —
+        see _RELATIVE_DIR_NAMES)."""
         name, folder = self._project_text(), self._folder_text()
-        if not name or not folder or "/" in name or "\\" in name:
+        if not name or not folder or self._name_problem(name):
             return None
         return Path(folder) / name
 
     def _update_preview(self) -> None:
+        name = self._project_text()
         target = self._target_dir()
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(
             target is not None and Path(self._folder_text()).is_dir())
+        problem = self._name_problem(name) if name else None
+        if problem:
+            # The preview says WHAT is wrong before the click, not after it.
+            self.preview_label.setText(problem)
+            return
         if target is None:
             self.preview_label.setText(
                 _("Pick a folder and type a project name (no slashes)."))
@@ -115,9 +143,10 @@ class CreateProjectDialog(QDialog):
         """Create the project, or stay open and say why not. Nothing is written
         on any refusal — that is the whole point of the ordering here."""
         name, folder = self._project_text(), self._folder_text()
-        if not name or "/" in name or "\\" in name:
+        problem = self._name_problem(name)
+        if not name or problem:
             QMessageBox.warning(self, _("Create Project"),
-                                _("Type a project name without path separators."))
+                                problem or _("Type a project name without path separators."))
             return
         if not Path(folder).is_dir():
             QMessageBox.warning(self, _("Create Project"),

@@ -62,6 +62,22 @@ def project_config_path_for_dir(project_dir: str | Path) -> str:
     config declares none of the four path keys — so those names came from the
     stem default, and they are the only names that lead to the real files.
     """
+    # The RAW last component, read BEFORE Path() normalises it away: Path("x/.") IS
+    # Path("x"), so by the time p.name is asked the "." is gone and a name check
+    # there would silently MISS it (2026-09-24, ДОПОЛНЕНИЕ 1, Д-1).
+    #
+    # Neither "." nor ".." contains a path separator, so the dialog's separator
+    # guard cannot see them either: "." makes the target EQUAL the picked folder (no
+    # project directory is created at all) and ".." walks OUT of it. Checking "is
+    # the target's parent the picked folder" looks tidier and does NOT work — for
+    # ".." the target IS <picked>/.., whose parent IS <picked>; that was measured,
+    # not derived, and this comment exists so it is not reinstated.
+    raw = str(project_dir).replace("\\", "/").rstrip("/")
+    if raw.rsplit("/", 1)[-1] in (".", ".."):
+        raise ValueError(
+            f"project directory is a relative path name: {project_dir!r} — "
+            "'.' would create nothing and '..' would put the project outside the "
+            "folder it was created in")
     p = Path(project_dir)
     if not p.name:
         # A filesystem root ("/") has no name, so there is nothing to name the

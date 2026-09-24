@@ -248,3 +248,52 @@ def test_the_infra_dir_list_covers_every_derived_store(tmp_path):
     derived.add(Path(default_operation_log_dir_for_config(config)))
 
     assert derived == {project.parent / d for d in PROJECT_INFRA_DIRS}
+
+
+# ── ДОПОЛНЕНИЕ 1 (24.09.2026): the name, and what may be opened ─────────────
+
+@pytest.mark.parametrize("tail", [".", ".."], ids=["dot", "dot-dot"])
+def test_a_relative_directory_name_is_refused_by_the_core(tmp_path, tail):
+    """Д4 (ДОПОЛНЕНИЕ 1, Д-1): `project_config_path_for_dir` refuses on its own, with
+    no dialog in the picture — so EVERY caller is covered, not just the widget.
+
+    The raw TEXT is what carries the information here, and that is the whole point:
+    ``Path(folder) / "."`` IS ``Path(folder)`` — pathlib eats the dot at construction —
+    so a Path-shaped argument has already lost it, while ``..`` survives (pathlib does
+    not resolve it) and is caught either way. A string keeps both, which is why the
+    refusal reads the raw last component before Path() normalises anything."""
+    from kicadstamp.utils.paths import project_config_path_for_dir
+
+    picked = tmp_path / "picked"
+    picked.mkdir()
+
+    with pytest.raises(ValueError):
+        project_config_path_for_dir(f"{picked}/{tail}")
+    # and the ".." form survives even as a Path, because pathlib keeps it
+    if tail == "..":
+        with pytest.raises(ValueError):
+            project_config_path_for_dir(picked / tail)
+
+
+def test_a_project_name_with_a_dot_keeps_its_full_stem(tmp_path):
+    """Д5 (ДОПОЛНЕНИЕ 1, Д-2). The code was RIGHT (`p.name`, not `p.stem`) and nothing
+    held it: Denis's rig substituted stem for name and every cell stayed green. The
+    price of that regression: a project called `v1.03` would get a config named
+    `v1.sexp`, and the three stem-derived stores would follow it — the §4 trap
+    arriving from the other side. Version-shaped names are where it shows."""
+    from kicadstamp.project_setup import create_project
+    from kicadstamp.utils.paths import (overrides_path_for_config,
+                                        registry_path_for_config,
+                                        track_registry_path_for_config)
+
+    project = tmp_path / "v1.03"
+    config = create_project(project)
+
+    assert config == project / "v1.03.sexp"
+    assert sorted(p.name for p in project.iterdir()) == sorted(
+        ["v1.03.sexp", *_INFRA])
+    for builder in (registry_path_for_config, track_registry_path_for_config,
+                    overrides_path_for_config):
+        derived = Path(builder(str(config)))
+        assert derived.parent.parent == project, derived
+        assert derived.name.startswith("v1.03."), derived

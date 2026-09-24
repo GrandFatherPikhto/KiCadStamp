@@ -3595,6 +3595,14 @@ msgstr "Введите имя проекта без разделителей п�
 msgid "Pick an existing folder first."
 msgstr "Сначала выберите существующую папку."
 
+#: gui/docks/create_project_dialog.py:96
+msgid "A project name cannot be a relative path name like '.' or '..'."
+msgstr "Имя проекта не может быть относительным путём вроде «.» или «..»."
+
+#: gui/docks/root_metadata.py:507
+msgid "Only a .sexp config can be opened as a project root: {path}"
+msgstr "Как корень проекта можно открыть только конфиг .sexp: {path}"
+
 #: gui/main_window.py:243
 msgid "Recent project"
 msgstr "Недавний проект"

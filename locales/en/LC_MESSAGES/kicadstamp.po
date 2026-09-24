@@ -3561,6 +3561,14 @@ msgstr "Type a project name without path separators."
 msgid "Pick an existing folder first."
 msgstr "Pick an existing folder first."
 
+#: gui/docks/create_project_dialog.py:96
+msgid "A project name cannot be a relative path name like '.' or '..'."
+msgstr "A project name cannot be a relative path name like '.' or '..'."
+
+#: gui/docks/root_metadata.py:507
+msgid "Only a .sexp config can be opened as a project root: {path}"
+msgstr "Only a .sexp config can be opened as a project root: {path}"
+
 #: gui/main_window.py:243
 msgid "Recent project"
 msgstr "Recent project"
