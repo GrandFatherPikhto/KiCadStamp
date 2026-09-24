@@ -242,16 +242,80 @@ class KiCadBoardAdapter(IBoardAdapter):
         """Filename of the live board's .kicad_pcb (e.g. '3CH-AWG-TIA-v102.
         kicad_pcb'), or None if not connected. Source: kipy's Board.name
         (board.py:280-283), which reads DocumentSpecifier.board_filename off
-        the live IPC connection. NOTE (empirical, to verify live): whether this
-        returns the bare filename or a full path depends on what KiCad's IPC
-        layer puts in DocumentSpecifier.board_filename — callers must compare
-        by basename stem only (see check_board_identity), never assume the
-        shape. Exposed here because nothing outside the adapter could see the
-        live board's identity before (validation's check_board_identity needs
-        it to fatal early when the config targets a different board)."""
+        the live IPC connection.
+
+        MEASURED, and the note that used to sit here is closed. This getter
+        carried "NOTE (empirical, to verify live): whether this returns the bare
+        filename or a full path depends on what KiCad's IPC layer puts in
+        DocumentSpecifier.board_filename". Measured 24.09.2026 (KiCad 10.0.6,
+        kicadstamp.diagnostics.probe_project_identity): the value is the BARE
+        filename, never a path - '3CH-AWG-TIA-v103.kicad_pcb' for a board living
+        at .../3CH-AWG-TIA/3CH-AWG-TIA-v103/, and the same shape on HiPiMS-v099.
+        Callers still compare by basename stem (see check_board_identity) because
+        the shape belongs to KiCad, but the observed shape is no longer a guess.
+
+        Exposed here because nothing outside the adapter could see the live
+        board's identity before (validation's check_board_identity needs it to
+        fatal early when the config targets a different board)."""
         if self._board is None:
             return None
         return self._board.name
+
+    def get_board_project(self) -> tuple[str, str] | None:
+        """(project name, project directory) of the live board's PROJECT, or None
+        when there is no board or the IPC carries no project.
+
+        Source: kipy's Board.document - the SAME stored DocumentSpecifier
+        board_filename comes from - whose `project` field carries {name, path}.
+        Measured live 24.09.2026 on two boards (kicadstamp.diagnostics.
+        probe_project_identity, questions (а) and (в)): 3CH-AWG-TIA-v103 with
+        .../KiCad/3CH-AWG-TIA/3CH-AWG-TIA-v103, and HiPiMS-v099 with
+        .../KiCad/HiPIMS/HiPiMS-v099. From these two fields the project FILE
+        assembles as Path(path) / (name + ".kicad_pro") and exists on both.
+
+        THE PRICE IS ZERO, and it is measured rather than assumed. The probe
+        counted round trips at the kipy BOUNDARY (KiCad.get_open_documents and
+        Board.get_footprints) around this read: 0, with a positive control
+        (refresh_board()) registering 1, so the zero is a reading and not a broken
+        counter. It matters because this value travels with the answer of every
+        footprint-reading MCP tool - a network call here would put the price of a
+        full board read on each of them.
+
+        Read the specifier DIRECTLY, not through Board.get_project(): that call is
+        LOCAL too (it only copies the specifier - kipy/project.py:32-39), so it
+        would buy nothing while hiding where the value really comes from. Both
+        fields come off the structural message, so an UNSET project reads as empty
+        strings rather than raising (proto3).
+
+        FRESHNESS IS INHERITED, and that is a property, not a defect: the value is
+        frozen exactly like board_filename and catches up on refresh_board().
+        Measured live 24.09.2026 (phase (г) of the same probe): after the operator
+        switched to another board, the stored project still said
+        '3CH-AWG-TIA-v103' while the live document list already said
+        'HiPiMS-v099', and the first refresh_board() moved it. A reader answering
+        "which board is this about" therefore MUST sit on a path that refreshed
+        the board - the MCP seam does that per call.
+
+        NO PROJECT - the defensive half, and the only part NOT verified live: a
+        board opened outside a project could not be reproduced on this machine
+        (two attempts, 24.09.2026), so what an unset `project` really holds is
+        UNMEASURED. Both fields must be non-empty for this getter to answer; an
+        empty name OR an empty directory yields None - the same "nothing to say"
+        contract get_board_filename() uses for a missing board, so callers never
+        have to know two. NOTE (not verified live): the empty-string shape is the
+        proto3 default and a reading of the structural message, not an
+        observation.
+
+        FieldOverrideAdapter needs NO edit for this: it delegates everything it
+        does not override through __getattr__, so the MCP's store-wrapped adapter
+        answers this method unchanged - nobody should "add the delegation"."""
+        if self._board is None:
+            return None
+        project = self._board.document.project
+        name, path = project.name, project.path
+        if not name or not path:
+            return None
+        return (name, path)
 
     def get_version(self) -> str | None:
         """KiCad version as reported by the live IPC connection, or None when
