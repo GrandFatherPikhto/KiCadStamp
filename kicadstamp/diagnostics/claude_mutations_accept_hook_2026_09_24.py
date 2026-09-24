@@ -1,5 +1,7 @@
 """Acceptance mutations for the battle slot-exception hook
-(plan_2026_09_24_slot_exception_hook), Claude, 2026-09-24.
+(plan_2026_09_24_slot_exception_hook), Claude, 2026-09-24. Rounds: c88dc76,
+92f6fe9, 9c89434 (H13-H15 added in round 3; run H15 WITHOUT an exported
+PYTHONPATH, or the tree root can come in through it and mask the mutation).
 
 Built from claude_mutations_accept_err_2026_09_25.py (rule 38): the pattern must
 match EXACTLY once, and a red run with zero FAILED lines is a miss, not a kill.
@@ -51,6 +53,15 @@ MUTATIONS = [
      "    while False:\n        tb = tb.tb_next", "unknown"),
     ("H12 report written without traceback", HOOK,
      '            "traceback:",\n', '            "tb:",\n', "die"),
+    # Round 3 (92f6fe9 -> 9c89434): Н8 and Н9 got cells of their own.
+    ("H13 key back to (entry, site, type)", HOOK,
+     "    return (stack_sites(tb), exc_type.__name__)",
+     "    return (entry_site(tb), failing_site(tb), exc_type.__name__)", "die"),
+    ("H14 shown entry = wrapper lambda", HOOK,
+     "        if not _is_wrapper_frame(tb.tb_frame.f_code.co_filename):",
+     "        if True:", "die"),
+    ("H15 inner run imports the MAIN checkout", "tests/gui/test_slot_exception_hook.py",
+     "    entries = [str(_REPO_ROOT)]\n", "    entries = []\n", "die"),
 ]
 
 
