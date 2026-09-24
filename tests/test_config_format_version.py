@@ -898,5 +898,23 @@ def test_every_config_write_goes_through_the_one_config_writer():
         f"found: {sorted(set(_CONFIG_WRITE_BYPASSES) - found)}")
 
 
+def test_every_tracked_sexp_carries_the_current_format():
+    """Т5's guard (plan §Т5): every `git ls-files '*.sexp'` carries
+    `(version CURRENT)`. That is why the six fixtures were lifted in the SAME
+    commit as the default flip, and it will force 2 -> 3 and 3 -> 4 to lift their
+    own fixtures too, instead of letting every test run rewrite them and litter
+    `.bak` files into the tree."""
+    import subprocess
+
+    names = subprocess.check_output(["git", "ls-files", "*.sexp"], text=True).split()
+    assert names, "the file list is empty — this cell would pass vacuously"
+    missing = [
+        name for name in names
+        if f"(version {CURRENT_FORMAT})" not in
+        (_REPO_ROOT / name).read_text(encoding="utf-8")
+    ]
+    assert missing == [], f"these tracked .sexp do not carry (version {CURRENT_FORMAT}): {missing}"
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-q"]))
