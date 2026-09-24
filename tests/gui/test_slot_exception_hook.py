@@ -164,14 +164,18 @@ from gui.slot_exception_hook import LOGGER_NAME, install_slot_exception_hook
 install_slot_exception_hook(report_dir=os.environ["PROBE_REPORT_DIR"])
 app = QApplication.instance() or QApplication(sys.argv)
 
-levels = []
+# (level, message) of every record the hook emits through ITS logger. The MESSAGE
+# is kept as well as the level: the cells assert that it names BOTH places, and
+# they do it by looking for the two `file:line` substrings — which are ASCII and
+# therefore the same whatever locale the inner process runs under.
+records = []
 
 
 class _Keep(logging.Handler):
     """The records the POINT of the deduplication is about: the Log lines."""
 
     def emit(self, record):
-        levels.append(record.levelname)
+        records.append((record.levelname, record.getMessage()))
 
 
 logging.getLogger(LOGGER_NAME).addHandler(_Keep())
@@ -218,7 +222,9 @@ while not done:
     app.processEvents()
     time.sleep(0.002)
 
-print("levels", dict(collections.Counter(levels)), flush=True)
+print("levels", dict(collections.Counter(level for level, _ in records)), flush=True)
+for level, message in records:
+    print("record", level, message, flush=True)
 '''
 
 
@@ -258,6 +264,23 @@ def _level_counts(stdout, output) -> dict:
     """Parse the inner program's `levels {LEVEL: n, ...}` line into a dict."""
     line = next(line for line in stdout.splitlines() if line.startswith("levels "))
     return ast.literal_eval(line[len("levels "):])
+
+
+def _record_lines(stdout) -> list:
+    """(level, message) of every hook record the inner program printed."""
+    out = []
+    for line in stdout.splitlines():
+        if line.startswith("record "):
+            _, level, message = line.split(" ", 2)
+            out.append((level, message))
+    return out
+
+
+def _report_field(text, name) -> str:
+    """The value of a `name: value` line of a report file."""
+    prefix = name + ": "
+    line = next(ln for ln in text.splitlines() if ln.startswith(prefix))
+    return line[len(prefix):]
 
 
 def test_the_battle_entry_point_arms_the_hook_before_the_window():
@@ -445,6 +468,13 @@ def test_two_actions_dying_in_one_shared_line_are_both_reported(
     The third row keeps the OTHER half honest: one action failing on two DIFFERENT
     lines is two identities, not one. The second row is the storm's own cell — the
     entry fix must NOT re-open the flood (one action ×25 stays one CRITICAL).
+
+    "The Log line and the report name BOTH places" is measured here too, not
+    assumed: each report carries `entry:` (the action) and `site:` (the failing
+    address), each CRITICAL line carries both `file:line` substrings, and for the
+    shared-helper row the failing frame must be the ONE DEEPEST one (the helper
+    line), not the outermost — reporting the outermost as the failure would name
+    the slot twice and send the reader to the wrong line.
     """
     reports = tmp_path / "reports"
     proc = _run_inner(tmp_path, _INNER_SLOT_SITES,
@@ -458,9 +488,33 @@ def test_two_actions_dying_in_one_shared_line_are_both_reported(
         f"the number of CRITICAL Log lines must be the number of DIFFERENT actions "
         f"(entry+failure+type), not the number of failing lines — got "
         f"{levels}\n{output}")
-    assert len(_report_texts(reports)) == expect_reports, (
-        f"one report per identity — got {len(_report_texts(reports))}, expected "
+    texts = _report_texts(reports)
+    assert len(texts) == expect_reports, (
+        f"one report per identity — got {len(texts)}, expected "
         f"{expect_reports}\n{output}")
+
+    # Matched by SUBSTRING, never by the sentence around them: the sentence is
+    # translated, the two `file:line` addresses are not.
+    pairs = [(_report_field(t, "entry"), _report_field(t, "site")) for t in texts]
+    critical = [message for level, message in _record_lines(proc.stdout)
+                if level == "CRITICAL"]
+    for entry, site in pairs:
+        assert any(entry in message and site in message for message in critical), (
+            f"a CRITICAL Log line must name BOTH the entry frame ({entry}) and the "
+            f"failing frame ({site})\n{output}")
+    if shape == "two-slots-one-helper":
+        # The identity's two halves, pinned: ONE shared failing line (the deepest
+        # frame — the address to open, the same for both actions) and TWO entries
+        # (the actions to redo). A rule that reported the OUTERMOST frame as the
+        # failure would collapse the two into the slots' own lines.
+        entries = {entry for entry, _ in pairs}
+        sites = {site for _, site in pairs}
+        assert len(entries) == 2 and len(sites) == 1, (
+            f"two slots one shared helper line: two entry frames, ONE failing "
+            f"frame — got {pairs}\n{output}")
+        assert entries.isdisjoint(sites), (
+            f"the failing frame must be the DEEPEST one (the helper line), named "
+            f"separately from the slot that was entered — got {pairs}\n{output}")
 
 
 # ── Н7: the Log lines themselves, by level ─────────────────────────────────
