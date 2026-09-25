@@ -18853,3 +18853,22 @@ msgstr ""
 #, python-brace-format
 msgid "in {path}: this step needs {requirement}, which parsing the file alone does not give — the file can only be lifted where that data exists. Refusing loudly is on purpose: skipping the step would hand out content of an older format as if it were current"
 msgstr ""
+
+#: kicadstamp/config/upgrade_on_disk.py
+msgid "format upgrade on disk skipped: the working set holds unsaved changes"
+msgstr ""
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: the format upgrade is NOT written — the text it would write does not read back as the lifted content; the file is left as it is"
+msgstr ""
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: the format upgrade failed ({error}) — the file is left as it is; the next open will try again"
+msgstr ""
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: format {old} is outdated, lifted to {new}. The previous version is saved: {backup}"
+msgstr ""

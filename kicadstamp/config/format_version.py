@@ -293,28 +293,55 @@ def read_version(path: str | Path) -> int:
     return version
 
 
-def _read_version_uncached(path: Path) -> int:
-    """Parse one file and report its number. sexp_format is imported HERE, not
-    at module level: sexp_format imports this module (for VERSION_KEY and the
-    validation), so a top-level import would be circular — the same
-    function-level import includes.py uses for sexp_to_dict."""
-    suffix = path.suffix.lower()
+def parse_raw_text(text: str, suffix: str,
+                   path: str = "<config>") -> tuple[dict[str, Any], int]:
+    """Parse config TEXT as the file's OWN bytes: no lift, plus the number it
+    carried.
+
+    `suffix` picks the grammar the way every reader does — by file extension —
+    so the two cannot drift. Section ALIASES are normalized (that is part of
+    reading a file at all, `sexp_to_dict(apply_aliases=True)` /
+    `normalize_section_aliases`), which is what lets the on-disk sweep write
+    canonical section names (`rules` -> `chains`) instead of carrying the old
+    ones along (У1).
+
+    Used by :func:`parse_raw_file` and by the on-disk sweep's pre-write check,
+    which must parse the exact text it is about to write, through the same
+    grammar. A non-config suffix reports `({}, 1)` and invents no error of its
+    own: the readers fatal on that themselves, and this probe must not paper
+    over it (same rule as `read_version`)."""
     if suffix == ".sexp":
         from .sexp_format import sexp_to_dict
 
         found: list[int] = []
-        with open(path, "r", encoding="utf-8") as f:
-            sexp_to_dict(f.read(), path=str(path), version_out=found,
-                         upgrade=False)
-        version = found[0] if found else 1
-    elif suffix == ".json":
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f) or {}
+        data = sexp_to_dict(text, path=path, version_out=found,
+                            upgrade=False) or {}
+        return data, (found[0] if found else 1)
+    if suffix == ".json":
+        data = json.loads(text)
         if not isinstance(data, dict):
-            return 1
-        version = take_version(dict(data), str(path))
-    else:
-        # Not a config format (the readers fatal on this on their own).
-        return 1
+            return {}, 1
+        data = dict(data)
+        return data, take_version(data, path)
+    return {}, 1
+
+
+def parse_raw_file(path: str | Path) -> tuple[dict[str, Any], int]:
+    """`:func:`parse_raw_text` for a file on disk — one read, both facts.
+
+    The on-disk sweep needs the number (to decide whether to write) and the raw
+    dict (to lift and rebuild) from the SAME parse: asking twice would parse
+    every file twice for nothing."""
+    p = Path(path)
+    with open(p, "r", encoding="utf-8") as f:
+        return parse_raw_text(f.read(), p.suffix.lower(), str(p))
+
+
+def _read_version_uncached(path: Path) -> int:
+    """Parse one file and report its number. sexp_format is imported (inside
+    parse_raw_text) rather than at module level: sexp_format imports this module
+    for VERSION_KEY and the validation, so a top-level import would be circular —
+    the same function-level import includes.py uses for sexp_to_dict."""
+    version = parse_raw_file(path)[1]
     refuse_newer(version, str(path))
     return version

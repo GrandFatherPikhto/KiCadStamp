@@ -108,7 +108,28 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     computation (traversal + merge + validation + sheet-name map), not just
     the raw file reads, is cached one layer above cached_file_read. The
     result is a deep copy on every call, so mutating it can never corrupt
-    the cache — same contract as cached_file_read."""
+    the cache — same contract as cached_file_read.
+
+    THIS FUNCTION ALSO WRITES TO DISK (Т4, 25.09.2026): before the cached
+    computation it runs `upgrade_graph_on_disk(path)`, which lifts every file of
+    the include: graph whose on-disk FORMAT number is older than this build's and
+    leaves a `.bak` with the previous bytes next to each one it rewrites (see
+    kicadstamp/config/upgrade_on_disk.py and docs/config.md, «Версия формата»).
+    The first open of a profile written by an older build therefore rewrites its
+    files — the price of never reading a stale grammar, accepted by Denis.
+
+    Three facts keep that harmless:
+    - the sweep runs OUTSIDE the cached computation (never inside a cached body,
+      where a write would invalidate the very cache entry being built);
+    - it is a no-op as soon as the graph is current — one os.stat per file, no
+      parse, no write, no `.bak`;
+    - the in-memory result is identical either way, because the READERS lift by
+      default (Т2): a graph that could not be lifted on disk (read-only
+      directory, failed copy) still loads, with the WARNING/ERROR in the Log.
+    """
+    from .upgrade_on_disk import upgrade_graph_on_disk  # lazy — avoids an import cycle
+
+    upgrade_graph_on_disk(path)
     return cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
 
 

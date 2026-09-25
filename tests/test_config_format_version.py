@@ -637,7 +637,10 @@ _SCAN_SKIP_DIRS = {"diagnostics", "__pycache__"}
 # step, so none may lift the content or stamp the current number — each passes
 # `format_number=<what it read>` to the writer.
 _RAW_READERS: set[tuple[str, str]] = {
-    ("kicadstamp/config/format_version.py", "_read_version_uncached"),
+    # The one raw reader of the ship code: the on-disk probe and the upgrade
+    # sweep get their data through it (`parse_raw_file` is the file-level
+    # wrapper, `_read_version_uncached` now only adds the newer refusal).
+    ("kicadstamp/config/format_version.py", "parse_raw_text"),
     ("kicadstamp/tree_mount_convert.py", "convert_config_file"),
     ("tools/convert_rules_to_chains.py", "_read_raw"),
     ("tools/sexp_config_convert.py", "_read_dict"),
@@ -704,7 +707,9 @@ def test_only_documented_callers_read_the_raw_file():
     # cell vacuously (rule 38).
     anchors = {
         ("kicadstamp/config/includes.py", "_load_config_file"),
-        ("kicadstamp/config/format_version.py", "_read_version_uncached"),
+        # Moved here in Т4: the on-disk probe and the upgrade sweep both get
+        # their raw data from this one function.
+        ("kicadstamp/config/format_version.py", "parse_raw_text"),
     }
     found = {(relpath, owner) for relpath, owner, _, _ in sites}
     assert anchors <= found, (

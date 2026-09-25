@@ -177,10 +177,23 @@ def _serialize(path: Path, data: dict,
     _raise_unsupported_config_format(path, suffix)
 
 
+def serialize_config(path: Path | str, data: dict,
+                     format_number: int | None = None) -> str:
+    """The PUBLIC name of the ONE serializer (`_serialize`).
+
+    For a caller that must look at the exact text it is about to write BEFORE
+    writing anything: the on-disk upgrade sweep (Т4/У2) re-parses it and refuses
+    to write when the round trip does not come back as the lifted content. Same
+    function, so the text that was checked and the text that gets written cannot
+    drift apart."""
+    return _serialize(Path(path), data, format_number=format_number)
+
+
 def write_config_file(path: Path, data: dict, *,
                       format_number: int | None = None,
                       always_backup: bool = False,
-                      backup: bool = True) -> None:
+                      backup: bool = True,
+                      serialized_text: str | None = None) -> None:
     """Write ONE config file — the single place the `.bak` contract lives.
 
     The rule (Denis, 24.09.2026): when the file on disk is still an OLDER
@@ -226,9 +239,20 @@ def write_config_file(path: Path, data: dict, *,
     Order (Д5 of the Т3 acceptance): SERIALIZE first, then the copy, then the
     write. A target with a foreign extension (`old.yaml`) is refused by the
     serializer — and with the old order the `.bak` had already been taken for a
-    write that never happened."""
+    write that never happened.
+
+    `serialized_text` is for a caller that must look at the exact bytes BEFORE
+    writing them and then write THOSE bytes: the on-disk upgrade sweep (Т4/У2)
+    serializes once, re-parses that text to prove the round trip keeps the
+    meaning, and hands it here. Without it the check would gate one text while
+    the write produced another (two serializations of the same data are equal
+    today, so a bug between them would be invisible — measured 25.09.2026: the
+    mutation «lift by inserting the version line» survived until this went in).
+    The text MUST come from `serialize_config`, so the one serializer still owns
+    the bytes and the `.bak`/atomic/invalidation contract below is unchanged."""
     target = Path(path)
-    text = _serialize(target, data, format_number=format_number)
+    text = (serialized_text if serialized_text is not None
+            else _serialize(target, data, format_number=format_number))
     if target.exists():
         try:
             stale = read_version(target) < current_format()

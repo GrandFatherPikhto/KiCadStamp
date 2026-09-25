@@ -17535,3 +17535,22 @@ msgstr "конвертер формата из {from_version} в {to_version} з
 #, python-brace-format
 msgid "in {path}: this step needs {requirement}, which parsing the file alone does not give — the file can only be lifted where that data exists. Refusing loudly is on purpose: skipping the step would hand out content of an older format as if it were current"
 msgstr "в {path}: этому шагу нужно {requirement}, а разбор файла этого не даёт — файл можно поднять только там, где такие данные есть. Отказ громкий намеренно: пропуск шага выдал бы содержимое старого формата за текущее"
+
+#: kicadstamp/config/upgrade_on_disk.py
+msgid "format upgrade on disk skipped: the working set holds unsaved changes"
+msgstr "подъём формата на диске пропущен: в рабочем наборе есть несохранённые правки"
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: the format upgrade is NOT written — the text it would write does not read back as the lifted content; the file is left as it is"
+msgstr "файл {path}: подъём формата НЕ записан — текст, который был бы записан, не читается обратно как поднятое содержимое; файл оставлен как есть"
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: the format upgrade failed ({error}) — the file is left as it is; the next open will try again"
+msgstr "файл {path}: подъём формата не удался ({error}) — файл оставлен как есть; следующее открытие попробует снова"
+
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: format {old} is outdated, lifted to {new}. The previous version is saved: {backup}"
+msgstr "файл {path}: формат {old} устарел, поднят до {new}. Прежняя версия сохранена: {backup}"
