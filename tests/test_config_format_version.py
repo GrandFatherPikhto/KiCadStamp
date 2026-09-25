@@ -847,8 +847,11 @@ _CONFIG_WRITE_BYPASSES: dict[tuple[str, str], str] = {
 
 
 def _config_text_write_sites() -> set[tuple[str, str]]:
-    """(relpath, enclosing function) for every `write_text(dict_to_sexp(...))` /
-    `write(dict_to_sexp(...))` in the ship code."""
+    """(relpath, enclosing function) for every direct config-text write —
+    `write_text(dict_to_sexp(...))`, `write(dict_to_sexp(...))` and the same with
+    `_serialize(...)` (the last one is how the GUI's flush wrote, which is exactly
+    why the busiest write path in the product stayed invisible to this cell: Д4 of
+    the Т3 acceptance)."""
     sites: set[tuple[str, str]] = set()
 
     class _Finder(ast.NodeVisitor):
@@ -872,7 +875,7 @@ def _config_text_write_sites() -> set[tuple[str, str]]:
                 inner = first.func if isinstance(first, ast.Call) else None
                 called = (inner.id if isinstance(inner, ast.Name)
                           else inner.attr if isinstance(inner, ast.Attribute) else None)
-                if called == "dict_to_sexp":
+                if called in ("dict_to_sexp", "_serialize"):
                     sites.add((self.relpath,
                                self.owners[-1] if self.owners else "<module>"))
             self.generic_visit(node)
@@ -914,6 +917,72 @@ def test_every_tracked_sexp_carries_the_current_format():
         (_REPO_ROOT / name).read_text(encoding="utf-8")
     ]
     assert missing == [], f"these tracked .sexp do not carry (version {CURRENT_FORMAT}): {missing}"
+
+
+# ── Т3b: the cells the Т3 acceptance found empty ───────────────────────────
+
+def test_both_writers_read_the_current_format_at_call_time(monkeypatch, tmp_path):
+    """W8/W9 of the Т3 acceptance. The report's main finding — a from-import froze
+    the number for the whole session — was pinned by NOTHING: a literal `2`
+    instead of current_format() in either writer survives without this cell."""
+    from kicadstamp.config_writer import write_config_file
+
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 3)
+
+    assert dict_to_sexp({}).splitlines()[1].strip() == "(version 3)"
+
+    p = tmp_path / "c.json"
+    write_config_file(p, {"cells": {}})
+    assert json.loads(p.read_text(encoding="utf-8"))["version"] == 3
+
+
+def test_json_takes_the_number_from_the_parameter_never_from_the_dict(tmp_path):
+    """W3 of the Т3 acceptance: in the JSON branch the dict's own `version` could
+    win over the parameter and nothing went red (the s-expr side had a cell)."""
+    from kicadstamp.config_writer import _serialize
+
+    text = _serialize(tmp_path / "c.json", {"version": 1, "cells": {}},
+                      format_number=7)
+    raw = json.loads(text)
+    assert list(raw)[0] == "version"
+    assert raw["version"] == 7
+
+
+def test_the_dock_chokepoint_writes_through_the_writer(tmp_path):
+    """W13 of the Т3 acceptance: with the working set OFF (CLI, unit tests) the
+    docks' chokepoint must still reach write_config_file — a format-1 file saved
+    through it gets the number AND the `.bak`."""
+    from kicadstamp.config_writer import _write_data
+    from kicadstamp.config_working_set import WORKING_SET
+
+    assert WORKING_SET.enabled is False, "this cell is about the physical path"
+    p = tmp_path / "old.sexp"
+    original = _wrap("  (cells)\n")
+    p.write_text(original, encoding="utf-8")
+
+    _write_data(p, {"cells": {}})
+
+    baks = list(tmp_path.glob("old.sexp.bak.*"))
+    assert len(baks) == 1
+    assert baks[0].read_text(encoding="utf-8") == original
+    assert f"(version {CURRENT_FORMAT})" in p.read_text(encoding="utf-8")
+
+
+def test_a_refused_extension_leaves_no_bak_behind(tmp_path):
+    """Д5 of the Т3 acceptance: the copy used to be taken BEFORE serialization, so
+    a target with a foreign extension was refused and left a stray `.bak` behind
+    for a write that never happened."""
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "old.yaml"
+    original = "layer: B.Cu\n"
+    p.write_text(original, encoding="utf-8")
+
+    with pytest.raises(OSError):
+        write_config_file(p, {"cells": {}})
+
+    assert list(tmp_path.glob("old.yaml.bak.*")) == []
+    assert p.read_text(encoding="utf-8") == original
 
 
 if __name__ == "__main__":  # pragma: no cover

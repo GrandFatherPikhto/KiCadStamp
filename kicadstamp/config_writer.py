@@ -179,7 +179,8 @@ def _serialize(path: Path, data: dict,
 
 def write_config_file(path: Path, data: dict, *,
                       format_number: int | None = None,
-                      always_backup: bool = False) -> None:
+                      always_backup: bool = False,
+                      backup: bool = True) -> None:
     """Write ONE config file — the single place the `.bak` contract lives.
 
     The rule (Denis, 24.09.2026): when the file on disk is still an OLDER
@@ -214,18 +215,28 @@ def write_config_file(path: Path, data: dict, *,
     the format — a one-time migration tool. Such a caller must be reversible
     whatever the file's format is, so it asks for the copy unconditionally
     instead of taking its own (which would put TWO copies of one file next to
-    it, measured in test_migrate_legacy_pad_anchors). The default stays "only
-    when the format changes"."""
+    it, measured in test_migrate_legacy_pad_anchors).
+
+    `backup=False` is for a caller that has ALREADY taken a copy of the previous
+    bytes — the GUI's global Save (ConfigWorkingSet.flush copies every dirty file
+    into the project's `.history/` before writing). It still refuses a file that
+    became newer and still writes atomically; it just does not leave a SECOND
+    copy of the same bytes beside the file.
+
+    Order (Д5 of the Т3 acceptance): SERIALIZE first, then the copy, then the
+    write. A target with a foreign extension (`old.yaml`) is refused by the
+    serializer — and with the old order the `.bak` had already been taken for a
+    write that never happened."""
     target = Path(path)
+    text = _serialize(target, data, format_number=format_number)
     if target.exists():
         try:
             stale = read_version(target) < current_format()
         except ValidationError as e:
             raise OSError(str(e)) from e
-        if stale or always_backup:
+        if (stale or always_backup) and backup:
             backup_file(target)
-    write_text_atomic(target, _serialize(target, data,
-                                         format_number=format_number))
+    write_text_atomic(target, text)
     invalidate_path(target)
     invalidate_graph_path(target)
 

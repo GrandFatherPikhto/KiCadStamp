@@ -155,12 +155,25 @@ class ConfigWorkingSet:
         """Commit the working set to disk in the plan's atomic order. Returns a
         list of human-readable error messages (empty on success).
 
+        This is the MAIN write path in the GUI: with a project open every dock
+        edit is staged, and this is what puts it on disk (dock_hub enables the
+        working set). It therefore owes the same contract as the one writer,
+        write_config_file — which is what it uses (§Д4 of the Т3 acceptance).
+
         1. validate the STAGED graph first via load_config(root) — nothing is
            written on a cross-file inconsistency;
-        2. backup every existing dirty file into .history/ (project root);
-        3. write each dirty file to a temp sibling + os.replace() (per-file
-           atomic), create __new__ files, remove __deleted__ files;
-        4. invalidate the caches and clear the working set.
+        2. refuse to touch a file that has become NEWER on disk (another machine
+           lifted it and Syncthing delivered it): our content is older, so
+           writing would destroy what we do not know. Step 1 cannot see this —
+           it reads the staged OVERLAY, not the disk;
+        3. backup every existing dirty file into .history/ (project root) — a
+           dated copy of the PREVIOUS bytes, taken before the write. That copy
+           IS the `.bak` this path needs, so the writer is asked for no second
+           one; a file whose copy does not come off is not written at all;
+        4. write each dirty file through write_config_file(backup=False) —
+           atomic write, format stamp, cache invalidation: one writer owns them;
+           create __new__ files, remove __deleted__ files;
+        5. clear the working set.
         """
         errors: List[str] = []
         dirty = sorted(set(self._staged) | set(self._deleted))
@@ -179,7 +192,25 @@ class ConfigWorkingSet:
 
         root_dir = root.resolve().parent if root else None
 
-        # 2. Backup existing dirty files into .history/ (project root).
+        # 2. Format guard BEFORE any write. read_version REFUSES a file newer
+        #    than this build (refuse_newer), so one such file stops the WHOLE
+        #    flush with the refusal's own message and nothing is written.
+        from .config.format_version import read_version  # lazy
+        for resolved in dirty:
+            if resolved in self._new:
+                continue  # no file on disk yet: nothing to compare against
+            path = Path(resolved)
+            if not path.exists():
+                continue
+            try:
+                read_version(path)
+            except Exception as e:  # noqa: BLE001 — unreadable aborts too
+                errors.append(str(e))
+        if errors:
+            return errors
+
+        # 3. Backup existing dirty files into .history/ (project root).
+        backup_failed: set = set()
         for resolved in dirty:
             path = Path(resolved)
             if path.exists():
@@ -187,15 +218,18 @@ class ConfigWorkingSet:
                     backup_to_history(path, root_dir)
                 except OSError as e:
                     errors.append(
-                        "history backup failed for {path}: {error}".format(
-                            path=path, error=e))
+                        "history backup failed for {path}: {error} — that file "
+                        "was NOT written".format(path=path, error=e))
+                    backup_failed.add(resolved)
 
-        # 3. Write all dirty files (temp + os.replace), create new, delete.
-        from .config_writer import _serialize  # lazy — avoids import cycles
+        # 4. Write all dirty files through the ONE writer, create new, delete.
+        from .config_writer import write_config_file  # lazy — avoids cycles
         self.enabled = False  # physical writes must not re-stage
         try:
             for resolved in dirty:
                 path = Path(resolved)
+                if resolved in backup_failed:
+                    continue  # its copy did not come off — do not write it
                 try:
                     if resolved in self._deleted:
                         if path.exists():
@@ -203,21 +237,19 @@ class ConfigWorkingSet:
                     else:
                         if resolved in self._new:
                             path.parent.mkdir(parents=True, exist_ok=True)
-                        data = self._staged[resolved]
-                        tmp = path.with_name(path.name + ".tmp")
-                        with open(tmp, "w", encoding="utf-8") as f:
-                            f.write(_serialize(path, data))
-                        os.replace(tmp, path)
+                        # backup=False: the .history/ copy above is the copy of
+                        # the previous bytes; write_config_file still refuses a
+                        # file that became newer and still writes atomically.
+                        write_config_file(path, self._staged[resolved],
+                                          backup=False)
                 except OSError as e:
                     errors.append("write failed for {path}: {error}".format(
                         path=path, error=e))
                     continue
-                invalidate_path(path)
-                invalidate_graph_path(path)
         finally:
             self.enabled = True  # staging resumes (re-enabled even on failure)
 
-        # 4. Clear the working set (successful or not — the written files are
+        # 5. Clear the working set (successful or not — the written files are
         #    now authoritative; anything left staged is reported by errors).
         self.clear()
         return errors

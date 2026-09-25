@@ -90,10 +90,20 @@ class TestMigrateCellsData:
 
 
 class TestMigrateFile:
-    def test_roundtrip_writes_zero_xy_and_backup(self, tmp_path):
+    @pytest.mark.parametrize("fmt", [1, None], ids=["format-1", "current-format"])
+    def test_roundtrip_writes_zero_xy_and_backup(self, tmp_path, fmt):
+        """BOTH starting formats (Т3 acceptance, W14). On a format-1 file the
+        `.bak` could come from the writer's "stale" branch alone, which is why the
+        CURRENT-format row is here: there it can ONLY come from the tool's
+        always_backup=True. Without that row the cell passes while the tool
+        silently migrates without any copy — and after Т4 every file IS current."""
+        from kicadstamp.config.format_version import CURRENT_FORMAT
+
         p = tmp_path / "profile.json"
-        p.write_text(json.dumps({"cells": dict([_legacy_cell()])}),
-                     encoding="utf-8")
+        payload = {"cells": dict([_legacy_cell()])}
+        if fmt is not None:
+            payload["version"] = CURRENT_FORMAT
+        p.write_text(json.dumps(payload), encoding="utf-8")
         assert migrate_file(p) == ["pif_3v3_vdd"]
         # The cell now carries anchor_xy=[0,0].
         reread = json.loads(p.read_text(encoding="utf-8"))

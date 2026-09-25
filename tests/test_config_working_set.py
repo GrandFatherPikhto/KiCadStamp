@@ -216,3 +216,66 @@ def test_backup_to_history_encodes_subdir_paths(tmp_path):
     # The relative path is encoded in the name so two same-stem files from
     # different directories never collide.
     assert "sub__a_" in backup.name
+
+
+# ── Д4: the format guard on the GUI's MAIN write path ──────────────────────
+# With a project open every dock edit is staged, and ConfigWorkingSet.flush is
+# what puts it on disk — so the refusal write_config_file makes has to hold here
+# too, or the one case the refusal exists for stays silent on the busiest path.
+
+def test_flush_refuses_to_overwrite_a_file_that_became_newer(tmp_path):
+    """Step 1 of the flush cannot see this: it validates the staged OVERLAY, not
+    the disk. Before Д4 the flush wrote our older content over the newer file and
+    reported NO error."""
+    from kicadstamp.config.format_version import CURRENT_FORMAT
+
+    root = tmp_path / "root.sexp"
+    _write_sexp(root, {"cells": {"c1": {}}})
+    WORKING_SET.enabled = True
+    merge_write(root, {"cells": {"c2": {}}}, section="cells")
+
+    # Meanwhile another machine lifted the file and Syncthing delivered it.
+    newer = f"(kicadstamp-config\n  (version {CURRENT_FORMAT + 1})\n  (cells)\n)\n"
+    root.write_text(newer, encoding="utf-8")
+
+    errors = WORKING_SET.flush(root)
+
+    assert errors, "the refusal must reach the flush's error list"
+    assert root.read_text(encoding="utf-8") == newer, "the disk file is untouched"
+
+
+def test_flush_leaves_no_second_copy_beside_the_file(tmp_path):
+    """The `.history/` copy taken before the write IS the copy (decided during the
+    Т3 acceptance: no second copy of the same bytes), so a format-1 file saved
+    through the GUI gets the number and a history entry, and no `.bak`."""
+    from kicadstamp.config.format_version import CURRENT_FORMAT
+
+    root = tmp_path / "root.sexp"
+    root.write_text("(kicadstamp-config\n  (cells)\n)\n", encoding="utf-8")  # format 1
+    WORKING_SET.enabled = True
+    merge_write(root, {"cells": {"c1": {}}}, section="cells")
+
+    errors = WORKING_SET.flush(root)
+
+    assert errors == []
+    assert list(tmp_path.glob("root.sexp.bak.*")) == []
+    assert list((tmp_path / ".history").glob("*")), "the history copy exists"
+    assert f"(version {CURRENT_FORMAT})" in root.read_text(encoding="utf-8")
+
+
+def test_flush_does_not_write_a_file_whose_copy_failed(tmp_path):
+    """«Файл, копия которого не снялась, не пишем» (Т3 acceptance): the copy is
+    the only way back from a bad Save, so a failed copy must stop THAT file's
+    write instead of being reported and ignored — which is what it used to do."""
+    root = tmp_path / "root.sexp"
+    original = "(kicadstamp-config\n  (cells)\n)\n"
+    root.write_text(original, encoding="utf-8")
+    # A FILE where the .history/ DIRECTORY must be: the copy cannot come off.
+    (tmp_path / ".history").write_text("a file, not a directory", encoding="utf-8")
+    WORKING_SET.enabled = True
+    merge_write(root, {"cells": {"c1": {}}}, section="cells")
+
+    errors = WORKING_SET.flush(root)
+
+    assert any("history backup failed" in e for e in errors), errors
+    assert root.read_text(encoding="utf-8") == original, "not written"

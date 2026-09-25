@@ -69,6 +69,13 @@ def _read_dict(path: Path) -> dict:
 
 
 def _write_dict(path: Path, data: dict) -> None:
+    """One-way by design, and it does NOT carry the format number into YAML.
+
+    YAML stopped being a config-graph format on 2026-08-28, so sexp -> YAML is a
+    dead-end direction: the number is written by the s-expr writer, and a YAML
+    file read back is simply format 1 (no key). The other direction stamps the
+    current number, because dict_to_sexp owns it. Decided during the Т3
+    acceptance — do not "fix" it by inventing a version key in YAML."""
     if path.suffix.lower() == ".sexp":
         path.write_text(dict_to_sexp(data), encoding="utf-8")
     else:
