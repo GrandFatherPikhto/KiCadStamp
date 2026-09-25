@@ -4,6 +4,7 @@ which owns the `.bak` and the newer-refusal), Claude, 2026-09-24.
 Round 1: d6b2119 + 02820c2 (the Т5 guard). Round 2: fa3ff0e (Т3b: Д4 the GUI
 Save through the one writer, Д5 serialize-first, the four empty cells) —
 W4-W7 re-anchored on the new `(stale or always_backup) and backup` condition, X1-X7 added.
+Round 3: f2c165a (the raw path of the three converters) — Y1-Y7 added.
 
 Built from claude_mutations_accept_format_t2_2026_09_24.py (stale-.pyc guard
 included) (rule 38): the pattern must match EXACTLY once, a red run with zero
@@ -34,6 +35,8 @@ T = [
     "tests/test_template_extraction.py",
     "tests/gui/test_imprint.py", "tests/gui/test_include_recovery.py",
     "tests/gui/test_create_project_dialog.py", "tests/gui/test_dock_common.py",
+    "tests/test_convert_rules_to_chains.py", "tests/test_sexp_config_convert.py",
+    "tests/test_tree_mount_conversion.py", "tests/test_converter_safety.py",
 ]
 SX = "kicadstamp/config/sexp_format.py"
 CW = "kicadstamp/config_writer.py"
@@ -122,6 +125,28 @@ MUTATIONS = [
     ("X7 Save takes no .history copy", "kicadstamp/config_working_set.py",
      "                    backup_to_history(path, root_dir)\n",
      "                    pass\n", "die"),
+    # Round 3 (f2c165a): a converter writes back the number it READ.
+    ("Y1 rule converter stamps the current number", "tools/convert_rules_to_chains.py",
+     "    write_config_file(path, data, format_number=version, backup=False)",
+     "    write_config_file(path, data, backup=False)", "die"),
+    ("Y2 rule converter reads with the lift", "tools/convert_rules_to_chains.py",
+     "                                version_out=found, upgrade=False) or {}",
+     "                                version_out=found) or {}", "unknown"),
+    ("Y3 tree converter stamps the current number", "kicadstamp/tree_mount_convert.py",
+     "    new_text = dict_to_sexp(converted, format_number=version)",
+     "    new_text = dict_to_sexp(converted)", "die"),
+    ("Y4 tree converter reads with the lift", "kicadstamp/tree_mount_convert.py",
+     "                        version_out=found_version, upgrade=False)",
+     "                        version_out=found_version)", "unknown"),
+    ("Y5 translator stamps the current number", "tools/sexp_config_convert.py",
+     "        write_config_file(path, data, format_number=version, backup=False)",
+     "        write_config_file(path, data, backup=False)", "die"),
+    ("Y6 JSON rule converter forgets the number", "tools/convert_rules_to_chains.py",
+     "            version = take_version(data, str(path))\n",
+     "            version = 1\n", "unknown"),
+    ("Y7 translator takes a second copy", "tools/sexp_config_convert.py",
+     "        write_config_file(path, data, format_number=version, backup=False)",
+     "        write_config_file(path, data, format_number=version)", "unknown"),
 ]
 
 
