@@ -1,6 +1,8 @@
 """Acceptance mutations for step Т4 of plan_2026_09_24_config_format_version
 (the on-disk lift of the include: graph from load_config, plus «Уточнения к Т4»
-У1-У4), Claude, 2026-09-25. Round 1: c978eba (branch config-format-upgrade-on-disk).
+У1-У4), Claude, 2026-09-25. Round 1: c978eba (branch config-format-upgrade-on-disk). Round 2: 43b2a5e (the M12
+cell, the M6/M13 wording, Т7 docs) — M13 re-anchored on the line itself, the
+comment after it changed.
 
 Built from claude_mutations_accept_format_t3_2026_09_24.py (stale-.pyc guard
 included) (rule 38): the pattern must match EXACTLY once, a red run with zero
@@ -66,7 +68,7 @@ MUTATIONS = [
      "            else _serialize(target, data, format_number=format_number))",
      "    text = _serialize(target, data, format_number=format_number)", "die"),
     ("M13 a missing include file breaks the sweep", U,
-     "        if not path.exists():\n            continue\n", "", "unknown"),
+     "        if not path.exists():\n            continue", "        if False:\n            continue", "unknown"),
     ("M14 the WARNING names no backup", U,
      "new=current_format(), backup=backup))", "new=current_format(), backup=\"\"))", "die"),
 ]
