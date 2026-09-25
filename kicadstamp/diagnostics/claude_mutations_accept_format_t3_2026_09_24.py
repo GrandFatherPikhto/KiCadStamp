@@ -3,7 +3,7 @@
 which owns the `.bak` and the newer-refusal), Claude, 2026-09-24.
 Round 1: d6b2119 + 02820c2 (the Т5 guard). Round 2: fa3ff0e (Т3b: Д4 the GUI
 Save through the one writer, Д5 serialize-first, the four empty cells) —
-W4/W5 re-anchored on the new `and backup` condition, X1-X7 added.
+W4-W7 re-anchored on the new `(stale or always_backup) and backup` condition, X1-X7 added.
 
 Built from claude_mutations_accept_format_t2_2026_09_24.py (stale-.pyc guard
 included) (rule 38): the pattern must match EXACTLY once, a red run with zero
@@ -55,11 +55,11 @@ MUTATIONS = [
      "        if (stale or always_backup) and backup:",
      "        if True:", "die"),
     ("W6 writer overwrites a newer file", CW,
-     "        except ValidationError as e:\n            raise OSError(str(e)) from e\n        if stale",
-     "        except ValidationError as e:\n            stale = False\n        if stale", "die"),
+     "        except ValidationError as e:\n            raise OSError(str(e)) from e\n        if (stale",
+     "        except ValidationError as e:\n            stale = False\n        if (stale", "die"),
     ("W7 newer refusal escapes as ValidationError", CW,
-     "            raise OSError(str(e)) from e\n        if stale",
-     "            raise\n        if stale", "die"),
+     "            raise OSError(str(e)) from e\n        if (stale",
+     "            raise\n        if (stale", "die"),
     ("W8 sexp writer freezes the number", SX,
      "        format_number = current_format()",
      "        format_number = 2", "unknown"),
