@@ -85,12 +85,22 @@ def _write_dict(path: Path, data: dict, version: int) -> None:
 
     `version` is the number READ from the source file (`1` for a YAML source,
     which carries none), never the current one: this is a format translator, not
-    a lift, and reading the output back gives format `version` again.
+    a lift. In the YAML -> sexp direction reading the output back does give
+    format `version` again.
 
     YAML is the one direction that does NOT carry the number: it stopped being a
     config-graph format on 2026-08-28, so sexp -> YAML is a dead-end direction
     and inventing a version key there would be worse than dropping it (decided
-    during the Т3 acceptance)."""
+    during the Т3 acceptance).
+
+    The honest consequence, measured with `diagnostics/probe_yaml_roundtrip.py`:
+    the translator reads the source RAW, so a `sexp(N > 1) -> YAML -> sexp` round
+    trip hands the SAME content back labelled `(version 1)` — the YAML side simply
+    cannot carry N. Today that is harmless: the only step in the chain is 1 -> 2
+    and it is an identity, so a second lift changes nothing. At the FIRST
+    non-identity step it becomes a DOUBLE LIFT (content lifted once, stamped 1,
+    lifted again), so that step must close this direction — remove it, or refuse
+    it for N > 1. Noted in the plan as a precondition for that step."""
     if path.suffix.lower() == ".sexp":
         # Through the ONE config writer (Т3b): the number it is given, an atomic
         # write, and no second copy — convert_file already copies an existing

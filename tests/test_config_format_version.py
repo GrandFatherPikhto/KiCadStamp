@@ -819,6 +819,24 @@ def test_write_config_file_refuses_to_overwrite_a_file_that_became_newer(tmp_pat
     assert p.read_text(encoding="utf-8") == text, "untouched"
 
 
+def test_a_newer_file_is_still_refused_when_the_copy_is_turned_off(tmp_path):
+    """X4: `backup=False` means «a copy of these bytes is already taken», NOT
+    «drop the safety net with it». Its only caller (the flush) checks for newer
+    beforehand, so reading the flag as «skip the whole `exists()` block» stayed
+    invisible — while the docstring promises the refusal survives the flag."""
+    from kicadstamp.config_writer import write_config_file
+
+    p = tmp_path / "newer.sexp"
+    text = _wrap(f"  (version {CURRENT_FORMAT + 1})\n  (cells)\n")
+    p.write_text(text, encoding="utf-8")
+
+    with pytest.raises(OSError):
+        write_config_file(p, {"cells": {}}, backup=False)
+
+    assert p.read_text(encoding="utf-8") == text, "untouched"
+    assert list(tmp_path.glob("newer.sexp.bak.*")) == [], "and no copy either"
+
+
 # ── the structural cell for the WRITER side ────────────────────────────────
 
 # Config-text writes allowed to bypass write_config_file, keyed by
@@ -1029,6 +1047,25 @@ def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path):
     assert "(version 1)" not in text
 
 
+def test_the_rule_to_chain_converter_keeps_a_current_json_number(tmp_path):
+    """Y6: the JSON branch of the SAME converter. Every converter cell above is
+    on `.sexp`, so writing a literal `version = 1` instead of the number read
+    survived all of them — while in the field it stamps `"version": 1` over a
+    current-format JSON profile."""
+    p = tmp_path / "legacy.json"
+    p.write_text(json.dumps({"version": CURRENT_FORMAT,
+                             "rules": [{"net": "N", "spokes": []}]},
+                            indent=2), encoding="utf-8")
+
+    from tools.convert_rules_to_chains import convert_file
+
+    assert convert_file(p) is not None
+
+    out = json.loads(p.read_text(encoding="utf-8"))
+    assert "chains" in out, "the converter did its job"
+    assert out["version"] == CURRENT_FORMAT, "the number READ, not a literal 1"
+
+
 def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
     """It converts the tree GRAMMAR, not the format: an old-format file stays
     old after the conversion, and the number it carried comes back."""
@@ -1051,9 +1088,13 @@ def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
 
 def test_the_format_translator_stamps_what_it_read(tmp_path):
     """sexp -> YAML -> sexp: YAML cannot carry the number (documented), so the
-    .sexp generated FROM a YAML source is format 1 — which is what its content
-    is. Pins that the s-expr direction stamps the number it was GIVEN, not the
-    current one."""
+    .sexp written from a YAML source is stamped 1 — the YAML source carries no
+    number at all, which is all "no number means 1" claims HERE. It is NOT a
+    claim about the content: a LIFTED source goes into YAML as it is and comes
+    back stamped 1 (`diagnostics/probe_yaml_roundtrip.py`) — harmless while
+    1 -> 2 is an identity, a double lift at the first real step (`_write_dict`
+    says so, and the plan carries the note). Pins that the s-expr direction
+    stamps the number it was GIVEN, not the current one."""
     from tools.sexp_config_convert import convert_file
 
     src = tmp_path / "a.sexp"
@@ -1067,6 +1108,10 @@ def test_the_format_translator_stamps_what_it_read(tmp_path):
     back = convert_file(yaml_out)
     assert back.suffix == ".sexp"
     assert "(version 1)" in back.read_text(encoding="utf-8")
+    # Y7: the copy convert_file takes of the OUTPUT is the only copy — the writer
+    # is asked for none. Dropping `backup=False` (the natural over-read: this file
+    # is format 1, so the writer would take its own timestamped .bak) left TWO.
+    assert [q.name for q in tmp_path.glob("a.sexp.bak*")] == ["a.sexp.bak"]
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -279,3 +279,48 @@ def test_flush_does_not_write_a_file_whose_copy_failed(tmp_path):
 
     assert any("history backup failed" in e for e in errors), errors
     assert root.read_text(encoding="utf-8") == original, "not written"
+
+
+def test_flush_writes_nothing_when_the_newer_file_sorts_last(tmp_path):
+    """X1: the pre-write guard must stop the WHOLE Save, not merely the file that
+    turned out newer. With ONE dirty file the inner `write_config_file` refusal
+    hides the skip (which is why the guard looked redundant) — with TWO, and the
+    newer one reached LAST, dropping the guard writes the first file and only then
+    trips on the second: a partial Save reported as errors, disk half committed
+    (`diagnostics/probe_flush_partial.py`: control `errors: 1`, `a.sexp` not
+    written; with the guard removed `errors: 2`, `a.sexp` written).
+
+    The two staged files must carry DIFFERENT cell names. A shared one is a
+    duplicate across the include graph, step 1 rejects it, and the flush stops
+    BEFORE the guard this cell is about — the cell then passes while proving
+    nothing. Measured: the first version of this cell did exactly that and the
+    mutant survived."""
+    from kicadstamp.config.format_version import CURRENT_FORMAT
+
+    root = tmp_path / "root.sexp"
+    _write_sexp(root, {"include": ["a.sexp", "z.sexp"]})
+    a = tmp_path / "a.sexp"
+    z = tmp_path / "z.sexp"
+    for p in (a, z):
+        _write_sexp(p, {"cells": {}})
+
+    WORKING_SET.enabled = True
+    merge_write(a, {"cells": {"a_edited": {}}}, section="cells")   # staged
+    merge_write(z, {"cells": {"z_edited": {}}}, section="cells")   # staged
+
+    # The cell only bites while the newer file is the LAST one the flush reaches:
+    # `dirty` is written in sorted order, so with the guard gone the OTHER file
+    # has already been written by the time the refusal fires.
+    staged = sorted(str(p) for p in WORKING_SET.dirty_paths())
+    assert staged[-1].endswith("z.sexp"), staged
+
+    # Meanwhile another machine lifted z.sexp and Syncthing delivered it.
+    newer = f"(kicadstamp-config\n  (version {CURRENT_FORMAT + 1})\n  (cells)\n)\n"
+    z.write_text(newer, encoding="utf-8")
+
+    errors = WORKING_SET.flush(root)
+
+    assert errors, "the refusal must reach the flush's error list"
+    assert "a_edited" not in a.read_text(encoding="utf-8"), (
+        "no partial Save: the FIRST file stays untouched too")
+    assert z.read_text(encoding="utf-8") == newer
