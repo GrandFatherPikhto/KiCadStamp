@@ -23,8 +23,14 @@ The rules, each of them pinned by a cell in
    default-valued fields, so the two dicts never match and every open would log an
    ERROR without ever lifting the file.
 3. ONE file newer than this build, anywhere in the graph, stops the WHOLE sweep
-   before the first write: the pre-pass calls `read_version`, which refuses such a
-   file. Nothing in the graph is written.
+   before the first write. Measured 25.09.2026 (acceptance M6): `read_version` in
+   the pre-pass below is the SECOND line of that defence, not the first — the
+   walk in `_graph_files` reads every file with the ordinary reader, and
+   `refuse_newer` already fires there. The guarantee is the same, and it is pinned
+   by `test_a_newer_file_anywhere_stops_the_graph_before_any_write`. That same
+   walk fatals `MissingIncludeError` on a missing include, which is why the
+   `path.exists()` skip below is a safety net rather than a branch that runs
+   (acceptance M13).
 4. A copy or a write that fails leaves THAT file exactly as it was, logs the
    reason, and the load continues from the lifted in-memory content (Т2) — the
    next open tries again.
@@ -103,13 +109,15 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
 
     files = _graph_files(root)
 
-    # Pre-pass: decide, and refuse a newer file, BEFORE the first write. read_version
-    # parses a file only while its (path, mtime_ns) probe is cold; the warm path is
-    # one os.stat per file (plan §10.4).
+    # Pre-pass: decide for EVERY file before the first write. It also refuses a
+    # newer file, but that refusal has usually fired already — inside the walk
+    # above (see the module docstring, point 3). read_version parses a file only
+    # while its (path, mtime_ns) probe is cold; the warm path is one os.stat per
+    # file (plan §10.4).
     outdated: list[Path] = []
     for path in files:
         if not path.exists():
-            continue
+            continue  # unreachable while the walk fatals on a missing include (M13)
         if read_version(path) < current_format():
             outdated.append(path)
     if not outdated:

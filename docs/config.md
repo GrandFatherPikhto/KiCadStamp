@@ -42,6 +42,7 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 
 | Field | Type | Meaning |
 |---|---|---|
+| `version` | number | The file's format number — see **`version`** below. Absent = format 1. Never type it by hand: the writer always stamps it. |
 | `layer` | string | `F.Cu`\|`B.Cu` — default layer for the `chains:`/ManualSpoke path only. `clone_placements:` each carry their own `layer:`, unaffected by this. |
 | `cells` | mapping | Inline `Cell` definitions (see below). Rare to write by hand — usually populated by `extract`; can be split across files via `include:` (see below). |
 | `points` | mapping | Named, reusable anchors (see **Points** below). |
@@ -67,6 +68,66 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 `cells_file`/`cell_files`, themselves folded into `include:` on 2026-08-02 — see next), `cells_file`/
 `cell_files` (external `Cell` files are now just listed under `include:`, same as any other split-off
 section — wrap the external file's content in a `cells:` key), `target_ref`/`side` at the root.
+
+---
+
+## `version` — the file's format version
+
+Every config file carries a format number: the number of the file's **grammar**, not the KiCadStamp
+release (most releases do not change the grammar). The name is borrowed from KiCad — its own files carry
+`(version 20240108)`.
+
+```sexp
+(kicadstamp-config
+  (version 2)          ; the root's first child — what KiCadStamp writes
+  (layer "B.Cu")
+  (cells ...))
+```
+
+| What | How |
+|---|---|
+| Where it lives | `.sexp` — `(version N)` at the root (read from anywhere in the root, written first); `.json` — the `"version": N` key, first |
+| No number at all | format **1** — every file written before the number existed looks like this |
+| Current format | **2** |
+| What the 1 → 2 step changes | only the number itself; the content does not change |
+| Who writes the number | the writer, always. Never write it by hand — saving the config adds it |
+
+### What happens to an old file
+
+The first time a profile is opened, KiCadStamp **lifts** every file of its `include:` graph whose number
+is older than the running build's: it rebuilds the file's text in the current format, writes it back,
+puts a copy of the previous bytes next to it as `config.sexp.bak.<YYYYMMDD>_<HHMMSS>_<µs>.<n>`, and
+writes a WARNING line naming that copy into the Log. A file already at the current format is not touched
+at all — no write, no `.bak`. No modal dialogs: the only trace is that line in the Log.
+
+**The first lift normalizes the text.** The lift is a REBUILD, not an insertion of the number's line (a
+rebuild has no per-step branch of the «this step may be done by insertion» kind, which is what breaks a
+release later), and its consequence is: legacy section names become canonical (`rules:` → `chains:`),
+default-valued fields are dropped, and the indentation becomes the writer's. **The meaning does not
+change**, and the previous bytes are in the `.bak`.
+
+### A file newer than the program
+
+If a file's number is greater than the running KiCadStamp understands, it **refuses** to read it: the
+profile will not open, and the Log gets a fatal naming both numbers. That is on purpose — three machines
+share profiles over Syncthing, a newer file arrives before the `git pull` does, and an older build would
+silently drop everything it does not know. The fix is updating KiCadStamp, not editing the file.
+
+### There is no rollback
+
+No reverse converter (2 → 1) exists. The only way back is restoring the `.bak` by hand: close
+KiCadStamp, rename `config.sexp.bak.<...>` into place as `config.sexp`. The profile is then in the old
+format again — but do not open it with the new build until you have decided what to do: the next open
+lifts it again.
+
+### Three machines and Syncthing — read this before updating
+
+**Update every machine before opening profiles on it.** While any machine still runs the old code the
+behaviour diverges: a number in the **root** file it silently swallows, but a number in an **included**
+file is a fatal for it (`unsupported top-level key 'version'`) — the profile does not open at all. After
+the first lift Syncthing will carry both the lifted files and the `.bak` copies around; so let **one**
+machine open the project first — two at once would produce identical content, but Syncthing's behaviour
+on two simultaneous edits of one file has not been measured.
 
 ---
 

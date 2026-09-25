@@ -296,6 +296,38 @@ def test_a_write_that_would_lose_meaning_is_refused_and_the_file_survives(tmp_pa
     assert list(tmp_path.glob("*.bak.*")) == [], "and no copy was taken either"
 
 
+def test_the_text_written_is_the_text_that_was_verified(tmp_path, monkeypatch):
+    """M12: the bytes on disk are the ones the pre-write check looked at, not a
+    fresh serialization of the same data.
+
+    Two serializations of one dict are equal today, so «the writer ignores
+    `serialized_text`» changes no behaviour — which is exactly why the property
+    needs its own cell: without it the check gates a text nobody writes, and the
+    У1 mutation («lift by inserting the number into the old text») walks straight
+    through it (measured 25.09.2026: it survived until `serialized_text` went in).
+
+    `serialize_config` is replaced by one that is CORRECT but distinguishable —
+    the same meaning, wider indentation — so the disk has to show exactly it."""
+    from kicadstamp.config import upgrade_on_disk as uod
+
+    root = tmp_path / "root.sexp"
+    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
+    injected: dict[str, str] = {}
+
+    def wider(path, data, **kwargs):
+        text = dict_to_sexp(data).replace("\n  ", "\n      ")
+        injected["text"] = text
+        return text
+
+    monkeypatch.setattr(uod, "serialize_config", wider)
+
+    assert [p.name for p in upgrade_graph_on_disk(root)] == ["root.sexp"]
+    assert injected["text"] != dict_to_sexp({"cells": {"c1": {}}}), "distinguishable"
+    assert root.read_text(encoding="utf-8") == injected["text"], (
+        "the verified text is the written text")
+    assert read_version(root) == CURRENT_FORMAT
+
+
 # ── refusal: newer anywhere stops everything BEFORE the first write ────────
 
 def test_a_newer_file_anywhere_stops_the_graph_before_any_write(tmp_path):
