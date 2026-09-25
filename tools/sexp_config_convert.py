@@ -59,25 +59,45 @@ def _eq(a, b) -> bool:
     return a == b
 
 
-def _read_dict(path: Path) -> dict:
+def _read_dict(path: Path) -> tuple[dict, int]:
+    """Read the raw dict WITHOUT lifting, plus the FORMAT number it carried.
+
+    A format TRANSLATOR reads what is written: `upgrade=False` (Т3b) so the
+    content is the file's own, and `version_out` reports the number so the write
+    can put it back. A YAML source carries no number, so it reads as format 1 —
+    consistent with "no number means 1".
+
+    normalize_section_aliases: legacy `rules:` key -> `chains:` (2026-09-01
+    rename) so a YAML profile still carrying the old key converts to the
+    canonical `(chains ...)` sexp and the round-trip self-verify passes."""
     if path.suffix.lower() == ".sexp":
-        return sexp_to_dict(path.read_text(encoding="utf-8"), path=str(path)) or {}
-    # normalize_section_aliases: legacy `rules:` key -> `chains:` (2026-09-01
-    # rename) so a YAML profile still carrying the old key converts to the
-    # canonical `(chains ...)` sexp and the round-trip self-verify passes.
-    return normalize_section_aliases(safe_load(path.read_text(encoding="utf-8")) or {})
+        found: list[int] = []
+        data = sexp_to_dict(path.read_text(encoding="utf-8"), path=str(path),
+                            version_out=found, upgrade=False) or {}
+        return data, (found[0] if found else 1)
+    yaml_data = normalize_section_aliases(
+        safe_load(path.read_text(encoding="utf-8")) or {})
+    return yaml_data, 1
 
 
-def _write_dict(path: Path, data: dict) -> None:
-    """One-way by design, and it does NOT carry the format number into YAML.
+def _write_dict(path: Path, data: dict, version: int) -> None:
+    """Write the OTHER format, stamping `version` as the number.
 
-    YAML stopped being a config-graph format on 2026-08-28, so sexp -> YAML is a
-    dead-end direction: the number is written by the s-expr writer, and a YAML
-    file read back is simply format 1 (no key). The other direction stamps the
-    current number, because dict_to_sexp owns it. Decided during the Т3
-    acceptance — do not "fix" it by inventing a version key in YAML."""
+    `version` is the number READ from the source file (`1` for a YAML source,
+    which carries none), never the current one: this is a format translator, not
+    a lift, and reading the output back gives format `version` again.
+
+    YAML is the one direction that does NOT carry the number: it stopped being a
+    config-graph format on 2026-08-28, so sexp -> YAML is a dead-end direction
+    and inventing a version key there would be worse than dropping it (decided
+    during the Т3 acceptance)."""
     if path.suffix.lower() == ".sexp":
-        path.write_text(dict_to_sexp(data), encoding="utf-8")
+        # Through the ONE config writer (Т3b): the number it is given, an atomic
+        # write, and no second copy — convert_file already copies an existing
+        # output before overwriting it.
+        from kicadstamp.config_writer import write_config_file
+
+        write_config_file(path, data, format_number=version, backup=False)
     else:
         path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False,
                                   default_flow_style=False), encoding="utf-8")
@@ -100,7 +120,7 @@ def convert_file(path: Path, to_sexp: Optional[bool] = None) -> Path:
     if out_path == path:
         raise ValueError(f"cannot convert {path} to itself (already {out_suffix})")
 
-    data = _read_dict(path)
+    data, version = _read_dict(path)
 
     # Back up whatever is about to be overwritten (out_path) — NOT the input,
     # which this function never modifies. Only when out_path already exists
@@ -113,12 +133,12 @@ def convert_file(path: Path, to_sexp: Optional[bool] = None) -> Path:
     else:
         bak_path = None
 
-    _write_dict(out_path, data)
+    _write_dict(out_path, data, version)
 
     # self-verify: the freshly written file parses back to the same dict
     # (default-stripped canonical form — the s-expr format omits
     # default-valued fields; YAML writes what it's given verbatim).
-    back = _read_dict(out_path)
+    back = _read_dict(out_path)[0]
     expected = _strip_defaults(data) if out_suffix == ".sexp" else data
     if not _eq(back, expected):
         raise ValueError(

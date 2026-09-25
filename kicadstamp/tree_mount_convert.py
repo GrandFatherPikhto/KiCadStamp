@@ -447,7 +447,15 @@ def convert_config_file(root: str, output: Optional[str] = None,
     # each file is converted); a config whose trees live in an included file
     # gets a warning line below, never a silent half-conversion.
     text = root_path.read_text(encoding="utf-8")
-    data = sexp_to_dict(text, raw_trees=True, path=str(root_path))
+    # RAW twice over: raw_trees=True keeps the removed own_anchor grammar
+    # visible, upgrade=False keeps the CONTENT as written. This tool converts the
+    # tree GRAMMAR, it is not a format step — so it must not lift the content and
+    # must not stamp the current number. version_out reports what the file
+    # carried, and the write puts THAT back (Т3b, Denis's caveat 1).
+    found_version: list[int] = []
+    data = sexp_to_dict(text, raw_trees=True, path=str(root_path),
+                        version_out=found_version, upgrade=False)
+    version = found_version[0] if found_version else 1
     converted, report = convert_trees_dict(data)
 
     report_lines = _format_report(report)
@@ -464,7 +472,7 @@ def convert_config_file(root: str, output: Optional[str] = None,
     # reader (never raw_trees=True) BEFORE the target is opened for writing. A
     # converter output the standard loader refuses must fail HERE, leaving the
     # user's file untouched.
-    new_text = dict_to_sexp(converted)
+    new_text = dict_to_sexp(converted, format_number=version)
     sexp_to_dict(new_text, path=str(target))
 
     # §В.1.2 step 3: in-place overwrite snapshots the old content first

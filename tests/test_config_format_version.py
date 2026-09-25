@@ -626,19 +626,21 @@ _SCAN_SKIP_DIRS = {"diagnostics", "__pycache__"}
 # Callers allowed to read the file's OWN bytes (upgrade=False), keyed by
 # (path relative to the repo root, enclosing function).
 #
-# ONE entry in Т2: the on-disk probe. It reads the number precisely BECAUSE it
-# must not transform anything — it reports what the file carries, and Т4 decides
-# whether to write. Lifting there would pay a whole step just to read one int.
+# The on-disk probe: it reads the number precisely BECAUSE it must not transform
+# anything — it reports what the file carries, and Т4 decides whether to write.
+# Lifting there would pay a whole step just to read one int.
 #
-# The three format converters (tools/convert_rules_to_chains.py,
-# tools/sexp_config_convert.py, kicadstamp/tree_mount_convert.py) are NOT here
-# yet, and that is deliberate: a raw reader that writes back must be able to put
-# the number it READ back (Денис, caveat 1), and that needs
-# `dict_to_sexp(format_number=...)` — Т3's parameter. Until then they take the
-# default lift, which at 1 -> 2 is the identity. Half-wired would be worse: the
-# number would be dropped on rewrite with nothing to catch it.
+# The three format converters (Т3b) are here for the same reason, and they owe
+# the file the number they read (Denis's caveat 1): convert_rules_to_chains
+# canonicalizes `rules:` -> `chains:`, sexp_config_convert translates between
+# formats, tree_mount_convert converts the TREE GRAMMAR. None of them is a format
+# step, so none may lift the content or stamp the current number — each passes
+# `format_number=<what it read>` to the writer.
 _RAW_READERS: set[tuple[str, str]] = {
     ("kicadstamp/config/format_version.py", "_read_version_uncached"),
+    ("kicadstamp/tree_mount_convert.py", "convert_config_file"),
+    ("tools/convert_rules_to_chains.py", "_read_raw"),
+    ("tools/sexp_config_convert.py", "_read_dict"),
 }
 
 
@@ -832,12 +834,6 @@ _CONFIG_WRITE_BYPASSES: dict[tuple[str, str], str] = {
         "parent directories (documented: a missing parent is more likely a wrong "
         "path than a directory worth inventing). The format number still comes "
         "from dict_to_sexp."),
-    ("tools/convert_rules_to_chains.py", "_write_raw"): (
-        "the raw rule->chain converter: it reads WITHOUT aliases and writes back "
-        "the number it READ (Т3b), so it cannot go through the config writer"),
-    ("tools/sexp_config_convert.py", "_write_dict"): (
-        "the s-expr <-> YAML converter: its output is the OTHER format, not a "
-        "config-graph file"),
     ("tools/generate_config.py", "<module>"): "one-time generator (see the row below)",
     ("tools/generate_test_profile.py", "main"): (
         "a one-time generator that AUTHORS a fresh file from scratch; it still "
@@ -983,6 +979,94 @@ def test_a_refused_extension_leaves_no_bak_behind(tmp_path):
 
     assert list(tmp_path.glob("old.yaml.bak.*")) == []
     assert p.read_text(encoding="utf-8") == original
+
+
+# ── Т3b: the raw converters put back the number they READ ──────────────────
+# Denis's caveat 1, end to end. A converter reads the file's own bytes and
+# rewrites a file, so it must write the SAME number back — stamping the current
+# one would claim a format upgrade it never performed (harmless at 1 -> 2,
+# corruption at 2 -> 3).
+
+def _legacy_rules_file(tmp_path, name):
+    """The converter's exact input: a file carrying a legacy `rules:` key.
+
+    Built the way the converter's own tests build it (dict_to_sexp), because the
+    grammar of a record is not worth writing by hand — and then the root line is
+    removed when the caller wants format 1, since dict_to_sexp stamps the CURRENT
+    number. Same content, one number older."""
+    p = tmp_path / name
+    p.write_text(dict_to_sexp({"rules": [
+        {"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}]}), encoding="utf-8")
+    return p
+
+
+def test_the_rule_to_chain_converter_keeps_the_number_it_read(tmp_path):
+    from tools.convert_rules_to_chains import convert_file
+
+    p = _legacy_rules_file(tmp_path, "old.sexp")
+    stamped = p.read_text(encoding="utf-8")
+    assert f"  (version {CURRENT_FORMAT})\n" in stamped
+    p.write_text(stamped.replace(f"  (version {CURRENT_FORMAT})\n", ""),
+                 encoding="utf-8")                                  # format 1
+
+    assert convert_file(p) is not None
+
+    text = p.read_text(encoding="utf-8")
+    assert "(chains" in text, "the converter did its job"
+    assert "(version 1)" in text, "the number READ, not the current one"
+    assert f"(version {CURRENT_FORMAT})" not in text
+
+
+def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path):
+    from tools.convert_rules_to_chains import convert_file
+
+    p = _legacy_rules_file(tmp_path, "cur.sexp")                   # current format
+
+    assert convert_file(p) is not None
+
+    text = p.read_text(encoding="utf-8")
+    assert f"(version {CURRENT_FORMAT})" in text
+    assert "(version 1)" not in text
+
+
+def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
+    """It converts the tree GRAMMAR, not the format: an old-format file stays
+    old after the conversion, and the number it carried comes back."""
+    from kicadstamp.tree_mount_convert import convert_config_file
+
+    fixture = (Path(__file__).resolve().parent / "fixtures"
+               / "tree_instances_mount" / "config.sexp")
+    text = fixture.read_text(encoding="utf-8")
+    assert f"(version {CURRENT_FORMAT})" in text, "the fixture is current format"
+    old = tmp_path / "old.sexp"
+    # The SAME content, one number older: the root line is the only difference.
+    old.write_text(text.replace(f"  (version {CURRENT_FORMAT})\n", ""),
+                   encoding="utf-8")
+
+    out = tmp_path / "converted.sexp"
+    convert_config_file(str(old), output=str(out))
+
+    assert "(version 1)" in out.read_text(encoding="utf-8")
+
+
+def test_the_format_translator_stamps_what_it_read(tmp_path):
+    """sexp -> YAML -> sexp: YAML cannot carry the number (documented), so the
+    .sexp generated FROM a YAML source is format 1 — which is what its content
+    is. Pins that the s-expr direction stamps the number it was GIVEN, not the
+    current one."""
+    from tools.sexp_config_convert import convert_file
+
+    src = tmp_path / "a.sexp"
+    src.write_text(_wrap("  (cells)\n"), encoding="utf-8")     # format 1
+
+    yaml_out = convert_file(src)
+    assert yaml_out.suffix == ".yaml"
+    assert "version" not in yaml_out.read_text(encoding="utf-8"), (
+        "YAML does not carry the number, by decision")
+
+    back = convert_file(yaml_out)
+    assert back.suffix == ".sexp"
+    assert "(version 1)" in back.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -37,30 +37,54 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root on pat
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
-def _read_raw(path: Path) -> dict:
-    """Read a config file's RAW dict WITHOUT section-key aliases — the
-    converter must be able to see a legacy `rules:` key that the normalizing
-    readers would already have mapped to `chains:`. For .sexp this uses
-    sexp_to_dict(apply_aliases=False) (see its docstring); for .json the raw
-    json.load already keeps the original key."""
+def _read_raw(path: Path) -> tuple[dict, int]:
+    """Read a config file's RAW dict WITHOUT section-key aliases and WITHOUT
+    lifting — the converter must see a legacy `rules:` key that the normalizing
+    readers would already have mapped to `chains:`, and it must see the content
+    exactly as written. Returns `(data, format_number)`: the number the file
+    carried, which the write puts back (a reader that rewrites a file it read
+    RAW owes it its own number — stamping the current one would claim an upgrade
+    this converter did not do; Т3b, Denis's caveat 1).
+
+    For .sexp: `apply_aliases=False` (see its docstring) + `upgrade=False` +
+    `version_out`; `refuse_newer` still fires inside the parser. For .json the
+    raw json.load keeps the original key, and `take_version` takes the number
+    out the same way every JSON reader does."""
     with open(path, "r", encoding="utf-8") as f:
         if path.suffix.lower() == ".json":
             import json
-            return json.load(f) or {}
+
+            from kicadstamp.config.format_version import (
+                refuse_newer,
+                take_version,
+            )
+
+            data = json.load(f) or {}
+            version = take_version(data, str(path))
+            refuse_newer(version, str(path))
+            return data, version
         if path.suffix.lower() == ".sexp":
-            return sexp_to_dict(f.read(), apply_aliases=False, path=str(path)) or {}
+            found: list[int] = []
+            data = sexp_to_dict(f.read(), apply_aliases=False, path=str(path),
+                                version_out=found, upgrade=False) or {}
+            return data, (found[0] if found else 1)
         raise ValueError(f"unsupported config format: {path.suffix} (expected .sexp or .json)")
 
 
-def _write_raw(path: Path, data: dict) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        if path.suffix.lower() == ".json":
-            import json
-            f.write(json.dumps(data, indent=2, ensure_ascii=False))
-        elif path.suffix.lower() == ".sexp":
-            f.write(dict_to_sexp(data))
-        else:
-            raise ValueError(f"unsupported config format: {path.suffix} (expected .sexp or .json)")
+def _write_raw(path: Path, data: dict, version: int) -> None:
+    """Write `data` back with the number it was READ with — through the ONE
+    config writer (Т3b), which stamps exactly that number in both formats.
+
+    `backup=False`: convert_file already copies the file it is about to rewrite
+    (its own `{name}.bak.{stamp}`, see above), so a second copy of the same bytes
+    beside it would be noise. The writer still refuses a target that became newer
+    and still writes atomically."""
+    suffix = path.suffix.lower()
+    if suffix not in (".json", ".sexp"):
+        raise ValueError(f"unsupported config format: {path.suffix} (expected .sexp or .json)")
+    from kicadstamp.config_writer import write_config_file
+
+    write_config_file(path, data, format_number=version, backup=False)
 
 
 def convert_rules_to_chains(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -86,7 +110,7 @@ def convert_file(path: Path) -> Path | None:
     a non-readable/unwritable/ambiguous file."""
     if not path.exists():
         raise FileNotFoundError(f"input file not found: {path}")
-    data = _read_raw(path)
+    data, version = _read_raw(path)
     before = dict(data)
     convert_rules_to_chains(data)
     if data == before:
@@ -94,7 +118,7 @@ def convert_file(path: Path) -> Path | None:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     bak = path.with_name(f"{path.name}.bak.{stamp}")
     shutil.copy2(path, bak)
-    _write_raw(path, data)
+    _write_raw(path, data, version)
     return bak
 
 
