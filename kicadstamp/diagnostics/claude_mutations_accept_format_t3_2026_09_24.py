@@ -1,7 +1,9 @@
 """Acceptance mutations for step Т3 of plan_2026_09_24_config_format_version
 (the writer stamps the number; every config write has one home, write_config_file,
 which owns the `.bak` and the newer-refusal), Claude, 2026-09-24.
-Round 1: d6b2119 + 02820c2 (the Т5 guard).
+Round 1: d6b2119 + 02820c2 (the Т5 guard). Round 2: fa3ff0e (Т3b: Д4 the GUI
+Save through the one writer, Д5 serialize-first, the four empty cells) —
+W4/W5 re-anchored on the new `and backup` condition, X1-X7 added.
 
 Built from claude_mutations_accept_format_t2_2026_09_24.py (stale-.pyc guard
 included) (rule 38): the pattern must match EXACTLY once, a red run with zero
@@ -47,10 +49,10 @@ MUTATIONS = [
      "        out.update({k: v for k, v in data.items() if k != VERSION_KEY})",
      "        out.update(data)", "unknown"),
     ("W4 no .bak when the file is older", CW,
-     "        if stale or always_backup:",
+     "        if (stale or always_backup) and backup:",
      "        if always_backup:", "die"),
     ("W5 .bak on every write", CW,
-     "        if stale or always_backup:",
+     "        if (stale or always_backup) and backup:",
      "        if True:", "die"),
     ("W6 writer overwrites a newer file", CW,
      "        except ValidationError as e:\n            raise OSError(str(e)) from e\n        if stale",
@@ -88,6 +90,38 @@ MUTATIONS = [
      "        from kicadstamp.utils.safe_write import write_text_atomic\n"
      "        from kicadstamp.config_writer import _serialize\n"
      "        write_text_atomic(path, _serialize(path, data))", "die"),
+    # Round 2 (fa3ff0e): the GUI global Save now goes through the writer (Д4).
+    ("X1 Save skips the newer guard", "kicadstamp/config_working_set.py",
+     "        if errors:\n            return errors\n\n        # 3.",
+     "\n        # 3.", "die"),
+    ("X2 Save writes a file whose copy failed", "kicadstamp/config_working_set.py",
+     "                if resolved in backup_failed:\n"
+     "                    continue  # its copy did not come off — do not write it\n",
+     "", "die"),
+    ("X3 backup=False ignored (second copy)", CW,
+     "        if (stale or always_backup) and backup:",
+     "        if stale or always_backup:", "die"),
+    ("X4 backup=False also skips newer check", CW,
+     "    if target.exists():\n        try:\n            stale = read_version",
+     "    if target.exists() and backup:\n        try:\n            stale = read_version",
+     "unknown"),
+    ("X5 copy before serialize again (Д5)", CW,
+     "    text = _serialize(target, data, format_number=format_number)\n"
+     "    if target.exists():\n        try:\n            stale = read_version(target) < current_format()\n"
+     "        except ValidationError as e:\n            raise OSError(str(e)) from e\n"
+     "        if (stale or always_backup) and backup:\n            backup_file(target)\n",
+     "    if target.exists():\n        try:\n            stale = read_version(target) < current_format()\n"
+     "        except ValidationError as e:\n            raise OSError(str(e)) from e\n"
+     "        if (stale or always_backup) and backup:\n            backup_file(target)\n"
+     "    text = _serialize(target, data, format_number=format_number)\n", "die"),
+    ("X6 Save writes by itself again", "kicadstamp/config_working_set.py",
+     "                        write_config_file(path, self._staged[resolved],\n"
+     "                                          backup=False)",
+     "                        path.write_text(_serialize(path, self._staged[resolved]),\n"
+     "                                        encoding=\"utf-8\")", "die"),
+    ("X7 Save takes no .history copy", "kicadstamp/config_working_set.py",
+     "                    backup_to_history(path, root_dir)\n",
+     "                    pass\n", "die"),
 ]
 
 
