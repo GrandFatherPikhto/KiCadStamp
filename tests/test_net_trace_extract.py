@@ -12,10 +12,7 @@ Mock-adapter tests for the `extract-net` path (net_trace_extract.py) — plan
   - s-expr upsert: same-net write replaces, distinct-net write appends, other
     top-level keys are preserved.
 """
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from types import SimpleNamespace

@@ -16,13 +16,11 @@ What these guards defend, in the plan's own terms:
   * the extraction writes the cell into the ROOT config and the spoke into its
     chain's own file, with the spoke LAST (Ф8.1's order).
 """
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from kicadstamp.domain.board import Footprint, Pad, BoardLayer            # noqa: E402
 from kicadstamp.config_writer import read_data, write_data                # noqa: E402

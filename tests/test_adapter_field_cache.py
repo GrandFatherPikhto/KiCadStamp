@@ -22,8 +22,6 @@ stub footprints go through the REAL ``footprint_from_kipy()``, so the map's uuid
 keys are the real thing.
 """
 
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -31,7 +29,6 @@ from kipy.board_types import BoardText, Field
 from kipy.proto.common.commands.editor_commands_pb2 import BeginCommitResponse
 from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.board import unwrap
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter

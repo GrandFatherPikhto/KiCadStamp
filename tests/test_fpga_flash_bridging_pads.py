@@ -42,12 +42,9 @@ H6 note (kept as a docstring, not a test): pad numbering "1"/"2" is an
 arbitrary routing choice for electrically symmetric 2-pin R/C — the live
 re-extract recheck lives in tests/integration_tests/test_reextract_pad_numbering.py.
 """
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp

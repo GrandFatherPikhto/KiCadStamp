@@ -22,14 +22,11 @@ Widgets are given a Qt parent (the project's own rule: a parentless widget is
 collected and, on Windows, takes the whole run down).
 """
 import logging
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtWidgets import QMainWindow
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from gui.dock_hub import DockHub                                            # noqa: E402
 from gui.cell_edit_context import remembered_cell_refs                     # noqa: E402

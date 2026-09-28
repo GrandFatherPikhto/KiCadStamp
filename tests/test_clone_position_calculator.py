@@ -20,9 +20,6 @@ These tests drive ClonePositionCalculator.compute_raw_positions end to end
 apply_clone_geometry) on a fake live board.
 """
 import logging
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

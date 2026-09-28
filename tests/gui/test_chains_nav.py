@@ -3,9 +3,6 @@
 2026-09-05, design config_qview_chain_entity_pages §4/§8.2): anchor single
 click -> clickable chains; a chain row drills to its pads + reveals the chain
 (tree sync); a pad row opens the spoke editor; Back pops the drill."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from gui.docks.chains_nav import ChainsNavDock
 

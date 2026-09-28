@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Tests for clone_anchor_id (kicadstamp/placement/services/clone_position_calculator.py)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.config import ClonePlacement, Entity
 from kicadstamp.placement.services.clone_position_calculator import (

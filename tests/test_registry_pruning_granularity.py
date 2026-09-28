@@ -12,9 +12,6 @@ Fix: known_anchor_ids only protects an anchor_id that was NOT seen at all this
 run (genuinely excluded by --only/--cluster) — not a stale key belonging to an
 anchor_id that WAS seen (genuinely orphaned, must be pruned).
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2

@@ -2,9 +2,6 @@
 """Phase 3 — clone-plan: auto-generate the clone_placements: block from the
 file-based snapshot (netlist TwinMap + .kicad_pcb), plus the net_matching
 (Kuhn+SCC) verification of the role<->net correspondence (Step 3.1/3.2)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

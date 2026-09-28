@@ -3,9 +3,6 @@
 item must produce zero MoveCommands and populate resolved_points, and that
 cache must be the SAME object shared with the calculators (not a copy), so
 anchor_point: on Rule/ClonePlacement/thermal_via_array sees it populated."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2

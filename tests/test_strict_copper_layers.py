@@ -24,9 +24,7 @@ only from `_load_template_track`, which serves both `cells:` tracks and
 keep it that way: whoever later "unifies" the two helpers back into one will
 break these tests.
 """
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

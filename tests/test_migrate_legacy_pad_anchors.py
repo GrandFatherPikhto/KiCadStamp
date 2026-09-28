@@ -10,10 +10,7 @@ behaviour byte-for-byte and freeing the "no xy" form for the new meaning.
 Pure + file-level + include-graph tests; no Qt, no live board.
 """
 import json
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest  # noqa: E402
 

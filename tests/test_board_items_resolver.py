@@ -2,10 +2,7 @@
 """Tests for board_items_resolver.py — resolving which live-board items
 (components + registered copper) currently belong to a ClonePlacement /
 CoordinatePlacement. See handoff_2026_08_25_clone_item_resolver_select_and_reextract.md."""
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

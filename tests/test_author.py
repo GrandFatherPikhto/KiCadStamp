@@ -2,9 +2,6 @@
 """Tests for kicadstamp/author.py — build ClonePlacement/Rule in Python,
 dump back to s-expr, or feed straight into the apply pipeline (2026-08-28,
 core_yaml_removal: author fragments are s-expr/.sexp now)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import patch
 

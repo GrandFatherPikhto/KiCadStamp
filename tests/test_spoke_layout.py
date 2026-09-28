@@ -8,11 +8,8 @@ KiCadStamp, обобщённые via: TemplateVia используется и н
 чистая геометрия от нуля спицы, никакой зависимости от реального пада
 компонента.
 """
-import sys
 import math
-from pathlib import Path
 import pytest
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.geometry import Vector2
 

@@ -6,9 +6,6 @@ pre-populated directly here (as if an earlier dependency_order.py level had
 already resolved it), the same contract plan_item()'s point branch produces
 — see test_point_resolver.py for resolve_point() itself, and
 test_planner_point_item.py for the plan_item() wiring."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

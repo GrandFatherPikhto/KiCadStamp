@@ -4,9 +4,6 @@ placer") — runs BEFORE Phase 1's dependency-order move loop, via the
 SAME BatchExecutor.execute_moves() no new executor, no registry
 involvement (see coordinate_position_calculator.py / CoordinatePlacement's
 own docstrings)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock, patch
 

@@ -5,11 +5,8 @@ module). The validation paths tested here raise a PlacerError before any
 real file/board I/O happens — mirroring how kicadstamp/cli.py reports bad
 input instead of sys.exit()/print() (the entry point maps PlacerError to
 exit code 1 via cli_common.run_cli)."""
-from pathlib import Path
-import sys
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

@@ -4,9 +4,6 @@ synthetic cases validated live in this session (see handoff_2026_08_11_net_
 from_role_audit_validation.md) — lemma 2, explicit pad for multi-net roles
 (LDO VIN/VOUT counterexample to autoweight), and the geometric tiebreak for
 |R(n)| > 1 (nearest component wins)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

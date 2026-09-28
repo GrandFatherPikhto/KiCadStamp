@@ -36,10 +36,8 @@ Three tests:
      survive a reposition untouched (deleted=0, foreign kept + 3 new own).
 """
 import os
-import sys
 import tempfile
 
-sys.path.insert(0, str(__file__).rsplit("/", 2)[0])
 
 from unittest.mock import MagicMock
 

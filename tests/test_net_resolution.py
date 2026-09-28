@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Tests for net_resolution.py — three‑layer net name resolution for TemplatePlacer."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.net_resolution import (

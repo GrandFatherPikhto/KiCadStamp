@@ -4,9 +4,6 @@ geometry (2026-08-12): resolve an existing footprint by Cluster+Role,
 compute its target position/rotation (Cartesian or polar), and — for
 anchor: pad — where the footprint's own origin must land so a specific pad
 of THAT SAME footprint ends up on the target point."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 

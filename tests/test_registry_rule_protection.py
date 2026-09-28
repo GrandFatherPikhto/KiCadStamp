@@ -9,9 +9,6 @@ A rule excluded from a run (retired: true, --only, --cluster) had its via/
 track registry entries pruned unconditionally — --only/--cluster protection
 never actually worked for rule-based geometry, only for clone_placements.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2

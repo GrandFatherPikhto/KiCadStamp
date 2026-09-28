@@ -25,10 +25,7 @@ records the token's state at the moment it is entered — so every "does not
 touch the board" test fails on the pre-2026-09-12 code for the right reason.
 """
 import logging
-import sys
 import threading
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from types import SimpleNamespace
 

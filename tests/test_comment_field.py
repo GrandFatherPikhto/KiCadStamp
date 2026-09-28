@@ -5,9 +5,6 @@ ThermalViaArrayConfig/NetTrace/Point, handoff_2026_08_27_entity_comment_field.md
 A plain schema field (NOT a syntactic comment): survives the s-expr/YAML
 dict round-trip and shows up in the GUI. Here: read through load_config(),
 absent -> None, like every other optional field."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp

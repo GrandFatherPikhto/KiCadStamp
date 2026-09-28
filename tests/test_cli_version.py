@@ -4,8 +4,6 @@ convenience (sys.argv[1] not a known subcommand -> insert 'apply') would
 otherwise rewrite `kicadstamp_cli.py --version` into `apply --version` and
 fail as an unrecognised apply argument instead of printing the version."""
 import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

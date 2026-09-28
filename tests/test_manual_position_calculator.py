@@ -6,9 +6,6 @@ Found live: cells/fpga_cap_pair_spoke.yaml's layer: B.Cu was honoured
 for its tracks but silently ignored for its components — PlacedComponentInfo
 was always built with layer=None (inherit PlacementPlanner's single global
 target_layer), regardless of what the cell declared."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

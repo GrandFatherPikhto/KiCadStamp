@@ -14,12 +14,10 @@ would never work. An explicit conversion is needed.
 Updated: now uses a real Config instead of MagicMock, removed the obsolete
 target_ref field.
 """
-import sys
 import json
 import tempfile
 import os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

@@ -6,10 +6,7 @@ dataclasses.replace) and never mutates the input object — a preloaded cfg (e.g
 the GUI's shared object) is never the config applied/modified by a run.
 Order matters: retired wins UNCONDITIONALLY, before --only/--cluster (see the
 Rule docstring in config/models.py) — --only cannot resurrect a retired rule."""
-import sys
 import logging
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import (Config, Rule, ManualSpoke, ClonePlacement, ThermalViaArrayConfig,

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Тесты на фатальные предварительные проверки (validation.py), KiCadStamp 4.0."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

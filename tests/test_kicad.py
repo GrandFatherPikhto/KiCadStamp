@@ -4,14 +4,11 @@ Test for the kicad module (without a real connection to KiCad).
 Checks imports and method presence in classes.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 # Add project root to the path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kipy.board_types import Field
 from kipy.proto.common.commands.editor_commands_pb2 import (

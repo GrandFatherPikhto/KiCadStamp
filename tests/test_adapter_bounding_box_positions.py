@@ -12,11 +12,8 @@ items one by one (kiPy's single-item form returns one box or None) and never lin
 a short answer up by a bare zip.
 """
 import logging
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.geometry import Box2, Vector2
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter

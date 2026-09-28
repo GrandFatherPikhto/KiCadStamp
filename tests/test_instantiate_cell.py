@@ -5,7 +5,6 @@ gui/docks/tree_from_selection.py's build_instantiated_entity / selection_cluster
 selected_center_mm / cell_component_roles / missing_cluster_roles — the Qt-free
 half of the TreesDock action that adds a NEW group reusing an EXISTING Cell.
 """
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest

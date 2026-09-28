@@ -6,10 +6,7 @@ content so A coincides with the placement origin:
     element_world = origin + rotate(element_offset - A, rotation)
 including vias, tracks, rotation and the mirrored case (mirror stays about the
 MOUNT/origin — per-element subtraction, NOT an origin shift)."""
-import sys
 import math
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.geometry import Vector2
 

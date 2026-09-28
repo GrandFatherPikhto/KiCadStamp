@@ -1,10 +1,7 @@
 # tests/test_yaml_loader.py
 """Tests for kicadstamp.utils.yaml_loader.safe_load — the single chokepoint
 for reading YAML (CSafeLoader when libyaml is available, SafeLoader otherwise)."""
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 import yaml

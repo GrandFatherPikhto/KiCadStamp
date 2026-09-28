@@ -7,11 +7,8 @@ persists (staged) and appends the placement node.
 The dialog only reads cfg.cells / cfg.entities, so the tests feed a lightweight
 fake Config (a full load_config is exercised by tests/test_instantiate_cell.py).
 """
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtWidgets import QDialog
 

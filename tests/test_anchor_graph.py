@@ -5,9 +5,6 @@ plan_2026_08_21_anchor_dependency_tree_cascade_redraw.md): producer index,
 edge resolution (single/zero/multiple parents, anchor_ref external leaf,
 anchor_point leaf) and whole-graph structure — all without any live board.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

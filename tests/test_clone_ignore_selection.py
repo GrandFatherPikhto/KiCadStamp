@@ -16,9 +16,6 @@ connection) so get_selected_items()/get_footprints() run their REAL
 ignore_selection-aware logic — only the board-facing leaf calls
 (_board.get_selection/get_footprints, get_field_value) are stubbed.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

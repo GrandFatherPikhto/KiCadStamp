@@ -4,9 +4,6 @@ design config_qview_chain_entity_pages §5) — a read-mostly Entity RECORD
 editor: "Справка" (Name read-only, Comment editable, Cell/Sheet/Cluster
 read-only) + the clickable placements list (trees whose node.ref names this
 Entity; today ≤1, designed for N)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import types
 

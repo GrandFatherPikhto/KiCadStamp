@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Tests for kicadstamp/explore.py — read-only Board/select() facade."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import BoardLayer

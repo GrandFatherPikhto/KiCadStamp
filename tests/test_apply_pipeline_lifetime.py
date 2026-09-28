@@ -19,9 +19,6 @@ These four guards pin that contract:
 The no-live-adapter guard (a stand-in adapter, no kipy) sits on every test: the
 cost of a real KiCadBoardAdapter here would be a real IPC connection.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 

@@ -4,10 +4,7 @@
 No live KiCad board needed: the validation paths tested here raise before any
 board I/O happens."""
 
-from pathlib import Path
-import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

@@ -15,12 +15,10 @@ loaded and the fpga_flash cluster actually placed). Skips — never fails — wh
 the live environment can't produce a fresh fpga_flash cell (no real profile,
 fpga_flash not placed, or the re-extracted cell lacks the two bridging roles).
 """
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.config import load_config
 from kicadstamp.extract_writer import run_extract_to_file

@@ -12,10 +12,7 @@ predicate (plan_2026_08_16_position_based_copper_idempotency.md, Этап 1):
   never removes/adopts foreign copper.
 """
 import os
-import sys
 import tempfile
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import BoardLayer

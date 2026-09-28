@@ -13,10 +13,8 @@ of silently depending on the process CWD. Covers:
 """
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

@@ -4,9 +4,6 @@ live position of a record's referent" resolvers behind the Config Tree forms'
 "Read current position" buttons (design
 2026_08_29_config_tree_read_live_position.md). Pure fake-adapter tests, no
 Qt, no live board."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

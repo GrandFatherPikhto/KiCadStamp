@@ -21,7 +21,6 @@ board; since 2026-09-24 it also reprojects the snapshot from what is already in
 memory, so "never the board" is about the socket, not about the snapshot).
 """
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QMainWindow

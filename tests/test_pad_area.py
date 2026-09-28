@@ -10,12 +10,9 @@ the copper area, so the same copper reads "occupied" at 45° and "free" at 0°).
 """
 import logging
 import math
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

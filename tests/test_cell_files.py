@@ -11,9 +11,6 @@ SpokeTemplate — these were the one file-list key pair left behind, see
 techdocs/handoff/handoff_2026_08_01_metalanguage_p2_p3.md), and themselves removed in
 favour of include: 2026-08-02 — this file now only covers the fatal-with-rename-hint
 behaviour for all three now-dead key names."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config

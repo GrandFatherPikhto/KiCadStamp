@@ -3,9 +3,6 @@
 CoordinatePlacement (the "dumb placer", 2026-08-12), mirroring
 load_thermal_via_array's public/private split — see
 test_thermal_via_array_config.py for the same shape."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.exceptions import ValidationError

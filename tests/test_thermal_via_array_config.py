@@ -3,9 +3,6 @@
 load_config()'s inline loop (2026-08-03), mirroring load_clone_placement's
 existing public/private split — see test_clone_placement_config.py's
 test_load_clone_placement_is_a_public_alias for the same shape."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.exceptions import ValidationError

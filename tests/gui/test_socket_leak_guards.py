@@ -19,9 +19,7 @@ calls it. ApplyPipeline.run()'s own _connect_adapter() is left REAL, so what
 is counted is what the pipeline really builds.
 """
 import ast
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 from types import SimpleNamespace

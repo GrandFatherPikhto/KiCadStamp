@@ -9,12 +9,10 @@ created via with the correct UUID.
 Updated for the new architecture (2026-07-23): the log is now written in
 execute_tracks, so the test calls execute_tracks([]) after executing vias.
 """
-import sys
 import json
 import tempfile
 import os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2

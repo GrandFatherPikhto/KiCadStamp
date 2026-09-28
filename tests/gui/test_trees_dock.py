@@ -10,9 +10,6 @@ preview; structural editing; Save + dirty tracking; checkbox subtree
 selection + background curated Redraw.
 """
 import logging
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt

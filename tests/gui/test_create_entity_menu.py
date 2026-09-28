@@ -40,9 +40,6 @@ tests/gui/test_create_entity_form.py; здесь остались меню, об
 Общие строители — в tests/gui/create_entity_helpers.py (Т1: по копии на слой не
 держим).
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from unittest.mock import MagicMock
 

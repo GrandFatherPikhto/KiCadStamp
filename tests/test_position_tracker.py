@@ -2,9 +2,6 @@
 """Tests for PositionTracker.moves_from_placed() — the shared
 PlacedComponentInfo -> MoveCommand conversion, including owner_ref
 carry-over (2026-08-26, handoff tag_cluster_overtag)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 

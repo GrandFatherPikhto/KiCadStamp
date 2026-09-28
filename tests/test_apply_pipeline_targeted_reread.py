@@ -19,12 +19,9 @@ tests/test_apply_pipeline_coordinate_placements.py and
 tests/test_entity_tree_redraw_idempotent.py — _execute() is driven directly, so
 connect/validate/resolve never run.
 """
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import Config

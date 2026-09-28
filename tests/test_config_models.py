@@ -11,9 +11,7 @@ Rules decided with Denis (2026-08-11, see plan §2):
     for ManualSpoke/Rule; fatal at apply for ClonePlacement — clone_geometry.py:30).
     Nothing is added for the both-None case here.
 """
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

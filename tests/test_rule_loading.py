@@ -5,9 +5,6 @@ loader.py's _load_rule docstring), needed by gui/docks/rules.py to
 validate a single Rule the same way Save/Redraw validate everything else.
 The cross-rule name/net collision check stays load_config-only — see
 tests/test_naming.py for that coverage, unaffected by this extraction."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_rule

@@ -18,10 +18,7 @@ The existing read/parse semantics live in tests/gui/test_dock_common.py
 (.sexp/.json) and tests/gui/test_sexp_config_write.py (s-expr) — this file is
 focused purely on the unsupported-format fatal behavior.
 """
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

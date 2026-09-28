@@ -8,9 +8,7 @@ sheet_templates.md, Этап 0).
 file is also why sexp_format.py's _parse_dict_section applies
 _SHEET_TEMPLATE_FIELD_TYPE on the parse side too — a one-element
 sheets: [Channel_0] list would otherwise round-trip as a bare string.)"""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

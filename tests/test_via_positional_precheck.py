@@ -13,10 +13,7 @@
   (2026-08-31); vias never got that protection until this plan.
 """
 import os
-import sys
 import tempfile
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2

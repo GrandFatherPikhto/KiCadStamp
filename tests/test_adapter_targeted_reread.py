@@ -29,15 +29,12 @@ over a stub board, so ``isinstance(item, FootprintInstance)`` — and therefore
 ``board_item_from_kipy`` → ``footprint_from_kipy`` — is exercised for real, not
 faked. That is what lets Э3.5 assert the two read paths produce the same DTO.
 """
-import sys
 from dataclasses import fields as dataclass_fields
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from kipy.board_types import BoardLayer, Field, FootprintInstance
 from kipy.geometry import Vector2
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter
 

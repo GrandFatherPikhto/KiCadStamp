@@ -13,12 +13,9 @@ The chain is the one place a spoke can live (chains:, not the trees — plan Р8
 the design's §3), so a spoke with a subcluster is never created here: the cluster
 written is the one the caller passes, and nothing invents "…/…".
 """
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.config import load_chain, load_manual_spoke          # noqa: E402
 from kicadstamp.config_writer import read_data, upsert_list_entry    # noqa: E402

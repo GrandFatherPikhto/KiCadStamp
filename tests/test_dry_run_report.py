@@ -10,9 +10,7 @@ instead of the library printing to stdout directly. Covers:
   - kicadstamp_cli.main() (_dispatch) prints it for `apply --dry-run`.
 """
 import sys
-from pathlib import Path
 from types import SimpleNamespace
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock, patch
 

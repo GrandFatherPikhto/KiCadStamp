@@ -4,9 +4,7 @@ closed-boundary references to other cells inside a Cell definition. See
 handoff_2026_07_31_blocks.md/handoff_2026_07_31_consolidated.md for the
 design (closed boundaries, no param scoping, refdes forbidden, cycle
 detection on cell DEFINITIONS)."""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import Config, Cell, CellPlacement, load_config

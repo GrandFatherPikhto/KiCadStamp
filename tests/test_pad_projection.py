@@ -7,10 +7,7 @@ In the current architecture, vias are computed geometrically at the planning
 stage and do not use pad_projection directly, but the module remains important
 for other operations (e.g., manual pad work or future extensions).
 """
-import sys
 import math
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

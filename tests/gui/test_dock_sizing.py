@@ -14,9 +14,6 @@ prompt_2026_09_10_splitters_and_log_sizing.md):
 The measurements these tests encode are the ones the probes in `diagnostics/`
 printed before/after the fix.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal

@@ -7,9 +7,7 @@ for the design (Point as a named, reusable anchor + optional shift/xy).
 2026-08-28, core_yaml_removal: fixtures are s-expr via dict_to_sexp — the
 config graph reads .sexp/.json only (the one hand-written s-expr below exists
 because dict_to_sexp itself would fatal on the unknown key at serialize time)."""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config

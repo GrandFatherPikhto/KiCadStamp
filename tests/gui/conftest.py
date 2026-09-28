@@ -20,11 +20,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
 import time
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtWidgets import QApplication, QMainWindow
 

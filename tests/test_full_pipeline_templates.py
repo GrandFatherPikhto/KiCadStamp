@@ -7,10 +7,7 @@ KiCadStamp, generalised vias: spoke‑level and component‑level vias are now
 computed SIMULTANEOUSLY with component positions in plan_moves() — no more
 reading of live component pads for vias.
 """
-import sys
 import math
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

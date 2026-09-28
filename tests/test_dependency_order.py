@@ -5,9 +5,6 @@ ordering that fixes the p5v_led_spoke bug (2026-07-27): an item anchored on a
 ref that ANOTHER item in the same apply run is about to move must be planned
 AFTER that other item, not against a stale pre-run snapshot.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

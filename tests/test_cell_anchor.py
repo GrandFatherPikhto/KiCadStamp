@@ -4,9 +4,6 @@
 anchor_role -> that component's centre, anchor_role+anchor_pad (legacy, no xy)
 -> (0,0) (the pad sits at the mount by the old mutation), neither -> (0,0)
 (the default bbox corner)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

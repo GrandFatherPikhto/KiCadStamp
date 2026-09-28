@@ -10,13 +10,10 @@ is tested separately, in tests/gui.
 Each test names the guardian and the mutation it kills (С / М of the plan's §5
 table) — the table in the stage report is built from these names.
 """
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME    # noqa: E402
 from kicadstamp.exceptions import ValidationError                       # noqa: E402

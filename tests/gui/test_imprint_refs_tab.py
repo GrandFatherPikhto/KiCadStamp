@@ -22,7 +22,6 @@ The guards, by their plan numbers:
 The widget is always built with a Qt PARENT: a parentless widget is destroyed by
 the garbage collector, which crashes the whole run on Windows (plan 2а §1.1).
 """
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest

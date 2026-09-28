@@ -8,10 +8,7 @@ Mock-adapter tests for the net_traces apply/redraw path (net_trace_planner.py
   - retired/skip -> the record creates/touches no copper;
   - --only=<net> redraws exactly one record, not the whole config.
 """
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from types import SimpleNamespace

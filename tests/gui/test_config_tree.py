@@ -4,9 +4,6 @@ the actual include: file graph from a single root file (2026-08-03, GUI
 tree roadmap Этап 1/2, corrected same day from an earlier flat,
 non-recursive version — see handoff_2026_08_03_gui_tree_risks_resolved.md
 and the config-architecture-brainstorm memory)."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from PyQt6.QtCore import Qt

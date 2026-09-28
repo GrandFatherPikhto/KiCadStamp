@@ -14,10 +14,7 @@ seam, without editing internode_copper.py (P.2.2 of the plan forbids that file:
 a parallel task owns it).
 """
 import math
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.constants import PAD_SHAPE_CUSTOM, PAD_SHAPE_RECT
 from kicadstamp.domain.board import Footprint, Pad, Track

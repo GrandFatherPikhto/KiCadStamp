@@ -15,10 +15,8 @@ tests/gui/test_create_entity_menu.py идёт через меню и обраб�
 соглашение, что у tests/fieldstool_fixtures.py (и он же и есть прецедент
 импорта соседнего модуля через `tests.…`).
 """
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtCore import Qt
 

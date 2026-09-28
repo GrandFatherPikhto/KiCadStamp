@@ -3,9 +3,7 @@
 a profile config into subsystem files (extract_profiles + clone_placements +
 rules + cells together, unlike per-section *_file keys). s-expr fixtures since
 2026-08-28 (core_yaml_removal)."""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config

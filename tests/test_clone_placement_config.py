@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Тесты на загрузку ClonePlacement (config.py, TemplatePlacer)."""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config

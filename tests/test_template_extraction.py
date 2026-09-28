@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Тесты на template_extraction.py и adapter.get_selected_items()."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

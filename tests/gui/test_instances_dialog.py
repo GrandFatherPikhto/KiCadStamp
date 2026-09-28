@@ -5,9 +5,7 @@ SHORT declarations ({name, sheet} rows, add/remove) and writes them through
 config_writer.upsert_tree_instances — it generates nothing (materialization is
 the next load's job).
 """
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 

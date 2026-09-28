@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Tests for clone_role_resolver.py — role‑to‑ref mapping for TemplatePlacer."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

@@ -4,11 +4,9 @@ the board adapter (P0-5 of the 2026-08-25 architecture audit: the function
 used to construct its own KiCadBoardAdapter, making it untestable without a
 live KiCad)."""
 import json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.domain.geometry import BoardLayer
 

@@ -5,9 +5,7 @@ import ast
 import json
 import re
 import string
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import gettext
 import pytest

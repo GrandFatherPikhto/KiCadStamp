@@ -12,9 +12,7 @@ fatal, which still names the key). The close-match SUGGESTION survives only
 on the .json path — there the raw dict reaches the loader's check_unknown_keys
 (difflib suggestion), whereas s-expr rejects the key before the loader runs."""
 import json
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import load_config

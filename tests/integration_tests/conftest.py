@@ -4,9 +4,7 @@ import pytest
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.domain.geometry import BoardLayer
 
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.config import load_config

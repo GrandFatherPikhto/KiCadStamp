@@ -5,9 +5,6 @@ KiCadBoardAdapter.get_board_filename(). See the plan
 techdocs/handoff/deepseek/plan_2026_08_20_board_identity_check.md — the real
 incident where a stale schematic_dir pointed at a previous board revision and
 the mismatch surfaced as an unrelated-looking fatal deep in Extract."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

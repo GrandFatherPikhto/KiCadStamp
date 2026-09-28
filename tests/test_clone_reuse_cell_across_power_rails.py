@@ -20,9 +20,6 @@ the literal remains the fallback while the target cluster has nothing on the
 board yet. Live net per role -> net matching finds THIS instance's components,
 so copper nets (net_from_role) also derive from them.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 

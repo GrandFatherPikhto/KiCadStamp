@@ -7,9 +7,6 @@ per-record status (run_cascade) — the §2.3/§2.5 behaviour, against a mocked
 ApplyPipeline (no live board).
 """
 import logging
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from unittest.mock import MagicMock
 

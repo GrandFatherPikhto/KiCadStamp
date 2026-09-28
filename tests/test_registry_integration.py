@@ -13,11 +13,8 @@ treats it as stale and recreates it. Previously this test mocked get_vias() as
 always empty and relied on the old (now non‑existent) "trust JSON" behaviour —
 silently failing under the new architecture until the tests were run and noticed.
 """
-import sys
 import tempfile
 import os
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

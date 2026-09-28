@@ -7,9 +7,6 @@ but only if it actually reduces the set" step shared by:
   - CoordinatePlacement's own sheet: identity (resolve_footprint_by_cluster_role
     and build_coordinate_moves in coordinate_position_calculator.py)
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 

@@ -5,10 +5,8 @@ map schematic_rename_fields.py understands). Config format is s-expr (2026-08-28
 yaml_removal_tooling): plan_profile_rename_edits mutates dicts and returns
 {path: mutated_data} instead of byte-offset Edits — there are no comments in
 .sexp to preserve, so no text splicing."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import sys
 import pytest
 
 import fieldstool_cli

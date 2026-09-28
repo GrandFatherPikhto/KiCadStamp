@@ -11,9 +11,7 @@ loader fatals if two rules resolve to the same effective identity (see
 config/loader.py) — not a silent pick of one over the other.
 
 See --only in kicadstamp_cli.py."""
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from kicadstamp.config import (

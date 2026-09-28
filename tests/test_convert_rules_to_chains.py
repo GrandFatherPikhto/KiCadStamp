@@ -7,10 +7,8 @@ this tool is about CANONICALIZING existing profiles on disk: rename `rules:` to
 `chains:`, back up each rewritten file, idempotent on re-run, and never touch a
 file that doesn't carry the legacy key.
 """
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

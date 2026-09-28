@@ -23,11 +23,8 @@ What is pinned down here, per Т1.1-Т1.4:
   * the VIEW never touches the DATA: the tree serializes byte-identically before
     and after a render.
 """
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import QTreeWidgetItemIterator

@@ -11,10 +11,7 @@ Covers: single-cluster list, auto-name prefill (editable for a NEW Entity),
 read-only prefill for an EXISTING (cluster, sheet)-matched Entity (reuse,
 never a duplicate), duplicate/empty-name rejection on OK without accepting.
 """
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PyQt6.QtWidgets import QDialog
 

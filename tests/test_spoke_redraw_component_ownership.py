@@ -29,9 +29,6 @@ a full chain redraw would assign to it — it can never re-claim a neighbour's.
 Config-authored skip=True semantics are untouched (a skipped spoke still does
 NOT consume).
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kipy.board_types import Pad, FootprintInstance

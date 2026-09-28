@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kicadstamp.schematic_blocks import (escape_sexp_string, find_balanced_span,
                                          find_insertion_point, find_property_value_span,

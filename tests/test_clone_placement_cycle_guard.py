@@ -17,9 +17,6 @@ Test style mirrors test_cell_placement_geometry.py (same MagicMock adapter
 helpers) — the recursive-Cell composition machinery is covered there; here we
 only exercise the new cycle guard on top of the unchanged resolver.
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

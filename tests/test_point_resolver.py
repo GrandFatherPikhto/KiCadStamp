@@ -2,9 +2,6 @@
 """Tests for point_resolver.py — resolving a Point to an absolute position
 (+ footprint, when eligible). See handoff_2026_07_31_consolidated.md and
 config/points.py for the design."""
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from unittest.mock import MagicMock

@@ -19,10 +19,7 @@ breaks under exactly this fixture (otherwise the test would prove nothing).
 """
 import logging
 import math
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 

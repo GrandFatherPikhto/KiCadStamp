@@ -15,10 +15,7 @@ The test now verifies that the two‑phase flow still runs entirely without
 errors and produces geometrically correct positions (verified against an
 independent calculation).
 """
-import sys
 import math
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle

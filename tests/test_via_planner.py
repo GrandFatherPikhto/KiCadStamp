@@ -9,9 +9,6 @@ a regular spoke/component via planned earlier in the same run. The fix adds the
 planned vias to the keepout as circular obstacles
 (kicadstamp/placement/services/via_planner.py:_build_keepout).
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle
