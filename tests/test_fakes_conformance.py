@@ -13,13 +13,19 @@ Both directions are checked, and both are pinned to a written-down reason:
 That second half is what stops SEAM_GAPS from becoming a place to dump any
 method a fake happens to grow.
 """
+import inspect
+
+import pytest
+
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.kicad.interfaces import IBoardAdapter
+from kicadstamp.placement.services.component_resolver import ComponentResolver
 
 from tests.fakes.adapter import FakeAdapter, public_callables
 from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
 from tests.fakes.pipeline import PipelineStubLifetime
+from tests.fakes.resolver import FakeComponentResolver
 
 
 def test_fake_adapter_public_surface_is_the_seam_plus_the_named_gaps():
@@ -144,3 +150,67 @@ def test_a_fake_only_method_is_not_a_production_method():
     assert not collisions, (
         f"{sorted(collisions)} is listed as FAKE_ONLY but exists on the real "
         f"adapter or the seam — move it to SEAM_GAPS (or the ABC) instead")
+
+
+def test_fake_component_resolver_mirrors_the_real_signatures():
+    """Both signatures in tests/fakes/resolver.py have drifted once already (Ф1.4d-2),
+    so this cell compares PARAMETER LISTS rather than method names: a rename, or a
+    new keyword-only argument, must break it instead of being absorbed by a **kwargs."""
+
+    def shape(fn):
+        return [(p.name, p.kind, p.default is inspect.Parameter.empty)
+                for p in inspect.signature(fn).parameters.values()
+                if p.name != "self"]
+
+    real_ctor = shape(ComponentResolver.__init__)
+    fake_ctor = shape(FakeComponentResolver.__init__)
+    # Rule 38: a comparison that scanned nothing must FAIL, not pass quietly.
+    assert real_ctor, "ComponentResolver.__init__ has no parameters — blind scan"
+    assert fake_ctor, "FakeComponentResolver.__init__ has no parameters — blind scan"
+    assert fake_ctor == real_ctor, (
+        f"FakeComponentResolver.__init__ takes {fake_ctor}, the real resolver takes "
+        f"{real_ctor}; the keyword-only `snapshot` (Т2-4а) is exactly why that "
+        f"parameter must be NAMED here and not swallowed by a **kwargs")
+
+    real_resolve = shape(ComponentResolver.resolve_anchor_fp)
+    fake_resolve = shape(FakeComponentResolver.resolve_anchor_fp)
+    assert real_resolve, "resolve_anchor_fp has no parameters — blind scan"
+    assert fake_resolve == real_resolve, (
+        f"FakeComponentResolver.resolve_anchor_fp takes {fake_resolve}, the real one "
+        f"takes {real_resolve}")
+
+    assert not hasattr(ComponentResolver, "RESOLVED_FP_FACTORY"), (
+        "RESOLVED_FP_FACTORY is the fake-only injection hook; the real resolver "
+        "must not grow it")
+
+
+def test_the_resolver_base_hands_back_a_fresh_footprint():
+    """The hook is a FACTORY because two calls must not share the object they hand
+    back — each of the six copies called `_FakeFp()` per call. Also pins the two
+    things a caller reads back: the real attribute names, and the `snapshot` keyword."""
+
+    class _Fp:
+        position = "pos"
+
+    class _Local(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _Fp
+
+    resolver = _Local("adapter", "cfg", {"S": "Sheet"}, snapshot="SNAP")
+    first = resolver.resolve_anchor_fp(None, "R", "Sheet", "C", label="L")
+    second = resolver.resolve_anchor_fp(None, "R", "Sheet", "C", label="L")
+
+    assert isinstance(first, _Fp) and isinstance(second, _Fp), (
+        "the factory must be CALLED, not returned")
+    assert first is not second, "the resolver handed back a SHARED footprint double"
+    assert (resolver.adapter, resolver.cfg, resolver.sheet_names) == \
+        ("adapter", "cfg", {"S": "Sheet"}), (
+            "the attribute names mirror the real __init__ (cfg, not config)")
+    assert resolver.snapshot == "SNAP", (
+        "the snapshot keyword must be accepted and kept — it is the Т2-4а drift")
+
+
+def test_the_resolver_base_is_inert_without_a_footprint_factory():
+    """A subclass that forgets RESOLVED_FP_FACTORY must fail LOUDLY, not hand back
+    None and leave the cell under test failing with a puzzling AttributeError."""
+    with pytest.raises(TypeError):
+        FakeComponentResolver("a", "c", {}).resolve_anchor_fp(None, "R", None, None)

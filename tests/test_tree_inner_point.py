@@ -217,6 +217,9 @@ def test_module_ref_cannot_be_the_inner_point(tmp_path):
 # ── P.1 (plan_2026_09_11_pivot_ref_mount_ancestor): a mount node's SUBTREE is ─
 # ── barred as a handle, but a branch OUTSIDE it must still resolve LOCALLY. ───
 
+from tests.fakes.resolver import FakeComponentResolver  # noqa: E402
+
+
 def test_pivot_ref_outside_the_mount_subtree_stays_local(monkeypatch):
     """P.5.1 item 4 — a tree that HAS mount nodes may still hang its handle on a
     branch WITHOUT a mount ancestor. `tree_pivot_offset` must then return that
@@ -229,12 +232,10 @@ def test_pivot_ref_outside_the_mount_subtree_stays_local(monkeypatch):
         position = Vector2.from_xy(300 * MM, 400 * MM)   # deliberately NOT local
         angle_deg = 90.0
 
-    class _FakeResolver:
-        def __init__(self, *a, **k):
-            pass
-
-        def resolve_anchor_fp(self, *a, **k):
-            return _FakeFp()
+    # Ф1.4d-2: the shared surface lives in tests/fakes/resolver.py; THIS function
+    # keeps its own footprint, because the position it hands back is the trap.
+    class _FakeResolver(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _FakeFp
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 

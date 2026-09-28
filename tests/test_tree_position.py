@@ -339,6 +339,9 @@ class TestRigidGroupCaptureApply:
         assert cap.local_offset.y == 9 * MM
 
 
+from tests.fakes.resolver import FakeComponentResolver  # noqa: E402
+
+
 class TestRigidCaptureMountParent:
     """Э2 (plan_2026_09_14): a kind "mount" node standing as a rigid-group
     PARENT resolves through mount_node_base. A mount node's ref is a tree-LOCAL
@@ -376,15 +379,17 @@ class TestRigidCaptureMountParent:
             position = Vector2.from_xy(0, 0)
             angle_deg = 0.0
 
-        class _FakeResolver:
-            def __init__(self, *a, **k):
-                pass
+        class _FakeResolver(FakeComponentResolver):
+            """Ф1.4d-2: the shared surface; only the anchor ASSERTION is local."""
+            RESOLVED_FP_FACTORY = _FakeFp
 
             def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
                                   anchor_cluster, label=""):
                 assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
                     (None, "FPGA", "FPGA", "FPGA")
-                return _FakeFp()
+                return super().resolve_anchor_fp(anchor_ref, anchor_role,
+                                                 anchor_sheet, anchor_cluster,
+                                                 label)
 
         reads = []
 
@@ -603,16 +608,11 @@ def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
     class _FakeFp:
         position = Vector2.from_xy(50 * MM, 60 * MM)
 
-    class _FakeResolver:
-        def __init__(self, adapter, cfg, sheet_names, **kwargs):
-            # **kwargs: ComponentResolver gained a keyword-only `snapshot`
-            # (Т2-4а of plan_2026_09_22_live_adapter_class). A double that names
-            # its three arguments must tolerate the fourth.
-            pass
-
-        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
-                              anchor_cluster, label=""):
-            return _FakeFp()
+    class _FakeResolver(FakeComponentResolver):
+        """Ф1.4d-2: the `**kwargs` that swallowed `snapshot` (the Т2-4а drift) is
+        gone — the base NAMES the keyword the real resolver declares, and the
+        conformance cell fails if that signature moves again."""
+        RESOLVED_FP_FACTORY = _FakeFp
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 
@@ -630,12 +630,8 @@ def test_dispatch_rule_with_anchor_pad_narrows_to_pad(monkeypatch):
     class _FakeFp:
         position = Vector2.from_xy(50 * MM, 60 * MM)
 
-    class _FakeResolver:
-        def __init__(self, *a, **k):
-            pass
-
-        def resolve_anchor_fp(self, *a, **k):
-            return _FakeFp()
+    class _FakeResolver(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _FakeFp
 
     calls = []
 
@@ -975,17 +971,18 @@ def test_rotation_rule_via_live_footprint_angle(monkeypatch):
     class _FakeFp:
         angle_deg = 33.0
 
-    class _FakeResolver:
-        def __init__(self, adapter, cfg, sheet_names, **kwargs):
-            # **kwargs: the resolver's keyword-only `snapshot` (Т2-4а).
-            self.args = (adapter, cfg, sheet_names)
+    class _FakeResolver(FakeComponentResolver):
+        """Ф1.4d-2: the anchor ASSERTION stays here — it is this cell's point. The
+        `self.args` tuple went with the merge: nothing ever read it."""
+        RESOLVED_FP_FACTORY = _FakeFp
 
         def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
                               anchor_cluster, label=""):
             assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
                 ("U1", None, None, None)
             assert label == "R1"
-            return _FakeFp()
+            return super().resolve_anchor_fp(anchor_ref, anchor_role, anchor_sheet,
+                                             anchor_cluster, label)
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 
@@ -1905,13 +1902,8 @@ def test_layout_mount_child_laid_from_anchor_with_adapter(monkeypatch):
         position = Vector2.from_xy(30 * MM, 40 * MM)
         angle_deg = 0.0
 
-    class _FakeResolver:
-        def __init__(self, *a, **k):
-            pass
-
-        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
-                              anchor_cluster, label=""):
-            return _FakeFp()
+    class _FakeResolver(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _FakeFp
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
     child = _node_dc(ref="d0", xy=(2.0, 1.0))
