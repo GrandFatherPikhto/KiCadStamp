@@ -69,105 +69,17 @@ def _make_fp():
     return fp
 
 
-class _MockAdapter:
-    """A minimal live-board stand-in whose track/via lists reflect real
-    creation and deletion between runs (reconcile treats the live board as the
-    source of truth, so the mock MUST reflect it — see test_registry_integration).
-    Tracks and vias live in SEPARATE lists; UUIDs come from ONE monotonic
-    counter so a via and a track never collide on a uuid."""
+from tests.fakes.live_board import FakeLiveBoardAdapter  # noqa: E402
+
+
+class _MockAdapter(FakeLiveBoardAdapter):
+    """Ф1.4d-5: the shared live-board stand-in (tests/fakes/live_board.py), which is
+    now where the ONE monotonic uuid counter and the separate track/via lists live.
+    Only the footprint stays local: this file's own _make_fp() is its fixture, and
+    keeping it here is why the base takes `fp` instead of inventing one."""
 
     def __init__(self):
-        self.live_tracks = []
-        self.live_vias = []
-        self._uuid_counter = 0
-        self._fp = _make_fp()
-
-    # ── footprint / role / net resolution ───────────────────────────────────
-    def get_footprints(self):
-        return [self._fp]
-
-    def get_footprint(self, ref):
-        return self._fp if ref == "U1" else None
-
-    def get_footprint_by_ref(self, ref):
-        return self._fp if ref == "U1" else None
-
-    def get_field_value(self, fp, field):
-        if hasattr(fp, "get_field_value"):
-            return fp.get_field_value(field)
-        return None
-
-    def get_pad_by_number(self, fp, num):
-        return fp.pad(num)
-
-    def get_footprint_pads(self, fp):
-        return list(fp.pads.values())
-
-    def get_net_by_name(self, net_name):
-        n = MagicMock()
-        n.name = net_name
-        return n
-
-    def get_selected_items(self):
-        return []
-
-    # ── live board ──────────────────────────────────────────────────────────
-    def get_tracks(self):
-        return list(self.live_tracks)
-
-    def get_vias(self):
-        return list(self.live_vias)
-
-    def create_track(self, start, end, width_mm, net, layer):
-        t = MagicMock()
-        t.start = start
-        t.end = end
-        t.width_mm = width_mm
-        t.net_name = net.name if hasattr(net, "name") else net
-        t.layer = layer
-        t.uuid = None
-        return t
-
-    def create_via(self, position, net, drill_mm, diameter_mm):
-        v = MagicMock()
-        v.position = position
-        v.drill_mm = drill_mm
-        v.diameter_mm = diameter_mm
-        v.net_name = net.name if hasattr(net, "name") else net
-        v.uuid = None
-        return v
-
-    def create_items(self, items):
-        for item in items:
-            self._uuid_counter += 1
-            item.uuid = f"uuid-{self._uuid_counter}"
-        return items
-
-    def commit_with_retry(self, description, work_fn, retries=1):
-        work_fn()
-        return True
-
-    def remove_by_ids(self, uuids):
-        uuids = set(uuids)
-        self.live_tracks[:] = [t for t in self.live_tracks
-                               if t.uuid not in uuids]
-        self.live_vias[:] = [v for v in self.live_vias
-                             if v.uuid not in uuids]
-        return True
-
-    def refresh_board(self):
-        pass
-
-    def temporarily_ignore_selection(self, flag):
-        return _TmpCtx()
-
-
-class _TmpCtx:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
+        super().__init__(_make_fp())
 
 
 def _cell():

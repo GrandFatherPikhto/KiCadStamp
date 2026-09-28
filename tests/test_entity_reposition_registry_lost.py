@@ -80,84 +80,14 @@ def _make_fp(x_mm: float, y_mm: float):
     return fp
 
 
-class _MockAdapter:
-    """Minimal live-board stand-in whose track list reflects real creation and
-    deletion between runs (reconcile treats the live board as the source of
-    truth). Identical to the harness in test_entity_tree_redraw_idempotent.py."""
+from tests.fakes.live_board import FakeLiveBoardAdapter  # noqa: E402
 
-    def __init__(self, fp):
-        self.live_tracks = []
-        self._fp = fp
 
-    def get_footprints(self):
-        return [self._fp]
-
-    def get_footprint(self, ref):
-        return self._fp if ref == "U1" else None
-
-    def get_footprint_by_ref(self, ref):
-        return self._fp if ref == "U1" else None
-
-    def get_field_value(self, fp, field):
-        if hasattr(fp, "get_field_value"):
-            return fp.get_field_value(field)
-        return None
-
-    def get_pad_by_number(self, fp, num):
-        return fp.pad(num)
-
-    def get_footprint_pads(self, fp):
-        return list(fp.pads.values())
-
-    def get_net_by_name(self, net_name):
-        n = MagicMock()
-        n.name = net_name
-        return n
-
-    def get_selected_items(self):
-        return []
-
-    def get_tracks(self):
-        return list(self.live_tracks)
-
-    def get_vias(self):
-        return []
-
-    def create_track(self, start, end, width_mm, net, layer):
-        t = MagicMock()
-        t.start = start
-        t.end = end
-        t.width_mm = width_mm
-        t.net_name = net.name if hasattr(net, "name") else net
-        t.layer = layer
-        t.uuid = None
-        return t
-
-    def create_items(self, items):
-        for item in items:
-            item.uuid = f"uuid-{len(self.live_tracks)}"
-        return items
-
-    def commit_with_retry(self, description, work_fn, retries=1):
-        work_fn()
-        return True
-
-    def remove_by_ids(self, uuids):
-        self.live_tracks[:] = [t for t in self.live_tracks
-                               if t.uuid not in set(uuids)]
-        return True
-
-    def refresh_board(self):
-        pass
-
-    def temporarily_ignore_selection(self, flag):
-        class _Ctx:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-        return _Ctx()
+class _MockAdapter(FakeLiveBoardAdapter):
+    """Ф1.4d-5: the shared live-board stand-in (tests/fakes/live_board.py) — this
+    file's own docstring already claimed the two harnesses were identical, and now
+    they are. Only the raw-segment seeder is local: it is what the "foreign copper"
+    guard-rail here is built with."""
 
     def seed_live_track(self, start, end, width_mm, net_name, layer="F.Cu"):
         """Inject a raw live segment (e.g. hand-drawn/foreign copper) WITHOUT

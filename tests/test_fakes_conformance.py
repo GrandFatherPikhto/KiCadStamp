@@ -25,6 +25,7 @@ from kicadstamp.placement.services.component_resolver import ComponentResolver
 
 from tests.fakes.adapter import FakeAdapter, public_callables
 from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
+from tests.fakes.live_board import FakeLiveBoardAdapter
 from tests.fakes.pipeline import PipelineStubLifetime
 from tests.fakes.planner import FakePlanner
 from tests.fakes.resolver import FakeComponentResolver
@@ -298,3 +299,99 @@ def test_fake_planner_injects_each_result_independently():
         "plan_vias handed out the class attribute itself, so one cell could mutate "
         "what every later cell sees")
     assert FakePlanner.PLAN_VIAS_RESULT == (), "the base must stay empty"
+
+
+def test_live_board_adapter_surface_is_the_seam_plus_the_named_gap():
+    """The live-board stand-in must be a faithful board: every method it carries is
+    one the seam (or, for the declared gap, the concrete adapter) really has."""
+    seam = public_callables(IBoardAdapter)
+    concrete = public_callables(KiCadBoardAdapter)
+    fake = public_callables(FakeLiveBoardAdapter)
+    assert seam, "public_callables(IBoardAdapter) found nothing — blind scan"
+    assert concrete, "public_callables(KiCadBoardAdapter) found nothing — blind scan"
+    assert fake, "FakeLiveBoardAdapter has no public callables — blind scan"
+
+    allowed = set(FakeLiveBoardAdapter.SEAM_GAPS)
+    extras = fake - seam
+    assert extras == allowed, (
+        f"FakeLiveBoardAdapter carries {sorted(extras)} beyond the seam; the only "
+        f"name allowed there is SEAM_GAPS={sorted(allowed)} — a real adapter method "
+        f"the ABC omits (adapter.py:184, used by dependency_order)")
+    assert not (allowed - extras), "a declared gap is not defined on the fake"
+
+    missing = allowed - concrete
+    assert not missing, (
+        f"SEAM_GAPS names {sorted(missing)}, which the concrete adapter does not have "
+        f"either — that is the fake inventing a method, not a gap in the seam")
+
+    assert not hasattr(FakeLiveBoardAdapter, "get_footprint_by_ref"), (
+        "get_footprint_by_ref existed only in the two _MockAdapter copies and is "
+        "called NOWHERE (no production method, no seam method, zero call sites "
+        "repo-wide); the seam's name for that read is get_footprint(ref)")
+
+    # The parameters too, not just the names: the copies had drifted to (fp, field),
+    # (fp, num), (net_name) and (uuids), none of which matches the seam. Production
+    # calls them positionally so nothing broke — a keyword call would have.
+    def shape(fn):
+        return [(p.name, p.kind, p.default is inspect.Parameter.empty)
+                for p in inspect.signature(fn).parameters.values()
+                if p.name != "self"]
+
+    compared = 0
+    for name in sorted(fake):
+        real_cls = KiCadBoardAdapter if name in allowed else IBoardAdapter
+        real_shape = shape(getattr(real_cls, name))
+        fake_shape = shape(getattr(FakeLiveBoardAdapter, name))
+        assert fake_shape == real_shape, (
+            f"FakeLiveBoardAdapter.{name} takes {fake_shape}, "
+            f"{real_cls.__name__}.{name} takes {real_shape}")
+        compared += 1
+    assert compared == len(fake), "not every fake method was compared — blind scan"
+    # Rule 38: had shape() gone blind ([] for everything) the loop above would pass
+    # vacuously. At least get_field_value(footprint, field_name) must show a shape.
+    assert any(shape(getattr(FakeLiveBoardAdapter, n)) for n in fake), (
+        "every method scanned as parameterless — the comparison above cannot fail")
+
+
+def test_live_board_adapter_tracks_and_vias_share_one_uuid_source():
+    """The one documented reason the two copies diverged: a via and a track must
+    never collide on a uuid, which is why the base counts instead of numbering by
+    position. Also pins the reads handing out COPIES, and both kinds removable."""
+    adapter = FakeLiveBoardAdapter(fp=object())
+    track = adapter.create_track("s", "e", 0.25,
+                                 adapter.get_net_by_name("GND"), "F.Cu")
+    via = adapter.create_via("p", adapter.get_net_by_name("GND"), 0.3, 0.6)
+    adapter.create_items([track, via])
+    assert (track.uuid, via.uuid) == ("uuid-1", "uuid-2"), (
+        "ONE counter for both kinds — numbering tracks by len(live_tracks) is what "
+        "let a via take a track's uuid in the old copy")
+    adapter.live_tracks.append(track)
+    adapter.live_vias.append(via)
+    assert adapter.get_tracks() == [track]
+    assert adapter.get_vias() == [via]
+
+    adapter.get_tracks().append("extra")
+    adapter.get_vias().append("extra")
+    assert len(adapter.live_tracks) == 1 and len(adapter.live_vias) == 1, (
+        "the reads must hand out copies, or a cell could mutate the fake's board")
+
+    assert adapter.remove_by_ids([track.uuid, via.uuid]) is True
+    assert adapter.live_tracks == [] and adapter.live_vias == [], (
+        "remove_by_ids must clear BOTH kinds")
+    assert adapter.remove_by_ids(["uuid-999"]) is True, (
+        "removing a uuid that is not there is a no-op, not an error")
+
+
+def test_live_board_adapter_ignore_selection_is_a_plain_context_manager():
+    """dependency_order and clone_position_calculator use it as `with`. The two
+    copies disagreed on the SHAPE (nested class vs module-level) and agreed on the
+    behaviour, so the base keeps one object — and it must not swallow exceptions."""
+    adapter = FakeLiveBoardAdapter(fp=object())
+    entered = []
+    with adapter.temporarily_ignore_selection(True):
+        entered.append(True)
+    assert entered == [True]
+
+    with pytest.raises(ValueError):
+        with adapter.temporarily_ignore_selection(False):
+            raise ValueError("a real adapter's context manager does not swallow this")
