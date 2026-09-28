@@ -12,7 +12,7 @@ tests/gui/test_create_entity_menu.py идёт через меню и обраб�
 
 Модуль не называется test_* — pytest его не собирает; тесты забирают
 помощники как `from tests.gui.create_entity_helpers import ...` — то же
-соглашение, что у tests/fieldstool_fixtures.py (и он же и есть прецедент
+соглашение, что у tests/fakes/schematic_text.py (и он же и есть прецедент
 импорта соседнего модуля через `tests.…`).
 """
 from pathlib import Path

@@ -1,6 +1,6 @@
 # tests/gui/test_schema_model.py
 from gui.schema_model import load_schematic_components, load_schematic_instances
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 def test_one_row_per_ref_simple(tmp_path):
@@ -71,7 +71,7 @@ def test_components_across_multiple_sheets(tmp_path):
     child = tmp_path / "child.kicad_sch"
     child.write_text(sch_file(symbol_block(["C1"], role="C_A")), encoding="utf-8")
     root = tmp_path / "root.kicad_sch"
-    from tests.fieldstool_fixtures import sheet_block
+    from tests.fakes.schematic_text import sheet_block
     root.write_text(sch_file(symbol_block(["R1"], role="R_A"), sheet_block("child.kicad_sch")),
                      encoding="utf-8")
 

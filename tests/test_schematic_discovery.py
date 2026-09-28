@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from kicadstamp.schematic_discovery import walk_schematic_hierarchy
-from tests.fieldstool_fixtures import sch_file, sheet_block, symbol_block
+from tests.fakes.schematic_text import sch_file, sheet_block, symbol_block
 
 
 def test_walk_single_file_no_sheets(tmp_path):

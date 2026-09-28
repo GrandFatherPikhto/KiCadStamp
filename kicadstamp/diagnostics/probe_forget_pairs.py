@@ -17,7 +17,7 @@ so the probe is part of the record, not a curiosity.
 
 WHAT IT MEASURES, and on what. The production composition — a real
 kicadstamp.explore.Board over a real FieldOverrideAdapter over the two-layer
-stand-in of tests/override_store_board_fixtures.py — with a WARM snapshot (built
+stand-in of tests/fakes/overrides_store.py — with a WARM snapshot (built
 once before the write) and a record saved by another holder. Then, instead of the
 shipped method, it clears the chosen combination by hand and asks the snapshot for
 the role. The ASSUMPTION this reading rests on, named because a number without it
@@ -35,7 +35,7 @@ import tempfile
 import traceback
 from pathlib import Path
 
-from tests.override_store_board_fixtures import SYMBOL_UUID, wired_board
+from tests.fakes.overrides_store import SYMBOL_UUID, wired_board
 
 VARIANTS = [
     ("effective pair only  (_role_cache, _cluster_cache)",

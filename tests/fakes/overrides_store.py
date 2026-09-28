@@ -1,4 +1,4 @@
-# tests/override_store_board_fixtures.py
+# tests/fakes/overrides_store.py
 """The two-layer board stand-in the reload→snapshot cells are measured on.
 
 Home of the instrument for TWO plans at once, deliberately in one module:
@@ -32,6 +32,19 @@ So the layers are:
 Counted separately on purpose (rule 35): "the reload did not re-read the board"
 and "the reload did not re-scan the field map" are two different claims, and one
 counter could not say which of them broke.
+
+Ф1.7 of plan_2026_09_27_repo_and_tests_transformation: this module moved out of
+the tests/ root (it used to be tests/override_store_board_fixtures.py) and was
+RENAMED — no pytest fixture lives here either, it is a wired-board INSTRUMENT. Two
+things ride on the move:
+
+  * its importers are not only tests: two probes in kicadstamp/diagnostics/ use it
+    (probe_forget_pairs.py and claude_probe_reprojection_race_2026_09_24.py, the
+    second through a bare `from override_store_board_fixtures import ...` plus a
+    `sys.path.insert(REPO/"tests")`). Both now import `tests.fakes.overrides_store`,
+    and that path hack is deleted — a shipped package reaching into tests/ at all is
+    worth revisiting when Ф3.2 sorts out kicadstamp/diagnostics/.
+  * the name deliberately does NOT promise fixtures any more.
 """
 from types import SimpleNamespace
 

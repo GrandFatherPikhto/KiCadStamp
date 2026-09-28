@@ -16,7 +16,7 @@ from kicadstamp.config_rename import (
     write_profile_files,
 )
 from kicadstamp.exceptions import FieldsToolError
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 def _write(path, data):

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kicadstamp.schematic_editing import apply_edits, check_kicad_not_running, write_files
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 def test_apply_edits_replaces_span():

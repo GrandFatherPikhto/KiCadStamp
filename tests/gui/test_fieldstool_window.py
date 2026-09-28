@@ -20,7 +20,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.explore import Selected
 from kicadstamp.schematic_editing import EditReport
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 from tests.gui.conftest import _FakeConnection, _pump
 
 

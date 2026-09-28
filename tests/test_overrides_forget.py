@@ -26,7 +26,7 @@ from kicadstamp.overrides_forget import (forget_records, redundant_records,
                                          values_by_uuid,
                                          values_by_uuid_from_sheet)
 from kicadstamp.utils.paths import overrides_path_for_config
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 UUID_A = "uuid-A"
 UUID_B = "uuid-B"

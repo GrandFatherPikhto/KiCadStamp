@@ -5,7 +5,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 
 from kicadstamp.exceptions import FieldsToolError
 from kicadstamp.schematic_rename_fields import plan_rename_edits
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 def _write_config(tmp_path, root_sheet, renames):

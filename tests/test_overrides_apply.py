@@ -32,7 +32,7 @@ import kicadstamp.cli_main as cli_main_mod
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.field_overrides import FieldOverrides, SOURCE_CELL_TABLE
 from kicadstamp.utils.paths import overrides_path_for_config
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 class _FakeBoard:

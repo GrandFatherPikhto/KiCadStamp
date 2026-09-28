@@ -43,7 +43,7 @@ from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import (SOURCE_CELL_TABLE, SOURCE_CLI,
                                         load_field_overrides)
 from kicadstamp.utils.paths import overrides_path_for_config
-from tests.override_store_board_fixtures import (
+from tests.fakes.overrides_store import (
     FOOTPRINT_REF, ON_BOARD_ROLE, SYMBOL_UUID, profile_file, wired_board)
 
 REPO = Path(__file__).resolve().parents[1]

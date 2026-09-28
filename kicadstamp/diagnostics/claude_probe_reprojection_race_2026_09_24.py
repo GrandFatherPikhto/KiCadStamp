@@ -3,7 +3,7 @@ THIRD snapshot rebuilder, and unlike the other two it runs on the UI thread with
 no socket gate.
 
 Written by Claude during the acceptance of plan_2026_09_24_reload_store_snapshot.
-Built from tests/override_store_board_fixtures.py (rule 38 — from the existing
+Built from tests/fakes/overrides_store.py (rule 38 — from the existing
 rig), so the stack under test is the production composition:
 Wire -> CachedAdapter -> FieldOverrideAdapter -> Board -> BoardConnection.
 
@@ -47,9 +47,12 @@ import threading
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(REPO / "tests"))
 
-from override_store_board_fixtures import wired_board  # noqa: E402
+# Ф1.7: the rig moved into tests/fakes/ (it was tests/override_store_board_fixtures.py),
+# so this is a normal package import now. The `sys.path.insert(REPO / "tests")` that
+# used to be needed for the bare `from override_store_board_fixtures import ...` is
+# gone with it — one path hack less in a shipped package.
+from tests.fakes.overrides_store import wired_board  # noqa: E402
 
 ROUNDS = 2000
 

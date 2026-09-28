@@ -3,7 +3,7 @@
 from kicadstamp.schematic_blocks import (escape_sexp_string, find_balanced_span,
                                          find_insertion_point, find_property_value_span,
                                          find_symbol_at, iter_symbol_blocks, unescape_sexp_string)
-from tests.fieldstool_fixtures import sch_file, symbol_block
+from tests.fakes.schematic_text import sch_file, symbol_block
 
 
 def test_find_balanced_span_simple():

@@ -1,4 +1,4 @@
-# tests/fieldstool_fixtures.py
+# tests/fakes/schematic_text.py
 """Synthetic .kicad_sch text builders shared by tests/test_schematic_*.py
 and tests/gui/test_schema_model.py, test_fieldstool_window.py — small but
 structurally faithful to real KiCad output (verified against
@@ -8,6 +8,13 @@ kicadstamp/schematic_discovery.py exercises the real shapes, not a
 simplified one. Whole files must stay valid S-expression syntax (balanced
 parens) since kicadstamp/schematic_editing.py's write self-verify calls
 sexpdata.load() on them.
+
+Ф1.7 of plan_2026_09_27_repo_and_tests_transformation: this module moved out of
+the tests/ root (it used to be tests/fieldstool_fixtures.py) and was RENAMED — the
+old name promised pytest fixtures and there is not one in the file: it builds
+schematic TEXT. It sits in tests/fakes/ because twelve test files across several
+domains share it, and that package keeps working when Ф2 moves those files into
+domain subpackages.
 """
 from typing import Iterable, Optional
 
