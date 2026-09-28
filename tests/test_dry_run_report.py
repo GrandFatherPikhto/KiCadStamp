@@ -23,27 +23,31 @@ from kicadstamp.author_cli import cli_main
 from kicadstamp.config import Config
 from kicadstamp.placement.commands import MoveCommand, TrackCommand, ViaCommand
 
+from tests.fakes.planner import FakePlanner  # noqa: E402
+
 MM = 1_000_000
 
 
-class _FakePlanner:
+class _FakePlanner(FakePlanner):
     """Planner stand-in: returns one command of each kind so the report has
-    all three sections (moves / vias / tracks)."""
+    all three sections (moves / vias / tracks). Ф1.4d-4: the surface (and the
+    constructor) come from tests/fakes/planner.py; only the results are local."""
 
-    def plan_items(self, items):
-        return [MoveCommand(ref="C1",
-                            position=Vector2.from_xy(int(51.123 * MM), int(22.5 * MM)),
-                            angle=Angle.from_degrees(90.0), layer=BoardLayer.BL_F_Cu)]
-
-    def plan_vias(self):
-        return [ViaCommand(position=Vector2.from_xy(int(10 * MM), int(20 * MM)),
-                           drill_mm=0.3, diameter_mm=0.6, net_name="GND", owner_ref="C2")]
-
-    def plan_tracks(self):
-        return [TrackCommand(start=Vector2.from_xy(int(1 * MM), int(2 * MM)),
-                             end=Vector2.from_xy(int(3 * MM), int(4 * MM)),
-                             width_mm=0.25, net_name="+5V", layer=BoardLayer.BL_F_Cu,
-                             owner_ref="C3")]
+    PLAN_ITEMS_RESULT = (
+        MoveCommand(ref="C1",
+                    position=Vector2.from_xy(int(51.123 * MM), int(22.5 * MM)),
+                    angle=Angle.from_degrees(90.0), layer=BoardLayer.BL_F_Cu),
+    )
+    PLAN_VIAS_RESULT = (
+        ViaCommand(position=Vector2.from_xy(int(10 * MM), int(20 * MM)),
+                   drill_mm=0.3, diameter_mm=0.6, net_name="GND", owner_ref="C2"),
+    )
+    PLAN_TRACKS_RESULT = (
+        TrackCommand(start=Vector2.from_xy(int(1 * MM), int(2 * MM)),
+                     end=Vector2.from_xy(int(3 * MM), int(4 * MM)),
+                     width_mm=0.25, net_name="+5V", layer=BoardLayer.BL_F_Cu,
+                     owner_ref="C3"),
+    )
 
 
 def _pipeline(dry_run=True):

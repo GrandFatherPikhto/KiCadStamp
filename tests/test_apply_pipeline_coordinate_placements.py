@@ -14,6 +14,8 @@ from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.config import Config, CoordinatePlacement
 from kicadstamp.placement.commands import MoveCommand
 
+from tests.fakes.planner import FakePlanner  # noqa: E402
+
 MM = 1_000_000
 
 
@@ -108,17 +110,9 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
     pipeline = ApplyPipeline("board.yaml", dry_run=True, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A")]
 
-    class _FakePlanner:
-        def plan_items(self, items):
-            return []
-
-        def plan_vias(self):
-            return []
-
-        def plan_tracks(self):
-            return []
-
-    pipeline.planner = _FakePlanner()
+    # Ф1.4d-4: the shared stand-in already plans nothing, which is all this
+    # dry-run cell needs from the planner.
+    pipeline.planner = FakePlanner()
 
     fake_move = MoveCommand(ref="R18", position=Vector2.from_xy(int(10 * MM), int(20 * MM)),
                             angle=Angle.from_degrees(90.0), layer=BoardLayer.BL_F_Cu)
@@ -144,17 +138,7 @@ def test_dry_run_report_omits_coordinate_placements_section_when_empty():
     pipeline = ApplyPipeline("board.yaml", dry_run=True, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A")]
 
-    class _FakePlanner:
-        def plan_items(self, items):
-            return []
-
-        def plan_vias(self):
-            return []
-
-        def plan_tracks(self):
-            return []
-
-    pipeline.planner = _FakePlanner()
+    pipeline.planner = FakePlanner()
 
     report = pipeline._dry_run()
     text = "\n".join(report)
@@ -184,21 +168,11 @@ def test_the_identity_map_reaches_both_phase0_call_sites(monkeypatch):
     monkeypatch.setattr("kicadstamp.apply_pipeline.build_coordinate_moves",
                         fake_build_coordinate_moves)
 
-    class _FakePlanner:
-        def plan_items(self, items):
-            return []
-
-        def plan_vias(self):
-            return []
-
-        def plan_tracks(self):
-            return []
-
     # ── the dry run ──
     pipeline = _pipeline([cp])
     pipeline.dry_run = True
     pipeline.items = [SimpleNamespace(label="rule_A")]
-    pipeline.planner = _FakePlanner()
+    pipeline.planner = FakePlanner()
     pipeline._component_identities = {"place_1": "U14"}
     pipeline._dry_run()
     assert seen[-1] == {"place_1": "U14"}

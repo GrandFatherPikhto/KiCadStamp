@@ -27,6 +27,7 @@ from kicadstamp.exceptions import ValidationError
 # Moved to tests/fakes/pipeline.py (Ф1.4b): six copies had drifted into two
 # shapes. Kept under the same name so the _FakePipeline subclasses are untouched.
 from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
+from tests.fakes.planner import FakePlanner  # noqa: E402
 
 
 def _write(path, data) -> None:
@@ -436,20 +437,13 @@ def test_tag_cluster_only_tags_own_level_refs_not_nested(main_window, tmp_path, 
             self.adapter = _FakeAdapter()
             self.items = [_FakeItem(top)]
 
-    class _FakePlanner:
-        def __init__(self, adapter, cfg, sheet_names=None):
-            pass
-
-        def begin_planning(self):
-            pass
-
-        def plan_item(self, item):
-            # my_item (DAC_BUF): one OWN component + two nested sub-cell ones
-            return [
-                _FakeMove("U_OWN", "DAC_BUF"),
-                _FakeMove("C147", "ch1_pif_dvdd"),
-                _FakeMove("C148", "ch1_pif_avdd"),
-            ]
+    class _FakePlanner(FakePlanner):
+        # my_item (DAC_BUF): one OWN component + two nested sub-cell ones
+        PLAN_ITEM_RESULT = (
+            _FakeMove("U_OWN", "DAC_BUF"),
+            _FakeMove("C147", "ch1_pif_dvdd"),
+            _FakeMove("C148", "ch1_pif_avdd"),
+        )
 
     pipeline = _FakePipeline()
     monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)
@@ -499,19 +493,12 @@ def test_tag_cluster_pure_composite_tags_nothing(main_window, tmp_path, monkeypa
             self.adapter = _FakeAdapter()
             self.items = [_FakeItem(top)]
 
-    class _FakePlanner:
-        def __init__(self, adapter, cfg, sheet_names=None):
-            pass
-
-        def begin_planning(self):
-            pass
-
-        def plan_item(self, item):
-            # ONLY nested sub-cell components — none at the top placement's own level
-            return [
-                _FakeMove("C147", "ch1_pif_dvdd"),
-                _FakeMove("C148", "ch1_pif_avdd"),
-            ]
+    class _FakePlanner(FakePlanner):
+        # ONLY nested sub-cell components — none at the top placement's own level
+        PLAN_ITEM_RESULT = (
+            _FakeMove("C147", "ch1_pif_dvdd"),
+            _FakeMove("C148", "ch1_pif_avdd"),
+        )
 
     pipeline = _FakePipeline()
     monkeypatch.setattr(placer_mod, "PlacementPlanner", _FakePlanner)

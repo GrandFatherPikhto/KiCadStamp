@@ -20,11 +20,13 @@ import pytest
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.kicad.interfaces import IBoardAdapter
+from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.placement.services.component_resolver import ComponentResolver
 
 from tests.fakes.adapter import FakeAdapter, public_callables
 from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
 from tests.fakes.pipeline import PipelineStubLifetime
+from tests.fakes.planner import FakePlanner
 from tests.fakes.resolver import FakeComponentResolver
 
 
@@ -214,3 +216,85 @@ def test_the_resolver_base_is_inert_without_a_footprint_factory():
     None and leave the cell under test failing with a puzzling AttributeError."""
     with pytest.raises(TypeError):
         FakeComponentResolver("a", "c", {}).resolve_anchor_fp(None, "R", None, None)
+
+
+def test_fake_planner_invents_nothing_and_mirrors_the_real_parameters():
+    """gui/docks/placer.py replaces the planner with this fake CLASS-WIDE, so every
+    name production calls must exist here with the real parameters — and the fake may
+    add none of its own, or it would pin a surface production cannot reach."""
+    real_surface = public_callables(PlacementPlanner)
+    fake_surface = public_callables(FakePlanner)
+    assert real_surface, "PlacementPlanner has no public callables — blind scan"
+    assert fake_surface, "FakePlanner has no public callables — blind scan"
+
+    invented = fake_surface - real_surface
+    assert not invented, (
+        f"FakePlanner carries {sorted(invented)}, which PlacementPlanner does not "
+        f"have; plan_item and begin_planning ARE real (planner.py:79 and :69) — "
+        f"anything else here is the fake inventing a method")
+
+    def shape(fn):
+        return [(p.name, p.kind, p.default is inspect.Parameter.empty)
+                for p in inspect.signature(fn).parameters.values()
+                if p.name != "self"]
+
+    shapes = {name: shape(getattr(FakePlanner, name)) for name in sorted(fake_surface)}
+    # Rule 38, and the first version of this cell got it wrong: a per-method
+    # `assert real_shape` FAILS on begin_planning(self), which legitimately takes no
+    # parameters. The blind-scan guard belongs on the scan, not on one method — if
+    # shape() returned [] for everything, comparing the two would pass vacuously.
+    assert sum(1 for s in shapes.values() if s) >= 2, (
+        f"every faked method scanned as parameterless, so the comparison below "
+        f"cannot fail — the scan went blind: {shapes}")
+
+    for name, fake_shape in shapes.items():
+        real_shape = shape(getattr(PlacementPlanner, name))
+        assert fake_shape == real_shape, (
+            f"FakePlanner.{name} takes {fake_shape}, PlacementPlanner.{name} takes "
+            f"{real_shape}")
+
+    for hook in ("PLAN_ITEM_RESULT", "PLAN_ITEMS_RESULT", "PLAN_VIAS_RESULT",
+                 "PLAN_TRACKS_RESULT"):
+        assert not hasattr(PlacementPlanner, hook), (
+            f"{hook} is a fake-only injection hook; the real planner must not grow it")
+
+
+def test_fake_planner_plans_nothing_by_default():
+    """Three install sites put the BASE on an already-built pipeline and need only
+    "no moves, no vias, no tracks". The one divergence from the real constructor
+    must stay deliberate, so both halves are asserted here."""
+    planner = FakePlanner()
+    assert planner.plan_items([object()]) == []
+    assert planner.plan_vias() == []
+    assert planner.plan_tracks() == []
+    assert planner.plan_item(object()) == []
+    assert planner.begin_planning() is None
+
+    def required(cls):
+        return [p.name for p in inspect.signature(cls.__init__).parameters.values()
+                if p.default is inspect.Parameter.empty and p.name != "self"]
+
+    assert required(PlacementPlanner) == ["adapter", "config"], (
+        f"the real planner now requires {required(PlacementPlanner)}; if that set "
+        f"changed, re-read WHY the fake is laxer and update this cell")
+    assert required(FakePlanner) == [], (
+        "the fake must stay constructible with no arguments — three cells install it "
+        "on a pipeline that already exists and have nothing to hand it")
+
+
+def test_fake_planner_injects_each_result_independently():
+    """One knob per read, and the base hands out a COPY: appending to what a cell got
+    must not reach the class attribute every later cell reads (the mistake Ф1.4b's
+    shared counter made, in a different dress)."""
+    class _Local(FakePlanner):
+        PLAN_VIAS_RESULT = ("via",)
+
+    planner = _Local()
+    assert planner.plan_vias() == ["via"]
+    assert planner.plan_items([]) == [] and planner.plan_tracks() == []
+
+    planner.plan_vias().append("extra")
+    assert _Local.PLAN_VIAS_RESULT == ("via",), (
+        "plan_vias handed out the class attribute itself, so one cell could mutate "
+        "what every later cell sees")
+    assert FakePlanner.PLAN_VIAS_RESULT == (), "the base must stay empty"
