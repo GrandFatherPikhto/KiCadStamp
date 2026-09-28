@@ -368,14 +368,14 @@ def test_an_unwritable_directory_leaves_the_file_and_still_loads(tmp_path, caplo
 
 # ── У3: the GUI working set decides ────────────────────────────────────────
 
-def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path):
+def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypatch):
     """У3: `load_config` is called with the working set DIRTY by the flush itself
     (step 1 validates the staged graph). Lifting the disk file there would write a
     state the user has not saved — so the sweep stands down and the Save lifts the
     file through the one writer."""
     root = tmp_path / "root.sexp"
     root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
-    WORKING_SET.enabled = True
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
     merge_write(root, {"cells": {"c2": {}}}, section="cells")
 
     cfg, _ = load_config(str(root))

@@ -912,7 +912,7 @@ def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch
     _write(path, {"cells": {}})
     dock = RootMetadataDock(main_window)
     dock.set_root_file(path)
-    WORKING_SET.enabled = True
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
     WORKING_SET.stage_write(path, {"cells": {"c1": {}}})  # project is dirty
 
     monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: False)
@@ -922,9 +922,6 @@ def test_close_project_respects_discard_guard(main_window, tmp_path, monkeypatch
     monkeypatch.setattr(dock, "_confirm_discard_changes", lambda: True)
     dock.close_project()
     assert dock._path is None  # confirmed -> project closed
-
-    WORKING_SET.enabled = False
-    WORKING_SET.clear()
 
 
 # ── Role/Cluster source switch (2026-09-18, plan field_overrides_store Т3) ──

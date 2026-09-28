@@ -74,7 +74,11 @@ def open_project(hub, root) -> None:
     file...) — set_root_file на root_metadata_dock; он, помимо root_path, шлёт
     root_changed во все доки, и Config-дерево перестраивается само. Staged-
     режим (ConfigWorkingSet) выключается: все проверки читают ФАЙЛ, а не
-    working-set."""
+    working-set. DELIBERATE exception to the Ф1.2 "monkeypatch only" rule (see
+    tests/test_repo_hygiene.py): set_root_file on the REAL MainWindow ENABLES
+    the working set, so it must be switched off AFTER that call, and a helper
+    module cannot take the monkeypatch fixture without threading it through
+    every caller."""
     hub.root_metadata_dock.set_root_file(root)
     WORKING_SET.enabled = False
 

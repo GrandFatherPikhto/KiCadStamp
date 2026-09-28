@@ -94,7 +94,6 @@ def probe(tmp_path, monkeypatch):
     monkeypatch.setattr(connection_mod, "board_read_probe", None)
     yield board_read_probe
     board_read_probe.stop()
-    connection_mod.board_read_probe = None
 
 
 def _rows(path):

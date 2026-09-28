@@ -1117,23 +1117,19 @@ def test_delete_in_staged_mode_drops_leaf_from_tree_immediately(
     monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
                         staticmethod(lambda *a, **k: None))
 
-    WORKING_SET.enabled = True
-    try:
-        # Make the root STAGED (like any earlier edit this session) and rebuild
-        # the tree once over the staged content — exactly the moment after which
-        # the stale graph entry used to lose the staged file from its trace.
-        WORKING_SET.stage_write(root, _load(root))
-        dock.refresh()
-        dock._on_delete(root, "cells", "one_role")
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    # Make the root STAGED (like any earlier edit this session) and rebuild
+    # the tree once over the staged content — exactly the moment after which
+    # the stale graph entry used to lose the staged file from its trace.
+    WORKING_SET.stage_write(root, _load(root))
+    dock.refresh()
+    dock._on_delete(root, "cells", "one_role")
 
-        # Leaf gone from the tree immediately...
-        assert dock.tree.topLevelItem(0).childCount() == 0
-        # ...and the deletion is STAGED only: dirty ● set, disk file untouched.
-        assert WORKING_SET.is_dirty()
-        assert "one_role" in _load(root)["cells"]
-    finally:
-        WORKING_SET.enabled = False
-        WORKING_SET.clear()
+    # Leaf gone from the tree immediately...
+    assert dock.tree.topLevelItem(0).childCount() == 0
+    # ...and the deletion is STAGED only: dirty ● set, disk file untouched.
+    assert WORKING_SET.is_dirty()
+    assert "one_role" in _load(root)["cells"]
 
 
 def test_delete_declined_leaves_the_file_untouched(main_window, tmp_path, monkeypatch):
