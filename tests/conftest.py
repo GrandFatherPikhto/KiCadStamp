@@ -67,3 +67,65 @@ def _reset_logging_after_test():
         if isinstance(handler, logging.handlers.QueueHandler):
             root.removeHandler(handler)
     root.setLevel(logging.WARNING)
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_singletons():
+    """One reset for every process-wide mutable singleton a test can leave behind.
+
+    Plan: techdocs/handoff/deepseek/plan/plan_2026_09_27_repo_and_tests_transformation.md
+    §5.1; order-dependence measured in plan/f0_report_2026_09_28_tests.md. Before
+    this, isolation was copied per file (tests/gui/conftest.py had its own
+    WORKING_SET teardown, tests/test_board_door_guard.py its own _refused_sites
+    reset) and a test that FAILED before restoring leaked into the next FILE.
+
+    Deliberately import-safe: each module is reset only when it is ALREADY in
+    sys.modules, so this fixture never forces an import and cannot turn a
+    lazy-import test (test_cli_lazy_imports, the seam's "does not pull kipy"
+    cells) into a tautology or a break.
+
+    Product code is NOT touched: the singletons that have no product-level reset
+    (format_version._probe_cache, sexp_format._HINTS_CACHE, file_cache's caches)
+    are cleared here, in the rig, and are named as a separate task in the F0
+    report (invariant 5 of the plan).
+    """
+    import sys
+
+    def _reset() -> None:
+        ws_mod = sys.modules.get("kicadstamp.config_working_set")
+        if ws_mod is not None:
+            ws = ws_mod.WORKING_SET
+            for fn in list(ws._listeners):
+                ws.remove_listener(fn)
+            ws.clear()
+            ws.enabled = False
+
+        fc = sys.modules.get("kicadstamp.utils.file_cache")
+        if fc is not None:
+            fc._cache.clear()
+            fc._keys_by_path.clear()
+            fc._graph_cache.clear()
+            fc._graph_keys_by_path.clear()
+
+        fv = sys.modules.get("kicadstamp.config.format_version")
+        if fv is not None:
+            fv._probe_cache.clear()
+
+        sf = sys.modules.get("kicadstamp.config.sexp_format")
+        if sf is not None:
+            sf._HINTS_CACHE.clear()
+
+        # gui/connection.py: the door's arming and its once-per-site Log dedup.
+        # A test that arms the predicate and refuses once would otherwise silence
+        # the NEXT test's expected ERROR line (test_board_door_guard counts it).
+        conn = sys.modules.get("gui.connection")
+        if conn is not None:
+            conn.board_read_probe = None
+            conn.ui_thread_predicate = None
+            conn.ui_thread_read_refusal = conn.UI_READ_LOG
+            conn._refused_sites.clear()
+            conn._ui_read_sign.depth = 0
+
+    _reset()
+    yield
+    _reset()
