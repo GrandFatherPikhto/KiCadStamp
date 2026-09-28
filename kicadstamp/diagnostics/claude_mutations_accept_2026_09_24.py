@@ -7,10 +7,11 @@ EXACTLY once is refused rather than substituted; a run that collected no tests
 is a MISS, not a kill; the verdict is per full test id; a red on a DIFFERENT
 cell is reported as a finding instead of being counted as a win.
 """
+import os
 import subprocess, pathlib, sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-PY_BIN = str(ROOT / ".venv" / "bin" / "python")
+ROOT = pathlib.Path(os.environ.get("KICADSTAMP_ACCEPT_ROOT", "."))
+PY_BIN = os.environ.get("KICADSTAMP_PYTHON") or sys.executable
 
 MUTATIONS = [
     ("A1 idempotence of _show_busy", "gui/worker.py",

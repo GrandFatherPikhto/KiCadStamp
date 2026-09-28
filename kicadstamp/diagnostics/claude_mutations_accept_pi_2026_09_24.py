@@ -17,9 +17,7 @@ import shutil
 import subprocess
 import sys
 
-ROOT = pathlib.Path(os.environ.get(
-    "KICADSTAMP_ACCEPT_ROOT",
-    "/home/denis/Projects/Python/KiCadStamp-accept-pi"))
+ROOT = pathlib.Path(os.environ.get("KICADSTAMP_ACCEPT_ROOT", "."))
 
 
 def _interpreter() -> str:

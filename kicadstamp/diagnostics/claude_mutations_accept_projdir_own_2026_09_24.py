@@ -16,8 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-PY = "/home/denis/Projects/Python/KiCadStamp/.venv/bin/python"
+ROOT = Path(os.environ.get("KICADSTAMP_ACCEPT_ROOT", "."))
+PY = os.environ.get("KICADSTAMP_PYTHON") or sys.executable
 
 MUTATIONS = [
     ("K1 typo in the infra list, count unchanged",

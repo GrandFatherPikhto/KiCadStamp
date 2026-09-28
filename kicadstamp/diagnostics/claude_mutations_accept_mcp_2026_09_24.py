@@ -2,10 +2,11 @@
 Fuses kept from the house rigs: a pattern that is not unique is REFUSED,
 a run that collected nothing is a MISS, the verdict is per full test id.
 """
+import os
 import pathlib
 import subprocess
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(os.environ.get("KICADSTAMP_ACCEPT_ROOT", "."))
 def _interpreter() -> str:
     """The project interpreter. A git WORKTREE has no .venv of its own and must
     not grow one (canon rule 41: .venv is per machine, gitignored, never synced),
