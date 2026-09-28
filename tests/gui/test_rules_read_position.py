@@ -26,9 +26,7 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.units import MM
 
 
-class _FakeBoard:
-    def __init__(self):
-        self.adapter = object()
+from tests.fakes.explore_board import FakeExploreBoard as _FakeBoard  # noqa: E402
 
 
 def test_rule_origin_read_position_shows_anchor_readout(main_window, monkeypatch):

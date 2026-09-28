@@ -1690,12 +1690,9 @@ def test_refresh_anchor_live_position_origin_shows_trivial(main_window, tmp_path
 
 # ── Read current position / Reread / Edit node (2026-08-27) ───────────────
 
-class _FakeBoard:
-    """A connection.board stand-in with a live .adapter — enough for
-    _live_adapter() to return a non-None adapter in the reread/edit paths."""
-
-    def __init__(self):
-        self.adapter = object()
+# Ф1.4d-6: the shared stand-in (tests/fakes/explore_board.py) — enough for
+# _live_adapter() to return a non-None adapter in the reread/edit paths.
+from tests.fakes.explore_board import FakeExploreBoard as _FakeBoard  # noqa: E402
 
 
 def _build_dialog(dock, tree, parent_node, existing=None, title="Add child"):

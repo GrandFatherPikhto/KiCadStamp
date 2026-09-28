@@ -18,6 +18,7 @@ import inspect
 import pytest
 
 from kicadstamp.apply_pipeline import ApplyPipeline
+from kicadstamp.explore import Board
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.kicad.interfaces import IBoardAdapter
 from kicadstamp.placement.planner import PlacementPlanner
@@ -25,6 +26,7 @@ from kicadstamp.placement.services.component_resolver import ComponentResolver
 
 from tests.fakes.adapter import FakeAdapter, public_callables
 from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
+from tests.fakes.explore_board import FakeExploreBoard
 from tests.fakes.live_board import FakeLiveBoardAdapter
 from tests.fakes.pipeline import PipelineStubLifetime
 from tests.fakes.planner import FakePlanner
@@ -395,3 +397,34 @@ def test_live_board_adapter_ignore_selection_is_a_plain_context_manager():
     with pytest.raises(ValueError):
         with adapter.temporarily_ignore_selection(False):
             raise ValueError("a real adapter's context manager does not swallow this")
+
+
+def test_fake_explore_board_stands_in_for_the_real_connection_board():
+    """Four GUI files put this on `connection.board` so the dock's connection check
+    passes. Production reads `connection.board.adapter`, so the REAL explore.Board
+    must really carry that attribute — pinned BY CONSTRUCTION, not by a name scan."""
+    real = Board(adapter="REAL-ADAPTER", sheet_names={})
+    assert real.adapter == "REAL-ADAPTER", (
+        "production reads connection.board.adapter (gui/main_window.py:1172, "
+        "gui/fieldstool_window.py:653, trees_dock._live_adapter); if explore.Board "
+        "stops exposing `adapter`, the shared stand-in stands in for nothing")
+
+    stand_in = FakeExploreBoard()
+    assert stand_in.adapter is not None, (
+        "the docks ask `getattr(board, 'adapter', None) is not None`, so a None "
+        "default would defeat the very condition these four cells set up")
+    sentinel = object()
+    assert FakeExploreBoard(sentinel).adapter is sentinel, (
+        "an explicitly passed adapter must be kept — a board double that needs a real "
+        "one (FakeNetBoard's shape) passes it in")
+
+
+def test_the_shared_board_stand_in_stays_a_one_attribute_duck_type():
+    """What those four cells need is ONE attribute. A method here would be a surface
+    they never exercise, and a fuller board belongs in a SUBCLASS (the richer board in
+    tests/gui/test_main_window_selection.py is that shape) — not in the shared file."""
+    surface = public_callables(FakeExploreBoard)
+    assert surface == set(), (
+        f"the shared board stand-in grew callables {sorted(surface)}; the four cells "
+        f"that swap it in read only `.adapter`, so anything else here pins a surface "
+        f"nothing exercises — subclass FakeExploreBoard instead")

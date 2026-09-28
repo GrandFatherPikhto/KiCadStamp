@@ -20,13 +20,10 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.units import MM
 
 
-class _FakeBoard:
-    """connection.board stand-in with a live (non-None) .adapter — enough for
-    the dock's connection check to pass; the adapter itself is never used
-    because the resolvers are monkeypatched."""
-
-    def __init__(self):
-        self.adapter = object()
+# Ф1.4d-6: the shared stand-in (tests/fakes/explore_board.py) — the dock's
+# connection check passes, and the adapter itself is never used because the
+# resolvers are monkeypatched.
+from tests.fakes.explore_board import FakeExploreBoard as _FakeBoard  # noqa: E402
 
 
 def _make_coordinate_dock(main_window, tmp_path):
