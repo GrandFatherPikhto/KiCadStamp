@@ -26,6 +26,7 @@ FIRST, implicit import sees.
 import logging
 import logging.handlers
 import os
+from pathlib import Path
 
 import pytest
 
@@ -129,3 +130,48 @@ def _reset_process_singletons():
     _reset()
     yield
     _reset()
+
+
+# ── Ф1.6 of plan_2026_09_27_repo_and_tests_transformation: the three markers ──
+_TESTS_ROOT = Path(__file__).resolve().parent
+_GUI_DIR = _TESTS_ROOT / "gui"
+_INTEGRATION_DIR = _TESTS_ROOT / "integration_tests"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Attach exactly ONE of `gui` / `integration` / `unit` to every collected item.
+
+    pytest has no "default marker", so `unit` — everything that is neither of the
+    other two — cannot be declared in pytest.ini; it can only be derived. And it is
+    derived from the PATH rather than from hand-written decorators, which is what
+    makes `-m integration` mean the same thing as the directory it lives in:
+
+      * `-m "not integration"` used to trust the nine files that carry the
+        decorator by hand. A test inside tests/integration_tests/ that nobody had
+        decorated would be SELECTED by that expression and then fail on a missing
+        KiCad — which is exactly why CI also passes --ignore=tests/integration_tests.
+        With the marker attached here the two agree, and `-m gui` / `-m unit` split
+        the rest the way the directories do.
+      * the decorator itself is left alone: it still marks those nine files, and the
+        hook above does not stack a second copy of the same marker on top of it.
+
+    Rule 38's spirit: if this ever marked nothing, `-m gui` would collect zero tests
+    and a command would look green while covering nothing. The three counts measured
+    when the hook landed are in
+    techdocs/handoff/deepseek/handoff/step_2026_09_28_F1_6_markers.md.
+    """
+    for item in items:
+        path = Path(str(item.path)).resolve()
+        if path.is_relative_to(_INTEGRATION_DIR):
+            # The nine files in tests/integration_tests/ also carry the decorator by
+            # hand, and adding a second copy of the SAME marker on top is not free:
+            # `item.keywords` collapses the two into one entry, but
+            # `item.iter_markers()` yields both, so a consumer counting markers sees
+            # "integration" twice (tests/test_marker_contract.py found exactly that —
+            # 23 items reported as carrying ['integration', 'integration']).
+            if item.get_closest_marker("integration") is None:
+                item.add_marker(pytest.mark.integration)
+        elif path.is_relative_to(_GUI_DIR):
+            item.add_marker(pytest.mark.gui)
+        else:
+            item.add_marker(pytest.mark.unit)
