@@ -18,6 +18,7 @@ from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.kicad.interfaces import IBoardAdapter
 
 from tests.fakes.adapter import FakeAdapter, public_callables
+from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
 from tests.fakes.pipeline import PipelineStubLifetime
 
 
@@ -47,6 +48,24 @@ def test_every_named_seam_gap_exists_on_the_concrete_adapter():
     assert not missing, (
         f"SEAM_GAPS names {sorted(missing)}, which the concrete adapter does not "
         f"have either — those are invented by the fake, not gaps in the seam")
+
+
+def test_fake_board_surfaces_match_the_seam_layer_reads():
+    """Both board families stand in for the board reads the seam declares, so
+    neither may invent a method — except the one the seam deliberately omits."""
+    seam = public_callables(IBoardAdapter)
+    assert seam, "public_callables(IBoardAdapter) found nothing — blind scan"
+    for cls in (FakeBoardOverlay, FakeBoardLayers):
+        surface = public_callables(cls)
+        assert surface, f"{cls.__name__} has no public callables — blind scan"
+        allowed = set(getattr(cls, "FAKE_ONLY", ()))
+        invented = surface - seam
+        assert invented == allowed, (
+            f"{cls.__name__} carries {sorted(invented)} beyond the seam's layer "
+            f"reads; only {sorted(allowed)} may (get_copper_layer_count is read by "
+            f"the tests and by diagnostics/probe_board_copper_layers.py, not by "
+            f"gui/ or kicadstamp/)")
+        assert not (allowed - invented), f"{cls.__name__}.FAKE_ONLY has rotted"
 
 
 def test_pipeline_stub_matches_the_real_apply_pipeline_lifetime():

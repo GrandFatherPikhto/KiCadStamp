@@ -392,22 +392,14 @@ LAYER = BoardLayer.BL_Dwgs_User
 OTHER_LAYER = BoardLayer.BL_User_5
 
 
-class _FakeBoard:
-    """Duck-typed `_board` — the exact surface gui/board_overlay.py reads."""
+from tests.fakes.board import FakeBoardOverlay  # noqa: E402
 
-    def __init__(self, layers=None, shapes=None):
-        self.layers = list(layers) if layers is not None else [LAYER, OTHER_LAYER]
-        self.shapes = list(shapes) if shapes is not None else []
-        self.names = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp"}
 
-    def get_enabled_layers(self):
-        return list(self.layers)
+class _FakeBoard(FakeBoardOverlay):
+    """Ф1.4c: the shared overlay board plus THIS file's layer constants."""
 
-    def get_layer_name(self, layer):
-        return self.names.get(layer, str(layer))
-
-    def get_shapes(self):
-        return list(self.shapes)
+    DEFAULT_LAYERS = (LAYER, OTHER_LAYER)
+    DEFAULT_NAMES = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp"}
 
 
 class _FakeAdapter:

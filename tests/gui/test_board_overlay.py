@@ -30,25 +30,15 @@ COPPER = BoardLayer.BL_F_Cu
 EDGE = BoardLayer.BL_Edge_Cuts
 
 
-class _FakeBoard:
-    """Duck-typed `_board` — get_enabled_layers/get_layer_name/get_shapes."""
+from tests.fakes.board import FakeBoardOverlay  # noqa: E402
 
-    def __init__(self, layers=None, shapes=None):
-        self.layers = layers if layers is not None else [LAYER, OTHER_LAYER]
-        self.shapes = shapes if shapes is not None else []
-        self.names = {
-            LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp",
-            COPPER: "F.Cu", EDGE: "Edge.Cuts",
-        }
 
-    def get_enabled_layers(self):
-        return list(self.layers)
+class _FakeBoard(FakeBoardOverlay):
+    """Ф1.4c: the shared overlay board plus THIS file's layer constants."""
 
-    def get_layer_name(self, layer):
-        return self.names.get(layer, str(layer))
-
-    def get_shapes(self):
-        return self.shapes
+    DEFAULT_LAYERS = (LAYER, OTHER_LAYER)
+    DEFAULT_NAMES = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp",
+                     COPPER: "F.Cu", EDGE: "Edge.Cuts"}
 
 
 class FakeAdapter:

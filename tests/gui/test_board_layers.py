@@ -68,28 +68,14 @@ def _derived_name(layer) -> str:
     return member or str(layer)
 
 
-class _FakeBoard:
-    """Duck-typed live board: enabled layers, their names, their visibility."""
+from tests.fakes.board import FakeBoardLayers  # noqa: E402
 
-    def __init__(self, enabled, visible=None, names=None, copper_count=4):
-        self.enabled = list(enabled)
-        self.visible = list(enabled if visible is None else visible)
-        self.names = dict(names or {})
-        self.copper_count = copper_count
 
-    def get_enabled_layers(self):
-        return list(self.enabled)
+class _FakeBoard(FakeBoardLayers):
+    """Ф1.4c: the shared layers board; THIS file owns the name fallback."""
 
-    def get_visible_layers(self):
-        return list(self.visible)
-
-    def get_layer_name(self, layer):
-        if layer in self.names:
-            return self.names[layer]
+    def _fallback_name(self, layer):
         return _NAMES.get(layer) or _derived_name(layer)
-
-    def get_copper_layer_count(self):
-        return self.copper_count
 
 
 class TestEnabledCopperLayers:

@@ -36,27 +36,16 @@ _NAMES = {F: "F.Cu", IN1: "In1.Cu", IN2: "In2.Cu", B: "B.Cu"}
 
 # ── fakes ───────────────────────────────────────────────────────────────────
 
-class _FakeBoard:
-    """Duck-typed live board (same surface gui/board_layers reads)."""
+from tests.fakes.board import FakeBoardLayers  # noqa: E402
 
-    def __init__(self, enabled=(F, IN1, IN2, B), visible=None, names=None,
-                 copper_count=4):
-        self.enabled = list(enabled)
-        self.visible = list(enabled if visible is None else visible)
-        self.names = dict(names or {})
-        self.copper_count = copper_count
 
-    def get_enabled_layers(self):
-        return list(self.enabled)
+class _FakeBoard(FakeBoardLayers):
+    """Ф1.4c: the shared layers board; THIS file owns the default stackup."""
 
-    def get_visible_layers(self):
-        return list(self.visible)
+    DEFAULT_ENABLED = (F, IN1, IN2, B)
 
-    def get_layer_name(self, layer):
-        return self.names.get(layer, _NAMES[layer])
-
-    def get_copper_layer_count(self):
-        return self.copper_count
+    def _fallback_name(self, layer):
+        return _NAMES[layer]
 
 
 class _FakeAdapter:
