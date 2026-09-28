@@ -100,7 +100,7 @@ def _via(x_mm, y_mm, net, drill=0.3, diam=0.6):
                net_name=net, drill_mm=drill, diameter_mm=diam)
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Mock board adapter (mirrors tests/test_imprint_capture.py's) — the
     capture/diff read through get_footprints/get_tracks/get_vias/
     get_footprint_pads/get_bounding_boxes only."""
@@ -162,7 +162,7 @@ def _line_board_with_d6():
     tracks = [_track(10, 10, 20, 10, _V5, layer=F),
               _track(20, 10, 24, 10, _V5, layer=IN1),
               _track(24, 10, 30, 10, _V5, layer=F)]
-    return FakeAdapter([r1, c1, c2, d6], tracks, [_via(20, 10, _V5)], pads)
+    return _FakeAdapter([r1, c1, c2, d6], tracks, [_via(20, 10, _V5)], pads)
 
 
 def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
@@ -180,7 +180,7 @@ def _line_board(c2_x_mm=24.0, angle_anchor=0.0):
     t1 = _track(10, 10, 20, 10, _V5, layer=F)
     t2 = _track(20, 10, c2_x_mm, 10, _V5, layer=IN1)
     v1 = _via(20, 10, _V5)
-    return FakeAdapter([r1, c1, c2], [t1, t2], [v1], pads)
+    return _FakeAdapter([r1, c1, c2], [t1, t2], [v1], pads)
 
 
 def _record_dict(adapter, name="amp", c2_x_mm=24.0):
@@ -576,7 +576,7 @@ def test_record_page_take_from_selection_never_calls_adapter_for_positions(
 
     calls = []
 
-    class _GuardedAdapter(FakeAdapter):
+    class _GuardedAdapter(_FakeAdapter):
         def get_footprints(self):
             calls.append("get_footprints")
             return super().get_footprints()
@@ -1460,7 +1460,7 @@ _HIER = [
 # selection" now reads the recorded refs' positions from the full-board
 # footprint SNAPSHOT (BoardConnection.snapshot — Selected.ref + Selected.fp),
 # never from a direct adapter.get_footprints() IPC on the GUI thread. The two
-# helpers below build that snapshot shape from a FakeAdapter so the pivot
+# helpers below build that snapshot shape from a _FakeAdapter so the pivot
 # tests exercise the same cache the real GUI feeds the helpers with.
 
 def _fp_snapshot(adapter):
@@ -1905,7 +1905,7 @@ def test_record_imprint_by_sheet_payload_refs_match_checked_sheets(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
 
         captured = {}
@@ -2001,7 +2001,7 @@ def test_record_imprint_by_selection_payload_matches_selection_refs(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = []
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         hub._selection_footprints = [SimpleNamespace(ref="C1"),
                                      SimpleNamespace(ref="R1")]
@@ -2140,7 +2140,7 @@ def _line_board_ch1():
     t1 = _track(10, 10, 20, 10, net, layer=F)
     t2 = _track(20, 10, 27, 10, net, layer=IN1)
     v1 = _via(20, 10, net)
-    return FakeAdapter([r5, c5, c6], [t1, t2], [v1], pads)
+    return _FakeAdapter([r5, c5, c6], [t1, t2], [v1], pads)
 
 
 def test_run_resource_capture_replaces_record_under_same_name(main_window, tmp_path):
@@ -2248,7 +2248,7 @@ def test_run_resource_imprint_payload_uses_fixed_name_checked_refs_and_owner(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         hub._selection_footprints = [SimpleNamespace(ref="C4")]
 
@@ -2629,7 +2629,7 @@ def test_record_imprint_by_sheet_save_preset_adds_first_preset(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
         monkeypatch.setattr(dock_hub_mod, "RecordImprintDialog",
@@ -2670,7 +2670,7 @@ def test_resource_imprint_without_preset_save_keeps_existing_library(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
         entry = {"name": "amp", "components": [{"ref": "R1"}],
@@ -2716,7 +2716,7 @@ def test_resource_imprint_save_preset_overwrites_only_same_name(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
         payloads = []
         entry = {"name": "amp", "components": [{"ref": "R1"}],
@@ -3258,7 +3258,7 @@ def test_record_imprint_ok_from_pivot_tab_uses_by_sheet_source(
     hub = DockHub(main_window, connection=connection, verbose=False)
     try:
         connection.snapshot = _snap(*_HIER)
-        connection.board = SimpleNamespace(adapter=FakeAdapter([], [], [], {}))
+        connection.board = SimpleNamespace(adapter=_FakeAdapter([], [], [], {}))
         hub.root_metadata_dock.set_root_file(root)
 
         real_cls = dock_hub_mod.RecordImprintDialog
@@ -3336,7 +3336,7 @@ def test_record_page_pivot_uses_a_snapshot_rebuilt_on_the_worker_thread(
     adapter_calls = []
     refresh_threads = []
 
-    class _GuardedAdapter(FakeAdapter):
+    class _GuardedAdapter(_FakeAdapter):
         def get_footprints(self):
             adapter_calls.append(threading.current_thread().name)
             return super().get_footprints()
@@ -3600,10 +3600,10 @@ class TestComponentsTabWiring:
 # refs, at zero board reads).
 
 
-class _CachingFakeAdapter(FakeAdapter):
-    """FakeAdapter plus a REAL cache — the half this defect lives in.
+class _CachingFakeAdapter(_FakeAdapter):
+    """_FakeAdapter plus a REAL cache — the half this defect lives in.
 
-    `FakeAdapter.get_footprints()` returns `list(self._fps)` with no cache at
+    `_FakeAdapter.get_footprints()` returns `list(self._fps)` with no cache at
     all, so a cell built on it cannot show staleness: every read is "fresh" by
     construction. The live adapter is the other way round, and this subclass
     models it including the ORDER of the two steps:
@@ -3795,7 +3795,7 @@ def test_capture_worker_without_a_live_board_reports_an_error(
     if the seam were written as a bare `adapter.refresh_board()`. That is not
     theoretical: this file alone builds payloads with
     `SimpleNamespace(adapter=None)` in a dozen existing cells, and its own
-    FakeAdapter has no `refresh_board` at all. So this is a ratchet, GREEN before
+    _FakeAdapter has no `refresh_board` at all. So this is a ratchet, GREEN before
     the fix as well; it exists so the new first statement cannot make a no-board
     path raise, and so the tolerance is pinned by a test instead of by a comment.
 

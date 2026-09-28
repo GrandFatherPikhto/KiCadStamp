@@ -52,7 +52,7 @@ def _fp(uuid, ref, role=None, cluster=None):
     return fp
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Duck-typed adapter for the selection helpers — footprints with
     per-uuid Role/Cluster values and per-footprint pad lists."""
 
@@ -82,7 +82,7 @@ class FakeAdapter:
 def test_read_anchor_source_pad(monkeypatch):
     pad_cls = _dummy_pad_cls()
     monkeypatch.setattr(view_mod, "KipyPad", pad_cls)
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _fp("fp1", "R1", role="C1", cluster="PIF_3V3_VDD")
     adapter.footprints = [owner]
     adapter.pads_by_uuid = {"fp1": [SimpleNamespace(
@@ -100,7 +100,7 @@ def test_read_anchor_source_pad(monkeypatch):
 
 def test_read_anchor_source_footprint(monkeypatch):
     monkeypatch.setattr(view_mod, "KipyPad", _dummy_pad_cls())
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _fp("fp1", "R1")
     adapter.footprints = [owner]
     adapter.set_field("fp1", "Role", "C1")
@@ -118,7 +118,7 @@ def test_read_anchor_source_via_is_marker_case(monkeypatch):
     monkeypatch.setattr(view_mod, "KipyPad", _dummy_pad_cls())
     via = Via(uuid="v1", position=Vector2.from_xy(0, 0), net_name=None,
               drill_mm=0.3, diameter_mm=0.6)
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     read = read_anchor_source(adapter, [via], ["C1"], "cell1")
     assert read["kind"] == "via"          # NOT "nothing selected"
     assert read["role"] is None
@@ -126,7 +126,7 @@ def test_read_anchor_source_via_is_marker_case(monkeypatch):
 
 def test_read_anchor_source_nothing_selected_is_fatal(monkeypatch):
     monkeypatch.setattr(view_mod, "KipyPad", _dummy_pad_cls())
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     with pytest.raises(ValidationError) as ei:
         read_anchor_source(adapter, [], ["C1"], "cell1")
     assert "nothing is selected" in str(ei.value)
@@ -134,7 +134,7 @@ def test_read_anchor_source_nothing_selected_is_fatal(monkeypatch):
 
 def test_read_anchor_source_several_clusters_is_fatal(monkeypatch):
     monkeypatch.setattr(view_mod, "KipyPad", _dummy_pad_cls())
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     a = _fp("fp1", "R1")
     b = _fp("fp2", "R2")
     adapter.footprints = [a, b]
@@ -152,7 +152,7 @@ def test_read_anchor_source_several_clusters_is_fatal(monkeypatch):
 
 def test_read_anchor_source_role_not_in_cell_is_fatal(monkeypatch):
     monkeypatch.setattr(view_mod, "KipyPad", _dummy_pad_cls())
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     a = _fp("fp1", "R1")
     adapter.footprints = [a]
     adapter.set_field("fp1", "Role", "NOT_A_ROLE")
@@ -164,7 +164,7 @@ def test_read_anchor_source_role_not_in_cell_is_fatal(monkeypatch):
 
 
 def test_find_pad_owner_by_uuid():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     fp = _fp("fp1", "R1")
     adapter.footprints = [fp]
     adapter.pads_by_uuid = {"fp1": [
@@ -723,7 +723,7 @@ def test_cluster_narrowing_updates_role_combo(main_window, tmp_path):
     SNAPSHOT carries on that cluster (C.3).
 
     Rewritten for Э3 (plan_2026_09_14_ui_thread_offenders): the narrowing used to be
-    served by the live adapter, so this test fed a FakeAdapter; the source is now
+    served by the live adapter, so this test fed a _FakeAdapter; the source is now
     connection.snapshot, and the poisoned adapter proves the adapter plays no part."""
     view, _ = _make_view(main_window, tmp_path)
     # Start with every cell role available (no cluster picked yet).

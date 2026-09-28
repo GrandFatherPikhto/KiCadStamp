@@ -84,7 +84,7 @@ def _fp(uuid, ref):
                      angle_deg=0.0, layer="F.Cu")
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Duck-typed adapter: in-memory footprints with Cluster/Role field values,
     and a recorded list of whatever select_items() was given."""
 
@@ -123,7 +123,7 @@ def _cluster_adapter(cluster):
     a = _fp("fp1", "R1")
     b = _fp("fp2", "R2")
     foreign = _fp("fp3", "U1")
-    adapter = FakeAdapter([a, b, foreign])
+    adapter = _FakeAdapter([a, b, foreign])
     for fp in (a, b):
         adapter.set_field(fp, CLUSTER_FIELD_NAME, cluster)
     adapter.set_field(foreign, CLUSTER_FIELD_NAME, "AD_DAC/IC2")
@@ -243,9 +243,9 @@ def test_view_prefills_remembered_context_and_narrows(main_window, tmp_path):
 
     Э3 (plan_2026_09_14_ui_thread_offenders): the narrowing is served by the board
     SNAPSHOT (role/cluster as field VALUES), so that is what the page is given; the
-    FakeAdapter below stays because the page's OTHER paths (read-from-selection, the
+    _FakeAdapter below stays because the page's OTHER paths (read-from-selection, the
     marker/bbox workers) legitimately read the live board."""
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     c1 = _fp("fp1", "R1")
     c2 = _fp("fp2", "R2")          # C2 lives on a DIFFERENT cluster
     adapter.footprints = [c1, c2]
@@ -307,7 +307,7 @@ def test_view_opening_another_cell_drops_previous_context(main_window,
                                                           tmp_path):
     """A reused page must not leak the PREVIOUS cell's context into the next
     cell (a cell without a record opens empty)."""
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     c1 = _fp("fp1", "R1")
     adapter.footprints = [c1]
     adapter.set_field(c1, CLUSTER_FIELD_NAME, "PIF_3V3_VDD")
@@ -334,7 +334,7 @@ def test_read_from_selection_updates_remembered_context(main_window, tmp_path,
     """"Read from selection" brings a fresh Cluster — it overwrites the cell's
     remembered (last-used) context (sheet optional, stored as whatever the
     Sheet combo holds)."""
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     monkeypatch.setattr(
         view_mod, "read_anchor_source",
@@ -516,7 +516,7 @@ def test_live_prefill_keeps_the_hint_when_no_snapshot_was_fed_yet(main_window,
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
-    main_window.connection.board = SimpleNamespace(adapter=FakeAdapter())
+    main_window.connection.board = SimpleNamespace(adapter=_FakeAdapter())
 
     view = CellAnchorView(main_window, connection=main_window.connection,
                           parent=main_window)
@@ -625,7 +625,7 @@ def _spoke_adapter():
     """Three components of one cluster: the identified pair (C68/C52) plus a
     SECOND bulk cap (C69) the cluster path would have swept in."""
     a, b, c = _fp("fp1", "C68"), _fp("fp2", "C52"), _fp("fp3", "C69")
-    adapter = FakeAdapter([a, b, c])
+    adapter = _FakeAdapter([a, b, c])
     for fp, role in ((a, "C_FPGA_BULK"), (b, "C_FPGA_BYPASS"),
                      (c, "C_FPGA_BULK")):
         adapter.set_field(fp, CLUSTER_FIELD_NAME, "FPGA_PWR_BANK")
@@ -782,7 +782,7 @@ class _RecordingAdapter:
         self.calls.append("refresh_board")
 
 
-class _FailingAdapter(FakeAdapter):
+class _FailingAdapter(_FakeAdapter):
     """A live board whose every read blows up — the occupied-socket shape
     ("Error receiving reply from KiCad: Operation canceled")."""
 

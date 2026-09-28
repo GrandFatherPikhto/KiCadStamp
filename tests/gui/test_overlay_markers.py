@@ -41,7 +41,7 @@ class _FakeBoard(FakeBoardOverlay):
     DEFAULT_NAMES = {LAYER: "User.Drawings", OTHER_LAYER: "User.KiCadStamp"}
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Records IPC; created shapes ARE registered on the fake board and
     remove_by_ids() really removes them, so get_shapes() reflects the live
     state (what idempotency and reconciliation must see)."""
@@ -111,7 +111,7 @@ def _owner():
 # ── E.5.1: one key -> one circle, no leftover ──────────────────────────────
 
 def test_ensure_marker_twice_leaves_exactly_one_circle():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     first = owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     assert first and owner.uuid_for(MARKER_KEY) == first
@@ -126,7 +126,7 @@ def test_ensure_marker_twice_leaves_exactly_one_circle():
 # ── E.5.2: a new point moves the one circle ────────────────────────────────
 
 def test_ensure_marker_moves_to_a_new_point():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     owner.ensure_marker(adapter, MARKER_KEY, 30.0, 5.0)
@@ -139,7 +139,7 @@ def test_ensure_marker_moves_to_a_new_point():
 # ── E.5.3: the shape was deleted from under us ─────────────────────────────
 
 def test_ensure_marker_recreates_a_shape_deleted_by_the_user():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     # The user deletes the circle in KiCad's own canvas.
@@ -152,7 +152,7 @@ def test_ensure_marker_recreates_a_shape_deleted_by_the_user():
 def test_ensure_marker_survives_an_owner_restart():
     """The map is the persisted gui_state entry — a NEW owner instance (a GUI
     restart) sees the same key and still keeps one circle."""
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     _owner().ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     OverlayMarkerOwner().ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     assert len(_live_circles(adapter)) == 1
@@ -161,7 +161,7 @@ def test_ensure_marker_survives_an_owner_restart():
 # ── Orphan leftover (crash) is replaced, not stacked (Р5 + §О.3.3) ─────────
 
 def test_ensure_marker_replaces_an_unkeyed_leftover_within_tolerance():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     # A crash left a circle behind; the persisted map was lost.
     orphan = _circle(10.05, 20.05)
     adapter._board.shapes = [orphan]
@@ -174,7 +174,7 @@ def test_ensure_marker_replaces_an_unkeyed_leftover_within_tolerance():
 
 
 def test_ensure_marker_leaves_a_far_away_unkeyed_circle_alone():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     other = _circle(100.0, 100.0)
     adapter._board.shapes = [other]
     owner = _owner()
@@ -184,7 +184,7 @@ def test_ensure_marker_leaves_a_far_away_unkeyed_circle_alone():
 
 
 def test_ensure_bbox_replaces_its_own_rectangle_only():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     first = owner.ensure_bbox(adapter, BBOX_KEY, 0.0, 0.0, 5.0, 5.0)
     owner.ensure_bbox(adapter, BBOX_KEY, 1.0, 1.0, 6.0, 6.0)
@@ -199,14 +199,14 @@ def test_ensure_bbox_replaces_its_own_rectangle_only():
 
 def test_reconcile_drops_a_key_whose_shape_is_gone():
     settings.state.set(markers_mod.OVERLAY_MARKERS_KEY, {MARKER_KEY: "dead-uuid"})
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     report = _owner().reconcile(adapter)
     assert report["dropped"] == 1
     assert "dead-uuid" not in _owner().all_uuids()
 
 
 def test_reconcile_logs_orphans_and_leaves_them_alone(caplog):
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     orphan = _circle(1.0, 2.0)
     adapter._board.shapes = [orphan]
     settings.state.set(markers_mod.OVERLAY_MARKERS_KEY, {})
@@ -218,7 +218,7 @@ def test_reconcile_logs_orphans_and_leaves_them_alone(caplog):
 
 
 def test_reconcile_keeps_a_key_whose_shape_is_still_there():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     report = owner.reconcile(adapter)
@@ -247,7 +247,7 @@ def test_owner_is_safe_without_an_adapter():
 # ── E.5.7: namespace isolation ─────────────────────────────────────────────
 
 def test_remove_namespace_never_touches_another_namespace():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     point_key = markers_mod.NS_POINT + "/P1"
     owner.ensure_marker(adapter, MARKER_KEY, 1.0, 1.0)
@@ -265,7 +265,7 @@ def test_remove_namespace_never_touches_another_namespace():
 
 
 def test_remove_scope_drops_only_that_cells_two_keys():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     k1 = markers_mod.cell_anchor_key(ROOT, "cellA", "marker")
     k2 = markers_mod.cell_anchor_key(ROOT, "cellA", "bbox")
@@ -290,7 +290,7 @@ def test_remove_scope_does_not_match_a_sibling_cell_with_a_shared_prefix():
 
 
 def test_read_position_reads_the_dragged_centre():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     uuid = owner.uuid_for(MARKER_KEY)
@@ -304,7 +304,7 @@ def test_read_position_reads_the_dragged_centre():
 
 
 def test_remove_key_forgets_and_deletes():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 10.0, 20.0)
     owner.remove_key(adapter, MARKER_KEY)
@@ -313,7 +313,7 @@ def test_remove_key_forgets_and_deletes():
 
 
 def test_forget_all_clears_the_whole_map_without_an_adapter():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     owner = _owner()
     owner.ensure_marker(adapter, MARKER_KEY, 1.0, 1.0)
     owner.ensure_marker(adapter, markers_mod.NS_POINT + "/P1", 2.0, 2.0)
@@ -428,7 +428,7 @@ def test_list_and_sweep_see_the_same_shapes():
     other = BoardRectangle()
     other.id.value = "rect-other"
     other.layer = OTHER_LAYER
-    adapter = FakeAdapter(_FakeBoard(shapes=[mine, other]))
+    adapter = _FakeAdapter(_FakeBoard(shapes=[mine, other]))
     listed = {s.uuid for s in overlay.list_overlay_shapes(adapter, LAYER)}
     assert listed == {str(mine.id.value)}
     # sweep_layer() goes through the very same traversal.

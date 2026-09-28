@@ -284,11 +284,18 @@ class _KipyBoundaryCounter:
 
     The same instrument as kicadstamp.diagnostics.probe_project_identity, for the same
     reason - and with the same obligation: it needs a POSITIVE CONTROL, because a
-    counter that reads zero on everything proves nothing (rule 39)."""
+    counter that reads zero on everything proves nothing (rule 39).
 
-    def __init__(self):
+    Ф1.8: the two patches go through `monkeypatch.context()` instead of the direct
+    `kipy.KiCad.get_open_documents = ...` / `Board.get_footprints = ...` assignments
+    that stood here. The undo has to happen when THIS block ends — the counter must
+    stop counting before the assertion that follows it — and a context is exactly
+    that, while plain `monkeypatch.setattr` would undo at test teardown, too late."""
+
+    def __init__(self, monkeypatch):
         self.total = 0
-        self._originals = []
+        self._monkeypatch = monkeypatch
+        self._context = None
 
     def __enter__(self):
         import kipy
@@ -306,17 +313,17 @@ class _KipyBoundaryCounter:
             counter.total += 1
             return original_board_read(board_self, *args, **kwargs)
 
-        kipy.KiCad.get_open_documents = counting_docs
-        Board.get_footprints = counting_board_read
-        self._originals = [(kipy.KiCad, "get_open_documents", original_docs),
-                           (Board, "get_footprints", original_board_read)]
+        self._context = self._monkeypatch.context()
+        # context() is a context MANAGER whose __enter__ yields the MonkeyPatch to
+        # call setattr on — holding the manager itself and calling setattr on it is
+        # what the first version of this did, and it fails at that line.
+        patch = self._context.__enter__()
+        patch.setattr(kipy.KiCad, "get_open_documents", counting_docs)
+        patch.setattr(Board, "get_footprints", counting_board_read)
         return self
 
     def __exit__(self, *exc_info):
-        for owner, name, original in self._originals:
-            setattr(owner, name, original)
-        self._originals = []
-        return False
+        return self._context.__exit__(*exc_info)
 
 
 def test_the_identity_read_never_touches_the_kicad_client():
@@ -330,7 +337,7 @@ def test_the_identity_read_never_touches_the_kicad_client():
     }
 
 
-def test_the_identity_cost_counted_at_the_kipy_boundary_is_zero():
+def test_the_identity_cost_counted_at_the_kipy_boundary_is_zero(monkeypatch):
     """П4, second row: the plan's own instrument - count AT THE KIPY BOUNDARY, not by
     adapter calls, because the adapter caches (the Ш1 lesson quoted in
     refresh_board_before_live_read's docstring).
@@ -341,11 +348,11 @@ def test_the_identity_cost_counted_at_the_kipy_boundary_is_zero():
     defect this entry fixes stayed unnoticed in the first place."""
     adapter = _adapter_over_a_real_document()
     adapter._kicad = _NeverTouchTheKicadClient()
-    with _KipyBoundaryCounter() as counter:
+    with _KipyBoundaryCounter(monkeypatch) as counter:
         handlers.board_brief(adapter)
     assert counter.total == 0
 
-    control = _KipyBoundaryCounter()
+    control = _KipyBoundaryCounter(monkeypatch)
     with control:
         with pytest.raises(Exception):
             import kipy

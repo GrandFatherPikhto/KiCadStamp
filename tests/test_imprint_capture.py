@@ -62,7 +62,7 @@ def _via(x_mm, y_mm, net, drill=0.3, diam=0.6):
                net_name=net, drill_mm=drill, diameter_mm=diam)
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Mock board adapter: pads keyed by footprint ref, boxes around items."""
 
     def __init__(self, footprints, tracks, vias, pads_by_ref):
@@ -118,7 +118,7 @@ def _scenario():
     t2 = _track(20, 10, 24, 10, _V5, layer=IN1)
     tf = _track(15, 12, 15, 14, _GND, layer=F)  # J1 stub -> boundary
     v1 = _via(20, 10, _V5)
-    adapter = FakeAdapter(fps, [t1, t2, tf], [v1], pads)
+    adapter = _FakeAdapter(fps, [t1, t2, tf], [v1], pads)
     return adapter, ["R1", "C1", "C2"]
 
 
@@ -345,7 +345,7 @@ def _line_board(c2_x_mm=24.0):
     t1 = _track(10, 10, 20, 10, _V5, layer=F)
     t2 = _track(20, 10, c2_x_mm, 10, _V5, layer=IN1)
     v1 = _via(20, 10, _V5)
-    return FakeAdapter(fps, [t1, t2], [v1], pads)
+    return _FakeAdapter(fps, [t1, t2], [v1], pads)
 
 
 def _line_board_plus(extra_refs, c2_x_mm=24.0):
@@ -559,8 +559,8 @@ class TestRereadDiffChangeableScope:
 
 # ── Part A truncate: boundary_net_actions={"<net>": "truncate"} ─────────────
 
-class _NoFootprintBBoxAdapter(FakeAdapter):
-    """FakeAdapter whose footprint bounding boxes are None (no geometry to clip
+class _NoFootprintBBoxAdapter(_FakeAdapter):
+    """_FakeAdapter whose footprint bounding boxes are None (no geometry to clip
     against) — exercises the truncate degrade-to-exclude fallback."""
 
     def get_bounding_boxes(self, items):
@@ -594,7 +594,7 @@ def _truncate_scenario():
     tg = _track(15, 10, 15, 14, _GND, layer=F)
     v_in = _via(18, 10, _GND)
     v_out = _via(22.2, 10, _GND)
-    adapter = FakeAdapter(fps, [t1, tg], [v_in, v_out], pads)
+    adapter = _FakeAdapter(fps, [t1, tg], [v_in, v_out], pads)
     return adapter, ["R1", "C1"]
 
 

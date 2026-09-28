@@ -70,7 +70,7 @@ def _rec(name="psu", pivot=(0.0, 0.0), components=None,
         vias=vias or [], tracks=tracks or [])
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Minimal adapter for the pure planner: footprints + pads (sheet names)."""
 
     def __init__(self, fps, tracks=None, vias=None):
@@ -108,7 +108,7 @@ class TestInPlace:
     def test_zero_rotation_simple_shift(self):
         # Pivot = (0,0) (the default), comp offsets (0,0)/(10,0); node rot 0
         # reproduces the record exactly: element world = node_pos + offset.
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)])
         plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
                                 Vector2.from_xy_mm(100, 50), 0.0)
@@ -124,7 +124,7 @@ class TestInPlace:
         pivot: element world = node_pos + Rot(node_rot)·(offset - pivot),
         element angle = stored_absolute_angle + node_rot. Here pivot (0,0),
         node_rot 90 -> (10,0) maps to (0,-10) (domain Y-down rotation)."""
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
         rec = _rec(pivot=(0.0, 0.0),
                    components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
         plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
@@ -142,7 +142,7 @@ class TestInPlace:
         whose elements were captured at NON-zero absolute angles is reproduced
         EXACTLY as captured at node_rot=0 — the recorded angles are kept, never
         compensated against any anchor (that is what used to double-rotate)."""
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 10, 20)])
         rec = _rec(pivot=(0.0, 0.0),
                    components=[_comp("R1", 0, 0, 30.0), _comp("C1", 10, 0, 45.0)])
         plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
@@ -160,7 +160,7 @@ class TestInPlace:
         node_pos; elements on the other side of the pivot land mirrored around
         it. pivot (3,0) with node_pos (100,50): stored (5,0) -> dx 2 -> (102,50),
         stored (1,0) -> dx -2 -> (98,50) (node_rot 0)."""
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(pivot=(3.0, 0.0),
                    components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
         plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
@@ -173,7 +173,7 @@ class TestInPlace:
     def test_rotation_turns_around_nondefault_pivot(self):
         """pivot (3,0), node_rot 90: stored (5,0) -> dx (2,0) -> Rot90=(0,-2)
         -> (100,48); stored (3,0) [at pivot] stays at node_pos (100,50)."""
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(pivot=(3.0, 0.0),
                    components=[_comp("R1", 3, 0, 0.0), _comp("C1", 5, 0, 0.0)])
         plan = plan_imprint(Entity(name="E1", imprint="psu"), rec, adapter,
@@ -184,7 +184,7 @@ class TestInPlace:
         assert moves["C1"].angle.degrees == pytest.approx(90.0)
 
     def test_vias_and_tracks_literal_nets_in_place(self):
-        adapter = FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10), _fp("C1", 20, 10)])
         rec = _rec(
             components=[_comp("R1", 0, 0, 0.0), _comp("C1", 10, 0, 0.0)],
             vias=[ImprintViaRecord(offset_along_mm=10.0, drill_mm=0.3,
@@ -224,7 +224,7 @@ def _twin_board():
 
 class TestOntoSibling:
     def test_twin_refs_and_net_remap(self):
-        adapter = FakeAdapter(_twin_board())
+        adapter = _FakeAdapter(_twin_board())
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)],
@@ -260,7 +260,7 @@ class TestOntoSibling:
         enum — see ImprintTrackRecord), so a hand-edited record can name
         anything. On the WRITE path an unknown name must be a fatal: the old
         tolerant `layer_from_str` fallback quietly made it F.Cu."""
-        adapter = FakeAdapter(_twin_board())
+        adapter = _FakeAdapter(_twin_board())
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0)],
@@ -275,7 +275,7 @@ class TestOntoSibling:
     def test_twin_node_rotation_turns_region_around_pivot(self):
         """Onto a sibling the node rotation turns the region the same rigid way
         (node_rot 90 -> (10,0) maps to (0,-10), angles +90)."""
-        adapter = FakeAdapter(_twin_board())
+        adapter = _FakeAdapter(_twin_board())
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
@@ -289,7 +289,7 @@ class TestOntoSibling:
 
     def test_incomplete_twin_is_one_fatal_list(self):
         # C1 has NO twin on Channel_1 (drop C1d)
-        adapter = FakeAdapter([fp for fp in _twin_board() if fp.ref != "C1d"])
+        adapter = _FakeAdapter([fp for fp in _twin_board() if fp.ref != "C1d"])
         rec = _rec(
             source_sheet="Channel_0",
             components=[_comp("R1s", 0, 0, 45.0), _comp("C1s", 10, 0, 90.0)])
@@ -298,7 +298,7 @@ class TestOntoSibling:
                              rec, adapter, Vector2.from_xy_mm(100, 200), 0.0)
 
     def test_unknown_target_sheet_fatal(self):
-        adapter = FakeAdapter(_twin_board())
+        adapter = _FakeAdapter(_twin_board())
         rec = _rec(source_sheet="Channel_0",
                    components=[_comp("R1s", 0, 0, 0.0), _comp("C1s", 10, 0, 0.0)])
         with pytest.raises(ValidationError, match="target sheet"):
@@ -372,7 +372,7 @@ class TestForestPlanning:
         same way cell materialization does (origin anchor + node xy/rotation);
         the record's element at the pivot lands on that pos and gets the node
         rotation added to its stored angle."""
-        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10)])
         plans = plan_all_imprints(adapter, _scheme_cfg(), {})
         assert len(plans) == 1
         p = plans[0]
@@ -384,13 +384,13 @@ class TestForestPlanning:
         assert move.angle.degrees == pytest.approx(45.0)  # 0 + node rotation
 
     def test_only_filter_narrows_to_entity(self):
-        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10)])
         cfg = _scheme_cfg()
         assert len(plan_all_imprints(adapter, cfg, {}, only=["E1"])) == 1
         assert len(plan_all_imprints(adapter, cfg, {}, only=["OTHER"])) == 0
 
     def test_no_scheme_entities_is_empty(self):
-        adapter = FakeAdapter([_fp("R1", 10, 10)])
+        adapter = _FakeAdapter([_fp("R1", 10, 10)])
         cfg = Config(entities=[Entity(name="E1", cell="c")], trees=[])
         assert plan_all_imprints(adapter, cfg, {}) == []
 
@@ -400,7 +400,7 @@ class TestExecutionIdempotency:
         """Re-apply/Redraw when everything already sits at the target does not
         touch the executor — positional idempotency (P4 plan §0.6)."""
         # R1 already at the node target (5,2)
-        adapter = FakeAdapter([_fp("R1", 5, 2, angle=45.0)])
+        adapter = _FakeAdapter([_fp("R1", 5, 2, angle=45.0)])
         plans = plan_all_imprints(adapter, _scheme_cfg(), {})
         failed = execute_imprint_plans(adapter, plans)
         assert failed == ([], [], [])

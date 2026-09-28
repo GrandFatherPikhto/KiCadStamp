@@ -28,7 +28,7 @@ class _Fp:
     store's key (Т5б) — same shape tests/gui/test_cell_refs_tab.py builds.
 
     A plain class rather than SimpleNamespace on purpose: SimpleNamespace is
-    UNHASHABLE, and FakeAdapter keys its "missing field" map by footprint."""
+    UNHASHABLE, and _FakeAdapter keys its "missing field" map by footprint."""
 
     def __init__(self, ref, symbol_uuid):
         self.ref = ref
@@ -44,7 +44,7 @@ class FakeSelected:
         self.fp = _Fp(ref, symbol_uuid or f"uuid-{ref}")
 
 
-class FakeAdapter:
+class _FakeAdapter:
     def __init__(self, missing_fields=None):
         self.calls = []
         self.select_items_calls = []
@@ -65,7 +65,7 @@ class FakeAdapter:
 
 class FakeBoard:
     def __init__(self):
-        self.adapter = FakeAdapter()
+        self.adapter = _FakeAdapter()
 
 
 def _select_item(dock, item) -> None:

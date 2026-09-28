@@ -75,7 +75,7 @@ def _fp(ref, role=None, cluster=None, role_field=True, cluster_field=True):
     return fp
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Duck-typed adapter: in-memory footprints, a settable selection and a
     RECORDED list of every set_field_values_bulk call."""
 
@@ -114,7 +114,7 @@ class FakeAdapter:
 
 
 def _adapter(footprints, selected=()):
-    return FakeAdapter(footprints, selected)
+    return _FakeAdapter(footprints, selected)
 
 
 def _records(*tpairs):
@@ -288,7 +288,7 @@ def test_c8_recording_never_touches_the_board(main_window, tmp_path):
     """С8: the record path uses NO adapter call at all — no refresh, no
     has_field, no bulk write. A spy that raises on ANY attribute use is the
     strongest form of that statement."""
-    class _Spy(FakeAdapter):
+    class _Spy(_FakeAdapter):
         def __getattr__(self, name):
             raise AssertionError(f"the adapter was used: {name}")
 
@@ -566,7 +566,7 @@ def test_m4_the_write_button_follows_an_adapter_that_arrives_later(main_window,
     assert tab.row_refs() == ["C41"]
     assert tab.write_button_enabled() is False       # no project/store yet
 
-    main_window.connection.board = SimpleNamespace(adapter=FakeAdapter())
+    main_window.connection.board = SimpleNamespace(adapter=_FakeAdapter())
     tab.set_context(root, "cell1", ["C_BULK", "C_BYPASS"], records, sheet_names={})
 
     assert tab.write_button_enabled() is False      # a board changes NOTHING
@@ -769,7 +769,7 @@ def _cell_data():
         "vias": [], "tracks": [], "clone_placements": []}}}
 
 
-class _RecordingAdapter(FakeAdapter):
+class _RecordingAdapter(_FakeAdapter):
     """A spy that RECORDS calls instead of raising: a raising spy would make a
     guard pass for the wrong reason (a swallowed exception looks like "no call"
     to anyone downstream)."""
@@ -845,7 +845,7 @@ def test_the_tab_is_the_second_tab_of_the_editor(main_window, tmp_path):
     assert titles[:2] == ["Source", "Refs"]
 
 
-class _FailingSelectionAdapter(FakeAdapter):
+class _FailingSelectionAdapter(_FakeAdapter):
     def get_selected_items(self):
         from kicadstamp.exceptions import ValidationError
         raise ValidationError("KiCad is busy")
@@ -866,7 +866,7 @@ def test_a_failing_read_is_reported_and_leaves_the_table_alone(
 
 def test_the_write_button_is_inactive_when_there_is_nothing_to_write(
         main_window):
-    tab = _tab(main_window, adapter=FakeAdapter(),
+    tab = _tab(main_window, adapter=_FakeAdapter(),
                records=_records(("C41", "C_BULK", "FPGA_PWR_BANK")))
     assert tab.write_button_enabled() is False
 

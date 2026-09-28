@@ -59,16 +59,12 @@ from gui.connection import (BoardConnection, UiThreadBoardReadRefused,
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture(autouse=True)
-def _clean_guard_state():
-    """No test may inherit a sign or a logged site from another: the sign is
-    thread-local storage (it outlives a test on the same thread) and the
-    once-per-site Log memory is process-global."""
-    connection_mod._ui_read_sign.depth = 0
-    connection_mod._refused_sites.clear()
-    yield
-    connection_mod._ui_read_sign.depth = 0
-    connection_mod._refused_sites.clear()
+# Ф1.8: the per-file autouse fixture that used to stand here (_clean_guard_state) is
+# GONE — it reset exactly the two things tests/conftest.py's _reset_process_singletons
+# already resets before AND after every test (gui.connection._refused_sites and
+# _ui_read_sign.depth, the door's arming and its once-per-site Log memory). Two
+# autouse fixtures doing one job was duplication left from Ф1.1; the shared reset is
+# the record now, and this comment is the pointer so nobody re-adds the copy.
 
 
 @pytest.fixture

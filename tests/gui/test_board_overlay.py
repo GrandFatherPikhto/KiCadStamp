@@ -41,7 +41,7 @@ class _FakeBoard(FakeBoardOverlay):
                      COPPER: "F.Cu", EDGE: "Edge.Cuts"}
 
 
-class FakeAdapter:
+class _FakeAdapter:
     """Records create/select/remove calls; created shapes are returned as-is
     and (optionally) registered on `_board` so read/sweep see them."""
 
@@ -88,7 +88,7 @@ def _record_created_on_board(adapter):
 
 def test_overlay_layers_reads_live_board_not_hardcoded():
     board = _FakeBoard(layers=[LAYER, OTHER_LAYER])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     layers = overlay.overlay_layers(adapter)
     assert layers == [(LAYER, "User.Drawings"), (OTHER_LAYER, "User.KiCadStamp")]
     # resolve by the DISPLAY name — never a hardcoded enum list.
@@ -101,7 +101,7 @@ def test_overlay_layers_filters_out_non_user_layers():
     BL_User_* + Dwgs/Cmts/Eco layers are ever offered, NEVER copper,
     silkscreen or Edge.Cuts (a sweep on those would delete real content)."""
     board = _FakeBoard(layers=[LAYER, COPPER, EDGE, OTHER_LAYER])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     layers = overlay.overlay_layers(adapter)
     assert layers == [(LAYER, "User.Drawings"), (OTHER_LAYER, "User.KiCadStamp")]
     # 'F.Cu' must NOT resolve to a layer anymore — it is not a user layer.
@@ -110,7 +110,7 @@ def test_overlay_layers_filters_out_non_user_layers():
 
 
 def test_draw_bbox_sets_layer_stroke_and_repaints():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     uuid = overlay.draw_bbox(adapter, LAYER, 1.0, 2.0, 5.0, 6.0, 0.15)
     assert isinstance(uuid, str)
     assert len(adapter.created) == 1
@@ -126,7 +126,7 @@ def test_draw_bbox_sets_layer_stroke_and_repaints():
 
 
 def test_draw_marker_sets_radius_via_radius_point_and_repaints():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     radius_mm = 0.3
     uuid = overlay.draw_marker(adapter, LAYER, 10.0, 20.0, radius_mm, 0.1)
     assert isinstance(uuid, str)
@@ -144,7 +144,7 @@ def test_draw_marker_sets_radius_via_radius_point_and_repaints():
 
 def test_read_marker_returns_dragged_centre_in_mm():
     board = _FakeBoard(shapes=[])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     uuid = overlay.draw_marker(adapter, LAYER, 10.0, 20.0, 0.3, 0.1)
     _record_created_on_board(adapter)
     # Simulate the user dragging the marker in KiCad.
@@ -157,12 +157,12 @@ def test_read_marker_returns_dragged_centre_in_mm():
 
 
 def test_read_marker_returns_none_when_missing():
-    adapter = FakeAdapter(_FakeBoard(shapes=[]))
+    adapter = _FakeAdapter(_FakeBoard(shapes=[]))
     assert overlay.read_marker(adapter, "no-such-uuid") is None
 
 
 def test_remove_overlay_calls_remove_and_repaints():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     assert overlay.remove_overlay(adapter, []) is True
     ok = overlay.remove_overlay(adapter, ["a", "b"])
     assert ok is True
@@ -177,7 +177,7 @@ def test_sweep_layer_removes_only_shapes_of_that_layer():
     other = BoardRectangle()
     other.layer = OTHER_LAYER
     board = _FakeBoard(shapes=[mine, other])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     count = overlay.sweep_layer(adapter, LAYER)
     assert count == 1
     assert adapter.removed == [str(mine.id.value)]
@@ -189,7 +189,7 @@ def test_sweep_layer_refuses_non_user_layer():
     fatal ValidationError — the caller can never erase real board content by
     pointing the overlay sweep at a wrong layer."""
     board = _FakeBoard(layers=[LAYER, COPPER])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     with pytest.raises(ValidationError) as ei:
         overlay.sweep_layer(adapter, COPPER)
     assert "only USER layers" in str(ei.value)
@@ -198,7 +198,7 @@ def test_sweep_layer_refuses_non_user_layer():
 
 def test_sweep_layer_noop_when_layer_empty():
     board = _FakeBoard(shapes=[])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     assert overlay.sweep_layer(adapter, LAYER) == 0
     assert adapter.removed == []
 
@@ -244,7 +244,7 @@ def test_sweep_layer_by_name_resolves_display_then_sweeps():
     other = BoardRectangle()
     other.layer = OTHER_LAYER
     board = _FakeBoard(shapes=[mine, other])
-    adapter = FakeAdapter(board)
+    adapter = _FakeAdapter(board)
     # Display-name -> live layer resolution happens INSIDE the worker, so the
     # button can be driven purely by the combo's text.
     count = overlay.sweep_layer_by_name(adapter, "User.Drawings")
@@ -256,7 +256,7 @@ def test_sweep_layer_by_name_resolves_display_then_sweeps():
 def test_sweep_layer_by_name_refuses_a_layer_not_enabled_as_user_layer():
     """A display name that resolves to nothing on the board is a fatal — the
     sweep never touches anything (the user-layer guard is not weakened)."""
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     with pytest.raises(ValidationError) as ei:
         overlay.sweep_layer_by_name(adapter, "No.Such.Layer")
     assert "not enabled" in str(ei.value)
@@ -264,7 +264,7 @@ def test_sweep_layer_by_name_refuses_a_layer_not_enabled_as_user_layer():
 
 
 def test_require_overlay_layer_resolves_and_raises():
-    adapter = FakeAdapter()
+    adapter = _FakeAdapter()
     assert overlay.require_overlay_layer(adapter, "User.Drawings") == LAYER
     with pytest.raises(ValidationError) as ei:
         overlay.require_overlay_layer(adapter, "F.Cu")   # not a user layer
