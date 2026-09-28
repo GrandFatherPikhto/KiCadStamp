@@ -13,10 +13,12 @@ Both directions are checked, and both are pinned to a written-down reason:
 That second half is what stops SEAM_GAPS from becoming a place to dump any
 method a fake happens to grow.
 """
+from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.kicad.interfaces import IBoardAdapter
 
 from tests.fakes.adapter import FakeAdapter, public_callables
+from tests.fakes.pipeline import PipelineStubLifetime
 
 
 def test_fake_adapter_public_surface_is_the_seam_plus_the_named_gaps():
@@ -45,6 +47,33 @@ def test_every_named_seam_gap_exists_on_the_concrete_adapter():
     assert not missing, (
         f"SEAM_GAPS names {sorted(missing)}, which the concrete adapter does not "
         f"have either — those are invented by the fake, not gaps in the seam")
+
+
+def test_pipeline_stub_matches_the_real_apply_pipeline_lifetime():
+    """The stub stands in for ApplyPipeline AS A CONTEXT MANAGER, so the real
+    class must actually be one — otherwise the stub would pin a protocol
+    production does not have."""
+    for name in ("close", "__enter__", "__exit__"):
+        assert callable(getattr(ApplyPipeline, name, None)), (
+            f"ApplyPipeline has no {name}() — PipelineStubLifetime stands in for a "
+            f"protocol production does not implement")
+    # Rule 38: the stub must actually DO the thing, not merely exist.
+    #
+    # A THROWAWAY SUBCLASS, not PipelineStubLifetime itself: close() writes the
+    # counter on `type(self)`, so incrementing the BASE would be inherited by
+    # every stand-in subclass in the session and their `closed == 1` cells would
+    # read 2. Learned the hard way here (four gui files went red on exactly
+    # that) — the shared base must stay 0.
+    class _Probe(PipelineStubLifetime):
+        pass
+
+    before = _Probe.closed
+    with _Probe():
+        pass
+    assert _Probe.closed == before + 1, "exiting the stub did not count a close()"
+    assert PipelineStubLifetime.closed == 0, (
+        "the shared base counter must stay 0 — a non-zero base leaks into every "
+        "counting subclass that has not set its own yet")
 
 
 def test_a_fake_only_method_is_not_a_production_method():

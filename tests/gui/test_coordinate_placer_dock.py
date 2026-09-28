@@ -18,27 +18,9 @@ from gui.docks.placer import PlacerDock
 from kicadstamp.config import Config, RuntimeContext, load_coordinate_placement
 
 
-class _PipelineStubLifetime:
-    """Lifetime half of the real ApplyPipeline, inherited by the stand-in
-    below: the pipeline's close() releases the kipy/pynng socket the run
-    created, and PlacerDock closes it in a finally after the optional
-    cluster tagging (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
-    plan_2026_09_14_apply_pipeline_socket_leak)."""
-
-    closed = 0
-
-    def close(self):
-        # Counted, so the coordinate-mode test below can assert that the early
-        # return still hands the socket back (the close sits in a finally):
-        # plan_2026_09_14_apply_pipeline_socket_leak P.3.2.
-        type(self).closed += 1
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
+# Moved to tests/fakes/pipeline.py (Ф1.4b): six copies had drifted into two
+# shapes. Kept under the same name so the _FakePipeline subclasses are untouched.
+from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 
 
 def _write(path, data) -> None:

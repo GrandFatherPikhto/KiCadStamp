@@ -15,27 +15,9 @@ from kicadstamp.config import Config, RuntimeContext, ThermalViaArrayConfig, loa
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
-class _PipelineStubLifetime:
-    """Lifetime half of the real ApplyPipeline, inherited by every stand-in
-    below instead of re-declared per class: the pipeline IS a context manager
-    whose __exit__ releases the kipy/pynng socket the run created
-    (kicadstamp/apply_pipeline.py::ApplyPipeline.close,
-    plan_2026_09_14_apply_pipeline_socket_leak). The dock under test enters it
-    with `with ...`, so the stand-in must support the protocol."""
-
-    closed = 0
-
-    def close(self):
-        # Counted, so the tests below can assert that a redraw really hands its
-        # socket back (plan_2026_09_14_apply_pipeline_socket_leak P.3.2).
-        type(self).closed += 1
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-        return False
+# Moved to tests/fakes/pipeline.py (Ф1.4b): six copies had drifted into two
+# shapes. Kept under the same name so the _FakePipeline subclasses are untouched.
+from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 
 
 def _write(path, data) -> None:
