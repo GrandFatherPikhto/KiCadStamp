@@ -275,22 +275,12 @@ def test_refresh_known_roles_populates_from_snapshot(main_window):
     assert clusters == ["C1", "C2"]
 
 
-class _FakeNet:
-    def __init__(self, name):
-        self.name = name
-
-
-class _FakeNetAdapter:
-    def __init__(self, nets):
-        self._nets = nets
-
-    def get_all_nets(self):
-        return self._nets
-
-
-class _FakeNetBoard:
-    def __init__(self, nets):
-        self.adapter = _FakeNetAdapter(nets)
+# Moved to tests/fakes/nets.py (Ф1.4d): the same three lived byte-for-byte in
+# tests/gui/test_placer_dock.py (where they turned out to be dead). This file
+# needs _FakeNet and _FakeNetBoard only — the adapter is built INSIDE the board
+# double now.
+from tests.fakes.nets import (FakeNet as _FakeNet,  # noqa: E402
+                              FakeNetBoard as _FakeNetBoard)
 
 
 def test_refresh_known_nets_populates_net_combo(main_window, tmp_path):

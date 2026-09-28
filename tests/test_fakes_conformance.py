@@ -50,6 +50,28 @@ def test_every_named_seam_gap_exists_on_the_concrete_adapter():
         f"have either — those are invented by the fake, not gaps in the seam")
 
 
+def test_net_combo_doubles_match_their_real_pairs():
+    """The net-combo doubles: the adapter stand-in must be a seam read, and the
+    DTO stand-in must carry the one field the consumers read."""
+    from dataclasses import fields
+
+    from kicadstamp.domain.board import Net
+
+    from tests.fakes.nets import FakeNet, FakeNetAdapter
+
+    surface = public_callables(FakeNetAdapter)
+    assert surface, "FakeNetAdapter has no public callables — blind scan"
+    assert surface == {"get_all_nets"}, (
+        f"FakeNetAdapter carries {sorted(surface)}; the collector reads only "
+        f"get_all_nets()")
+    assert surface <= public_callables(IBoardAdapter), (
+        "get_all_nets is not declared on the seam")
+
+    assert FakeNet("+3V3").name == "+3V3"
+    assert "name" in {f.name for f in fields(Net)}, (
+        "the consumers read net.name, so the real domain Net must carry it")
+
+
 def test_sheet_path_doubles_mirror_the_kipy_attribute_names():
     """These doubles stand in for KIPY's KIID_PATH/KIID by ATTRIBUTE NAME, so the
     names the consumers read are pinned here. Kipy itself is deliberately NOT

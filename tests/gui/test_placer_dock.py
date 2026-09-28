@@ -697,22 +697,11 @@ def test_load_placement_round_trips_point_mode(main_window, tmp_path):
     assert dock.shift_y_edit.text() == "2.0"
 
 
-class _FakeNet:
-    def __init__(self, name):
-        self.name = name
-
-
-class _FakeNetAdapter:
-    def __init__(self, nets):
-        self._nets = nets
-
-    def get_all_nets(self):
-        return self._nets
-
-
-class _FakeNetBoard:
-    def __init__(self, nets):
-        self.adapter = _FakeNetAdapter(nets)
+# Ф1.4d: _FakeNet/_FakeNetAdapter/_FakeNetBoard were declared here but never
+# used (this dock fills its combos from the SELECTION SNAPSHOT, not from
+# board nets — see test_refresh_known_roles_populates_from_snapshot). pyflakes
+# confirmed all three were dead, so they are simply gone; the live copies moved
+# to tests/fakes/nets.py for tests/gui/test_thermal_via_dock.py.
 
 
 def test_refresh_known_roles_populates_from_snapshot(main_window):
