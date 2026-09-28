@@ -27,56 +27,9 @@ def _isolate_gui_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(gui_settings, "SETTINGS_PATH", tmp_path / "gui_state.json")
 
 
-class _FakeAdapter:
-    """Minimal adapter stand-in injected into the ConnectionManager factory."""
-
-    def __init__(self, name="fake.kicad_pcb", version="10.0.6",
-                 footprints=(), tracks=(), vias=(),
-                 project=("fake_project", "/tmp/fake_project")):
-        self._name = name
-        self._version = version
-        self._project = project
-        self._footprints = list(footprints)
-        self._tracks = list(tracks)
-        self._vias = list(vias)
-
-    def refresh_board(self):
-        pass
-
-    def get_board_filename(self):
-        return self._name
-
-    def get_board_project(self):
-        """The project half of the identity — the envelope of the three reading
-        tools (and get_board_identity) reads both halves together."""
-        return self._project
-
-    def get_version(self):
-        return self._version
-
-    def get_footprints(self):
-        return list(self._footprints)
-
-    def get_footprint(self, ref):
-        return next((f for f in self._footprints if f.ref == ref), None)
-
-    def get_tracks(self):
-        return list(self._tracks)
-
-    def get_vias(self):
-        return list(self._vias)
-
-    def get_field_value(self, fp, name):
-        return None
-
-    def get_footprint_pads(self, fp):
-        return []
-
-    def get_selected_items(self):
-        return []
-
-    def get_all_nets(self):
-        return []
+# The per-file copy lived here; it is shared now (Ф1.4). Imported mid-file on
+# purpose: the name and every call site stay exactly as they were.
+from tests.fakes.adapter import FakeAdapter as _FakeAdapter  # noqa: E402
 
 
 def _tool_names(server):
@@ -164,7 +117,8 @@ def test_input_schemas():
 # --- tools -> handlers dispatch (through a fake adapter) ---------------------
 
 def test_dispatch_board_identity():
-    server = build_server(adapter_factory=lambda ms: _FakeAdapter("fake.kicad_pcb", "10.0.6"))
+    server = build_server(adapter_factory=lambda ms: _FakeAdapter(
+        name="fake.kicad_pcb", version="10.0.6"))
     is_error, text = _call_text(server, "kicadstamp_get_board_identity", {})
     assert is_error is not True
     assert '"fake.kicad_pcb"' in text

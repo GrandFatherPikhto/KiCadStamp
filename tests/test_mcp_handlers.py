@@ -34,73 +34,9 @@ def _pad(number, net_name, x_mm=0.0, y_mm=0.0):
                position=Vector2(x=round(x_mm * 1e6), y=round(y_mm * 1e6)))
 
 
-class FakeAdapter:
-    """Minimal adapter stand-in implementing exactly what handlers use."""
-
-    def __init__(self, footprints=(), nets=(), selected=(), pads_by_ref=None,
-                 fields=None, board_name="test_board.kicad_pcb", version="10.0.6",
-                 tracks=(), vias=(), project=("test_project", "/tmp/test_project")):
-        self._fps = list(footprints)
-        self._nets = list(nets)
-        self._selected = list(selected)
-        self._pads_by_ref = pads_by_ref or {}
-        self._fields = fields or {}
-        self._board_name = board_name
-        self._version = version
-        self._project = project
-        self._tracks = list(tracks)
-        self._vias = list(vias)
-        self.updated: list = []  # every update_items() push, for assertions
-
-    def get_board_filename(self):
-        return self._board_name
-
-    def get_board_project(self):
-        """The project half of the board identity (plan_2026_09_24_project_identity_
-        from_ipc Т2/Т3): handlers.board_brief and get_board_identity read it, so a
-        stand-in without it stands in for a different adapter."""
-        return self._project
-
-    def get_version(self):
-        return self._version
-
-    def get_footprints(self):
-        return list(self._fps)
-
-    def get_footprint(self, ref):
-        return next((f for f in self._fps if f.ref == ref), None)
-
-    def get_field_value(self, fp, name):
-        return self._fields.get((fp.ref, name))
-
-    def get_footprint_pads(self, fp):
-        return list(self._pads_by_ref.get(fp.ref, []))
-
-    def get_selected_items(self):
-        return list(self._selected)
-
-    def get_all_nets(self):
-        return list(self._nets)
-
-    def get_tracks(self):
-        return list(self._tracks)
-
-    def get_vias(self):
-        return list(self._vias)
-
-    def update_items(self, items):
-        for dto in items:
-            for i, stored in enumerate(self._fps):
-                if stored.ref == dto.ref:
-                    self._fps[i] = dto  # store the mutated DTO
-        self.updated.append(items)
-
-    def refresh_board(self):
-        pass
-
-    def commit_with_retry(self, description, work_fn, retries=1):
-        work_fn()
-        return True
+# The per-file copy lived here; it is shared now (Ф1.4). Imported mid-file on
+# purpose: the name and every call site stay exactly as they were.
+from tests.fakes.adapter import FakeAdapter  # noqa: E402
 
 
 # --- identity ---------------------------------------------------------------
@@ -118,7 +54,8 @@ def test_board_identity_connected():
     already existed here). The three pre-existing keys keep their names - clients
     read them.
     """
-    adapter = FakeAdapter(board_name="3CH-AWG-TIA-v103.kicad_pcb", version="10.0.6")
+    adapter = FakeAdapter(board_name="3CH-AWG-TIA-v103.kicad_pcb", version="10.0.6",
+                          project=("test_project", "/tmp/test_project"))
     info = handlers.get_board_identity(adapter)
     assert info == {
         "connected": True,
@@ -368,7 +305,10 @@ def test_raw_move_footprint_requires_expected_board():
 
 
 def test_raw_move_footprint_moves_and_reports_old_new():
-    adapter = FakeAdapter(footprints=[_fp("R1", x_mm=1.0, y_mm=2.0, angle=0.0)])
+    # The shared fake's default board name is its own; this cell needs the board
+    # the raw-write guard is told to expect, so it states it (Ф1.4).
+    adapter = FakeAdapter(footprints=[_fp("R1", x_mm=1.0, y_mm=2.0, angle=0.0)],
+                          board_name="test_board.kicad_pcb")
     result = handlers.raw_move_footprint(adapter, "R1", x_mm=10.0, y_mm=20.0,
                                          expected_board_name="test_board.kicad_pcb",
                                          rotation_deg=45.0)
@@ -379,7 +319,8 @@ def test_raw_move_footprint_moves_and_reports_old_new():
 
 
 def test_raw_move_footprint_missing_ref_raises():
-    adapter = FakeAdapter(footprints=[_fp("R1")])
+    adapter = FakeAdapter(footprints=[_fp("R1")],
+                          board_name="test_board.kicad_pcb")
     with pytest.raises(ValueError, match="not found"):
         handlers.raw_move_footprint(adapter, "R999", x_mm=0.0, y_mm=0.0,
                                     expected_board_name="test_board.kicad_pcb")

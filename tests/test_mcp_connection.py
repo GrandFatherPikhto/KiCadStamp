@@ -11,36 +11,9 @@ import pytest
 from mcp_server.connection import ConnectionManager
 
 
-class _FakeAdapter:
-    """Minimal stand-in for KiCadBoardAdapter.
-
-    :param fail_first: number of initial ``ping()``/``get_board_filename()``
-        calls that raise ConnectionError, to simulate a dropped IPC link.
-    """
-
-    def __init__(self, name: str = "fake_board.kicad_pcb", fail_first: int = 0):
-        self._name = name
-        self._fail_remaining = fail_first
-        self.refresh_count = 0
-        self.close_count = 0
-
-    def refresh_board(self):
-        self.refresh_count += 1
-
-    def get_board_filename(self):
-        if self._fail_remaining > 0:
-            self._fail_remaining -= 1
-            raise ConnectionError("kipy socket closed")
-        return self._name
-
-    def ping(self) -> str:
-        if self._fail_remaining > 0:
-            self._fail_remaining -= 1
-            raise ConnectionError("kipy socket closed")
-        return "pong"
-
-    def close(self):
-        self.close_count += 1
+# The per-file copy lived here; it is shared now (Ф1.4). Imported mid-file on
+# purpose: the name and every call site stay exactly as they were.
+from tests.fakes.adapter import FakeAdapter as _FakeAdapter  # noqa: E402
 
 
 def _make_manager(name: str = "fake_board.kicad_pcb", first_adapter_fail_first: int = 0):

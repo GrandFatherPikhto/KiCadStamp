@@ -64,69 +64,10 @@ def _isolate_gui_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(gui_settings, "SETTINGS_PATH", tmp_path / "gui_state.json")
 
 
-class _FakeAdapter:
-    """Minimal adapter stand-in with ONE injectable failure.
-
-    ``fail_on`` names the method that raises ``error`` (None = healthy). The
-    names are the ones the production callers use, so a cell can put the failure
-    exactly where production puts it:
-
-      * ``refresh_board``  - the seam's own board read. On the FIRST call it
-        happens inside ``_ensure_open``, i.e. OUTSIDE ``execute``'s try; on every
-        later call it is INSIDE it. This is §3.3's real path: with no PCB
-        document open ``kipy.kicad.get_board()`` raises ``ApiError`` ("Expected
-        to be able to retrieve at least one board"), so the adapter's
-        ``if self._board is None: raise BoardNotFoundError`` branch is dead code
-        and the promise in ``_ensure_open``'s docstring is unreachable;
-      * ``get_footprints`` - the handler's own read, i.e. an ``ApiError`` from a
-        busy KiCad or a kipy ``ConnectionError`` from a link that died mid-call,
-        both INSIDE the try;
-      * ``ping``           - the body the seam-only connection cells call.
-    """
-
-    def __init__(self, *, name="fake.kicad_pcb", version="10.0.6", footprints=(),
-                 fail_on=None, error=None):
-        self._name = name
-        self._version = version
-        self._footprints = list(footprints)
-        self._fail_on = fail_on
-        self._error = error
-        self.refresh_count = 0
-        self.close_count = 0
-
-    def _raise_if_failing(self, method):
-        if self._fail_on == method:
-            raise self._error
-
-    def refresh_board(self):
-        self.refresh_count += 1
-        self._raise_if_failing("refresh_board")
-
-    def get_board_filename(self):
-        self._raise_if_failing("get_board_filename")
-        return self._name
-
-    def get_board_project(self):
-        """Fail-on-demand like every other read here: the identity envelope of the
-        three reading tools calls this before the payload, so a test that wants the
-        envelope itself to fail can say so by name."""
-        self._raise_if_failing("get_board_project")
-        return ("fake_project", "/tmp/fake_project")
-
-    def get_version(self):
-        self._raise_if_failing("get_version")
-        return self._version
-
-    def get_footprints(self):
-        self._raise_if_failing("get_footprints")
-        return list(self._footprints)
-
-    def ping(self):
-        self._raise_if_failing("ping")
-        return "pong"
-
-    def close(self):
-        self.close_count += 1
+# The per-file copy lived here; it is shared now (Ф1.4). Imported mid-file on
+# purpose: the name and every call site stay exactly as they were. The
+# failure-injection contract (`fail_on` + `error`) is the shared fake's.
+from tests.fakes.adapter import FakeAdapter as _FakeAdapter  # noqa: E402
 
 
 def _run_tool(server, name, arguments=None):
