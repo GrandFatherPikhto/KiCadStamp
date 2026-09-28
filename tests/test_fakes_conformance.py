@@ -50,6 +50,22 @@ def test_every_named_seam_gap_exists_on_the_concrete_adapter():
         f"have either — those are invented by the fake, not gaps in the seam")
 
 
+def test_sheet_path_doubles_mirror_the_kipy_attribute_names():
+    """These doubles stand in for KIPY's KIID_PATH/KIID by ATTRIBUTE NAME, so the
+    names the consumers read are pinned here. Kipy itself is deliberately NOT
+    imported: a whole-file kipy import in this process would break the cells that
+    assert the seam does not pull kipy (they read sys.modules)."""
+    from tests.fakes.sheet_path import (FakePath, FakeSheetPathFootprint,
+                                        FakeUuid)
+
+    assert FakeUuid("u").value == "u"
+    assert [u.value for u in FakePath(["a", "b"]).path] == ["a", "b"]
+    fp = FakeSheetPathFootprint(["a", "b"])
+    assert [u.value for u in fp.sheet_path.path] == ["a", "b"], (
+        "the consumers read fp.sheet_path.path[].value — the double must keep "
+        "that shape")
+
+
 def test_fake_board_surfaces_match_the_seam_layer_reads():
     """Both board families stand in for the board reads the seam declares, so
     neither may invent a method — except the one the seam deliberately omits."""

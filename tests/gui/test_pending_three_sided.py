@@ -48,19 +48,10 @@ UUID_B = "bbbb-0002"
 
 # ── the same minimal fakes tests/gui/test_pending_dock.py uses ─────────────
 
-class _FakeUuid:
-    def __init__(self, value):
-        self.value = value
-
-
-class _FakePath:
-    def __init__(self, uuids):
-        self.path = [_FakeUuid(u) for u in uuids]
-
-
-class _FakeFp:
-    def __init__(self, uuids):
-        self.sheet_path = _FakePath(uuids)
+# Ф1.4d: moved to tests/fakes/sheet_path.py; this file only used them THROUGH
+# _FakeFp, so only that name is imported.
+from tests.fakes.sheet_path import (  # noqa: E402
+    FakeSheetPathFootprint as _FakeFp)
 
 
 def _component(ref, role, cluster, symbol_uuids=()):

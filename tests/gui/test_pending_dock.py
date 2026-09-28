@@ -7,23 +7,11 @@ from gui.schema_model import SchematicComponent, SchematicInstance
 from kicadstamp.explore import Selected
 
 
-class _FakeUuid:
-    def __init__(self, value):
-        self.value = value
-
-
-class _FakePath:
-    def __init__(self, uuids):
-        self.path = [_FakeUuid(u) for u in uuids]
-
-
-class _FakeFp:
-    """Minimal stand-in for a kipy FootprintInstance: exposes
-    fp.sheet_path.path (a list of uuids) so compute_pending_edits' identity
-    and full-path checks can read a board symbol uuid / full chain without a
-    live KiCad."""
-    def __init__(self, uuids):
-        self.sheet_path = _FakePath(uuids)
+# Moved to tests/fakes/sheet_path.py (Ф1.4d): the same three were repeated
+# verbatim in tests/gui/test_pending_three_sided.py. _FakeUuid/_FakePath are not
+# imported here — this file only ever used them THROUGH _FakeFp.
+from tests.fakes.sheet_path import (  # noqa: E402
+    FakeSheetPathFootprint as _FakeFp)
 
 
 def _component(ref, role, cluster, divergent=False, symbol_uuids=()):
