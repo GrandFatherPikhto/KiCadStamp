@@ -459,7 +459,17 @@ def test_anchor_base_read_runs_on_a_worker_under_the_token(
 
     assert connection.long_op_active is True, \
         "the base read does not take the shared-socket token"
-    assert seen == [], "the board was read on the UI thread, synchronously"
+    # Ф1.10: this was `assert seen == []` — "the read has not happened YET". That is a
+    # RACE, not a property: the read runs on the worker's QThread (gui/worker.py:382),
+    # which the `threading` module does not bookkeep — so `current_thread()` inside it
+    # is a _DummyThread — and that thread may finish the read before the UI thread
+    # reaches this line. Observed in a reverse-order run, where the record was
+    # {'token': True, 'thread': _DummyThread(Dummy-3447)}: the CORRECT shape, asserted
+    # against by its own cell. What this cell is about is that no read happened INLINE,
+    # and that is decidable without any timing: an inline read never takes the token, so
+    # it records token=False (the discriminator the docstring names).
+    assert all(r["token"] is True for r in seen), \
+        f"a board read happened WITHOUT the shared-socket token: {seen}"
     _pump(qapp, lambda: not connection.long_op_active)
 
     assert seen and seen[0]["token"] is True, \
@@ -673,7 +683,10 @@ def test_the_new_cell_extraction_reads_on_a_worker_under_the_token(
 
     assert connection.long_op_active is True, \
         "the extraction read does not take the shared-socket token"
-    assert seen == [], "the board was read on the UI thread, synchronously"
+    # Ф1.10: same race as the anchor-base cell above — the worker may already have
+    # finished; the token is the discriminator that needs no timing.
+    assert all(r["token"] is True for r in seen), \
+        f"a board read happened WITHOUT the shared-socket token: {seen}"
     _pump(qapp, lambda: not connection.long_op_active)
 
     assert seen and seen[0]["token"] is True, \
