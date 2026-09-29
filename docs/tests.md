@@ -171,13 +171,17 @@ how) — `python` there is the venv's interpreter, while a bare machine may only
 This is the command the project treats as the reference: it is what CI runs, and it
 is what a "more tests pass than before" claim is measured with.
 
-**Never run a bare `pytest`.** It does not merely SKIP the integration cells — it RUNS
-them: `testpaths = tests`, so a bare `pytest` collects `tests/integration_tests/` too.
-Without KiCad they error out (kipy `ConnectionError`, no board), and that is harmless;
-WITH KiCad open on a real board they WRITE TO THE LIVE BOARD. The failure of a bare run
-is therefore not "known environment noise" to be shrugged off — it is the sign of a run
-that should not have been started. Integration cells run ON PURPOSE only: on a test
-board, with the board saved, as the section below says.
+**A bare `pytest` no longer runs the integration cells.** `pytest.ini` now carries
+`addopts = -m "not integration"`, so they are deselected BY CONSTRUCTION — the
+`--ignore` above is a second belt, and the two spellings collect the SAME items. The
+warning this paragraph replaces was earned: before that line, `testpaths = tests`
+made a bare `pytest` COLLECT `tests/integration_tests/` as well, and with KiCad open on
+a real board those cells WRITE TO THE LIVE BOARD. An explicit `-m` still wins over
+`addopts` (pytest applies `addopts` first and the command line last), so
+`-m integration` keeps selecting them on purpose — on a test board, with the board
+saved, as the section below says. One consequence to know: `pytest
+tests/integration_tests/` WITHOUT `-m integration` now collects ZERO cells — the path
+and the `-m` filter multiply. That is the protection working, not a breakage.
 
 ### The three kinds by name
 
