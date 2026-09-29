@@ -920,7 +920,7 @@ def test_sync_from_schematic_fires_on_board_written_callback(
 
 
 def test_sync_from_schematic_requires_connection(
-        fieldstool_window, tmp_path, monkeypatch, caplog):
+        fieldstool_window, tmp_path, monkeypatch, caplog, records_from):
     """Not connected -> ONE ERROR line in the Log (never a modal —
     plan_2026_09_11_no_modals_and_busy_kicad X.1), nothing is written and no
     long op is started."""
@@ -935,7 +935,8 @@ def test_sync_from_schematic_requires_connection(
 
     fieldstool_window._on_sync_from_schematic()
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.fieldstool_window")
+              if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "Connect to KiCad first." in errors[0].message
     assert fieldstool_window._pending_edits  # unchanged, nothing written

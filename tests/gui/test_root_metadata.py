@@ -233,7 +233,7 @@ def test_open_root_filter_offers_only_sexp(main_window, monkeypatch):
 
 
 def test_set_root_file_refuses_a_non_sexp_path_and_never_remembers_it(
-        main_window, tmp_path, caplog):
+        main_window, tmp_path, caplog, records_from):
     """Д7 (ДОПОЛНЕНИЕ 1, Д-3): the refusal that counts, in the ONE door every path
     into the project goes through.
 
@@ -263,7 +263,8 @@ def test_set_root_file_refuses_a_non_sexp_path_and_never_remembers_it(
     assert received == [], "a refused path must not broadcast root_changed"
     assert settings.state.get("recent_root_files") == [str(root)], \
         "a refused path must not be remembered"
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.root_metadata")
+              if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert str(not_a_root) in errors[0].message
 

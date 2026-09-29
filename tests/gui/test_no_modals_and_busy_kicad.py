@@ -56,15 +56,21 @@ def _no_boxes(*a, **k):
     raise AssertionError("a connection-state error must not open a QMessageBox")
 
 
-def _errors(caplog):
-    return [r for r in caplog.records if r.levelno == logging.ERROR]
+def _errors(records_from, logger_name):
+    """ERROR records of the DOCK'S OWN logger (Ф1.4e).
+
+    Was `[r for r in caplog.records if r.levelno == logging.ERROR]`: caplog's
+    handler sits at the ROOT logger, so a neighbour's ERROR — from any module or
+    any thread — would break the exact `len(...) == 1` these cells assert.
+    `records_from` narrows the list to one logger (see tests/conftest.py)."""
+    return [r for r in records_from(logger_name) if r.levelno == logging.ERROR]
 
 
 # ── DockHub — Record... / Re-source... (X.1.2, lines 477 / 1375) ───────────
 
 
 def test_record_imprint_without_connection_logs_one_error(
-        real_main_window, tmp_path, monkeypatch, caplog):
+        real_main_window, tmp_path, monkeypatch, caplog, records_from):
     """Tools -> Imprints -> Record... without a live board: ONE ERROR line
     in the Log, no modal, and the Record dialog is never even constructed (the
     flow stops right there — X.1.4)."""
@@ -80,14 +86,14 @@ def test_record_imprint_without_connection_logs_one_error(
 
     real_main_window._dock_hub.record_imprint()
 
-    errors = _errors(caplog)
+    errors = _errors(records_from, "gui.dock_hub")
     assert len(errors) == 1
     assert "Connect to KiCad first." in errors[0].message
     assert constructed == []
 
 
 def test_resource_imprint_without_connection_logs_one_error(
-        real_main_window, tmp_path, monkeypatch, caplog):
+        real_main_window, tmp_path, monkeypatch, caplog, records_from):
     """The Re-source... twin of the flow above (X.1.2) — same one ERROR line,
     no modal, no dialog, nothing captured."""
     root = tmp_path / "root.sexp"
@@ -102,7 +108,7 @@ def test_resource_imprint_without_connection_logs_one_error(
 
     real_main_window._dock_hub._run_resource_imprint({"name": "rec"}, root)
 
-    errors = _errors(caplog)
+    errors = _errors(records_from, "gui.dock_hub")
     assert len(errors) == 1
     assert "Connect to KiCad first." in errors[0].message
     assert constructed == []
@@ -112,7 +118,7 @@ def test_resource_imprint_without_connection_logs_one_error(
 
 
 def test_reread_node_without_connection_logs_one_error(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """The node context action "Reread current position" without a live board:
     ONE ERROR line, no modal, and the node keeps its stored values (X.1.4 —
     the operation still stops)."""
@@ -129,7 +135,7 @@ def test_reread_node_without_connection_logs_one_error(
 
     dock._reread_node_flow(tree, node)
 
-    errors = _errors(caplog)
+    errors = _errors(records_from, "gui.docks.trees_dock")
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
     assert (node.xy, node.polar, node.rotation) == before
@@ -140,7 +146,7 @@ def test_reread_node_without_connection_logs_one_error(
 
 
 def test_cell_editor_live_flows_without_connection_log_one_error_each(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """The three CellDock flows that already reported "Connect to KiCad first."
     through _show_message (refresh geometry / import vias-tracks / select
     cluster on the board) keep doing exactly that — one ERROR line each, no
@@ -157,13 +163,13 @@ def test_cell_editor_live_flows_without_connection_log_one_error_each(
                     dock._on_select_cluster_on_board):
         caplog.clear()
         handler()
-        errors = _errors(caplog)
+        errors = _errors(records_from, "gui.docks.cell_editor")
         assert len(errors) == 1, handler.__name__
         assert "Connect to KiCad first." in errors[0].message
 
 
 def test_net_trace_extract_without_connection_logs_one_error(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """NetTraceDock's Extract is the fourth of the X.1.3 set — same contract:
     one ERROR line, never a modal, nothing written. NetTraceDock never imported
     QMessageBox at all (it was converted long ago), so the "no modal" guard is
@@ -179,7 +185,7 @@ def test_net_trace_extract_without_connection_logs_one_error(
 
     dock._on_extract()
 
-    errors = _errors(caplog)
+    errors = _errors(records_from, "gui.docks.net_trace")
     assert len(errors) == 1
     assert "Connect to KiCad first." in errors[0].message
     assert dock._active_op is None  # nothing was dispatched
@@ -189,7 +195,7 @@ def test_net_trace_extract_without_connection_logs_one_error(
 
 
 def test_node_form_offline_hint_stays_and_is_not_logged(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """The node form's offline notice ("No live board connection — showing the
     STORED values ...", X.1.3) is a FORM hint rendered next to the disabled
     fields — it must stay exactly as it was and must NOT be routed to the Log.
@@ -211,7 +217,7 @@ def test_node_form_offline_hint_stays_and_is_not_logged(
     hint = dlg.offset_frame_label.text()
     assert "STORED values" in hint
     assert dlg.offset_frame_label.isVisible() or not dlg.isVisible()
-    assert _errors(caplog) == []
+    assert _errors(records_from, "gui.docks.trees_dock") == []
     # The stored values are what the form shows (never numbers in a frame the
     # user cannot verify) and they are not editable until KiCad is connected.
     assert dlg.offset_widget.isEnabled() is False

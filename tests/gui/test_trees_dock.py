@@ -1803,7 +1803,7 @@ def test_node_dialog_read_position_point_kind_rotation_left_blank(
 
 
 def test_node_dialog_read_position_logs_error_when_no_live_connection(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """adapter is None (not connected) -> ONE ERROR line in the Log (never a
     modal — plan_2026_09_11_no_modals_and_busy_kicad X.1), and nothing is
     written to the offset fields (no silent partial state)."""
@@ -1822,7 +1822,8 @@ def test_node_dialog_read_position_logs_error_when_no_live_connection(
     dlg.ref_combo.setCurrentText("C_OUT")
     dlg._on_read_position()
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.trees_dock")
+              if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
     # Э4 (plan_2026_09_12_node_dialog_usability): an ADD-mode form now starts

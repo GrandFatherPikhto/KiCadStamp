@@ -27,7 +27,6 @@ from kicadstamp.imprint_capture import (
     build_imprint_diff,
     capture_imprint,
 )
-from kicadstamp.utils.units import MM
 
 F = BoardLayer.BL_F_Cu
 B = BoardLayer.BL_B_Cu
@@ -62,43 +61,9 @@ def _via(x_mm, y_mm, net, drill=0.3, diam=0.6):
                net_name=net, drill_mm=drill, diameter_mm=diam)
 
 
-class _FakeAdapter:
-    """Mock board adapter: pads keyed by footprint ref, boxes around items."""
-
-    def __init__(self, footprints, tracks, vias, pads_by_ref):
-        self._fps = footprints
-        self._tracks = tracks
-        self._vias = vias
-        self._pads = pads_by_ref
-
-    def get_footprints(self):
-        return list(self._fps)
-
-    def get_tracks(self):
-        return list(self._tracks)
-
-    def get_vias(self):
-        return list(self._vias)
-
-    def get_footprint_pads(self, fp):
-        return list(self._pads.get(fp.ref, []))
-
-    def get_bounding_boxes(self, items):
-        out = []
-        for it in items:
-            if isinstance(it, Footprint):
-                half = int(2.0 * MM)
-            elif isinstance(it, Pad):
-                half = int(0.5 * MM)
-            elif isinstance(it, Via):
-                half = max(int((it.diameter_mm / 2) * MM), int(0.25 * MM))
-            else:
-                out.append(None)
-                continue
-            p = it.position
-            out.append(Box2(pos=Vector2.from_xy(p.x - half, p.y - half),
-                            size=Vector2.from_xy(2 * half, 2 * half)))
-        return out
+# Ф1.4e family B: this file and tests/gui/test_imprint.py carried the SAME
+# five-method capture/diff adapter, so it is IMPORTED, not redefined.
+from tests.fakes.imprint_adapter import FakeImprintAdapter as _FakeAdapter  # noqa: E402
 
 
 def _scenario():

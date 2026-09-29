@@ -86,7 +86,7 @@ def test_creating_a_project_writes_the_config_and_the_infrastructure(qapp, tmp_p
 
 
 def test_an_existing_project_is_refused_with_a_warning_and_survives(
-        qapp, tmp_path, monkeypatch, caplog):
+        qapp, tmp_path, monkeypatch, caplog, records_from):
     """The refusal row (Denis, 2026-09-24: "с модалкой": a warning box plus ONE
     ERROR line in the Log). The dialog stays OPEN, the existing config keeps its
     bytes and nothing is added — an overwrite here would destroy a real project."""
@@ -109,7 +109,8 @@ def test_an_existing_project_is_refused_with_a_warning_and_survives(
     assert existing.read_text(encoding="utf-8") == before
     assert sorted(p.name for p in project.iterdir()) == ["registry", "taken.sexp"]
     assert len(warned) == 1 and str(existing) in warned[0]
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.create_project_dialog")
+              if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert str(existing) in errors[0].message
 

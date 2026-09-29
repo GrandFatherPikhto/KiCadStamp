@@ -27,6 +27,7 @@ from kicadstamp.placement.services.component_resolver import ComponentResolver
 from tests.fakes.adapter import FakeAdapter, public_callables
 from tests.fakes.board import FakeBoardLayers, FakeBoardOverlay
 from tests.fakes.explore_board import FakeExploreBoard
+from tests.fakes.imprint_adapter import FakeImprintAdapter
 from tests.fakes.live_board import FakeLiveBoardAdapter
 from tests.fakes.pipeline import PipelineStubLifetime
 from tests.fakes.planner import FakePlanner
@@ -115,6 +116,19 @@ def test_fake_board_surfaces_match_the_seam_layer_reads():
             f"the tests and by diagnostics/probe_board_copper_layers.py, not by "
             f"gui/ or kicadstamp/)")
         assert not (allowed - invented), f"{cls.__name__}.FAKE_ONLY has rotted"
+
+
+def test_fake_imprint_adapter_surface_is_the_seam():
+    """Ф1.4e family B: the imprint capture/diff stand-in. Every read it carries is
+    declared on `IBoardAdapter`, so it invents nothing (`SEAM_GAPS` is empty)."""
+    fake = public_callables(FakeImprintAdapter)
+    seam = public_callables(IBoardAdapter)
+    assert fake and seam, "scan went blind"
+    allowed = set(FakeImprintAdapter.SEAM_GAPS)
+    assert not allowed, "this fake was expected to have no seam gaps"
+    assert fake - seam == allowed, (
+        f"FakeImprintAdapter carries {sorted(fake - seam)} beyond the seam; it "
+        f"should carry the seam's reads only, with SEAM_GAPS empty")
 
 
 def test_pipeline_stub_matches_the_real_apply_pipeline_lifetime():

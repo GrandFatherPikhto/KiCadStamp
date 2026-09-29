@@ -49,7 +49,7 @@ def test_rule_origin_read_position_shows_anchor_readout(main_window, monkeypatch
 
 
 def test_rule_origin_read_position_logs_error_when_no_live_connection(
-        main_window, monkeypatch, caplog):
+        main_window, monkeypatch, caplog, records_from):
     """No live board connection -> ONE ERROR line in the Log (never a modal —
     plan_2026_09_11_no_modals_and_busy_kicad X.1), the readout label stays
     empty."""
@@ -63,7 +63,7 @@ def test_rule_origin_read_position_logs_error_when_no_live_connection(
 
     dock._on_origin_read_position()
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.chain") if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
     assert dock.anchor_position_label.text() == ""

@@ -225,7 +225,7 @@ def test_coordinate_read_position_anchor_writes_offset(main_window, tmp_path, mo
 
 
 def test_coordinate_read_position_logs_error_when_no_live_connection(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """No live board connection -> ONE ERROR line in the Log (never a modal —
     plan_2026_09_11_no_modals_and_busy_kicad X.1), and NOTHING is written to
     the position fields (no silent partial state). The missing connection is
@@ -240,7 +240,7 @@ def test_coordinate_read_position_logs_error_when_no_live_connection(
     caplog.clear()
     dock._on_coordinate_read_position()
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.placer") if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
     assert form.x_edit.text() == ""
@@ -321,7 +321,7 @@ def test_clone_read_position_anchor_writes_shift(main_window, tmp_path, monkeypa
 
 
 def test_clone_read_position_logs_error_when_no_live_connection(
-        main_window, tmp_path, monkeypatch, caplog):
+        main_window, tmp_path, monkeypatch, caplog, records_from):
     """No live board connection -> ONE ERROR line in the Log (never a modal),
     and nothing is written — same rule as the coordinate read above."""
     dock, _ = _make_clone_dock(main_window, tmp_path)
@@ -332,7 +332,7 @@ def test_clone_read_position_logs_error_when_no_live_connection(
     caplog.clear()
     dock._on_clone_read_position()
 
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    errors = [r for r in records_from("gui.docks.placer") if r.levelno == logging.ERROR]
     assert len(errors) == 1
     assert "No live board connection" in errors[0].message
     assert dock.origin_widget.x_edit.text() == ""
