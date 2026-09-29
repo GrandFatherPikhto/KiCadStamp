@@ -123,7 +123,8 @@ def test_the_lift_rebuilds_so_a_legacy_alias_comes_out_canonical(tmp_path):
     assert text == dict_to_sexp({"chains": []})
 
 
-def test_the_lift_warns_with_the_path_to_the_previous_version(tmp_path, caplog):
+def test_the_lift_warns_with_the_path_to_the_previous_version(tmp_path, caplog,
+                                                             records_from):
     """The WARNING is a Log LINE (no modal), and it names the `.bak`: that path is
     the whole rollback story, since there is no undo (Т7 documents the same)."""
     root, _sub = _sexp_graph(tmp_path)
@@ -131,7 +132,11 @@ def test_the_lift_warns_with_the_path_to_the_previous_version(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="kicadstamp.config.upgrade_on_disk"):
         load_config(str(root))
 
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    # Ф1.11: scoped to THIS logger — `caplog.records` also holds the foreign
+    # "pynng Socket.close() did not return" WARNING another thread logs, which made
+    # `len(...) == 2` fail depending on what ran before this cell.
+    warnings = [r.getMessage() for r in records_from("kicadstamp.config.upgrade_on_disk")
+                if r.levelno == logging.WARNING]
     assert len(warnings) == 2, warnings
     assert all("outdated, lifted to" in m for m in warnings)
     assert all(".bak." in m for m in warnings)
@@ -223,7 +228,8 @@ def test_a_repeat_open_writes_nothing_and_parses_nothing_for_the_number(tmp_path
 
 # ── У2: the check before the write is by MEANING ───────────────────────────
 
-def test_an_explicit_default_value_is_dropped_by_the_rebuild_and_still_lifts(tmp_path, caplog):
+def test_an_explicit_default_value_is_dropped_by_the_rebuild_and_still_lifts(tmp_path, caplog,
+                                                                            records_from):
     """У2 with teeth, and the reason this cell exists.
 
     `Cell.layer` defaults to `'F.Cu'` and the writer DROPS a field equal to its
@@ -244,14 +250,16 @@ def test_an_explicit_default_value_is_dropped_by_the_rebuild_and_still_lifts(tmp
         lifted = upgrade_graph_on_disk(root)                    # the sweep alone
 
     assert [p.name for p in lifted] == ["root.sexp"], "lifted, not refused"
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert [r.getMessage() for r in records_from("kicadstamp.config.upgrade_on_disk")
+            if r.levelno >= logging.ERROR] == []
     after = root.read_text(encoding="utf-8")
     assert "layer" not in after, "the rebuild dropped the default-valued field"
     assert after == dict_to_sexp({"cells": {"c1": {}}})
     assert read_version(root) == CURRENT_FORMAT
 
 
-def test_a_real_fixture_with_explicit_values_lifts_without_one_error(tmp_path, caplog):
+def test_a_real_fixture_with_explicit_values_lifts_without_one_error(tmp_path, caplog,
+                                                                     records_from):
     """У2 on REAL content: `internal_mount/config.sexp` is lifted with no ERROR.
 
     Measured for this fixture: its rebuild is byte-identical (`(xy 0.0 0.0)` and
@@ -268,7 +276,8 @@ def test_a_real_fixture_with_explicit_values_lifts_without_one_error(tmp_path, c
     with caplog.at_level(logging.ERROR):
         load_config(str(dst))
 
-    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert [r.getMessage() for r in records_from("kicadstamp.config.upgrade_on_disk")
+            if r.levelno >= logging.ERROR] == []
     assert read_version(dst) == CURRENT_FORMAT
     assert list(tmp_path.glob("config.sexp.bak.*")), "and the previous bytes are kept"
     assert dst.read_text(encoding="utf-8") == dict_to_sexp(sexp_to_dict(text))

@@ -120,7 +120,7 @@ class TestSymbolUuidOf:
         diagnostics still pass it."""
         assert symbol_uuid_of(kipy_footprint()) == UUID_COMP
 
-    def test_c3_empty_path_is_a_quiet_none(self, caplog):
+    def test_c3_empty_path_is_a_quiet_none(self, caplog, records_from):
         """С3: an empty path is a LEGAL answer (no uuid), not a defect: None and
         not a single warning."""
         with caplog.at_level(logging.WARNING,
@@ -128,10 +128,12 @@ class TestSymbolUuidOf:
             assert symbol_uuid_of(adapter_footprint(uuids=())) is None
             assert symbol_uuid_of(kipy_footprint(uuids=())) is None
             assert symbol_uuid_of(None) is None
-        assert [r for r in caplog.records
+        # Ф1.11: over ALL records this "not a single warning" also counted records
+        # other threads log (the pynng orphaned-close WARNING among them).
+        assert [r for r in records_from("kicadstamp.field_overrides")
                 if r.levelno >= logging.WARNING] == []
 
-    def test_c4_a_foreign_shape_is_named_in_the_log(self, caplog):
+    def test_c4_a_foreign_shape_is_named_in_the_log(self, caplog, records_from):
         """С4: "the object is not the shape we expect" is a DEFECT, and it must
         be visible: None (never a guess) plus one WARNING naming the type —
         once per type, not once per call (the live flow calls this per row per
@@ -140,7 +142,8 @@ class TestSymbolUuidOf:
                              logger="kicadstamp.field_overrides"):
             assert symbol_uuid_of(SimpleNamespace(ref="X")) is None
             assert symbol_uuid_of(SimpleNamespace(ref="Y")) is None
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        warnings = [r for r in records_from("kicadstamp.field_overrides")
+                    if r.levelno == logging.WARNING]
         assert len(warnings) == 1, warnings
         assert "SimpleNamespace" in warnings[0].getMessage()
 

@@ -529,7 +529,7 @@ class TestTemporarilyIgnoreSelection:
         assert adapter.ignore_selection is False
 
 
-def test_get_items_by_id_all_stale_batch_is_quiet(caplog):
+def test_get_items_by_id_all_stale_batch_is_quiet(caplog, records_from):
     """Found live 2026-08-31 (fpga_flash, 30 stale registry UUIDs): KiCad
     raises ApiError "none of the requested IDs were found or valid" when the
     WHOLE requested batch is stale. That is the documented "a stale UUID is
@@ -546,10 +546,14 @@ def test_get_items_by_id_all_stale_batch_is_quiet(caplog):
     with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
         assert adapter.get_items_by_id(["stale-1", "stale-2"]) == []
 
-    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+    # Ф1.11: scoped to the adapter's logger. Over ALL records this assertion was also
+    # reading the foreign "pynng Socket.close() did not return" WARNING that another
+    # thread logs, so the cell could fail on a neighbour's record (reverse-order run).
+    assert not any(r.levelno >= logging.WARNING
+                   for r in records_from("kicadstamp.kicad.adapter"))
 
 
-def test_get_items_by_id_genuine_error_still_warns(caplog):
+def test_get_items_by_id_genuine_error_still_warns(caplog, records_from):
     """Only the all-stale ApiError is benign — a transport/IPC failure is a
     real error and must keep warning (returns [] so the caller degrades to
     "no copper", never crashes)."""
@@ -562,7 +566,8 @@ def test_get_items_by_id_genuine_error_still_warns(caplog):
     with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
         assert adapter.get_items_by_id(["u1"]) == []
 
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    warnings = [r for r in records_from("kicadstamp.kicad.adapter")
+                if r.levelno >= logging.WARNING]
     assert warnings
     assert any("Failed to look up items by id" in r.getMessage() for r in warnings)
 

@@ -175,3 +175,33 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.gui)
         else:
             item.add_marker(pytest.mark.unit)
+
+
+# ── Ф1.11: `caplog.records` is EVERYTHING, so scope it to the logger under test ──
+
+
+@pytest.fixture
+def records_from(caplog):
+    """`caplog.records`, narrowed to ONE logger — the Ф1.11 decoupling.
+
+    caplog attaches its handler at the ROOT logger, so `caplog.records` holds every
+    record logged during the test, from ANY module and ANY thread. Judging by LEVEL
+    over that whole list — `len(warnings) == 2`, `... == []`, `not any(r.levelno >=
+    WARNING)`, `records[-1].levelname` — makes a cell depend on what the rest of the
+    process happened to log. In a reverse-order run two cells failed on
+
+        "pynng Socket.close() did not return within 2.0s — abandoning it on an
+         orphaned thread"
+
+    (kicadstamp/kicad/pynng_safety.py, logged from a BACKGROUND thread by a socket an
+    EARLIER test had left behind). Nothing about those two cells' subject was wrong:
+    they were counting a neighbour's warning.
+
+    Usage — with the same name the cell already gives `caplog.at_level(logger=...)`:
+
+        [r for r in records_from("kicadstamp.kicad.adapter") if r.levelno >= ...]
+    """
+    def _records(logger_name):
+        return [r for r in caplog.records
+                if r.name == logger_name or r.name.startswith(logger_name + ".")]
+    return _records
