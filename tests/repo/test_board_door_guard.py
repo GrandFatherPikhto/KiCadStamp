@@ -110,11 +110,22 @@ def _read_in_worker(connection):
     return outcome["read"]
 
 
+# A `.py:line` token, WITH the OPTIONAL DRIVE LETTER the refusal carries on
+# Windows (`D:\...\file.py:133`). Without it `_site_from` returned a path with
+# `D:` stripped, so the startswith() below failed on Windows (Ф3.1).
+_SITE_RE = re.compile(r"((?:[A-Za-z]:)?[^\s:]+\.py:\d+)")
+
+
+def _sites_from(message: str) -> list[str]:
+    """Every `file:line` token the message names."""
+    return _SITE_RE.findall(message)
+
+
 def _site_from(message: str) -> str:
-    """The `file:line` the refusal names — the only path-like token in it."""
-    match = re.search(r"([^\s:]+\.py:\d+)", message)
-    assert match is not None, f"the refusal names no site: {message!r}"
-    return match.group(1)
+    """The `file:line` the refusal names — the first path-like token."""
+    matches = _sites_from(message)
+    assert matches, f"the refusal names no site: {message!r}"
+    return matches[0]
 
 
 # ── С1 — refused, and the message names the CALLER ───────────────────────────
@@ -134,7 +145,12 @@ def test_ui_thread_read_without_a_sign_is_refused(ui_thread):
 
     site = _site_from(str(excinfo.value))
     assert site.startswith(str(Path(__file__).resolve())), site
-    assert "gui/connection.py:" not in str(excinfo.value)
+    # The named site is the CALLER, never the door itself. Compared by the parsed
+    # token's BASENAME, not by the substring `"gui/connection.py:"`: on Windows the
+    # path is `gui\connection.py:`, so the substring check was TRUE for the wrong
+    # reason — a guard blind exactly where it was needed (Ф3.1).
+    assert all(Path(s.rsplit(":", 1)[0]).name != "connection.py"
+               for s in _sites_from(str(excinfo.value))), str(excinfo.value)
 
 
 def test_the_refusal_names_the_line_that_actually_reads_the_board(ui_thread):

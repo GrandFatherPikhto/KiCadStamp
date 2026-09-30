@@ -42,6 +42,8 @@ from typing import NamedTuple
 
 import pytest
 
+from tests.fakes.process_exit import died_of_a_crash
+
 
 _UI_THREAD_SLOT = '''\
 """A slot on the UI thread, driven by processEvents() — the _pump shape."""
@@ -188,9 +190,9 @@ def test_an_exception_in_a_qt_slot_is_a_named_failure_not_a_dump(tmp_path, row):
         assert proc.returncode != 0, (
             f"an uncaught slot exception cannot end in a clean run — got "
             f"returncode={proc.returncode}\n{output}")
-        assert proc.returncode < 0 or proc.returncode == 134, (
-            f"the control must die abnormally (SIGABRT: negative returncode on "
-            f"POSIX, 134 through a shell) — got {proc.returncode}\n{output}")
+        assert died_of_a_crash(proc.returncode), (
+            f"the control must die abnormally (SIGABRT on POSIX; an NTSTATUS like "
+            f"0xC0000409 on Windows) — got {proc.returncode}\n{output}")
         assert "Fatal Python error" in output, (
             f"without pytest-qt the message must be the interpreter's own dump — "
             f"that is the symptom this whole plan exists to remove\n{output}")

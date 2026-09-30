@@ -31,6 +31,7 @@ neighbour):
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -363,7 +364,24 @@ def test_a_newer_file_anywhere_stops_the_graph_before_any_write(tmp_path):
 
 # ── failures: the file is left alone, the load continues ───────────────────
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the mode bits, so nothing can fail")
+def _unbuildable_unwritable_dir_reason() -> str | None:
+    """Why the unwritable-directory cell cannot run here, or None.
+
+    Two honest reasons, and the win32 branch is checked FIRST so `os.geteuid()`
+    — an attribute Windows does not have — is never reached there (Ф3.1)."""
+    if sys.platform == "win32":
+        return ("os.chmod cannot make a DIRECTORY unwritable on Windows (it only "
+                "sets the read-only attribute on files), so the cell cannot be built")
+    if os.geteuid() == 0:
+        return "root ignores the mode bits, so nothing can fail"
+    return None
+
+
+_UNBUILDABLE_UNWRITABLE_DIR = _unbuildable_unwritable_dir_reason()
+
+
+@pytest.mark.skipif(_UNBUILDABLE_UNWRITABLE_DIR is not None,
+                    reason=_UNBUILDABLE_UNWRITABLE_DIR or "")
 def test_an_unwritable_directory_leaves_the_file_and_still_loads(tmp_path, caplog):
     root = tmp_path / "root.sexp"
     root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
@@ -405,5 +423,4 @@ def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypat
 
 
 if __name__ == "__main__":  # pragma: no cover
-    import sys
     sys.exit(pytest.main([__file__, "-q"]))

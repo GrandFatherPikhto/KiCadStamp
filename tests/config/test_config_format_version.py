@@ -692,7 +692,7 @@ def _sexp_to_dict_call_sites() -> list[tuple[str, str, bool, bool]]:
         for path in sorted((_REPO_ROOT / root_name).rglob("*.py")):
             if _SCAN_SKIP_DIRS.intersection(path.parts):
                 continue
-            _Finder(str(path.relative_to(_REPO_ROOT))).visit(
+            _Finder(path.relative_to(_REPO_ROOT).as_posix()).visit(
                 ast.parse(path.read_text(encoding="utf-8")))
     return sites
 
@@ -904,7 +904,7 @@ def _config_text_write_sites() -> set[tuple[str, str]]:
         for path in sorted((_REPO_ROOT / root_name).rglob("*.py")):
             if _SCAN_SKIP_DIRS.intersection(path.parts):
                 continue
-            _Finder(str(path.relative_to(_REPO_ROOT))).visit(
+            _Finder(path.relative_to(_REPO_ROOT).as_posix()).visit(
                 ast.parse(path.read_text(encoding="utf-8")))
     return sites
 

@@ -56,7 +56,13 @@ def _store_path(tmp_path: Path) -> Path:
 
 def test_store_path_mirrors_the_registry_convention():
     cfg = "/tmp/project/config.sexp"
-    assert overrides_path_for_config(cfg) == "/tmp/project/overrides/config.fields.json"
+    # Compare as PATHS, not as byte strings: the product builds the store path with
+    # pathlib and hands back the PLATFORM's own separator, which is correct — the
+    # path goes straight into open() on the same machine. The old
+    # `== "…/config.fields.json"` was a POSIX-bytes assertion and failed on Windows
+    # (Ф3.1); product code is untouched.
+    assert Path(overrides_path_for_config(cfg)) == (
+        Path("/tmp/project") / "overrides" / "config.fields.json")
     assert Path(registry_path_for_config(cfg)).name == "config.registry.json"
 
 

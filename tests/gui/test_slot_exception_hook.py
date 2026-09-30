@@ -48,6 +48,8 @@ import pytest
 # Ф2.0: depth-independent (tests/paths.py).
 from tests.paths import REPO_ROOT as _REPO_ROOT
 
+from tests.fakes.process_exit import died_of_a_crash
+
 # ── the inner programs ───────────────────────────────────────────────────────
 # Each one is a standalone python program: no pytest, no fixtures, nothing that
 # could fail for a reason other than the property under test.
@@ -604,9 +606,9 @@ def test_a_slot_exception_no_longer_kills_the_process(tmp_path, row_id, extra):
         assert proc.returncode != 0, (
             f"without the hook this program cannot end cleanly — got "
             f"returncode={proc.returncode}\n{output}")
-        assert proc.returncode < 0 or proc.returncode == 134, (
-            f"the control must die from a SIGNAL (SIGABRT: a negative returncode on "
-            f"POSIX, 134 through a shell) — got {proc.returncode}\n{output}")
+        assert died_of_a_crash(proc.returncode), (
+            f"the control must die from a SIGNAL (SIGABRT on POSIX; an NTSTATUS "
+            f"like 0xC0000409 on Windows) — got {proc.returncode}\n{output}")
         # Deliberately NOT asserting the interpreter's own words here. A bare python
         # process does not enable faulthandler, so "Fatal Python error" is a spelling
         # that appears only when faulthandler is ON — pytest turns it on, which is why

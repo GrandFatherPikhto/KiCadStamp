@@ -202,7 +202,7 @@ def test_no_attribute_of_an_imported_name_is_assigned_outside_monkeypatch():
     undone for you, so a failure cannot leak into the next test."""
     scanned, names_seen, offenders = 0, 0, []
     for path in _files():
-        rel = str(path.relative_to(REPO))
+        rel = path.relative_to(REPO).as_posix()
         if rel in MONKEYPATCH_EXCEPTIONS:
             continue
         scanned += 1

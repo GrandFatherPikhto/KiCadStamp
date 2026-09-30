@@ -334,7 +334,7 @@ class TestNoLegacyNameInShipSources:
     def test_the_whitelist_cannot_grow_silently(self):
         """Guards the whitelist itself: a new file may only join it by editing
         this assertion, i.e. deliberately."""
-        assert {str(p) for p in _WHITELIST} == {
+        assert {p.as_posix() for p in _WHITELIST} == {
             "kicadstamp/config/aliases.py",
             "kicadstamp/config/entries.py",
             "kicadstamp/config/sexp_format.py",
