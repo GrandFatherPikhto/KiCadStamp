@@ -143,6 +143,21 @@ _GUI_DIR = _TESTS_ROOT / "gui"
 _INTEGRATION_DIR = _TESTS_ROOT / "integration_tests"
 
 
+def pytest_addoption(parser):
+    """`--reverse-order` — the order-independence run, one command for both
+    platforms (Ф3.1 of plan_2026_09_27_repo_and_tests_transformation).
+
+    docs/tests.md's reverse run used to be a shell pipeline
+    (`find tests -name 'test_*.py' … | sort -r`), which is bash-only: on Windows
+    there was no equivalent. Reversing the order of the COLLECTED cells here makes
+    the same command work everywhere. Within one file the author's order is kept.
+    """
+    parser.addoption(
+        "--reverse-order", action="store_true", default=False,
+        help="collect the cells in reverse FILE order (the order-independence "
+             "check of docs/tests.md)")
+
+
 def pytest_collection_modifyitems(config, items):
     """Attach exactly ONE of `gui` / `integration` / `unit` to every collected item.
 
@@ -180,6 +195,11 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.gui)
         else:
             item.add_marker(pytest.mark.unit)
+
+    if config.getoption("reverse_order"):
+        # Reverse FILE order, keeping each file's own cell order (a stable sort):
+        # the shape the old `find … | sort -r` produced, without the shell.
+        items.sort(key=lambda item: item.path.as_posix(), reverse=True)
 
 
 # ── Ф1.11: `caplog.records` is EVERYTHING, so scope it to the logger under test ──

@@ -197,14 +197,15 @@ python -m pytest tests/geometry/test_spoke_layout.py::test_local_to_global -q
 ### The reverse-order run
 
 ```bash
-python -m pytest $(find tests -name 'test_*.py' -not -path 'tests/integration_tests/*' | sort -r) -m "not integration" -q
+python -m pytest --reverse-order -q
 ```
 
-The globs that used to name it (`ls -r tests/test_*.py tests/gui/test_*.py`) described
-the FLAT layout and stopped describing anything after Ф2 — which would have made the
-reverse run collect the wrong half of the suite and report a clean result for it. The
-`find` above is layout-independent: it names every test file outside
-`integration_tests/`, in reverse order, whatever directories the domains have.
+`--reverse-order` (an option in `tests/conftest.py`) reverses the FILE order of the
+collected cells — the same run the bash-only pipeline
+`python -m pytest $(find tests -name 'test_*.py' … | sort -r)` used to produce, now
+one command on Linux, macOS AND Windows (that pipeline could not run on Windows at
+all — Ф3.1). `tests/repo/test_reverse_order_option.py` proves the order really
+reverses, so a `--reverse-order` that quietly did nothing cannot pass.
 
 Order independence is a property the suite must KEEP, not a hope: the shared reset
 and the marker hook exist so that a cell does not depend on what ran before it. A

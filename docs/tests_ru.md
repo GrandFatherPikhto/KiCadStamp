@@ -197,14 +197,15 @@ python -m pytest tests/geometry/test_spoke_layout.py::test_local_to_global -q
 ### Прогон в обратном порядке
 
 ```bash
-python -m pytest $(find tests -name 'test_*.py' -not -path 'tests/integration_tests/*' | sort -r) -m "not integration" -q
+python -m pytest --reverse-order -q
 ```
 
-Глобы, которыми он назывался раньше (`ls -r tests/test_*.py tests/gui/test_*.py`),
-описывали ПЛОСКУЮ раскладку и после Ф2 не описывают ничего — обратный прогон собрал
-бы не ту половину набора и отрапортовал по ней чистый результат. `find` выше от
-раскладки не зависит: он называет все тест-файлы вне `integration_tests/`, в
-обратном порядке, какими бы ни стали доменные каталоги.
+`--reverse-order` (опция в `tests/conftest.py`) переворачивает ПОРЯДОК ФАЙЛОВ
+собранных клеток — тот же прогон, который раньше давала только-bash связка
+`python -m pytest $(find tests -name 'test_*.py' … | sort -r)`, теперь одной
+командой на Linux, macOS И Windows (на Windows та связка не запускалась вовсе —
+Ф3.1). `tests/repo/test_reverse_order_option.py` доказывает, что порядок
+действительно обратный, так что молчаливая пустышка `--reverse-order` не пройдёт.
 
 Независимость от порядка — это свойство, которое набор тестов обязан ДЕРЖАТЬ, а
 не на которое надеются: общий сброс и хук маркеров и существуют затем, чтобы
