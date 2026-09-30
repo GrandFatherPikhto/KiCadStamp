@@ -42,7 +42,8 @@ from gui.docks.trees_dock import (
     _mount_point_key,
 )
 
-from tests.gui.test_trees_dock import (  # noqa: F401 — sync_long_ops is a fixture
+# Ф2.4: both files now live under tests/gui/docks/ — the cross-import follows them.
+from tests.gui.docks.test_trees_dock import (  # noqa: F401 — sync_long_ops is a fixture
     _OverlayAdapter,
     _dock_with,
     _no_modal,

@@ -31,7 +31,8 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.i18n import _
 from kicadstamp.trees import Tree
 from tests.gui.conftest import _pump
-from tests.gui.test_trees_dock import _node_form_for  # noqa: F401
+# Ф2.4: both files now live under tests/gui/docks/, so the cross-import follows them.
+from tests.gui.docks.test_trees_dock import _node_form_for  # noqa: F401
 
 
 def _row(ref, role, cluster):
