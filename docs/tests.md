@@ -241,8 +241,21 @@ weakened suite — it stops with `ERROR: Missing required plugins`:
   `timeout <N>` command instead, and the name of the test that hung would be
   lost.
 
-Install them with `pip install -e ".[dev]"`; the same pins live in
-`requirements.txt`, which is what CI installs.
+Install them with `pip install -e ".[dev]"`. CI does NOT resolve extras: it installs
+the LOCK `requirements.txt`, then `pip install -e . --no-deps`.
+
+**`requirements.txt` is a GENERATED lock — never edit it by hand.** The pin source is
+`pyproject.toml`; regenerate with uv (the version CI pins, 0.5.9):
+
+```bash
+uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+```
+
+`--universal` is not optional: without it the lock resolves for the CURRENT OS and
+drops the Windows-only pins (`colorama`, `pywin32`) the Windows leg needs. A CI step
+on Linux re-runs this command and fails when `git diff --exit-code requirements.txt`
+is non-empty. **Rule: change a pin or an extra in `pyproject.toml` → run the command
+→ commit BOTH files together.**
 
 ### Integration tests (with real KiCad)
 

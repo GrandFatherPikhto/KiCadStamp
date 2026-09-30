@@ -240,8 +240,21 @@ python -m pytest --reverse-order -q
   не делает вообще ничего: зависший GUI-тест убьёт внешняя команда `timeout <N>`,
   и имя зависшего теста потеряется.
 
-Ставятся через `pip install -e ".[dev]"`; те же пины лежат в `requirements.txt`,
-который и устанавливает CI.
+Ставятся через `pip install -e ".[dev]"`. CI НЕ разворачивает extras: он ставит
+LOCK `requirements.txt`, затем `pip install -e . --no-deps`.
+
+**`requirements.txt` — СГЕНЕРИРОВАННЫЙ lock, руками не править никогда.** Источник
+пинов — `pyproject.toml`; пересобирать uv (версии CI — 0.5.9):
+
+```bash
+uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+```
+
+`--universal` не опционален: без него lock собирается под ТЕКУЩУЮ ОС и из него
+выпадают пины только-для-Windows (`colorama`, `pywin32`), которые нужны ноге Windows.
+Шаг CI на Linux повторяет команду и падает, если `git diff --exit-code
+requirements.txt` не пуст. **Правило: поменял пин или extra в `pyproject.toml` →
+прогнал команду → закоммитил ОБА файла вместе.**
 
 ### Интеграционные тесты (с реальным KiCad)
 

@@ -833,7 +833,7 @@ Extracts every string wrapped in `_()` (`kicadstamp/`, `kicadstamp_cli.py`, `too
 `locales/ru/LC_MESSAGES/kicadstamp.po` (pybabel keeps already‑translated strings, adds new ones empty or
 marks them `#, fuzzy` if it found a similar old one), then compiles both catalogs to `.mo`. The temporary
 `messages.pot` is removed at the end. Frozen archives (`files/`, `old/`, `arch/`, `test_sample/`) are
-excluded from the scan. Requires `pip install babel` (already in `requirements.txt`).
+excluded from the scan. Requires `babel` — it sits in the `dev` extra, so the generated lock (`requirements.txt`) already carries it.
 
 #### Syntax
 

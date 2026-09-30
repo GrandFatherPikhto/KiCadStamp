@@ -38,6 +38,13 @@ dev = [
     "pytest-qt==4.5.0",
     "babel==2.18.0",
     "pyflakes==3.4.0",
+    # psutil (2026-10-01): the schematic_safety cells run the psutil branch of
+    # list_kicad_pids/list_kicad_processes (test_list_kicad_pids_posix_*,
+    # test_list_kicad_processes_posix_*), so the suite does not COLLECT-run without
+    # it. A hard test dependency, NOT pytest.importorskip — that would turn the two
+    # cells into a skip, which is weakening (rule 33). Also in `diagnostics`, whose
+    # probes use it to walk live KiCad processes.
+    "psutil==7.2.2",
 ]
 diagnostics = [
     "numpy==2.5.1",
@@ -46,8 +53,12 @@ diagnostics = [
     "rich==15.0.0",
     "watchdog==6.0.0",
 ]
-# MCP server (mcp_server/) — optional: only needed to run the stdio MCP server,
-# not for GUI/CLI/tests. mcp 2.x renamed FastMCP to MCPServer (verified 2026-08-29).
+# MCP server (mcp_server/): needed to run the stdio MCP server AND to collect the
+# suite — tests/mcp/ imports mcp.server, and without the real package the import
+# resolves to the tests/mcp/ DIRECTORY as a namespace package, so the run dies in
+# collection (measured 2026-10-01: `ModuleNotFoundError: No module named
+# 'mcp.server'`). Optional for the GUI/CLI at RUNTIME only.
+# mcp 2.x renamed FastMCP to MCPServer (verified 2026-08-29).
 mcp = [
     "mcp==2.1.1",
 ]

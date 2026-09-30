@@ -66,9 +66,9 @@ ladder, and a final summary across all steps.
 ## Dependencies
 
 `kipy` directly (not through `kicadstamp.kicad.adapter`). The `kicad.exe` PID snapshot uses `tasklist`
-on Windows, and the optional `psutil` on other OSes (not in `requirements.txt`; without it, zombie-
-instance detection — hypothesis H2 — silently turns off, but the read/write ladder itself works as
-usual).
+on Windows, and `psutil` on other OSes (optional at runtime; pinned in the `dev` and `diagnostics`
+extras, so present in the generated `requirements.txt`). Without it, zombie-instance detection —
+hypothesis H2 — silently turns off, but the read/write ladder itself works as usual.
 
 ## Caution
 

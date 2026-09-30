@@ -10,7 +10,8 @@ The geometric/enum *value* types (``Vector2``, ``Angle``, ``Box2``,
 ``BoardLayer``) are also domain types now (``kicadstamp.domain.geometry``,
 completed 2026-08-25) — the seam is fully decoupled from kipy value types as
 well as board-entity types. The kipy version remains pinned at
-``kicad-python==0.7.1`` (``pyproject.toml`` / ``requirements.txt``).
+``kicad-python==0.7.1`` in ``pyproject.toml`` (``requirements.txt`` is the lock
+generated from it).
 
 Rules for the seam:
 

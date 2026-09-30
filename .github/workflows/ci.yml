@@ -39,22 +39,42 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
+      # uv is the LOCK toolchain. The guard below regenerates requirements.txt with
+      # the SAME uv version the lock was authored with (0.5.9): a different uv may
+      # format the file differently and the guard would redden on nothing.
+      - name: Set up uv (lock toolchain, pinned)
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.9"
+
       # PyQt6 needs a few Qt runtime libraries to run headless (the GUI
       # tests set QT_QPA_PLATFORM=offscreen themselves in tests/gui/conftest.py).
       - name: Install Qt runtime libraries (Linux, headless)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libdbus-1-3
 
-      # requirements.txt carries the RUNTIME pins AND the test toolchain (pytest,
-      # pytest-timeout, pytest-qt) since 2026-09-24: it used to be runtime-only, so
-      # the `python -m pytest` below had no runner in the environment at all.
-      # pytest.ini lists all three plugins in `required_plugins`, so a missing one
-      # refuses the run loudly instead of silently weakening it
-      # (plan_2026_09_24_kq_pytest_qt).
-      - name: Install dependencies (runtime + test toolchain)
+      # The pin SOURCE is pyproject.toml; requirements.txt is a lock GENERATED from
+      # it with uv (`--extra dev --extra mcp --universal`). This guard runs on one
+      # leg only and fails when a pin or an extra changed without regenerating the
+      # lock — the failure behind the 25.08–01.10 CI red: the hand-kept copy had
+      # lost `mcp`, `psutil` and `python-ptrace`. Rule and command: docs/tests.md.
+      - name: requirements.txt is in sync with pyproject.toml (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+          if ! git diff --exit-code -- requirements.txt; then
+            echo "::error::requirements.txt is STALE — regenerate and commit both files:"
+            echo "  uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt"
+            exit 1
+          fi
+
+      # The lock is installed as-is, then the package itself with --no-deps: every
+      # dependency is already pinned by the lock, so pip has nothing to resolve.
+      - name: Install dependencies (lock + package, no deps)
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -e . --no-deps
 
       - name: Run unit test suite (integration excluded)
         run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q

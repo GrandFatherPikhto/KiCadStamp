@@ -871,7 +871,7 @@ python fieldstool_cli.py rename renames.sexp --write
 `locales/ru/LC_MESSAGES/kicadstamp.po` (pybabel сохраняет уже переведённые строки, новые добавляет пустыми
 или помечает `#, fuzzy`, если нашёл похожую), компилирует оба каталога в `.mo`. Временный `messages.pot`
 удаляется в конце. Замороженные архивы (`files/`, `old/`, `arch/`, `test_sample/`) в сканирование не
-попадают. Требует `pip install babel` (уже в `requirements.txt`).
+попадают. Требует `babel` — он в extra `dev`, поэтому сгенерированный lock (`requirements.txt`) его уже содержит.
 
 #### Синтаксис
 

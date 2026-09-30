@@ -51,7 +51,7 @@ def list_kicad_pids() -> list[int]:
                 if len(parts) >= 2 and parts[0].lower() == "kicad.exe":
                     pids.append(int(parts[1]))
         else:
-            import psutil  # optional, see requirements.txt
+            import psutil  # optional at runtime; pinned in pyproject.toml dev/diagnostics
             # Exact image-name match (not a substring): found live
             # 2026-08-07 that launching directly as ./kicadstamp_gui.py makes
             # Linux's comm — what psutil's name() reads — the truncated
@@ -105,7 +105,7 @@ def list_kicad_processes() -> list[KicadProcessInfo]:
                         pid=int(parts[1]), status=parts[5],
                         title=None if title == "N/A" else title))
         else:
-            import psutil  # optional, see requirements.txt
+            import psutil  # optional at runtime; pinned in pyproject.toml dev/diagnostics
             # Same exact-name match plus zombie filter as list_kicad_pids()
             # above — see its comment for the 2026-08-07 self-match incident
             # and why no PID exclusion is needed. This is the function
