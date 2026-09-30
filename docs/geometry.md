@@ -251,7 +251,7 @@ layout_mirrored = apply_clone_geometry(clone, template, role_to_ref, mirror=True
 
 ## Testing
 
-The geometry modules are covered by unit tests (in `tests/test_*.py`) that verify:
+The geometry modules are covered by unit tests (in `tests/geometry/test_*.py`) that verify:
 - Correct transformation of local coordinates to absolute.
 - Keepout construction and free‑point search.
 - Thermal via grid generation.

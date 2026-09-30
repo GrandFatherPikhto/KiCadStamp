@@ -272,7 +272,7 @@ None until kipy ships a public close.
 **Upstream tracking:**
 - kipy 0.7.1: no public `close()` (verified by reading `kicad.py`/`client.py`).
 - **Action:** track the kipy issue tracker for a public `KiCad.close()` / `KiCadClient.close()`; when it lands, replace the private-attribute reach with the public call and remove this subsection.
-- **Guard:** `TestClose` in `tests/test_kicad.py` pins the private-attribute shape against exactly this reach (closes correctly / no-op before connect / no-op without `_conn` / swallows a broken socket).
+- **Guard:** `TestClose` in `tests/kicad/test_kicad.py` pins the private-attribute shape against exactly this reach (closes correctly / no-op before connect / no-op without `_conn` / swallows a broken socket).
 
 ---
 

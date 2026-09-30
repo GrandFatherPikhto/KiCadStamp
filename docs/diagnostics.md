@@ -206,7 +206,7 @@ and `reason` is mandatory, so "deliberate" has to be said in words where the nex
 What counts as "the UI thread" is an INJECTED predicate
 (`gui.connection.set_ui_thread_predicate`), armed by the GUI's process entry point
 (`kicadstamp/gui_main.py`) and never by `MainWindow.__init__` — a test that builds a window must
-not inherit the guard. Its watchdogs are `tests/test_board_door_guard.py` (one per cell of the
+not inherit the guard. Its watchdogs are `tests/repo/test_board_door_guard.py` (one per cell of the
 property table, each with a mutation that turns it red). Since 2026-09-23 (Ш6, the last step of
 that effort) the entry point **does** arm it, in `log` mode: the guard now stands in the user's
 live session and not in tests only, and because a violation is REPORTED once per site while the

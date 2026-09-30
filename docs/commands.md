@@ -608,7 +608,7 @@ python kicadstamp_cli.py convert-trees --root <config.sexp> [--output <file.sexp
   — a leftover `pivot-*` on a node, an unknown module ref, a disagreement the converter must not guess
   — NOTHING is written and the source stays byte-for-byte intact.
 - The converter's conversion of a real profile is pinned by
-  `tests/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
+  `tests/trees/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
   — layout and every materialized cell component must stay bit-identical.
 
 ### Examples

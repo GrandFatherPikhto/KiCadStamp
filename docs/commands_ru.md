@@ -991,7 +991,7 @@ python kicadstamp_cli.py convert-trees --root <config.sexp> [--output <file.sexp
   module-ref, расхождение, которое конвертер не должен угадывать, — НИЧЕГО не записывается, а исходник
   остаётся побайтово целым.
 - Конвертация реального профиля закреплена тестом
-  `tests/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
+  `tests/trees/test_tree_mount_conversion.py::test_converted_fixture_reproduces_the_frozen_baseline_bit_exactly`
   — укладка и каждый материализуемый компонент целлов обязаны остаться побитово теми же.
 
 ### Примеры

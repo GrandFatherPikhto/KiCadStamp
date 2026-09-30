@@ -282,8 +282,8 @@ library plus a `rename` mode that didn't exist there. `root_sheet:` (hierarchy w
 
 ## Tests
 
-`tests/test_schematic_*.py` (offline core — parsing, discovery, editing, `set`, `rename`) plus
-`tests/gui/test_schema_model.py`, `tests/gui/test_pending_dock.py` (the diff function + `QDockWidget`,
-offscreen) and `tests/gui/test_fieldstool_window.py` (the embedded tab's own `MainWindow`, same
+`tests/schematic/test_*.py` (offline core — parsing, discovery, editing, `set`, `rename`) plus
+`tests/gui/test_schema_model.py`, `tests/gui/docks/test_pending_dock.py` (the diff function + `QDockWidget`,
+offscreen) and `tests/gui/docks/test_fieldstool_window.py` (the embedded tab's own `MainWindow`, same
 pattern as the rest of [`tests/gui/`](./gui.md#tests)), including a full Stage → Pending → Apply
 round trip against a synthetic `.kicad_sch`. No live KiCad needed anywhere.

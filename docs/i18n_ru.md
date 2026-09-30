@@ -91,7 +91,7 @@ KiCadStamp будут в основном англоязычные пользо�
 
 ## Тесты
 
-`tests/test_i18n.py` — `detect_language()` (приоритет `LANGUAGE > LC_ALL > LC_MESSAGES > LANG`, дефолт
+`tests/utils/test_i18n.py` — `detect_language()` (приоритет `LANGUAGE > LC_ALL > LC_MESSAGES > LANG`, дефолт
 английский, Windows-фоллбэк не тестируется юнит-тестами — платформо-зависим) и `setup_i18n()`
 (возвращает выбранный язык, реально переводит известную строку, не падает на неизвестной локали
 благодаря `fallback=True`).

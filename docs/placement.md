@@ -342,7 +342,7 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   source-instance fallback, not a selector: when the placement has its own cluster and the live board
   gives a deterministic net for the role there, that live net wins (`derive_role_nets` live_pad,
   2026-09-05) — so a cell extracted from one power rail is safely reusable on another rail without
-  dragging the source instance's components (see `tests/test_clone_reuse_cell_across_power_rails.py`).
+  dragging the source instance's components (see `tests/placement/test_clone_reuse_cell_across_power_rails.py`).
   A cell `net_template` with an unresolved `{placeholder}` (no matching `params`) is
   NOT treated as an explicit source — it falls through to the live auto-derivation path (Phase 4 step
   4.3) instead of fataling — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step

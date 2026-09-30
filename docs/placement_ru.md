@@ -349,7 +349,7 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
   живая плата даёт детерминированную цепь роли на нём, эта живая цепь побеждает
   (`derive_role_nets` live_pad, 2026-09-05) — cell, извлечённый с одной шины питания, безопасно
   переиспользуется на другой шине без утаскивания компонентов исходного инстанса
-  (см. `tests/test_clone_reuse_cell_across_power_rails.py`). `net_template` ячейки с
+  (см. `tests/placement/test_clone_reuse_cell_across_power_rails.py`). `net_template` ячейки с
   неразрешённым `{placeholder}` (нет подходящего `params`) НЕ считается явным источником — он
   уходит в путь живого авто-вывода
   (Фаза 4, шаг 4.3) вместо fatal — так что `nets:`/`params:`/`net_overrides:` — ОПЦИОНАЛЬНЫЕ

@@ -282,8 +282,8 @@ Properties или прямо в библиотечном символе) и **Up
 
 ## Тесты
 
-`tests/test_schematic_*.py` (офлайн-ядро — парсинг, обход иерархии, запись, `set`, `rename`) плюс
-`tests/gui/test_schema_model.py`, `tests/gui/test_pending_dock.py` (diff-функция + `QDockWidget`,
-офлайн) и `tests/gui/test_fieldstool_window.py` (собственный `MainWindow` встроенного таба, та же
+`tests/schematic/test_*.py` (офлайн-ядро — парсинг, обход иерархии, запись, `set`, `rename`) плюс
+`tests/gui/test_schema_model.py`, `tests/gui/docks/test_pending_dock.py` (diff-функция + `QDockWidget`,
+офлайн) и `tests/gui/docks/test_fieldstool_window.py` (собственный `MainWindow` встроенного таба, та же
 схема, что у остального [`tests/gui/`](./gui_ru.md#тесты)), включая полный проход Stage → Pending →
 Apply на синтетическом `.kicad_sch`. Живой KiCad нигде не нужен.
