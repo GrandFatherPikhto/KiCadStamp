@@ -2892,7 +2892,7 @@ msgstr ""
 msgid "ROLE"
 msgstr "ROLE"
 
-#: gui/docks/placer.py:901 kicadstamp/diagnostics/test_create_one_via.py:52
+#: gui/docks/placer.py:901 kicadstamp/diagnostics/probe_create_one_via.py:52
 msgid "net name"
 msgstr "имя цепи"
 
@@ -5438,10 +5438,10 @@ msgstr "Только распечатать план, не применять"
 #: kicadstamp/diagnostics/diagnose_first_write_crash.py:283
 #: kicadstamp/diagnostics/diagnostic_charset.py:72
 #: kicadstamp/diagnostics/get_pad_bbox.py:28
-#: kicadstamp/diagnostics/test_create_one_via.py:56
-#: kicadstamp/diagnostics/test_flip_one_cap.py:58
-#: kicadstamp/diagnostics/test_move_one_cap.py:55
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:84
+#: kicadstamp/diagnostics/probe_create_one_via.py:56
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:58
+#: kicadstamp/diagnostics/probe_move_one_cap.py:55
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:84
 #: kicadstamp/gui_main.py:74
 msgid "IPC timeout in ms"
 msgstr "Таймаут IPC, мс"
@@ -10479,8 +10479,8 @@ msgid "Pad number (if not specified, show all)"
 msgstr "Номер пада (если не указан, показать все)"
 
 #: kicadstamp/diagnostics/get_pad_bbox.py:42
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:56
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:72
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:56
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:72
 #, python-brace-format
 msgid "Component {ref} not found"
 msgstr "Компонент {ref} не найден"
@@ -10585,51 +10585,51 @@ msgstr "?x?"
 msgid "    {pnum}: net={net:<15} pos=({px:.3f}, {py:.3f}) mm size={psize}"
 msgstr "    {pnum}: цепь={net:<15} позиция=({px:.3f}, {py:.3f}) мм размер={psize}"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:31
-#: kicadstamp/diagnostics/test_flip_one_cap.py:32
-#: kicadstamp/diagnostics/test_move_one_cap.py:31
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:30
+#: kicadstamp/diagnostics/probe_create_one_via.py:31
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:32
+#: kicadstamp/diagnostics/probe_move_one_cap.py:31
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:30
 #, python-brace-format
 msgid "[...] {label}"
 msgstr "[...] {label}"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:36
-#: kicadstamp/diagnostics/test_flip_one_cap.py:37
-#: kicadstamp/diagnostics/test_move_one_cap.py:36
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:35
+#: kicadstamp/diagnostics/probe_create_one_via.py:36
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:37
+#: kicadstamp/diagnostics/probe_move_one_cap.py:36
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:35
 #, python-brace-format
 msgid "[OK]  {label} — {elapsed} ms"
 msgstr "[OK]  {label} — {elapsed} мс"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:40
-#: kicadstamp/diagnostics/test_flip_one_cap.py:41
-#: kicadstamp/diagnostics/test_move_one_cap.py:40
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:39
+#: kicadstamp/diagnostics/probe_create_one_via.py:40
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:41
+#: kicadstamp/diagnostics/probe_move_one_cap.py:40
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:39
 #, python-brace-format
 msgid "[ERR] {label} — {elapsed} ms — {type}: {e}"
 msgstr "[ERR] {label} — {elapsed} мс — {type}: {e}"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:47
+#: kicadstamp/diagnostics/probe_create_one_via.py:47
 msgid "Place a via next to a component or delete the last created via"
 msgstr "Разместить via рядом с компонентом или удалить последнюю созданную via"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:49
+#: kicadstamp/diagnostics/probe_create_one_via.py:49
 msgid "refdes of the capacitor to place the via next to"
 msgstr "refdes конденсатора, рядом с которым разместить via"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:51
+#: kicadstamp/diagnostics/probe_create_one_via.py:51
 msgid "offset of the via from the capacitor centre, in mm"
 msgstr "смещение via от центра конденсатора, мм"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:53
+#: kicadstamp/diagnostics/probe_create_one_via.py:53
 msgid "drill diameter in mm"
 msgstr "диаметр сверла, мм"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:54
+#: kicadstamp/diagnostics/probe_create_one_via.py:54
 msgid "via diameter in mm"
 msgstr "диаметр via, мм"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:58
+#: kicadstamp/diagnostics/probe_create_one_via.py:58
 msgid ""
 "delete a via instead of creating one. Without a value, takes the id of "
 "the last via created by this script from .last_test_via.json"
@@ -10637,48 +10637,48 @@ msgstr ""
 "удалить via вместо создания. Без значения берёт id последней созданной "
 "этим скриптом via из .last_test_via.json"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:62
-#: kicadstamp/diagnostics/test_flip_one_cap.py:64
-#: kicadstamp/diagnostics/test_move_one_cap.py:63
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:87
+#: kicadstamp/diagnostics/probe_create_one_via.py:62
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:64
+#: kicadstamp/diagnostics/probe_move_one_cap.py:63
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:87
 msgid "KiCadBoardAdapter(...)"
 msgstr "KiCadBoardAdapter(...)"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:63
-#: kicadstamp/diagnostics/test_flip_one_cap.py:65
-#: kicadstamp/diagnostics/test_flip_one_cap.py:77
-#: kicadstamp/diagnostics/test_move_one_cap.py:64
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:88
+#: kicadstamp/diagnostics/probe_create_one_via.py:63
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:65
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:77
+#: kicadstamp/diagnostics/probe_move_one_cap.py:64
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:88
 msgid "adapter.refresh_board()"
 msgstr "adapter.refresh_board()"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:69
+#: kicadstamp/diagnostics/probe_create_one_via.py:69
 #, python-brace-format
 msgid "[error] no saved id in {file} — pass --remove <uuid> explicitly"
 msgstr "[ошибка] нет сохранённого id в {file} — передайте --remove <uuid> явно"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:72
+#: kicadstamp/diagnostics/probe_create_one_via.py:72
 #, python-brace-format
 msgid "Taking id from {file}: {id}\n"
 msgstr "Беру id из {file}: {id}\n"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:75
-#: kicadstamp/diagnostics/test_create_one_via.py:107
-#: kicadstamp/diagnostics/test_move_one_cap.py:77
+#: kicadstamp/diagnostics/probe_create_one_via.py:75
+#: kicadstamp/diagnostics/probe_create_one_via.py:107
+#: kicadstamp/diagnostics/probe_move_one_cap.py:77
 msgid "adapter.begin_commit()"
 msgstr "adapter.begin_commit()"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:77
+#: kicadstamp/diagnostics/probe_create_one_via.py:77
 msgid "adapter.remove_by_id(remove_id)"
 msgstr "adapter.remove_by_id(remove_id)"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:78
-#: kicadstamp/diagnostics/test_create_one_via.py:110
-#: kicadstamp/diagnostics/test_move_one_cap.py:82
+#: kicadstamp/diagnostics/probe_create_one_via.py:78
+#: kicadstamp/diagnostics/probe_create_one_via.py:110
+#: kicadstamp/diagnostics/probe_move_one_cap.py:82
 msgid "adapter.push_commit(commit, ...)"
 msgstr "adapter.push_commit(commit, ...)"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:80
+#: kicadstamp/diagnostics/probe_create_one_via.py:80
 #, python-brace-format
 msgid ""
 "\n"
@@ -10687,41 +10687,41 @@ msgstr ""
 "\n"
 "Виа {id} удалена."
 
-#: kicadstamp/diagnostics/test_create_one_via.py:84
-#: kicadstamp/diagnostics/test_create_one_via.py:120
+#: kicadstamp/diagnostics/probe_create_one_via.py:84
+#: kicadstamp/diagnostics/probe_create_one_via.py:120
 msgid "adapter.drop_commit(commit)"
 msgstr "adapter.drop_commit(commit)"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:89
+#: kicadstamp/diagnostics/probe_create_one_via.py:89
 msgid "specify a capacitor refdes (or --remove <uuid> to delete)"
 msgstr "укажите refdes конденсатора (или --remove <uuid> для удаления)"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:91
-#: kicadstamp/diagnostics/test_flip_one_cap.py:67
-#: kicadstamp/diagnostics/test_move_one_cap.py:66
+#: kicadstamp/diagnostics/probe_create_one_via.py:91
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:67
+#: kicadstamp/diagnostics/probe_move_one_cap.py:66
 #, python-brace-format
 msgid "adapter.get_footprint({ref!r})"
 msgstr "adapter.get_footprint({ref!r})"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:93
-#: kicadstamp/diagnostics/test_flip_one_cap.py:69
-#: kicadstamp/diagnostics/test_move_one_cap.py:68
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:92
+#: kicadstamp/diagnostics/probe_create_one_via.py:93
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:69
+#: kicadstamp/diagnostics/probe_move_one_cap.py:68
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:92
 #, python-brace-format
 msgid "[error] {ref} not found on the board"
 msgstr "[ошибка] {ref} не найден на плате"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:95
+#: kicadstamp/diagnostics/probe_create_one_via.py:95
 #, python-brace-format
 msgid "adapter.get_net_by_name({net!r})"
 msgstr "adapter.get_net_by_name({net!r})"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:97
+#: kicadstamp/diagnostics/probe_create_one_via.py:97
 #, python-brace-format
 msgid "[error] net {net!r} not found on the board"
 msgstr "[ошибка] цепь {net!r} не найдена на плате"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:101
+#: kicadstamp/diagnostics/probe_create_one_via.py:101
 #, python-brace-format
 msgid ""
 "\n"
@@ -10732,11 +10732,11 @@ msgstr ""
 "{ref} на ({x:.3f}, {y:.3f}) мм, via будет на ({vx:.3f}, {vy:.3f}) мм, "
 "цепь={net}\n"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:109
+#: kicadstamp/diagnostics/probe_create_one_via.py:109
 msgid "adapter.create_items([via])"
 msgstr "adapter.create_items([via])"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:113
+#: kicadstamp/diagnostics/probe_create_one_via.py:113
 #, python-brace-format
 msgid ""
 "\n"
@@ -10745,14 +10745,14 @@ msgstr ""
 "\n"
 "Готово. Виа создана, id={id}"
 
-#: kicadstamp/diagnostics/test_create_one_via.py:116
+#: kicadstamp/diagnostics/probe_create_one_via.py:116
 #, python-brace-format
 msgid ""
 "id saved to {file} — to delete it, just run:\n"
-"  python -m kicadstamp.diagnostics.test_create_one_via --remove"
+"  python -m kicadstamp.diagnostics.probe_create_one_via --remove"
 msgstr ""
 "id сохранён в {file} — чтобы удалить, просто запустите:\n"
-"  python -m kicadstamp.diagnostics.test_create_one_via --remove"
+"  python -m kicadstamp.diagnostics.probe_create_one_via --remove"
 
 #: kicadstamp/diagnostics/transform_template.py:77
 #, python-brace-format
@@ -10812,25 +10812,25 @@ msgstr "Явное смещение начала по Y, мм"
 msgid "Saved: {path}"
 msgstr "Сохранён: {path}"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:48
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:48
 #, python-brace-format
 msgid "layer={layer}, pos=({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°"
 msgstr "слой={layer}, позиция=({x:.3f}, {y:.3f}) мм, угол={angle:.1f}°"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:55
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:55
 msgid "Test flipping a component to the opposite side"
 msgstr "Тест переворота компонента на другую сторону"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:57
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:57
 msgid "refdes of the capacitor to test, e.g. C6"
 msgstr "refdes конденсатора для теста, например C6"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:61
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:61
 #, python-brace-format
 msgid "=== Test: flip component {ref}, timeout={timeout} ms ===\n"
 msgstr "=== Тест: переворот компонента {ref}, таймаут={timeout} мс ===\n"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:71
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:71
 #, python-brace-format
 msgid ""
 "\n"
@@ -10839,16 +10839,16 @@ msgstr ""
 "\n"
 "До флипа: {desc}\n"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:74
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:74
 msgid "adapter.flip_selected([fp])"
 msgstr "adapter.flip_selected([fp])"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:78
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:78
 #, python-brace-format
 msgid "adapter.get_footprint({ref!r}) (after)"
 msgstr "adapter.get_footprint({ref!r}) (после)"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:81
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:81
 #, python-brace-format
 msgid ""
 "\n"
@@ -10857,44 +10857,44 @@ msgstr ""
 "\n"
 "После флипа: {desc}\n"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:81
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:81
 msgid "(not found?!)"
 msgstr "(не найден?!)"
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:84
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:84
 msgid "Looks like it worked — the layer really changed to B.Cu."
 msgstr "Похоже, сработало — слой реально сменился на B.Cu."
 
-#: kicadstamp/diagnostics/test_flip_one_cap.py:86
+#: kicadstamp/diagnostics/probe_flip_one_cap.py:86
 msgid ""
 "Layer did NOT change — the action did not behave as expected, need to "
 "investigate further."
 msgstr "Слой НЕ сменился — действие не сработало как ожидалось, нужно разбираться."
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:47
+#: kicadstamp/diagnostics/probe_move_one_cap.py:47
 msgid "Test moving a component by a given delta along X"
 msgstr "Тест перемещения компонента на заданное смещение по X"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:49
+#: kicadstamp/diagnostics/probe_move_one_cap.py:49
 msgid "refdes of the capacitor to test, e.g. C5"
 msgstr "refdes конденсатора для теста, например C5"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:51
+#: kicadstamp/diagnostics/probe_move_one_cap.py:51
 msgid "how many mm to shift along X"
 msgstr "на сколько мм сдвинуть по X"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:53
+#: kicadstamp/diagnostics/probe_move_one_cap.py:53
 msgid "shift in the opposite direction (revert)"
 msgstr "сдвинуть в обратную сторону (вернуть)"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:60
+#: kicadstamp/diagnostics/probe_move_one_cap.py:60
 #, python-brace-format
 msgid ""
 "=== Test: move {ref} by {delta:+.2f} mm along X, timeout={timeout} ms ==="
 "\n"
 msgstr "=== Тест: сдвиг {ref} на {delta:+.2f} мм по X, таймаут={timeout} мс ===\n"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:72
+#: kicadstamp/diagnostics/probe_move_one_cap.py:72
 #, python-brace-format
 msgid ""
 "\n"
@@ -10903,16 +10903,16 @@ msgstr ""
 "\n"
 "Текущая позиция {ref}: ({x:.3f}, {y:.3f}) мм"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:74
+#: kicadstamp/diagnostics/probe_move_one_cap.py:74
 #, python-brace-format
 msgid "New position:            ({x:.3f}, {y:.3f}) mm\n"
 msgstr "Новая позиция:            ({x:.3f}, {y:.3f}) мм\n"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:81
+#: kicadstamp/diagnostics/probe_move_one_cap.py:81
 msgid "adapter.update_items([fp])"
 msgstr "adapter.update_items([fp])"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:84
+#: kicadstamp/diagnostics/probe_move_one_cap.py:84
 #, python-brace-format
 msgid ""
 "\n"
@@ -10921,42 +10921,42 @@ msgstr ""
 "\n"
 "Готово. {ref} сдвинут на {delta:+.2f} мм по X."
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:86
+#: kicadstamp/diagnostics/probe_move_one_cap.py:86
 #, python-brace-format
 msgid ""
-"To revert: python -m kicadstamp.diagnostics.test_move_one_cap {ref} "
+"To revert: python -m kicadstamp.diagnostics.probe_move_one_cap {ref} "
 "--delta-mm {d} --revert"
 msgstr ""
-"Чтобы вернуть: python -m kicadstamp.diagnostics.test_move_one_cap {ref} "
+"Чтобы вернуть: python -m kicadstamp.diagnostics.probe_move_one_cap {ref} "
 "--delta-mm {d} --revert"
 
-#: kicadstamp/diagnostics/test_move_one_cap.py:90
+#: kicadstamp/diagnostics/probe_move_one_cap.py:90
 msgid "adapter.drop_commit(commit) (rollback after error)"
 msgstr "adapter.drop_commit(commit) (откат после ошибки)"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:62
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:62
 #, python-brace-format
-msgid "test_pad_mirror_convention: rotate {ref} by {delta:+.1f}°"
-msgstr "test_pad_mirror_convention: поворот {ref} на {delta:+.1f}°"
+msgid "probe_pad_mirror_convention: rotate {ref} by {delta:+.1f}°"
+msgstr "probe_pad_mirror_convention: поворот {ref} на {delta:+.1f}°"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:78
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:78
 msgid "Test pad mirroring convention when flipping a component"
 msgstr "Тест конвенции зеркалирования пада при перевороте компонента"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:80
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:80
 msgid "refdes of the component to test, not a critical one (e.g. C6)"
 msgstr "refdes компонента для теста, не боевой (например C6)"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:82
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:82
 msgid "pad number to track (default GND, usually '2')"
 msgstr "номер пада для отслеживания (по умолчанию GND, обычно '2')"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:95
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:95
 #, python-brace-format
 msgid "[error] {ref} has no pad {pad}"
 msgstr "[ошибка] у {ref} нет пада {pad}"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:102
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:102
 #, python-brace-format
 msgid ""
 "\n"
@@ -10965,36 +10965,36 @@ msgstr ""
 "\n"
 "=== Исходное состояние {ref} ==="
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:103
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:103
 #, python-brace-format
 msgid "position=({x:.3f},{y:.3f}) mm angle={angle:.1f}° layer={layer}"
 msgstr "позиция=({x:.3f},{y:.3f}) мм угол={angle:.1f}° слой={layer}"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:106
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:106
 #, python-brace-format
 msgid "local offset of pad {pad}: ({x:.3f}, {y:.3f}) mm\n"
 msgstr "локальный оффсет пада {pad}: ({x:.3f}, {y:.3f}) мм\n"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:110
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:110
 msgid "=== Step 1: rotate by +90°, NO flip (check base formula) ==="
 msgstr "=== Шаг 1: поворот на +90°, БЕЗ флипа (проверка базовой формулы) ==="
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:120
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:120
 #, python-brace-format
 msgid "Predicted: ({x:.3f}, {y:.3f}) mm"
 msgstr "Предсказано: ({x:.3f}, {y:.3f}) мм"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:121
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:121
 #, python-brace-format
 msgid "Real:      ({x:.3f}, {y:.3f}) mm"
 msgstr "Реально:     ({x:.3f}, {y:.3f}) мм"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:123
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:123
 #, python-brace-format
 msgid "Difference: {d:.4f} mm -- OK, base formula works"
 msgstr "Расхождение: {d:.4f} мм -- OK, база верна"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:125
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:125
 #, python-brace-format
 msgid ""
 "Difference: {d:.4f} mm !! BASE FORMULA FAILS, further flip test is "
@@ -11003,47 +11003,47 @@ msgstr ""
 "Расхождение: {d:.4f} мм !! БАЗОВАЯ ФОРМУЛА НЕ СХОДИТСЯ, дальше проверять "
 "флип бессмысленно"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:129
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:129
 msgid "=== Step 2: flip to the other side (test mirroring assumption) ==="
 msgstr ""
 "=== Шаг 2: флип на другую сторону (проверка допущения о зеркалировании) "
 "==="
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:148
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:148
 #, python-brace-format
 msgid "Real pad position after flip: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°"
 msgstr ""
 "Реальное положение пада после флипа: ({x:.3f}, {y:.3f}) мм, "
 "угол={angle:.1f}°"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:150
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:150
 #, python-brace-format
 msgid "Candidate 'mirror X' (current code): deviation {d:.4f} mm"
 msgstr "Кандидат 'зеркало по X' (текущий код): расхождение {d:.4f} мм"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:151
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:151
 #, python-brace-format
 msgid "Candidate 'mirror Y':                 deviation {d:.4f} mm"
 msgstr "Кандидат 'зеркало по Y': расхождение {d:.4f} мм"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:152
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:152
 #, python-brace-format
 msgid "Candidate 'no mirror':                deviation {d:.4f} mm"
 msgstr "Кандидат 'без зеркалирования': расхождение {d:.4f} мм"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:154
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:154
 msgid "mirror X (current code)"
 msgstr "зеркало по X (текущий код)"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:155
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:155
 msgid "mirror Y"
 msgstr "зеркало по Y"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:156
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:156
 msgid "no mirror"
 msgstr "без зеркалирования"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:158
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:158
 #, python-brace-format
 msgid ""
 "\n"
@@ -11052,11 +11052,11 @@ msgstr ""
 "\n"
 ">>> ПОБЕДИТЕЛЬ: {name} (расхождение {d:.4f} мм)"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:159
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:159
 msgid "mirror X"
 msgstr "зеркало по X"
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:160
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:160
 msgid ""
 ">>> The current code in pad_projection.py is ALREADY CORRECT, no changes "
 "needed."
@@ -11064,7 +11064,7 @@ msgstr ""
 ">>> Текущий код в pad_projection.py УЖЕ ПРАВИЛЬНЫЙ, менять ничего не "
 "нужно."
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:162
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:162
 #, python-brace-format
 msgid ""
 ">>> The code in pad_projection.py needs fixing: currently mirrors X, but "
@@ -11073,7 +11073,7 @@ msgstr ""
 ">>> Код в pad_projection.py нужно поправить: сейчас зеркалируется X, а "
 "должно быть — {winner}."
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:166
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:166
 msgid ""
 "\n"
 "=== Restoring original state ==="
@@ -11081,7 +11081,7 @@ msgstr ""
 "\n"
 "=== Возврат в исходное состояние ==="
 
-#: kicadstamp/diagnostics/test_pad_mirror_convention.py:172
+#: kicadstamp/diagnostics/probe_pad_mirror_convention.py:172
 #, python-brace-format
 msgid ""
 "Final state: angle={angle:.1f}° (was {orig:.1f}°), layer={layer} (was "
@@ -17035,7 +17035,7 @@ msgstr "неизвестный role_cluster_source {value!r} в {path} — ис�
 msgid "{count} Role/Cluster value(s) came from the override store, not from the board"
 msgstr "{count} значений Role/Cluster взяты из хранилища, а не с платы"
 
-#: kicadstamp/diagnostics/test_create_one_via.py
+#: kicadstamp/diagnostics/probe_create_one_via.py
 msgid "create_board_adapter(...)"
 msgstr "create_board_adapter(...)"
 

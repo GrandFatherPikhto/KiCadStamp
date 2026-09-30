@@ -80,7 +80,7 @@ Predicts the absolute position of a specific pad after moving and rotating the c
 | `predict_pad_position(fp, pad, dest, angle_deg, needs_flip)` | Predicts the absolute pad position after moving the footprint to `dest` and rotating by `angle_deg`, with local X mirroring if `needs_flip=True`. |
 
 **Used in:**  
-In the current KiCadStamp version, this function **is not used** in the main code, because all vias (including GND vias) are computed solely from template geometry without accessing the live board. However, it is kept for diagnostic scripts (e.g., `test_pad_mirror_convention.py`) and for potential future use (e.g., manual position adjustment or collision checking).
+In the current KiCadStamp version, this function **is not used** in the main code, because all vias (including GND vias) are computed solely from template geometry without accessing the live board. However, it is kept for diagnostic scripts (e.g., `probe_pad_mirror_convention.py`) and for potential future use (e.g., manual position adjustment or collision checking).
 
 ---
 
@@ -258,7 +258,7 @@ The geometry modules are covered by unit tests (in `tests/test_*.py`) that verif
 - Pad position prediction (including empirical verification of the mirroring convention).
 - Track transformation in `clone_geometry.py` (rotation, mirroring, layer inheritance).
 
-For manual verification of the pad mirroring convention, the diagnostic script `test_pad_mirror_convention.py` performs an actual flip and rotation of a component in KiCad and compares the predictions against the actual pad position.
+For manual verification of the pad mirroring convention, the diagnostic script `probe_pad_mirror_convention.py` performs an actual flip and rotation of a component in KiCad and compares the predictions against the actual pad position.
 
 ---
 

@@ -14,7 +14,7 @@ the flip convention turns out wrong, it is fixed in one place, not two.
 
 IMPORTANT: needs_flip=True (mirroring the local offset along X) is currently
 an empirically UNCONFIRMED assumption. See
-diagnose/test_pad_mirror_convention.py — a one‑time but definitive test on a
+probe_pad_mirror_convention.py — a one‑time but definitive test on a
 real board, comparing this prediction with what KiCad actually shows after a
 real flip+rotation.
 """

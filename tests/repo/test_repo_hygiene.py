@@ -10,16 +10,19 @@ not a pass) — each one counts what it read and asserts the count is plausible.
 guard that scans nothing reports a clean tree for the wrong reason, which is the
 failure mode this whole step exists to avoid.
 
-The four, and the Ф-step each one keeps closed:
+The five, and the Ф-step each one keeps closed:
 
   1. no `sys.path.insert` under tests/            (Ф1.5 removed all 120)
   2. `kicadstamp` is imported from THIS checkout  (the Ф1.5 worktree lesson: an
      editable install can point at another tree, and then the suite tests code
      nobody is editing)
   3. no test file redefines a fake that lives in tests/fakes/ (Ф1.4; a second copy
-     is what drifts)
+      is what drifts)
   4. no assignment to an attribute of an imported module/name outside monkeypatch
-     (Ф1.2), with a measured exception list
+      (Ф1.2), with a measured exception list
+  5. no `test_*.py` script under the product package `kicadstamp/` (Ф3.2: the
+     live-board probes were named test_*.py, and only `norecursedirs` kept a
+     collector from reaching them)
 """
 import ast
 import importlib.util
@@ -234,3 +237,25 @@ def test_the_monkeypatch_exceptions_did_not_rot():
     assert obsolete == [], (
         f"{obsolete} no longer assign to an attribute of an imported name — drop them "
         f"from MONKEYPATCH_EXCEPTIONS (an exception nobody needs hides the next one)")
+
+
+def test_no_test_named_script_lives_in_the_product_package():
+    """Ф3.2's surface: a `test_*.py` under `kicadstamp/` is a trap for ANY collector.
+
+    The diagnostics probes that write to the LIVE BOARD were named test_*.py, and
+    only `norecursedirs = … diagnostics` in pytest.ini kept a collector from
+    importing them; they carry no `integration` marker, so `addopts` would not have
+    caught them either. This guard keeps the name from coming back, so the
+    protection no longer rests on that single line — rename such a script to
+    `probe_*.py`."""
+    package = REPO / "kicadstamp"
+    scanned = [p for p in sorted(package.rglob("*.py"))
+               if "__pycache__" not in p.parts]
+    assert len(scanned) > 50, (
+        f"only {len(scanned)} modules found under {package} — the scan went blind")
+    offenders = [p.relative_to(REPO).as_posix() for p in scanned
+                 if p.name.startswith("test_")]
+    assert offenders == [], (
+        f"a script named test_*.py lives under kicadstamp/: {offenders} — any "
+        f"collector reaching the package would import it, and a probe that writes "
+        f"to the board must be named probe_*.py")

@@ -350,8 +350,8 @@ KiCad молча закрывается, приходит `ConnectionError: Erro
 
 - `diagnose_first_write_crash.py` — лесенка чтений и записи для локализации краха,
   см. [docs/diagnose_first_write_crash_ru.md](./docs/diagnose_first_write_crash_ru.md);
-- `test_move_one_cap.py`, `test_flip_one_cap.py`, `test_create_one_via.py` — минимальные тесты операций;
-- `test_pad_mirror_convention.py` — эмпирическая проверка зеркалирования падов при флипе;
+- `probe_move_one_cap.py`, `probe_flip_one_cap.py`, `probe_create_one_via.py` — минимальные тесты операций;
+- `probe_pad_mirror_convention.py` — эмпирическая проверка зеркалирования падов при флипе;
 - `get_selected_component.py` — подробности о выделенных компонентах, включая поле `Role`;
 - `get_pad_bbox.py`, `diagnostic_keepout.py` — вспомогательные.
 

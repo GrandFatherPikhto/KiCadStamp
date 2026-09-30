@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_create_one_via.py — minimal diagnostic test for create_items() (KiCadStamp).
+probe_create_one_via.py — minimal diagnostic test for create_items() (KiCadStamp).
 
 Purpose: test CREATING a new object (Via) via IPC.
 Places one via on GND next to the specified capacitor (offset-mm from the
@@ -9,8 +9,8 @@ capacitor centre outward).
 Uses the KiCadStamp adapter.
 
 Run:
-    python -m kicadstamp.diagnostics.test_create_one_via C5 --offset-mm 1.2
-    python -m kicadstamp.diagnostics.test_create_one_via --remove   # delete the last created via
+    python -m kicadstamp.diagnostics.probe_create_one_via C5 --offset-mm 1.2
+    python -m kicadstamp.diagnostics.probe_create_one_via --remove   # delete the last created via
 """
 
 import argparse
@@ -79,7 +79,7 @@ def main():
         try:
             step(_("adapter.remove_by_id(remove_id)"), adapter.remove_by_id, remove_id)
             step(_("adapter.push_commit(commit, ...)"), adapter.push_commit, commit,
-                 "test_create_one_via: remove")
+                 "probe_create_one_via: remove")
             print(_("\nVia {id} deleted.").format(id=remove_id))
             if STATE_FILE.exists() and remove_id == json.loads(STATE_FILE.read_text(encoding="utf-8"))["id"]:
                 STATE_FILE.unlink()
@@ -111,13 +111,13 @@ def main():
     try:
         created = step(_("adapter.create_items([via])"), adapter.create_items, [via])
         step(_("adapter.push_commit(commit, ...)"), adapter.push_commit, commit,
-             f"test_create_one_via: near {args.ref}")
+             f"probe_create_one_via: near {args.ref}")
         created_id = created[0].uuid if created else None
         print(_("\nDone. Via created, id={id}").format(id=created_id))
         if created_id:
             STATE_FILE.write_text(json.dumps({"id": created_id, "ref": args.ref}), encoding="utf-8")
             print(_("id saved to {file} — to delete it, just run:\n"
-                    "  python -m kicadstamp.diagnostics.test_create_one_via --remove")
+                    "  python -m kicadstamp.diagnostics.probe_create_one_via --remove")
                   .format(file=STATE_FILE.name))
     except Exception:
         step(_("adapter.drop_commit(commit)"), adapter.drop_commit, commit)

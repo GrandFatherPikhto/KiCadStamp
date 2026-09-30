@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_sheet_path.py — one-off check of what fp.sheet_path.path_human_readable
+probe_sheet_path.py — one-off check of what fp.sheet_path.path_human_readable
 actually returns on a live board with cloned sheets.
 
 Input:
@@ -15,7 +15,7 @@ Live KiCad:
     Yes — requires a running KiCad with a board that has cloned sheets.
 
 Run:
-    python -m kicadstamp.diagnostics.test_sheet_path
+    python -m kicadstamp.diagnostics.probe_sheet_path
 """
 import kipy
 from kipy.board_types import FootprintInstance

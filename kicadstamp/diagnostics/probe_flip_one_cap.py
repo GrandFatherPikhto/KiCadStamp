@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_flip_one_cap.py — minimal diagnostic test for "true" flip (KiCadStamp).
+probe_flip_one_cap.py — minimal diagnostic test for "true" flip (KiCadStamp).
 
 Context: simply assigning footprint.layer = BoardLayer.BL_B_Cu only changes
 the data field and does NOT mirror pads/silkscreen — visually the component
@@ -15,7 +15,7 @@ SELECTION, not by taking objects directly.
 Uses the KiCadStamp adapter, which encapsulates the flip and re‑reading.
 
 Run:
-    python -m kicadstamp.diagnostics.test_flip_one_cap C6
+    python -m kicadstamp.diagnostics.probe_flip_one_cap C6
 """
 
 import argparse

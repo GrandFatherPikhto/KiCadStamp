@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_ierarchy_uuid.py — prints each footprint's sheet_path.path raw form.
+probe_ierarchy_uuid.py — prints each footprint's sheet_path.path raw form.
 
 Input:
     None (reads the live board).
@@ -13,7 +13,7 @@ Live KiCad:
     Yes — requires a running KiCad with the board open.
 
 Run:
-    python -m kicadstamp.diagnostics.test_ierarchy_uuid
+    python -m kicadstamp.diagnostics.probe_ierarchy_uuid
 """
 import kipy
 kc = kipy.KiCad()

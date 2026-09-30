@@ -27,11 +27,11 @@ kicadstamp/diagnostics/
 ├── pad_geometry_probe.py          # Габарит пада от KiCad против своей области пада; keepout термовиа [LIVE]
 ├── get_selected_component.py      # Детальная информация о выделенных компонентах [LIVE]
 ├── get_selection.py               # Список выделенных объектов [LIVE]
-├── test_create_one_via.py         # Создание одной via [LIVE+WRITE]
+├── probe_create_one_via.py         # Создание одной via [LIVE+WRITE]
 ├── transform_template.py          # Перенос начала шаблона, затем поворот/зеркало [FILES]
-├── test_flip_one_cap.py           # Проверка флипа одного компонента [LIVE+WRITE]
-├── test_move_one_cap.py           # Проверка перемещения одного компонента [LIVE+WRITE]
-├── test_pad_mirror_convention.py  # Проверка конвенции зеркалирования пада [LIVE]
+├── probe_flip_one_cap.py           # Проверка флипа одного компонента [LIVE+WRITE]
+├── probe_move_one_cap.py           # Проверка перемещения одного компонента [LIVE+WRITE]
+├── probe_pad_mirror_convention.py  # Проверка конвенции зеркалирования пада [LIVE]
 ├── diagnose_points.py             # Грубый зонд для kipy-типа "Points" [LIVE]
 ├── group_by_sheet_path.py         # Группировка компонентов по цепочке sheet_path UUID [LIVE]
 ├── kipy_uuild_resolver.py         # Список всех цепей с подключёнными refdes [LIVE]
@@ -47,9 +47,9 @@ kicadstamp/diagnostics/
 ├── recon_symbol_uuid_bridge.py    # UUID-мост символа: схема vs sheet_path платы (разведка) [FILES / LIVE опционально]
 ├── resolve_paths.py               # Человекочитаемые пути листов из .net-файла [LIVE]
 ├── role_resolver.py               # Сырой proto-дамп sheet_path [LIVE]
-├── test_ierarchy.py               # Футпринты vs карта листов схемы [LIVE]
-├── test_ierarchy_uuid.py          # Сырая форма sheet_path.path [LIVE]
-├── test_sheet_path.py             # path_human_readable на живой плате [LIVE]
+├── probe_ierarchy.py               # Футпринты vs карта листов схемы [LIVE]
+├── probe_ierarchy_uuid.py          # Сырая форма sheet_path.path [LIVE]
+├── probe_sheet_path.py             # path_human_readable на живой плате [LIVE]
 ├── board_call_timing.py           # Замер каждого вызова адаптера (библиотека; ещё и выключатель в Настройках)
 ├── run_gui_with_timing.py         # Запуск GUI с замером всех обращений к плате [LIVE]
 ├── report_board_timing.py         # Разбор лога замеров [FILES]
@@ -471,7 +471,7 @@ python -m kicadstamp.diagnostics.get_selection
 
 ---
 
-### `test_create_one_via.py`
+### `probe_create_one_via.py`
 
 **Назначение:**  
 Создаёт одну via рядом с указанным компонентом. Сохраняет UUID созданной via в файл `.last_test_via.json` для последующего удаления. Позволяет проверить работу `create_items` и транзакций.
@@ -479,13 +479,13 @@ python -m kicadstamp.diagnostics.get_selection
 **Использование:**
 ```bash
 # Создать via
-python -m kicadstamp.diagnostics.test_create_one_via C5 --offset-mm 1.2
+python -m kicadstamp.diagnostics.probe_create_one_via C5 --offset-mm 1.2
 
 # Удалить последнюю созданную via
-python -m kicadstamp.diagnostics.test_create_one_via --remove
+python -m kicadstamp.diagnostics.probe_create_one_via --remove
 
 # Удалить конкретную via по UUID
-python -m kicadstamp.diagnostics.test_create_one_via --remove <uuid>
+python -m kicadstamp.diagnostics.probe_create_one_via --remove <uuid>
 ```
 
 **Параметры:**
@@ -531,14 +531,14 @@ python -m kicadstamp.diagnostics.transform_template \
 
 ---
 
-### `test_flip_one_cap.py`
+### `probe_flip_one_cap.py`
 
 **Назначение:**  
 Проверяет «настоящий» флип компонента через GUI-действие `pcbnew.InteractiveEdit.flip`. Выводит состояние компонента до и после флипа. Позволяет убедиться, что флип работает корректно (слой и зеркалирование).
 
 **Использование:**
 ```bash
-python -m kicadstamp.diagnostics.test_flip_one_cap C6
+python -m kicadstamp.diagnostics.probe_flip_one_cap C6
 ```
 
 **Параметры:**
@@ -552,7 +552,7 @@ python -m kicadstamp.diagnostics.test_flip_one_cap C6
 
 ---
 
-### `test_move_one_cap.py`
+### `probe_move_one_cap.py`
 
 **Назначение:**  
 Проверяет перемещение одного компонента на заданное расстояние по оси X. Позволяет изолировать проблемы с транзакциями (зависание `begin_commit`, `update_items`, `push_commit`).
@@ -560,10 +560,10 @@ python -m kicadstamp.diagnostics.test_flip_one_cap C6
 **Использование:**
 ```bash
 # Сдвинуть на +1 мм
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --delta-mm 1.0
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --delta-mm 1.0
 
 # Вернуть обратно
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --revert
 ```
 
 **Параметры:**
@@ -579,14 +579,14 @@ python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
 
 ---
 
-### `test_pad_mirror_convention.py`
+### `probe_pad_mirror_convention.py`
 
 **Назначение:**  
 Проверяет конвенцию зеркалирования локального смещения пада при флипе (используется в `geometry/pad_projection.py`). Выполняет два шага: поворот на 90° без флипа (проверка базовой формулы), затем флип и сравнение трёх кандидатов (зеркало по X, по Y, без зеркала). Возвращает компонент в исходное состояние.
 
 **Использование:**
 ```bash
-python -m kicadstamp.diagnostics.test_pad_mirror_convention C6 --pad 2
+python -m kicadstamp.diagnostics.probe_pad_mirror_convention C6 --pad 2
 ```
 
 **Параметры:**
@@ -733,11 +733,11 @@ python -m kicadstamp.diagnostics.audit_cell_net_templates <config.sexp> [<ещё
 
 ## Примечания
 
-- Скрипты **не изменяют плату** (кроме `test_move_one_cap`, `test_flip_one_cap`, `test_create_one_via` и `probe_footprints_fields`, которые могут её мутировать). Используйте их на тестовых платах или убедитесь, что у вас есть резервная копия.
+- Скрипты **не изменяют плату** (кроме `probe_move_one_cap`, `probe_flip_one_cap`, `probe_create_one_via` и `probe_footprints_fields`, которые могут её мутировать). Используйте их на тестовых платах или убедитесь, что у вас есть резервная копия.
 - `diagnose_first_write_crash.py` плату не мутирует (запись — no-op), но на уязвимой сессии (см. issue
   #24966) сама попытка записи может **уронить процесс KiCad целиком**. Сохраните открытые файлы перед
   запуском полной лесенки (без `--until 8`).
-- `test_move_one_cap`, `test_flip_one_cap` и `test_create_one_via` **не используют** реестр расстановки, поэтому они не откатываются командой `undo`.
+- `probe_move_one_cap`, `probe_flip_one_cap` и `probe_create_one_via` **не используют** реестр расстановки, поэтому они не откатываются командой `undo`.
 - Для полной диагностики расстановки рекомендуется запускать `diagnostic_keepout.py` с актуальным конфигом.
 
 ---

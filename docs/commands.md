@@ -913,26 +913,26 @@ These commands execute diagnostic scripts located in `kicadstamp/diagnostics/`. 
 
 ```bash
 # Shift by +1 mm along X
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --delta-mm 1.0
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --delta-mm 1.0
 
 # Revert the shift
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --revert
 ```
 
 ### Test component flip
 
 ```bash
-python -m kicadstamp.diagnostics.test_flip_one_cap C6
+python -m kicadstamp.diagnostics.probe_flip_one_cap C6
 ```
 
 ### Test creating a single via
 
 ```bash
 # Create a via next to C5
-python -m kicadstamp.diagnostics.test_create_one_via C5 --offset-mm 1.2
+python -m kicadstamp.diagnostics.probe_create_one_via C5 --offset-mm 1.2
 
 # Remove the last created via
-python -m kicadstamp.diagnostics.test_create_one_via --remove
+python -m kicadstamp.diagnostics.probe_create_one_via --remove
 ```
 
 ### Test for KiCad crash on first write (issue #24966)

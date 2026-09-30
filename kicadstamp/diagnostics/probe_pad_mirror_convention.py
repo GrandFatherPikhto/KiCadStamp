@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_pad_mirror_convention.py — the only empirical test capable of finally
+probe_pad_mirror_convention.py — the only empirical test capable of finally
 confirming or refuting the assumption in pad_projection.predict_pad_position()
 about mirroring the local pad offset along X when flipping to the other side
 of the board.
@@ -8,7 +8,7 @@ of the board.
 Uses the KiCadStamp adapter and pad_projection geometry.
 
 Run:
-    python -m kicadstamp.diagnostics.test_pad_mirror_convention C6 --pad 2
+    python -m kicadstamp.diagnostics.probe_pad_mirror_convention C6 --pad 2
 """
 
 import argparse
@@ -59,7 +59,7 @@ def rotate_component(adapter, ref, delta_deg):
         new_angle = Angle.from_degrees(fp.orientation.degrees + delta_deg)
         fp.orientation = new_angle
         adapter.update_items([fp])
-        adapter.push_commit(commit, _("test_pad_mirror_convention: rotate {ref} by {delta:+.1f}°")
+        adapter.push_commit(commit, _("probe_pad_mirror_convention: rotate {ref} by {delta:+.1f}°")
                             .format(ref=ref, delta=delta_deg))
     except Exception:
         adapter.drop_commit(commit)

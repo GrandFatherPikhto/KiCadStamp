@@ -31,11 +31,11 @@ kicadstamp/diagnostics/
 ├── pad_geometry_probe.py          # KiCad's pad box vs the pad's own area; thermal-via keepout [LIVE]
 ├── get_selected_component.py      # Detailed info on selected components [LIVE]
 ├── get_selection.py               # List of selected objects [LIVE]
-├── test_create_one_via.py         # Creates a single via [LIVE+WRITE]
+├── probe_create_one_via.py         # Creates a single via [LIVE+WRITE]
 ├── transform_template.py          # Shifts a template origin, then rotates/mirrors [FILES]
-├── test_flip_one_cap.py           # Verifies flipping a single component [LIVE+WRITE]
-├── test_move_one_cap.py           # Verifies moving a single component [LIVE+WRITE]
-├── test_pad_mirror_convention.py  # Verifies the pad-mirroring convention [LIVE]
+├── probe_flip_one_cap.py           # Verifies flipping a single component [LIVE+WRITE]
+├── probe_move_one_cap.py           # Verifies moving a single component [LIVE+WRITE]
+├── probe_pad_mirror_convention.py  # Verifies the pad-mirroring convention [LIVE]
 ├── diagnose_points.py             # Brute-force probe for the kipy "Points" type [LIVE]
 ├── group_by_sheet_path.py         # Groups components by their sheet_path UUID chain [LIVE]
 ├── kipy_uuild_resolver.py         # Lists every net with the refs connected [LIVE]
@@ -51,9 +51,9 @@ kicadstamp/diagnostics/
 ├── recon_symbol_uuid_bridge.py    # Symbol-uuid bridge: schematic vs board sheet_path (recon) [FILES / LIVE optional]
 ├── resolve_paths.py               # Human sheet paths from a .net file [LIVE]
 ├── role_resolver.py               # Raw proto dump of sheet_path [LIVE]
-├── test_ierarchy.py               # Footprints vs schematic sheet map [LIVE]
-├── test_ierarchy_uuid.py          # Raw sheet_path.path form [LIVE]
-├── test_sheet_path.py             # path_human_readable on a live board [LIVE]
+├── probe_ierarchy.py               # Footprints vs schematic sheet map [LIVE]
+├── probe_ierarchy_uuid.py          # Raw sheet_path.path form [LIVE]
+├── probe_sheet_path.py             # path_human_readable on a live board [LIVE]
 ├── board_call_timing.py           # Times every adapter call (library; also a Settings switch)
 ├── run_gui_with_timing.py         # Runs the GUI with every board call timed [LIVE]
 ├── report_board_timing.py         # Summarises a board-call timing log [FILES]
@@ -482,7 +482,7 @@ A list of objects with type and key properties.
 
 ---
 
-### `test_create_one_via.py`
+### `probe_create_one_via.py`
 
 **Purpose:**
 Creates a single via next to a given component. Saves the UUID of the created via to
@@ -491,13 +491,13 @@ Creates a single via next to a given component. Saves the UUID of the created vi
 **Usage:**
 ```bash
 # Create a via
-python -m kicadstamp.diagnostics.test_create_one_via C5 --offset-mm 1.2
+python -m kicadstamp.diagnostics.probe_create_one_via C5 --offset-mm 1.2
 
 # Remove the last created via
-python -m kicadstamp.diagnostics.test_create_one_via --remove
+python -m kicadstamp.diagnostics.probe_create_one_via --remove
 
 # Remove a specific via by UUID
-python -m kicadstamp.diagnostics.test_create_one_via --remove <uuid>
+python -m kicadstamp.diagnostics.probe_create_one_via --remove <uuid>
 ```
 
 **Parameters:**
@@ -547,7 +547,7 @@ current selection.
 
 ---
 
-### `test_flip_one_cap.py`
+### `probe_flip_one_cap.py`
 
 **Purpose:**
 Verifies a "real" component flip via the GUI action `pcbnew.InteractiveEdit.flip`. Prints the component's
@@ -555,7 +555,7 @@ state before and after the flip. Lets you confirm the flip works correctly (laye
 
 **Usage:**
 ```bash
-python -m kicadstamp.diagnostics.test_flip_one_cap C6
+python -m kicadstamp.diagnostics.probe_flip_one_cap C6
 ```
 
 **Parameters:**
@@ -569,7 +569,7 @@ Component state (layer, position, angle) before and after the flip.
 
 ---
 
-### `test_move_one_cap.py`
+### `probe_move_one_cap.py`
 
 **Purpose:**
 Verifies moving a single component a given distance along the X axis. Lets you isolate transaction
@@ -578,10 +578,10 @@ problems (`begin_commit`, `update_items`, `push_commit` hanging).
 **Usage:**
 ```bash
 # Move by +1 mm
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --delta-mm 1.0
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --delta-mm 1.0
 
 # Move it back
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --revert
 ```
 
 **Parameters:**
@@ -597,7 +597,7 @@ Execution time for each step (connect, begin_commit, update_items, push_commit) 
 
 ---
 
-### `test_pad_mirror_convention.py`
+### `probe_pad_mirror_convention.py`
 
 **Purpose:**
 Verifies the mirroring convention for a pad's local offset on flip (used in
@@ -607,7 +607,7 @@ the component to its original state afterwards.
 
 **Usage:**
 ```bash
-python -m kicadstamp.diagnostics.test_pad_mirror_convention C6 --pad 2
+python -m kicadstamp.diagnostics.probe_pad_mirror_convention C6 --pad 2
 ```
 
 **Parameters:**
@@ -754,13 +754,13 @@ Exit code is always `0` (diagnostic, not a CI gate).
 
 ## Notes
 
-- The scripts **do not modify the board** (except for `test_move_one_cap`, `test_flip_one_cap`,
-  `test_create_one_via`, and `probe_footprints_fields`, which can mutate it). Use them on test
+- The scripts **do not modify the board** (except for `probe_move_one_cap`, `probe_flip_one_cap`,
+  `probe_create_one_via`, and `probe_footprints_fields`, which can mutate it). Use them on test
   boards or make sure you have a backup.
 - `diagnose_first_write_crash.py` does not mutate the board (the write is a no-op), but on an affected
   session (see issue #24966) the write attempt itself can **crash the KiCad process entirely**. Save open
   files before running the full ladder (without `--until 8`).
-- `test_move_one_cap`, `test_flip_one_cap`, and `test_create_one_via` **do not use** the placement
+- `probe_move_one_cap`, `probe_flip_one_cap`, and `probe_create_one_via` **do not use** the placement
   registry, so they are not undone by the `undo` command.
 - For a full placement diagnosis, run `diagnostic_keepout.py` with the actual config.
 

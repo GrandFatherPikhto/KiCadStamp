@@ -355,8 +355,8 @@ In `kicadstamp/diagnostics/`:
 
 - `diagnose_first_write_crash.py` — a read/write ladder for pinning the crash down, see
   [docs/diagnose_first_write_crash.md](./docs/diagnose_first_write_crash.md);
-- `test_move_one_cap.py`, `test_flip_one_cap.py`, `test_create_one_via.py` — minimal operation tests;
-- `test_pad_mirror_convention.py` — an empirical check of how pads mirror on flip;
+- `probe_move_one_cap.py`, `probe_flip_one_cap.py`, `probe_create_one_via.py` — minimal operation tests;
+- `probe_pad_mirror_convention.py` — an empirical check of how pads mirror on flip;
 - `get_selected_component.py` — details of the selected components, including the `Role` field;
 - `get_pad_bbox.py`, `diagnostic_keepout.py` — helpers.
 

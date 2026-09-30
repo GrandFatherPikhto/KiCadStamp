@@ -1011,26 +1011,26 @@ python kicadstamp_cli.py convert-trees --root profiles/3ch-awg-tia-v103/config.s
 
 ```bash
 # Сдвинуть на +1 мм по X
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --delta-mm 1.0
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --delta-mm 1.0
 
 # Вернуть обратно
-python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
+python -m kicadstamp.diagnostics.probe_move_one_cap C5 --revert
 ```
 
 ### Тест флипа компонента
 
 ```bash
-python -m kicadstamp.diagnostics.test_flip_one_cap C6
+python -m kicadstamp.diagnostics.probe_flip_one_cap C6
 ```
 
 ### Тест создания одной via
 
 ```bash
 # Создать via рядом с C5
-python -m kicadstamp.diagnostics.test_create_one_via C5 --offset-mm 1.2
+python -m kicadstamp.diagnostics.probe_create_one_via C5 --offset-mm 1.2
 
 # Удалить последнюю созданную via
-python -m kicadstamp.diagnostics.test_create_one_via --remove
+python -m kicadstamp.diagnostics.probe_create_one_via --remove
 ```
 
 ### Тест на краш KiCad при первой записи (issue #24966)

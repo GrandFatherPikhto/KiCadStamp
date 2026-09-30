@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_ierarchy.py — matches board footprints' sheet_path against a sheet map
+probe_ierarchy.py — matches board footprints' sheet_path against a sheet map
 built from the live schematic.
 
 Input:
@@ -16,7 +16,7 @@ Live KiCad:
     Yes — requires a running KiCad with the board and schematic open.
 
 Run:
-    python -m kicadstamp.diagnostics.test_ierarchy
+    python -m kicadstamp.diagnostics.probe_ierarchy
 """
 import kipy
 

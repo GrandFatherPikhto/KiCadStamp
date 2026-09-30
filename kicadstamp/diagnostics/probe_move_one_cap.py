@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_move_one_cap.py — minimal diagnostic test for IPC writes (KiCadStamp).
+probe_move_one_cap.py — minimal diagnostic test for IPC writes (KiCadStamp).
 
 Purpose: isolate begin_commit() hanging to the limit — take ONE capacitor,
 shift it by 1mm along X, commit. If this also hangs, the problem is not in
@@ -11,8 +11,8 @@ definitely needed.
 Uses the KiCadStamp adapter to interact with the board.
 
 Run:
-    python -m kicadstamp.diagnostics.test_move_one_cap C5 --delta-mm 1.0
-    python -m kicadstamp.diagnostics.test_move_one_cap C5 --revert
+    python -m kicadstamp.diagnostics.probe_move_one_cap C5 --delta-mm 1.0
+    python -m kicadstamp.diagnostics.probe_move_one_cap C5 --revert
 """
 
 import argparse
@@ -83,10 +83,10 @@ def main():
         fp.position = new_pos
         step(_("adapter.update_items([fp])"), adapter.update_items, [fp])
         step(_("adapter.push_commit(commit, ...)"), adapter.push_commit, commit,
-             f"test_move_one_cap: {args.ref}")
+             f"probe_move_one_cap: {args.ref}")
         print(_("\nDone. {ref} moved by {delta:+.2f} mm along X.")
               .format(ref=args.ref, delta=delta))
-        print(_("To revert: python -m kicadstamp.diagnostics.test_move_one_cap "
+        print(_("To revert: python -m kicadstamp.diagnostics.probe_move_one_cap "
                 "{ref} --delta-mm {d} --revert")
               .format(ref=args.ref, d=args.delta_mm))
     except Exception:
