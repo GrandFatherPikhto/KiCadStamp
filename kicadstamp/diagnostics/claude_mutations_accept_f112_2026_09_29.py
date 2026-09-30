@@ -49,7 +49,8 @@ def _interpreter() -> str:
 
 PY_BIN = _interpreter()
 
-T = ["tests/test_marker_contract.py"]
+T = ["tests/test_marker_contract.py", "tests/test_fakes_conformance.py",
+     "tests/test_repo_hygiene.py", "tests/test_imprint_capture.py", "tests/gui/test_imprint.py"]
 
 MUTATIONS = [
     # M1 — the protection removed: no addopts, so a bare `pytest` collects the
@@ -71,6 +72,20 @@ MUTATIONS = [
      '"""The NAMES of the gui / integration / unit markers this item really carries.',
      '"""The NAMES of the gui/integration/unit markers this item really carries.',
      "survive"),
+    # Claude acceptance, round 2 (Ф1.4e): the shared imprint double and its guards.
+    # M4 — the shared double invents a read the real adapter does not have. MUST die
+    # (conformance cell: nothing beyond the seam).
+    ("M4 shared imprint double invents a method", "tests/fakes/imprint_adapter.py",
+     "    def get_tracks(self):\n",
+     "    def get_everything_at_once(self):\n        return []\n\n    def get_tracks(self):\n",
+     "die"),
+    # M5 — a test file defines its own copy of a name that lives in tests/fakes/.
+    # MUST die (hygiene guard 3).
+    ("M5 a local FakeImprintAdapter again", "tests/test_imprint_capture.py",
+     "from tests.fakes.imprint_adapter import FakeImprintAdapter as _FakeAdapter  # noqa: E402\n",
+     "from tests.fakes.imprint_adapter import FakeImprintAdapter as _FakeAdapter  # noqa: E402\n\n\n"
+     "class FakeImprintAdapter(_FakeAdapter):\n    pass\n",
+     "die"),
 ]
 
 
