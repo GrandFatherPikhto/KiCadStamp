@@ -29,8 +29,6 @@ autostage through the internal line edit — the behaviour we must NOT break.
 GUI tests hang without a timeout — run them with one, e.g.
 ``timeout 300 .venv/bin/python -m pytest tests/gui/test_combo_line_edit_helpers.py -q``.
 """
-from pathlib import Path
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QComboBox, QLineEdit, QVBoxLayout, QWidget
@@ -147,7 +145,10 @@ def test_findchildren_qlineedit_lives_only_in_common():
     the moment a sixth site appears. Every QLineEdit scan in gui/ must go
     through own_line_edits/combo_line_edits (gui/docks/_common.py), where the
     user-driven-vs-model-rebuild signal rule is written down."""
-    repo_root = Path(__file__).resolve().parents[2]
+    # Ф2.0: depth-independent (tests/paths.py) — this file may move under tests/gui/.
+    from tests.paths import REPO_ROOT
+
+    repo_root = REPO_ROOT
     gui_dir = repo_root / "gui"
     offenders = []
     for path in sorted(gui_dir.rglob("*.py")):

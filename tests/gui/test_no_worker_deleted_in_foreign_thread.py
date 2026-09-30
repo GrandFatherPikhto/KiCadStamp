@@ -45,7 +45,9 @@ import ast
 
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT as _REPO_ROOT
+
 _GUI_DIR = _REPO_ROOT / "gui"
 
 # The Qt call that hands an object to another thread.

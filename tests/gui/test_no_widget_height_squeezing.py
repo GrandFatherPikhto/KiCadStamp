@@ -47,7 +47,10 @@ from PyQt6.QtWidgets import (QComboBox, QFrame, QLineEdit, QScrollArea,
 
 from kicadstamp.config.sexp_format import dict_to_sexp
 
-_GUI_DIR = Path(__file__).resolve().parent.parent.parent / "gui"
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT
+
+_GUI_DIR = REPO_ROOT / "gui"
 _RULE = "docs/gui.md — never height-restrict an input field; scroll the content"
 
 # Calls that pin a widget's height regardless of font/DPI/style.

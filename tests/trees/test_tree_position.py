@@ -1,0 +1,2556 @@
+# tests/test_tree_position.py
+"""Tests for kicadstamp/tree_position.py — position resolution + curated
+redraw planning for the s-expr trees layer (Phase 4,
+design_2026_08_26_tree_position_resolution.md, Q1-Q5). Written by Claude,
+not DeepSeek — per the implementation handoff's own agreement
+(handoff_2026_08_27_sexp_trees_implementation.md, Phase 4).
+
+node_offset()/node_position() are pure geometry — tested directly, no
+adapter. resolve_record_live_position()/resolve_base_live_position() are
+THIN DISPATCHERS over already-tested resolvers (ClonePositionCalculator,
+ComponentResolver, resolve_point_chain, resolve_target_position/...) — those
+resolvers have their own test suites (test_point_resolver.py,
+test_coordinate_position_calculator.py, ...); here we monkeypatch them
+inside kicadstamp.tree_position's own namespace and verify the DISPATCH
+itself: the right resolver gets called with the right arguments, and the
+result is combined correctly — not re-testing each resolver's internals.
+curated_redraw_plan() is tested with hand-built LinkedTree/LinkedNode/
+LinkedAnchor structures (pure data, no adapter, mirrors test_link_trees.py's
+own "build Records directly" pattern) — DFS order, per-kind name emission
+(Q3), and the parent-not-in-selection warning (Q4).
+"""
+import pytest
+
+from kicadstamp.anchor_graph import Record
+from kicadstamp.config import (
+    Cell,
+    ClonePlacement,
+    Config,
+    CoordinatePlacement,
+    Entity,
+    NetTrace,
+    TemplateComponentSlot,
+)
+from kicadstamp.constants import ROLE_FIELD_NAME
+from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.geometry.spoke_layout import local_to_absolute
+from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree, link_trees
+from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, load_trees,
+                              tree_from_dict)
+from kicadstamp.tree_position import (
+    apply_rigid_override,
+    capture_rigid_state,
+    child_absolute_position,
+    child_local_offset,
+    curated_forest_module_content,
+    curated_redraw_plan,
+    curated_redraw_plan_forest,
+    layout_tree_from_base,
+    node_offset,
+    node_position,
+    resolve_module_effective_base,
+    resolve_record_live_position,
+    resolve_record_rotation_deg,
+    tree_effective_base,
+    tree_pivot_offset,
+)
+from kicadstamp.utils.units import MM
+
+_ORIGIN = Vector2.from_xy(0, 0)
+
+
+def _node_dc(ref="N", kind=None, xy=None, polar=None, rotation=0.0,
+             name=None, group=None, children=None) -> TreeNode:
+    return TreeNode(ref=ref, kind=kind, xy=xy, polar=polar, rotation=rotation,
+                    name=name, group=group, children=children or [])
+
+
+def _record(kind, name, obj=None) -> Record:
+    return Record(kind=kind, obj=obj if obj is not None else object(), name=name,
+                  sheet=None, anchor_ref=None, anchor_role=None, anchor_sheet=None,
+                  anchor_cluster=None, anchor_point=None, params={})
+
+
+def _linked_node(ref, record=None, is_external=False, children=None) -> LinkedNode:
+    return LinkedNode(node=_node_dc(ref=ref), record=record,
+                      is_external=is_external, children=children or [])
+
+
+def _linked_tree(name, anchor_ref=None, is_origin=False, nodes=None) -> LinkedTree:
+    """A hand-built LinkedTree. origin anchor -> record None; ref anchor ->
+    a synthetic placement Record (so cross-tree anchor edges resolve)."""
+    anchor = LinkedAnchor(
+        anchor=TreeAnchor(ref=anchor_ref, is_origin=is_origin),
+        record=(_record("placement", anchor_ref) if anchor_ref and not is_origin else None),
+        is_origin=is_origin,
+        is_external=anchor_ref is None and not is_origin,
+    )
+    return LinkedTree(name=name, anchor=anchor, nodes=nodes or [])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# node_offset / node_position — pure geometry
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_node_offset_xy_converts_mm_to_nm_flat():
+    node = _node_dc(xy=(5.0, 2.0))
+    off = node_offset(node)
+    assert off.x == 5 * MM
+    assert off.y == 2 * MM
+
+
+def test_node_offset_neither_xy_nor_polar_is_zero():
+    node = _node_dc(xy=None, polar=None)
+    off = node_offset(node)
+    assert off.x == 0 and off.y == 0
+
+
+def test_node_offset_polar_zero_angle_is_along_x():
+    """angle_deg=0 must give (radius_mm, 0) regardless of rotation direction
+    convention — a convention-independent sanity check."""
+    node = _node_dc(polar=(3.0, 0.0))
+    off = node_offset(node)
+    assert off.x == 3 * MM
+    assert off.y == 0
+
+
+def test_node_offset_polar_180_degrees_flips_x():
+    """angle_deg=180 must give (-radius_mm, 0) in EITHER rotation direction
+    convention — the other convention-independent sanity check."""
+    node = _node_dc(polar=(3.0, 180.0))
+    off = node_offset(node)
+    assert off.x == pytest.approx(-3 * MM, abs=2)
+    assert off.y == pytest.approx(0, abs=2)
+
+
+def test_node_offset_polar_delegates_to_local_to_absolute():
+    """For a generic angle, node_offset must match calling
+    local_to_absolute(origin=0, radius, 0, angle) directly — verifies
+    node_offset is a faithful delegate (same args, same primitive), not a
+    reimplementation that could drift from the project's one true rotation
+    convention."""
+    node = _node_dc(polar=(7.5, 37.0))
+    off = node_offset(node)
+    expected = local_to_absolute(_ORIGIN, 7.5, 0.0, 37.0)
+    assert off.x == expected.x
+    assert off.y == expected.y
+
+
+def test_node_offset_own_rotation_field_does_not_affect_offset():
+    """A node's own `rotation` rotates its OWN geometry later — it must NOT
+    feed into the offset vector itself (design Q2). Same xy, different
+    rotation -> identical offset."""
+    a = node_offset(_node_dc(xy=(4.0, 1.0), rotation=0.0))
+    b = node_offset(_node_dc(xy=(4.0, 1.0), rotation=90.0))
+    assert (a.x, a.y) == (b.x, b.y)
+
+
+def test_node_position_is_flat_composition():
+    parent = Vector2.from_xy(10 * MM, 20 * MM)
+    node = _node_dc(xy=(5.0, -3.0))
+    pos = node_position(node, parent)
+    assert pos.x == 15 * MM
+    assert pos.y == 17 * MM
+
+
+def test_node_position_parent_rotation_applied_to_child_offset():
+    """Plan 2026-08-29 (tree_live_rigid_redraw) §2 REVERSES design
+    tree_position_resolution.md §1.3 by Denis's explicit request: the parent's
+    rotation IS applied to the child's offset (the offset is expressed in the
+    parent's LOCAL frame and rotated into the world before adding). This is
+    the replacement for the old guard
+    test_node_position_parent_rotation_never_applied_to_child_offset, which
+    asserted the OPPOSITE — history preserved here and in the plan doc."""
+    parent = Vector2.from_xy(10 * MM, 20 * MM)
+    node = _node_dc(xy=(5.0, 0.0))            # offset 5 mm along X
+    # KiCad Y-down convention: +90° maps (5,0) -> (0,-5).
+    pos = node_position(node, parent, parent_rotation_deg=90.0)
+    assert pos.x == 10 * MM
+    assert pos.y == 20 * MM - 5 * MM
+
+
+def test_node_position_flat_composition_default_rotation():
+    """parent_rotation_deg defaults to 0.0 — the original flat composition is
+    unchanged."""
+    parent = Vector2.from_xy(10 * MM, 20 * MM)
+    node = _node_dc(xy=(5.0, -3.0))
+    pos = node_position(node, parent)
+    assert pos.x == 15 * MM
+    assert pos.y == 17 * MM
+
+
+class TestRigidGroupRotationMath:
+    """Plan 2026-08-29 §1/§4 — the pure capture->apply rigid-group math:
+    child_local_offset captures the child's offset in the parent's LOCAL
+    frame; child_absolute_position re-projects it into the parent's (possibly
+    rotated) frame. Round-trip at the SAME rotation is identity; a changed
+    rotation rotates the offset WITH the parent."""
+
+    def _mm(self, x_mm, y_mm):
+        return Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+
+    def test_round_trip_same_rotation_is_identity(self):
+        parent = self._mm(100.0, 50.0)
+        child = self._mm(110.0, 45.0)
+        local = child_local_offset(child, parent, 30.0)
+        back = child_absolute_position(parent, 30.0, local)
+        assert back.x == pytest.approx(child.x, abs=2)
+        assert back.y == pytest.approx(child.y, abs=2)
+
+    def test_rotation_applied_on_apply(self):
+        """child offset (5,0) in the parent's frame; parent rotates 0->90 —
+        the child's offset rotates WITH the parent (KiCad Y-down: +90° maps
+        (5,0)->(0,-5), so the child lands 5 mm "down" from the parent)."""
+        parent = self._mm(100.0, 50.0)
+        child = self._mm(105.0, 50.0)
+        local = child_local_offset(child, parent, 0.0)       # (5, 0) local
+        new = child_absolute_position(parent, 90.0, local)   # rotated by 90
+        assert new.x == pytest.approx(100.0 * MM, abs=2)
+        assert new.y == pytest.approx(45.0 * MM, abs=2)
+
+    def test_rotation_180_flips_offset(self):
+        parent = self._mm(0.0, 0.0)
+        child = self._mm(5.0, 0.0)
+        local = child_local_offset(child, parent, 0.0)
+        new = child_absolute_position(parent, 180.0, local)
+        assert new.x == pytest.approx(-5.0 * MM, abs=2)
+        assert new.y == pytest.approx(0.0 * MM, abs=2)
+
+    def test_rotation_270_offset(self):
+        """+270° in the KiCad Y-down convention maps (0,4) -> (-4,0)."""
+        parent = self._mm(0.0, 0.0)
+        child = self._mm(0.0, 4.0)
+        local = child_local_offset(child, parent, 0.0)       # (0, 4) local
+        new = child_absolute_position(parent, 270.0, local)  # -> (-4, 0)
+        assert new.x == pytest.approx(-4.0 * MM, abs=2)
+        assert new.y == pytest.approx(0.0 * MM, abs=2)
+
+    def test_arbitrary_angle_round_trip(self):
+        """Non-multiple-of-90 angle — the same discipline as the existing
+        polar node_offset tests. KiCad Y-down convention:
+        x' = py*sin + px*cos, y' = py*cos - px*sin."""
+        import math
+        parent = self._mm(30.0, -10.0)
+        child = self._mm(35.0, -8.0)
+        local = child_local_offset(child, parent, 33.0)
+        # round-trip at the same rotation -> identity
+        back = child_absolute_position(parent, 33.0, local)
+        assert back.x == pytest.approx(child.x, abs=3)
+        assert back.y == pytest.approx(child.y, abs=3)
+        # capture at 0 + apply at 33 == rotate the (5,2) delta by 33
+        local0 = child_local_offset(child, parent, 0.0)
+        new = child_absolute_position(parent, 33.0, local0)
+        rad = math.radians(33.0)
+        px, py = 5.0, 2.0
+        expected_x = parent.x + int((py * math.sin(rad) + px * math.cos(rad)) * MM)
+        expected_y = parent.y + int((py * math.cos(rad) - px * math.sin(rad)) * MM)
+        assert new.x == pytest.approx(expected_x, abs=3)
+        assert new.y == pytest.approx(expected_y, abs=3)
+
+
+class TestRigidGroupCaptureApply:
+    """Plan 2026-08-29 §1/§4 — the capture->apply wiring helpers:
+    _node_parent_map builds the parent index, capture_rigid_state snapshots
+    each selected node's local offset + relative rotation BEFORE any move, and
+    apply_rigid_override re-projects them into the parent's CURRENT frame at
+    apply time. Live resolvers are monkeypatched (thin dispatchers already
+    tested elsewhere in this file)."""
+
+    def _tree(self, anchor_ref="FPGA", is_origin=False):
+        anchor = LinkedAnchor(anchor=TreeAnchor(ref=anchor_ref, is_origin=is_origin),
+                              record=None, is_origin=is_origin, is_external=not is_origin)
+        child = LinkedNode(node=_node_dc(ref="D1", kind="clone"),
+                           record=_record("clone", "D1"), is_external=False, children=[])
+        return LinkedTree(name="fpga", anchor=anchor, nodes=[child])
+
+    def _monkeypatch_live(self, monkeypatch, positions, rotations):
+        import kicadstamp.tree_position as tp
+
+        def fake_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+            return positions[ref]
+
+        def fake_rot(adapter, cfg, ref, record, sheet_names):
+            return rotations[ref]
+
+        monkeypatch.setattr(tp, "resolve_base_live_position", fake_pos)
+        monkeypatch.setattr(tp, "resolve_base_rotation_deg", fake_rot)
+
+    def test_parent_map_external_anchor(self):
+        import kicadstamp.tree_position as tp
+        assert tp._node_parent_map(self._tree())["D1"] == ("FPGA", None, True)
+
+    def test_parent_map_origin_anchor(self):
+        import kicadstamp.tree_position as tp
+        assert tp._node_parent_map(self._tree(anchor_ref=None, is_origin=True))["D1"] \
+            == (None, None, False)
+
+    def test_capture_then_apply_follows_parent_translation_and_rotation(self, monkeypatch):
+        """Parent moves (100->150) AND rotates 0->90 between capture and apply:
+        the child follows — its captured local offset (5,0) re-projects to
+        (0,-5) in the parent's new frame (KiCad Y-down)."""
+        positions = {"FPGA": Vector2.from_xy(100 * MM, 50 * MM),
+                     "D1": Vector2.from_xy(105 * MM, 50 * MM)}
+        rotations = {"FPGA": 0.0, "D1": 0.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+
+        captures, parent_map = capture_rigid_state("adapter", "cfg", self._tree(), ["D1"], {})
+        assert parent_map["D1"] == ("FPGA", None, True)
+        cap = captures["D1"]
+        assert cap.local_offset.x == 5 * MM
+        assert cap.local_offset.y == 0
+        assert cap.relative_rotation == pytest.approx(0.0)
+
+        positions["FPGA"] = Vector2.from_xy(150 * MM, 50 * MM)
+        rotations["FPGA"] = 90.0
+        override = apply_rigid_override("adapter", "cfg", "FPGA", None, cap, {})
+        assert override.position.x == 150 * MM
+        assert override.position.y == 50 * MM - 5 * MM
+        assert override.rotation_deg == pytest.approx(90.0)
+
+    def test_child_relative_rotation_preserved(self, monkeypatch):
+        """Child's own rotation relative to the parent is preserved across the
+        parent's rotation change: child 30 vs parent 10 -> relative 20; parent
+        now 90 -> child 110."""
+        positions = {"FPGA": Vector2.from_xy(0, 0), "D1": Vector2.from_xy(5 * MM, 0)}
+        rotations = {"FPGA": 10.0, "D1": 30.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+
+        captures, _pm = capture_rigid_state("adapter", "cfg", self._tree(), ["D1"], {})
+        cap = captures["D1"]
+        assert cap.relative_rotation == pytest.approx(20.0)
+
+        rotations["FPGA"] = 90.0
+        override = apply_rigid_override("adapter", "cfg", "FPGA", None, cap, {})
+        assert override.rotation_deg == pytest.approx(110.0)
+
+    def test_origin_anchor_parent_is_absolute_origin(self, monkeypatch):
+        """An origin anchor (ref=None) is the absolute (0,0) point with 0.0
+        rotation — the child's offset is its own absolute position."""
+        positions = {"D1": Vector2.from_xy(7 * MM, 9 * MM)}
+        rotations = {"D1": 0.0}
+        self._monkeypatch_live(monkeypatch, positions, rotations)
+        tree = self._tree(anchor_ref=None, is_origin=True)
+
+        captures, parent_map = capture_rigid_state("adapter", "cfg", tree, ["D1"], {})
+        assert parent_map["D1"] == (None, None, False)
+        cap = captures["D1"]
+        assert cap.local_offset.x == 7 * MM
+        assert cap.local_offset.y == 9 * MM
+
+
+from tests.fakes.resolver import FakeComponentResolver  # noqa: E402
+
+
+class TestRigidCaptureMountParent:
+    """Э2 (plan_2026_09_14): a kind "mount" node standing as a rigid-group
+    PARENT resolves through mount_node_base. A mount node's ref is a tree-LOCAL
+    name (a named anchor point), never a board refdes, so the (ref, None) pair
+    the old capture fed to resolve_base_live_position asked the board for a
+    footprint that cannot exist; the child then silently degraded to "redrawn
+    from its own record fields, not rigidly" — losing the user's hand-fit AND
+    blaming the config for a typo it did not have. Shape taken from Denis's
+    live profile node verbatim (kind mount parent, kind placement child)."""
+
+    def _tree(self) -> LinkedTree:
+        child = _node_dc(ref="fpga_oscill_fpga", kind="placement", xy=(-2.0, 0.0))
+        mount = TreeNode(
+            ref="fpga_22_oscill", kind="mount", xy=(0.0, 0.0), polar=None,
+            rotation=0.0, name=None, group=None, children=[child],
+            anchor=TreeAnchor(role="FPGA", anchor_sheet="FPGA",
+                              anchor_cluster="FPGA", anchor_pad="22",
+                              is_origin=False))
+        anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                              record=None, is_origin=True, is_external=False)
+        nodes = [LinkedNode(
+            node=mount, record=None, is_external=False,
+            children=[LinkedNode(
+                node=child, record=_record("placement", "fpga_oscill_fpga"),
+                is_external=False, children=[])])]
+        return LinkedTree(name="fpga", anchor=anchor, nodes=nodes)
+
+    def _patch_mount_seam(self, monkeypatch, pad_pos):
+        """The live mount seam: role FPGA + sheet/cluster/pad 22 resolve, and the
+        pad position IS the mount base. Returns the list of pads read — proof the
+        mount's OWN pad was used, not a ref lookup."""
+        import kicadstamp.tree_position as tp
+
+        class _FakeFp:
+            position = Vector2.from_xy(0, 0)
+            angle_deg = 0.0
+
+        class _FakeResolver(FakeComponentResolver):
+            """Ф1.4d-2: the shared surface; only the anchor ASSERTION is local."""
+            RESOLVED_FP_FACTORY = _FakeFp
+
+            def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
+                                  anchor_cluster, label=""):
+                assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
+                    (None, "FPGA", "FPGA", "FPGA")
+                return super().resolve_anchor_fp(anchor_ref, anchor_role,
+                                                 anchor_sheet, anchor_cluster,
+                                                 label)
+
+        reads = []
+
+        def fake_pad(adapter, fp, pad, label):
+            reads.append(pad)
+            return pad_pos
+
+        monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+        monkeypatch.setattr(tp, "resolve_anchor_pad_position", fake_pad)
+        return reads
+
+    def _patch_child_and_parent_rotations(self, monkeypatch, pad_pos):
+        import kicadstamp.tree_position as tp
+
+        def fake_child_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+            # A ref-based parent read would arrive here with the MOUNT's ref —
+            # the trap that makes the mutation red instead of silently non-rigid.
+            assert ref == "fpga_oscill_fpga", (
+                f"a mount ref must never be looked up on the board: {ref!r}")
+            return Vector2.from_xy(pad_pos.x - 2 * MM, pad_pos.y)
+
+        monkeypatch.setattr(tp, "resolve_base_live_position", fake_child_pos)
+        monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+
+    def test_mount_parent_captures_the_child_rigidly(self, monkeypatch):
+        """Э4 guard #4: the child of a mount parent IS captured (rigidly). A
+        mutation that drops the mount-anchor parsing makes the capture fall into
+        the swallowing except and yields NO capture — red, not "quietly
+        non-rigid"."""
+        pad_pos = Vector2.from_xy(100 * MM, 50 * MM)
+        reads = self._patch_mount_seam(monkeypatch, pad_pos)
+        self._patch_child_and_parent_rotations(monkeypatch, pad_pos)
+
+        captures, parent_map = capture_rigid_state(
+            "adapter", "cfg", self._tree(), ["fpga_oscill_fpga"], {})
+
+        assert parent_map["fpga_oscill_fpga"] == ("fpga_22_oscill", None, False)
+        assert reads == ["22"]                      # the mount's OWN pad was used
+        cap = captures["fpga_oscill_fpga"]          # captured RIGIDLY, not skipped
+        assert cap.mount_parent is not None
+        assert cap.mount_parent.ref == "fpga_22_oscill"
+        assert cap.local_offset.x == -2 * MM
+        assert cap.local_offset.y == 0
+        assert cap.relative_rotation == pytest.approx(0.0)
+
+    def test_mount_parent_apply_reprojects_into_its_current_base(self, monkeypatch):
+        """The apply half re-resolves the mount base through the seam: the pad
+        moved 100 -> 200 mm, so the child follows to 198 mm (its captured -2 mm
+        offset) — the mount base, never a ref lookup, is the new frame."""
+        pad_pos = Vector2.from_xy(100 * MM, 50 * MM)
+        self._patch_mount_seam(monkeypatch, pad_pos)
+        self._patch_child_and_parent_rotations(monkeypatch, pad_pos)
+        captures, parent_map = capture_rigid_state(
+            "adapter", "cfg", self._tree(), ["fpga_oscill_fpga"], {})
+        cap = captures["fpga_oscill_fpga"]
+
+        self._patch_mount_seam(monkeypatch, Vector2.from_xy(200 * MM, 50 * MM))
+        parent_ref, parent_record, _is_anchor = parent_map["fpga_oscill_fpga"]
+        override = apply_rigid_override("adapter", "cfg", parent_ref, parent_record,
+                                        cap, {})
+        assert override.position.x == 198 * MM
+        assert override.position.y == 50 * MM
+
+
+def test_capture_warning_drops_the_fatal_board_verdict(monkeypatch, caplog):
+    """Э3 (plan_2026_09_14): when a node's live base fails with a FORMATTED
+    fatal (format_fatal_error), the capture warning must carry the REASON — never
+    the "Placement stopped, board not modified..." verdict, which is false here
+    because this run keeps going and the board IS modified. Guard #7 is the
+    negative assertion on the localized verdict text."""
+    import logging
+
+    import kicadstamp.tree_position as tp
+    from kicadstamp.exceptions import format_fatal_error
+    from kicadstamp.i18n import _
+
+    def boom(*a, **k):
+        raise ValidationError(format_fatal_error(
+            "fpga_22_oscill: anchor not found", ["no such ref on the board"]))
+
+    monkeypatch.setattr(tp, "resolve_base_live_position", boom)
+    tree = _linked_tree("t", anchor_ref=None, is_origin=True,
+                        nodes=[_linked_node("D1", record=_record("clone", "D1"))])
+
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.tree_position"):
+        captures, _parent_map = capture_rigid_state("adapter", "cfg", tree, ["D1"], {})
+
+    assert captures == {}
+    messages = " ".join(rec.getMessage() for rec in caplog.records)
+    assert "no such ref on the board" in messages       # the reason survives
+    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
+    assert verdict not in messages                      # the foreign verdict does not
+
+
+# ── the seam's own completeness (plan_2026_09_14 Э2, Э4 guard #6) ───────────
+# The walks registered here are the ones mount_node_base's docstring promises to
+# serve. This is the guard that keeps a SIXTH walk from being added silently:
+# the registry and the docstring are asserted to agree, and every registered
+# walk's source must actually call the seam. (A walk added in a brand-new module
+# still has to be registered by hand — the docstring is the register of record,
+# and the docstring check below turns red the moment the two drift apart.)
+
+_SEAM_WALKS = {
+    "kicadstamp/placement/entity_placement.py": ("_walk",),
+    "kicadstamp/tree_position.py": ("_node_path_pose", "layout_tree_from_base",
+                                    "capture_rigid_state", "_mount_parent_base_pose"),
+    "kicadstamp/imprint_apply.py": ("_collect_scheme_nodes",),
+}
+
+
+def test_every_registered_mount_walk_goes_through_the_seam():
+    """Э4 guard #6: the docstring of mount_node_base claims to be THE single seam
+    for EVERY recursive tree walk. That claim is only worth anything if no walk
+    special-cases a mount node WITHOUT calling it — exactly how the fifth walk
+    (capture_rigid_state / _node_parent_map) was missed for months."""
+    import ast
+
+    from kicadstamp.tree_position import mount_node_base
+
+    # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+    from tests.paths import REPO_ROOT
+
+    root = REPO_ROOT
+    for rel, names in _SEAM_WALKS.items():
+        text = (root / rel).read_text(encoding="utf-8")
+        module = ast.parse(text)
+        by_name = {n.name: n for n in ast.walk(module)
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for name in names:
+            assert name in by_name, f"{rel}::{name} — registered seam user is gone"
+            segment = ast.get_source_segment(text, by_name[name]) or ""
+            assert "mount_node_base" in segment or "_mount_parent_base_pose" in segment, (
+                f"{rel}::{name} handles a mount node without the seam "
+                "(mount_node_base) — a mount base resolved any other way is the "
+                "defect plan_2026_09_14 Э2 fixed")
+
+    doc = mount_node_base.__doc__ or ""
+    for token in ("entity_placement._walk", "node-path walk",
+                  "layout_tree_from_base", "imprint_apply",
+                  "capture_rigid_state", "_node_parent_map", "FIFTH"):
+        assert token in doc, (
+            f"mount_node_base's docstring no longer names {token!r} — the "
+            "register of walks and the seam have drifted apart")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# resolve_record_live_position — thin kind dispatcher (monkeypatched deps)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_dispatch_clone_combines_anchor_and_shift(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    class _FakeCalc:
+        def __init__(self, adapter, cfg, sheet_names, resolved_points):
+            self.args = (adapter, cfg, sheet_names, resolved_points)
+
+        def _resolve_anchor(self, obj):
+            assert obj is rec.obj
+            return Vector2.from_xy(10 * MM, 20 * MM)
+
+    monkeypatch.setattr(tp, "ClonePositionCalculator", _FakeCalc)
+    monkeypatch.setattr(tp, "clone_shift_mm", lambda obj: (1.0, -2.0))
+
+    rec = _record("clone", "CL_A")
+    pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    assert pos.x == 10 * MM + 1 * MM
+    assert pos.y == 20 * MM - 2 * MM
+
+
+def test_dispatch_clone_absolute_mode_uses_origin_when_no_anchor(monkeypatch):
+    """_resolve_anchor() returning None means absolute-coordinate mode — the
+    shift is then relative to (0, 0), not left undefined."""
+    import kicadstamp.tree_position as tp
+
+    class _FakeCalc:
+        def __init__(self, *a, **k):
+            pass
+
+        def _resolve_anchor(self, obj):
+            return None
+
+    monkeypatch.setattr(tp, "ClonePositionCalculator", _FakeCalc)
+    monkeypatch.setattr(tp, "clone_shift_mm", lambda obj: (5.0, 5.0))
+
+    rec = _record("clone", "CL_ABS")
+    pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    assert pos.x == 5 * MM
+    assert pos.y == 5 * MM
+
+
+def test_dispatch_point_uses_resolve_point_chain(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    calls = []
+
+    class _FakeResolved:
+        position = Vector2.from_xy(3 * MM, 4 * MM)
+
+    def _fake_chain(adapter, points, name, sheet_names):
+        calls.append((adapter, points, name, sheet_names))
+        return _FakeResolved()
+
+    monkeypatch.setattr(tp, "resolve_point_chain", _fake_chain)
+
+    rec = _record("point", "pnt")
+
+    class _Cfg:
+        points = {"pnt": object()}
+
+    pos = tp.resolve_record_live_position("adapter", _Cfg(), rec, "points_arg", "sheets_arg")
+    assert pos.x == 3 * MM and pos.y == 4 * MM
+    assert calls == [("adapter", {"pnt": _Cfg.points["pnt"]}, "pnt", "sheets_arg")]
+
+
+def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        position = Vector2.from_xy(50 * MM, 60 * MM)
+
+    class _FakeResolver(FakeComponentResolver):
+        """Ф1.4d-2: the `**kwargs` that swallowed `snapshot` (the Т2-4а drift) is
+        gone — the base NAMES the keyword the real resolver declares, and the
+        conformance cell fails if that signature moves again."""
+        RESOLVED_FP_FACTORY = _FakeFp
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+
+    obj = object()
+    rec = Record(kind="chain", obj=obj, name="R1", sheet=None, anchor_ref="U1",
+                anchor_role=None, anchor_sheet=None, anchor_cluster=None,
+                anchor_point=None, params={})
+    pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    assert pos.x == 50 * MM and pos.y == 60 * MM
+
+
+def test_dispatch_rule_with_anchor_pad_narrows_to_pad(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        position = Vector2.from_xy(50 * MM, 60 * MM)
+
+    class _FakeResolver(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _FakeFp
+
+    calls = []
+
+    def _fake_pad_pos(adapter, fp, anchor_pad, label):
+        calls.append((fp, anchor_pad, label))
+        return Vector2.from_xy(51 * MM, 61 * MM)
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+    monkeypatch.setattr(tp, "resolve_anchor_pad_position", _fake_pad_pos)
+
+    class _Obj:
+        anchor_pad = "1"
+
+    rec = Record(kind="chain", obj=_Obj(), name="R1", sheet=None, anchor_ref="U1",
+                anchor_role=None, anchor_sheet=None, anchor_cluster=None,
+                anchor_point=None, params={})
+    pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    assert pos.x == 51 * MM and pos.y == 61 * MM
+    assert calls[0][1] == "1" and calls[0][2] == "R1"
+
+
+def test_dispatch_coordinate_absolute_mode(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    monkeypatch.setattr(tp, "_has_external_anchor", lambda cp: False)
+    monkeypatch.setattr(tp, "resolve_target_position",
+                        lambda cp: (Vector2.from_xy(7 * MM, 8 * MM), 0.0))
+
+    rec = _record("coordinate", "CP1")
+    pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+    assert pos.x == 7 * MM and pos.y == 8 * MM
+
+
+def test_dispatch_coordinate_anchor_relative_mode(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    calls = []
+    monkeypatch.setattr(tp, "_has_external_anchor", lambda cp: True)
+
+    def _fake_external_anchor(adapter, cp, points, sheet_names, label):
+        calls.append((adapter, cp, points, sheet_names, label))
+        return Vector2.from_xy(100 * MM, 100 * MM)
+
+    monkeypatch.setattr(tp, "_resolve_external_anchor", _fake_external_anchor)
+    monkeypatch.setattr(tp, "_anchor_offset_mm", lambda cp: (2.0, -1.0))
+
+    class _Cfg:
+        points = {"pnt": object()}
+
+    rec = _record("coordinate", "CP2")
+    pos = tp.resolve_record_live_position("adapter", _Cfg(), rec, "points", "sheets")
+    assert pos.x == 102 * MM and pos.y == 99 * MM
+    assert calls == [("adapter", rec.obj, _Cfg.points, "sheets", "CP2")]
+
+
+def test_dispatch_unreachable_kind_raises_assertion_error():
+    """Defense in depth: link_trees only ever produces node/anchor records
+    with kind in clone/rule/coordinate/point (net_trace/thermal_via are
+    excluded from the 4 placeable sections) — but if a future change ever
+    lets one through, this dispatcher must fail loudly, not silently return
+    a wrong position."""
+    rec = _record("thermal_via", "TVA1")
+    with pytest.raises(AssertionError, match="thermal_via"):
+        resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
+
+
+def _role_adapter(role="FPGA", x=30.0, y=40.0, angle=0.0):
+    """Adapter with one footprint carrying Role=FPGA at (x,y)/angle — enough
+    for the auto-anchor live resolution (the same shape test_entity_placement's
+    _role_adapter builds: get_field_value returns the Role field)."""
+    from unittest.mock import MagicMock
+
+    from kipy.board_types import FootprintInstance
+
+    fp = MagicMock(spec=FootprintInstance)
+    fp.ref = "IC1"
+    fp._role = role
+    fp.position = Vector2.from_xy_mm(x, y)
+    fp.angle_deg = angle
+    adapter = MagicMock()
+    adapter.get_footprints.return_value = [fp]
+    adapter.get_field_value.side_effect = (
+        lambda f, name: getattr(f, "_role", None) if name == ROLE_FIELD_NAME else None)
+    adapter.get_selected_items.return_value = []
+    return adapter
+
+
+def _auto_fpga_cfg(with_child=False):
+    """Denis's real-profile shape (plan_2026_08_31_read_position_entity_parent_
+    live_resolve.md): a tree "fpga" with an is_self anchor (derived from the
+    root Entity's cell zero slot role "FPGA"), placing the fpga Entity at node
+    offset (1,2)/rotation 45, optionally with a nested child placement node."""
+    cell = Cell(name="fpga", components=[TemplateComponentSlot(role="FPGA")])
+    root = _node_dc(ref="fpga", kind="placement", xy=(1.0, 2.0), rotation=45.0)
+    if with_child:
+        root.children = [_node_dc(ref="child", kind="placement", xy=(3.0, 0.0))]
+    return Config(
+        cells={"fpga": cell},
+        entities=[Entity(name="fpga", cell="fpga"),
+                  Entity(name="child", cell="c")],
+        trees=[Tree(name="fpga", anchor=TreeAnchor(is_self=True), nodes=[root])],
+    )
+
+
+def test_dispatch_placement_resolves_live_from_auto_anchor_tree():
+    """A placement record's live position/rotation IS resolvable — from the
+    TREE that places it (plan_2026_08_31_read_position_entity_parent_live_
+    resolve.md). Denis's case: the fpga tree with an is_self anchor on role
+    "FPGA" at node offset (1,2)/rotation 45. fpga's live position = the live
+    Role=FPGA footprint (30,40) + the node offset (1,2) (base rotation 0, so
+    flat) = (31,42); its rotation = base 0 + node 45 = 45. This is the exact
+    live-preview "Read current position" must now give for an Entity parent
+    instead of the old artificial fatal."""
+    cfg = _auto_fpga_cfg()
+    adapter = _role_adapter()
+    rec = _record("placement", "fpga")
+    pos = resolve_record_live_position(adapter, cfg, rec, {}, {})
+    assert pos.x == pytest.approx(31.0 * MM, abs=2)
+    assert pos.y == pytest.approx(42.0 * MM, abs=2)
+    assert resolve_record_rotation_deg(adapter, cfg, rec, {}) == pytest.approx(45.0)
+
+
+def test_dispatch_placement_child_resolves_through_parent_tree():
+    """A NESTED placement record resolves through the SAME recursive tree walk
+    the parent does: child = fpga node's resolved live position (31,42) + the
+    child's own node offset (3,0) — the parent Entity's live position IS the
+    child's base (the "child reads its Entity-parent" scenario the GUI read
+    wires up). The fpga node's rotation is pinned to 0 for a flat, hand-
+    checkable sum: base (30,40) + fpga (1,2) + child (3,0) = (34,42)."""
+    cfg = _auto_fpga_cfg(with_child=True)
+    cfg.trees[0].nodes[0].rotation = 0.0   # keep the child offset flat
+    rec = _record("placement", "child")
+    pos = resolve_record_live_position(_role_adapter(), cfg, rec, {}, {})
+    assert pos.x == pytest.approx(34.0 * MM, abs=2)
+    assert pos.y == pytest.approx(42.0 * MM, abs=2)
+
+
+def test_dispatch_placement_not_placed_raises_entity_anchor_error():
+    """Regression (the old crash-plan gate, kept): an Entity with NO placement
+    node anywhere (its record is in config, no tree places it) stays FATAL
+    with the same _EntityAnchorError the materializer raises — the honest
+    unresolvable case, just rarer now that a resolvable Entity parent really
+    resolves. Surfaces as the user-facing ValidationError the GUI read turns
+    into a QMessageBox warning; the rotation twin raises identically."""
+    cfg = Config(cells={"c": Cell(name="c")},
+                 entities=[Entity(name="ENT_A", cell="c")],
+                 trees=[])
+    rec = _record("placement", "ENT_A")
+    with pytest.raises(ValidationError, match="not placed in any tree"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    with pytest.raises(ValidationError, match="not placed in any tree"):
+        resolve_record_rotation_deg(None, cfg, rec, {})
+
+
+def test_dispatch_placement_placed_twice_raises_entity_anchor_error():
+    """Regression: an Entity placed by 2+ placement nodes (impossible in a
+    parser-valid config — trees rule 2) stays fatal with the same "more than
+    one" error, never silently choosing one."""
+    cfg = Config(
+        cells={"c": Cell(name="c")},
+        entities=[Entity(name="ENT_A", cell="c")],
+        trees=[
+            Tree(name="a", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node_dc(ref="ENT_A", kind="placement")]),
+            Tree(name="b", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_node_dc(ref="ENT_A", kind="placement")]),
+        ],
+    )
+    rec = _record("placement", "ENT_A")
+    with pytest.raises(ValidationError, match="more than one"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
+
+
+def test_dispatch_placement_entity_anchor_cycle_raises():
+    """Regression: a tree anchored on an Entity whose placing tree anchors back
+    (a cycle through Entity placements) stays fatal with the same "cycle"
+    error — the cycle-guard is NOT regressed by the new live resolution."""
+    cfg = Config(
+        cells={"c": Cell(name="c")},
+        entities=[Entity(name="EA", cell="c"), Entity(name="EB", cell="c")],
+        trees=[
+            Tree(name="ta", anchor=TreeAnchor(ref="EB"),
+                 nodes=[_node_dc(ref="EA", kind="placement")]),
+            Tree(name="tb", anchor=TreeAnchor(ref="EA"),
+                 nodes=[_node_dc(ref="EB", kind="placement")]),
+        ],
+    )
+    rec = _record("placement", "EA")
+    with pytest.raises(ValidationError, match="cycle"):
+        resolve_record_live_position(None, cfg, rec, {}, {})
+
+
+def test_dispatch_placement_not_placed_but_zero_slot_resolves():
+    """Denis's live case (plan_2026_08_31_entity_live_position_zero_slot_
+    fallback.md): an Entity that is NOT (yet) a placement node in any tree —
+    but whose cell has a single zero-offset (local 0,0) component — resolves
+    its OWN live position from that component's role, the same derivation the
+    auto-anchor uses. "Read current position" for e.g. fpga_flash BEFORE the
+    node that would place it is saved now works: Role=FPGA at (30,40) ->
+    fpga_flash's live position is (30,40), rotation 0."""
+    cell = Cell(name="f", components=[TemplateComponentSlot(role="FPGA")])
+    cfg = Config(
+        cells={"f": cell},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],  # fpga_flash is NOT placed anywhere (yet)
+    )
+    adapter = _role_adapter()
+    rec = _record("placement", "fpga_flash")
+    pos = resolve_record_live_position(adapter, cfg, rec, {}, {})
+    assert pos.x == pytest.approx(30.0 * MM, abs=2)
+    assert pos.y == pytest.approx(40.0 * MM, abs=2)
+    assert resolve_record_rotation_deg(adapter, cfg, rec, {}) == pytest.approx(0.0)
+
+
+def test_dispatch_placement_not_placed_no_zero_slot_fatal_both_reasons():
+    """An Entity with NO placement node AND a cell with NO zero-offset
+    component (0 zero slots) raises the final _EntityAnchorError naming BOTH
+    reasons ("not placed in any tree" + "zero-offset") — never a silent
+    guess."""
+    cfg = Config(
+        cells={"f": Cell(name="f", components=[
+            TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0)])},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],
+    )
+    rec = _record("placement", "fpga_flash")
+    with pytest.raises(ValidationError) as excinfo:
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    text = str(excinfo.value)
+    assert "not placed in any tree" in text
+    assert "zero-offset" in text
+
+
+def test_dispatch_placement_not_placed_two_zero_slots_fatal_both_reasons():
+    """Same final two-reason fatal when the cell has TWO zero-offset
+    components (the fallback is ambiguous, so it cannot read either)."""
+    cfg = Config(
+        cells={"f": Cell(name="f", components=[
+            TemplateComponentSlot(role="A"),
+            TemplateComponentSlot(role="B")])},
+        entities=[Entity(name="fpga_flash", cell="f")],
+        trees=[],
+    )
+    rec = _record("placement", "fpga_flash")
+    with pytest.raises(ValidationError) as excinfo:
+        resolve_record_live_position(None, cfg, rec, {}, {})
+    text = str(excinfo.value)
+    assert "not placed in any tree" in text
+    assert "zero-offset" in text
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# resolve_base_live_position — external-vs-record entry point
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_base_position_external_ref_skips_kind_dispatch_entirely(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    calls = []
+
+    def _fake_by_ref(adapter, ref, label):
+        calls.append((adapter, ref, label))
+
+        class _Fp:
+            position = Vector2.from_xy(9 * MM, 9 * MM)
+        return _Fp()
+
+    monkeypatch.setattr(tp, "resolve_footprint_by_ref", _fake_by_ref)
+
+    def _boom(*a, **k):
+        raise AssertionError("must not be called for an external ref")
+    monkeypatch.setattr(tp, "resolve_record_live_position", _boom)
+
+    pos = tp.resolve_base_live_position("adapter", "cfg", "FPGA1", None, "points", "sheets")
+    assert pos.x == 9 * MM and pos.y == 9 * MM
+    assert calls == [("adapter", "FPGA1", "FPGA1")]
+
+
+def test_base_position_real_record_delegates_to_dispatcher(monkeypatch):
+    import kicadstamp.tree_position as tp
+
+    rec = _record("clone", "CL_A")
+    sentinel = Vector2.from_xy(1, 2)
+    calls = []
+
+    def _fake_dispatch(adapter, cfg, r, resolved_points, sheet_names, **kwargs):
+        # **kwargs: the dispatcher gained a keyword-only `snapshot` (Т2-4а of
+        # plan_2026_09_22_live_adapter_class) and the base resolver forwards it.
+        calls.append((adapter, cfg, r, resolved_points, sheet_names))
+        return sentinel
+
+    monkeypatch.setattr(tp, "resolve_record_live_position", _fake_dispatch)
+
+    pos = tp.resolve_base_live_position("adapter", "cfg", "CL_A", rec, "points", "sheets")
+    assert pos is sentinel
+    assert calls == [("adapter", "cfg", rec, "points", "sheets")]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# resolve_record_rotation_deg / resolve_base_rotation_deg — rotation twin of
+# the position dispatcher above (same thin-kind-dispatcher discipline; rule/
+# external are the ONLY kinds that touch the live board for rotation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_rotation_clone_reads_rotation_deg_straight_from_record():
+    """clone's CURRENT rotation already lives in config (ClonePlacement.
+    rotation_deg) — no adapter call needed at all (None adapter must work)."""
+    import kicadstamp.tree_position as tp
+
+    class _Obj:
+        rotation_deg = 42.0
+
+    rec = _record("clone", "CL_A", obj=_Obj())
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 42.0
+
+
+def test_rotation_coordinate_via_resolve_target_position(monkeypatch):
+    """coordinate's rotation comes from resolve_target_position's already-
+    returned second value (ABSOLUTE mode — anchor-relative rotation is covered
+    by test_dispatch_coordinate_rotation_anchor_relative_uses_rotation_rule,
+    since FORK-1 moved to redraw-select time)."""
+    import kicadstamp.tree_position as tp
+
+    monkeypatch.setattr(tp, "_has_external_anchor", lambda cp: False)
+    monkeypatch.setattr(tp, "resolve_target_position",
+                        lambda cp: (Vector2.from_xy(1, 1), 90.0))
+    cp = CoordinatePlacement(cluster="CP1", role="R", x_mm=1.0, y_mm=1.0)
+    rec = _record("coordinate", "CP1", obj=cp)
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 90.0
+
+
+def test_rotation_rule_via_live_footprint_angle(monkeypatch):
+    """rule has no rotation field of its own — read the anchor footprint's
+    LIVE angle_deg (the genuinely-live branch)."""
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        angle_deg = 33.0
+
+    class _FakeResolver(FakeComponentResolver):
+        """Ф1.4d-2: the anchor ASSERTION stays here — it is this cell's point. The
+        `self.args` tuple went with the merge: nothing ever read it."""
+        RESOLVED_FP_FACTORY = _FakeFp
+
+        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
+                              anchor_cluster, label=""):
+            assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
+                ("U1", None, None, None)
+            assert label == "R1"
+            return super().resolve_anchor_fp(anchor_ref, anchor_role, anchor_sheet,
+                                             anchor_cluster, label)
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+
+    rec = Record(kind="chain", obj=object(), name="R1", sheet=None,
+                 anchor_ref="U1", anchor_role=None, anchor_sheet=None,
+                 anchor_cluster=None, anchor_point=None, params={})
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 33.0
+
+
+def test_rotation_point_returns_none():
+    """point has no rotation concept by design (config/points.py) — None, not
+    a fabricated 0 (the caller must treat None as "not available")."""
+    import kicadstamp.tree_position as tp
+    rec = _record("point", "PNT")
+    assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") is None
+
+
+def test_rotation_unreachable_kind_raises_assertion_error():
+    """Same defense in depth as the position dispatcher: net_trace/thermal_via
+    must never reach the rotation dispatcher — fail loudly, not silently 0."""
+    import kicadstamp.tree_position as tp
+    rec = _record("thermal_via", "TVA1")
+    with pytest.raises(AssertionError, match="thermal_via"):
+        tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets")
+
+
+def test_base_rotation_external_uses_footprint_angle(monkeypatch):
+    """record is None -> external ref, live footprint's own angle_deg — the
+    kind dispatcher must NOT be called at all."""
+    import kicadstamp.tree_position as tp
+
+    calls = []
+
+    def _fake_by_ref(adapter, ref, label):
+        calls.append((adapter, ref, label))
+
+        class _Fp:
+            angle_deg = 12.5
+        return _Fp()
+
+    monkeypatch.setattr(tp, "resolve_footprint_by_ref", _fake_by_ref)
+
+    def _boom(*a, **k):
+        raise AssertionError("must not be called for an external ref")
+    monkeypatch.setattr(tp, "resolve_record_rotation_deg", _boom)
+
+    assert tp.resolve_base_rotation_deg("adapter", "cfg", "FPGA1", None, "sheets") == 12.5
+    assert calls == [("adapter", "FPGA1", "FPGA1")]
+
+
+def test_base_rotation_real_record_delegates_to_dispatcher(monkeypatch):
+    """record is not None -> resolve_record_rotation_deg (thin delegation)."""
+    import kicadstamp.tree_position as tp
+
+    rec = _record("clone", "CL_A")
+    calls = []
+
+    def _fake_dispatch(adapter, cfg, r, sheet_names, **kwargs):
+        # **kwargs: the rotation dispatcher gained `snapshot` too (Т2-4а).
+        calls.append((adapter, cfg, r, sheet_names))
+        return 7.0
+
+    monkeypatch.setattr(tp, "resolve_record_rotation_deg", _fake_dispatch)
+    assert tp.resolve_base_rotation_deg("adapter", "cfg", "CL_A", rec, "sheets") == 7.0
+    assert calls == [("adapter", "cfg", rec, "sheets")]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# relative_rotation_deg — the (a - b + 180) % 360 - 180 normalization
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_relative_rotation_deg_simple():
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(30.0, 10.0) == 20.0
+
+
+def test_relative_rotation_deg_wraps_negative():
+    """350 vs 10: 350 - 10 = 340 -> wraps to -20 (short way round the circle)."""
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(350.0, 10.0) == pytest.approx(-20.0)
+
+
+def test_relative_rotation_deg_wraps_positive():
+    """10 vs 350: 10 - 350 = -340 -> wraps to +20."""
+    import kicadstamp.tree_position as tp
+    assert tp.relative_rotation_deg(10.0, 350.0) == pytest.approx(20.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# curated_redraw_plan — DFS order, name emission (Q3), warnings (Q4)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_plan_emits_selected_clone_node_no_warning_when_anchor_selected():
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref="CONN", is_origin=False),
+                          record=_record("clone", "CONN"), is_origin=False,
+                          is_external=False)
+    node = _linked_node("AMS", record=_record("clone", "AMS"))
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"CONN", "AMS"})
+    assert names == ["AMS"]
+    assert warnings == []
+
+
+def test_plan_warns_when_config_anchor_not_in_selection():
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref="CONN", is_origin=False),
+                          record=_record("clone", "CONN"), is_origin=False,
+                          is_external=False)
+    node = _linked_node("AMS", record=_record("clone", "AMS"))
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"AMS"})  # CONN not selected
+    assert names == ["AMS"]
+    assert len(warnings) == 1
+    assert "AMS" in warnings[0] and "CONN" in warnings[0]
+
+
+def test_plan_origin_anchor_never_warns():
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    node = _linked_node("R_DEBUG", record=_record("clone", "R_DEBUG"))
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"R_DEBUG"})
+    assert names == ["R_DEBUG"]
+    assert warnings == []
+
+
+def test_plan_external_anchor_never_warns():
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref="FPGA1", is_origin=False),
+                          record=None, is_origin=False, is_external=True)
+    node = _linked_node("AMS", record=_record("clone", "AMS"))
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"AMS"})
+    assert names == ["AMS"]
+    assert warnings == []
+
+
+def test_plan_point_node_walked_but_never_emitted():
+    """A point node is a legal live base for its children (apply_only_filter
+    has no points support at all — points can never be redrawn themselves),
+    so it must be walked (children still resolve/emit) but never appear in
+    `names`, selected or not."""
+    child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
+    point_node = _linked_node("PNT", record=_record("point", "PNT"), children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[point_node])
+
+    names, warnings = curated_redraw_plan(tree, {"PNT", "R_OUT"})
+    assert names == ["R_OUT"]
+    assert warnings == []
+
+
+def test_plan_external_node_walked_but_never_emitted():
+    child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
+    ext_node = _linked_node("FPGA1", record=None, is_external=True, children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[ext_node])
+
+    names, warnings = curated_redraw_plan(tree, {"FPGA1", "R_OUT"})
+    assert names == ["R_OUT"]
+    assert warnings == []
+
+
+def test_plan_unselected_node_not_emitted_but_still_walked_for_children():
+    """A node that's NOT selected must not appear in `names`, but its
+    (selected) children must still be reached — and must warn, since their
+    live parent base wasn't just redrawn."""
+    child = _linked_node("C_OUT", record=_record("clone", "C_OUT"))
+    parent = _linked_node("AMS", record=_record("clone", "AMS"), children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[parent])
+
+    names, warnings = curated_redraw_plan(tree, {"C_OUT"})  # AMS not selected
+    assert names == ["C_OUT"]
+    assert len(warnings) == 1
+    assert "C_OUT" in warnings[0] and "AMS" in warnings[0]
+
+
+def test_plan_dfs_order_parent_strictly_before_child():
+    grandchild = _linked_node("GC", record=_record("clone", "GC"))
+    child = _linked_node("C", record=_record("clone", "C"), children=[grandchild])
+    parent = _linked_node("P", record=_record("clone", "P"), children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[parent])
+
+    names, warnings = curated_redraw_plan(tree, {"P", "C", "GC"})
+    assert names == ["P", "C", "GC"]
+    assert warnings == []
+
+
+def test_plan_multiple_top_level_branches_processed_independently():
+    a = _linked_node("A", record=_record("clone", "A"))
+    b = _linked_node("B", record=_record("clone", "B"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[a, b])
+
+    names, warnings = curated_redraw_plan(tree, {"A", "B"})
+    assert names == ["A", "B"]
+    assert warnings == []
+
+
+def test_plan_no_selection_emits_nothing():
+    node = _linked_node("A", record=_record("clone", "A"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, set())
+    assert names == []
+    assert warnings == []
+
+
+# ── FORK-1 at redraw-select time (plan_2026_08_28_fork1_move_to_redraw_time.md) ──
+
+def _record_with_inline_anchor(kind, name, field="anchor_role", value="FPGA"):
+    """A Record whose obj carries an inline anchor (as a real config record
+    would) — the redraw-time FORK-1 conflict state. Uses ClonePlacement, which
+    already has every _INLINE_ANCHOR_FIELDS attribute."""
+    obj = ClonePlacement(cluster=name, cell="c", xy=(0.0, 0.0))
+    setattr(obj, field, value)
+    return _record(kind, name, obj=obj)
+
+
+def test_plan_selected_node_with_inline_anchor_emitted_with_warning():
+    """REVERSED 2026-08-29 (plan_2026_08_29_fork1_rigid_redraw_override.md): a
+    SELECTED node whose record carries an inline anchor IS emitted into `names`
+    — rigid-redraw's PositionOverride is NON-persistent, so the record's own
+    anchor_role keeps working for the regular (non-tree) Apply/Redraw and no
+    persistent "two sources of truth" conflict exists. The warning is
+    INFORMATIONAL, not a skip; the child still redraws (parent before child).
+    Old behaviour (pre-2026-08-29): skipped with a "remove the inline anchor"
+    warning — replaced, history preserved here and in the plan doc."""
+    child = _linked_node("R_OUT", record=_record("clone", "R_OUT"))
+    conflict_node = _linked_node(
+        "CH2_DAC_BUF",
+        record=_record_with_inline_anchor("clone", "CH2_DAC_BUF"),
+        children=[child])
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[conflict_node])
+
+    names, warnings = curated_redraw_plan(tree, {"CH2_DAC_BUF", "R_OUT"})
+    # Parent (conflict node) emitted before its child, and the conflict node IS
+    # emitted (was skipped before 2026-08-29).
+    assert names == ["CH2_DAC_BUF", "R_OUT"]
+    assert any("also has its own" in w for w in warnings)
+    assert any("TEMPORARILY" in w for w in warnings)
+
+
+def test_plan_conflict_node_unselected_no_warning():
+    """An unselected conflict node emits nothing and warns nothing — the
+    conflict only matters at the moment of an actual redraw."""
+    conflict_node = _linked_node(
+        "CH2_DAC_BUF", record=_record_with_inline_anchor("clone", "CH2_DAC_BUF"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[conflict_node])
+
+    names, warnings = curated_redraw_plan(tree, set())
+    assert names == []
+    assert warnings == []
+
+
+def test_plan_node_without_inline_anchor_emits_normally():
+    """The main path is unchanged: a selected node whose record has no inline
+    anchor emits into `names` as usual."""
+    node = _linked_node("CL_A", record=_record("clone", "CL_A"))
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[node])
+
+    names, warnings = curated_redraw_plan(tree, {"CL_A"})
+    assert names == ["CL_A"]
+    assert warnings == []
+
+
+# ── §4: coordinate-kind base rotation no longer trusts the old FORK-1 guarantee ──
+
+def test_dispatch_coordinate_rotation_anchor_relative_uses_rotation_rule(monkeypatch):
+    """FORK-1 moved to redraw-select time, so a coordinate-kind record used as
+    a BASE may legally carry an inline anchor (anchor-relative mode). Its
+    rotation must follow the SAME rule the move builder applies at plan time
+    (rotation_deg if set, else angle_deg in polar-offset, else 0.0) — NOT the
+    absolute-only resolve_target_position (which reads None/absent absolute
+    fields and would assert or return a wrong None)."""
+    import kicadstamp.tree_position as tp
+
+    # Cartesian-offset anchor-relative, no explicit rotation -> default 0.0.
+    cp = CoordinatePlacement(cluster="CP", role="R", anchor_role="FPGA",
+                             x_mm=5.0, y_mm=2.0, rotation_deg=None)
+    rec = _record("coordinate", "CP/R", obj=cp)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 0.0
+
+    # Polar-offset anchor-relative, no explicit rotation -> angle_deg.
+    cp2 = CoordinatePlacement(cluster="CP2", role="R", anchor_role="FPGA",
+                              radius_mm=3.0, angle_deg=45.0, rotation_deg=None)
+    rec2 = _record("coordinate", "CP2/R", obj=cp2)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec2, "sheets") == 45.0
+
+    # Explicit rotation_deg wins regardless of the offset mode.
+    cp3 = CoordinatePlacement(cluster="CP3", role="R", anchor_role="FPGA",
+                              x_mm=1.0, y_mm=1.0, rotation_deg=90.0)
+    rec3 = _record("coordinate", "CP3/R", obj=cp3)
+    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec3, "sheets") == 90.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# curated_redraw_plan_forest — global order over a FOREST of trees
+# (plan 3.2, design §6: cross-tree anchor edges)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_parent_before_child_across_trees():
+    """Two independent origin-anchored trees: parent-before-child holds within
+    each, and both trees' orders merge (no cross-tree edge)."""
+    t1 = _linked_tree("t1", is_origin=True, nodes=[
+        _linked_node("A", record=_record("placement", "A"),
+                     children=[_linked_node("A1", record=_record("placement", "A1"))])])
+    t2 = _linked_tree("t2", is_origin=True, nodes=[
+        _linked_node("B", record=_record("placement", "B"),
+                     children=[_linked_node("B1", record=_record("placement", "B1"))])])
+    names, warnings = curated_redraw_plan_forest([t1, t2], {"A", "A1", "B", "B1"})
+    assert names.index("A") < names.index("A1")
+    assert names.index("B") < names.index("B1")
+    assert set(names) == {"A", "A1", "B", "B1"}
+
+
+def test_forest_cross_tree_anchor_edge():
+    """Tree A is anchored on node X of tree B (cross-tree anchoring, §9.3):
+    X must be applied before A's top-level node — the unified forest parent
+    map expresses the cross edge via A's anchor ref."""
+    t_b = _linked_tree("tB", is_origin=True, nodes=[
+        _linked_node("X", record=_record("placement", "X"),
+                     children=[_linked_node("X1", record=_record("placement", "X1"))])])
+    # tA's anchor ref == "X" (a selected node in tB)
+    t_a = _linked_tree("tA", anchor_ref="X", nodes=[
+        _linked_node("A1", record=_record("placement", "A1"))])
+    names, warnings = curated_redraw_plan_forest([t_b, t_a], {"X", "X1", "A1"})
+    assert names.index("X") < names.index("A1")
+    assert names.index("X") < names.index("X1")
+    assert set(names) == {"X", "X1", "A1"}
+
+
+def test_forest_point_and_external_not_emitted():
+    """point/external nodes are walked as bases (parents) but never emitted
+    into names — same rule as the per-tree curated_redraw_plan."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("PT", record=_record("point", "PT"),
+                     children=[_linked_node("A1", record=_record("placement", "A1"))]),
+        _linked_node("EXT", is_external=True,
+                     children=[_linked_node("B1", record=_record("placement", "B1"))]),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"A1", "B1"})
+    assert set(names) == {"A1", "B1"}
+
+
+def test_forest_cross_tree_cycle_is_fatal():
+    """Two trees whose anchors point into each other's selected nodes form a
+    cycle — must fail loudly (Kahn leaves them unreachable), not silently."""
+    t_a = _linked_tree("tA", anchor_ref="B1", nodes=[
+        _linked_node("A1", record=_record("placement", "A1"))])
+    t_b = _linked_tree("tB", anchor_ref="A1", nodes=[
+        _linked_node("B1", record=_record("placement", "B1"))])
+    from kicadstamp.exceptions import ValidationError
+    with pytest.raises(ValidationError, match="cycle"):
+        curated_redraw_plan_forest([t_a, t_b], {"A1", "B1"})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bug #5: a tree rigid-redraw PositionOverride must reach RULE nodes too —
+# not just placement/clone nodes (the "spokes"). Before the fix, plan_item's
+# rule branch never forwarded position_overrides to ManualPositionCalculator,
+# so a tree-redrawn rule resolved through its own anchor_role/anchor_ref and
+# silently ignored the tree-computed position.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
+    """Bug #5 gate: a MIXED tree (placement node + rule node) rigid-group
+    redraw. capture_rigid_state + apply_rigid_override produce a
+    PositionOverride for the RULE node; ApplyPipeline(position_overrides=...)
+    forwards it through PlacementPlanner.plan_item to ManualPositionCalculator,
+    and the rule lands on the override position — NOT on the position its own
+    anchor (an fpga at (100,100)) resolves to."""
+    import kicadstamp.tree_position as tp
+    from unittest.mock import MagicMock
+
+    from kipy.board_types import FootprintInstance, Pad
+
+    from kicadstamp.apply_pipeline import ApplyPipeline
+    from kicadstamp.config import (Cell, Chain, Config, ManualSpoke,
+                                   TemplateComponentSlot)
+    from kicadstamp.placement.dependency_order import Item
+
+    # ── 1. Mixed tree: origin anchor -> placement node + rule node ──
+    anchor = LinkedAnchor(anchor=TreeAnchor(ref=None, is_origin=True),
+                          record=None, is_origin=True, is_external=False)
+    placement_node = LinkedNode(
+        node=_node_dc(ref="CL_A", kind="placement"),
+        record=_record("placement", "CL_A"), is_external=False, children=[])
+    rule_node = LinkedNode(
+        node=_node_dc(ref="RULE_N", kind="rule"),
+        record=_record("chain", "RULE_N"), is_external=False, children=[])
+    tree = LinkedTree(name="t", anchor=anchor, nodes=[placement_node, rule_node])
+
+    # ── 2. Capture rigid state BEFORE any move (live resolvers mocked) ──
+    positions = {"CL_A": Vector2.from_xy(5 * MM, 0),
+                 "RULE_N": Vector2.from_xy(10 * MM, 0)}
+    rotations = {"CL_A": 0.0, "RULE_N": 0.0}
+
+    def fake_pos(adapter, cfg, ref, record, resolved_points, sheet_names):
+        return positions[ref]
+
+    def fake_rot(adapter, cfg, ref, record, sheet_names):
+        return rotations[ref]
+
+    monkeypatch.setattr(tp, "resolve_base_live_position", fake_pos)
+    monkeypatch.setattr(tp, "resolve_base_rotation_deg", fake_rot)
+
+    captures, parent_map = capture_rigid_state("adapter", "cfg", tree,
+                                               ["CL_A", "RULE_N"], {})
+    assert parent_map["RULE_N"] == (None, None, False)  # origin anchor
+    # Origin anchor -> the override is simply the node's own absolute offset.
+    override = apply_rigid_override("adapter", "cfg", None, None,
+                                    captures["RULE_N"], {})
+    assert override.position.x == 10 * MM
+    assert override.position.y == 0
+    assert override.rotation_deg == pytest.approx(0.0)
+
+    # ── 3. Config: the rule's OWN anchor is an fpga at (100, 100) ──
+    def _pad(number, net_name, x_mm=0.0, y_mm=0.0):
+        pad = MagicMock(spec=Pad)
+        pad.number = number
+        pad.net_name = net_name
+        pad.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+        return pad
+
+    def _fp(ref, role, x_mm=0.0, y_mm=0.0, pads=()):
+        fp = MagicMock(spec=FootprintInstance)
+        fp.ref = ref
+        fp._role = role
+        fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
+        fp.angle_deg = 0.0
+        fp._pads = list(pads)
+        return fp
+
+    # Anchor fpga at (100,100) with its spoke pad at (101,100) — WITHOUT the
+    # override the rule would land there (its own anchor_role).
+    fpga = _fp("FPGA1", "R_FPGA", x_mm=100.0, y_mm=100.0,
+               pads=[_pad("1", "RULE_N", x_mm=101.0, y_mm=100.0)])
+    # The cell's component pool: one component with Role=R1 on net RULE_N.
+    comp = _fp("C1", "R1", pads=[_pad("1", "RULE_N")])
+
+    adapter = MagicMock()
+    all_fps = [fpga, comp]
+    adapter.get_footprints.return_value = all_fps
+    adapter.get_footprint.side_effect = lambda ref: next(
+        (f for f in all_fps if f.ref == ref), None)
+    adapter.get_field_value.side_effect = (
+        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+    adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
+    adapter.get_pad_by_number.side_effect = lambda fp, num: next(
+        (p for p in getattr(fp, "_pads", []) if p.number == num), None)
+    adapter.get_selected_items.return_value = []
+
+    cell = Cell(name="tpl", layer="F.Cu",
+                components=[TemplateComponentSlot(role="R1", offset_along_mm=0.0,
+                                                  offset_across_mm=0.0, angle_deg=0.0)])
+    rule = Chain(net="RULE_N", anchor_role="R_FPGA",
+                spokes=[ManualSpoke(pad="1", cell="tpl")])
+    cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
+
+    # ── 4. ApplyPipeline with the override (bug #5 path) ──
+    pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg,
+                             position_overrides={"RULE_N": override})
+    pipeline.adapter = adapter
+    pipeline._create_planner()
+    assert pipeline.planner.position_overrides == {"RULE_N": override}
+
+    # ── 5. Plan the rule item -> must land on the override, not (100,100) ──
+    pipeline.planner.begin_planning()
+    item = Item(kind="chain", obj=rule, label="chain 'RULE_N'",
+                anchor_ref="FPGA1", produces=set())
+    moves = pipeline.planner.plan_item(item)
+    assert len(moves) == 1
+    # Override origin (10,0) + the pad's +x 1mm local offset -> (11,0).
+    assert moves[0].position.x == 11 * MM
+    assert moves[0].position.y == 0
+
+
+# ── module embedding geometry (2026-09-02, plan P2) ────────────────────────
+
+def _mod(ref, xy=None, rotation=0.0, children=None):
+    """A module NODE. 2026-09-11 (plan_2026_09_11_tree_inner_point_and_rotation
+    §V.3): it carries ONLY its own position — the inner point belongs to the
+    embedded TREE now, so this helper no longer takes pivot_* at all."""
+    return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=rotation,
+                    name=None, group=None, children=children or [])
+
+
+def _leaf_tree(name, nodes, *, pivot_xy=None, pivot_polar=None, pivot_ref=None,
+               rotation=0.0):
+    """A standalone leaf tree; the pivot_*/rotation kwargs are the TREE's own
+    inner point and angle (plan §V.1/§V.2)."""
+    return Tree(name=name, anchor=TreeAnchor(is_self=True), nodes=nodes,
+                pivot_xy=pivot_xy, pivot_polar=pivot_polar, pivot_ref=pivot_ref,
+                rotation=rotation)
+
+
+def _mm(vec):
+    return vec.x / MM, vec.y / MM
+
+
+def test_module_layout_pivot_zero_direct(tmp_path):
+    """pivot omitted = (0,0): the referenced tree's content is laid from the
+    marker position directly — a child node at (1,2) mm under a marker at
+    (10,5) mm lands at (11,7) mm."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))])
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 5.0))])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, _rot = out["d0"]
+    assert _mm(pos) == (11.0, 7.0)
+
+
+def test_embedded_tree_inner_point_lands_exactly_on_marker_with_rotation():
+    """Invariant: a referenced-tree node whose local offset == the TREE's inner
+    point lands on the marker's position, even with a rotated marker — the
+    inner point now lives on the EMBEDDED tree (plan §V.3), not the node."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0))],
+                       pivot_xy=(1.0, 2.0))
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, _rot = out["d0"]
+    # d0 at local offset == pivot must coincide with the marker at (10,0).
+    assert abs(pos.x - 10.0 * MM) < 1
+    assert abs(pos.y - 0.0) < 1
+
+
+def test_module_own_children_stage1_vs_referenced_stage2():
+    """A module node's OWN children are laid from its raw marker (stage 1),
+    while the referenced tree's content is laid from the inner-point-inverted
+    effective base (stage 2) — distinct positions when the pivot != 0."""
+    own = _node_dc(ref="local_cap", xy=(1.0, 0.0))
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(10.0, 0.0))],
+                       pivot_xy=(5.0, 0.0))
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(0.0, 0.0), children=[own])])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    # own child from marker (0,0)+(1,0) = (1,0); referenced d0 from eff
+    # (-5,0)+(10,0) = (5,0).
+    assert _mm(out["local_cap"][0]) == (1.0, 0.0)
+    assert _mm(out["d0"][0]) == (5.0, 0.0)
+
+
+def test_module_nested_layout_a_b_c():
+    """A embeds B, B embeds C (all pivot 0): C's node lands at the sum of the
+    marker offsets (10 + 2 + 1 = 13 mm on X)."""
+    c = _leaf_tree("c", [_node_dc(ref="d0", xy=(1.0, 0.0))])
+    b = _leaf_tree("b", [_mod(ref="c", xy=(2.0, 0.0))])
+    a = _leaf_tree("a", [_mod(ref="b", xy=(10.0, 0.0))])
+    out = layout_tree_from_base(a, _ORIGIN, 0.0, {"b": b, "c": c})
+    assert _mm(out["d0"][0]) == (13.0, 0.0)
+
+
+def test_tree_pivot_offset_reads_xy_polar_and_default():
+    """tree_pivot_offset mirrors node_offset over the TREE's pivot fields;
+    absent = (0,0) = the tree's own origin (plan §V.1)."""
+    assert tree_pivot_offset(_leaf_tree("t", [], pivot_xy=(2.0, 3.0))) == \
+        Vector2.from_xy(int(2.0 * MM), int(3.0 * MM))
+    assert tree_pivot_offset(_leaf_tree("t", [], pivot_polar=(5.0, 0.0))) == \
+        local_to_absolute(_ORIGIN, 5.0, 0.0, 0.0)
+    assert tree_pivot_offset(_leaf_tree("t", [])) == _ORIGIN
+
+
+# ── pivot-ref (2026-09-07, design_2026_09_07_module_pivot_by_ref.md; moved to
+# ── the TREE 2026-09-11, plan §V.1.2) ──────────────────────────────────────
+# A pivot-ref names a node's ref INSIDE THE TREE ITSELF instead of a bare
+# number — resolved by laying that tree out from a bare (0,0)/0deg base (which
+# directly yields the same local-offset value pivot_xy/pivot_polar already
+# carry) and reading the named ref's position back out.
+
+def test_tree_pivot_offset_ref_resolves_to_the_named_node_local_position():
+    """tree_pivot_offset(tree, forest) with pivot_ref returns the SAME Vector2 a
+    manually-computed pivot_xy would — pivot-ref makes the number automatic,
+    it does not invent a new one."""
+    tree = _leaf_tree("t", [_node_dc(ref="d0", xy=(1.0, 2.0))], pivot_ref="d0")
+    got = tree_pivot_offset(tree, {"t": tree})
+    assert _mm(got) == (1.0, 2.0)
+
+
+def test_tree_pivot_offset_ref_not_found_is_fatal():
+    """A pivot_ref whose node is not in the tree's own layout (shape changed
+    since load, which already validates the name) is a clear fatal, never a
+    silent (0,0)."""
+    tree = _leaf_tree("t", [_node_dc(ref="d0", xy=(1.0, 2.0))], pivot_ref="ghost")
+    with pytest.raises(ValidationError, match="not found in its own layout"):
+        tree_pivot_offset(tree, {"t": tree})
+
+
+def test_embedded_tree_pivot_ref_equivalent_to_manual_pivot_xy():
+    """End-to-end: an EMBEDDED tree whose inner point is pivot-ref="d0" lays out
+    IDENTICALLY to the same tree with the manually-computed pivot-xy for d0's
+    local position — pivot-ref is sugar over the same geometry."""
+    d0 = _node_dc(ref="d0", xy=(1.0, 2.0))
+    d1 = _node_dc(ref="d1", xy=(4.0, -3.0))
+    marker = [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)]
+    by_ref = _leaf_tree("p", marker)
+    by_xy = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0), rotation=30.0)])
+    ch_ref = _leaf_tree("ch0", [d0, d1], pivot_ref="d0")
+    ch_xy = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 2.0)),
+                               _node_dc(ref="d1", xy=(4.0, -3.0))],
+                       pivot_xy=(1.0, 2.0))
+    out_ref = layout_tree_from_base(by_ref, _ORIGIN, 0.0, {"ch0": ch_ref})
+    out_xy = layout_tree_from_base(by_xy, _ORIGIN, 0.0, {"ch0": ch_xy})
+    assert out_ref == out_xy
+
+
+def test_tree_rotation_turns_the_embedded_content_around_the_inner_point():
+    """A tree's OWN rotation is a DОВОРОТ: the embedded content is laid at
+    marker_rot + tree.rotation, and the inner point still lands on the marker
+    (plan §V.2.1/§V.2.2 — the whole reason the inner point and the angle are
+    done in the same stage).
+
+    NOTE: a pivot-ref is restricted to THIS tree's own nodes by the grammar
+    (plan §V.1.2 / trees.py::_validate_tree_pivot_ref); reaching a ref behind a
+    nested module is deliberately NOT declarable any more (it used to be, when
+    the pivot lived on the node) — see the report."""
+    child = _leaf_tree("ch0", [_node_dc(ref="d0", xy=(1.0, 0.0))],
+                       pivot_xy=(1.0, 0.0), rotation=30.0)
+    parent = _leaf_tree("p", [_mod(ref="ch0", xy=(10.0, 0.0))])
+    out = layout_tree_from_base(parent, _ORIGIN, 0.0, {"ch0": child})
+    pos, rot = out["d0"]
+    assert abs(pos.x - 10.0 * MM) < 1        # inner point (== d0) on the marker
+    assert abs(rot - 30.0) < 1e-9            # 0 (marker) + 30 (tree dovоrот)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Module-aware forest planner — plan 2026-09-02 P3 п.1/1a, design P3
+# D2/D3/D4 (recursive module linking D1 is covered in test_link_trees.py).
+# Built end-to-end through link_trees so module_linked is real linked content.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _clone_cfg(names):
+    return Config(clone_placements=[
+        ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0)) for n in names])
+
+
+def _link_forest(tmp_path, cfg, text):
+    """Parse a .trees body + link it against cfg -> list[LinkedTree]."""
+    path = tmp_path / "trees.trees"
+    path.write_text("(kicadstamp-trees\n" + text + ")", encoding="utf-8")
+    return link_trees(cfg, load_trees(str(path)))
+
+
+def test_forest_module_active_pulls_content_marker_not_a_name(tmp_path):
+    """D2: checking a module marker pulls its referenced tree's WHOLE content
+    into the run; the marker itself is a pass-through vertex — never a name."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0"})
+    assert set(names) == {"D0", "D1"}
+    assert "ch0" not in names
+    assert warnings == []
+
+
+def test_forest_module_priority_0_marker_unchecked_content_not_pulled(tmp_path):
+    """D3 priority 0: with NO active module on ch0 (the marker is not checked)
+    its content is NOT pulled — a checked ch0 node resolves standalone through
+    its own anchor, exactly as the classic planner."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"D0"})
+    assert names == ["D0"]
+    assert set(names) == {"D0"}
+
+
+def test_forest_module_priority_2_plus_is_run_fatal(tmp_path):
+    """D3 priority 2+: TWO different parents embed ch0 through active modules
+    -> a fatal of THIS run (the config is legal — P1 only guards within-one-
+    parent duplicates), naming the conflict."""
+    cfg = _clone_cfg(["D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p1") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "p2") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 5 5)))')
+    with pytest.raises(ValidationError, match="redraw conflict"):
+        curated_redraw_plan_forest(linked, {"ch0"})
+
+
+def test_forest_module_fc_warning_when_tree_own_node_also_checked(tmp_path):
+    """F-C: a module-placed tree whose OWN node is also checked emits it ONCE
+    (through the module, D3 suppression — no double placement) plus ONE
+    informational warning."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0", "D0"})
+    assert sorted(names) == ["D0", "D1"]
+    assert names.count("D0") == 1 and names.count("D1") == 1
+    assert any("placed through a module" in w for w in warnings)
+
+
+def test_forest_module_owner_parent_before_content(tmp_path):
+    """D4: an ACTIVE marker that is a CHILD of a SELECTED record in the owner
+    tree must place its content AFTER that record (the marker pass-through
+    vertex inherits the owner parent's precedence)."""
+    cfg = _clone_cfg(["PA", "D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "PA") (kind clone) (xy 0 0)\n'
+        '        (node (ref "ch0") (kind module) (xy 2 2))))')
+    names, warnings = curated_redraw_plan_forest(linked, {"PA", "ch0"})
+    assert set(names) == {"PA", "D0"}
+    assert names.index("PA") < names.index("D0")
+
+
+def test_forest_module_nested_a_b_c_auto_expand_and_order(tmp_path):
+    """A embeds B, B embeds C: checking A's marker pulls B AND C content (the
+    nested marker auto-expands, design P3 D2) ordered B before C (D4)."""
+    cfg = _clone_cfg(["B0", "C0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "c") (anchor (origin))\n'
+        '      (node (ref "C0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "B0") (kind clone) (xy 1 1)\n'
+        '        (node (ref "c") (kind module) (xy 2 2))))\n'
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"b"})
+    assert set(names) == {"B0", "C0"}
+    assert names.index("B0") < names.index("C0")
+
+
+def test_forest_module_cross_tree_anchor_into_content(tmp_path):
+    """D4: a tree anchored on a module-placed node (cross-tree edge into module
+    content) is ordered after it — Kahn sees the module content edges."""
+    cfg = _clone_cfg(["D0", "E"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "d2") (anchor (ref "D0"))\n'
+        '      (node (ref "E") (kind clone) (xy 0 0)))')
+    names, warnings = curated_redraw_plan_forest(linked, {"ch0", "E"})
+    assert set(names) == {"D0", "E"}
+    assert names.index("D0") < names.index("E")
+
+
+def test_forest_module_edge_cycle_is_fatal(tmp_path):
+    """Kahn's cycle detection sees module edges (D4): a tree whose anchor sits
+    INSIDE the content of the module it hosts forms a run-level cycle."""
+    cfg = _clone_cfg(["X", "A1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "X") (kind clone) (xy 1 1)))\n'
+        '(tree (name "a") (anchor (ref "X"))\n'
+        '      (node (ref "A1") (kind clone) (xy 0 0)\n'
+        '        (node (ref "b") (kind module) (xy 2 2))))')
+    with pytest.raises(ValidationError, match="cycle"):
+        curated_redraw_plan_forest(linked, {"b", "A1"})
+
+
+# ── curated_forest_module_content: stage-2 decision (design P3 D5) ─────────
+
+def test_forest_module_content_empty_when_no_module_active(tmp_path):
+    """With no active module the stage-2 decision is empty — the apply path
+    then behaves exactly as the classic (rigid-only) forest redraw."""
+    cfg = _clone_cfg(["D0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"D0"})
+    assert content_refs == set()
+    assert flow_roots == []
+
+
+def test_forest_module_content_active_marker_sets_flow_root(tmp_path):
+    """An ACTIVE marker (its ref checked) makes the owner tree a flow root and
+    its referenced content the content_refs (stage-2 placed, NOT rigid)."""
+    cfg = _clone_cfg(["D0", "D1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"ch0"})
+    assert content_refs == {"D0", "D1"}
+    assert flow_roots == ["p"]
+
+
+def test_forest_module_content_nested_flow_root_is_outer(tmp_path):
+    """A nested marker's content is reached through the OUTER flow root's
+    layout — the nested module's own tree is module-placed, not a flow root."""
+    cfg = _clone_cfg(["B0", "C0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "c") (anchor (origin))\n'
+        '      (node (ref "C0") (kind clone) (xy 1 1)))\n'
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "B0") (kind clone) (xy 1 1)\n'
+        '        (node (ref "c") (kind module) (xy 2 2))))\n'
+        '(tree (name "a") (anchor (origin))\n'
+        '      (node (ref "b") (kind module) (xy 0 0)))')
+    content_refs, flow_roots = curated_forest_module_content(linked, {"b"})
+    assert content_refs == {"B0", "C0"}
+    assert flow_roots == ["a"]
+
+
+# ── "Redraw whole tree" scope (plan_2026_09_14 Э1, Э4 guards #1/#2) ──────────
+# "Redraw whole tree" hands the FOREST planner ONE tree's own refs. These two
+# guards fix what that scope MEANS, on a forest where a SECOND independent tree
+# also embeds a module — so a widened scope is caught, not masked by a profile
+# whose extra trees happen to be module-placed already (Э4 warning: on Denis's
+# profile "Full redraw" and "Redraw whole tree" give the same plan, so a guard
+# built on it would be green by coincidence).
+
+def test_whole_tree_scope_pulls_embedded_content(tmp_path):
+    """Э4 guard #1: selecting ONLY the owner tree's own refs (exactly what
+    "Redraw whole tree" now hands in — its module marker and nothing else) pulls
+    the referenced tree's WHOLE content into the plan, and the owner stays the
+    single flow root. Mutation: reverting the dispatch to a tree-scoped run
+    yields no D0/D1 here — red."""
+    cfg = _clone_cfg(["D0", "D1", "T0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "fpga") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "sub") (anchor (origin))\n'
+        '      (node (ref "T0") (kind clone) (xy 3 3)))\n'
+        '(tree (name "solo") (anchor (origin))\n'
+        '      (node (ref "sub") (kind module) (xy 5 5)))')
+    selected = {"ch0"}          # == set(collect_tree_refs(fpga))
+    names, _warnings = curated_redraw_plan_forest(linked, selected)
+    content_refs, flow_roots = curated_forest_module_content(linked, selected)
+    assert content_refs == {"D0", "D1"}
+    assert set(names) == {"D0", "D1"}
+    assert flow_roots == ["fpga"]
+
+
+def test_whole_tree_scope_leaves_a_foreign_independent_tree_alone(tmp_path):
+    """Э4 guard #2 — THE one that is green by coincidence on Denis's profile:
+    with the scope narrowed to ONE tree, a SECOND independent tree that embeds
+    its own module neither becomes a flow root nor contributes a name. Widening
+    the scope to every tree's refs (the mutation) activates solo's marker too —
+    flow_roots becomes ['fpga', 'solo'] and T0 enters the plan — red."""
+    cfg = _clone_cfg(["D0", "D1", "T0"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "D0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "D1") (kind clone) (xy 2 2)))\n'
+        '(tree (name "fpga") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 0 0)))\n'
+        '(tree (name "sub") (anchor (origin))\n'
+        '      (node (ref "T0") (kind clone) (xy 3 3)))\n'
+        '(tree (name "solo") (anchor (origin))\n'
+        '      (node (ref "sub") (kind module) (xy 5 5)))')
+    narrowed = {"ch0"}
+    names, _warnings = curated_redraw_plan_forest(linked, narrowed)
+    _content, flow_roots = curated_forest_module_content(linked, narrowed)
+    assert "T0" not in names                 # guard #2: foreign content untouched
+    assert flow_roots == ["fpga"]            # and the foreign tree is NOT a root
+
+    # Contrast, proving the guard is not vacuous: the WIDE scope ("Full redraw")
+    # really does bring the second tree in.
+    wide, _warnings2 = curated_redraw_plan_forest(linked, {"ch0", "sub"})
+    _content2, wide_roots = curated_forest_module_content(linked, {"ch0", "sub"})
+    assert set(wide) == {"D0", "D1", "T0"}
+    assert wide_roots == ["fpga", "solo"]
+
+
+# ── mount nodes in the live layout path (plan_2026_09_11_tree_mount_nodes) ──
+
+def _mount_dc(ref, role, children, xy=None, rotation=0.0):
+    return TreeNode(ref=ref, kind="mount", xy=xy, polar=None,
+                    rotation=rotation, name=None, group=None,
+                    children=list(children),
+                    anchor=TreeAnchor(role=role, is_origin=False))
+
+
+def test_layout_mount_child_laid_from_anchor_with_adapter(monkeypatch):
+    """layout_tree_from_base (the live/curated path) lays a MOUNT node's
+    children from the live component its anchor names when a live adapter is
+    passed — the same mount_node_base substitution the materializer's _walk
+    uses, so Apply and the curated path can never drift. The mount node itself
+    places no record and is NOT in the returned map."""
+    import kicadstamp.tree_position as tp
+
+    class _FakeFp:
+        position = Vector2.from_xy(30 * MM, 40 * MM)
+        angle_deg = 0.0
+
+    class _FakeResolver(FakeComponentResolver):
+        RESOLVED_FP_FACTORY = _FakeFp
+
+    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
+    child = _node_dc(ref="d0", xy=(2.0, 1.0))
+    tree = _leaf_tree("t", [_mount_dc("m1", "FPGA", [child])])
+    out = layout_tree_from_base(tree, _ORIGIN, 0.0,
+                                adapter=object(), cfg=None, sheet_names={})
+    assert "m1" not in out
+    pos, _rot = out["d0"]
+    assert _mm(pos) == (32.0, 41.0)
+
+
+def test_layout_mount_node_without_adapter_is_validation_error():
+    """A pure (adapter-less) layout call that reaches a mount node is a clear
+    ValidationError — a mount base is live-only, never a silent fallback to the
+    parent frame (a wrong position would be worse than an error)."""
+    child = _node_dc(ref="d0", xy=(1.0, 0.0))
+    tree = _leaf_tree("t", [_mount_dc("m1", "FPGA", [child])])
+    with pytest.raises(ValidationError, match="needs a live board"):
+        layout_tree_from_base(tree, _ORIGIN, 0.0)
+
+
+# ── Board frame <-> config frame, the tree-node form's conversion pair ──────
+# (plan_2026_09_11_tree_node_live_read_and_board_frame §3). The form shows the
+# offset/rotation in the BOARD frame; the config stores them in the base's
+# local frame. These are pure mm conversions and MUST be bit-exact at
+# multiples of 90° — opening and closing the form may not move the config.
+
+_ORTHO_BASES = [0.0, 90.0, 180.0, 270.0, -90.0]
+_OFFSET_SAMPLES = [(-0.5, 1.0), (5.0, 2.0), (-2.1283, -2.55),
+                   (-5.05, -0.295), (3.37, 0.0), (0.0, 0.0), (-0.001, 0.001)]
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_local_offset_round_trip_is_bit_exact(base_rot):
+    from kicadstamp.tree_position import (
+        board_offset_to_local_mm,
+        local_offset_to_board_mm,
+    )
+
+    for local in _OFFSET_SAMPLES:
+        board = local_offset_to_board_mm(local, base_rot)
+        assert board_offset_to_local_mm(board, base_rot) == local
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_local_rotation_round_trip_is_bit_exact(base_rot):
+    from kicadstamp.tree_position import (
+        board_rotation_to_local_deg,
+        local_rotation_to_board_deg,
+    )
+
+    for rel in (0.0, 90.0, 270.0, 40.0, -0.1):
+        assert board_rotation_to_local_deg(
+            local_rotation_to_board_deg(rel, base_rot), base_rot) == rel
+
+
+@pytest.mark.parametrize("base_rot", _ORTHO_BASES)
+def test_board_frame_offset_is_the_node_position_delta(base_rot):
+    """The board-frame value the form shows IS the world delta node_position
+    composes from the same stored offset (to the nm grid) — the two halves of
+    the contract cannot drift."""
+    from kicadstamp.tree_position import local_offset_to_board_mm
+
+    base = Vector2.from_xy_mm(10.0, 20.0)
+    node = TreeNode(ref="N", kind="clone", xy=(-0.5, 1.0), polar=None,
+                    rotation=0.0, name=None, group=None)
+    bx, by = local_offset_to_board_mm((-0.5, 1.0), base_rot)
+    got = node_position(node, base, base_rot)
+    assert abs(got.x - round((10.0 + bx) * MM)) <= 1
+    assert abs(got.y - round((20.0 + by) * MM)) <= 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Copper (record kind "net_trace") is applied LAST — 2026-09-16, plan
+# plan_2026_09_16_copper_node_order_and_container, P.2.1/P.2.2.
+#
+# A net_trace record stores its geometry as offsets from its OWN anchor pad and
+# plan_net_traces lays it out from that pad LIVE, so copper DEPENDS on where the
+# components ended up — while no component ever depends on copper. The
+# pre-2026-09-16 lexicographic queue broke that: Denis' five copper records
+# ("2v5_…"/"3v3_…", lexicographically FIRST) were applied before dac_buf/pif
+# had moved, the copper landed from the components' OLD positions and the run
+# still reported "11/11 ok" (task Д1).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _copper(ref: str) -> LinkedNode:
+    """A LinkedNode whose RECORD is inter-node copper. The planner keys the
+    copper rule off `record.kind` (the record is what carries `net_traces:`),
+    never off the node's ref/name, so this pins the real discriminator."""
+    return _linked_node(ref, record=_record("net_trace", ref))
+
+
+def _marker_ln(ref: str, content: LinkedTree) -> LinkedNode:
+    """An ACTIVE-capable module marker: kind "module" node (no record) whose
+    module_linked content is a hand-built LinkedTree. Mirrors what link_trees
+    builds for `(node (ref "ch0") (kind module))`, without needing a real
+    config/tree file."""
+    return LinkedNode(node=_node_dc(ref=ref, kind="module"), record=None,
+                      is_external=False, children=[], module_tree=None,
+                      module_linked=content)
+
+
+def test_forest_copper_is_applied_after_every_component():
+    """С1: a lexicographically-FIRST copper ref (the live shape: "2v5_…" and
+    "3v3_…" sort BEFORE "dac_…"/"pif_…") still comes last. On the old
+    lexicographic queue this test fails — the copper is emitted first."""
+    t = _linked_tree("ch0_dac_buf", is_origin=True, nodes=[
+        _copper("2v5_oa__dac_buf__pif_oa_n2v5"),
+        _copper("3v3_dvdd__dac_buf__pif_dvdd"),
+        _linked_node("dac_buf_channel_0",
+                     record=_record("placement", "dac_buf_channel_0")),
+        _linked_node("pif_dvdd_channel_0",
+                     record=_record("placement", "pif_dvdd_channel_0")),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {n.node.ref for n in t.nodes})
+    assert names == [
+        "dac_buf_channel_0", "pif_dvdd_channel_0",
+        "2v5_oa__dac_buf__pif_oa_n2v5", "3v3_dvdd__dac_buf__pif_dvdd",
+    ]
+
+
+def test_forest_copper_does_not_warn_about_its_base():
+    """С3: copper's base is its OWN anchor pad, never its tree parent, so the
+    "will be redrawn from the current position of …" note is FALSE for it and
+    must not be emitted; a component in the very same position still warns."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _copper("2v5_oa__x"),
+        _linked_node("dac_buf_channel_0",
+                     record=_record("placement", "dac_buf_channel_0")),
+    ])
+    _names, warnings = curated_redraw_plan_forest(
+        [t], {"2v5_oa__x", "dac_buf_channel_0"})
+    assert len(warnings) == 1
+    assert "dac_buf_channel_0" in warnings[0]
+    assert "will be redrawn from the current position" in warnings[0]
+    assert not any("2v5_oa__x" in w for w in warnings)
+
+
+def test_forest_module_branch_defers_copper_and_keeps_the_mixed_queue_sortable():
+    """С2: the same copper-last rule in the MODULE-aware branch, with a
+    genuinely MIXED queue — a checked top-level record is a `str` vertex while
+    the active module marker is an `int` one (id()). The sort groups must stay
+    type-homogeneous inside their slot, or the tuple comparison raises
+    TypeError on the first comparison of a str with an int."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _copper("2v5_oa__dac_buf__pif_oa_n2v5"),
+        _linked_node("D0", record=_record("placement", "D0")),
+    ])
+    t = _linked_tree("ch0_dac_buf", is_origin=True, nodes=[
+        _linked_node("PA", record=_record("placement", "PA")),
+        _marker_ln("ch0", content),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"PA", "ch0"})
+    assert set(names) == {"PA", "D0", "2v5_oa__dac_buf__pif_oa_n2v5"}
+    assert names[-1] == "2v5_oa__dac_buf__pif_oa_n2v5"
+    assert names.index("PA") < names.index("D0")
+    # PA is a top-level forest record (its base is the origin anchor) -> exactly
+    # that one note; the module marker and the copper stay silent.
+    assert len(warnings) == 1 and "PA" in warnings[0]
+    assert not any("2v5_oa" in w for w in warnings)
+
+
+def test_forest_module_branch_does_not_warn_about_forest_copper():
+    """С3 (module branch): a CHECKED forest copper node also stays silent about
+    its base, and still lands behind the module content."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _copper("2v5_oa__x"),
+        _marker_ln("ch0", content),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"2v5_oa__x", "ch0"})
+    assert set(names) == {"2v5_oa__x", "D0"}
+    assert names.index("D0") < names.index("2v5_oa__x")
+    assert warnings == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Copper CONTAINER (kind "copper") — transparent to both consumers
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.4.
+# The container folds a tree's net_trace nodes under one node. It owns no
+# record, places nothing and emits nothing: every existing traversal that keys
+# off `record is None` skips it BY ITSELF (P.2.4 explicitly forbids adding
+# special branches where it already passes through transparently).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_copper_container_is_transparent_to_the_plan():
+    """С8: the container emits no name into the redraw plan (it has no record),
+    while its net_trace CHILDREN are planned exactly as if they hung in the
+    root, and copper keeps its place at the tail."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("copper", record=None, children=[_copper("2v5_oa__x")]),
+        _linked_node("D0", record=_record("placement", "D0")),
+    ])
+    names, warnings = curated_redraw_plan_forest([t], {"copper", "2v5_oa__x", "D0"})
+    assert set(names) == {"2v5_oa__x", "D0"}
+    assert "copper" not in names
+    assert names.index("D0") < names.index("2v5_oa__x")
+    # D0's own base is the tree anchor (not in the selection) -> that one note;
+    # the container's child stays silent (it is copper, see P.2.2).
+    assert len(warnings) == 1 and "D0" in warnings[0]
+
+
+def test_copper_container_holds_no_position_in_the_layout():
+    """С8: the container is absent from layout_tree_from_base's map, so it can
+    never enter a rigid group as a positioned member nor be resolved as a tree's
+    inner point (trees.py bars the pivot-ref separately). Its children ARE laid
+    out — the container changes where copper hangs, not whether it does."""
+    tree = tree_from_dict({"name": "t", "anchor": {"origin": True}, "nodes": [
+        {"ref": "copper", "kind": "copper", "children": [
+            {"ref": "2v5_oa__x", "kind": "net_trace"}]},
+        {"ref": "D0", "kind": "placement", "xy": [1.0, 2.0]}]})
+    laid = layout_tree_from_base(tree, _ORIGIN, 0.0, None)
+    assert "copper" not in laid
+    assert "D0" in laid and "2v5_oa__x" in laid
+    # The container is transparent to the FRAME too: the copper node inside it is
+    # laid out at exactly the position a root-level net_trace node gets (both
+    # carry no offset, both see the tree's own frame).
+    root_laid = layout_tree_from_base(
+        tree_from_dict({"name": "t", "anchor": {"origin": True}, "nodes": [
+            {"ref": "2v5_oa__x", "kind": "net_trace", "xy": [0.0, 0.0]}]}),
+        _ORIGIN, 0.0, None)
+    assert laid["2v5_oa__x"] == root_laid["2v5_oa__x"]
+
+
+def test_denis_style_tree_with_root_level_copper_plans_copper_last(tmp_path):
+    """С11 (compatibility): the tree shape Denis runs TODAY — inter-node copper
+    nodes sitting DIRECTLY in the tree root, no container — still loads, links
+    against the config and plans, with the copper in the tail. This is the
+    end-to-end path (link_trees + curated_redraw_plan_forest), not the
+    hand-built LinkedNode shortcut the С1/С2 guards use."""
+    cfg = Config(
+        clone_placements=[
+            ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0))
+            for n in ("dac_buf_channel_0", "pif_avdd_channel_0")],
+        net_traces=[
+            NetTrace(net=n, anchor_role="FPGA")
+            for n in ("2v5_oa__dac_buf__pif_oa_n2v5",
+                      "3v3_avdd__dac_buf__pif_avdd")])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0_dac_buf") (anchor (origin))\n'
+        '      (node (ref "2v5_oa__dac_buf__pif_oa_n2v5") (kind net_trace))\n'
+        '      (node (ref "3v3_avdd__dac_buf__pif_avdd") (kind net_trace))\n'
+        '      (node (ref "dac_buf_channel_0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "pif_avdd_channel_0") (kind clone) (xy 2 2)))')
+    selected = {"2v5_oa__dac_buf__pif_oa_n2v5", "3v3_avdd__dac_buf__pif_avdd",
+                "dac_buf_channel_0", "pif_avdd_channel_0"}
+    names, warnings = curated_redraw_plan_forest(linked, selected)
+    assert names[:2] == ["dac_buf_channel_0", "pif_avdd_channel_0"]
+    assert names[2:] == ["2v5_oa__dac_buf__pif_oa_n2v5",
+                         "3v3_avdd__dac_buf__pif_avdd"]
+    assert not any("2v5_oa" in w for w in warnings)
+    assert not any("3v3_avdd" in w for w in warnings)
+
+
+def test_denis_style_tree_wrapped_in_a_container_plans_the_same_copper_last(tmp_path):
+    """С11/P.2.4 end to end: the SAME tree with its copper folded into a
+    container plans identically — the container is transparent through the real
+    link path too."""
+    cfg = Config(
+        clone_placements=[
+            ClonePlacement(cluster=n, cell="c", xy=(0.0, 0.0))
+            for n in ("dac_buf_channel_0", "pif_avdd_channel_0")],
+        net_traces=[
+            NetTrace(net=n, anchor_role="FPGA")
+            for n in ("2v5_oa__dac_buf__pif_oa_n2v5",
+                      "3v3_avdd__dac_buf__pif_avdd")])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "ch0_dac_buf") (anchor (origin))\n'
+        '      (node (ref "copper") (kind copper)\n'
+        '        (node (ref "2v5_oa__dac_buf__pif_oa_n2v5") (kind net_trace))\n'
+        '        (node (ref "3v3_avdd__dac_buf__pif_avdd") (kind net_trace)))\n'
+        '      (node (ref "dac_buf_channel_0") (kind clone) (xy 1 1))\n'
+        '      (node (ref "pif_avdd_channel_0") (kind clone) (xy 2 2)))')
+    selected = {"copper", "2v5_oa__dac_buf__pif_oa_n2v5",
+                "3v3_avdd__dac_buf__pif_avdd",
+                "dac_buf_channel_0", "pif_avdd_channel_0"}
+    names, warnings = curated_redraw_plan_forest(linked, selected)
+    assert "copper" not in names
+    assert names[:2] == ["dac_buf_channel_0", "pif_avdd_channel_0"]
+    assert names[2:] == ["2v5_oa__dac_buf__pif_oa_n2v5",
+                         "3v3_avdd__dac_buf__pif_avdd"]
+    assert not any("2v5_oa" in w for w in warnings)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The shared order machine — plan_2026_09_17_order_pass_and_component_node, Э1
+#
+# The two forest planners (the old plain one and the module one) are ONE
+# implementation now: _plan_forest + order_pass.run_order_pass, with a named
+# provider per dependency source and the DOCUMENT order as the tie-breaker.
+# The guards below check the three things the refactor promised:
+#   * Т1.3/С1 — without new providers the order is what it always was
+#     (the pre-existing suite above is that guard: it passes unchanged);
+#   * Т1.1/С2 — ties follow the document, not the alphabet;
+#   * Т1.4/С5 — a cycle names the provider that gave the edge.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_forest_ties_follow_the_document_order_not_the_alphabet():
+    """С2: two INDEPENDENT nodes are applied in the order the tree declares
+    them. The refs are chosen so the ALPHABET gives the reverse order — on the
+    old lexicographic queue this test fails ("a_second" would be first)."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("z_first", record=_record("placement", "z_first")),
+        _linked_node("a_second", record=_record("placement", "a_second")),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {"z_first", "a_second"})
+    assert names == ["z_first", "a_second"]
+
+
+def test_forest_document_tie_breaker_only_decides_ties():
+    """Т1.3: structure is an EDGE, never a tie — a nested child goes after its
+    parent even though the child's ref sorts first."""
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("zz_parent", record=_record("placement", "zz_parent"),
+                     children=[_linked_node("aa_child",
+                                            record=_record("placement", "aa_child"))]),
+    ])
+    names, _warnings = curated_redraw_plan_forest([t], {"zz_parent", "aa_child"})
+    assert names == ["zz_parent", "aa_child"]
+
+
+def test_forest_anchor_edge_beats_the_document_order():
+    """Т1.3: an ANCHOR edge is a real dependency. Tree `dep` is declared FIRST
+    but anchored on node D0 of tree `host`, declared second — D0 is applied
+    first, so the anchor provider (not the declaration order) decided."""
+    host = _linked_tree("host", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    dep = _linked_tree("dep", anchor_ref="D0", nodes=[
+        _linked_node("E", record=_record("placement", "E"))])
+    names, _warnings = curated_redraw_plan_forest([dep, host], {"D0", "E"})
+    assert names == ["D0", "E"]
+
+
+def test_forest_cycle_names_the_provider_that_gave_the_edge(tmp_path):
+    """С5 (Т1.4): the run-level cycle report says WHICH dependency source
+    closed the loop — here the anchor of tree `a` (a -> its anchor X) and the
+    module marker that embeds tree `b` (whose content holds X)."""
+    cfg = _clone_cfg(["X", "A1"])
+    linked = _link_forest(tmp_path, cfg,
+        '(tree (name "b") (anchor (origin))\n'
+        '      (node (ref "X") (kind clone) (xy 1 1)))\n'
+        '(tree (name "a") (anchor (ref "X"))\n'
+        '      (node (ref "A1") (kind clone) (xy 0 0)\n'
+        '        (node (ref "b") (kind module) (xy 2 2))))')
+    with pytest.raises(ValidationError) as exc:
+        curated_redraw_plan_forest(linked, {"b", "A1"})
+    text = str(exc.value)
+    assert "cycle edges by provider" in text
+    # The anchor edge (X must precede A1) and the module edges around it are
+    # both named, so the reader knows which two sources to go and fix.
+    assert "X -> A1 (anchor)" in text
+    assert "(module)" in text
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Wiring guards — plan_2026_09_16_commit_document_and_pending_direction, Э3
+#
+# Four rules of the order machine that had been holding by ACCIDENT: each one
+# survived a mutation (В1-В4 of that plan) because no test built the case where
+# the rule and the fallback answer differently. The behaviour of the machine,
+# of the copper edges and of the layout is NOT changed by these guards — they
+# only make the rules non-deletable.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_forest_structure_edges_are_plugged_in_alongside_the_anchor_edges():
+    """В1: the STRUCTURE provider must be connected (the mutation keeps only
+    `[_anchor_provider(index)]`).
+
+    Nesting X -> Y is the only thing that decides the order here: tree `dep` is
+    declared FIRST (so the document walk numbers X and Y before D0) and `dep` is
+    anchored on D0 of `host`. With the structure provider the anchor edge
+    (D0 -> X) and the nesting edge (X -> Y) chain into D0, X, Y; without it X
+    and Y are both roots and the document order applies them before their own
+    base D0 — the child before the parent, which is the drift the plan refused."""
+    host = _linked_tree("host", is_origin=True, nodes=[
+        _linked_node("D0", record=_record("placement", "D0"))])
+    dep = _linked_tree("dep", anchor_ref="D0", nodes=[
+        _linked_node("X", record=_record("placement", "X"), children=[
+            _linked_node("Y", record=_record("placement", "Y"))])])
+    names, _warnings = curated_redraw_plan_forest([dep, host], {"D0", "X", "Y"})
+    assert names == ["D0", "X", "Y"]
+
+
+def test_forest_planner_plugs_the_copper_provider_only_when_deps_arrive(monkeypatch):
+    """В3: the PLANNER must append the copper provider when `copper_deps` is
+    non-empty (the mutation turns `if deps:` into `if False:`).
+
+    The provider's own edges are covered by the С1/С2 copper guards and by
+    test_copper_order.py, which is why the wiring stayed unobserved: the coarse
+    "copper last" group yields the same order with and without those edges, so
+    only the provider LIST tells the two apart. The machine is replaced by a spy
+    for exactly that — the order this guard reads is a by-product."""
+    from kicadstamp import tree_position as tp
+
+    seen: list[list[str]] = []
+
+    def _spy(vertices, providers, *, group_of, doc_index, cycle_title):
+        seen.append([p.name for p in providers])
+        return sorted(vertices,
+                      key=lambda v: (group_of(v), doc_index.get(v, 0), str(v)))
+
+    monkeypatch.setattr(tp, "run_order_pass", _spy)
+    t = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("A", record=_record("placement", "A")),
+        _linked_node("C", record=_record("net_trace", "C")),
+    ])
+    curated_redraw_plan_forest([t], {"A", "C"})
+    assert seen[-1] == ["structure", "anchor"]
+
+    curated_redraw_plan_forest([t], {"A", "C"}, copper_deps={"C": {"A"}})
+    assert seen[-1] == ["structure", "anchor", "copper"]
+
+
+def test_forest_module_content_ties_follow_its_own_document_order():
+    """В4: the document walk must descend through a module marker into its
+    module_linked content and number THOSE nodes in their own declaration order
+    (the mutation skips `ln.module_linked.nodes`).
+
+    Two independent content nodes whose refs sort the wrong way: with the walk
+    they are numbered z_first(0), a_second(1) and applied in that order; without
+    it both fall back to the `str()` tie-breaker and `a_second` wins — the
+    alphabet deciding again, which is the exact accident Т1.1 removed."""
+    content = _linked_tree("ch0", is_origin=True, nodes=[
+        _linked_node("z_first", record=_record("placement", "z_first")),
+        _linked_node("a_second", record=_record("placement", "a_second")),
+    ])
+    t = _linked_tree("t", is_origin=True, nodes=[_marker_ln("ch0", content)])
+    names, _warnings = curated_redraw_plan_forest([t], {"ch0"})
+    assert names == ["z_first", "a_second"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Часть A (plan_2026_09_18_component_node_redraw_and_read_position.md, variant
+# В2): a TOP-LEVEL node's base is its tree's own ANCHOR — the live, floating
+# binding Denis described ("нода верхнего уровня -- это привязка к точке,
+# компоненту или чему-то ещё, к чему можно привязаться и что можно двигать"):
+# "важно, чтобы якорь верхнего уровня был плавающим — дерево двигалось бы за
+# привязкой якоря верхнего уровня".
+#
+# For a REF-LESS anchor — (role ...), (point ...), (self ...) — the
+# (parent_ref, parent_record) pair is (None, None), which
+# _base_position_or_origin could only read as the ABSOLUTE ORIGIN. The captured
+# offset then WAS the node's absolute position and the apply wrote it straight
+# back: the "floating" base had silently become a fixed (0,0) and a top-level
+# node could not follow its anchor at all.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _role_anchor_tree(role="MCU", name="mcu", nodes=None) -> LinkedTree:
+    """A hand-built LinkedTree whose anchor is a REF-LESS (role ...) anchor — the
+    live, floating base a top-level node hangs from."""
+    return LinkedTree(
+        name=name,
+        anchor=LinkedAnchor(anchor=TreeAnchor(role=role, is_origin=False),
+                            record=None, is_origin=False, is_external=False),
+        nodes=nodes or [])
+
+
+def _cfg_with_plain_tree(name="mcu", role="MCU"):
+    """A cfg double carrying cfg.trees — the plain Tree the anchor's live base is
+    resolved from (the mount seam already reads cfg.trees the same way)."""
+    from types import SimpleNamespace
+    return SimpleNamespace(trees=[
+        Tree(name=name, anchor=TreeAnchor(role=role, is_origin=False), nodes=[])])
+
+
+def _top_level_clone(ref="T1", xy=(5.0, 0.0)) -> LinkedNode:
+    return LinkedNode(node=_node_dc(ref=ref, kind="clone", xy=xy),
+                      record=_record("clone", ref), is_external=False,
+                      children=[])
+
+
+def test_top_level_node_of_a_role_anchor_uses_the_live_anchor_base(monkeypatch):
+    """С2: the captured offset of a TOP-LEVEL node is the node MINUS the anchor's
+    live pose — never the node's absolute position (which is what the
+    (None, None) pair used to produce)."""
+    import kicadstamp.tree_position as tp
+
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(105 * MM, 50 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    anchor_reads = []
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda adapter, cfg, tree, sheet_names:
+                        (anchor_reads.append(tree.name)
+                         or (Vector2.from_xy(100 * MM, 50 * MM), 0.0)))
+    tree = _role_anchor_tree(nodes=[_top_level_clone()])
+
+    captures, _parent_map = capture_rigid_state(
+        "adapter", _cfg_with_plain_tree(), tree, ["T1"], {})
+
+    cap = captures["T1"]
+    assert anchor_reads == ["mcu"]          # the ANCHOR was read, not the origin
+    assert cap.anchor_parent is True
+    assert cap.anchor_tree is not None
+    assert cap.local_offset.x == 5 * MM     # 105 - 100, NEVER 105
+    assert cap.local_offset.y == 0
+
+
+def test_the_whole_tree_follows_the_anchor_when_it_moves(monkeypatch):
+    """С3 — the requirement in one assertion: "дерево двигалось бы за привязкой
+    якоря верхнего уровня". The anchor moves 100 -> 150 mm between the capture
+    and the apply; the node keeps its captured 5 mm offset and lands at 155 mm.
+    Before the fix the override was the node's OWN absolute position (105), so
+    the tree never followed the anchor at all."""
+    import kicadstamp.tree_position as tp
+
+    child_pos = {"value": Vector2.from_xy(105 * MM, 50 * MM)}
+    anchor_pos = {"value": Vector2.from_xy(100 * MM, 50 * MM)}
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: child_pos["value"])
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda *a, **k: (anchor_pos["value"], 0.0))
+    cfg = _cfg_with_plain_tree()
+    tree = _role_anchor_tree(nodes=[_top_level_clone()])
+
+    captures, parent_map = capture_rigid_state("adapter", cfg, tree, ["T1"], {})
+    cap = captures["T1"]
+    assert cap.local_offset.x == 5 * MM
+
+    # The ANCHOR moved (hand-moved in KiCad before the Redraw): 100 -> 150 mm.
+    anchor_pos["value"] = Vector2.from_xy(150 * MM, 50 * MM)
+    parent_ref, parent_record, _is_anchor = parent_map["T1"]
+    override = apply_rigid_override("adapter", cfg, parent_ref, parent_record,
+                                    cap, {})
+
+    assert override.position.x == 155 * MM
+    assert override.position.y == 50 * MM
+
+
+def test_component_and_regular_nodes_under_one_anchor_behave_alike(monkeypatch):
+    """С5/Ф4: the anchor-parent base is a property of the PARENT, not of the
+    node's kind — a kind "component" node and an ordinary record node under the
+    same (role ...) anchor are both measured against the anchor's live pose."""
+    import kicadstamp.tree_position as tp
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(tp, "_anchor_base_live_position",
+                        lambda *a, **k: (Vector2.from_xy(100 * MM, 50 * MM), 0.0))
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(110 * MM, 50 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    monkeypatch.setattr(tp, "resolve_component_footprint",
+                        lambda adapter, node, sheet_names: SimpleNamespace(
+                            position=Vector2.from_xy(120 * MM, 50 * MM),
+                            angle_deg=0.0))
+    component = LinkedNode(node=_node_dc(ref="conn", kind="component"),
+                           record=None, is_external=False, children=[])
+    regular = _top_level_clone(ref="T1")
+    tree = _role_anchor_tree(nodes=[component, regular])
+
+    captures, _parent_map = capture_rigid_state(
+        "adapter", _cfg_with_plain_tree(), tree, ["conn", "T1"], {})
+
+    assert captures["conn"].local_offset.x == 20 * MM    # 120 - 100
+    assert captures["T1"].local_offset.x == 10 * MM      # 110 - 100
+    assert captures["conn"].anchor_parent is True
+    assert captures["T1"].anchor_parent is True
+
+
+def test_origin_anchor_never_takes_the_live_anchor_base(monkeypatch):
+    """С4: an ORIGIN anchor keeps its (0,0) short-circuit — it is a FIXED point
+    by definition, so it must not acquire an anchor-tree context (which would
+    change its base and its idempotency)."""
+    import kicadstamp.tree_position as tp
+
+    def _boom(*a, **k):
+        raise AssertionError("an origin anchor must never be read live")
+    monkeypatch.setattr(tp, "_anchor_base_live_position", _boom)
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda *a, **k: Vector2.from_xy(7 * MM, 9 * MM))
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    tree = _linked_tree("t", anchor_ref=None, is_origin=True,
+                        nodes=[_top_level_clone()])
+
+    captures, _parent_map = capture_rigid_state("adapter", "cfg", tree, ["T1"], {})
+
+    cap = captures["T1"]
+    assert cap.anchor_parent is False
+    assert cap.anchor_tree is None
+    assert cap.local_offset.x == 7 * MM and cap.local_offset.y == 9 * MM
+
+
+def test_ref_anchor_parent_keeps_the_ref_record_path(monkeypatch):
+    """С4: a REF/external anchor parent still resolves through the (ref, record)
+    pair — the anchor seam must not steal it (its live base is reachable there
+    and every existing behaviour depends on it)."""
+    import kicadstamp.tree_position as tp
+
+    positions = {"CONN": Vector2.from_xy(100 * MM, 50 * MM),
+                 "T1": Vector2.from_xy(105 * MM, 50 * MM)}
+
+    def _boom(*a, **k):
+        raise AssertionError("a ref anchor keeps the (ref, record) path")
+    monkeypatch.setattr(tp, "_anchor_base_live_position", _boom)
+    monkeypatch.setattr(tp, "resolve_base_live_position",
+                        lambda adapter, cfg, ref, record, points, sheet_names:
+                        positions[ref])
+    monkeypatch.setattr(tp, "_base_rotation_or_zero", lambda *a, **k: 0.0)
+    tree = _linked_tree("t", anchor_ref="CONN", nodes=[_top_level_clone()])
+
+    captures, parent_map = capture_rigid_state("adapter", "cfg", tree, ["T1"], {})
+
+    parent_ref, _parent_record, parent_is_anchor = parent_map["T1"]
+    assert (parent_ref, parent_is_anchor) == ("CONN", True)
+    cap = captures["T1"]
+    assert cap.anchor_parent is False
+    assert cap.local_offset.x == 5 * MM         # 105 - 100, via the ref path
+
+
+# ── Ф10: the warning that NAMES a node's base ──────────────────────────────
+
+def test_anchor_base_label_names_the_real_anchor_mode():
+    """Ф10: the planners used to print "(origin)" for EVERY ref-less anchor —
+    origin, role, point and self alike — so a role-anchored tree's top-level
+    nodes announced a base they never had ("will be redrawn from the current
+    position of '(origin)'"), which is exactly the message that made the plan
+    believe the mcu tree was origin-anchored. The label now names the anchor's
+    real mode; it is a NAME (like a refdes), so it stays untranslated — exactly
+    like the ref it replaces."""
+    from kicadstamp.tree_position import anchor_base_label
+
+    def _label(ta, is_origin=False, record=None, is_external=False):
+        return anchor_base_label(LinkedAnchor(anchor=ta, record=record,
+                                              is_origin=is_origin,
+                                              is_external=is_external))
+
+    assert _label(TreeAnchor(ref="CONN"), record=object()) == "CONN"
+    assert _label(TreeAnchor(ref="CONN"), is_external=True) == "CONN"
+    assert _label(TreeAnchor(is_origin=True), is_origin=True) == "(origin)"
+    assert _label(TreeAnchor(role="MCU")) == "(role 'MCU')"
+    assert _label(TreeAnchor(point="P1")) == "(point 'P1')"
+    assert _label(TreeAnchor(is_self=True)) == "(self)"
+
+
+def test_forest_plan_warning_names_the_role_anchor_never_origin():
+    """Ф10, end to end: the forest planner's informational warning for a
+    TOP-LEVEL node carries the ROLE label, and never claims the origin."""
+    tree = _role_anchor_tree(nodes=[_top_level_clone(ref="T1")])
+
+    _names, warnings = curated_redraw_plan_forest([tree], {"T1"})
+
+    assert warnings, "a top-level node whose base is outside the run must warn"
+    assert "(role 'MCU')" in warnings[0]
+    assert "(origin)" not in warnings[0]

@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""`tree_instances:` after the mount-node rework (plan_2026_09_11_tree_instances
+_and_converter_safety, tasks В.2 / В.3 / В.4).
+
+Three groups:
+
+* the CONVERTER resolving a module node that points at a generated INSTANCE
+  (В.2) — its pivot belongs to the TEMPLATE tree, and a ref naming neither a
+  tree nor an instance is a STOP, not the old silent `continue`;
+* a MOUNT node inside a template (В.3): the ref is not suffixed, the anchor's
+  sheet (and, only with it, the declaration's cluster) is substituted when it
+  names the template's own sheet, kept verbatim when it names a foreign one,
+  and a sheetless anchor is a fatal;
+* the template's pivot_ref following the node renames (В.4).
+
+The frozen pair under tests/fixtures/tree_instances_mount/ is READ here (both
+files are in git); the CONVERTED file is what the converter must reproduce —
+compared as NORMALIZED TEXT (CRLF/CR -> LF), never as raw bytes: git may lay a
+text fixture out with CRLF (core.autocrlf on Windows) while the converter always
+writes LF, and a line break is not part of the s-expr grammar (plan
+plan_2026_09_11_fixture_newlines_windows).
+
+The fixture's mount anchors deliberately name roles (HOST / FOREIGN) that are
+NOT in any cell the tree places, or the load-time drift guard (trees.py::
+check_mount_anchor_drift) would refuse the config — see the report's note.
+"""
+import logging
+from pathlib import Path
+
+import pytest
+
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config.tree_instances import expand_tree_instances
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.tree_mount_convert import convert_config_file, convert_trees_dict
+from kicadstamp.trees import tree_from_dict
+
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
+# tests/fixtures/ does not.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR / "tree_instances_mount"
+
+
+# ── helpers ────────────────────────────────────────────────────────────────
+
+def _tree(data: dict, name: str) -> dict:
+    return next(t for t in data["trees"] if t["name"] == name)
+
+
+def _first_mount(tree: dict) -> dict:
+    """The first kind "mount" node of a generated tree (depth-first)."""
+    stack = list(tree.get("nodes") or [])
+    while stack:
+        node = stack.pop(0)
+        if node.get("kind") == "mount":
+            return node
+        stack = list(node.get("children") or []) + stack
+    raise AssertionError("no mount node in the generated tree")
+
+
+def _pivot_keys_on_nodes(trees: list) -> list:
+    """(tree, node-ref) for every node that still carries a pivot-* key — must
+    be EMPTY after conversion (the inner point lives on the TREE)."""
+    bad: list = []
+
+    def walk(nodes: list, tree_name: str) -> None:
+        for node in nodes:
+            if any(k.startswith("pivot") for k in node):
+                bad.append((tree_name, node.get("ref")))
+            walk(node.get("children") or [], tree_name)
+
+    for tree in trees:
+        walk(tree.get("nodes") or [], tree["name"])
+    return bad
+
+
+def _read_text_lf(path: Path) -> str:
+    """The file's TEXT with CRLF/CR normalized to LF.
+
+    git may lay a text fixture out with CRLF (core.autocrlf=true on Windows,
+    no .gitattributes), while the converter always writes LF
+    (`write_text_atomic` uses `newline=""` on purpose). Comparing raw BYTES is
+    therefore platform-dependent and meaningless — a line break is not part of
+    the s-expr grammar (plan_2026_09_11_fixture_newlines_windows)."""
+    return path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _auto_template_with_mount(mount_anchor: dict, *, pivot_ref=None) -> dict:
+    """A minimal AUTO-anchored template (one top-level placement node) with a
+    mount node `H1` wrapping `E1`, plus one tree_instances declaration."""
+    template: dict = {
+        "name": "tpl",
+        "nodes": [{
+            "ref": "ROOT", "kind": "placement", "xy": [0.0, 0.0],
+            "children": [{
+                "ref": "H1", "kind": "mount", "anchor": dict(mount_anchor),
+                "children": [{"ref": "E1", "kind": "placement", "xy": [1.0, 0.0]}],
+            }],
+        }],
+    }
+    if pivot_ref is not None:
+        template["pivot_ref"] = pivot_ref
+    return {
+        "trees": [template],
+        "entities": [{"name": "ROOT", "cell": "c", "sheet": "Own"},
+                     {"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a",
+                            "cluster": "CL"}],
+    }
+
+
+def _role_template(pivot_xy=None, pivot_polar=None, pivot_ref=None,
+                   rotation=None, nodes=None) -> dict:
+    """A role-anchored template (with an anchor.shift) + one declaration, so
+    the instance's inheritance of pivot/rotation/shift can be checked."""
+    tree: dict = {
+        "name": "tpl",
+        "anchor": {"role": "HOST", "sheet": "Own", "shift": [0.5, 0.25]},
+        "nodes": nodes if nodes is not None
+                 else [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}],
+    }
+    if pivot_xy is not None:
+        tree["pivot_xy"] = pivot_xy
+    if pivot_polar is not None:
+        tree["pivot_polar"] = pivot_polar
+    if pivot_ref is not None:
+        tree["pivot_ref"] = pivot_ref
+    if rotation is not None:
+        tree["rotation"] = rotation
+    return {
+        "trees": [tree],
+        "entities": [{"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a"}],
+    }
+
+
+# ── В.6.2: the converter and generated instances ───────────────────────────
+
+def test_converter_drops_a_zero_pivot_on_an_instance_module_node():
+    """Б3.2 §В.2.2: an instance inherits its template's (default) inner point,
+    so a zero pivot is a no-op and is simply dropped — the case that used to
+    leave the pivot on the node and break the serializer."""
+    data = {
+        "trees": [
+            {"name": "tpl", "nodes": [{"ref": "E1", "kind": "placement",
+                                       "xy": [0, 0]}]},
+            {"name": "parent", "anchor": {"origin": True}, "nodes": [
+                {"ref": "inst_x", "kind": "module", "pivot_xy": [0, 0]}]},
+        ],
+        "tree_instances": [{"template": "tpl", "name": "inst_x", "sheet": "S1"}],
+    }
+    converted, report = convert_trees_dict(data)
+    node = converted["trees"][1]["nodes"][0]
+    assert "pivot_xy" not in node
+    assert report["instance_pivots_dropped"] == 1
+    assert report["pivots_moved"] == 0
+    sexp_to_dict(dict_to_sexp(converted))          # now serializable
+
+
+def test_converter_stops_on_a_nonzero_pivot_over_an_instance():
+    data = {
+        "trees": [
+            {"name": "tpl", "nodes": [{"ref": "E1", "kind": "placement",
+                                       "xy": [0, 0]}]},
+            {"name": "parent", "anchor": {"origin": True}, "nodes": [
+                {"ref": "inst_x", "kind": "module", "pivot_xy": [1, 2]}]},
+        ],
+        "tree_instances": [{"template": "tpl", "name": "inst_x", "sheet": "S1"}],
+    }
+    with pytest.raises(ValidationError,
+                       match="instance of tree 'tpl'"):
+        convert_trees_dict(data)
+
+
+def test_converter_stops_on_an_unknown_module_ref():
+    """§В.2.2: previously a silent `continue`, after which dict_to_sexp failed
+    with an unrelated message."""
+    data = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
+        {"ref": "ghost", "kind": "module", "pivot_xy": [1, 2]}]}]}
+    with pytest.raises(ValidationError, match="references neither a trees"):
+        convert_trees_dict(data)
+
+
+def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
+    """§В.2.3: end-to-end on the frozen fixture — parent tree + auto template +
+    two declarations, all embeddings `(pivot-xy 0 0)`."""
+    out = tmp_path / "converted.sexp"
+    convert_config_file(root=str(FIXTURES / "config.sexp"), output=str(out))
+
+    # the committed reference, compared as NORMALIZED TEXT — never raw bytes:
+    # git may lay the fixture out with CRLF on Windows, the converter writes LF
+    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
+
+    # readable by the NORMAL reader, no pivot-* left ON A NODE
+    data = sexp_to_dict(out.read_text(encoding="utf-8"))
+    assert _pivot_keys_on_nodes(data["trees"]) == []
+    # ... the zero inner point legitimately moved onto the TREE
+    assert _tree(data, "tpl")["pivot_xy"] == [0.0, 0.0]
+
+    # instances expand (mount nodes and all)
+    expanded = expand_tree_instances(data)
+    names = {t["name"] for t in expanded["trees"]}
+    assert {"tpl_a", "tpl_b"} <= names
+    assert _tree(expanded, "tpl_a")["pivot_xy"] == [0.0, 0.0]
+    tree_from_dict(_tree(expanded, "tpl_a"))       # the generated tree loads
+
+    # idempotent (normalized text again — same reason)
+    again = tmp_path / "again.sexp"
+    convert_config_file(root=str(out), output=str(again))
+    assert _read_text_lf(again) == _read_text_lf(out)
+
+
+def test_conversion_is_independent_of_the_input_line_endings(tmp_path):
+    """Н.3.3 (plan_2026_09_11_fixture_newlines_windows): a CRLF input — how git
+    may lay the fixture out on Windows — must convert to the SAME normalized
+    reference, so a platform's checkout can no longer change the result
+    silently."""
+    lf_text = _read_text_lf(FIXTURES / "config.sexp")     # normalize the source
+    crlf_in = tmp_path / "crlf.sexp"
+    crlf_in.write_bytes(lf_text.replace("\n", "\r\n").encode("utf-8"))
+    assert b"\r\n" in crlf_in.read_bytes()                # the input IS CRLF
+
+    out = tmp_path / "converted.sexp"
+    convert_config_file(root=str(crlf_in), output=str(out))
+    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
+
+
+# ── В.6.3: a mount node inside a template ──────────────────────────────────
+
+def test_mount_ref_is_not_suffixed_but_its_children_are():
+    out = expand_tree_instances(
+        _auto_template_with_mount({"role": "HOST", "sheet": "Own"}))
+    tree = _tree(out, "tpl_a")
+    assert tree["nodes"][0]["ref"] == "ROOT__tpl_a"     # placed node: suffixed
+    mount = _first_mount(tree)
+    assert mount["ref"] == "H1"                        # mount: NOT suffixed
+    assert mount["children"][0]["ref"] == "E1__tpl_a"
+    _pivot_keys_on_nodes([tree])                       # no leftover pivots
+
+
+def test_mount_anchor_sheet_and_cluster_are_substituted_by_value():
+    """§В.3.2(б)/(в): a sheet EQUAL to the template's own follows the instance,
+    and the declaration's cluster follows WITH it — by VALUE, not merely "no
+    exception"."""
+    out = expand_tree_instances(
+        _auto_template_with_mount({"role": "HOST", "sheet": "Own",
+                                   "cluster": "GRP"}))
+    assert _first_mount(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "HOST", "sheet": "Own_a", "cluster": "CL"}
+
+
+def test_a_foreign_sheet_mount_anchor_is_kept_verbatim(caplog):
+    with caplog.at_level(logging.INFO):
+        out = expand_tree_instances(
+            _auto_template_with_mount({"role": "FOREIGN", "sheet": "Shared",
+                                       "cluster": "GRP"}))
+    assert _first_mount(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "FOREIGN", "sheet": "Shared", "cluster": "GRP"}
+    assert "Shared" in caplog.text
+
+
+def test_a_sheetless_mount_anchor_is_a_fatal():
+    with pytest.raises(ValidationError, match="no sheet in its anchor"):
+        expand_tree_instances(_auto_template_with_mount({"role": "HOST"}))
+
+
+def test_two_instances_get_their_own_mount_anchor_sheets():
+    """Regression on «all three channels mounted to channel 0»: each instance
+    must narrow to ITS OWN sheet, never the template's."""
+    data = _auto_template_with_mount({"role": "HOST", "sheet": "Own",
+                                      "cluster": "GRP"})
+    data["tree_instances"] = [
+        {"template": "tpl", "name": "tpl_a", "sheet": "Own_a", "cluster": "A"},
+        {"template": "tpl", "name": "tpl_b", "sheet": "Own_b", "cluster": "B"},
+    ]
+    out = expand_tree_instances(data)
+    assert _first_mount(_tree(out, "tpl_a"))["anchor"]["sheet"] == "Own_a"
+    assert _first_mount(_tree(out, "tpl_a"))["anchor"]["cluster"] == "A"
+    assert _first_mount(_tree(out, "tpl_b"))["anchor"]["sheet"] == "Own_b"
+    assert _first_mount(_tree(out, "tpl_b"))["anchor"]["cluster"] == "B"
+
+
+def test_a_template_without_mounts_expands_as_before():
+    """Regression fence: the ordinary placement path is untouched."""
+    out = expand_tree_instances(_role_template())
+    tree = _tree(out, "tpl_a")
+    assert tree["nodes"][0]["ref"] == "E1__tpl_a"
+    assert tree["anchor"]["sheet"] == "Own_a"
+    assert {e["name"] for e in out["entities"]} >= {"E1", "E1__tpl_a"}
+
+
+# ── В.6.3b: a COMPONENT node inside a template ──────────────────────────────
+# plan_2026_09_16_commit_document_and_pending_direction, Э4/Т4.3. The component
+# node's expansion was added in 2026-09-17 and mirrored the mount rules, but had
+# NO test at all: a mutation turning its refdes fatal off (or dropping the sheet
+# substitution, or suffixing the local ref) survived. Same three rules as the
+# mount node — the ref is LOCAL, the (role ...) address follows the instance
+# sheet together with the declaration's cluster, a foreign sheet is kept
+# verbatim, a sheetless role address and a (ref ...) address are fatals — plus
+# the component-specific reason for the refdes fatal: the SAME physical
+# component cannot be claimed by every instance.
+
+def _first_component(tree: dict) -> dict:
+    """The first kind "component" node of a generated tree (depth-first)."""
+    stack = list(tree.get("nodes") or [])
+    while stack:
+        node = stack.pop(0)
+        if node.get("kind") == "component":
+            return node
+        stack = list(node.get("children") or []) + stack
+    raise AssertionError("no component node in the generated tree")
+
+
+def _auto_template_with_component(address: dict) -> dict:
+    """A minimal AUTO-anchored template (one top-level placement node) with a
+    component node `C1` (its raw `address`) wrapping `E1`, plus one
+    tree_instances declaration — the component mirror of
+    _auto_template_with_mount."""
+    return {
+        "trees": [{
+            "name": "tpl",
+            "nodes": [{
+                "ref": "ROOT", "kind": "placement", "xy": [0.0, 0.0],
+                "children": [{
+                    "ref": "C1", "kind": "component", "xy": [2.0, 0.0],
+                    "anchor": dict(address),
+                    "children": [{"ref": "E1", "kind": "placement",
+                                  "xy": [1.0, 0.0]}],
+                }],
+            }],
+        }],
+        "entities": [{"name": "ROOT", "cell": "c", "sheet": "Own"},
+                     {"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a",
+                            "cluster": "CL"}],
+    }
+
+
+def test_component_node_ref_is_not_suffixed_but_its_children_are():
+    """Т4.3 п.6 (М14): a component node's ref is a LOCAL name, unique per TREE, so
+    it must NOT get the __{instance} suffix — while its ordinary placement
+    children do, exactly like under a mount node."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "AD_DAC", "sheet": "Own"}))
+    tree = _tree(out, "tpl_a")
+    assert tree["nodes"][0]["ref"] == "ROOT__tpl_a"     # placed node: suffixed
+    component = _first_component(tree)
+    assert component["ref"] == "C1"                    # component: NOT suffixed
+    assert component["children"][0]["ref"] == "E1__tpl_a"
+
+
+def test_component_node_role_address_takes_the_instance_sheet():
+    """Т4.3 п.1/п.2 (М13): a (role ...) address whose sheet IS the template's own
+    takes the instance sheet, and — only with it — the declaration's cluster. By
+    VALUE, not merely "no exception"."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "AD_DAC", "sheet": "Own", "cluster": "GRP"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "AD_DAC", "sheet": "Own_a", "cluster": "CL"}
+
+
+def test_component_node_cluster_follows_the_sheet_only():
+    """Т4.3 п.2: for a FOREIGN sheet the declaration's cluster is NOT substituted
+    — the address is a board-wide reference and stays untouched. This is the
+    other half of the "only together with the sheet" rule above: a template
+    address outside the template must not be narrowed by an instance."""
+    out = expand_tree_instances(_auto_template_with_component(
+        {"role": "FOREIGN", "sheet": "Shared", "cluster": "GRP"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "FOREIGN", "sheet": "Shared", "cluster": "GRP"}
+
+
+def test_a_foreign_sheet_component_address_is_kept_verbatim_and_info_logged(caplog):
+    """Т4.3 п.3: the kept-verbatim half says so in the log — the user's
+    board-wide reference is legal, and silently "fixing" it would move the
+    component to a sheet nobody named."""
+    with caplog.at_level(logging.INFO):
+        out = expand_tree_instances(_auto_template_with_component(
+            {"role": "FOREIGN", "sheet": "Shared"}))
+    assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
+        "role": "FOREIGN", "sheet": "Shared"}
+    assert "Shared" in caplog.text and "kept verbatim" in caplog.text
+
+
+def test_a_refdes_address_in_a_template_component_node_is_a_fatal():
+    """Т4.3 п.4 (М12): a (ref ...) address names ONE physical component, so it
+    cannot be parameterized per sheet — the SAME component would be claimed by
+    every instance. Refused at EXPANSION with the template and the node named,
+    not later by the materializer (which blames the generated tree)."""
+    with pytest.raises(ValidationError) as exc:
+        expand_tree_instances(_auto_template_with_component({"ref": "IC7"}))
+    text = str(exc.value)
+    assert "addresses its component by refdes" in text
+    assert "tpl" in text and "C1" in text
+
+
+def test_a_sheetless_role_address_in_a_template_component_node_is_a_fatal():
+    """Т4.3 п.5: without a sheet the role would be ambiguous across the
+    instances' sheets — the "all three channels to channel 0" trap, refused with
+    the template and the node named."""
+    with pytest.raises(ValidationError) as exc:
+        expand_tree_instances(_auto_template_with_component({"role": "AD_DAC"}))
+    text = str(exc.value)
+    assert "no sheet in its anchor" in text
+    assert "tpl" in text and "C1" in text
+
+
+# ── В.6.4: inheritance and pivot_ref ───────────────────────────────────────
+
+def test_instance_inherits_pivot_rotation_and_shift():
+    out = expand_tree_instances(_role_template(pivot_xy=[1.5, -2.5], rotation=30.0))
+    tree = _tree(out, "tpl_a")
+    assert tree["pivot_xy"] == [1.5, -2.5]
+    assert tree["rotation"] == 30.0
+    assert tree["anchor"]["shift"] == [0.5, 0.25]     # inherited, not rewritten
+    assert tree["anchor"]["sheet"] == "Own_a"
+
+
+def test_instance_inherits_a_polar_pivot():
+    out = expand_tree_instances(_role_template(pivot_polar=[3.0, 45.0]))
+    assert _tree(out, "tpl_a")["pivot_polar"] == [3.0, 45.0]
+
+
+def test_pivot_ref_on_a_placement_node_follows_the_suffix():
+    out = expand_tree_instances(_role_template(pivot_ref="E1"))
+    tree = _tree(out, "tpl_a")
+    assert tree["pivot_ref"] == "E1__tpl_a"
+    tree_from_dict(tree)                             # names a real node -> loads
+
+
+def test_pivot_ref_on_a_net_trace_node_follows_the_net_rewrite():
+    data = _role_template(
+        pivot_ref="/Own/GRP/N",
+        nodes=[{"ref": "E1", "kind": "placement", "xy": [0, 0]},
+               {"ref": "/Own/GRP/N", "kind": "net_trace"}])
+    data["net_traces"] = [{"net": "/Own/GRP/N", "anchor_role": "H", "anchor_sheet": "Own"}]
+    out = expand_tree_instances(data)
+    tree = _tree(out, "tpl_a")
+    assert tree["pivot_ref"] == "/Own_a/GRP/N"
+    tree_from_dict(tree)
+
+
+def test_pivot_ref_naming_a_missing_node_fatals_at_expansion():
+    with pytest.raises(ValidationError, match="names no node of the template"):
+        expand_tree_instances(_role_template(pivot_ref="NOPE"))
+
+
+def test_pivot_ref_on_the_auto_templates_root_follows_the_suffix():
+    """The root of an AUTO template is eligible (it is not under the mount), so
+    its pivot_ref must follow the same suffix as the node."""
+    out = expand_tree_instances(
+        _auto_template_with_mount({"role": "HOST", "sheet": "Own"},
+                                  pivot_ref="ROOT"))
+    tree = _tree(out, "tpl_a")
+    assert tree["pivot_ref"] == "ROOT__tpl_a"
+    tree_from_dict(tree)
+
+
+# ── В.6.5 / P.2.6: a copper CONTAINER inside a template ────────────────────
+# 2026-09-16, plan_2026_09_16_copper_node_order_and_container P.2.6. Without the
+# _expand_copper_node branch the FIRST attempt to multiply a tree carrying a
+# container died on "unsupported node kind 'copper'" — so these two guards are
+# the fence the plan asks for, one per net_trace path (legacy literal-net and
+# named (role, pad)).
+
+def _copper_template(child_node: dict, net_traces: list) -> dict:
+    """A role-anchored template (sheet "Own") whose SECOND node is a copper
+    container holding `child_node`, plus the `net_traces:` records and ONE
+    tree_instances declaration for sheet Own_a."""
+    return {
+        "trees": [{
+            "name": "tpl",
+            "anchor": {"role": "HOST", "sheet": "Own"},
+            "nodes": [
+                {"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "copper", "kind": "copper", "children": [child_node]},
+            ],
+        }],
+        "entities": [{"name": "E1", "cell": "c", "sheet": "Own"}],
+        "cells": {"c": {"components": [{"role": "R1"}]}},
+        "net_traces": net_traces,
+        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a"}],
+    }
+
+
+def _copper_node(tree: dict) -> dict:
+    return next(n for n in tree["nodes"] if n.get("kind") == "copper")
+
+
+def test_copper_container_expands_unsuffixed_legacy_net_trace_child():
+    """С10 (legacy path A): the container is copied WITH its children, its own
+    ref is NOT suffixed with __tpl_a (a local name, exactly like a mount ref) and
+    its legacy literal-net child follows the leading-sheet substitution.
+
+    The expansion APPENDS the generated copies to the config's own record lists
+    (the template's record stays as it is), so the fresh copy is the LAST one."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "/Own/GRP/N", "kind": "net_trace"},
+        [{"net": "/Own/GRP/N", "anchor_role": "H", "anchor_sheet": "Own"}]))
+    tree = _tree(out, "tpl_a")
+    copper = _copper_node(tree)
+    assert copper["ref"] == "copper"
+    assert copper["children"][0]["ref"] == "/Own_a/GRP/N"
+    assert len(out["net_traces"]) == 2
+    assert out["net_traces"][-1]["net"] == "/Own_a/GRP/N"
+    assert out["net_traces"][0]["net"] == "/Own/GRP/N"   # template untouched
+    tree_from_dict(tree)            # the generated tree LOADS (P.2.4 rules)
+
+
+def test_copper_container_expands_unsuffixed_named_net_trace_child():
+    """С10 (named path B): the container ref stays unsuffixed while its NAMED
+    net_trace child takes the __tpl_a rename — the container decides where the
+    copper hangs, never how it expands."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "bridge", "kind": "net_trace"},
+        [{"net": "N", "name": "bridge", "anchor_role": "H",
+          "anchor_sheet": "Own"}]))
+    tree = _tree(out, "tpl_a")
+    copper = _copper_node(tree)
+    assert copper["ref"] == "copper"
+    assert copper["children"][0]["ref"] == "bridge__tpl_a"
+    assert len(out["net_traces"]) == 2
+    assert out["net_traces"][-1]["name"] == "bridge__tpl_a"
+    assert out["net_traces"][0]["name"] == "bridge"      # template untouched
+    tree_from_dict(tree)
+
+
+def test_the_template_tree_itself_is_left_untouched():
+    """Fence: expansion never rewrites the TEMPLATE — its container and its
+    child keep their own names (the copy is what carries the instance's)."""
+    out = expand_tree_instances(_copper_template(
+        {"ref": "bridge", "kind": "net_trace"},
+        [{"net": "N", "name": "bridge", "anchor_role": "H",
+          "anchor_sheet": "Own"}]))
+    template = _tree(out, "tpl")
+    assert _copper_node(template)["ref"] == "copper"
+    assert _copper_node(template)["children"][0]["ref"] == "bridge"

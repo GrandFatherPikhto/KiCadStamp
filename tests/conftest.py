@@ -133,7 +133,12 @@ def _reset_process_singletons():
 
 
 # ── Ф1.6 of plan_2026_09_27_repo_and_tests_transformation: the three markers ──
-_TESTS_ROOT = Path(__file__).resolve().parent
+# Ф2.0: the marker hook decides by PATH, so the directories it compares against must
+# not be derived from this file's own depth either — tests/paths.py fixes the depth
+# in ONE place, which is what makes the Ф2 moves below safe.
+from tests.paths import TESTS_ROOT
+
+_TESTS_ROOT = TESTS_ROOT
 _GUI_DIR = _TESTS_ROOT / "gui"
 _INTEGRATION_DIR = _TESTS_ROOT / "integration_tests"
 

@@ -32,65 +32,54 @@ Five groups, by what a test NEEDS:
   marker hook, `records_from`, and the forced-English `setup_i18n()` call that runs
   at collection time before any test module imports the package (so an English
   assertion is safe even on a Russian-locale machine);
+* `tests/paths.py` — the ONE file that turns the suite's own location into
+  `TESTS_ROOT`, `REPO_ROOT` and `FIXTURES_DIR`. No test derives a tree path from its
+  own depth any more, and that is what made the Ф2 split a pure `git mv`: a file can
+  move between directories without its paths changing meaning;
 * `tests/fakes/` — the shared doubles, IMPORTED rather than redefined, plus the
   conformance cell that pins each of them against the real interface;
-* `tests/gui/` — needs Qt (offscreen);
-* `tests/integration_tests/` — needs a RUNNING KiCad with a live board;
-* `tests/test_*.py` — pure Python.
+* `tests/fixtures/` — data on disk (profile snapshots), read by path;
+* `tests/gui/` — needs Qt (offscreen): the window, the hub, the door, the worker, and
+  one file per dock under `tests/gui/docks/`;
+* `tests/integration_tests/` — needs a RUNNING KiCad with a live board.
 
-Ф2 of the tests refactor splits the flat `tests/*.py` into domain subpackages
-mirroring `kicadstamp/`; the markers and the rules above survive that move.
+The flat `tests/test_*.py` of the Ф1 era is gone: Ф2 moved every file into a domain
+directory mirroring `kicadstamp/`. Two of them mirror nothing in the package and exist
+for the suite's own sake — `repo/` (guards that read the repository: source text, the
+marker partition, the fake conformance, the board door) and `cli/` (the entry points
+and the `tools/` converters). The markers survived the move unchanged: `gui` is still
+attached by PATH, so a cell inside `tests/gui/docks/` is still `gui`.
 
-The list below is ABRIDGED on purpose: it is the Ф0-era core (41 modules), while the
-four groups now hold 321 `.py` files in total (test modules plus the `conftest.py`
-files). Every name it lists still exists; but the list is NOT an index — `ls tests/`
-is, and Ф2 regenerates this block together with the two description tables below.
-The rule about where a NEW test goes is not abridged: it lives in
-[Extending Tests](#extending-tests).
+The rule about where a NEW test goes lives in [Extending Tests](#extending-tests).
+The per-module description tables further down list bare file NAMES on purpose: each
+file now sits under the domain directory named after the module it tests, and the tree
+below is the index.
 
 ```
 tests/
-├── conftest.py                       # Common fixtures for unit tests
-├── test_author.py                    # Scripting helpers: prune defaults, dump round‑trip, cli_main
-├── test_cli_filters.py               # CLI filters: --only, --cluster, active/drop/inactive logic
-├── test_clone_anchor_id.py           # Anchor ID resolution for clones
-├── test_clone_geometry.py            # ClonePlacement geometry (rotation, mirror, tracks)
-├── test_clone_ignore_selection.py    # ignore_selection flag for clones
-├── test_clone_placement_config.py    # ClonePlacement loading from s-expr
-├── test_clone_placement_integration.py # End‑to‑end ClonePlacement test (mocks)
-├── test_clone_role_resolver.py       # Role resolution for cloning (selection, nets, anchor proximity)
-├── test_clone_selection_conflict.py  # Conflict check for multiple clones in selection mode
-├── test_config_includes.py           # include: directive merging, cycles, duplicates
-├── test_dependency_order.py          # Execution order resolution by anchor_ref/anchor_role
-├── test_execute_vias_owner_ref.py    # Correctness of owner_ref in logs (vias)
-├── test_explore.py                   # Read‑only board query helpers
-├── test_full_pipeline_templates.py   # End‑to‑end pipeline test (mocks) for ManualSpoke
-├── test_i18n.py                      # gettext _() function availability and import
-├── test_kicad.py                     # Adapter check (method presence)
-├── test_manual_position_calculator.py # ManualPositionCalculator logic (pools, positions)
-├── test_naming.py                    # Name/effective_name accessors, required name validation
-├── test_net_resolution.py            # Net resolution with placeholders (net_resolution)
-├── test_pad_projection.py            # Pad position prediction
-├── test_registry_integration.py      # Full registry cycle (create, update, prune) with mocks
-├── test_registry_pruning_granularity.py # Registry pruning precision
-├── test_registry_rule_protection.py  # Registry chain protection (known_anchor_ids)
-├── test_spoke_layout.py              # Local‑to‑global template coordinate transformation (spoke_layout)
-├── test_template_extraction.py       # Template extraction from selection (logic, tracks)
-├── test_cell_files.py            # deprecated cells_file/cell_files/templates_file/template_files → fatal
-├── test_two_phase_execution.py       # Two‑phase execution (moves → refresh → vias) with mocks
-├── test_undo_layer.py                # Layer saving/restoring in undo
-├── test_unique_roles.py              # Role uniqueness inside templates
-├── test_unknown_keys_validation.py   # check_unknown_keys for config sections
-├── test_validation.py                # Pre‑validation checks for configuration
-│
-└── integration_tests/                # Integration tests with real KiCad
-    ├── conftest.py                   # Fixtures for integration tests
-    ├── test_connection.py            # Connection and basic operations
-    ├── test_via_ops.py               # Via creation/deletion, registry operation
-    ├── test_track_ops.py             # Track creation/deletion (API verification)
-    ├── test_component_ops.py         # Component move/flip
-    ├── test_extract.py               # Template extraction from selection
-    └── test_registry.py              # Full registry cycle with real KiCad
+├── conftest.py          # the autouse resets, the marker hook, records_from
+├── paths.py             # TESTS_ROOT / REPO_ROOT / FIXTURES_DIR — the only file that knows the depth
+├── fakes/               # shared doubles + the conformance cell
+├── fixtures/            # data on disk (profile snapshots), read by path
+├── config/              # kicadstamp/config/*, the s-expr writer, validation
+├── domain/              # kicadstamp/domain/* (board and geometry DTOs)
+├── geometry/            # pads, cell anchors, spoke layout, keepouts
+├── placement/           # placement services, the executor, registry, undo, persistence
+├── pipeline/            # apply_pipeline.py and the two-phase execution
+├── trees/               # trees, link_trees, tree_position, cells, entity placement
+├── cloner/              # kicadstamp/cloner/* and channel_copy
+├── schematic/           # schematic_*.py — the file-level schematic layer
+├── imprint/             # imprint_*.py
+├── overrides/           # field overrides and the override store
+├── net/                 # net resolution, net traces, internode copper
+├── extraction/          # templates, spokes, the extract writer
+├── cli/                 # CLI entry points, author_cli, the tools/ converters
+├── kicad/               # the IPC adapter, adapter_factory, explore, pynng safety
+├── mcp/                 # mcp_server/*
+├── repo/                # guards that read the REPOSITORY itself
+├── gui/                 # Qt, offscreen: the window, the hub, the door, the worker
+│   └── docks/           # …and one file per dock (59 of the 107 gui cells)
+└── integration_tests/   # a RUNNING KiCad with a live board (9 files + conftest.py)
 ```
 
 ---
@@ -201,15 +190,21 @@ above.
 One file, or one cell:
 
 ```bash
-python -m pytest tests/test_spoke_layout.py -q
-python -m pytest tests/test_spoke_layout.py::test_local_to_global -q
+python -m pytest tests/geometry/test_spoke_layout.py -q
+python -m pytest tests/geometry/test_spoke_layout.py::test_local_to_global -q
 ```
 
 ### The reverse-order run
 
 ```bash
-python -m pytest $(ls -r tests/test_*.py tests/gui/test_*.py) -m "not integration" -q
+python -m pytest $(find tests -name 'test_*.py' -not -path 'tests/integration_tests/*' | sort -r) -m "not integration" -q
 ```
+
+The globs that used to name it (`ls -r tests/test_*.py tests/gui/test_*.py`) described
+the FLAT layout and stopped describing anything after Ф2 — which would have made the
+reverse run collect the wrong half of the suite and report a clean result for it. The
+`find` above is layout-independent: it names every test file outside
+`integration_tests/`, in reverse order, whatever directories the domains have.
 
 Order independence is a property the suite must KEEP, not a hope: the shared reset
 and the marker hook exist so that a cell does not depend on what ran before it. A
@@ -345,7 +340,7 @@ All integration tests use fixtures and restore the board to its original state a
   (e.g. `test_boards/10CL006YE144C8G.kicad_pcb`) over a production project; the
   fixtures restore the board, but run them on a copy or after saving anyway.
 - The three markers partition the collection exactly: `gui` + `unit` +
-  `integration` = everything, and `tests/test_marker_contract.py` fails if the
+  `integration` = everything, and `tests/repo/test_marker_contract.py` fails if the
   partition ever stops being a partition (or if one kind stops being marked).
 
 ---
@@ -354,15 +349,34 @@ All integration tests use fixtures and restore the board to its original state a
 
 **Where a new test goes** — by what it needs, and the marker follows the path:
 
-* pure logic → `tests/test_<module>.py` (marker `unit`);
-* a dock, the window, a widget → `tests/gui/` (marker `gui`);
+* pure logic → `tests/<domain>/test_<module>.py`, where `<domain>` mirrors the package
+  or module under test (`kicadstamp/config/loader.py` → a new `tests/config/test_loader.py`;
+  `kicadstamp/trees.py` → `tests/trees/`). When two domains could claim it, the module
+  the file IMPORTS decides — not the count of imports, and not the domain whose helpers
+  it happens to use;
+* a dock, the window, a widget → `tests/gui/docks/` for one dock, `tests/gui/` for the
+  window, the hub, the door, the worker, and for a guard that spans MANY docks. A guard
+  whose subject is the window, the sockets or the UI thread stays in `tests/gui/`,
+  whatever docks it imports;
+* a guard that reads the REPOSITORY itself (source text, the marker partition, the fake
+  conformance, the board door, the timeout sweep) → `tests/repo/`;
 * live KiCad → `tests/integration_tests/` plus `@pytest.mark.integration` (the
   path already marks it; the decorator is the belt to the path's braces).
+
+**Two rules that follow from the layout:**
+
+* **never derive a tree path from `Path(__file__)`.** Import `tests.paths`
+  (`REPO_ROOT`, `FIXTURES_DIR`) instead. A test one level deeper silently reads a
+  different directory, and where that path only feeds a message the suite stays green
+  while the guard goes blind;
+* **a test file's BASENAME must stay unique across the whole suite.** pytest imports
+  collected modules by basename, so two `test_loader.py` under different domains collide
+  with `import file mismatch`. That is why Ф2 moved files without renaming any.
 
 **Where a new DOUBLE or HELPER goes:**
 
 * a double used by MORE than one file → `tests/fakes/`, and add a cell for it to
-  `tests/test_fakes_conformance.py` (the cell pins the double against the real
+  `tests/repo/test_fakes_conformance.py` (the cell pins the double against the real
   interface, in both directions: it must invent nothing, and the names it
   declares as gaps must really exist on the concrete class);
 * a double used by ONE file → that file, named with a leading underscore
@@ -372,7 +386,7 @@ All integration tests use fixtures and restore the board to its original state a
   `tests/` root: `schematic_text.py`, `overrides_store.py`, `live_board.py`;
 * a pytest FIXTURE → the `conftest.py` of the level that needs it.
 
-**Four rules a new test must not break** (`tests/test_repo_hygiene.py` guards
+**Four rules a new test must not break** (`tests/repo/test_repo_hygiene.py` guards
 them, and every guard fails loudly if its own scan goes blind):
 
 1. no `sys.path.insert` under `tests/` — `pythonpath = .` replaced all 120 of them;
@@ -410,6 +424,13 @@ mutation is "the inner run imports the MAIN checkout" becomes a no-op and report
 SURVIVED; and an INVALID row ("pattern occurs 0 times") means the MUTATION is
 stale, not that the suite is strong. The pre-Ф1 reference is 127 killed / 7
 survived / 6 invalid.
+
+**After Ф2 the rigs' `T` lists name TEST PATHS that moved** (they were written for the
+flat layout), so a rig run today reports INVALID rows for files it can no longer find.
+That is a STALE RIG, not a weakened guard, and it is deliberate: Ф2 did not re-pin any
+rig, and re-pinning the last rig of each walk is Ф3 work. The pre-Ф1 numbers above
+therefore describe the suite as it was BEFORE the domain split, and a rig must not be
+run to "confirm" Ф2 before its `T` list is re-pinned.
 
 ---
 

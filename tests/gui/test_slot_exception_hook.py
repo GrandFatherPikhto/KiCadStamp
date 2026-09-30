@@ -45,7 +45,8 @@ from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT as _REPO_ROOT
 
 # ── the inner programs ───────────────────────────────────────────────────────
 # Each one is a standalone python program: no pytest, no fixtures, nothing that
