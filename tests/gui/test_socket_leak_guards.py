@@ -19,8 +19,9 @@ calls it. ApplyPipeline.run()'s own _connect_adapter() is left REAL, so what
 is counted is what the pipeline really builds.
 """
 import ast
-from pathlib import Path
-ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT as ROOT
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

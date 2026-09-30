@@ -26,7 +26,11 @@ from kicadstamp.flatten import flatten_config
 from kicadstamp.tree_mount_convert import convert_config_file
 from kicadstamp.utils.safe_write import backup_file, write_text_atomic
 
-FIXTURES = Path(__file__).parent / "fixtures" / "trees_and_overlay"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
+# tests/fixtures/ does not.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR / "trees_and_overlay"
 
 # A tree node carrying the REMOVED per-node `pivot-xy`, which the normal reader
 # refuses (`trees._dict_node` leftover fatal -> tree_from_dict -> dict_to_sexp).

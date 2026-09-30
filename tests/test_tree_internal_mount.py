@@ -11,7 +11,6 @@ The numeric claims (internal == live on a synchronous board, rotation follows
 the tree, the angle handed to the subtree is the slot's) are asserted by NUMBER,
 not by which helper was called (test 1 of the plan's Г.9).
 """
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,7 +35,11 @@ from kicadstamp.trees import (
 )
 from kicadstamp.utils.units import MM
 
-FIXTURES = Path(__file__).parent / "fixtures" / "internal_mount"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
+# tests/fixtures/ does not.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR / "internal_mount"
 
 _ORIGIN = Vector2.from_xy(0, 0)
 

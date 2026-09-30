@@ -617,7 +617,8 @@ def test_every_reader_runs_each_step_exactly_once(monkeypatch, tmp_path,
 
 # ── the structural cell ────────────────────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as _REPO_ROOT
 _SCANNED_ROOTS = ("kicadstamp", "gui", "mcp_server", "tools")
 # NOT scanned: kicadstamp/diagnostics/ — measuring rigs, not ship code (rule 34
 # keeps them in the tree on purpose, and a rig may read raw whenever it likes).
@@ -1076,7 +1077,10 @@ def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
     old after the conversion, and the number it carried comes back."""
     from kicadstamp.tree_mount_convert import convert_config_file
 
-    fixture = (Path(__file__).resolve().parent / "fixtures"
+    # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+    from tests.paths import FIXTURES_DIR
+
+    fixture = (FIXTURES_DIR
                / "tree_instances_mount" / "config.sexp")
     text = fixture.read_text(encoding="utf-8")
     assert f"(version {CURRENT_FORMAT})" in text, "the fixture is current format"

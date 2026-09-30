@@ -56,7 +56,8 @@ from gui import connection as connection_mod
 from gui.connection import (BoardConnection, UiThreadBoardReadRefused,
                             set_ui_thread_predicate, ui_thread_board_read)
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as _REPO_ROOT
 
 
 # Ф1.8: the per-file autouse fixture that used to stand here (_clean_guard_state) is

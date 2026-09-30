@@ -457,11 +457,12 @@ def _real_profile_adapter():
 
 
 def _real_profile_cfg():
-    from pathlib import Path
-
     from kicadstamp.config import load_config
 
-    profile = (Path(__file__).resolve().parents[1]
+    # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+    from tests.paths import REPO_ROOT
+
+    profile = (REPO_ROOT
                / "profiles" / "3ch-awg-tia-v103" / "3ch-awg-tia.sexp")
     if not profile.exists():
         pytest.skip("real profile not present (profiles/ is gitignored)")

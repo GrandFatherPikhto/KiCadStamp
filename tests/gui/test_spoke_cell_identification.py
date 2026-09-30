@@ -21,7 +21,6 @@ live_position.py is deliberately Qt-free.
 """
 import re
 from collections import Counter
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -793,7 +792,10 @@ def test_c12_tree_from_selection_never_carries_the_refs():
     role_to_ref anywhere — neither now nor by a future copy-paste of the anchor
     page's plumbing (the tree places a NODE, it never edits an identified pair).
     Read as source text, like the project's other watchdogs."""
-    source = (Path(__file__).resolve().parents[2]
+    # Ф2.0: depth-independent (tests/paths.py).
+    from tests.paths import REPO_ROOT
+
+    source = (REPO_ROOT
               / "gui" / "docks" / "tree_from_selection.py").read_text(
                   encoding="utf-8")
 
@@ -820,7 +822,10 @@ def test_c18_the_reread_flows_never_touch_the_identification():
     """С18/М17: the geometry-refresh engine and the two reread flows of the cell
     dialog must stay free of the identification — no import of gui.
     cell_edit_context in the engine, and no `refs` anywhere in the flows."""
-    root = Path(__file__).resolve().parents[2]
+    # Ф2.0: depth-independent (tests/paths.py).
+    from tests.paths import REPO_ROOT
+
+    root = REPO_ROOT
     refresh = (root / "kicadstamp" / "cell_geometry_refresh.py").read_text(
         encoding="utf-8")
     # NOT the plain `role_to_ref`: that file has always had its own LOCAL

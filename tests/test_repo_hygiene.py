@@ -25,8 +25,12 @@ import ast
 import importlib.util
 from pathlib import Path
 
-TESTS_DIR = Path(__file__).resolve().parent
-REPO = TESTS_DIR.parent
+# Ф2.0: depth-independent (tests/paths.py). This guard MOVES in Ф2 (to tests/repo/),
+# and its whole value is scanning the RIGHT directories afterwards: TESTS_DIR must
+# stay the directory that holds conftest.py, not the one that holds this file.
+from tests.paths import REPO_ROOT as REPO
+from tests.paths import TESTS_ROOT as TESTS_DIR
+
 FAKES_DIR = TESTS_DIR / "fakes"
 
 #: Files allowed to assign to an attribute of an imported module or name outside

@@ -40,11 +40,12 @@ from PyQt6.QtWidgets import QPushButton
 from gui.docks.cell_dialog import CellDialog
 from gui.docks.cell_editor import CellDock
 
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT as _ROOT
+
 # Р4: 1366x768 is the smallest screen the project must live on; 1000 px leaves
 # room for the window frame and the taskbar. ONE constant, as the plan asks.
 MAX_DIALOG_WIDTH_PX = 1000
-
-_ROOT = Path(__file__).resolve().parents[2]
 
 # The three buttons of the row (gui/docks/cell_editor.py). Captions are Denis's
 # words of 2026-09-17; the tooltip carries the phrase the button used to be named

@@ -15,7 +15,10 @@ from tools.sexp_config_convert import (
     convert_file,
 )
 
-PROFILES_ROOT = Path(__file__).resolve().parents[1] / "profiles"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT
+
+PROFILES_ROOT = REPO_ROOT / "profiles"
 REAL_PROFILE = PROFILES_ROOT / "3ch-awg-tia-v103" / "3ch-awg-tia.yaml"
 
 

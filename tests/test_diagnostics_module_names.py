@@ -19,8 +19,10 @@ import ast
 import re
 from pathlib import Path
 
-_DIAGNOSTICS_DIR = (Path(__file__).resolve().parent.parent
-                    / "kicadstamp" / "diagnostics")
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 (to tests/repo/).
+from tests.paths import REPO_ROOT
+
+_DIAGNOSTICS_DIR = REPO_ROOT / "kicadstamp" / "diagnostics"
 # "some_name.py — ..." / "some_name.py - ..." (an em/en dash or a hyphen)
 _SELF_NAME_RE = re.compile(r"^([A-Za-z0-9_]+\.py)\s*[—–-]")
 

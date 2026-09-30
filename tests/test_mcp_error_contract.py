@@ -39,7 +39,6 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
@@ -51,7 +50,9 @@ from kipy.errors import ConnectionError as KipyConnectionError
 from mcp_server.connection import ConnectionManager
 from mcp_server.server import build_server
 
-ROOT = Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py). This file moves in Ф2; a root computed
+# from its own depth would silently point one level too deep afterwards.
+from tests.paths import REPO_ROOT as ROOT
 
 
 @pytest.fixture(autouse=True)

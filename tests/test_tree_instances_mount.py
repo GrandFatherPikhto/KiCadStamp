@@ -35,7 +35,11 @@ from kicadstamp.exceptions import ValidationError
 from kicadstamp.tree_mount_convert import convert_config_file, convert_trees_dict
 from kicadstamp.trees import tree_from_dict
 
-FIXTURES = Path(__file__).parent / "fixtures" / "tree_instances_mount"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
+# tests/fixtures/ does not.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR / "tree_instances_mount"
 
 
 # ── helpers ────────────────────────────────────────────────────────────────

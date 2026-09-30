@@ -39,7 +39,8 @@ import pytest
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT
 
 # The shipping packages the sweep covers (Э5.1).
 _SCANNED_PACKAGES = ("kicadstamp", "gui", "mcp_server")

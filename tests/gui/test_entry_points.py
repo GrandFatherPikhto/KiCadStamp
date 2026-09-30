@@ -11,11 +11,11 @@ fieldstool_gui.py (the standalone fieldstool entry point) was retired
 fieldstool_dock.py.
 """
 import importlib.util
-from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Ф2.0: depth-independent (tests/paths.py).
+from tests.paths import REPO_ROOT as PROJECT_ROOT
 
 
 def _load_entry_point(name: str):

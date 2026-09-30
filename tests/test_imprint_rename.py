@@ -33,7 +33,8 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.imprint_apply import plan_imprint
 
-ROOT = Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
 
 
 # ── a profile that exists in two spellings ──────────────────────────────────

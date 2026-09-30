@@ -27,10 +27,13 @@ Mutation check: drop `parent=main_window` from any `CellAnchorView` in
 М5б).
 """
 import ast
-
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# Ф2.0: depth-independent (tests/paths.py). This file stays under tests/gui/, but the
+# literals below name the repo root and tests/gui, which must not be derived from how
+# deep this file happens to sit.
+from tests.paths import REPO_ROOT as _REPO_ROOT
+
 _GUI_TESTS = _REPO_ROOT / "tests" / "gui"
 
 # The two widgets that pull a whole editor page into a test process.

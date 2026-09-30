@@ -14,7 +14,6 @@ layout AND for every materialized cell component — that is the first test
 below.
 """
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,7 +32,12 @@ from kicadstamp.tree_position import layout_tree_from_base
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode, check_mount_anchor_drift
 from kicadstamp.utils.units import MM
 
-FIXTURES = Path(__file__).parent / "fixtures" / "trees_and_overlay"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2, tests/fixtures/
+# does not, so the fixtures path is taken from tests/paths.py rather than from the
+# test file's own depth.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR / "trees_and_overlay"
 
 _ORIGIN = Vector2.from_xy(0, 0)
 _BASE_ANGLE = 30.0

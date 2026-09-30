@@ -40,9 +40,11 @@ from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import SOURCE_FIELDSTOOL, FieldOverrides
 from kicadstamp.utils.paths import overrides_path_for_config
 
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
+
 UUID_A = "aaaaaaaa-0000-0000-0000-000000000001"
 UUID_B = "bbbbbbbb-0000-0000-0000-000000000002"
-ROOT = Path(__file__).resolve().parents[1]
 
 
 # ── a fake board: the ONLY thing the layer is allowed to talk to ───────────

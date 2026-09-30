@@ -506,11 +506,13 @@ def test_every_registered_mount_walk_goes_through_the_seam():
     special-cases a mount node WITHOUT calling it — exactly how the fifth walk
     (capture_rigid_state / _node_parent_map) was missed for months."""
     import ast
-    from pathlib import Path
 
     from kicadstamp.tree_position import mount_node_base
 
-    root = Path(__file__).resolve().parent.parent
+    # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+    from tests.paths import REPO_ROOT
+
+    root = REPO_ROOT
     for rel, names in _SEAM_WALKS.items():
         text = (root / rel).read_text(encoding="utf-8")
         module = ast.parse(text)

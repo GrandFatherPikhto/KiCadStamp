@@ -45,8 +45,13 @@ MARKERS = ("gui", "integration", "unit")
 #: to it is a loud failure rather than a silent mis-comparison below.
 _EXPECTED_DEFAULT_MARKEXPR = "not integration"
 
-_TESTS_ROOT = Path(__file__).resolve().parent
-_REPO_ROOT = _TESTS_ROOT.parent
+# Ф2.0: depth-independent (tests/paths.py). This file MOVES in Ф2 (to tests/repo/),
+# and both roots must NOT follow it: the suite's root is the directory that holds
+# conftest.py, and the integration directory hangs off THAT, not off this file.
+from tests.paths import REPO_ROOT as _REPO_ROOT
+from tests.paths import TESTS_ROOT
+
+_TESTS_ROOT = TESTS_ROOT
 _INTEGRATION_DIR = _TESTS_ROOT / "integration_tests"
 # `N/M tests collected` when something was deselected, plain `N tests collected`
 # when nothing was (the no-filter run) — both carry the SELECTED count in the

@@ -40,7 +40,6 @@ empty cell by oversight is the next entry):
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 
 import pytest
 
@@ -51,7 +50,8 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from mcp_server import handlers
 from mcp_server.connection import ConnectionManager
 
-ROOT = Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
 
 BOARD_NAME = "freshness_board.kicad_pcb"
 

@@ -21,7 +21,6 @@ import json
 import re
 import threading
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from gui import connection as connection_mod
@@ -31,7 +30,8 @@ from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter
 
 # ── Э4.1: the source-tree watchdog ──────────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as _REPO_ROOT
 _SHIP_DIRS = ("gui", "kicadstamp")
 _ALLOWED_FILES = {(_REPO_ROOT / "kicadstamp" / "kicad" / "adapter.py").resolve()}
 _ALLOWED_DIRS = ((_REPO_ROOT / "kicadstamp" / "diagnostics").resolve(),)

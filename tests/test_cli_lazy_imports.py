@@ -11,9 +11,9 @@ imported by the test process (via conftest/other tests) cannot mask a
 regression."""
 import subprocess
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
 
 
 def _module_imports_kipy(module: str) -> bool:

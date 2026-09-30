@@ -46,7 +46,10 @@ from kicadstamp.utils.paths import overrides_path_for_config
 from tests.fakes.overrides_store import (
     FOOTPRINT_REF, ON_BOARD_ROLE, SYMBOL_UUID, profile_file, wired_board)
 
-REPO = Path(__file__).resolve().parents[1]
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT
+
+REPO = REPO_ROOT
 GUI_DIR = REPO / "gui"
 HUB_SOURCE = GUI_DIR / "dock_hub.py"
 

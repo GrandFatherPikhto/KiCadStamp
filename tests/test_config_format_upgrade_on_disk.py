@@ -44,7 +44,11 @@ from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config_writer import merge_write
 from kicadstamp.exceptions import ValidationError
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
+# tests/fixtures/ does not.
+from tests.paths import FIXTURES_DIR
+
+FIXTURES = FIXTURES_DIR
 
 
 @pytest.fixture(autouse=True)

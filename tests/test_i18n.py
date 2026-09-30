@@ -11,7 +11,8 @@ import gettext
 import pytest
 from kicadstamp.i18n import detect_language, setup_i18n
 
-ROOT = Path(__file__).parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
 EN_PO = ROOT / "locales" / "en" / "LC_MESSAGES" / "kicadstamp.po"
 RU_PO = ROOT / "locales" / "ru" / "LC_MESSAGES" / "kicadstamp.po"
 RU_MO = RU_PO.with_suffix(".mo")

@@ -22,7 +22,6 @@ is exactly what hid the defect for a week.
 """
 import ast
 import logging
-import pathlib
 from types import SimpleNamespace
 
 import pytest
@@ -34,7 +33,8 @@ from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import symbol_uuid_of
 from kicadstamp.explore import Selected
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as REPO
 UUID_SHEET = "fcabc4e8-d656-4628-ac7f-07bf29cf3de0"
 UUID_COMP = "f99231f6-c4e4-4ccd-81e2-1d44a2fcfaa2"
 

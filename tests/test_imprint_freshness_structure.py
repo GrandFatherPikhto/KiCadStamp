@@ -37,7 +37,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
+# Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
+from tests.paths import REPO_ROOT as ROOT
 
 _CAPTURE_STARTERS = ("capture_imprint", "build_imprint_diff")
 _REFRESH_SEAM = "refresh_board_before_live_read"
