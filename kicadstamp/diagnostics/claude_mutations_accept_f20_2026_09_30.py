@@ -46,9 +46,38 @@ def _interpreter() -> str:
 
 PY_BIN = _interpreter()
 
-T = ["tests/test_repo_hygiene.py", "tests/test_marker_contract.py",
-     "tests/test_diagnostics_module_names.py", "tests/test_i18n.py",
-     "tests/test_sexp_config_roundtrip.py", "tests/test_config_format_version.py"]
+# Ф3.3: the rigs outlive the domain moves, so T is resolved by BASENAME under
+# tests/ instead of naming flat paths (Ф2 moved every file). Basenames are unique
+# across the suite (the Ф2 rule), so a name that resolves to zero or two files is
+# itself a finding: a silent miss would make every verdict below vacuous.
+_T_BASENAMES = [
+    "test_repo_hygiene.py", "test_marker_contract.py",
+    "test_diagnostics_module_names.py", "test_i18n.py",
+    "test_sexp_config_roundtrip.py", "test_config_format_version.py",
+]
+
+
+def _resolve_tests(basenames):
+    """[repo-relative paths] for `basenames`, resolved under ROOT/tests.
+
+    Refuses (SystemExit) when a name is not found, or is found TWICE: a blind T
+    would make every mutation verdict vacuous, and an ambiguous one would run the
+    wrong file — both are failures, not warnings (rule 38)."""
+    found, problems = [], []
+    for name in basenames:
+        matches = sorted((ROOT / "tests").rglob(name))
+        if len(matches) == 1:
+            found.append(matches[0].relative_to(ROOT).as_posix())
+        else:
+            problems.append(f"{name}: {len(matches)} match(es)")
+    if problems:
+        raise SystemExit(
+            "the acceptance rig cannot resolve its test list under tests/ — "
+            "refusing to run with a blind or ambiguous T: " + "; ".join(problems))
+    return found
+
+
+T = _resolve_tests(_T_BASENAMES)
 
 MUTATIONS = [
     # P1 — the root one level off: the anchor must refuse loudly. MUST die.

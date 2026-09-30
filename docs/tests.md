@@ -409,7 +409,7 @@ bytes. A snapshot of a value the writer never produces turns a rename into a red
 test.
 
 **Acceptance rigs (mutation checks — not part of the suite).**
-`kicadstamp/diagnostics/claude_mutations_accept_*.py`: 13 harnesses, each
+`kicadstamp/diagnostics/claude_mutations_accept_*.py`: 16 harnesses, each
 applying one named mutation to the product and reporting whether a guard went red
 (`KILLED` / `SURVIVED` / `INVALID`). Run them BY HAND, against a checkout that is
 NOT the tree they are started from:
@@ -426,12 +426,15 @@ SURVIVED; and an INVALID row ("pattern occurs 0 times") means the MUTATION is
 stale, not that the suite is strong. The pre-Ф1 reference is 127 killed / 7
 survived / 6 invalid.
 
-**After Ф2 the rigs' `T` lists name TEST PATHS that moved** (they were written for the
-flat layout), so a rig run today reports INVALID rows for files it can no longer find.
-That is a STALE RIG, not a weakened guard, and it is deliberate: Ф2 did not re-pin any
-rig, and re-pinning the last rig of each walk is Ф3 work. The pre-Ф1 numbers above
-therefore describe the suite as it was BEFORE the domain split, and a rig must not be
-run to "confirm" Ф2 before its `T` list is re-pinned.
+**Only the LAST rig of each walk is re-pinned; the other 15 are history (Ф3).**
+After Ф2 the rigs' `T` lists named TEST PATHS that moved, so a rig run reported
+INVALID rows for files it could no longer find — a STALE RIG, not a weakened guard.
+Ф3.3 re-pinned only the last one, `claude_mutations_accept_f20_2026_09_30.py`: it
+now resolves its `T` by BASENAME under `tests/` (refusing on zero or two matches)
+and so survives further moves. The remaining 15 are kept as history and are
+deliberately NOT re-pinned — rule 38 grows the next rig from the previous one, so
+one live rig per walk is enough. The pre-Ф1 numbers above therefore describe the
+suite as it was BEFORE the domain split.
 
 ---
 
