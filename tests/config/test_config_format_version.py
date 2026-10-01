@@ -326,6 +326,37 @@ def test_the_probe_cache_never_leaks_between_paths(tmp_path):
     assert (read_version(b), read_version(a)) == (1, 2)
 
 
+def test_the_writer_invalidates_the_format_number_probe(tmp_path):
+    """W4 (Ф3.6, 01.10.2026) — once the ONE writer has put the file back on disk,
+    the probe must answer the number the DISK carries, not the one it answered
+    before the write.
+
+    The collision is measured, not a story: `read_version` is keyed by
+    `(path, mtime_ns)` and on Windows `st_mtime_ns` is coarse — measured
+    01.10.2026, 344/500 write pairs on C: and 409/500 on the repo disk D: landed
+    on ONE tick. So a rewrite can keep the OLD key valid and the reader answers
+    format 1 while the file already says `(version 2)` (seen once in 200 rounds
+    of a straight loop on D:).
+
+    The step is made deterministic the way the Ф3.1 plan already did on Linux:
+    put the mtime back to its pre-write value, so the OLD key is the live one
+    whatever the filesystem's granularity. Red without the writer's
+    `invalidate_probe` call, green with it — that is this cell's mutation."""
+    from kicadstamp.config_writer import write_config_file
+
+    path = tmp_path / "c.sexp"
+    path.write_text(_wrap('  (comment "x")\n'), encoding="utf-8")   # no number -> 1
+    assert read_version(path) == 1
+
+    before = os.stat(path).st_mtime_ns
+    write_config_file(path, {"comment": "x"}, backup=False)
+    assert f"(version {CURRENT_FORMAT})" in path.read_text(encoding="utf-8"), (
+        "the writer must stamp the current number, or the cell below proves nothing")
+
+    os.utime(path, ns=(before, before))          # the same tick, on purpose
+    assert read_version(path) == CURRENT_FORMAT
+
+
 # ── Т2: the lift is the READER's job, by construction (decision A) ─────────
 
 def _stepped(monkeypatch, *, current=3, mark="lifted"):

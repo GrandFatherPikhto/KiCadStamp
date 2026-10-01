@@ -293,6 +293,30 @@ def read_version(path: str | Path) -> int:
     return version
 
 
+def invalidate_probe(path: str | Path) -> None:
+    """Drop every cached number for *path*, whatever generation it was cached
+    under. MUST be called by the writer right after the physical write, for the
+    same reason :func:`file_cache.invalidate_path` exists for the read cache: the
+    key carries `mtime_ns`, so two writes to one file inside ONE clock tick leave
+    the previous number cached under a key no later read can miss.
+
+    Measured on Windows 01.10.2026 (Ф3.6): `st_mtime_ns` granularity there is
+    ~0.5 ms, so 344/500 (C:) and 409/500 (D:) back-to-back write pairs land on
+    the SAME `mtime_ns`. In a straight 200-round loop the probe then answered
+    the PRE-write number once — `read_version` = 1 while the disk held
+    `(version 2)`. A filesystem with nanosecond stamps (Linux) never collides,
+    which is why this went unnoticed there.
+
+    Safe to call on a path that was never probed (no-op). Unlike the read
+    cache, this cache has no reverse index, so the eviction scans the keys of
+    the one path — the cache holds one entry per file per generation, i.e.
+    tens, not thousands."""
+    resolved = str(Path(path).resolve())
+    with _probe_lock:
+        for key in [k for k in _probe_cache if k[0] == resolved]:
+            del _probe_cache[key]
+
+
 def parse_raw_text(text: str, suffix: str,
                    path: str = "<config>") -> tuple[dict[str, Any], int]:
     """Parse config TEXT as the file's OWN bytes: no lift, plus the number it

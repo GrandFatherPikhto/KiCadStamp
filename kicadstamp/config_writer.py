@@ -21,6 +21,7 @@ from kicadstamp.config.aliases import normalize_section_aliases
 from kicadstamp.config.format_version import (
     VERSION_KEY,
     current_format,
+    invalidate_probe,
     lift_loaded_dict,
     read_version,
 )
@@ -263,6 +264,13 @@ def write_config_file(path: Path, data: dict, *,
     write_text_atomic(target, text)
     invalidate_path(target)
     invalidate_graph_path(target)
+    # A THIRD cache keys on the same (path, mtime_ns) identity: the on-disk
+    # format-number probe. The write above can land in the very tick the read
+    # that preceded it stat'ed, and then `read_version` answers the PRE-write
+    # number — measured on Windows 01.10.2026 (Ф3.6): 1 stale answer in 200
+    # rounds, with the disk already holding `(version 2)`. It has no reverse
+    # index, so it is invalidated by path here, next to the other two.
+    invalidate_probe(target)
 
 
 def _write_data(path: Path, data: dict) -> None:
