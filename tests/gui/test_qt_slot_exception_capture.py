@@ -110,12 +110,12 @@ def _inner_env():
     the merge, pytest-qt lives in the venv) the key is simply not set.
     """
     # QT_FORCE_STDERR_LOGGING belongs here for the CONTROL row's sake, measured
-    # 01.10.2026 (Ф3.6): the uncaught slot exception ends in `__fastfail`
-    # (NTSTATUS 0xC0000409), which bypasses faulthandler AND does not flush
-    # stdio, so the tray/catch that kills the process leaves no text anywhere —
-    # stdout+stderr came back EMPTY on console, to a file, and with
-    # `-X faulthandler`. Forcing Qt to stderr is what puts the exception's own
-    # traceback on a channel that survives the abort.
+    # 01.10.2026 (Ф3.6): without it the killed process leaves no text anywhere —
+    # stdout+stderr came back EMPTY on a console, to a file, and with
+    # `-X faulthandler` alike — while the return code was 0xC0000409
+    # (STATUS_STACK_BUFFER_OVERRUN). With Qt forced to stderr the exception's own
+    # traceback IS there. WHY the output is otherwise lost is NOT measured and is
+    # not claimed here (Ф3.6 keeps the mechanism in its "still unknown" list).
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen",
                QT_FORCE_STDERR_LOGGING="1")
     entries = [os.path.abspath(entry) for entry
@@ -207,14 +207,14 @@ def test_an_exception_in_a_qt_slot_is_a_named_failure_not_a_dump(tmp_path, row):
             f"0xC0000409 on Windows) — got {proc.returncode}\n{output}")
         # MEASURED 01.10.2026 (Ф3.6) — the spelling of the dump is PLATFORM
         # specific, and on Windows the interpreter's own line is unobtainable:
-        # the death is an NTSTATUS (0xC0000409, STATUS_STACK_BUFFER_OVERRUN —
-        # the CRT's `__fastfail`), which bypasses faulthandler's handlers and
-        # does not flush stdio. Measured empty with and without faulthandler, on
-        # a console and redirected. What the row CAN show — and what it is really
-        # about — is that the process died with the SLOT EXCEPTION's own
-        # traceback rather than as a named test failure, which the `-s` +
-        # QT_FORCE_STDERR_LOGGING pairing above puts on stderr. POSIX keeps its
-        # spelling: nothing is lost, and nothing is asserted that cannot exist.
+        # the death returns 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) and the text
+        # is EMPTY with and without faulthandler, on a console and redirected.
+        # What the row CAN show — and what it is really about — is that the
+        # process died with the SLOT EXCEPTION's own traceback rather than as a
+        # named test failure, which the `-s` + QT_FORCE_STDERR_LOGGING pairing
+        # above puts on stderr. POSIX keeps its spelling: nothing is lost, and
+        # nothing is asserted that cannot exist. The MECHANISM behind the empty
+        # output is NOT established; the return code and the emptiness are.
         if sys.platform == "win32":
             assert "RuntimeError: BOOM from a slot on the UI thread" in output, (
                 f"without pytest-qt the control must die showing the SLOT "

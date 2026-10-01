@@ -304,8 +304,16 @@ def invalidate_probe(path: str | Path) -> None:
     ~0.5 ms, so 344/500 (C:) and 409/500 (D:) back-to-back write pairs land on
     the SAME `mtime_ns`. In a straight 200-round loop the probe then answered
     the PRE-write number once — `read_version` = 1 while the disk held
-    `(version 2)`. A filesystem with nanosecond stamps (Linux) never collides,
-    which is why this went unnoticed there.
+    `(version 2)`.
+
+    Measured on Linux 01.10.2026 (Ф3.7, ext4, kernel 7.0): 0 of 500 write pairs
+    collided at a gap of 70-100 µs — which is why this went unnoticed here, NOT
+    because a nanosecond clock cannot collide. The stamp comes from the kernel
+    CLOCK, whose granularity is not the timestamp field's: an older kernel, a
+    different filesystem or a coarser clock can round two writes onto one tick.
+    Nothing here relies on it not happening — the writer invalidates explicitly,
+    and the rigs write LATER (`tests/fakes/write_later.py`), so neither side
+    depends on the clock being fine.
 
     Safe to call on a path that was never probed (no-op). Unlike the read
     cache, this cache has no reverse index, so the eviction scans the keys of
