@@ -34,12 +34,57 @@ from gui.docks.log_panel import LogDock
 from gui.main_window import MainWindow
 
 
+# Ф3.9 of plan_2026_09_27_repo_and_tests_transformation. pytest-qt keeps its
+# QApplication in a module global and says why in `pytestqt/plugin.py`:
+# "keeping this reference alive avoids it being garbage collected too early".
+# This fixture SHADOWS pytest-qt's `qapp`, so that keepalive never runs and the
+# generator's local `app` is the only reference: at session teardown the
+# generator closes, the QApplication wrapper is destroyed, and sip walks every
+# live wrapper (`sipWrapper_dealloc -> forgetObject -> release_QApplication` ->
+# `sip_api_visit_wrappers -> cleanup_qobject -> sip_api_get_address(w=0x60)`,
+# caught under gdb) — one stale wrapper there is a SIGSEGV.
+#
+# Measured 01.10.2026 on the 11 cells of Ф3.7 in ONE process:
+#   * as it was (local reference only) — 13/20 runs died with EXIT=139, in the
+#     MAIN thread inside `_pytest/fixtures.py::finish` of the session-scope
+#     teardown, AFTER every cell had passed;
+#   * with the plugin `probe_2026_10_01_keepapp_plugin.py`, which only holds an
+#     extra reference to the fixture's result and touches nothing else — 0/20.
+# The guard on this global is tests/gui/test_qapp_keepalive.py, which reads it
+# through the `qapp_keepalive_holder` fixture below: this FILE is loaded more than
+# once and the copy pytest registered is not reachable through sys.modules by any
+# name — measured 01.10.2026 under `--reverse-order`, sys.modules["conftest"] was
+# tests/integration_tests/conftest.py, while the many
+# `from tests.gui.conftest import _pump` imports in this directory create a
+# second, non-plugin copy under `tests.gui.conftest`. Handing the module object
+# out by identity is the only answer that holds in every order.
+_THIS_MODULE = sys.modules[__name__]
+_qapp_keepalive = None
+
+
+@pytest.fixture(scope="session")
+def qapp_keepalive_holder():
+    """The module object of THIS conftest, for the guard cell.
+
+    A guard that looked the module up by file path or by name would be
+    order-dependent (see the comment above `_THIS_MODULE`): it would read a copy
+    whose `qapp` fixture never ran and report a missing reference on healthy
+    code. The fixture is resolved through the plugin manager, so it always comes
+    from the copy that actually ran `qapp`."""
+    return _THIS_MODULE
+
+
 @pytest.fixture(scope="session")
 def qapp():
     """One QApplication for the whole test session — Qt only tolerates a
     single instance per process, so this must be session-scoped, not
-    per-test."""
+    per-test. The module-level `_qapp_keepalive` above is what outlives this
+    generator's frame and keeps the application from being destroyed at
+    session teardown while other wrappers are still alive (see the comment
+    there); pytest-qt does the same thing for the same reason."""
+    global _qapp_keepalive
     app = QApplication.instance() or QApplication(sys.argv)
+    _qapp_keepalive = app
     yield app
 
 
