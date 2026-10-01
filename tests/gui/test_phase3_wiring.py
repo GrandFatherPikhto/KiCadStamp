@@ -36,7 +36,7 @@ import gui.docks.tree_from_selection as tfs_mod
 import gui.docks.tree_from_selection_dialog as tfsd_mod
 import kicadstamp.net_trace_extract as net_trace_extract_mod
 
-from tests.fakes.write_behind_writer import write_behind_the_writer
+from tests.fakes.write_later import write_later
 
 
 def _find_item(model, text):
@@ -64,9 +64,12 @@ def _write(path, data=None):
     # A raw `write_text` here is what made this file's cells lie on Windows
     # (CI #655 / Ф3.6): the readers are cached by (path, mtime_ns), two writes
     # in one tick keep the old key valid, and the tree was then rebuilt from
-    # the PRE-write content. The helper writes the bytes AND runs the writer's
-    # invalidations, so the cell measures the wiring, not the cache.
-    write_behind_the_writer(path, dict_to_sexp(data if data is not None else {}))
+    # the PRE-write content. `write_later` instead reproduces the FILESYSTEM
+    # fact a later write leaves behind (mtime strictly advanced), so the cell
+    # measures the wiring, not the cache — and, unlike the helper that reset the
+    # product's caches, it still lets a cell assert that the product ITSELF
+    # notices an external edit (Ф3.7: one helper per property).
+    write_later(path, dict_to_sexp(data if data is not None else {}))
 
 
 def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_window, tmp_path):

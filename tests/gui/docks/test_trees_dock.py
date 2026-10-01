@@ -33,6 +33,8 @@ from gui.docks.trees_dock import (
     _NodeDialog,
 )
 
+from tests.fakes.write_later import write_later
+
 # _pump: "Reread current position" now resolves the node on a worker under
 # start_long_op (plan_2026_09_12_ui_thread_board_reads Э1), so the tests below
 # drive the event loop until the operation's token is released before they
@@ -84,10 +86,16 @@ def _children(item):
 def _dock_with(main_window, tmp_path, trees=None):
     """A TreesDock pointed at a root config (s-expr) carrying the given trees:
     section — the current way trees get into the dock (set_root_file, no
-    Open/New of a .trees file anymore)."""
+    Open/New of a .trees file anymore).
+
+    Ф3.7: the write goes through ``write_later``. Several cells (and
+    ``_module_dock``) call this TWICE on one ``tmp_path``, i.e. write the SAME
+    `root.sexp` again, and the dock re-reads it through readers cached by
+    ``(path, mtime_ns)`` — a second write landing on the same tick would be
+    invisible to them, which is the Windows class W2/Ф3.6."""
     trees = trees if trees is not None else GRAMMAR_TREES
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(trees), encoding="utf-8")
+    write_later(root, dict_to_sexp(trees))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root
@@ -162,13 +170,14 @@ def test_reload_trees_rebinds_cfg_trees_on_clean_reload(main_window, tmp_path):
     cfg.trees must be rebound to THAT exact list (2026-09-03, plan
     trees_dock_cfg_trees_desync.md)."""
     dock, root = _dock_with(main_window, tmp_path)
-    root.write_text(dict_to_sexp({
+    # A second write to the SAME root, so it must be a LATER one (Ф3.7).
+    write_later(root, dict_to_sexp({
         "trees": [
             {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }), encoding="utf-8")
+    }))
 
     dock.reload_trees()
 
@@ -185,13 +194,14 @@ def test_reload_trees_rebinds_cfg_trees_after_dirty_merge(
     dock, root = _dock_with(main_window, tmp_path)
     dock._mark_dirty()
     dock._trees[0].name = "renamed_locally"  # an unsaved edit
-    root.write_text(dict_to_sexp({
+    # Same class as above: the second write to this root must be a later one.
+    write_later(root, dict_to_sexp({
         "trees": [
             {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }), encoding="utf-8")
+    }))
 
     dock.reload_trees()
 
@@ -210,13 +220,18 @@ def test_reload_trees_picks_up_external_write(main_window, tmp_path):
     assert [t.name for t in dock._trees] == ["power_tree", "misc"]
 
     # Simulate the external write: another writer appends a tree to the file.
-    root.write_text(dict_to_sexp({
+    # write_later, not a bare write_text — the whole point of this cell is that
+    # the PRODUCT notices the edit through the file's mtime, so the rig must
+    # leave the real filesystem fact behind and must NOT reset any cache
+    # (Ф3.7; a cache reset here would make the cell green while measuring
+    # nothing — rule 33).
+    write_later(root, dict_to_sexp({
         "trees": [
             {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }), encoding="utf-8")
+    }))
 
     dock.reload_trees()
 
@@ -232,13 +247,14 @@ def test_reload_trees_preserves_dirty_edits(main_window, tmp_path):
     dock, root = _dock_with(main_window, tmp_path)
     dock._mark_dirty()
     dock._trees[0].name = "renamed_locally"  # an unsaved edit
-    root.write_text(dict_to_sexp({
+    # Same class as above: the second write to this root must be a later one.
+    write_later(root, dict_to_sexp({
         "trees": [
             {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"}, "nodes": []},
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }), encoding="utf-8")
+    }))
 
     dock.reload_trees()
 

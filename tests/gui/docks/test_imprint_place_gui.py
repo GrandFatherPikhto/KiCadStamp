@@ -40,13 +40,19 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.explore import Selected
 from kicadstamp.link_trees import link_trees
 
+from tests.fakes.write_later import write_later
+
 _TOP_LEVEL_LABEL = "— top level (no parent) —"
 
 
 # ── Shared config builders (format-agnostic .sexp fixtures) ───────────────
 
 def _write(path: Path, data: dict) -> None:
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    """The DockHub cell writes the SAME root twice (Ф3.7): once to give the hub
+    a root, once with an extra tree `saved` must pick up. The second write has to
+    be a LATER one — on the same `mtime_ns` the caches keyed by `(path, mtime_ns)`
+    answer with the first content, and the refresh would be measured as a no-op."""
+    write_later(path, dict_to_sexp(data))
 
 
 def _load(path: Path) -> dict:

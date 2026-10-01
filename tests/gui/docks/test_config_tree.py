@@ -14,6 +14,8 @@ from gui.docks.config_tree import ConfigTreeDock
 from gui import settings
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
+from tests.fakes.write_later import write_later
+
 # The component offsets are all 0.0 — the s-expr default, so they round-trip
 # OMITTED (dict_to_sexp drops default-valued fields). Keeping them out of the
 # constant makes _load(root) == MINIMAL_CELL exact (2026-08-28, .sexp migration).
@@ -41,7 +43,13 @@ ALL_SECTIONS = {
 
 
 def _write(path, data) -> None:
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    """The cells below write the SAME path twice (an empty root, then a changed
+    one) and then ask the dock to refresh — so the second write must be a LATER
+    one (Ф3.7). A bare `write_text` landing on the same `mtime_ns` leaves the
+    first content cached under a key `refresh()` still hits, and the cell would
+    measure the cache instead of the refresh: exactly what
+    `test_refresh_picks_up_a_change_made_on_disk` exists to measure."""
+    write_later(path, dict_to_sexp(data))
 
 
 def _load(path) -> dict:

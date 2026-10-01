@@ -36,6 +36,8 @@ import gui.docks.trees_dock as trees_dock_mod
 from gui import settings
 from gui.docks.trees_dock import TreesDock
 
+from tests.fakes.write_later import write_later
+
 # Т1.1: copper refs that are LEXICOGRAPHICALLY FIRST (digits sort before
 # letters) — Denis' own profile shape, and the case that made the redraw-order
 # bug visible. They also prove the pseudo node keeps DOCUMENT order, not a
@@ -55,11 +57,16 @@ def _children(item):
 
 def _dock_with(main_window, tmp_path, nodes, name="t"):
     """A TreesDock over a throwaway root config whose only tree is `name` with
-    `nodes` — the s-expr section is the current way trees get in."""
+    `nodes` — the s-expr section is the current way trees get in.
+
+    Ф3.7: the write goes through ``write_later``, not a bare ``write_text``.
+    ``test_reread_children_target_helper`` calls this TWICE on one ``tmp_path``,
+    so both docks read the SAME `root.sexp`: a second write that lands on the
+    same ``mtime_ns`` leaves the first tree cached under a key the second read
+    still hits, and the cell would measure the cache, not the re-read."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"trees": [
-        {"name": name, "anchor": {"origin": True}, "nodes": nodes}]}),
-        encoding="utf-8")
+    write_later(root, dict_to_sexp({"trees": [
+        {"name": name, "anchor": {"origin": True}, "nodes": nodes}]}))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root

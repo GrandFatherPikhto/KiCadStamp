@@ -40,6 +40,10 @@ from kicadstamp.field_override_adapter import FieldOverrideAdapter
 from kicadstamp.field_overrides import SOURCE_FIELDSTOOL, FieldOverrides
 from kicadstamp.utils.paths import overrides_path_for_config
 
+# Ф3.7: a rig's write to an EXISTING file must look LATER to the readers, or
+# the second read answers from the (path, mtime_ns) cache — the Windows tick.
+from tests.fakes.write_later import write_later
+
 # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2.
 from tests.paths import REPO_ROOT as ROOT
 
@@ -105,12 +109,17 @@ def _write_store(profile_path) -> Path:
 
 
 def _profile(tmp_path, role_cluster_source=None) -> Path:
+    """The SAME `profile.sexp` is written twice inside one cell (С18's core:
+    without and with `role_cluster_source`), so the second write MUST be a later
+    one — a bare `write_text` that lands on the same `mtime_ns` leaves the first
+    content cached under a key the second read still hits. That is the Windows
+    tick (Ф3.7), and it is why `write_later` is used instead of `write_text`."""
     from kicadstamp.config.sexp_format import dict_to_sexp
     data = {"layer": "B.Cu"}
     if role_cluster_source is not None:
         data["role_cluster_source"] = role_cluster_source
     path = tmp_path / "profile.sexp"
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    write_later(path, dict_to_sexp(data))
     return path
 
 

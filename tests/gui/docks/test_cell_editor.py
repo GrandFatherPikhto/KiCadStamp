@@ -23,6 +23,8 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
 
+from tests.fakes.write_later import write_later
+
 
 def _fill_cell_defaults(data: dict) -> dict:
     """s-expr omits default-valued Cell fields (layer='F.Cu', empty
@@ -38,7 +40,12 @@ def _fill_cell_defaults(data: dict) -> dict:
 
 
 def _write(path, data) -> None:
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    """A write to a file this rig ALSO wrote earlier (Ф3.7): the G.1 cells below
+    change a cell on disk while the dock holds the previous content, and the
+    save-time read must see the NEW bytes. A bare `write_text` can land on the
+    same `mtime_ns` (the Windows tick), leaving the old content under a cache key
+    the read still hits, so the write goes through `write_later`."""
+    write_later(path, dict_to_sexp(data))
 
 
 def _load(path) -> dict:
