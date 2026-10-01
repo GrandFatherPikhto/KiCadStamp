@@ -6,7 +6,8 @@ Four independent things are pinned here:
 
   1. the adapter's private ``_board`` is never reached into outside
      ``kicadstamp/kicad/adapter.py`` and ``kicadstamp/diagnostics/`` — a
-     source-tree watchdog, the same genre as tools/_check_i18n.py (Э4.1);
+     source-tree watchdog, the same genre as
+     ``tests/repo/test_i18n_import_guard.py`` (Э4.1);
   2. the four new adapter reads delegate to the live kipy handle (Э4.2);
   3. ``connection.board`` is a transparent property — reads and writes behave
      exactly like the attribute it replaced, and the value lands in ``_board``
