@@ -150,8 +150,13 @@ These fixtures ensure test isolation and automatic cleanup (deleting vias, resto
 ### The CI command — the reference run
 
 ```bash
-python -m pytest --ignore=tests/integration_tests -m "not integration" -q
+python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf
 ```
+
+**`-rsf`, not a bare `-rs`** (Ф3.6, 01.10.2026): pytest's `-r` REPLACES the default
+report set (`fE`), so `-rs` alone prints the skip reasons and DROPS the FAILED lines
+from `short test summary info` — measured on the reference run, which then showed
+12 SKIPPED and no FAILED line at all. `-rsf` keeps both.
 
 Run it inside the project's virtualenv (`source .venv/bin/activate`; the README says
 how) — `python` there is the venv's interpreter, while a bare machine may only have

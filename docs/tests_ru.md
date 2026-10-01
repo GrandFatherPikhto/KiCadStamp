@@ -150,8 +150,14 @@ return», и клетка падает на чужой записи (измер�
 ### Команда CI — эталонный прогон
 
 ```bash
-python -m pytest --ignore=tests/integration_tests -m "not integration" -q
+python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf
 ```
+
+**`-rsf`, а не голый `-rs`** (Ф3.6, 01.10.2026): `-r` у pytest ЗАМЕНЯЕТ набор
+отчётов по умолчанию (`fE`), поэтому один `-rs` печатает причины пропусков и
+ВЫБРАСЫВАЕТ строки FAILED из `short test summary info` — замерено на эталонном
+прогоне, где после этого было 12 SKIPPED и ни одной строки FAILED. `-rsf` держит
+и то, и другое.
 
 Запускайте её в виртуальном окружении проекта (`source .venv/bin/activate`; как
 это делается — в README): `python` там — интерпретатор venv, а на голой машине

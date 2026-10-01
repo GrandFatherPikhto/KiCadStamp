@@ -109,7 +109,15 @@ def _inner_env():
     resolution the outer run performed. When there is no PYTHONPATH at all (after
     the merge, pytest-qt lives in the venv) the key is simply not set.
     """
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    # QT_FORCE_STDERR_LOGGING belongs here for the CONTROL row's sake, measured
+    # 01.10.2026 (Ф3.6): the uncaught slot exception ends in `__fastfail`
+    # (NTSTATUS 0xC0000409), which bypasses faulthandler AND does not flush
+    # stdio, so the tray/catch that kills the process leaves no text anywhere —
+    # stdout+stderr came back EMPTY on console, to a file, and with
+    # `-X faulthandler`. Forcing Qt to stderr is what puts the exception's own
+    # traceback on a channel that survives the abort.
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen",
+               QT_FORCE_STDERR_LOGGING="1")
     entries = [os.path.abspath(entry) for entry
                in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry]
     if entries:
@@ -134,8 +142,12 @@ _ROWS = [
          _QTHREAD_SLOT, (), True),
     # The control: the plugin is explicitly disabled although it is installed and
     # importable, so this row measures the hook — not whether the plugin is there.
+    # `-s` is part of the measurement, not a preference (Ф3.6, 01.10.2026): with
+    # pytest's own capture on, the text written before the abort is trapped in
+    # pytest's temp capture files and never reaches the outer process, so the row
+    # saw an empty output for a reason that had nothing to do with Qt.
     _Row("ui-thread-control-no-plugin", "test_exception_inside_a_qt_slot",
-         _UI_THREAD_SLOT, ("-p", "no:pytest-qt"), False),
+         _UI_THREAD_SLOT, ("-s", "-p", "no:pytest-qt"), False),
 ]
 
 
@@ -193,9 +205,24 @@ def test_an_exception_in_a_qt_slot_is_a_named_failure_not_a_dump(tmp_path, row):
         assert died_of_a_crash(proc.returncode), (
             f"the control must die abnormally (SIGABRT on POSIX; an NTSTATUS like "
             f"0xC0000409 on Windows) — got {proc.returncode}\n{output}")
-        assert "Fatal Python error" in output, (
-            f"without pytest-qt the message must be the interpreter's own dump — "
-            f"that is the symptom this whole plan exists to remove\n{output}")
+        # MEASURED 01.10.2026 (Ф3.6) — the spelling of the dump is PLATFORM
+        # specific, and on Windows the interpreter's own line is unobtainable:
+        # the death is an NTSTATUS (0xC0000409, STATUS_STACK_BUFFER_OVERRUN —
+        # the CRT's `__fastfail`), which bypasses faulthandler's handlers and
+        # does not flush stdio. Measured empty with and without faulthandler, on
+        # a console and redirected. What the row CAN show — and what it is really
+        # about — is that the process died with the SLOT EXCEPTION's own
+        # traceback rather than as a named test failure, which the `-s` +
+        # QT_FORCE_STDERR_LOGGING pairing above puts on stderr. POSIX keeps its
+        # spelling: nothing is lost, and nothing is asserted that cannot exist.
+        if sys.platform == "win32":
+            assert "RuntimeError: BOOM from a slot on the UI thread" in output, (
+                f"without pytest-qt the control must die showing the SLOT "
+                f"exception's own traceback\n{output}")
+        else:
+            assert "Fatal Python error" in output, (
+                f"without pytest-qt the message must be the interpreter's own dump "
+                f"— that is the symptom this whole plan exists to remove\n{output}")
         assert "FAILED" not in proc.stdout, (
             f"the control must NOT look like a test failure: that is exactly the "
             f"confusion (dump read as a healthy run) the harness had\n{output}")

@@ -39,6 +39,7 @@ The cells have several different meanings, so they are several functions (rule 3
 """
 import ast
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -484,7 +485,16 @@ def _inner_env(report_dir=None, **extra):
     silently loses the plugins it needs. An entry that repeats the root is dropped,
     so the root cannot be pushed back by a duplicate the caller exported.
     """
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", **extra)
+    # QT_FORCE_STDERR_LOGGING is not decoration — measured 01.10.2026 (Ф3.6):
+    # the control programs die from `__fastfail` (NTSTATUS 0xC0000409), which
+    # bypasses faulthandler's handlers AND does not flush stdio, so without this
+    # variable their traceback reaches NOBODY — empty stdout+stderr with the
+    # output on a console, redirected to a file, and with `-X faulthandler`
+    # alike. With it Qt writes the traceback to stderr and flushes before the
+    # abort, which is the only reason the controls can still show the VERY
+    # exception they died of.
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen",
+               QT_FORCE_STDERR_LOGGING="1", **extra)
     entries = [str(_REPO_ROOT)]
     entries += [os.path.abspath(entry) for entry
                 in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry]
@@ -528,6 +538,21 @@ def _report_field(text, name) -> str:
     prefix = name + ": "
     line = next(ln for ln in text.splitlines() if ln.startswith(prefix))
     return line[len(prefix):]
+
+
+def _py_file_names(text: str) -> list:
+    """The BASENAME of every `….py` path a text carries — in BOTH spellings the
+    report uses: the `entry:`/`site:` fields write `path:NNN`, the traceback
+    frames write `File "path", line N`. Taking only the first spelling missed
+    the wrapper entirely.
+
+    The checks below are about WHICH FILE a traceback names, never about how
+    this platform spells the path. Windows made that difference load-bearing
+    (Ф3.6, 01.10.2026): the report carries the native `D:\\…\\gui\\worker.py`,
+    so a substring test for `"gui/worker.py"` was false-red in one direction —
+    and, worse, true-for-the-wrong-reason in the other, where it could not fail
+    at all. A basename is the same answer on both platforms."""
+    return [Path(p).name for p in re.findall(r"[^\s\"']+\.py", text)]
 
 
 def test_the_battle_entry_point_arms_the_hook_before_the_window():
@@ -915,14 +940,14 @@ def test_the_real_shared_wrapper_is_not_the_reported_entry(tmp_path):
     assert len(sites) == 1, (
         f"one shared failing line for both actions — got {pairs}\n{output}")
     for entry in entries:
-        assert "gui/worker.py" not in entry, (
+        assert "worker.py" not in _py_file_names(entry), (
             f"the entry must NOT be the wrapper's own lambda line: the reader is "
             f"told to redo an action, not a wrapper — got {entry}\n{output}")
         assert Path(entry.rsplit(":", 1)[0]).name == "probe.py", (
             f"the entry must lie inside the action (the inner program) — got "
             f"{entry}\n{output}")
     for text in texts:
-        assert "gui/worker.py" in text, (
+        assert "worker.py" in _py_file_names(text), (
             f"the report must carry the wrapper on its stack, or this cell is not "
             f"measuring the wrapper at all:\n{text}")
 

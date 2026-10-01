@@ -76,5 +76,10 @@ jobs:
           pip install -r requirements.txt
           pip install -e . --no-deps
 
-      - name: Run unit test suite (integration excluded)
-        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q
+      - name: Run unit test suite (integration excluded, skip reasons printed)
+        # `-rsf`, and NOT a bare `-rs`: pytest's `-r` REPLACES the default report
+        # set ('fE'), so `-rs` alone prints the skip reasons and DROPS the FAILED
+        # lines from `short test summary info`. Measured 01.10.2026 (Ф3.6): the
+        # reference run with `-rs` showed 12 SKIPPED and no FAILED line at all —
+        # it would have made the log harder to triage, not easier.
+        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf

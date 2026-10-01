@@ -144,7 +144,15 @@ def test_ui_thread_read_without_a_sign_is_refused(ui_thread):
         _ = connection.board
 
     site = _site_from(str(excinfo.value))
-    assert site.startswith(str(Path(__file__).resolve())), site
+    # Compared as NORMALISED paths, not as a string prefix (Ф3.6, 01.10.2026).
+    # On Windows `Path.resolve()` upper-cases the DRIVE LETTER while
+    # `__file__`/`co_filename` keep the case the import used (`D:\…` vs `d:\…`),
+    # so a prefix test is case-fragile: it passed on the CI runner (paths always
+    # `D:\a\…`) and failed on a machine whose checkout is reached through a
+    # lower-case drive — the same "blind where it matters" shape the two helpers
+    # above were rewritten to remove. The PRODUCT is not affected: it compares
+    # `os.path.abspath` on both sides (`gui/connection.py`'s `_OWN_FILE`).
+    assert Path(site.rsplit(":", 1)[0]).resolve() == Path(__file__).resolve(), site
     # The named site is the CALLER, never the door itself. Compared by the parsed
     # token's BASENAME, not by the substring `"gui/connection.py:"`: on Windows the
     # path is `gui\connection.py:`, so the substring check was TRUE for the wrong

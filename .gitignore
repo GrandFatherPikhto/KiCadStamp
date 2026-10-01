@@ -6,6 +6,9 @@ __pycache__/
 
 # Виртуальные окружения (Virtual Environments)
 .venv/
+# The CI-faithful venv of the Windows diagnostics (Ф3.6): a second interpreter
+# built from requirements.txt, NOT the dev .venv. Never commit it.
+.venv-ci/
 venv/
 ENV/
 env/
