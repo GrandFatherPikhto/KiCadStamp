@@ -8,8 +8,11 @@ element) — the write_later rows only mean something under `--coarse-mtime`, wh
 the filesystem tick is forced; on a nanosecond filesystem they would survive for
 the wrong reason.
 
-F2 (`died_of_a_crash` → True) is kept from the parent as a standing row: it is
-the open Ф3.8 cell and must flip to УБИТА when Ф3.8 lands.
+F2 (`died_of_a_crash` → True) is kept from the parent as a standing row. It WAS
+the open Ф3.8 cell; Ф3.8 landed with `tests/repo/test_process_exit_helper.py`,
+which holds both platform branches of the helper, so F2 is now expected to die —
+and so is F3, the win32 branch (`>= 0xC0000000` → `> 0xC0000409`), which until
+Ф3.8 had no cell at all on a Linux machine.
 
 Previous rig docstring follows.
 Acceptance mutations for Ф3.0–Ф3.6 of plan_2026_09_27_repo_and_tests_transformation
@@ -145,9 +148,17 @@ MUTATIONS = [
     ("S1 _py_file_names: basename only", "tests/gui/test_slot_exception_hook.py",
      'names.append("/".join(parts[-2:]))', 'names.append("/".join(parts[-1:]))',
      "die", ["test_slot_exception_hook.py"], ()),
-    # Standing row from the parent: the open Ф3.8 cell.
+    # The POSIX body always claims a crash: the helper's own table catches it (0,
+    # 1, 2 must NOT read as a crash). Closed by Ф3.8.
     ("F2 died_of_a_crash -> True (Ф3.8)", "tests/fakes/process_exit.py",
-     "return returncode < 0 or returncode == 134", "return True", "unknown", HOOK, ()),
+     "return returncode < 0 or returncode == 134", "return True", "die",
+     HOOK + ["test_process_exit_helper.py"], ()),
+    # The win32 body stops at the measured NTSTATUS: 0xC0000409 itself then reads
+    # as a clean exit. Held on Linux by the same table (platform is patched).
+    ("F3 win32 NTSTATUS floor (Ф3.8)", "tests/fakes/process_exit.py",
+     "return returncode >= 0xC0000000 or returncode == 3",
+     "return returncode > 0xC0000409 or returncode == 3", "die",
+     ["test_process_exit_helper.py"], ()),
     # CONTROL: a comment edit in write_later. MUST survive.
     ("C1 cosmetic comment (control)", "tests/fakes/write_later.py",
      "left alone (``<=``, not ``==``:", "left alone (``<=``, not ``==`` :",
@@ -185,10 +196,19 @@ def run(paths, extra=()):
 
 
 def main():
+    # Optional filters: `… f37 F2 F3 C1` runs only the rows whose name starts with
+    # one of them. A filter that matches NOTHING is a refusal, not an empty
+    # table (rule 38: a scan that found nothing must say so, not pass).
+    only = sys.argv[1:]
+    rows = [row for row in MUTATIONS
+            if not only or any(row[0].startswith(prefix) for prefix in only)]
+    if only and not rows:
+        raise SystemExit(f"no mutation row matches {only} — nothing was measured")
     print(f"корень: {ROOT}")
+    print(f"строк: {len(rows)} из {len(MUTATIONS)}")
     print(f"{'мутация':<44} {'ожидал':<9} {'вердикт':<16} что покраснело")
     print("-" * 125)
-    for name, rel, old, new, expect, tests, extra in MUTATIONS:
+    for name, rel, old, new, expect, tests, extra in rows:
         f = ROOT / rel
         create = old is None
         if create:
