@@ -2,8 +2,9 @@
 """A module that calls gettext's ``_()`` must import ``_`` (Ф3.10 of
 plan_2026_09_27_repo_and_tests_transformation).
 
-This cell replaces the ad-hoc checker ``tools/_check_i18n.py``, which did the
-same job by hand — and only for ``kicadstamp/**``. The property is what makes
+This cell replaces the removed hand-run checker ``tools/_check_i18n.py`` (gone
+since Ф3.10) — it did the same job by hand, and only for ``kicadstamp/**``. The
+property is what makes
 ``_("...")`` resolvable at import time: without the import, ``_`` is an unbound
 name, so the module raises at import — not a missing catalogue entry, an
 ``AttributeError``/``NameError`` before anything runs. It is checked across all
@@ -39,9 +40,10 @@ def _scanned_sources() -> list[Path]:
 def _calls_gettext(tree: ast.AST) -> list[int]:
     """Line numbers of real ``_("...")`` calls in one module.
 
-    Mirrors ``tools/_check_i18n.py``'s ``_\\s*\\(["\\']`` — but on the AST, so a
-    mention inside a comment or docstring is not mistaken for a call. The first
-    argument must be a string literal, which is the only thing gettext accepts.
+    The former tools/_check_i18n.py (removed in Ф3.10) matched the same shape
+    with ``_\\s*\\(["\\']`` — this does it on the AST, so a mention inside a
+    comment or docstring is not mistaken for a call. The first argument must be a
+    string literal, which is the only thing gettext accepts.
     """
     lines: list[int] = []
     for node in ast.walk(tree):
@@ -58,11 +60,13 @@ def _calls_gettext(tree: ast.AST) -> list[int]:
 
 
 def _imports_gettext(tree: ast.AST) -> bool:
-    """True if the module binds the name ``_`` from an i18n module.
+    """True if the module binds the name ``_`` to a gettext FUNCTION.
 
     Covers every form the tree actually uses: ``from .i18n import _``,
-    ``from ..i18n import _`` and ``from kicadstamp.i18n import _`` — plus a
-    defensive ``import <...>.i18n as _``.
+    ``from ..i18n import _`` and ``from kicadstamp.i18n import _``. Only a
+    ``from ... import _`` binding counts: ``import kicadstamp.i18n as _`` would
+    bind the MODULE, and every ``_("...")`` call would then be a ``TypeError``,
+    so it must not read as "imported" (Ф3.11).
     """
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -70,10 +74,6 @@ def _imports_gettext(tree: ast.AST) -> bool:
                     and any((alias.asname or alias.name) == "_"
                             for alias in node.names)):
                 return True
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.asname == "_" and alias.name.split(".")[-1] == "i18n":
-                    return True
     return False
 
 

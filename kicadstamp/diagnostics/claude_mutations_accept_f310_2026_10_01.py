@@ -5,8 +5,8 @@
 
 One row per shipping package and import form (relative in kicadstamp/, absolute
 in gui/ and mcp_server/), one row for `_` bound from a NON-i18n module, one row
-for the guard's "defensive" `import <...>.i18n as _` branch — which binds a
-MODULE to `_`, so `_("...")` would raise TypeError — and a control.
+for `import <...>.i18n as _` — which binds a MODULE to `_`, so `_("...")` would
+raise TypeError and the guard must reject it (Ф3.11) — and a control.
 
 Previous rig docstring follows.
 Acceptance mutations for Ф3.9 of plan_2026_09_27_repo_and_tests_transformation
@@ -76,11 +76,11 @@ MUTATIONS = [
     ("I4 _ from a non-i18n module", "kicadstamp/anchor_graph.py",
      "\nfrom .i18n import _\n", "\nfrom gettext import gettext as _\n",
      "die", _T_BASENAMES, ()),
-    # The guard's defensive branch: `import kicadstamp.i18n as _` binds the MODULE;
-    # `_("...")` is then a TypeError at call time. Does anything notice?
+    # `import kicadstamp.i18n as _` binds the MODULE, not the function; `_("...")`
+    # is then a TypeError at call time. The guard must reject this form (Ф3.11).
     ("I5 _ is the i18n MODULE", "mcp_server/handlers.py",
      "\nfrom kicadstamp.i18n import _\n", "\nimport kicadstamp.i18n as _\n",
-     "unknown", _T_BASENAMES + ["test_mcp_server.py", "test_mcp_error_contract.py"], ()),
+     "die", _T_BASENAMES + ["test_mcp_server.py", "test_mcp_error_contract.py"], ()),
     ("C1 cosmetic comment (control)", "tests/repo/test_i18n_import_guard.py",
      "def test_every_module_that_calls_gettext_imports_it():",
      "def test_every_module_that_calls_gettext_imports_it():  # control",
