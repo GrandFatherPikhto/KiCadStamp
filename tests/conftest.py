@@ -151,11 +151,97 @@ def pytest_addoption(parser):
     (`find tests -name 'test_*.py' … | sort -r`), which is bash-only: on Windows
     there was no equivalent. Reversing the order of the COLLECTED cells here makes
     the same command work everywhere. Within one file the author's order is kept.
+
+    `--coarse-mtime` — the Windows-tick run (Ф3.7 of the same plan): the whole
+    run under the frozen-stamp probe, so the class of failure that only Windows
+    used to produce is caught on Linux deterministically. See the freeze below.
     """
     parser.addoption(
         "--reverse-order", action="store_true", default=False,
         help="collect the cells in reverse FILE order (the order-independence "
              "check of docs/tests.md)")
+    parser.addoption(
+        "--coarse-mtime", action="store_true", default=False,
+        help="force the Windows one-tick filesystem for the WHOLE run: after "
+             "every Path.write_text/write_bytes onto an EXISTING file, that "
+             "file's previous (atime_ns, mtime_ns) is restored")
+
+
+# ── Ф3.7: `--coarse-mtime` — the Windows tick, forced on any filesystem ──────
+#
+# WHAT IT SIMULATES. A reader cached by `(path, mtime_ns)` cannot see a second
+# write that lands on the SAME stamp. On Windows that is the rule, not the
+# exception — measured 01.10.2026 (Ф3.6): `st_mtime_ns` granularity ~0.5 ms, and
+# 344/500 (C:) / 409/500 (repo disk D:) back-to-back write pairs landed on one
+# tick. On Linux it takes a forced one-tick filesystem to show up, and doing that
+# is how Ф3.7 found the class: ELEVEN cells failed under this probe on `f3d603a`
+# that never fail naturally there, the Actions #656 failure among them. The
+# product under the same probe was clean (its writer invalidates its caches).
+#
+# WHAT IT IS FOR. Two jobs, both only possible with the freeze ON by choice:
+#   * the CI Linux leg runs the suite a SECOND time with this option, so the
+#     Windows class is caught on every push instead of waiting for the Windows
+#     leg (and a future product writer that forgets its cache invalidation is
+#     caught on Linux too);
+#   * it is the mutoscope for `tests/fakes/write_later.py`: with the freeze on, a
+#     rig that writes a file twice must leave a LATER write behind itself, or its
+#     own cell goes red. That is why the option must NOT be on by default — with
+#     it always on, the rigs would be measured in the frozen world only, and the
+#     reference run would stop measuring the natural filesystem.
+#
+# DECLARED LIMITATION — the same one the probe had, and the same one its 11-cell
+# inventory was found under: only `Path.write_text` and `Path.write_bytes` are
+# patched. A write through `open()` is invisible to this option, so the class it
+# covers is exactly the class it was measured with.
+_coarse_mtime_installed = False
+
+
+def _freeze_mtime_after_write(original):
+    """Wrap ONE writer: the write really happens, but a file that ALREADY
+    existed keeps the `(atime_ns, mtime_ns)` it had before it.
+
+    No clock is faked and no content is withheld — only the stamp is held back,
+    which is precisely what a coarse filesystem does to two writes inside one
+    tick. atime is restored next to mtime so the file's metadata carries the
+    PREVIOUS write's stamps and nothing of the fake's own."""
+    def wrapper(self, *args, **kwargs):
+        try:
+            stat = os.stat(self)
+            previous = (stat.st_atime_ns, stat.st_mtime_ns)
+        except OSError:
+            # A path that does not exist yet (or unreadable metadata) has no
+            # previous stamp to hold back: it is a plain write.
+            previous = None
+        result = original(self, *args, **kwargs)
+        if previous is not None:
+            os.utime(self, ns=previous)
+        return result
+    return wrapper
+
+
+def _install_coarse_mtime() -> None:
+    """Patch the two writers. Idempotent: `pytest_configure` runs once per run,
+    but conftest modules can be imported more than once by pytest's own
+    conftest handling, and stacking two wrappers would restore the stamp twice
+    (harmless) while making the intent harder to read."""
+    global _coarse_mtime_installed
+    if _coarse_mtime_installed:
+        return
+    Path.write_text = _freeze_mtime_after_write(Path.write_text)
+    Path.write_bytes = _freeze_mtime_after_write(Path.write_bytes)
+    _coarse_mtime_installed = True
+
+
+def pytest_configure(config):
+    """Install the freeze for the WHOLE run when `--coarse-mtime` is given.
+
+    A conftest hook rather than a separate plugin module on purpose: the option
+    is a property of THIS suite's rigs, and it is the same file the rigs' other
+    knobs live in. `tests/repo/test_coarse_mtime_option.py` measures the result
+    in a subprocess that loads this very conftest (`-p tests.conftest`), so the
+    option is exercised as it ships, not as a copy."""
+    if config.getoption("coarse_mtime"):
+        _install_coarse_mtime()
 
 
 def pytest_collection_modifyitems(config, items):

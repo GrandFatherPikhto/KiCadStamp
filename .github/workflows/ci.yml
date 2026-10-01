@@ -83,3 +83,16 @@ jobs:
         # reference run with `-rs` showed 12 SKIPPED and no FAILED line at all —
         # it would have made the log harder to triage, not easier.
         run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf
+
+      # The Windows-tick run (Ф3.7). Windows is where a second write inside one
+      # filesystem tick broke readers cached by `(path, mtime_ns)`; the probe that
+      # FORCES that tick on Linux found ELEVEN such cells here (Actions #656's red
+      # Windows leg among them). Running the suite a second time under the option
+      # catches the class on every push instead of waiting for the Windows leg —
+      # and catches a future PRODUCT writer that forgets to invalidate its own
+      # caches after its write. Linux only: the Windows leg gets the real thing for
+      # free. The option is in tests/conftest.py; docs/tests.md says how to run it
+      # locally.
+      - name: Run unit test suite under the forced one-tick filesystem (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf --coarse-mtime

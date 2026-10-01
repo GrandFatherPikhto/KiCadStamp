@@ -227,6 +227,45 @@ failure itself names which:
 Both were real and both are fixed; the reverse run is part of acceptance now, not a
 diagnostic to be reached for after the fact.
 
+### The coarse-mtime run
+
+```bash
+python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf --coarse-mtime
+```
+
+`--coarse-mtime` (an option in `tests/conftest.py`) forces, on any filesystem, the
+one-tick behaviour Windows gives for free: after every `Path.write_text` /
+`Path.write_bytes` onto a file that ALREADY existed, that file's previous
+`(atime_ns, mtime_ns)` is restored. A reader cached by `(path, mtime_ns)` then
+cannot see a second write that landed on the same stamp — measured on Windows
+01.10.2026 (Ф3.6): ~0.5 ms granularity, and 344/500 (C:) plus 409/500 (repo disk)
+of back-to-back write pairs landed on one tick. Run under that probe, ELEVEN cells
+failed on Linux that never fail there naturally; the red Windows leg of Actions
+#656 was one of them.
+
+This is why the CI Linux leg runs the suite TWICE: the reference run above, then
+this one. The class is then caught on every push instead of waiting for the
+Windows leg, and a future PRODUCT writer that forgets to invalidate its caches
+after its own write is caught here too — the product passes the probe today
+because `write_config_file` invalidates them itself.
+
+A rig that writes a file TWICE must therefore leave a LATER write behind:
+`tests/fakes/write_later.py` writes the bytes and, only when the stamp did not
+advance, moves mtime one millisecond past the previous one. It deliberately does
+NOT reset the product's caches: a rig doing that would turn the cells that measure
+"the product notices an external edit by mtime" green while measuring nothing.
+
+Known limitation, the same one the probe had: only `Path.write_text` /
+`Path.write_bytes` are covered — a write through `open()` is invisible to the
+option.
+
+The option is OFF by default on purpose: with it always on, the reference run would
+stop measuring the natural filesystem.
+`tests/repo/test_coarse_mtime_option.py` proves both sides in a subprocess (the
+same inner cell advances the stamp without the option and does not advance it
+with it), and `tests/repo/test_write_later_helper.py` pins the helper's own
+property.
+
 ### Test plugins (required — the suite refuses to start without them)
 
 The two test plugins are declared in `pytest.ini` under `required_plugins`
