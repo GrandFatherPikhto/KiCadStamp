@@ -70,15 +70,20 @@ def test_central_widget_is_the_elastic_tab_group(real_main_window):
 
 
 def test_the_three_left_widgets_are_central_tabs(real_main_window):
-    """They are pages of the central QTabWidget now, not docks (task T); only
-    the Log is still a real top-level dock."""
+    """They are pages of the central QTabWidget now, not docks (task T).
+
+    The claim is their ABSENCE from DockHub.docks, not the exact dock list: the
+    bottom area also carries the "Дубли меди" panel (plan_2026_10_01_dedupe_
+    into_kicadstamp §2.3), so `docks == [log_dock]` would make this cell about
+    the bottom area instead of about these three."""
     hub = real_main_window._dock_hub
     assert hub.left_tabs.count() == 3
     assert hub.left_tabs.widget(0) is hub.tree_dock
     assert hub.left_tabs.widget(1) is hub.config_tree_dock
     assert hub.left_tabs.widget(2) is hub.trees_dock
     assert hub.left_tabs.tabPosition() == hub.left_tabs.TabPosition.South
-    assert hub.docks == [hub.log_dock]
+    for widget in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock):
+        assert widget not in hub.docks
 
 
 def test_show_left_page_brings_a_central_tab_to_the_front(real_main_window):
@@ -126,9 +131,18 @@ def test_shrinking_the_log_grows_the_central_widget(real_main_window):
 
 
 def test_resize_docks_actually_resizes_the_log(real_main_window):
-    """T acceptance: resizeDocks([log], [200]) used to be silently IGNORED (the
+    """T acceptance: resizeDocks([log], [N]) used to be silently IGNORED (the
     log stayed at its content-driven height); with an elastic centre it is
-    honoured exactly."""
+    honoured exactly.
+
+    Measured as a DELTA, not against the absolute request. The bottom area now
+    carries a tab bar (the "Дубли меди" panel is tabified with the Log, plan_
+    2026_10_01_dedupe_into_kicadstamp §2.3), and the bar is subtracted from the
+    dock's own height: asking for 200 measures 171, then 320 measures 291.
+    Measured 02.10.2026. The property this cell exists for is "the request is
+    honoured exactly", and the delta pins it without depending on the bar's
+    height — while the S.1 defect it guards against (a request that is IGNORED)
+    still gives a zero delta and fails."""
     win = real_main_window
     log = win._dock_hub.log_dock
     win.resize(1900, 1000)
@@ -138,7 +152,12 @@ def test_resize_docks_actually_resizes_the_log(real_main_window):
 
     win.resizeDocks([log], [200], Qt.Orientation.Vertical)
     QTest.qWait(80)
-    assert log.height() == 200
+    smaller = log.height()
+    win.resizeDocks([log], [320], Qt.Orientation.Vertical)
+    QTest.qWait(80)
+    larger = log.height()
+    assert larger - smaller == 120, (
+        f"resizeDocks was not honoured exactly ({smaller} -> {larger})")
 
 
 def test_log_height_is_stable_across_window_resizes(real_main_window):

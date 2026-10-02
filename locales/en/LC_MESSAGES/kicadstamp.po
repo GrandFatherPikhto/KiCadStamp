@@ -18893,3 +18893,19 @@ msgstr ""
 #: kicadstamp/cli_main.py
 msgid "[error] --apply needs --config: every removed item must be written to the profile's actions.log, and without a profile there is no such file to write it to. Re-run with --config <profile.sexp>, or drop --apply to only report the duplicates."
 msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Copper duplicates"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Duplicate groups: {groups}; extra copies: {extra}"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Find"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "removing duplicate copper"
+msgstr ""

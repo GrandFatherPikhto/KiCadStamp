@@ -101,15 +101,24 @@ def _view_menu(real_main_window):
 def test_view_menu_has_one_checkable_action_per_dock(real_main_window):
     """One checkable toggleViewAction per real top-level dock — the only way
     to bring back a closed dock (the app previously had no menu bar at all).
-    Count must match DockHub.docks, which since task T (2026-09-10) is just the
-    Log: the Components/Config/Trees group is the window's CENTRAL QTabWidget
-    now, so those three cannot be floated or closed and correctly have no entry
-    here (the 2026-09-05 master-detail had already folded fieldstool + Pending
-    into the Components dock)."""
+
+    The property is "exactly one action per dock, AND every dock has one" — not
+    a fixed count. It used to be pinned as the literal 1 because the Log was the
+    only real top-level dock after task T (2026-09-10) made the Components/
+    Config/Trees group the window's CENTRAL QTabWidget (those three cannot be
+    floated or closed, so they correctly have no entry). The bottom area gained a
+    second real dock, the "Дубли меди" panel (plan_2026_10_01_dedupe_into_
+    kicadstamp §2.3), so the literal was replaced by the correspondence it was
+    standing in for — which is STRONGER: a dock added without a View entry now
+    fails here, and so does an entry with no dock behind it."""
     menu = _view_menu(real_main_window)
+    hub = real_main_window._dock_hub
     actions = menu.actions()
-    assert len(actions) == len(real_main_window._dock_hub.docks) == 1
+    assert len(actions) == len(hub.docks)
     assert all(a.isCheckable() for a in actions)
+    action_set = set(actions)
+    for dock in hub.docks:
+        assert dock.toggleViewAction() in action_set
 
 
 def test_view_menu_toggle_shows_and_hides_a_dock(real_main_window):

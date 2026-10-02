@@ -69,6 +69,7 @@ from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.placer import PlacerDock
 from .docks.trees_dock import TreesDock
+from .docks.dedupe import DedupeDock
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
@@ -353,11 +354,28 @@ class DockHub:
         self.tools_dock = ToolsDock(main_window)
         self.tools_dialog = ToolsDialog(self.tools_dock, main_window)
 
-        # ── bottom: Log ────────────────────────────────────────────────────
+        # ── bottom: Log (+ the copper-duplicates tab) ──────────────────────
         # 2026-09-05 (plan components_fieldstool_master_detail): Pending moved
         # into the Components dock's left tab, so Log is the sole bottom dock.
         self.log_dock = LogDock(main_window, verbose=verbose)
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+        # Copper duplicates (plan_2026_10_01_dedupe_into_kicadstamp §2.3): a
+        # second bottom dock TABIFIED with the Log, so this panel is opened and
+        # closed from the View menu by the very same toggleViewAction machinery
+        # as every other dock — nobody hand-rolls a switch for it. It needs the
+        # connection: its work (and the board read) runs on a worker thread.
+        self.dedupe_dock = DedupeDock(main_window, connection=connection)
+        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                                  self.dedupe_dock)
+        main_window.tabifyDockWidget(self.log_dock, self.dedupe_dock)
+        # Keep the LOG as the visible bottom tab. Measured: without this the
+        # tabified area came up with the dedupe tab current, and S.1/S.2's
+        # acceptance (`resizeDocks([log], [200], Vertical)` honoured exactly —
+        # tests/gui/test_dock_sizing.py) collapsed to 59 px, because Qt resizes
+        # the area's CURRENT dock. The Log was the sole bottom dock before this
+        # panel existed and must stay the one on top, both for the user and for
+        # that guard.
+        self.log_dock.raise_()
 
         # All real TOP-LEVEL QDockWidgets (2026-08-27, handoff
         # sync_skip_message_and_view_menu): MainWindow's View menu wires each
@@ -370,8 +388,9 @@ class DockHub:
         # bottom). Since task T (2026-09-10) the three Components/Config/Trees
         # widgets are pages of the central QTabWidget, not docks — they cannot
         # be floated or closed, so they have no toggleViewAction and no View-menu
-        # entry. Only the Log remains a real top-level dock.
-        self.docks = [self.log_dock]
+        # entry. Only the Log and the copper-duplicates panel remain real
+        # top-level docks.
+        self.docks = [self.log_dock, self.dedupe_dock]
 
         self._wire()
 
@@ -799,6 +818,12 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
+        # Copper duplicates (plan_2026_10_01_dedupe_into_kicadstamp §2.3): the
+        # root config decides whether a removal can be journaled, so the panel
+        # follows the same root_changed source as every dock above.
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "dedupe_dock.set_root_path",
+                    self.dedupe_dock.set_root_path))
         # Cell anchor (Phase C, 2026-09-09): the marker/bbox live frame and the
         # Sheet combo need the project root — same root_changed source as every
         # other dock.
@@ -3236,6 +3261,7 @@ class DockHub:
         self._safe_call("thermal_via_dock.set_root_path",
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
+        self._safe_call("dedupe_dock.set_root_path", self.dedupe_dock.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
