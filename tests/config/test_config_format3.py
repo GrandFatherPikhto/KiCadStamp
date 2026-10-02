@@ -13,7 +13,8 @@ import json
 
 import pytest
 
-from kicadstamp.config.loader import _check_format3_graph, load_config
+from kicadstamp.config.loader import load_config
+from kicadstamp.config_writer import write_config_file
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from tests.fakes.format3 import det_uuid, format3  # noqa: F401 (fixture import)
@@ -82,10 +83,12 @@ def test_lying_name_hint_roundtrips_both_values_and_does_not_fatal(format3, tmp_
     BOTH exactly as read (no reconciling in U1), and the format-3 UUID check
     resolves by UUID, never by the hint — so it does not fatal."""
     data = _data()
-    data["entities"][0]["cell"] = "WRONG/NAME"        # hint lies
+    data["entities"][0]["cell"] = "WRONG/NAME"        # the NAME hint lies
     text = dict_to_sexp(data, format_number=3)
     assert sexp_to_dict(text) == data                 # both values preserved
-    _check_format3_graph(data, str(tmp_path / "probe.sexp"))   # must not raise
+    p = tmp_path / "config.sexp"
+    _write_sexp(p, data)
+    load_config(str(p))   # must not raise: the check resolves by UUID, not the hint
 
 
 # ── grammar (JSON): record key "uuid", reference sibling key ───────────────
@@ -129,8 +132,8 @@ def test_dangling_reference_uuid_is_fatal(format3, tmp_path):
     _write_sexp(p, data)
     with pytest.raises(ValidationError) as e:
         load_config(str(p))
-    assert "does not exist" in str(e.value)
-    assert str(p) in str(e.value)
+    assert "references uuid" in str(e.value)
+    assert str(p) in str(e.value)          # Н7: the place names the record's file
 
 
 def test_valid_format3_config_loads(format3, tmp_path):
@@ -140,3 +143,129 @@ def test_valid_format3_config_loads(format3, tmp_path):
     cfg, _ = load_config(str(p))
     assert cfg.cells["Power/LDO/ldo"].uuid == D_CELL
     assert cfg.folders["cells"]["Power/LDO"] == D_FOLDER_L
+
+
+# ── Н8: the sections/ref forms the first cut missed ────────────────────────
+
+def _dangling(format3, tmp_path, data, needle="references uuid"):
+    p = tmp_path / "config.sexp"
+    _write_sexp(p, data)
+    with pytest.raises(ValidationError) as e:
+        load_config(str(p))
+    assert needle in str(e.value)
+    assert str(p) in str(e.value)
+
+
+def test_chain_spoke_cell_reference_uuid(format3, tmp_path):
+    """R4: chains[*].spokes[].cell -> cells. Round-trips and dangles."""
+    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+            "chains": [{"net": "GND", "name": "ch", "anchor_ref": "IC1",
+                        "uuid": D_CHAIN,
+                        "spokes": [{"pad": "1", "cell": "c", "cell_uuid": D_CELL}]}]}
+    assert sexp_to_dict(dict_to_sexp(data, format_number=3)) == data
+    data["chains"][0]["spokes"][0]["cell_uuid"] = det_uuid("nope")
+    _dangling(format3, tmp_path, data)
+
+
+def test_nested_cell_placement_reference_uuid(format3, tmp_path):
+    """R5: cells[*].clone_placements[].cell -> cells. Round-trips and dangles."""
+    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL},
+                      "parent": {"layer": "B.Cu", "uuid": D_POINT,
+                                 "clone_placements": [{"name": "n1", "cell": "c",
+                                                       "cell_uuid": D_CELL}]}}}
+    assert sexp_to_dict(dict_to_sexp(data, format_number=3)) == data
+    data["cells"]["parent"]["clone_placements"][0]["cell_uuid"] = det_uuid("nope")
+    _dangling(format3, tmp_path, data)
+
+
+def test_entity_imprint_reference_uuid(format3, tmp_path):
+    """R6: entities[].imprint -> imprints. Round-trips and dangles."""
+    data = {"imprints": [{"name": "imp", "uuid": D_POINT,
+                          "components": [{"ref": "C1"}]}],
+            "entities": [{"name": "E", "imprint": "imp", "imprint_uuid": D_POINT,
+                          "uuid": D_ENTITY}]}
+    assert sexp_to_dict(dict_to_sexp(data, format_number=3)) == data
+    data["entities"][0]["imprint_uuid"] = det_uuid("nope")
+    _dangling(format3, tmp_path, data)
+
+
+def test_json_thermal_via_array_anchor_point_uuid(format3, tmp_path):
+    """J2: the JSON side of a thermal_via_array's anchor_point_uuid."""
+    data = {"points": {"p": {"anchor_ref": "IC1", "uuid": D_POINT}},
+            "thermal_via_arrays": [{"name": "tva", "anchor_point": "p",
+                                    "anchor_point_uuid": D_POINT, "uuid": D_CELL}]}
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({**data, "version": 3}), encoding="utf-8")
+    cfg, _ = load_config(str(p))
+    assert cfg.thermal_via_arrays[0].anchor_point_uuid == D_POINT
+
+
+def test_json_writer_roundtrip_carries_uuid(format3, tmp_path):
+    """The JSON WRITE side (not just reading) keeps the UUIDs."""
+    p = tmp_path / "config.json"
+    write_config_file(str(p), _data())
+    cfg, _ = load_config(str(p))
+    assert cfg.entities[0].uuid == D_ENTITY
+    assert cfg.entities[0].cell_uuid == D_CELL
+    assert cfg.folders["cells"]["Power"] == D_FOLDER_P
+
+
+def test_duplicate_full_name_across_the_graph_is_fatal(format3, tmp_path):
+    """Н4(б): two same-named records in ONE section, in two files of the graph."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
+    _write_sexp(sub, {"entities": [{"name": "E", "cell": "c", "uuid": D_ENTITY}]})
+    _write_sexp(root, {"include": ["sub.sexp"],
+                       "cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+                       "entities": [{"name": "E", "cell": "c", "uuid": D_POINT}]})
+    with pytest.raises(ValidationError) as e:
+        load_config(str(root))
+    assert "duplicate full name" in str(e.value)
+    assert "root.sexp" in str(e.value) and "sub.sexp" in str(e.value)
+
+
+def test_service_section_record_without_uuid_is_fatal(format3, tmp_path):
+    """Н6: extract_profiles/clone_profiles are §0 records and need a UUID too."""
+    _dangling(format3, tmp_path,
+               {"extract_profiles": {"ep": {"rule_nets": ["+3V3"]}}},
+               needle="has no uuid")
+
+
+def test_folder_row_in_an_included_file_is_merged(format3, tmp_path):
+    """Н3/В39: a folder row may stand in an included file (not only the root)."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
+    _write_sexp(sub, {"folders": {"cells": {"Power": D_FOLDER_P}},
+                      "cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}}})
+    _write_sexp(root, {"include": ["sub.sexp"], "cells": {}})
+    cfg, _ = load_config(str(root))
+    assert cfg.folders["cells"]["Power"] == D_FOLDER_P
+
+
+def test_folder_uuid_mismatch_across_files_is_fatal(format3, tmp_path):
+    """В39: one folder path in a section has ONE uuid; a mismatch names BOTH files."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
+    _write_sexp(sub, {"folders": {"cells": {"Power": D_FOLDER_L}}})
+    _write_sexp(root, {"include": ["sub.sexp"],
+                       "folders": {"cells": {"Power": D_FOLDER_P}}})
+    with pytest.raises(ValidationError) as e:
+        load_config(str(root))
+    assert "ONE uuid" in str(e.value)
+    assert "root.sexp" in str(e.value) and "sub.sexp" in str(e.value)
+
+
+def test_tree_node_reference_uuid(format3, tmp_path):
+    """Н2: a tree node's (ref "E" (uuid "…")) survives and dangles."""
+    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+            "entities": [{"name": "E", "cell": "c", "cell_uuid": D_CELL,
+                          "uuid": D_ENTITY}],
+            "trees": [{"name": "t", "anchor": {"origin": True},
+                       "nodes": [{"ref": "E", "kind": "placement",
+                                  "ref_uuid": D_ENTITY, "xy": [0.0, 0.0]}]}]}
+    text = dict_to_sexp(data, format_number=3)
+    assert f'(uuid "{D_ENTITY}")' in text      # nested in the node's ref
+    assert "ref_uuid" not in text              # the JSON sibling key is not s-expr
+    assert sexp_to_dict(text) == data
+    data["trees"][0]["nodes"][0]["ref_uuid"] = det_uuid("nope")
+    _dangling(format3, tmp_path, data)

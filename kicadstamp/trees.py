@@ -211,6 +211,13 @@ class TreeNode:
     # override). A node carrying them is now a load-time fatal pointing at the
     # converter.
     anchor: TreeAnchor | None = None
+    # UUID of the referenced §0 record (format 3, step 2->3; None on format 2)
+    # when the node's kind names one (placement -> entities, net_trace ->
+    # net_traces, legacy clone/chain/coordinate/point likewise). `ref` stays what
+    # resolution reads in У1 (variant B, plan §У1.2); the JSON form is the
+    # sibling key "ref_uuid". The LOCAL kinds (module/mount/copper/component)
+    # reference no record and never carry a UUID.
+    ref_uuid: str | None = None
 
 
 @dataclass
@@ -837,6 +844,18 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     if ref is None:
         _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
     ref = sval(ref)
+    # A node's ref may carry the target record's UUID (format 3, step 2->3):
+    # (ref "E" (uuid "…")). The name stays what resolution reads in У1; a child
+    # other than exactly one (uuid "…") is a FATAL, never a silent drop.
+    ref_node = child(node, "ref")
+    ref_uuid = None
+    if len(ref_node) > 2:
+        extra = ref_node[2]
+        if not (isinstance(extra, list) and len(extra) == 2
+                and sval(extra[0]) == "uuid"):
+            _fatal(_("{location}: only a (uuid \"…\") may follow a node's ref")
+                   .format(location=location))
+        ref_uuid = sval(extra[1])
 
     # kind read BEFORE the seen_refs check: the LOCAL kinds' refs (module -> a
     # TREE's name, mount -> a point-of-reference name, copper -> a container
@@ -847,6 +866,9 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
     # _validate_local_refs). ONE list (_LOCAL_REF_KINDS) shared with the dict
     # parser, so the two shapes cannot drift apart.
     kind = _parse_kind(node)
+    if ref_uuid is not None and kind in _LOCAL_REF_KINDS:
+        _fatal(_("{location}: a {kind!r} node references no record, so its ref "
+                 "carries no uuid").format(location=location, kind=kind))
     if kind not in _LOCAL_REF_KINDS:
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
@@ -916,6 +938,7 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
         group=sval(raw_group) if raw_group is not None else None,
         children=parsed_children,
         anchor=node_anchor,
+        ref_uuid=ref_uuid,
     )
 
 
@@ -1146,7 +1169,10 @@ def _node_to_sexp(node: TreeNode) -> list:
     default values are OMITTED (kind None, rotation 0.0, name/group None) —
     load_trees would re-default them on read anyway, so writing them is pure
     noise (same "no `sheet: null`" principle the YAML config uses)."""
-    out: list = [sym("node"), [sym("ref"), node.ref]]
+    ref_node: list = [sym("ref"), node.ref]
+    if node.ref_uuid is not None:
+        ref_node.append([sym("uuid"), node.ref_uuid])
+    out: list = [sym("node"), ref_node]
     if node.kind is not None:
         # kind is a Symbol in the grammar ((kind clone)), not a quoted string —
         # load_trees's sval() reads it back as str either way, so the
@@ -1322,6 +1348,8 @@ def _anchor_to_dict(anchor: TreeAnchor) -> dict:
 
 def _node_to_dict(node: TreeNode) -> dict:
     out: dict = {"ref": node.ref}
+    if node.ref_uuid is not None:
+        out["ref_uuid"] = node.ref_uuid
     if node.kind is not None:
         out["kind"] = node.kind
     if node.xy is not None:
@@ -1433,6 +1461,11 @@ def _raw_node(node) -> dict:
     nested (anchor ...) verbatim (the removed own_anchor grammar included) so
     the converter can see it and rewrite it."""
     out: dict = {"ref": sval(atom(node, "ref"))}
+    ref_node = child(node, "ref")
+    if ref_node is not None and len(ref_node) > 2:
+        extra = ref_node[2]
+        if isinstance(extra, list) and len(extra) == 2 and sval(extra[0]) == "uuid":
+            out["ref_uuid"] = sval(extra[1])
     kind = atom(node, "kind")
     if kind is not None:
         out["kind"] = sval(kind)
@@ -1581,6 +1614,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     ref = data.get("ref")
     if ref is None:
         _fatal(_("{location}: node is missing a (ref ...)").format(location=location))
+    ref_uuid = data.get("ref_uuid")
 
     raw_kind = data.get("kind")
     if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
@@ -1592,6 +1626,9 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     # tree may be embedded by several different parents; mount/copper ref
     # uniqueness is per-TREE, see _validate_local_refs) — the SAME list the
     # s-expr parser reads.
+    if ref_uuid is not None and raw_kind in _LOCAL_REF_KINDS:
+        _fatal(_("{location}: a {kind!r} node references no record, so its ref "
+                 "carries no uuid").format(location=location, kind=raw_kind))
     if raw_kind not in _LOCAL_REF_KINDS:
         if ref in seen_refs:
             _fatal(_("{location}: record {ref!r} already has a node elsewhere in this "
@@ -1650,6 +1687,7 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
         group=data.get("group"),
         children=[_dict_node(c, seen_refs, f"{location}.node") for c in data.get("children") or []],
         anchor=node_anchor,
+        ref_uuid=ref_uuid,
     )
 
 

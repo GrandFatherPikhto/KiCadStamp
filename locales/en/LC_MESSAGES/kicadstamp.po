@@ -18929,3 +18929,75 @@ msgstr ""
 #: gui/docks/dedupe.py
 msgid "Warning"
 msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "Format-3 checks passed: {files} files, {records} records"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "a UUID must identify exactly one record or folder"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: duplicate full name {name!r} in {section} — in {a} and {b}"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: duplicate uuid {uuid} — {a} ({fa}) and {b} ({fb})"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: folder {path!r} in {section} has no uuid"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: folder {path!r} in {section} has uuid {a} in {fa} and {b} in {fb}"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: record {name!r} in {section} has no uuid"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: {label} references uuid {uuid}, which is not in {target}"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "in {path}: a folder row carries a UUID"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "in {path}: a reference UUID must name an existing {target} record"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "in {path}: every record of a format-3 file carries a UUID; add (uuid \"…\") or lift the file with the converter"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+msgid "in {path}: folder {name!r} has no (uuid ...)"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+msgid "in {path}: got {value!r}"
+msgstr ""
+
+#: kicadstamp/config/sexp_format.py
+msgid "in {path}: got {value!r}; write (cell \"name\") or (cell \"name\" (uuid \"…\"))"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "names are unique across the whole graph (Р43): rename one of the two records"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "one folder path in a section has ONE uuid across the whole graph (В39): the seed is uuid5(NS, \"<section>|folder:<path>\")"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid "{location}: a {kind!r} node references no record, so its ref carries no uuid"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid "{location}: only a (uuid \"…\") may follow a node's ref"
+msgstr ""

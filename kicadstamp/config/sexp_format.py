@@ -721,12 +721,24 @@ def dict_to_sexp(data: dict, format_number: int | None = None) -> str:
     root = [sym(TOP_TAG)]
     root.append([sym(VERSION_KEY), format_number])
     folders = data.get("folders") or {}
+    emitted: set = set()
     for key, value in data.items():
         if key == VERSION_KEY or key == "folders":
             continue
         child = _root_child_to_sexp(key, value, folders.get(key))
         if child is not None:
             root.append(child)
+            emitted.add(key)
+    # A section that carries ONLY a folder table (a legal empty folder — design
+    # §3.8г) has no records key in `data`, so it was emitted above nothing at
+    # all. Emit its node (folders as the first child) explicitly.
+    for section, table in folders.items():
+        if section in emitted or not table:
+            continue
+        if section in _LIST_SECTION_CLASS:
+            root.append(_root_child_to_sexp(section, [], table))
+        elif section in _DICT_SECTION_CLASS or section in _FREE_DICT_SECTIONS:
+            root.append(_root_child_to_sexp(section, {}, table))
     return _dumps(root, 0) + "\n"
 
 

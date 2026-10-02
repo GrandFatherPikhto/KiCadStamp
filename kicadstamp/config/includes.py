@@ -161,8 +161,13 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
     # handoff_2026_08_02_thermal_via_arrays_list.md, so it's fine to include
     # now, same as rules:/clone_placements:.)
     if not is_root:
+        # `folders` (format 3, step 2->3) is a graph-wide table, not a per-file
+        # section: a row may stand in each file that has records under it (В39),
+        # so it is merged/validated separately by the loader (kicadstamp/config/
+        # loader.py:_check_format3_graph), never by the generic include merge.
         unsupported = sorted(k for k in data.keys()
-                             if k not in _LIST_SECTIONS and k not in _DICT_SECTIONS and k != 'include')
+                             if k not in _LIST_SECTIONS and k not in _DICT_SECTIONS
+                             and k not in ('include', 'folders'))
         if unsupported:
             keys_str = ', '.join(repr(k) for k in unsupported)
             raise ValidationError(format_fatal_error(
@@ -183,7 +188,7 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
     for section in _DICT_SECTIONS:
         merged[section] = dict(data.get(section) or {})
     for key, value in data.items():
-        if key in _LIST_SECTIONS or key in _DICT_SECTIONS or key == 'include':
+        if key in _LIST_SECTIONS or key in _DICT_SECTIONS or key in ('include', 'folders'):
             continue
         merged[key] = value
 

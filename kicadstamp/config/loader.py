@@ -67,7 +67,7 @@ from .entries import (
     _point_is_footprint_eligible,
 )
 from .format_version import current_format
-from .includes import _load_config_file, resolve_includes
+from .includes import _load_config_file, resolve_includes, walk_include_tree
 from .sheet_templates import expand_sheet_templates
 from .tree_instances import expand_tree_instances
 from .models import (
@@ -102,88 +102,186 @@ def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> Non
         ))
 
 
-# ── format 3 (UUID) graph checks ───────────────────────────────────────────
-# Awake only when the profile's ON-DISK format is 3+ (plan У1.3). The product
-# build still refuses format-3 files outright (CURRENT_FORMAT = 2), so in
-# production these sleep; tests pin format_version.CURRENT_FORMAT = 3 (plan
-# У1.4) and load a format-3 file, which makes read_version() report 3.
+# ── format 3 (UUID) checks ─────────────────────────────────────────────────
+# Awake only when the build's CURRENT format is 3+ — current_format(), read at
+# call time (plan У1.4, gate clarified 02.10): in У3 they guard the 2->3
+# converter itself. The product (current_format() == 2) sleeps; tests pin
+# format_version.CURRENT_FORMAT = 3.
 _F3_LIST_SECTIONS = ("chains", "clone_placements", "thermal_via_arrays",
                      "coordinate_placements", "net_traces", "entities",
                      "imprints")
 _F3_DICT_SECTIONS = ("cells", "points")
-# reference field -> the section its UUID must resolve against.
+# Free-form dict sections that are §0 records too (Н6) — their entries are plain
+# dicts carrying a "uuid" key.
+_F3_FREE_SECTIONS = ("extract_profiles", "clone_profiles", "sheet_templates")
+# reference field on a record -> the section its `<field>_uuid` resolves in.
 _F3_REF_TARGET = {"cell": "cells", "imprint": "imprints", "anchor_point": "points"}
+# tree node kind -> the section its `ref_uuid` resolves in (Н2). Local kinds
+# (module/mount/copper/component) and "external" reference no record.
+_F3_NODE_KIND_TARGET = {"placement": "entities", "clone": "clone_placements",
+                        "chain": "chains", "rule": "chains",
+                        "coordinate": "coordinate_placements",
+                        "net_trace": "net_traces", "point": "points"}
 
 
-def _f3_names_uuids_refs(data):
-    """(section -> {name: uuid}, [(owner label, field, ref_uuid)]).
+def _f3_files(root_path: str) -> list[str]:
+    """Every file of the include: graph, by its own path."""
+    out: list[str] = []
 
-    Every §0 record's name and UUID, plus every reference to a §0 section. Full
-    names (`/`-paths) are the keys, so a duplicate full name shows up as a
-    duplicate key within a section — exactly the uniqueness Р43 wants.
-    """
-    named: dict[str, dict] = {}
-    refs: list = []
+    def walk(node) -> None:
+        out.append(str(node.path))
+        for child in node.children:
+            walk(child)
+
+    walk(walk_include_tree(str(root_path)))
+    return out
+
+
+def _f3_walk_nodes(nodes, out: list) -> None:
+    for n in nodes or []:
+        out.append(n)
+        _f3_walk_nodes(n.get("children"), out)
+
+
+def _f3_collect(data: dict, file_path: str, records: list, folders: list,
+                refs: list) -> None:
+    """Append one file's records, folders and refs, each tagged with its file."""
     for section in _F3_DICT_SECTIONS:
-        named[section] = {name: rec.get("uuid")
-                          for name, rec in (data.get(section) or {}).items()}
+        for name, rec in (data.get(section) or {}).items():
+            records.append((section, name, rec.get("uuid"), file_path))
+    for section in _F3_FREE_SECTIONS:
+        for name, rec in (data.get(section) or {}).items():
+            uuid = rec.get("uuid") if isinstance(rec, dict) else None
+            records.append((section, name, uuid, file_path))
     for section in _F3_LIST_SECTIONS:
-        table: dict = {}
         for i, rec in enumerate(data.get(section) or []):
             name = rec.get("name") or f"{section}[{i}]"
-            table[name] = rec.get("uuid")
-            for field in _F3_REF_TARGET:
+            records.append((section, name, rec.get("uuid"), file_path))
+            for field, target in _F3_REF_TARGET.items():
                 if rec.get(field) is not None:
-                    refs.append((f"{section} {name!r}", field, rec.get(field + "_uuid")))
+                    refs.append((f"{section} {name!r}", target,
+                                 rec.get(field + "_uuid"), file_path))
             if section == "chains":
                 for sp in rec.get("spokes") or []:
                     if sp.get("cell") is not None:
                         refs.append((f"chain {name!r} spoke {sp.get('pad')!r}",
-                                     "cell", sp.get("cell_uuid")))
-        named[section] = table
+                                     "cells", sp.get("cell_uuid"), file_path))
+    for name, p in (data.get("points") or {}).items():
+        if p.get("anchor_point") is not None:
+            refs.append((f"point {name!r}", "points",
+                         p.get("anchor_point_uuid"), file_path))
     for cell_name, cell in (data.get("cells") or {}).items():
         for ncp in cell.get("clone_placements") or []:
             if ncp.get("cell") is not None:
-                refs.append((f"cell {cell_name!r} nested placement",
-                             "cell", ncp.get("cell_uuid")))
-    return named, refs
+                refs.append((f"cell {cell_name!r} nested placement", "cells",
+                             ncp.get("cell_uuid"), file_path))
+    for tree in data.get("trees") or []:
+        nodes: list = []
+        _f3_walk_nodes(tree.get("nodes"), nodes)
+        for n in nodes:
+            target = _F3_NODE_KIND_TARGET.get(n.get("kind"))
+            if target is not None and n.get("ref_uuid") is not None:
+                refs.append((f"tree {tree.get('name')!r} node {n.get('ref')!r}",
+                             target, n.get("ref_uuid"), file_path))
+    for section, table in (data.get("folders") or {}).items():
+        for path_key, uuid in (table or {}).items():
+            folders.append((section, path_key, uuid, file_path))
 
 
-def _check_format3_graph(data: dict, path: str) -> None:
-    """Fatal checks for a format-3 config (plan У1.3): every record carries a
-    UUID, UUIDs are unique in the graph, and every reference UUID resolves to an
-    existing record of the target section (a dangling UUID is fatal)."""
-    named, refs = _f3_names_uuids_refs(data)
-    owner: dict[str, str] = {}
-    for section, table in named.items():
-        for name, uuid in table.items():
-            if not uuid:
-                raise ValidationError(format_fatal_error(
-                    _("format 3: record {name!r} in {section} has no uuid").format(
-                        name=name, section=section),
-                    [_("in {path}: every record of a format-3 file carries a "
-                       "UUID; add (uuid \"…\") or lift the file with the converter")
-                     .format(path=path)]))
-            if uuid in owner:
-                raise ValidationError(format_fatal_error(
-                    _("format 3: duplicate uuid {uuid} — {section} and {other}").format(
-                        uuid=uuid, section=f"{section} {name!r}", other=owner[uuid]),
-                    [_("in {path}: a UUID must identify exactly one record").format(
-                        path=path)]))
-            owner[uuid] = f"{section} {name!r}"
-    uuids_by_section = {s: {u for u in t.values() if u} for s, t in named.items()}
-    for label, field, uuid in refs:
+def _check_format3_graph(root_path: str) -> dict:
+    """Per-FILE checks (place = the file the record lives in, Н7) plus graph-wide
+    uniqueness and dangling refs (Н2/Н4/Н5/Н6). Returns the merged folder table
+    (В39): a folder row may stand in each file that has records under it, but a
+    (section, path) has ONE uuid across the graph, and a mismatch is a fatal
+    naming both files."""
+    records: list = []
+    folders: list = []
+    refs: list = []
+    graph_files = _f3_files(root_path)
+    for f in graph_files:
+        _f3_collect(_load_config_file(Path(f)), f, records, folders, refs)
+
+    # duplicate FULL name within a section, across the whole graph (Н4)
+    name_src: dict = {}
+    for section, name, uuid, f in records:
+        key = (section, name)
+        if key in name_src and name_src[key] != f:
+            raise ValidationError(format_fatal_error(
+                _("format 3: duplicate full name {name!r} in {section} — in {a} "
+                  "and {b}").format(name=name, section=section,
+                                    a=name_src[key], b=f),
+                [_("names are unique across the whole graph (Р43): rename one of "
+                   "the two records")]))
+        name_src[key] = f
+
+    # record without a UUID — place is the record's OWN file (Н7)
+    for section, name, uuid, f in records:
+        if not uuid:
+            raise ValidationError(format_fatal_error(
+                _("format 3: record {name!r} in {section} has no uuid").format(
+                    name=name, section=section),
+                [_("in {path}: every record of a format-3 file carries a UUID; "
+                   "add (uuid \"…\") or lift the file with the converter")
+                 .format(path=f)]))
+
+    # folder-table merge + one uuid per (section, path) (В39)
+    merged_folders: dict = {}
+    folder_src: dict = {}
+    for section, path_key, uuid, f in folders:
+        if not uuid:
+            raise ValidationError(format_fatal_error(
+                _("format 3: folder {path!r} in {section} has no uuid").format(
+                    path=path_key, section=section),
+                [_("in {path}: a folder row carries a UUID").format(path=f)]))
+        prev = merged_folders.setdefault(section, {}).get(path_key)
+        if prev is None:
+            merged_folders[section][path_key] = uuid
+            folder_src[(section, path_key)] = f
+        elif prev != uuid:
+            raise ValidationError(format_fatal_error(
+                _("format 3: folder {path!r} in {section} has uuid {a} in {fa} "
+                  "and {b} in {fb}").format(
+                      path=path_key, section=section, a=prev, b=uuid,
+                      fa=folder_src[(section, path_key)], fb=f),
+                [_("one folder path in a section has ONE uuid across the whole "
+                   "graph (В39): the seed is uuid5(NS, \"<section>|folder:<path>\")")]))
+
+    # duplicate uuid across records AND distinct folders (Н4а)
+    owner: dict = {}
+    for section, name, uuid, f in records:
+        if uuid in owner:
+            raise ValidationError(format_fatal_error(
+                _("format 3: duplicate uuid {uuid} — {a} ({fa}) and {b} ({fb})").format(
+                    uuid=uuid, a=owner[uuid][0], fa=owner[uuid][1],
+                    b=f"{section} {name!r}", fb=f),
+                [_("a UUID must identify exactly one record or folder")]))
+        owner[uuid] = (f"{section} {name!r}", f)
+    for section, path_key, uuid, f in folders:
+        desc = f"{section} folder {path_key!r}"
+        if uuid in owner and owner[uuid][0] != desc:
+            raise ValidationError(format_fatal_error(
+                _("format 3: duplicate uuid {uuid} — {a} ({fa}) and {b} ({fb})").format(
+                    uuid=uuid, a=owner[uuid][0], fa=owner[uuid][1], b=desc, fb=f),
+                [_("a UUID must identify exactly one record or folder")]))
+        owner.setdefault(uuid, (desc, f))
+
+    # dangling references — place is the REFERENCING record's file (Н7)
+    uuids_by_section: dict = {}
+    for section, name, uuid, f in records:
+        uuids_by_section.setdefault(section, set()).add(uuid)
+    for label, target, uuid, f in refs:
         if uuid is None:
             continue
-        target = _F3_REF_TARGET[field]
         if uuid not in uuids_by_section.get(target, set()):
             raise ValidationError(format_fatal_error(
-                _("format 3: {label} points {field} at uuid {uuid}, which does "
-                  "not exist").format(label=label, field=field, uuid=uuid),
+                _("format 3: {label} references uuid {uuid}, which is not in "
+                  "{target}").format(label=label, uuid=uuid, target=target),
                 [_("in {path}: a reference UUID must name an existing {target} "
-                   "record").format(path=path, target=target)]))
-    logger.debug(_("Format-3 graph checks passed: {records} records, {refs} refs")
-                 .format(records=sum(len(t) for t in named.values()), refs=len(refs)))
+                   "record").format(path=f, target=target)]))
+
+    logger.debug(_("Format-3 checks passed: {files} files, {records} records")
+                 .format(files=len(graph_files), records=len(records)))
+    return merged_folders
 
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
@@ -358,7 +456,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # current_format() is 2, so they sleep; tests pin
     # format_version.CURRENT_FORMAT = 3.
     if current_format() >= 3:
-        _check_format3_graph(data, path)
+        data["folders"] = _check_format3_graph(path)
 
     cells_data = dict(data.get('cells', {}) or {})
 
