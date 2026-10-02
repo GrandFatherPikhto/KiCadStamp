@@ -219,6 +219,92 @@ python kicadstamp_cli.py undo --verbose
 
 ---
 
+## `dedupe` – find (and, with `--apply`, remove) duplicate copper
+
+The live board occasionally accumulates **duplicate vias/tracks**: the same
+physical `clone_placement` applied through two different registry files
+(`registry_path`/`track_registry_path` added after some copper already existed
+under the auto-derived path, or a config renamed without migrating its registry)
+— each `reconcile()` then only knows its own UUIDs and creates a second copy.
+This command ignores the registries entirely and looks at GROUND TRUTH, the live
+board, so it works whichever registry is out of sync. It does not touch the
+registries either: once the extra live item is gone, the next normal `apply`
+prunes the stale entry itself.
+
+**By default it only REPORTS.** The old `tools/dedupe_vias_tracks.py` deleted by
+default; that is deliberately reversed here. Deleting requires `--apply`, and
+`--apply` requires `--config`: every removed item is journaled to that profile's
+`actions.log`, and a removal that cannot be journaled is REFUSED before the board
+is even read (`actions.log` is the record the next duplicate investigation
+reads — see the note at the end of this section).
+
+`--config` names ONLY the journal profile here — it is **not** an addressing flag
+on this command: the adapter is always bare (`use_store=False`), so the flag
+never changes which board is read or which Role/Cluster values resolve.
+
+**Grouping.** Vias: same net, position within `POSITION_TOLERANCE_MM` (0.01 mm)
+of the group's first member; drill/diameter are NOT part of the key, and a
+mismatch inside a group is reported as a warning instead of splitting it. Tracks:
+same net and layer, `(start, end)` compared as an UNORDERED pair — A→B and B→A
+are the same physical copper. The kept member is the first one the adapter
+returns (deterministic for a scan). Grouping is greedy by design (see
+`kicadstamp/board_dedupe.py`).
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py dedupe [--apply [--config FILE]] [--timeout-ms] [--verbose]
+```
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `--apply` | Delete the extra copies (one per group is kept). **Requires `--config`**; without it the command refuses before touching the board. |
+| `--config FILE` | Profile config file. Required with `--apply`, and then it names ONLY the profile whose `actions.log` receives the removals. Never affects what is read. |
+| `--timeout-ms` | IPC timeout in ms. |
+| `--verbose` | Verbose output. |
+
+### Report
+
+`dedupe` prints one line per group (type, net, position, layer, copy count, the
+UUID kept and the UUIDs deleted) and a total. The same text is what the GUI's
+**Copper duplicates** panel puts on the clipboard (see [docs/gui.md](gui.md)), so
+the two can be compared directly:
+
+```
+Duplicate via groups: 1
+  via net='GND' @ (1.0000, 2.0000) mm - 2 copies
+    keep   4f2c1a3b-...
+    delete 9ab17d05-...
+Duplicate track groups: 1
+  track net='SIG' layer=F.Cu @ (0.0000,0.0000) -> (1.0000,1.0000) mm - 2 copies
+    keep   ...
+    delete ...
+Total: 2 extra duplicate item(s); one copy per group is kept.
+```
+
+Every actual deletion also writes one `actions.log` line naming the UUID removed
+and the UUID kept (type, net, position, layer) — grep that file for
+`dedupe: removed`.
+
+### Example
+
+```bash
+# Report only — nothing is touched on the board
+python kicadstamp_cli.py dedupe
+
+# Remove the extra copies, journaling every removal into the profile's actions.log
+python kicadstamp_cli.py dedupe --config profiles/3ch-awg-tia.sexp --apply
+```
+
+When duplicates appear again, SAVE the evidence before cleaning: the report, the
+profile's `actions.log`, its `*.registry.json`/`*.tracks.registry.json` files and
+what was done just before. The UUIDs in the report tie each copy to the operation
+that created it.
+
+---
+
 ## `extract` – extract a template from the current selection
 
 **GUI path (2026-09-17, stage 5):** a selected spoke pair can be extracted from
@@ -992,6 +1078,7 @@ python kicadstamp_cli.py apply --help
 python kicadstamp_cli.py extract --help
 python kicadstamp_cli.py undo --help
 python kicadstamp_cli.py clone-extract --help
+python kicadstamp_cli.py dedupe --help
 ```
 
 ---

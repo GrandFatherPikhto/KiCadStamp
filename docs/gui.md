@@ -20,9 +20,10 @@ after something goes wrong.
 
 ## Layout
 
-Four top-level docks plus a status bar (2026-09-05: the right-hand **fieldstool**
-dock and the bottom **Pending changes** dock were folded into the Components
-master-detail):
+Top-level docks plus a status bar (2026-09-05: the right-hand **fieldstool** dock
+and the bottom **Pending changes** dock were folded into the Components
+master-detail; 2026-10-01: the bottom area gained the **Copper duplicates** panel,
+tabified with the Log):
 
 - **Left** (group tabs at the bottom of the group): **Components**, **Config**,
   **Trees** — each a master-detail dock:
@@ -33,7 +34,8 @@ master-detail):
   - **Config** — the include-graph tree (left) + its context QView (right).
   - **Trees** — one tab per tree, each a tree | form-panel splitter (ONE panel
     that follows the selection — no Anchor/Node tabs).
-- **Bottom**: **Log**.
+- **Bottom**: **Log**, with the **Copper duplicates** panel (2026-10-01) as a
+  second tab next to it.
 - **Status bar**: connection state, the **KiCad response** latency readout
   (median of the selection-poll round trip, e.g. `KiCad: 1.2 ms`; empty while
   disconnected), the busy indicator while a long operation runs, Reconnect/Refresh
@@ -2570,6 +2572,32 @@ covers every long operation (Extract / Redraw / Apply, the Imprint capture, the 
 writes) plus the redraw chain's per-record failures. `_mutating_call` (the adapter's write wrapper)
 also finally RETRIES a write when KiCad answers AS_BUSY — it used to match the text `not ready`,
 which the real message never contains, so the retry silently never fired (2026-09-11).
+
+## Copper duplicates (2026-10-01)
+
+A bottom panel, **tabified with the Log** (View → Copper duplicates — the same
+`toggleViewAction` mechanism every top-level dock uses, so there is no separate
+switch), listing the duplicate vias/tracks on the live board: the same groups
+`kicadstamp dedupe` reports. One row per group — type, net, position, layer, copy
+count, the UUID kept and the UUIDs deleted — plus a warning when a group's
+drill/diameter differs (a mismatch does NOT split the group).
+
+- **Find** re-scans the board. The read runs on a worker (`gui/worker.py`), never
+  on the UI thread, so the window cannot freeze and the shared IPC socket has one
+  owner for the whole scan; the worker is handed the CONNECTION, not the board
+  (the door's `board` property only asks the UI thread for a sign — see
+  `techdocs/me/door.md`).
+- **Copy** puts the report on the clipboard: byte for byte the text
+  `kicadstamp dedupe` prints, so it can be pasted into a bug report as is.
+- **Clear** removes the extra copies (one per group survives), writes one
+  `actions.log` line per deletion through the `kicadstamp.actions` logger,
+  reports the summary in the Log and re-scans automatically. It is **disabled
+  while the list is empty OR no project root is open**: the journal of a removal
+  is the root config's `actions.log`, and a removal that cannot be journaled must
+  not happen — the same rule the CLI enforces by requiring `--config`.
+
+Why duplicates exist at all, and what to collect when they reappear:
+[docs/commands.md](commands.md), section `dedupe`.
 
 ## Tray icon
 
