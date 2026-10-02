@@ -38,6 +38,7 @@ from kicadstamp.config.format_version import (
     upgrade_data,
 )
 from kicadstamp.config.loader import load_config
+from tests.fakes.format3 import det_uuid
 from kicadstamp.config.sexp_format import _strip_defaults, dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
@@ -521,7 +522,13 @@ def _adds_a_cell(n):
         if "cells" not in data:
             return data
         cells = dict(data["cells"])
-        cells[f"lifted{n}"] = {"components": []}
+        # The stub step stands in for the REAL 2->3 converter, which mints a
+        # UUID for every record (plan §У1.4, gate clarified 02.10, Denis). An
+        # UUID-less cell would build an INVALID format-3 file and trip the U1.3
+        # loader checks. This edit is authorized by Denis and is NOT a rule-33
+        # weakening: the test's own assertions ("lifted2" in cfg.cells) are
+        # unchanged; only the fake step is made faithful to a real one.
+        cells[f"lifted{n}"] = {"components": [], "uuid": det_uuid(f"lifted{n}")}
         return {**data, "cells": cells}
     return step
 

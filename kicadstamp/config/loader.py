@@ -66,7 +66,7 @@ from .entries import (
     _load_tree_instance,
     _point_is_footprint_eligible,
 )
-from .format_version import read_version
+from .format_version import current_format
 from .includes import _load_config_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
 from .tree_instances import expand_tree_instances
@@ -78,12 +78,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Pre-sweep on-disk format per root path, set by load_config() for the У1.3
-# checks and consumed by the cached body. Out of band so _load_config_uncached
-# keeps its one-argument shape (the graph-cache test stubs it). Bounded: one
-# entry per distinct profile path.
-_PRE_SWEEP_VERSION: dict[str, int] = {}
 
 
 def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> None:
@@ -220,23 +214,11 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     """
     from .upgrade_on_disk import upgrade_graph_on_disk  # lazy — avoids an import cycle
 
-    # The ON-DISK format BEFORE the sweep. The У1.3 checks apply to a file that
-    # was ALREADY format 3 on disk — NOT to content a lifting step produced in
-    # this very load: a real 2->3 step mints UUIDs, while the format-version
-    # machinery tests stub it, and running the checks on the stub's output would
-    # reject content that never claimed to be format 3 in the first place.
-    _PRE_SWEEP_VERSION[str(path)] = read_version(path)
     upgrade_graph_on_disk(path)
-    return cached_graph_result("load_config", path,
-                               lambda: _load_config_uncached(path))
+    return cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
 
 
 def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
-    """One-argument wrapper around the cached body (see _PRE_SWEEP_VERSION)."""
-    return _load_config_body(path, _PRE_SWEEP_VERSION.pop(str(path), 1))
-
-
-def _load_config_body(path: str, on_disk_version: int) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     data = cached_file_read(Path(path), _load_config_file)
     data = resolve_includes(path, data)
@@ -370,11 +352,12 @@ def _load_config_body(path: str, on_disk_version: int) -> tuple[Config, RuntimeC
                "one record would move a component another record expects; "
                "duplicate refs are also fatal at \"Record...\" capture time")]))
 
-    # Format-3 graph checks (plan У1.3) — sleep on a format-2 file. `on_disk_version`
-    # is the file's number BEFORE this load's sweep; the product never reaches a
-    # format-3 file (it refuses it earlier), so this only fires for a file that
-    # was already format 3 on disk (tests pin CURRENT_FORMAT = 3).
-    if on_disk_version >= 3:
+    # Format-3 graph checks (plan У1.3; gate clarified 02.10 in §У1.4): they run
+    # on the format the data was LIFTED to — current_format() — so in U3 they
+    # guard the 2->3 converter itself, record by record. In the product
+    # current_format() is 2, so they sleep; tests pin
+    # format_version.CURRENT_FORMAT = 3.
+    if current_format() >= 3:
         _check_format3_graph(data, path)
 
     cells_data = dict(data.get('cells', {}) or {})
