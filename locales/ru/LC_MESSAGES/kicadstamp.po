@@ -17554,3 +17554,8 @@ msgstr "файл {path}: подъём формата не удался ({error})
 #, python-brace-format
 msgid "config file {path}: format {old} is outdated, lifted to {new}. The previous version is saved: {backup}"
 msgstr "файл {path}: формат {old} устарел, поднят до {new}. Прежняя версия сохранена: {backup}"
+
+#: kicadstamp/board_dedupe.py
+#, python-brace-format
+msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."
+msgstr "Удалено лишних медных копий: {removed}; в группах ({groups}) оставлено по одной."

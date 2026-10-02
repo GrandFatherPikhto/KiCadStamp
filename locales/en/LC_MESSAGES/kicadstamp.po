@@ -18872,3 +18872,8 @@ msgstr ""
 #, python-brace-format
 msgid "config file {path}: format {old} is outdated, lifted to {new}. The previous version is saved: {backup}"
 msgstr ""
+
+#: kicadstamp/board_dedupe.py
+#, python-brace-format
+msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."
+msgstr ""
