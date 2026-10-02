@@ -352,6 +352,52 @@ def cmd_flatten(args) -> list[str] | None:
     return flatten_config(root=args.root, output=args.output, dry_run=args.dry_run)
 
 
+# ── dedupe: duplicate copper on the LIVE board (plan_2026_10_01) ───────────
+#
+# The core is kicadstamp/board_dedupe.py (IPC-free, shared with the GUI panel):
+# this wrapper is only the CLI's plumbing. Two promises the wrapper itself makes
+# and must keep:
+#   1. WITHOUT --apply it only REPORTS. The old tools/dedupe_vias_tracks.py
+#      defaulted to deleting; that is deliberately reversed here (§2.2).
+#   2. WITH --apply a profile is REQUIRED, and refused BEFORE the board is read.
+#      The journal of a removal is that profile's actions.log, so a run that
+#      could not journal would delete copper with no record of it — the exact
+#      hole the 2026-07-29 investigation fell into (§2.4). The adapter stays
+#      BARE (use_store=False): dedupe asks the board what copper lies on it, so
+#      an override store has no say in the answer, and --config is therefore NOT
+#      an addressing flag here (see the --help text).
+
+def cmd_dedupe(args) -> list[str]:
+    """Report — and, with ``--apply``, remove — duplicate vias/tracks.
+
+    Returns the report lines for the entry point to print; the SAME text is
+    what the GUI panel copies to the clipboard (board_dedupe.format_report)."""
+    if getattr(args, "apply", False) and not getattr(args, "config", None):
+        raise PlacerError(_(
+            "[error] --apply needs --config: every removed item must be written to "
+            "the profile's actions.log, and without a profile there is no such file "
+            "to write it to. Re-run with --config <profile.sexp>, or drop --apply "
+            "to only report the duplicates."))
+
+    from kicadstamp.adapter_factory import create_board_adapter
+    from kicadstamp.board_dedupe import (apply_dedupe, apply_summary,
+                                         format_report, scan_copper_duplicates)
+
+    adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
+    via_groups, track_groups = scan_copper_duplicates(adapter)
+    report = format_report(via_groups, track_groups)
+
+    if not getattr(args, "apply", False):
+        return [report]
+
+    removed = apply_dedupe(adapter, via_groups, track_groups)
+    summary = apply_summary(removed, len(via_groups) + len(track_groups))
+    # The summary also goes to the Log, so the console and the actions.log the
+    # journal lines land in agree on the outcome.
+    logger.info(summary)
+    return [report, summary]
+
+
 # ── Т5а: the override store, written OUT again ─────────────────────────────
 #
 # Т5 sends every authoring path into the store, because our value outranks the

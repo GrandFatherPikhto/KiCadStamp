@@ -21,8 +21,8 @@ setup_i18n()
 
 from kicadstamp import __version__
 from kicadstamp.cli import (cmd_channel_copy, cmd_clone_extract, cmd_clone_plan,
-                            cmd_convert_trees, cmd_extract, cmd_extract_net,
-                            cmd_flatten, cmd_overrides_apply,
+                            cmd_convert_trees, cmd_dedupe, cmd_extract,
+                            cmd_extract_net, cmd_flatten, cmd_overrides_apply,
                             cmd_overrides_forget, cmd_overrides_list, cmd_undo)
 from kicadstamp.cli_common import peek_log_file, run_cli
 from kicadstamp.logging_setup import setup_logging
@@ -58,6 +58,7 @@ if hasattr(sys.stderr, "reconfigure"):
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
                 "clone-plan", "channel-copy", "flatten", "convert-trees",
+                "dedupe",
                 # Т5а/Т6 (plan_2026_09_18_field_overrides_store): the override
                 # store, written OUT and forgotten. They belong in this tuple for
                 # the same reason as any other name — without it the bare-config
@@ -153,6 +154,32 @@ def main() -> int:
     undo_parser.add_argument("--config", metavar="FILE", help=_(
         "Config file to read operation_log_dir's default from (optional; overridden by "
         "--operation-log-dir)"))
+
+    # plan_2026_10_01_dedupe_into_kicadstamp §2.2: the copper dedupe. The old
+    # tools/dedupe_vias_tracks.py DELETED by default; here the default is a
+    # REPORT and deletion only happens with --apply. The help for --config says
+    # out loud that it is NOT an addressing flag on this command — it names only
+    # the profile whose actions.log receives the journal, because the adapter is
+    # always bare (dedupe asks the board what copper lies on it; an override
+    # store has no say in that).
+    dedupe_parser = subparsers.add_parser(
+        "dedupe",
+        help=_("Report duplicate vias/tracks on the live board (delete the extras "
+               "only with --apply)"))
+    dedupe_parser.add_argument(
+        "--apply", action="store_true",
+        help=_("Delete the extra copies. Deletion REQUIRES --config: every removed "
+               "item is written to that profile's actions.log, and a removal that "
+               "cannot be journaled is refused."))
+    dedupe_parser.add_argument(
+        "--config", metavar="FILE",
+        help=_("Profile config file. REQUIRED with --apply, and then it names ONLY "
+               "the profile whose actions.log records the removals — the adapter is "
+               "always bare (use_store=False), so this flag does NOT change which "
+               "board is read or which Role/Cluster values resolve."))
+    dedupe_parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS,
+                               help=_("IPC timeout in ms"))
+    dedupe_parser.add_argument("--verbose", action="store_true", help=_("Verbose output"))
 
     clone_extract = subparsers.add_parser(
         "clone-extract",
@@ -463,6 +490,13 @@ def main() -> int:
     log_file = getattr(args, "log_file", None)
     if log_file is None and args.command == "apply":
         log_file = peek_log_file(args.config)
+    # `dedupe --apply` journals each deletion into the profile's actions.log, so
+    # its file handler is attached here too. Report-only attaches NOTHING: a scan
+    # changes no copper, and writing scans into actions.log would blur the very
+    # record the next duplicate investigation reads (plan_2026_10_01 §2.4).
+    if (log_file is None and args.command == "dedupe"
+            and getattr(args, "apply", False) and getattr(args, "config", None)):
+        log_file = peek_log_file(args.config)
 
     listener = setup_logging(verbose=getattr(args, "verbose", False), log_file=log_file)
 
@@ -503,6 +537,10 @@ def main() -> int:
                 print("\n".join(report))
         elif args.command == "overrides-forget":
             report = cmd_overrides_forget(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "dedupe":
+            report = cmd_dedupe(args)
             if report:
                 print("\n".join(report))
         else:

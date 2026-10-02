@@ -18877,3 +18877,19 @@ msgstr ""
 #, python-brace-format
 msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."
 msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Delete the extra copies. Deletion REQUIRES --config: every removed item is written to that profile's actions.log, and a removal that cannot be journaled is refused."
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Profile config file. REQUIRED with --apply, and then it names ONLY the profile whose actions.log records the removals — the adapter is always bare (use_store=False), so this flag does NOT change which board is read or which Role/Cluster values resolve."
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "Report duplicate vias/tracks on the live board (delete the extras only with --apply)"
+msgstr ""
+
+#: kicadstamp/cli_main.py
+msgid "[error] --apply needs --config: every removed item must be written to the profile's actions.log, and without a profile there is no such file to write it to. Re-run with --config <profile.sexp>, or drop --apply to only report the duplicates."
+msgstr ""

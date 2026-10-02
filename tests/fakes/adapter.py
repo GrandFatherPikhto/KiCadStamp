@@ -84,6 +84,9 @@ class FakeAdapter:
         self.refresh_count = 0
         self.close_count = 0
         self.updated: list = []
+        #: Every uuid passed to remove_by_id, in order — the observability a
+        #: dedupe cell needs ("was the extra deleted, or was nothing touched?").
+        self.removed: list[str] = []
 
     # ── failure injection ────────────────────────────────────────────────────
     def _raise_if_failing(self, method: str) -> None:
@@ -135,6 +138,21 @@ class FakeAdapter:
     def commit_with_retry(self, description: str, work_fn, retries: int = 1) -> bool:
         work_fn()
         return True
+
+    def remove_by_id(self, uuid_str: str) -> bool:
+        """Delete a via/track by uuid — the seam write `kicadstamp dedupe
+        --apply` and the "Дубли меди" panel go through (declared on
+        `IBoardAdapter`, so it is NOT a seam gap). Records EVERY call in
+        ``self.removed`` and answers whether the item was really there, so a
+        cell can tell "deleted the extras" from "touched the board at all"."""
+        self._raise_if_failing("remove_by_id")
+        self.removed.append(uuid_str)
+        for seq in (self._vias, self._tracks):
+            for i, item in enumerate(seq):
+                if getattr(item, "uuid", None) == uuid_str:
+                    del seq[i]
+                    return True
+        return False
 
     # ── the documented seam gaps (see SEAM_GAPS) ─────────────────────────────
     def get_board_filename(self):

@@ -17559,3 +17559,19 @@ msgstr "файл {path}: формат {old} устарел, поднят до {n
 #, python-brace-format
 msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."
 msgstr "Удалено лишних медных копий: {removed}; в группах ({groups}) оставлено по одной."
+
+#: kicadstamp/cli_main.py
+msgid "Delete the extra copies. Deletion REQUIRES --config: every removed item is written to that profile's actions.log, and a removal that cannot be journaled is refused."
+msgstr "Удалить лишние копии. Удаление ТРЕБУЕТ --config: каждый удалённый элемент пишется в actions.log этого профиля, а удаление, которое нельзя записать в журнал, отклоняется."
+
+#: kicadstamp/cli_main.py
+msgid "Profile config file. REQUIRED with --apply, and then it names ONLY the profile whose actions.log records the removals — the adapter is always bare (use_store=False), so this flag does NOT change which board is read or which Role/Cluster values resolve."
+msgstr "Файл профиля. ТРЕБУЕТСЯ с --apply, и тогда он называет ТОЛЬКО профиль, в чей actions.log попадают записи об удалении — адаптер всегда голый (use_store=False), поэтому флаг НЕ меняет ни плату, ни то, какие значения Role/Cluster разрешаются."
+
+#: kicadstamp/cli_main.py
+msgid "Report duplicate vias/tracks on the live board (delete the extras only with --apply)"
+msgstr "Сообщить о дублях переходных отверстий/дорожек на открытой плате (удалить лишние копии — только с --apply)"
+
+#: kicadstamp/cli_main.py
+msgid "[error] --apply needs --config: every removed item must be written to the profile's actions.log, and without a profile there is no such file to write it to. Re-run with --config <profile.sexp>, or drop --apply to only report the duplicates."
+msgstr "[error] --apply требует --config: каждый удалённый элемент должен быть записан в actions.log профиля, а без профиля такого файла нет. Запустите с --config <profile.sexp> или уберите --apply, чтобы только показать отчёт."
