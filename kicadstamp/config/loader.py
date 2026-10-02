@@ -66,6 +66,7 @@ from .entries import (
     _load_tree_instance,
     _point_is_footprint_eligible,
 )
+from .format_version import read_version
 from .includes import _load_config_file, resolve_includes
 from .sheet_templates import expand_sheet_templates
 from .tree_instances import expand_tree_instances
@@ -77,6 +78,12 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Pre-sweep on-disk format per root path, set by load_config() for the У1.3
+# checks and consumed by the cached body. Out of band so _load_config_uncached
+# keeps its one-argument shape (the graph-cache test stubs it). Bounded: one
+# entry per distinct profile path.
+_PRE_SWEEP_VERSION: dict[str, int] = {}
 
 
 def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> None:
@@ -99,6 +106,90 @@ def _check_duplicate_names(items, name_fn, section_label: str, hint: str) -> Non
                 section=section_label, names=dup_names),
             [hint]
         ))
+
+
+# ── format 3 (UUID) graph checks ───────────────────────────────────────────
+# Awake only when the profile's ON-DISK format is 3+ (plan У1.3). The product
+# build still refuses format-3 files outright (CURRENT_FORMAT = 2), so in
+# production these sleep; tests pin format_version.CURRENT_FORMAT = 3 (plan
+# У1.4) and load a format-3 file, which makes read_version() report 3.
+_F3_LIST_SECTIONS = ("chains", "clone_placements", "thermal_via_arrays",
+                     "coordinate_placements", "net_traces", "entities",
+                     "imprints")
+_F3_DICT_SECTIONS = ("cells", "points")
+# reference field -> the section its UUID must resolve against.
+_F3_REF_TARGET = {"cell": "cells", "imprint": "imprints", "anchor_point": "points"}
+
+
+def _f3_names_uuids_refs(data):
+    """(section -> {name: uuid}, [(owner label, field, ref_uuid)]).
+
+    Every §0 record's name and UUID, plus every reference to a §0 section. Full
+    names (`/`-paths) are the keys, so a duplicate full name shows up as a
+    duplicate key within a section — exactly the uniqueness Р43 wants.
+    """
+    named: dict[str, dict] = {}
+    refs: list = []
+    for section in _F3_DICT_SECTIONS:
+        named[section] = {name: rec.get("uuid")
+                          for name, rec in (data.get(section) or {}).items()}
+    for section in _F3_LIST_SECTIONS:
+        table: dict = {}
+        for i, rec in enumerate(data.get(section) or []):
+            name = rec.get("name") or f"{section}[{i}]"
+            table[name] = rec.get("uuid")
+            for field in _F3_REF_TARGET:
+                if rec.get(field) is not None:
+                    refs.append((f"{section} {name!r}", field, rec.get(field + "_uuid")))
+            if section == "chains":
+                for sp in rec.get("spokes") or []:
+                    if sp.get("cell") is not None:
+                        refs.append((f"chain {name!r} spoke {sp.get('pad')!r}",
+                                     "cell", sp.get("cell_uuid")))
+        named[section] = table
+    for cell_name, cell in (data.get("cells") or {}).items():
+        for ncp in cell.get("clone_placements") or []:
+            if ncp.get("cell") is not None:
+                refs.append((f"cell {cell_name!r} nested placement",
+                             "cell", ncp.get("cell_uuid")))
+    return named, refs
+
+
+def _check_format3_graph(data: dict, path: str) -> None:
+    """Fatal checks for a format-3 config (plan У1.3): every record carries a
+    UUID, UUIDs are unique in the graph, and every reference UUID resolves to an
+    existing record of the target section (a dangling UUID is fatal)."""
+    named, refs = _f3_names_uuids_refs(data)
+    owner: dict[str, str] = {}
+    for section, table in named.items():
+        for name, uuid in table.items():
+            if not uuid:
+                raise ValidationError(format_fatal_error(
+                    _("format 3: record {name!r} in {section} has no uuid").format(
+                        name=name, section=section),
+                    [_("in {path}: every record of a format-3 file carries a "
+                       "UUID; add (uuid \"…\") or lift the file with the converter")
+                     .format(path=path)]))
+            if uuid in owner:
+                raise ValidationError(format_fatal_error(
+                    _("format 3: duplicate uuid {uuid} — {section} and {other}").format(
+                        uuid=uuid, section=f"{section} {name!r}", other=owner[uuid]),
+                    [_("in {path}: a UUID must identify exactly one record").format(
+                        path=path)]))
+            owner[uuid] = f"{section} {name!r}"
+    uuids_by_section = {s: {u for u in t.values() if u} for s, t in named.items()}
+    for label, field, uuid in refs:
+        if uuid is None:
+            continue
+        target = _F3_REF_TARGET[field]
+        if uuid not in uuids_by_section.get(target, set()):
+            raise ValidationError(format_fatal_error(
+                _("format 3: {label} points {field} at uuid {uuid}, which does "
+                  "not exist").format(label=label, field=field, uuid=uuid),
+                [_("in {path}: a reference UUID must name an existing {target} "
+                   "record").format(path=path, target=target)]))
+    logger.debug(_("Format-3 graph checks passed: {records} records, {refs} refs")
+                 .format(records=sum(len(t) for t in named.values()), refs=len(refs)))
 
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
@@ -129,11 +220,23 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     """
     from .upgrade_on_disk import upgrade_graph_on_disk  # lazy — avoids an import cycle
 
+    # The ON-DISK format BEFORE the sweep. The У1.3 checks apply to a file that
+    # was ALREADY format 3 on disk — NOT to content a lifting step produced in
+    # this very load: a real 2->3 step mints UUIDs, while the format-version
+    # machinery tests stub it, and running the checks on the stub's output would
+    # reject content that never claimed to be format 3 in the first place.
+    _PRE_SWEEP_VERSION[str(path)] = read_version(path)
     upgrade_graph_on_disk(path)
-    return cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
+    return cached_graph_result("load_config", path,
+                               lambda: _load_config_uncached(path))
 
 
 def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
+    """One-argument wrapper around the cached body (see _PRE_SWEEP_VERSION)."""
+    return _load_config_body(path, _PRE_SWEEP_VERSION.pop(str(path), 1))
+
+
+def _load_config_body(path: str, on_disk_version: int) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     data = cached_file_read(Path(path), _load_config_file)
     data = resolve_includes(path, data)
@@ -266,6 +369,13 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
             [_("one component can belong to at most one Imprint — cloning "
                "one record would move a component another record expects; "
                "duplicate refs are also fatal at \"Record...\" capture time")]))
+
+    # Format-3 graph checks (plan У1.3) — sleep on a format-2 file. `on_disk_version`
+    # is the file's number BEFORE this load's sweep; the product never reaches a
+    # format-3 file (it refuses it earlier), so this only fires for a file that
+    # was already format 3 on disk (tests pin CURRENT_FORMAT = 3).
+    if on_disk_version >= 3:
+        _check_format3_graph(data, path)
 
     cells_data = dict(data.get('cells', {}) or {})
 
