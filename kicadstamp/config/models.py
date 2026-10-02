@@ -67,6 +67,12 @@ class ThermalViaArrayConfig:
     skip: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity (format 3, step 2->3; None on format 2) — see
+    # config/format_version.py and design §3.3в. The name stays the human label.
+    uuid: str | None = None
+    # UUID of the referenced points: entry. `anchor_point` above stays a plain
+    # string and is still what resolution reads in У1 (variant B, plan §У1.2).
+    anchor_point_uuid: str | None = None
 
 
 def thermal_via_array_effective_name(tva: "ThermalViaArrayConfig") -> str | None:
@@ -168,6 +174,10 @@ class CoordinatePlacement:
     skip: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity (format 3) and the UUID of the referenced points: entry
+    # (see ThermalViaArrayConfig.uuid / .anchor_point_uuid).
+    uuid: str | None = None
+    anchor_point_uuid: str | None = None
 
 
 def coordinate_placement_effective_name(cp: "CoordinatePlacement") -> str:
@@ -390,6 +400,9 @@ class CellPlacement:
     params: dict[str, Any] = field(default_factory=dict)
     net_overrides: dict[str, str] = field(default_factory=dict)
     refs: dict[str, str] = field(default_factory=dict)
+    # UUID of the referenced cell (nested placement, not a root-section record
+    # itself, so it carries no `uuid` of its own). See Cell.uuid.
+    cell_uuid: str | None = None
 
 
 @dataclass
@@ -443,6 +456,8 @@ class Cell:
     anchor_pad: str | None = None
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity (format 3) — see ThermalViaArrayConfig.uuid.
+    uuid: str | None = None
 
 
 @dataclass
@@ -493,6 +508,9 @@ class ManualSpoke:
     retired: bool = False
     cluster: str | None = None
     skip: bool = False
+    # UUID of the referenced cell (`cell` above stays a string; see
+    # ThermalViaArrayConfig.anchor_point_uuid).
+    cell_uuid: str | None = None
 
 
 @dataclass
@@ -552,6 +570,10 @@ class Chain:
     skip: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity and the UUID of the referenced points: entry (see
+    # ThermalViaArrayConfig.uuid / .anchor_point_uuid).
+    uuid: str | None = None
+    anchor_point_uuid: str | None = None
 
 
 def chain_effective_name(chain: "Chain") -> str:
@@ -655,6 +677,8 @@ class NetTrace:
     skip: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity (format 3) — see ThermalViaArrayConfig.uuid.
+    uuid: str | None = None
 
 
 def net_trace_pad_signature(nt: "NetTrace") -> frozenset[str]:
@@ -741,6 +765,11 @@ class Entity:
     layer: str | None = None
     mirror: bool = False
     comment: str | None = None
+    # Record identity and the UUIDs of the referenced cells:/imprints: entries
+    # (`cell`/`imprint` above stay strings; see ThermalViaArrayConfig).
+    uuid: str | None = None
+    cell_uuid: str | None = None
+    imprint_uuid: str | None = None
 
 
 def entity_effective_name(entity: "Entity") -> str:
@@ -869,6 +898,8 @@ class ImprintConfig:
     vias: list[ImprintViaRecord] = field(default_factory=list)
     tracks: list[ImprintTrackRecord] = field(default_factory=list)
     boundary_nets: list[ImprintBoundaryNet] = field(default_factory=list)
+    # Record identity (format 3) — see ThermalViaArrayConfig.uuid.
+    uuid: str | None = None
 
 
 def imprint_effective_name(sl: "ImprintConfig") -> str:
@@ -1130,6 +1161,11 @@ class ClonePlacement:
     by_selection: bool = False
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity and the UUIDs of the referenced cells:/points: entries
+    # (`cell`/`anchor_point` above stay strings; see ThermalViaArrayConfig).
+    uuid: str | None = None
+    cell_uuid: str | None = None
+    anchor_point_uuid: str | None = None
 
 
 def clone_placement_effective_name(clone: "ClonePlacement") -> str:
@@ -1259,6 +1295,12 @@ class Config:
     # constants.ROLE_CLUSTER_SOURCES; an unknown value is fatal at load, never a
     # silent fallback to the board.
     role_cluster_source: str = ROLE_CLUSTER_SOURCE_REGISTRY
+    # Per-section FOLDER TABLE (format 3, step 2->3; empty on format 2) —
+    # section name -> {full folder path -> folder UUID}. The path itself still
+    # lives in the record's name (`/`-separated); this table only gives each
+    # folder its own identity. See design §3.8г and plan §У1.2.
+    folders: dict[str, dict[str, str]] = field(default_factory=dict)
+
     @property
     def anchor_refs(self) -> set:
         """All anchor refs in the config: spoke chains + thermal via arrays."""

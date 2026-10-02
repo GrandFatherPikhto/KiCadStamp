@@ -324,6 +324,7 @@ def _load_cell(name: str, data: dict[str, Any]) -> Cell:
         clone_placements=clone_placements,
         layer=layer,
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
     )
 
 
@@ -331,6 +332,7 @@ _CELL_PLACEMENT_KNOWN_KEYS = {
     'name', 'cell', 'role', 'xy', 'rotation_deg', 'mirror', 'layer',
     'sheet', 'cluster',
     'nets', 'params', 'net_overrides', 'refs',
+    'cell_uuid',
 }
 
 
@@ -401,6 +403,7 @@ def _load_cell_placement(cell_name: str, data: dict[str, Any]) -> CellPlacement:
         params=data.get('params', {}) or {},
         net_overrides=data.get('net_overrides', {}) or {},
         refs=data.get('refs', {}) or {},
+        cell_uuid=data.get('cell_uuid'),
     )
 
 
@@ -408,6 +411,7 @@ _POINT_KNOWN_KEYS = {
     'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_pad',
     'anchor_point', 'xy', 'anchor_origin', 'shift_x_mm', 'shift_y_mm',
     'comment',
+    'uuid', 'anchor_point_uuid',
 }
 _BOARD_ORIGIN_KINDS = {'grid', 'drill'}
 
@@ -500,6 +504,8 @@ def _load_point(name: str, data: dict[str, Any]) -> Point:
         shift_x_mm=shift_x_mm,
         shift_y_mm=shift_y_mm,
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
+        anchor_point_uuid=data.get('anchor_point_uuid'),
     )
 
 
@@ -595,6 +601,7 @@ _MANUAL_SPOKE_KNOWN_KEYS = {
     'pad', 'cell', 'shift_x_mm', 'shift_y_mm', 'rotation_deg',
     'radius_mm', 'angle_deg',
     'retired', 'cluster', 'skip',
+    'cell_uuid',
 }
 
 
@@ -626,6 +633,7 @@ def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
         retired=data.get('retired', False),
         cluster=data.get('cluster'),
         skip=data.get('skip', False),
+        cell_uuid=data.get('cell_uuid'),
     )
 
 
@@ -633,6 +641,7 @@ _CHAIN_KNOWN_KEYS = {
     'net', 'spokes', 'anchor_ref', 'anchor_role', 'anchor_sheet',
     'anchor_cluster', 'anchor_point', 'name', 'sheet', 'retired', 'skip',
     'comment',
+    'uuid', 'anchor_point_uuid',
 }
 
 
@@ -686,13 +695,16 @@ def _load_chain(chain_data: dict[str, Any]) -> Chain:
                 name=chain_data.get('name'),
                 retired=chain_data.get('retired', False),
                 skip=chain_data.get('skip', False),
-                comment=chain_data.get('comment'))
+                comment=chain_data.get('comment'),
+                uuid=chain_data.get('uuid'),
+                anchor_point_uuid=chain_data.get('anchor_point_uuid'))
 
 
 _NET_TRACE_KNOWN_KEYS = {
     'net', 'name', 'pads', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_pad', 'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip',
     'comment',
+    'uuid',
 }
 
 
@@ -814,6 +826,7 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         retired=data.get('retired', False),
         skip=data.get('skip', False),
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
     )
 
 
@@ -821,6 +834,7 @@ _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
     'retired', 'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_point', 'pad', 'net', 'rows', 'cols', 'margin_mm', 'pattern',
     'drill_mm', 'diameter_mm', 'name', 'skip', 'comment',
+    'uuid', 'anchor_point_uuid',
 }
 
 
@@ -833,6 +847,7 @@ _CLONE_PLACEMENT_KNOWN_KEYS = {
     'radius_mm', 'angle_deg',
     'side',  # deprecated – recognised separately to give a migration message
     'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
+    'uuid', 'cell_uuid', 'anchor_point_uuid',
 }
 
 
@@ -852,6 +867,7 @@ _ENTITY_KNOWN_KEYS = {
     'name', 'cell', 'imprint', 'nets', 'params', 'net_overrides',
     'cluster', 'sheet', 'retired', 'skip', 'ignore_selection',
     'by_selection', 'refs', 'layer', 'mirror', 'comment',
+    'uuid', 'cell_uuid', 'imprint_uuid',
 }
 
 
@@ -949,6 +965,9 @@ def _load_entity(data: dict[str, Any]) -> Entity:
         layer=layer,
         mirror=bool(data.get('mirror', False)),
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
+        cell_uuid=data.get('cell_uuid'),
+        imprint_uuid=data.get('imprint_uuid'),
     )
 
 
@@ -956,6 +975,7 @@ _IMPRINT_KNOWN_KEYS = {
     'name', 'pivot', 'source_sheet',
     'scope_sheet_paths', 'scope_presets', 'components', 'vias', 'tracks',
     'boundary_nets',
+    'uuid',
 }
 _IMPRINT_COMPONENT_KNOWN_KEYS = {
     'ref', 'offset_along_mm', 'offset_across_mm', 'rotation_deg',
@@ -1196,6 +1216,7 @@ def _load_imprint(data: dict[str, Any]) -> ImprintConfig:
 
     return ImprintConfig(
         name=name,
+        uuid=data.get('uuid'),
         pivot=pivot,
         source_sheet=data.get('source_sheet'),
         scope_sheet_paths=_load_imprint_scope_paths(
@@ -1382,6 +1403,9 @@ def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
         refs=data.get('refs', {}) or {},
         by_selection=by_selection,
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
+        cell_uuid=data.get('cell_uuid'),
+        anchor_point_uuid=data.get('anchor_point_uuid'),
     )
 
 
@@ -1434,6 +1458,8 @@ def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
         name=tva_data.get('name'),
         skip=tva_data.get('skip', False),
         comment=tva_data.get('comment'),
+        uuid=tva_data.get('uuid'),
+        anchor_point_uuid=tva_data.get('anchor_point_uuid'),
     )
 
 
@@ -1442,6 +1468,7 @@ _COORDINATE_PLACEMENT_KNOWN_KEYS = {
     'radius_mm', 'angle_deg', 'rotation_deg', 'anchor', 'anchor_pad',
     'anchor_ref', 'anchor_role', 'anchor_sheet', 'anchor_cluster', 'anchor_point',
     'retired', 'skip', 'comment',
+    'uuid', 'anchor_point_uuid',
 }
 
 
@@ -1650,6 +1677,8 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
         retired=data.get('retired', False),
         skip=data.get('skip', False),
         comment=data.get('comment'),
+        uuid=data.get('uuid'),
+        anchor_point_uuid=data.get('anchor_point_uuid'),
     )
 
 

@@ -127,6 +127,54 @@ _LIST_SECTION_CLASS = {
     "imprints": ImprintConfig,
 }
 
+# Reference fields that may carry a sibling `<field>_uuid` (format 3, step
+# 2->3): in s-expr the UUID is NESTED in the reference node — (cell "x"
+# (uuid "…")) — while in JSON it is the sibling key "cell_uuid". Only references
+# to SECTIONS from the plan's §0 table are listed (variant B, plan §У1.2);
+# references to trees/nodes (module ref, tree_instances.template, self.ref) get
+# no UUID in this step.
+_REF_FIELDS = {
+    (CellPlacement, "cell"),
+    (Entity, "cell"),
+    (Entity, "imprint"),
+    (ClonePlacement, "cell"),
+    (ClonePlacement, "anchor_point"),
+    (Chain, "anchor_point"),
+    (ManualSpoke, "cell"),
+    (CoordinatePlacement, "anchor_point"),
+    (ThermalViaArrayConfig, "anchor_point"),
+    (Point, "anchor_point"),
+}
+
+
+def _ref_field_to_sexp(name: str, value, uuid: str | None):
+    """(cell "x") or (cell "x" (uuid "…")) — the reference keeps its name in
+    place (readability) with the target's UUID beside it."""
+    node = [sym(name), value]
+    if uuid is not None:
+        node.append([sym("uuid"), uuid])
+    return node
+
+
+def _parse_ref_field(node, path: str) -> tuple:
+    """Parse a (name "value" [(uuid "…")]) reference node -> (name, uuid|None)."""
+    if len(node) < 2 or len(node) > 3:
+        raise _fatal(
+            "s-expr: a reference node takes a name and an optional (uuid ...)",
+            [_("in {path}: got {value!r}; write (cell \"name\") or "
+               "(cell \"name\" (uuid \"…\"))").format(path=path, value=node)])
+    name = _atom_to_value(node[1], "str", path)
+    uuid = None
+    if len(node) == 3:
+        extra = node[2]
+        if not (isinstance(extra, list) and len(extra) == 2 and sval(extra[0]) == "uuid"):
+            raise _fatal(
+                "s-expr: the only extra child of a reference is (uuid \"…\")",
+                [_("in {path}: got {value!r}").format(path=path, value=extra)])
+        uuid = _atom_to_value(extra[1], "str", f"{path}.uuid")
+    return name, uuid
+
+
 # dict sections with a real dataclass (record name in the first position).
 _DICT_SECTION_CLASS = {
     "cells": Cell,
@@ -418,7 +466,14 @@ def _record_to_sexp(dc, data: dict):
                 [_("the s-expr config uses the same per-record known-key rule as YAML "
                    "(check_unknown_keys) — a key outside the record dataclass is a typo")]
             ))
+        if key.endswith("_uuid"):
+            # Folded into its reference field's node (a sibling key in JSON, a
+            # nested (uuid "…") in s-expr) — never written on its own.
+            continue
         if _is_default_value(dc, key, value):
+            continue
+        if (dc, key) in _REF_FIELDS:
+            node.append(_ref_field_to_sexp(key, value, data.get(key + "_uuid")))
             continue
         writer = _CUSTOM_FIELD_WRITERS.get((dc, key))
         if writer is not None:
@@ -498,10 +553,51 @@ def _free_record_to_sexp_inner(tag: str, data: dict):
     return node
 
 
-def _dict_section_to_sexp(section: str, dc, data: dict):
+def _folders_to_sexp(path_map: dict) -> list:
+    """(folders (folder "Power/LDO" (uuid "…")) …) — the per-section FOLDER
+    TABLE (format 3, design §3.8г). A folder row always carries its UUID."""
+    node = [sym("folders")]
+    for path, uuid in path_map.items():
+        node.append([sym("folder"), path, [sym("uuid"), uuid]])
+    return node
+
+
+def _parse_folders(node, section: str, path: str) -> dict:
+    """(folders …) -> {folder path: uuid}. Every row must carry a (uuid "…")."""
+    out: dict = {}
+    for rec in node[1:]:
+        if not (isinstance(rec, list) and len(rec) == 3 and sval(rec[0]) == "folder"):
+            raise _fatal(
+                "s-expr: expected a (folder \"path\" (uuid \"…\")) row",
+                [_("in {path}: got {value!r}").format(path=path, value=rec)])
+        folder_path = _atom_to_value(rec[1], "str", path)
+        uuid_node = rec[2]
+        if not (isinstance(uuid_node, list) and len(uuid_node) == 2
+                and sval(uuid_node[0]) == "uuid"):
+            raise _fatal(
+                "s-expr: a folder row needs (uuid \"…\")",
+                [_("in {path}: folder {name!r} has no (uuid ...)").format(
+                    path=path, name=folder_path)])
+        out[folder_path] = _atom_to_value(uuid_node[1], "str", path)
+    return out
+
+
+def _take_folders(node, section: str, path: str):
+    """Split a section node's leading (folders …) child (if any) from its record
+    children -> (folders map | None, record children)."""
+    rest = node[1:]
+    if rest and isinstance(rest[0], list) and rest[0] and sval(rest[0][0]) == "folders":
+        return _parse_folders(rest[0], section, path), rest[1:]
+    return None, rest
+
+
+def _dict_section_to_sexp(section: str, dc, data: dict, folders: dict | None = None):
     """cells/points/extract_profiles/... — record name in the FIRST position
-    (KiCad (footprint "R_..." ...) pattern)."""
+    (KiCad (footprint "R_..." ...) pattern). The optional `folders` map is
+    written as the section's FIRST child (format 3)."""
     node = [sym(section)]
+    if folders:
+        node.append(_folders_to_sexp(folders))
     for name, entry in data.items():
         if dc is not None:  # schema record: cells/points
             rec = _record_to_sexp(dc, entry)
@@ -566,14 +662,22 @@ def _trees_raw_from_sexp(node) -> list:
     return [raw_tree_from_sexp(tree_node) for tree_node in node[1:]]
 
 
-def _root_child_to_sexp(key: str, value):
+def _root_child_to_sexp(key: str, value, section_folders: dict | None = None):
+    if key == "folders":
+        # The folder table is not a root node — it is written as the FIRST child
+        # of each section (format 3). Skipped here; see dict_to_sexp.
+        return None
     if key in _LIST_SECTION_CLASS:
         dc = _LIST_SECTION_CLASS[key]
-        return [sym(key), *[_record_to_sexp(dc, item) for item in value]]
+        node = [sym(key)]
+        if section_folders:
+            node.append(_folders_to_sexp(section_folders))
+        node.extend(_record_to_sexp(dc, item) for item in value)
+        return node
     if key in _DICT_SECTION_CLASS:
-        return _dict_section_to_sexp(key, _DICT_SECTION_CLASS[key], value)
+        return _dict_section_to_sexp(key, _DICT_SECTION_CLASS[key], value, section_folders)
     if key in _FREE_DICT_SECTIONS:
-        return _dict_section_to_sexp(key, None, value)
+        return _dict_section_to_sexp(key, None, value, section_folders)
     if key == "include":
         return _include_to_sexp(value)
     if key in _SPECIAL_SECTIONS:
@@ -616,10 +720,11 @@ def dict_to_sexp(data: dict, format_number: int | None = None) -> str:
         format_number = current_format()
     root = [sym(TOP_TAG)]
     root.append([sym(VERSION_KEY), format_number])
+    folders = data.get("folders") or {}
     for key, value in data.items():
-        if key == VERSION_KEY:
+        if key == VERSION_KEY or key == "folders":
             continue
-        child = _root_child_to_sexp(key, value)
+        child = _root_child_to_sexp(key, value, folders.get(key))
         if child is not None:
             root.append(child)
     return _dumps(root, 0) + "\n"
@@ -818,6 +923,12 @@ def _parse_record(dc, node, path: str) -> dict:
                 [_("in {path}: key {key!r} is not a field of the {tag} record "
                    "(same known-key rule as YAML's check_unknown_keys)")
                  .format(path=path, key=key, tag=_TAG_BY_CLASS[dc])])
+        if (dc, key) in _REF_FIELDS:
+            name_val, uuid_val = _parse_ref_field(field_node, f"{path}.{key}")
+            out[key] = name_val
+            if uuid_val is not None:
+                out[key + "_uuid"] = uuid_val
+            continue
         parser = _CUSTOM_FIELD_PARSERS.get((dc, key))
         if parser is not None:
             out[key] = parser(field_node, f"{path}.{key}")
@@ -1131,9 +1242,15 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
         path = f"<{key}>"
         if key in _LIST_SECTION_CLASS:
             dc = _LIST_SECTION_CLASS[key]
-            out[key] = [_parse_record(dc, item, f"{path}[]") for item in child[1:]]
+            folds, rest = _take_folders(child, key, path)
+            out[key] = [_parse_record(dc, item, f"{path}[]") for item in rest]
+            if folds:
+                out.setdefault("folders", {})[key] = folds
         elif key in _DICT_SECTION_CLASS or key in _FREE_DICT_SECTIONS:
-            out[key] = _parse_dict_section(child, key, path)
+            folds, rest = _take_folders(child, key, path)
+            out[key] = _parse_dict_section([child[0], *rest], key, path)
+            if folds:
+                out.setdefault("folders", {})[key] = folds
         elif key == "include":
             out[key] = _parse_include(child, path)
         elif key in _SPECIAL_SECTIONS:

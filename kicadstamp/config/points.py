@@ -60,3 +60,8 @@ class Point:
     shift_y_mm: float = 0.0
     # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
     comment: str | None = None
+    # Record identity (format 3, step 2->3; None on format 2) and the UUID of
+    # the referenced points: entry — `anchor_point` above stays a string and is
+    # still what resolution reads in У1 (variant B, plan §У1.2).
+    uuid: str | None = None
+    anchor_point_uuid: str | None = None

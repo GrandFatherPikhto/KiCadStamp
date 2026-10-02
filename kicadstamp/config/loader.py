@@ -607,6 +607,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         operation_log_dir=operation_log_dir,
         board_name=board_name,
         role_cluster_source=role_cluster_source,
+        # Per-section folder table (format 3; {} on format 2) — see Config.folders.
+        folders=data.get('folders', {}) or {},
     )
     # Load-time drift guard (plan §Y.3): a live base — a kind "mount" node's
     # anchor or the tree's own (role ...) anchor — must never name a role the
