@@ -13,7 +13,12 @@ kept and the UUIDs deleted, plus a warning when a group's drill/diameter
 differs. "Копировать" puts on the clipboard the very text `kicadstamp dedupe`
 prints (format_report) — byte for byte, so a report can be pasted into a bug
 report without retyping. The table is a second VIEW of those groups; the ONE
-canonical TEXT stays format_report, and the panel never assembles it again.
+canonical TEXT stays format_report. The row's position and drill numbers come
+from the core's own ``via_position_text``/``track_position_text``/``via_sizes``,
+so a row and the report line for the same group name the same copper in the same
+order — acceptance finding (plan_2026_10_01 §5.1): the panel used to format its
+own, and a track stored (5,0)->(1,0) read as (5,0)->(1,0) in the table while the
+copied text said (1,0)->(5,0).
 
 DOOR RULE (techdocs/me/door.md): the board is read and written ONLY on the
 worker (gui/worker.py's start_long_op), and the worker is handed the CONNECTION,
@@ -39,26 +44,24 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QDockWidget,
                              QWidget)
 
 from kicadstamp.board_dedupe import (apply_dedupe, apply_summary,
-                                     format_report, scan_copper_duplicates)
+                                     format_report, scan_copper_duplicates,
+                                     track_position_text, via_position_text,
+                                     via_sizes)
 from kicadstamp.i18n import _
 from kicadstamp.utils.layers import layer_to_str
-from kicadstamp.utils.units import MM
 
 from ..worker import start_long_op
 from ._common import ERROR_STYLE, SUCCESS_STYLE, show_message
 
 logger = logging.getLogger(__name__)
 
-#: Table headers. "Type"/"Keep"/"Delete" name the same three things the report
-#: prints, so a reader can line the table up with the text they copied.
-_COLUMNS = ("Type", "Net", "Position", "Layer", "Copies", "Keep", "Delete",
-            "Warning")
-
-
-def _fmt_mm(value_nm: int) -> str:
-    """Millimetres with the report's own 4-decimal shape (the table must not
-    round differently from the text Denis pastes into a bug report)."""
-    return f"{value_nm / MM:.4f}"
+#: Table headers. Each one is its OWN literal `_()` call, NOT `_(c)` over a
+#: tuple of bare strings: pybabel extracts literals, so the `_(c)` form was
+#: invisible to it and five of the eight headers stayed English in the Russian
+#: UI (acceptance finding, plan_2026_10_01 §5.2). `_(c)` also cannot be seen by
+#: the source-tree completeness cell — the tuple of literals can.
+_COLUMNS = (_("Type"), _("Net"), _("Position"), _("Layer"), _("Copies"),
+            _("Keep"), _("Delete"), _("Warning"))
 
 
 class DedupeDock(QDockWidget):
@@ -98,7 +101,7 @@ class DedupeDock(QDockWidget):
         layout.addLayout(row)
 
         self.table = QTableWidget(0, len(_COLUMNS))
-        self.table.setHorizontalHeaderLabels([_(c) for c in _COLUMNS])
+        self.table.setHorizontalHeaderLabels(list(_COLUMNS))
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
@@ -237,21 +240,19 @@ class DedupeDock(QDockWidget):
     @staticmethod
     def _via_row(group):
         """One table row for a via group. The type word is deliberately the
-        same plain "via"/"track" the report prints, so the table and the copied
-        text read as one thing."""
+        same plain "via"/"track" the report prints, and the position and drill
+        numbers come from the core's own builders, so the row and the copied
+        text read as one thing (§5.1)."""
         via = group[0]
-        pos = f"({_fmt_mm(via.position.x)}, {_fmt_mm(via.position.y)})"
-        sizes = sorted({(round(v.drill_mm, 4), round(v.diameter_mm, 4))
-                        for v in group})
+        sizes = via_sizes(group)
         warning = f"drill/diameter: {sizes}" if len(sizes) > 1 else ""
-        return ("via", via.net_name or "?", pos, "", str(len(group)),
-                group[0].uuid, ", ".join(v.uuid for v in group[1:]), warning)
+        return ("via", via.net_name or "?", via_position_text(via), "",
+                str(len(group)), group[0].uuid,
+                ", ".join(v.uuid for v in group[1:]), warning)
 
     @staticmethod
     def _track_row(group):
         track = group[0]
-        pos = (f"({_fmt_mm(track.start.x)}, {_fmt_mm(track.start.y)}) -> "
-               f"({_fmt_mm(track.end.x)}, {_fmt_mm(track.end.y)})")
-        return ("track", track.net_name or "?", pos,
+        return ("track", track.net_name or "?", track_position_text(track),
                 layer_to_str(track.layer), str(len(group)),
                 group[0].uuid, ", ".join(t.uuid for t in group[1:]), "")

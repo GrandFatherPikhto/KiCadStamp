@@ -17591,3 +17591,23 @@ msgstr "Найти"
 #: gui/docks/dedupe.py
 msgid "removing duplicate copper"
 msgstr "удаление дублей меди"
+
+#: gui/docks/dedupe.py
+msgid "Layer"
+msgstr "Слой"
+
+#: gui/docks/dedupe.py
+msgid "Copies"
+msgstr "Копий"
+
+#: gui/docks/dedupe.py
+msgid "Keep"
+msgstr "Оставить"
+
+#: gui/docks/dedupe.py
+msgid "Delete"
+msgstr "Удаляемые"
+
+#: gui/docks/dedupe.py
+msgid "Warning"
+msgstr "Предупреждение"

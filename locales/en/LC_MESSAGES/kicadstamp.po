@@ -18909,3 +18909,23 @@ msgstr ""
 #: gui/docks/dedupe.py
 msgid "removing duplicate copper"
 msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Layer"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Copies"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Keep"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Delete"
+msgstr ""
+
+#: gui/docks/dedupe.py
+msgid "Warning"
+msgstr ""

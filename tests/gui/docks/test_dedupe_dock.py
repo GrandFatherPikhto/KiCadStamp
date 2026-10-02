@@ -27,6 +27,8 @@ from PyQt6.QtWidgets import QApplication
 
 from gui import connection as connection_mod
 from gui.connection import UI_READ_RAISE, BoardConnection
+
+from kicadstamp.board_dedupe import (track_position_text, via_position_text)
 from gui.docks.dedupe import DedupeDock
 from gui.worker import is_ui_thread
 from kicadstamp.board_dedupe import (ACTION_LOGGER_NAME, apply_summary,
@@ -174,8 +176,38 @@ def test_find_fills_the_table_with_the_core_groups_and_report(
         "via", "GND", "(1.0000, 2.0000)", "", "2", "v1", "v2",
         "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"]
     assert [_cell(dock, 1, c) for c in range(8)] == [
-        "track", "SIG", "(0.0000, 0.0000) -> (1.0000, 1.0000)", "F.Cu",
+        "track", "SIG", "(0.0000,0.0000) -> (1.0000,1.0000)", "F.Cu",
         "2", "t1", "t2", ""]
+
+
+def test_table_row_and_report_line_name_the_same_coordinates_in_the_same_order(
+        main_window, qapp):
+    """К3/§5.1 (acceptance) — ONE group, two views, identical words.
+
+    The track is stored (5,0)->(1,0) ON PURPOSE: the pair is unordered, so the
+    report normalises it, and the panel's row must say exactly the same thing.
+    Before the fix the row printed the RAW ends with a space after each comma
+    ("(5.0000, 0.0000) -> (1.0000, 0.0000)") while the copied text said
+    "(1.0000,0.0000) -> (5.0000,0.0000)" — and the panel's own docstring promised
+    the two read as one. The positions now come from the core's builders, which
+    is what makes "same coordinates, same order" a property rather than a
+    coincidence."""
+    track = _track("t1", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
+    twin = _track("t2", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
+    via = _via("v1", "GND", 1.0, 2.0)
+    twin_via = _via("v2", "GND", 1.0, 2.0)
+    adapter = FakeAdapter(vias=[via, twin_via], tracks=[track, twin])
+    dock = _dock(main_window, adapter)
+
+    _scan(dock, qapp)
+
+    # The literal text first (this is what pins the NORMALISED order, and what
+    # the pre-fix row failed), then the shared-builder property for both kinds.
+    assert _cell(dock, 1, 2) == "(1.0000,0.0000) -> (5.0000,0.0000)"
+    for row, position in ((0, via_position_text(via)),
+                          (1, track_position_text(track))):
+        assert _cell(dock, row, 2) == position
+        assert f"@ {position} mm" in dock._report_text
 
 
 def test_find_with_no_board_tells_the_user_and_touches_nothing(

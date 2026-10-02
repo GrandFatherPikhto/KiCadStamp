@@ -68,6 +68,9 @@ __all__ = [
     "find_via_duplicate_groups",
     "format_report",
     "scan_copper_duplicates",
+    "track_position_text",
+    "via_position_text",
+    "via_sizes",
 ]
 
 #: The logger the per-deletion audit lines go through. A dedicated NAME (not
@@ -144,6 +147,17 @@ def _via_pos_mm(via: Via) -> Tuple[float, float]:
     return (via.position.x / MM, via.position.y / MM)
 
 
+def via_position_text(via: Via) -> str:
+    """``'(1.0000, 2.0000)'`` — the position exactly as the REPORT prints it.
+
+    Public and used by BOTH the report and the GUI table. Acceptance finding
+    (plan_2026_10_01 §5.1): the panel used to assemble its own string, so a
+    group's row and the text the panel copies named the same copper in a
+    different order — the two views must not be able to disagree."""
+    x_mm, y_mm = _via_pos_mm(via)
+    return f"({x_mm:.4f}, {y_mm:.4f})"
+
+
 def _via_key(via: Via) -> tuple:
     return (via.net_name,)
 
@@ -166,6 +180,15 @@ def _track_pos_mm(track: Track) -> Tuple[float, float, float, float]:
     and the grouping key can never disagree about which end is "start")."""
     sx, sy, ex, ey = _track_pos_nm(track)
     return (sx / MM, sy / MM, ex / MM, ey / MM)
+
+
+def track_position_text(track: Track) -> str:
+    """``'(1.0000,0.0000) -> (5.0000,0.0000)'`` — ends NORMALISED (the pair is
+    unordered) exactly as the report prints them; public for the same reason as
+    :func:`via_position_text` (a track stored (5,0)->(1,0) prints as (1,0)->(5,0)
+    in BOTH the report and the panel's row — §5.1)."""
+    sx, sy, ex, ey = _track_pos_mm(track)
+    return f"({sx:.4f},{sy:.4f}) -> ({ex:.4f},{ey:.4f})"
 
 
 def _track_key(track: Track) -> tuple:
@@ -191,19 +214,20 @@ def scan_copper_duplicates(adapter) -> tuple[list[list[Via]], list[list[Track]]]
 
 # ── report ──────────────────────────────────────────────────────────────────
 
-def _via_sizes(group: Sequence[Via]) -> list[tuple[float, float]]:
+def via_sizes(group: Sequence[Via]) -> list[tuple[float, float]]:
     """The distinct (drill_mm, diameter_mm) pairs in a group — the warning's
-    payload. Rounded like the old tool's report so the text is stable."""
+    payload. Rounded like the old tool's report so the text is stable; public
+    because the panel shows the same numbers (§5.1: it used to recompute them,
+    so a change to the rounding here would have silently missed the table)."""
     return sorted({(round(v.drill_mm, 4), round(v.diameter_mm, 4))
                    for v in group})
 
 
 def _format_via_group(group: Sequence[Via], lines: list[str]) -> None:
     net = group[0].net_name or "?"
-    x_mm, y_mm = _via_pos_mm(group[0])
-    lines.append(f"  via net={net!r} @ ({x_mm:.4f}, {y_mm:.4f}) mm - "
+    lines.append(f"  via net={net!r} @ {via_position_text(group[0])} mm - "
                  f"{len(group)} copies")
-    sizes = _via_sizes(group)
+    sizes = via_sizes(group)
     if len(sizes) > 1:
         lines.append("    [warning] drill/diameter differ within this group: "
                      f"{sizes}")
@@ -215,10 +239,8 @@ def _format_via_group(group: Sequence[Via], lines: list[str]) -> None:
 def _format_track_group(group: Sequence[Track], lines: list[str]) -> None:
     net = group[0].net_name or "?"
     layer = _layer_str(group[0].layer)
-    sx, sy, ex, ey = _track_pos_mm(group[0])
     lines.append(f"  track net={net!r} layer={layer} @ "
-                 f"({sx:.4f},{sy:.4f}) -> ({ex:.4f},{ey:.4f}) mm - "
-                 f"{len(group)} copies")
+                 f"{track_position_text(group[0])} mm - {len(group)} copies")
     lines.append(f"    keep   {group[0].uuid}")
     for t in group[1:]:
         lines.append(f"    delete {t.uuid}")
