@@ -418,6 +418,32 @@ def _filter_materialized_entities(clones, only: list[str] | None,
 # record the run dropped.
 
 
+def _live_items_after_deletion(live_items, deleted_uuids):
+    """The live board items with the just-deleted UUIDs removed.
+
+    Phases 2 (vias) and 3 (tracks) each fetch the live list ONCE and feed it to
+    three consumers: reconcile() (whose to_delete also carries pruned keys),
+    adapter.remove_by_ids(), and the positional pre-check (filter_existing_vias
+    / filter_existing_tracks). After the deletion that pre-deletion list is
+    stale: it still counts the just-deleted copper as present on the board, so
+    a command whose registry KEY changed while its geometry did not — renaming
+    a cell or a thermal via array, reordering vias inside a cell — is skipped
+    as "already exists" right after its copper was deleted, and the apply
+    leaves the board empty until the next run (the next apply then sees no live
+    copper and finally creates it).
+
+    The positional pre-check must see the board AFTER remove_by_ids(); this is
+    the ONE place that computes that view, shared by both phases so they cannot
+    drift apart.
+
+    2026-10-02, plan_2026_10_02_stale_live_list_after_prune.md.
+    """
+    if not deleted_uuids:
+        return live_items
+    deleted = set(deleted_uuids)
+    return [item for item in live_items if item.uuid not in deleted]
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class ApplyPipeline:
@@ -907,6 +933,13 @@ class ApplyPipeline:
         # stale vias go out as a single IPC request (see adapter.remove_by_ids).
         if vias_to_delete:
             self.adapter.remove_by_ids(vias_to_delete)
+        # The positional pre-check below must see the board AFTER that deletion:
+        # live_vias was fetched before reconcile/prune and still lists the
+        # just-deleted UUIDs, so a command whose key changed while its geometry
+        # did not (renamed cell / thermal via array) would be skipped as "already
+        # exists" right after its copper was removed (2026-10-02,
+        # plan_2026_10_02_stale_live_list_after_prune.md).
+        live_vias = _live_items_after_deletion(live_vias, vias_to_delete)
         # Positional pre-check of vias (2026-09-08, plan_2026_09_08_via_
         # positional_precheck.md) — the via analog of the track pre-check added
         # 2026-08-31 (filter_existing_tracks below): vias never got the same
@@ -947,6 +980,10 @@ class ApplyPipeline:
         # Batch deletion — same single-IPC rationale as the via path above.
         if tracks_to_delete:
             self.adapter.remove_by_ids(tracks_to_delete)
+        # Same after-deletion view as the via phase above (one helper, not a
+        # second copy): live_tracks still lists the just-deleted UUIDs, so the
+        # pre-check must not be fed the stale list.
+        live_tracks = _live_items_after_deletion(live_tracks, tracks_to_delete)
         # Positional pre-check of tracks — unregistered-copper idempotency
         # (analog of the via pre-check). Run UNCONDITIONALLY (2026-08-31,
         # plan_2026_08_31_duplicate_tracks_after_tree_redraw): a repeated redraw
