@@ -382,3 +382,27 @@ def test_a_local_kind_node_may_not_carry_a_uuid(format3):
     with pytest.raises(ValidationError) as e:
         sexp_to_dict(text)
     assert "carries no uuid" in str(e.value)
+
+
+# ── У2.0: the diamond include, walked ONCE by the format-3 record check ─────
+
+def test_diamond_include_loads_without_a_phantom_duplicate(format3, tmp_path):
+    """У2.0 (the tail of У1; kills mutation D1 in loader._f3_files).
+
+    r -> a, b -> common, and the SHARED file carries a record.
+    walk_include_tree does NOT dedupe a diamond on purpose, so without
+    _f3_files' own by-path dedup the common file contributes its record twice
+    and the duplicate-name / duplicate-UUID check false-fatals on a healthy
+    graph. A diamond is legitimate reuse (includes.py), not a contradiction."""
+    root = tmp_path / "r.sexp"
+    a = tmp_path / "a.sexp"
+    b = tmp_path / "b.sexp"
+    common = tmp_path / "common.sexp"
+    _write_sexp(common, {"entities": [{"name": "E", "cell": "c",
+                                       "cell_uuid": D_CELL, "uuid": D_ENTITY}]})
+    _write_sexp(a, {"include": ["common.sexp"]})
+    _write_sexp(b, {"include": ["common.sexp"]})
+    _write_sexp(root, {"include": ["a.sexp", "b.sexp"],
+                       "cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}}})
+    cfg, _ = load_config(str(root))
+    assert [e.name for e in cfg.entities] == ["E"]

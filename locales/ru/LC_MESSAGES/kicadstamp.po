@@ -17695,3 +17695,45 @@ msgstr "записи формата 3 нужно имя (Р43): конверте
 #: kicadstamp/config/loader.py
 msgid "names are unique within a section across the whole graph (Р43): rename one of the two records"
 msgstr "имена уникальны внутри раздела по всему графу (Р43): переименуй одну из двух записей"
+
+#: kicadstamp/config/loader.py
+msgid "format 3: {label} has no uuid"
+msgstr "формат 3: у {label} нет uuid"
+
+#: kicadstamp/config/loader.py
+msgid ""
+"in {path}: every reference to a record carries the target's UUID (§0); the "
+"name is only a hint. Add the sibling UUID or lift the file with the converter"
+msgstr ""
+"в {path}: каждая ссылка на запись несёт UUID цели (§0); имя — лишь подсказка. "
+"Добавь соседний UUID или подними файл конвертером"
+
+#: kicadstamp/config/loader.py
+msgid "Format-3 references normalized by UUID: {count}"
+msgstr "Ссылок формата 3 нормализовано по UUID: {count}"
+
+#: kicadstamp/trees.py
+msgid "anchor: only a (uuid \"…\") may follow a (point \"…\")"
+msgstr "якорь: после (point \"…\") может стоять только (uuid \"…\")"
+
+#: kicadstamp/trees.py
+msgid "anchor: point_uuid needs a point base"
+msgstr "якорь: point_uuid требует базы point"
+
+#: kicadstamp/apply_pipeline.py
+msgid "--only {token!r}: resolved to the single record {full!r} by its short name"
+msgstr "--only {token!r}: найдена единственная запись {full!r} по короткому имени"
+
+#: kicadstamp/apply_pipeline.py
+msgid "  {token!r} matches {count} records by its short name: {full}"
+msgstr "  {token!r} совпадает с {count} записями по короткому имени: {full}"
+
+#: kicadstamp/apply_pipeline.py
+msgid ""
+"[error] --only: ambiguous short name(s):\n"
+"{lines}\n"
+"Use the full name (with its folder path)"
+msgstr ""
+"[error] --only: неоднозначные короткие имена:\n"
+"{lines}\n"
+"Укажи полное имя (с путём папки)"

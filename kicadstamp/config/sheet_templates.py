@@ -60,7 +60,10 @@ from ..i18n import _
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_SECTIONS = ('clone_placements', 'coordinate_placements')
-_TEMPLATE_KEYS = ('sheets',) + _TEMPLATE_SECTIONS
+# `uuid` — the template is a §0 record, so a format-3 file carries its UUID on
+# the template itself (plan У1); it is validated by the loader's format-3 check
+# BEFORE this expansion consumes the block, and it is discarded with the block.
+_TEMPLATE_KEYS = ('sheets', 'uuid') + _TEMPLATE_SECTIONS
 
 _SELF_FIELDS = ('anchor_sheet',)
 _SHEET_TOKEN = '$SHEET'

@@ -127,7 +127,9 @@ class TreeAnchor:
                            live component (subsumes ClonePlacement's role-based
                            anchor); sheet/cluster narrow ambiguity, pad moves
                            the anchor point to a specific pad
-      - point set       -> (anchor (point "...")): a points: entry name
+      - point set       -> (anchor (point "...")): a points: entry name, with an
+                           optional (uuid "...") child naming the target record
+                           (format 3, step 2->3)
       - is_self=True    -> (anchor (self [(ref "...") (pad "...")])): the tree
                            hangs on a component the tree ITSELF places; the
                            base is read LIVE from that component (plan
@@ -161,6 +163,9 @@ class TreeAnchor:
     anchor_cluster: str | None = None
     anchor_pad: str | None = None
     point: str | None = None
+    # UUID of the referenced points: entry (format 3, step 2->3) — `point` above
+    # stays a plain string and is what resolution reads (variant B, plan §У1.2).
+    point_uuid: str | None = None
     is_self: bool = False         # (anchor (self ...)) — was the is_auto flag
     self_ref: str | None = None   # optional node ref OF THIS TREE (placement)
     self_pad: str | None = None   # optional pad of that node's component
@@ -360,7 +365,21 @@ def _parse_anchor(anchor_node) -> TreeAnchor:
         return TreeAnchor(ref=sval(ref), is_origin=False, is_external=is_external,
                           shift_xy=shift_xy)
     if point is not None:
-        return TreeAnchor(point=sval(point), is_origin=False, shift_xy=shift_xy)
+        # (point "p" [(uuid "…")]) — the UUID is NESTED in the point node
+        # (format 3, step 2->3); any other extra child is a FATAL, never a
+        # silent drop (mirrors the node ref's grammar).
+        point_node = child(anchor_node, "point")
+        point_uuid = None
+        if len(point_node) > 2:
+            extra = point_node[2]
+            if not (isinstance(extra, list) and len(extra) == 2
+                    and sval(extra[0]) == "uuid"):
+                _fatal(_("anchor: only a (uuid \"…\") may follow a (point \"…\")"))
+            point_uuid = sval(extra[1])
+        if len(point_node) > 3:
+            _fatal(_("anchor: only a (uuid \"…\") may follow a (point \"…\")"))
+        return TreeAnchor(point=sval(point), point_uuid=point_uuid,
+                          is_origin=False, shift_xy=shift_xy)
     if self_node is not None:
         # (self (ref "...") (pad "...")) — ref/pad NEST inside the (self ...)
         # node; the top-level (ref "...") above is the record anchor.
@@ -856,6 +875,9 @@ def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:
             _fatal(_("{location}: only a (uuid \"…\") may follow a node's ref")
                    .format(location=location))
         ref_uuid = sval(extra[1])
+        if len(ref_node) > 3:
+            _fatal(_("{location}: only a (uuid \"…\") may follow a node's ref")
+                   .format(location=location))
 
     # kind read BEFORE the seen_refs check: the LOCAL kinds' refs (module -> a
     # TREE's name, mount -> a point-of-reference name, copper -> a container
@@ -1258,7 +1280,10 @@ def _anchor_to_sexp(anchor: TreeAnchor) -> list:
             if anchor.is_external:
                 out.append([sym("external")])
         elif anchor.point is not None:
-            out.append([sym("point"), anchor.point])
+            point_node: list = [sym("point"), anchor.point]
+            if anchor.point_uuid is not None:
+                point_node.append([sym("uuid"), anchor.point_uuid])
+            out.append(point_node)
         else:
             out.append([sym("role"), anchor.role])
             if anchor.anchor_sheet is not None:
@@ -1333,6 +1358,8 @@ def _anchor_to_dict(anchor: TreeAnchor) -> dict:
             out["external"] = True
     elif anchor.point is not None:
         out = {"point": anchor.point}
+        if anchor.point_uuid is not None:
+            out["point_uuid"] = anchor.point_uuid
     else:
         out = {"role": anchor.role}
         if anchor.anchor_sheet is not None:
@@ -1437,6 +1464,12 @@ def _raw_anchor(anchor_node) -> dict:
                 out["external"] = True
         elif point is not None:
             out = {"point": sval(point)}
+            point_node = child(anchor_node, "point")
+            if point_node is not None and len(point_node) > 2:
+                extra = point_node[2]
+                if (isinstance(extra, list) and len(extra) == 2
+                        and sval(extra[0]) == "uuid"):
+                    out["point_uuid"] = sval(extra[1])
         else:
             out = {"role": sval(atom(anchor_node, "role"))}
             for key in ("sheet", "cluster", "pad"):
@@ -1759,6 +1792,8 @@ def anchor_from_dict(anchor_data: dict, owner: str) -> TreeAnchor:
         _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))
     if not anchor_modes:
         # (the self default also covers a shift-less {} — see the docstring)
+        if anchor_data.get("point_uuid") is not None:
+            _fatal(_("anchor: point_uuid needs a point base"))
         if shift_xy is not None:
             _fatal(_("anchor: shift needs a base — set one of "
                      "origin/ref/role/point/self"))
@@ -1787,8 +1822,12 @@ def anchor_from_dict(anchor_data: dict, owner: str) -> TreeAnchor:
     # fatal, mirroring the s-expr path (_parse_anchor).
     if anchor_data.get("external"):
         _fatal(_("anchor: external is only valid with a ref anchor"))
+    if anchor_data.get("point_uuid") is not None and anchor_data.get("point") is None:
+        _fatal(_("anchor: point_uuid needs a point base"))
     if anchor_data.get("point") is not None:
-        return TreeAnchor(point=anchor_data["point"], shift_xy=shift_xy)
+        return TreeAnchor(point=anchor_data["point"],
+                          point_uuid=anchor_data.get("point_uuid"),
+                          shift_xy=shift_xy)
     role = anchor_data.get("role")
     if not role:
         _fatal(_("anchor must specify exactly one of origin/ref/role/point/self"))

@@ -302,6 +302,55 @@ class TestApplyOnlyFilter:
             apply_only_filter(cfg, ["dead"], logger)
 
 
+class TestApplyOnlyShortNames:
+    """В33 (plan §4, У2.5): a short --only spelling — the LAST `/` segment of a
+    full name — resolves when exactly one full name matches; several matches
+    refuse with the full names listed; an exact full name always WINS over a
+    short match. No gate: on today's data (0 names contain `/`, В38) nothing
+    changes, but the rule must hold on format-3 data with folders."""
+
+    @staticmethod
+    def _two_ldo_rows():
+        return _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Power", role="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+            CoordinatePlacement(cluster="Analog", role="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+
+    def test_short_name_with_one_match_is_taken(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Power", role="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0)])
+        out = apply_only_filter(cfg, ["ldo"], logger)
+        assert [cp.cluster for cp in out.coordinate_placements] == ["Power"]
+
+    def test_short_name_with_several_matches_refuses_listing_full_names(self):
+        with pytest.raises(PlacerError) as e:
+            apply_only_filter(self._two_ldo_rows(), ["ldo"], logger)
+        text = str(e.value)
+        assert "Power/ldo" in text and "Analog/ldo" in text
+
+    def test_exact_full_name_wins_over_a_short_match(self):
+        """`ldo` is a full name of one record AND the short name of another —
+        the exact match is taken, no ambiguity."""
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="X", role="R", name="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+            CoordinatePlacement(cluster="Power", role="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
+        ])
+        out = apply_only_filter(cfg, ["ldo"], logger)
+        assert [cp.name for cp in out.coordinate_placements] == ["ldo"]
+
+    def test_unknown_name_still_fails_not_found(self):
+        cfg = _cfg(coordinate_placements=[
+            CoordinatePlacement(cluster="Power", role="ldo",
+                                x_mm=0.0, y_mm=0.0, rotation_deg=0.0)])
+        with pytest.raises(PlacerError):
+            apply_only_filter(cfg, ["nope"], logger)
+
+
 class TestApplyClusterFilter:
     def test_no_cluster_paths_is_noop(self):
         cfg = _cfg(rules=[Rule(net="GND", spokes=[

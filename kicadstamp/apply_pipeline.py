@@ -195,7 +195,6 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     l = _logger or logger
     if not only_names:
         return cfg
-    requested = set(only_names)
     # component nodes (2026-09-17, plan_2026_09_17 Э3): a kind "component" tree
     # node is an --only identity — its placement materializes as a TRANSIENT
     # CoordinatePlacement whose effective name IS the node's ref, created after
@@ -204,6 +203,54 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
     # `--only <node name>` does not fatal, and it narrows nothing in the config
     # sections because the node exists in none of them yet.
     component_node_names = _component_node_names(cfg)
+
+    # ── В33 (plan §4, У2.5): full vs short --only spelling ────────────────
+    # Every identity currently selectable, by its FULL name. A folder appears
+    # as the `/`-separated path inside a name (В38), so a short spelling is its
+    # last segment.
+    all_names = sorted(
+        {chain_effective_name(c) for c in cfg.chains}
+        | {clone_placement_effective_name(c) for c in cfg.clone_placements}
+        | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
+        | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
+           if not cp.retired}
+        | {net_trace_effective_name(nt) for nt in cfg.net_traces if not nt.retired}
+        # net_traces net names are valid --only spellings too (see below)
+        | {nt.net for nt in cfg.net_traces if not nt.retired}
+        | {entity_effective_name(e) for e in cfg.entities if not e.retired}
+        | component_node_names
+    )
+    name_set = set(all_names)
+    by_short: dict[str, list[str]] = {}
+    for full in all_names:
+        by_short.setdefault(full.rsplit("/", 1)[-1], []).append(full)
+
+    requested: set[str] = set()
+    ambiguous: list[tuple[str, list[str]]] = []
+    for token in only_names:
+        if token in name_set:
+            # An exact full name WINS over a short match, even when the same
+            # token is also the short form of another record (В33, the rule).
+            requested.add(token)
+            continue
+        matches = by_short.get(token, [])
+        if len(matches) == 1:
+            l.info(_("--only {token!r}: resolved to the single record {full!r} "
+                     "by its short name").format(token=token, full=matches[0]))
+            requested.add(matches[0])
+        elif len(matches) > 1:
+            ambiguous.append((token, sorted(matches)))
+        else:
+            # No match at all: keep the token so the existing "not found"
+            # report names it (and offers a close match).
+            requested.add(token)
+    if ambiguous:
+        amb_lines = [_("  {token!r} matches {count} records by its short name: {full}")
+                     .format(token=t, count=len(m), full=", ".join(m))
+                     for t, m in ambiguous]
+        raise PlacerError(_("[error] --only: ambiguous short name(s):\n{lines}\n"
+                            "Use the full name (with its folder path)").format(
+                                lines="\n".join(amb_lines)))
     matched_chains = [c for c in cfg.chains if chain_effective_name(c) in requested]
     matched_clones = [c for c in cfg.clone_placements
                       if clone_placement_effective_name(c) in requested]
@@ -240,19 +287,6 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
                    | component_node_names)
     missing = requested - found_names
     if missing:
-        all_names = sorted(
-            {chain_effective_name(c) for c in cfg.chains}
-            | {clone_placement_effective_name(c) for c in cfg.clone_placements}
-            | {thermal_via_array_effective_name(t) for t in cfg.thermal_via_arrays if not t.retired}
-            | {coordinate_placement_effective_name(cp) for cp in cfg.coordinate_placements
-               if not cp.retired}
-            | {net_trace_effective_name(nt) for nt in cfg.net_traces if not nt.retired}
-            # net_traces net names are valid --only spellings too (see above),
-            # so they must be suggested when a name is not found
-            | {nt.net for nt in cfg.net_traces if not nt.retired}
-            | {entity_effective_name(e) for e in cfg.entities if not e.retired}
-            | component_node_names
-        )
         lines = []
         for name in sorted(missing):
             suggestion = difflib.get_close_matches(name, all_names, n=1)

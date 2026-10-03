@@ -19013,3 +19013,40 @@ msgstr ""
 #: kicadstamp/config/loader.py
 msgid "names are unique within a section across the whole graph (Р43): rename one of the two records"
 msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: {label} has no uuid"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid ""
+"in {path}: every reference to a record carries the target's UUID (§0); the "
+"name is only a hint. Add the sibling UUID or lift the file with the converter"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "Format-3 references normalized by UUID: {count}"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid "anchor: only a (uuid \"…\") may follow a (point \"…\")"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid "anchor: point_uuid needs a point base"
+msgstr ""
+
+#: kicadstamp/apply_pipeline.py
+msgid "--only {token!r}: resolved to the single record {full!r} by its short name"
+msgstr ""
+
+#: kicadstamp/apply_pipeline.py
+msgid "  {token!r} matches {count} records by its short name: {full}"
+msgstr ""
+
+#: kicadstamp/apply_pipeline.py
+msgid ""
+"[error] --only: ambiguous short name(s):\n"
+"{lines}\n"
+"Use the full name (with its folder path)"
+msgstr ""
