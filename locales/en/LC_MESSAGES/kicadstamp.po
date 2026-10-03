@@ -19001,3 +19001,15 @@ msgstr ""
 #: kicadstamp/trees.py
 msgid "{location}: only a (uuid \"…\") may follow a node's ref"
 msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "format 3: record without a name — {section}[{index}] in {path}"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "a format-3 record needs a name (Р43): the converter mints one when it lifts the file (В36)"
+msgstr ""
+
+#: kicadstamp/config/loader.py
+msgid "names are unique within a section across the whole graph (Р43): rename one of the two records"
+msgstr ""

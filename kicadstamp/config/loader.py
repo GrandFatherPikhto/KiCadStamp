@@ -125,11 +125,20 @@ _F3_NODE_KIND_TARGET = {"placement": "entities", "clone": "clone_placements",
 
 
 def _f3_files(root_path: str) -> list[str]:
-    """Every file of the include: graph, by its own path."""
+    """Every DISTINCT file of the include: graph, by its own path.
+
+    Deduplicated by path: walk_include_tree does NOT dedupe a diamond (the same
+    file reachable from two branches) on purpose, so without this a file
+    included twice would contribute every record twice and a duplicate-name
+    check would false-fatal."""
     out: list[str] = []
+    seen: set = set()
 
     def walk(node) -> None:
-        out.append(str(node.path))
+        p = str(node.path)
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
         for child in node.children:
             walk(child)
 
@@ -148,23 +157,26 @@ def _f3_collect(data: dict, file_path: str, records: list, folders: list,
     """Append one file's records, folders and refs, each tagged with its file."""
     for section in _F3_DICT_SECTIONS:
         for name, rec in (data.get(section) or {}).items():
-            records.append((section, name, rec.get("uuid"), file_path))
+            records.append((section, name, rec.get("uuid"), file_path, -1))
     for section in _F3_FREE_SECTIONS:
         for name, rec in (data.get(section) or {}).items():
             uuid = rec.get("uuid") if isinstance(rec, dict) else None
-            records.append((section, name, uuid, file_path))
+            records.append((section, name, uuid, file_path, -1))
     for section in _F3_LIST_SECTIONS:
         for i, rec in enumerate(data.get(section) or []):
-            name = rec.get("name") or f"{section}[{i}]"
-            records.append((section, name, rec.get("uuid"), file_path))
+            # П2: an unnamed record stays None — the "<section>[i]" label is a
+            # DIAGNOSTIC for the "no name" fatal, never a name fed to the
+            # uniqueness check (Р43 requires a name; В36 mints one on lift).
+            label = rec.get("name") or f"{section}[{i}]"
+            records.append((section, rec.get("name"), rec.get("uuid"), file_path, i))
             for field, target in _F3_REF_TARGET.items():
                 if rec.get(field) is not None:
-                    refs.append((f"{section} {name!r}", target,
+                    refs.append((f"{section} {label!r}", target,
                                  rec.get(field + "_uuid"), file_path))
             if section == "chains":
                 for sp in rec.get("spokes") or []:
                     if sp.get("cell") is not None:
-                        refs.append((f"chain {name!r} spoke {sp.get('pad')!r}",
+                        refs.append((f"chain {label!r} spoke {sp.get('pad')!r}",
                                      "cells", sp.get("cell_uuid"), file_path))
     for name, p in (data.get("points") or {}).items():
         if p.get("anchor_point") is not None:
@@ -201,21 +213,32 @@ def _check_format3_graph(root_path: str) -> dict:
     for f in graph_files:
         _f3_collect(_load_config_file(Path(f)), f, records, folders, refs)
 
-    # duplicate FULL name within a section, across the whole graph (Н4)
+    # П2: a format-3 record MUST carry a name (Р43) — its own fatal, with the
+    # file, section and index; never a phantom "duplicate full name".
+    for section, name, uuid, f, i in records:
+        if name is None:
+            raise ValidationError(format_fatal_error(
+                _("format 3: record without a name — {section}[{index}] in {path}").format(
+                    section=section, index=i, path=f),
+                [_("a format-3 record needs a name (Р43): the converter mints one "
+                   "when it lifts the file (В36)")]))
+
+    # П1/Н4: duplicate FULL name within a section — anywhere in the graph, the
+    # SAME file included (Р43 uniqueness is per section, no per-file caveat).
     name_src: dict = {}
-    for section, name, uuid, f in records:
+    for section, name, uuid, f, i in records:
         key = (section, name)
-        if key in name_src and name_src[key] != f:
+        if key in name_src:
             raise ValidationError(format_fatal_error(
                 _("format 3: duplicate full name {name!r} in {section} — in {a} "
                   "and {b}").format(name=name, section=section,
                                     a=name_src[key], b=f),
-                [_("names are unique across the whole graph (Р43): rename one of "
-                   "the two records")]))
+                [_("names are unique within a section across the whole graph "
+                   "(Р43): rename one of the two records")]))
         name_src[key] = f
 
     # record without a UUID — place is the record's OWN file (Н7)
-    for section, name, uuid, f in records:
+    for section, name, uuid, f, i in records:
         if not uuid:
             raise ValidationError(format_fatal_error(
                 _("format 3: record {name!r} in {section} has no uuid").format(
@@ -248,7 +271,7 @@ def _check_format3_graph(root_path: str) -> dict:
 
     # duplicate uuid across records AND distinct folders (Н4а)
     owner: dict = {}
-    for section, name, uuid, f in records:
+    for section, name, uuid, f, i in records:
         if uuid in owner:
             raise ValidationError(format_fatal_error(
                 _("format 3: duplicate uuid {uuid} — {a} ({fa}) and {b} ({fb})").format(
@@ -267,7 +290,7 @@ def _check_format3_graph(root_path: str) -> dict:
 
     # dangling references — place is the REFERENCING record's file (Н7)
     uuids_by_section: dict = {}
-    for section, name, uuid, f in records:
+    for section, name, uuid, f, i in records:
         uuids_by_section.setdefault(section, set()).add(uuid)
     for label, target, uuid, f in refs:
         if uuid is None:

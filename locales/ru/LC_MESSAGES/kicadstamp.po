@@ -17683,3 +17683,15 @@ msgstr "{location}: узел {kind!r} не ссылается на запись,
 #: kicadstamp/trees.py
 msgid "{location}: only a (uuid \"…\") may follow a node's ref"
 msgstr "{location}: после ref узла допустим только (uuid \"…\")"
+
+#: kicadstamp/config/loader.py
+msgid "format 3: record without a name — {section}[{index}] in {path}"
+msgstr "формат 3: запись без имени — {section}[{index}] в {path}"
+
+#: kicadstamp/config/loader.py
+msgid "a format-3 record needs a name (Р43): the converter mints one when it lifts the file (В36)"
+msgstr "записи формата 3 нужно имя (Р43): конвертер сочиняет его при подъёме файла (В36)"
+
+#: kicadstamp/config/loader.py
+msgid "names are unique within a section across the whole graph (Р43): rename one of the two records"
+msgstr "имена уникальны внутри раздела по всему графу (Р43): переименуй одну из двух записей"

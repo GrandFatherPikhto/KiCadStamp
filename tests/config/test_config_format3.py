@@ -269,3 +269,116 @@ def test_tree_node_reference_uuid(format3, tmp_path):
     assert sexp_to_dict(text) == data
     data["trees"][0]["nodes"][0]["ref_uuid"] = det_uuid("nope")
     _dangling(format3, tmp_path, data)
+
+
+def _wrap3(body: str) -> str:
+    return "(kicadstamp-config\n  (version 3)\n" + body + ")\n"
+
+
+# ── П1/П2 ──────────────────────────────────────────────────────────────────
+
+def test_duplicate_full_name_within_one_file_is_fatal(format3, tmp_path):
+    """П1: same name + different UUIDs in ONE file — still a duplicate (Р43)."""
+    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+            "clone_placements": [
+                {"cluster": "K1", "cell": "c", "cell_uuid": D_CELL,
+                 "xy": [0.0, 0.0], "name": "same", "uuid": D_ENTITY},
+                {"cluster": "K2", "cell": "c", "cell_uuid": D_CELL,
+                 "xy": [1.0, 0.0], "name": "same", "uuid": D_FOLDER_P}]}
+    p = tmp_path / "config.sexp"
+    _write_sexp(p, data)
+    with pytest.raises(ValidationError) as e:
+        load_config(str(p))
+    assert "duplicate full name" in str(e.value)
+
+
+def test_unnamed_record_is_fatal_not_a_phantom_duplicate(format3, tmp_path):
+    """П2: two unnamed chains in two files -> "no name", not "duplicate name"."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
+    _write_sexp(sub, {"chains": [{"net": "GND", "anchor_ref": "IC2", "spokes": []}]})
+    _write_sexp(root, {"include": ["sub.sexp"],
+                       "chains": [{"net": "GND", "anchor_ref": "IC1", "spokes": []}]})
+    with pytest.raises(ValidationError) as e:
+        load_config(str(root))
+    assert "without a name" in str(e.value)
+    assert "duplicate full name" not in str(e.value)
+
+
+# ── П3: one cell per mutation that survived the second acceptance ──────────
+
+def test_folder_uuid_equal_to_a_record_uuid_is_fatal(format3, tmp_path):
+    """R2f: a folder UUID colliding with a record UUID."""
+    _dangling(format3, tmp_path,
+               {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+                "folders": {"cells": {"Power": D_CELL}}},
+               needle="duplicate uuid")
+
+
+def test_points_to_points_dangling_is_fatal(format3, tmp_path):
+    """R7: points -> points anchor_point_uuid is checked for dangling."""
+    _dangling(format3, tmp_path,
+               {"points": {"a": {"anchor_ref": "IC1", "uuid": D_POINT},
+                           "b": {"anchor_point": "a",
+                                 "anchor_point_uuid": det_uuid("nope"),
+                                 "uuid": D_ENTITY}}})
+    ok = tmp_path / "ok.sexp"
+    _write_sexp(ok, {"points": {"a": {"anchor_ref": "IC1", "uuid": D_POINT},
+                                "b": {"anchor_point": "a",
+                                      "anchor_point_uuid": D_POINT,
+                                      "uuid": D_ENTITY}}})
+    load_config(str(ok))                      # the control: a valid chain loads
+
+
+def test_nested_tree_node_reference_uuid(format3, tmp_path):
+    """R9: a CHILD node's ref_uuid is walked, not only the top-level node."""
+    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
+            "entities": [{"name": "E", "cell": "c", "cell_uuid": D_CELL,
+                          "uuid": D_ENTITY},
+                         {"name": "E2", "cell": "c", "cell_uuid": D_CELL,
+                          "uuid": D_FOLDER_P}],
+            "trees": [{"name": "t", "anchor": {"origin": True},
+                       "nodes": [{"ref": "E", "kind": "placement",
+                                  "ref_uuid": D_ENTITY, "xy": [0.0, 0.0],
+                                  "children": [{"ref": "E2", "kind": "placement",
+                                                "ref_uuid": D_FOLDER_P,
+                                                "xy": [1.0, 0.0]}]}]}]}
+    assert sexp_to_dict(dict_to_sexp(data, format_number=3)) == data
+    data["trees"][0]["nodes"][0]["children"][0]["ref_uuid"] = det_uuid("nope")
+    _dangling(format3, tmp_path, data)
+
+
+def test_dangling_ref_in_an_included_file_names_that_file(format3, tmp_path):
+    """F3: the fatal place is the INCLUDED file, not the graph root (Н7)."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "sub.sexp"
+    _write_sexp(sub, {"entities": [{"name": "E", "cell": "c",
+                                    "cell_uuid": det_uuid("nope"),
+                                    "uuid": D_ENTITY}]})
+    _write_sexp(root, {"include": ["sub.sexp"],
+                       "cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}}})
+    with pytest.raises(ValidationError) as e:
+        load_config(str(root))
+    assert "sub.sexp" in str(e.value)
+    assert "root.sexp" not in str(e.value)
+
+
+def test_a_node_ref_may_only_carry_a_uuid_child(format3):
+    """T2: an extra child on (ref …) is a fatal, never a silent drop."""
+    text = _wrap3('  (trees\n    (tree\n      (name "t")\n      (anchor (origin))\n'
+                  '      (node (ref "E" (bogus "x")) (kind placement) (xy 0.0 0.0))\n'
+                  '    )\n  )\n')
+    with pytest.raises(ValidationError) as e:
+        sexp_to_dict(text)
+    assert "may follow a node's ref" in str(e.value)
+
+
+def test_a_local_kind_node_may_not_carry_a_uuid(format3):
+    """T3: module/mount/copper/component reference no record — uuid is fatal."""
+    text = _wrap3('  (trees\n    (tree\n      (name "t")\n      (anchor (origin))\n'
+                  '      (node (ref "m" (uuid "00000000-0000-0000-0000-000000000000"))'
+                  ' (kind mount) (anchor (role "R")))\n'
+                  '    )\n  )\n')
+    with pytest.raises(ValidationError) as e:
+        sexp_to_dict(text)
+    assert "carries no uuid" in str(e.value)
