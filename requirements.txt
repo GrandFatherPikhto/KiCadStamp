@@ -24,6 +24,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
 cryptography==50.0.2
     # via pyjwt
+execnet==2.1.2
+    # via pytest-xdist
 h11==0.16.0 ; sys_platform != 'emscripten'
     # via
     #   httpcore2
@@ -95,9 +97,12 @@ pytest==9.1.1
     #   kicadstamp (pyproject.toml)
     #   pytest-qt
     #   pytest-timeout
+    #   pytest-xdist
 pytest-qt==4.5.0
     # via kicadstamp (pyproject.toml)
 pytest-timeout==2.4.0
+    # via kicadstamp (pyproject.toml)
+pytest-xdist==3.8.0
     # via kicadstamp (pyproject.toml)
 python-multipart==0.0.32
     # via mcp

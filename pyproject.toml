@@ -36,6 +36,12 @@ dev = [
     # such an exception into a FAILED that names the file and line of the refusal.
     # Dev-only: the battle code keeps its own hook untouched (see the plan's §7).
     "pytest-qt==4.5.0",
+    # pytest-xdist (2026-10-03): `-n auto` spreads the suite over worker
+    # processes. Measured on 24 cores: the full run 3 min -> 40 s on each of the
+    # three legs (plain, --reverse-order, --coarse-mtime), all green; a mutation
+    # rig's guard set 16 s -> 6 s. Opt-in on the command line, NOT in addopts:
+    # a single test under pdb or a crash dump needs the plain in-process run.
+    "pytest-xdist==3.8.0",
     "babel==2.18.0",
     "pyflakes==3.4.0",
     # psutil (2026-10-01): the schematic_safety cells run the psutil branch of
