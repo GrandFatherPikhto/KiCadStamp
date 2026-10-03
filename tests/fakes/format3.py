@@ -133,3 +133,23 @@ def format3(monkeypatch):
     'hole in the chain' fatal — deliberately, that is what U1 leaves for U3."""
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
     return 3
+
+
+@pytest.fixture
+def active_root():
+    """Set the process-wide ACTIVE GRAPH ROOT for one test (У4.1), restoring the
+    previous value at teardown.
+
+    Usage: ``active_root(tmp_path / "root.sexp")`` — returns the path it set.
+    The format-3 writer stamp resolves reference UUIDs against this root, so a
+    test that exercises the stamp must point it at its own graph."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+
+    def _set(root):
+        set_active_graph_root(root)
+        return root
+
+    yield _set
+    set_active_graph_root(previous)

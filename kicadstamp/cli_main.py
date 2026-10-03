@@ -479,6 +479,14 @@ def main() -> int:
                   file=sys.stderr)
         raise
 
+    # У4.1: the CLI's --config IS the active graph root for the format-3 writer
+    # stamp (some subcommands write config: flatten writes the graph back).
+    # None is fine — the stamp only needs a root under format 3 and only for a
+    # write that actually touches records/references.
+    from .config_working_set import set_active_graph_root
+
+    set_active_graph_root(getattr(args, "config", None))
+
     # Pick up log_file from the config before setup_logging() — but WITHOUT a
     # full validated load here. That happens exactly once, inside the apply
     # pipeline (run_apply), where errors surface properly through run_cli.

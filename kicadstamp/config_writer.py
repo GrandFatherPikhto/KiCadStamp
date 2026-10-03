@@ -147,8 +147,43 @@ def _read_data(path: Path) -> dict:
     return cached_file_read(path, _uncached_read)
 
 
+def set_reference(holder: dict, field: str, name) -> None:
+    """Point a reference field at a (new) target by NAME and drop its UUID
+    sibling (plan §5, У4.2).
+
+    A writer that changes WHERE a reference points MUST go through this, never
+    assign `holder[field]` alone: the format-3 stamp rewrites a name hint FROM
+    its UUID (п.3), so a stale `<field>_uuid` left behind would silently drag the
+    reference back to the old target and the user's choice would vanish. With
+    the sibling dropped, the stamp resolves the new name to the new target's UUID
+    at write time."""
+    holder[field] = name
+    holder.pop(field + "_uuid", None)
+
+
+def _stamp_format3_for_write(path: Path, data: dict, graph_root) -> dict:
+    """The У4.1 stamp, applied at the ONE serializer (see plan §5).
+
+    Under `current_format() >= 3` every record gets a UUID, every reference is
+    resolved by UUID, and the folder table is completed — on the dict that is
+    ABOUT to be written, so a write can never leave a record without an identity
+    or a reference pointing at nothing (config/format3.py.stamp_format3). The
+    graph root comes from the explicit `graph_root` (a foreign graph) or the
+    process-wide active root; `format3_stamp_disabled()` turns it off for the
+    verbatim profile_copy. In the product (`CURRENT_FORMAT == 2`) this is
+    unreachable, so the bytes are unchanged."""
+    from .config.format3 import stamp_format3
+    from .config_working_set import active_graph_root, is_stamp_disabled
+
+    if is_stamp_disabled():
+        return data
+    root = graph_root if graph_root is not None else active_graph_root()
+    return stamp_format3(data, root=root, path=path)
+
+
 def _serialize(path: Path, data: dict,
-               format_number: int | None = None) -> str:
+               format_number: int | None = None, *,
+               graph_root=None, stamp: bool = True) -> str:
     """Serialize `data` to the text form for `path`'s extension — shared by
     write_config_file() below and by the working set's atomic flush (which
     writes to a temp sibling then os.replace(), see
@@ -161,7 +196,19 @@ def _serialize(path: Path, data: dict,
     dict_to_sexp (which does it itself), the JSON side right here — the readers
     of both formats are the same readers, so the two must not disagree.
     `format_number=None` means CURRENT_FORMAT; the raw converters are the only
-    callers that pass their own, and they do not come through here."""
+    callers that pass their own, and they do not come through here.
+
+    Under format 3 the У4.1 stamp runs FIRST (unless `stamp=False`, which only
+    the on-disk format converter uses), so the text written is always a valid
+    format-3 graph."""
+    if stamp and current_format() >= 3:
+        try:
+            data = _stamp_format3_for_write(Path(path), data, graph_root)
+        except ValidationError as e:
+            # Qt-slot safety, the same rule as _read_data's OSError wrapping: a
+            # bare ValidationError escaping a dock's `except OSError` aborts
+            # PyQt6 (measured). The rich, translated message is preserved.
+            raise OSError(str(e)) from e
     suffix = path.suffix.lower()
     if suffix == ".json":
         # current_format() at CALL time — see format_version.current_format for
@@ -179,22 +226,30 @@ def _serialize(path: Path, data: dict,
 
 
 def serialize_config(path: Path | str, data: dict,
-                     format_number: int | None = None) -> str:
+                     format_number: int | None = None, *,
+                     graph_root=None, stamp: bool = True) -> str:
     """The PUBLIC name of the ONE serializer (`_serialize`).
 
     For a caller that must look at the exact text it is about to write BEFORE
     writing anything: the on-disk upgrade sweep (Т4/У2) re-parses it and refuses
     to write when the round trip does not come back as the lifted content. Same
     function, so the text that was checked and the text that gets written cannot
-    drift apart."""
-    return _serialize(Path(path), data, format_number=format_number)
+    drift apart.
+
+    `stamp=False` is for the on-disk format converter, which builds format-3
+    content itself (step 2->3) and must not have the writer stamp run over a
+    half-migrated graph. flatten() passes its SOURCE graph root instead, so the
+    records' UUIDs survive flattening (plan §5, У4.1)."""
+    return _serialize(Path(path), data, format_number=format_number,
+                      graph_root=graph_root, stamp=stamp)
 
 
 def write_config_file(path: Path, data: dict, *,
                       format_number: int | None = None,
                       always_backup: bool = False,
                       backup: bool = True,
-                      serialized_text: str | None = None) -> None:
+                      serialized_text: str | None = None,
+                      graph_root=None, stamp: bool = True) -> None:
     """Write ONE config file — the single place the `.bak` contract lives.
 
     The rule (Denis, 24.09.2026): when the file on disk is still an OLDER
@@ -253,7 +308,8 @@ def write_config_file(path: Path, data: dict, *,
     the bytes and the `.bak`/atomic/invalidation contract below is unchanged."""
     target = Path(path)
     text = (serialized_text if serialized_text is not None
-            else _serialize(target, data, format_number=format_number))
+            else _serialize(target, data, format_number=format_number,
+                            graph_root=graph_root, stamp=stamp))
     if target.exists():
         try:
             stale = read_version(target) < current_format()

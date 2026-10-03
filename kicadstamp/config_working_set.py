@@ -35,9 +35,10 @@ import copy
 import logging
 import os
 import shutil
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 from .utils.file_cache import invalidate_graph_path, invalidate_path
 
@@ -257,6 +258,64 @@ class ConfigWorkingSet:
 
 # Process-global singleton — the GUI enables it when a project root is set.
 WORKING_SET = ConfigWorkingSet()
+
+
+# ── the ACTIVE config-graph root (format-3 writer stamp, У4.1) ─────────────
+# The ONE place the writer stamp learns WHICH graph it is writing into. Set
+# where the profile is opened (gui/dock_hub's root_changed, next to the working
+# set) and by the CLI (--config); visible from worker threads exactly like
+# WORKING_SET (a plain module singleton). A write into a FOREIGN graph (the
+# entity_export case) says so EXPLICITLY with `with graph_root(...)`, never by
+# silently swapping the process-wide value.
+_active_graph_root: Optional[Path] = None
+# profile_copy copies a whole profile VERBATIM (UUIDs preserved, Денис 03.10);
+# stamping a partially-written new graph would false-refuse references to files
+# not copied yet, so it turns the stamp off for the duration — explicitly, by
+# name, at its own call site.
+_stamp_disabled: bool = False
+
+
+def active_graph_root() -> Optional[Path]:
+    """The root config file of the graph a writer is currently writing into, or
+    None when no profile is open (CLI without --config, unit tests)."""
+    return _active_graph_root
+
+
+def set_active_graph_root(root) -> None:
+    """Set (or clear, with None) the process-wide active graph root. Called by
+    gui/dock_hub on root_changed and by the CLI entry point."""
+    global _active_graph_root
+    _active_graph_root = Path(root) if root is not None else None
+
+
+@contextmanager
+def graph_root(root) -> Iterator[None]:
+    """Temporarily write into a DIFFERENT graph (a foreign profile), then restore
+    the previous root. Used by entity_export when the target's root is known."""
+    global _active_graph_root
+    previous = _active_graph_root
+    _active_graph_root = Path(root) if root is not None else None
+    try:
+        yield
+    finally:
+        _active_graph_root = previous
+
+
+def is_stamp_disabled() -> bool:
+    return _stamp_disabled
+
+
+@contextmanager
+def format3_stamp_disabled() -> Iterator[None]:
+    """Turn the format-3 writer stamp OFF for the duration — the profile_copy
+    case (a verbatim copy of a whole graph, UUIDs preserved)."""
+    global _stamp_disabled
+    previous = _stamp_disabled
+    _stamp_disabled = True
+    try:
+        yield
+    finally:
+        _stamp_disabled = previous
 
 
 def _history_dir(root_dir: Optional[Path]) -> Path:

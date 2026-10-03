@@ -17796,3 +17796,63 @@ msgstr ""
 #: gui/docks/cascade.py
 msgid "skipped: {reason}"
 msgstr "пропущено: {reason}"
+#: kicadstamp/config/format3.py
+msgid "format 3: cannot write — the active graph root is not set"
+msgstr "формат 3: запись невозможна — активный корень графа не задан"
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: a format-3 write resolves reference UUIDs against the project graph; open the profile, or pass --config on the CLI"
+msgstr "в {path}: запись формата 3 разрешает UUID ссылок по графу проекта; открой профиль или передай --config в CLI"
+
+#: kicadstamp/config/format3.py
+msgid "format 3: {label} names no existing {target} record ({name!r})"
+msgstr "формат 3: {label} называет несуществующую запись {target} ({name!r})"
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: a new reference is resolved once, at write time, by the target's exact full name"
+msgstr "в {path}: новая ссылка разрешается один раз, при записи, по точному полному имени цели"
+
+#: kicadstamp/config/format3.py
+msgid "format 3: cannot write — {count} reference(s) point at a uuid that is missing from the graph"
+msgstr "формат 3: запись невозможна — {count} ссылок указывают на UUID, которого нет в графе"
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: {items}"
+msgstr "в {path}: {items}"
+
+#: kicadstamp/config/format3.py
+msgid "deleting a record leaves its references dangling — delete WITH cascade, or fix the references first"
+msgstr "удаление записи оставляет её ссылки висячими — удаляй С каскадом или сначала почини ссылки"
+
+#: kicadstamp/config/format3.py
+msgid "format 3: duplicate full name {name!r} in {section}"
+msgstr "формат 3: дубль полного имени {name!r} в {section}"
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: names are unique within a section across the whole graph (Р43) — rename one of the two records"
+msgstr "в {path}: имена уникальны в разделе по всему графу (Р43) — переименуй одну из двух записей"
+
+#: kicadstamp/config/format3.py
+msgid "format 3: duplicate uuid {uuid} — {a!r} and {b!r}"
+msgstr "формат 3: дубль UUID {uuid} — {a!r} и {b!r}"
+
+#: kicadstamp/config/format3.py
+msgid "a UUID must identify exactly one record"
+msgstr "UUID обязан называть ровно одну запись"
+
+#: kicadstamp U4.2
+msgid "the copied profile does not load: {error}"
+msgstr "скопированный профиль не загружается: {error}"
+
+#: kicadstamp U4.2
+msgid "the copy into {path} is incomplete — fix the source or the target"
+msgstr "копия в {path} неполна — почини источник или цель"
+
+#: kicadstamp U4.2
+msgid "export between profiles in format 3 is not supported yet (Ф4)"
+msgstr "экспорт между профилями в формате 3 пока не поддерживается (Ф4)"
+
+#: kicadstamp U4.2
+msgid "pass the target graph root explicitly, or export in format 2"
+msgstr "передай корень целевого графа явно или экспортируй в формате 2"
+

@@ -902,9 +902,20 @@ class ChainDock(QWidget):
             return
         ok: List[str] = []
         failed: List[str] = []
+        from kicadstamp.config_writer import set_reference
+
         for path, chain in affected:
             modified = dict(chain)
-            modified["spokes"] = [{**s, "cell": cell} for s in (chain.get("spokes") or [])]
+            # set_reference, NOT a bare `cell` overwrite (plan §5, У4.2): the
+            # chain dict is preserved verbatim, so under format 3 it may carry a
+            # `cell_uuid`; leaving it would make the stamp drag the spoke back to
+            # its OLD cell (the UUID wins over the hint).
+            new_spokes = []
+            for spoke in (chain.get("spokes") or []):
+                spoke = dict(spoke)
+                set_reference(spoke, "cell", cell)
+                new_spokes.append(spoke)
+            modified["spokes"] = new_spokes
             name = _chain_identity(modified)
             try:
                 load_chain(modified)  # validate before writing, same as _on_save

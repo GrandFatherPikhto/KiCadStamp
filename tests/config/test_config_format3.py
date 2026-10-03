@@ -17,7 +17,7 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.config_writer import write_config_file
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
-from tests.fakes.format3 import det_uuid, format3  # noqa: F401 (fixture import)
+from tests.fakes.format3 import active_root, det_uuid, format3  # noqa: F401 (fixtures)
 
 D_CELL = det_uuid("cell")
 D_POINT = det_uuid("point")
@@ -200,9 +200,14 @@ def test_json_thermal_via_array_anchor_point_uuid(format3, tmp_path):
     assert cfg.thermal_via_arrays[0].anchor_point_uuid == D_POINT
 
 
-def test_json_writer_roundtrip_carries_uuid(format3, tmp_path):
-    """The JSON WRITE side (not just reading) keeps the UUIDs."""
+def test_json_writer_roundtrip_carries_uuid(format3, active_root, tmp_path):
+    """The JSON WRITE side (not just reading) keeps the UUIDs.
+
+    У4.1: a writer under format 3 needs the active graph root (the writer stamp
+    resolves references against it). The root here is the file itself — a fresh,
+    fully-stamped dict — so the assertions below are unchanged."""
     p = tmp_path / "config.json"
+    active_root(p)
     write_config_file(str(p), _data())
     cfg, _ = load_config(str(p))
     assert cfg.entities[0].uuid == D_ENTITY

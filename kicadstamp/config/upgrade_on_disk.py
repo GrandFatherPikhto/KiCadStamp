@@ -128,7 +128,10 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
         try:
             data, version = parse_raw_file(path)
             content = upgrade_data(data, version, str(path), at_parse_time=True)
-            text = serialize_config(path, content)
+            # stamp=False: this IS the format converter (step 2->3); it builds
+            # valid format-3 content itself and must not have the writer stamp
+            # run over a half-migrated graph (plan §5, У4.1).
+            text = serialize_config(path, content, stamp=False)
             # У2: compare by MEANING. _strip_defaults on both sides, exactly as
             # tools/sexp_config_convert.py verifies its own output — the rebuild
             # drops default-valued fields, so raw dicts would never match and the

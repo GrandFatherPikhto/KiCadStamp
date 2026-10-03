@@ -39,9 +39,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from ..config_writer import merge_write, upsert_list_entry
+from ..config_working_set import format3_stamp_disabled
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..utils.file_cache import cached_file_read
+from .format_version import current_format
 from .includes import _load_config_file, resolve_includes, walk_include_tree
 
 # Dict sections (keyed by name) vs list sections (each entry carries its own
@@ -395,12 +397,33 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
         # list-section entries in place, so the source version wins.
 
     target = Path(target_path)
-    _write_dict_section(target, "cells", cells_to_write)
-    _write_dict_section(target, "points", points_to_write)
-    for entry in entities_to_write:
-        _append_list_entry(target, "entities", entry)
-    for entry in chains_to_write:
-        _append_list_entry(target, "chains", entry)
+    # A profile copy is a VERBATIM copy of a whole graph — its UUIDs are
+    # preserved (Денис, 03.10), NOT re-minted. The format-3 writer stamp is
+    # turned OFF explicitly for the duration (plan §5, У4.2): stamping a
+    # partially-written new graph would false-refuse a reference into a file
+    # that has not been copied yet. The gate keeps the product byte-identical.
+    with format3_stamp_disabled():
+        _write_dict_section(target, "cells", cells_to_write)
+        _write_dict_section(target, "points", points_to_write)
+        for entry in entities_to_write:
+            _append_list_entry(target, "entities", entry)
+        for entry in chains_to_write:
+            _append_list_entry(target, "chains", entry)
+
+    # Verify the RESULT loads (plan §5, У4.2): if the copied profile does not
+    # load, the copy is considered failed, loudly. Only when we know the target
+    # ROOT (an arbitrary included file cannot be loaded on its own), and only
+    # under the format-3 gate (the product's contract is unchanged).
+    if target_root is not None and current_format() >= 3:
+        from .loader import load_config
+
+        try:
+            load_config(str(Path(target_root)))
+        except Exception as e:  # noqa: BLE001 — any load failure fails the copy
+            raise ValidationError(format_fatal_error(
+                _("the copied profile does not load: {error}").format(error=e),
+                [_("the copy into {path} is incomplete — fix the source or the "
+                   "target").format(path=target_root)]))
 
     return {
         "cells": list(cells_to_write),

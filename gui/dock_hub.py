@@ -48,7 +48,7 @@ from .docks.extract_diagnostics import (format_cluster_rejections,
 from .docks.rename import entry_effective_name
 
 from kicadstamp.cli_common import api_error_message, peek_log_file
-from kicadstamp.config_working_set import WORKING_SET
+from kicadstamp.config_working_set import WORKING_SET, set_active_graph_root
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.logging_setup import get_log_listener
@@ -3305,9 +3305,14 @@ class DockHub:
         staging is ON whenever a project is open (so every dock edit lands in
         the working set, not on disk), OFF/cleared when the project closes. A
         root switch starts with a clean working set; the unsaved-changes guard
-        lives in RootMetadataDock.set_root_file/close_project."""
+        lives in RootMetadataDock.set_root_file/close_project.
+
+        The ACTIVE GRAPH ROOT (У4.1, variant B) is set in the SAME place: the
+        format-3 writer stamp reads it to resolve reference UUIDs, and it is
+        visible from worker threads exactly like WORKING_SET."""
         WORKING_SET.enabled = root_path is not None
         WORKING_SET.clear()
+        set_active_graph_root(root_path)
         self._update_dirty_indicator()
 
     def _on_working_set_changed(self) -> None:

@@ -40,7 +40,8 @@ from kicadstamp.config.includes import (
     resolve_includes,
     walk_include_tree,
 )
-from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config.sexp_format import sexp_to_dict
+from kicadstamp.config_writer import serialize_config
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
 from kicadstamp.utils.safe_write import backup_file, write_text_atomic
@@ -143,7 +144,11 @@ def flatten_config(root: str, output: Optional[str] = None,
     # an in-place target, then write atomically. The old
     # `with open(target, "w")` around dict_to_sexp truncated first, so a
     # serialization error left a 0-byte root.
-    new_text = dict_to_sexp(out)
+    # Through the ONE serializer (plan §5, У4.1): under format 3 this runs the
+    # writer stamp with the SOURCE graph root, so every record's UUID and every
+    # reference survives flattening (a plain dict_to_sexp would drop nothing but
+    # would not complete folders either; the serializer owns both).
+    new_text = serialize_config(target, out, graph_root=root_path)
     sexp_to_dict(new_text, path=str(target))
     backup_path = backup_file(target) if not output else None
     write_text_atomic(target, new_text)

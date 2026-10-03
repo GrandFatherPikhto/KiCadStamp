@@ -19093,3 +19093,63 @@ msgstr ""
 #: gui/docks/cascade.py
 msgid "skipped: {reason}"
 msgstr ""
+#: kicadstamp/config/format3.py
+msgid "format 3: cannot write — the active graph root is not set"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: a format-3 write resolves reference UUIDs against the project graph; open the profile, or pass --config on the CLI"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "format 3: {label} names no existing {target} record ({name!r})"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: a new reference is resolved once, at write time, by the target's exact full name"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "format 3: cannot write — {count} reference(s) point at a uuid that is missing from the graph"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: {items}"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "deleting a record leaves its references dangling — delete WITH cascade, or fix the references first"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "format 3: duplicate full name {name!r} in {section}"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "in {path}: names are unique within a section across the whole graph (Р43) — rename one of the two records"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "format 3: duplicate uuid {uuid} — {a!r} and {b!r}"
+msgstr ""
+
+#: kicadstamp/config/format3.py
+msgid "a UUID must identify exactly one record"
+msgstr ""
+
+#: kicadstamp U4.2
+msgid "the copied profile does not load: {error}"
+msgstr ""
+
+#: kicadstamp U4.2
+msgid "the copy into {path} is incomplete — fix the source or the target"
+msgstr ""
+
+#: kicadstamp U4.2
+msgid "export between profiles in format 3 is not supported yet (Ф4)"
+msgstr ""
+
+#: kicadstamp U4.2
+msgid "pass the target graph root explicitly, or export in format 2"
+msgstr ""
+

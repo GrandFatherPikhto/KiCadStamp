@@ -147,10 +147,14 @@ def test_flatten_serialization_failure_leaves_the_root_untouched(tmp_path,
     root = _minimal_project(tmp_path)
     before = root.read_bytes()
 
-    def _boom(_data):
+    def _boom(*_args, **_kwargs):
         raise ValidationError("serialization refused")
 
-    monkeypatch.setattr("kicadstamp.flatten.dict_to_sexp", _boom)
+    # У4.1: flatten now serializes through the ONE serializer
+    # (config_writer.serialize_config, with the source graph root) instead of a
+    # bare dict_to_sexp — the failure point moved, the guard is the same: a
+    # serialization failure must leave the target byte-for-byte untouched.
+    monkeypatch.setattr("kicadstamp.flatten.serialize_config", _boom)
     with pytest.raises(ValidationError):
         flatten_config(root=str(root))
 

@@ -885,11 +885,21 @@ def test_a_newer_file_is_still_refused_when_the_copy_is_turned_off(tmp_path):
 
 # Config-text writes allowed to bypass write_config_file, keyed by
 # (path relative to the repo root, enclosing function) -> the reason.
-# The scan below finds `X.write_text(dict_to_sexp(...))` and
-# `f.write(dict_to_sexp(...))`; it does NOT find a write of a text built earlier
-# (config_rename.write_profile_files and schematic_editing both write a
-# pre-built string, and both take their own unconditional `.bak` — the former
-# writes profile configs, the latter a schematic's text, which is not a config).
+#
+# The scan below finds `X.write_text(dict_to_sexp(...))`,
+# `f.write(dict_to_sexp(...))` and the same with `_serialize(...)`. It does NOT
+# find a write of a text built earlier — those are named here, with their reason
+# (У4.1, plan §5):
+#   * config_rename.write_profile_files — renames Role/Cluster VALUES, touches no
+#     §0 record and no UUID; takes its own unconditional `.bak`.
+#   * tree_mount_convert.convert_config_file — converts the TREE grammar, a raw
+#     reader; restamps the number it read, no §0 record UUID.
+#   * flatten — CONVERTED to the one serializer (serialize_config with the source
+#     graph root) in У4.1, so it no longer bypasses.
+#   * schematic_editing — writes a schematic's text, which is not a config.
+#   * config_tree._on_export / _add_included_file — write an EMPTY placeholder
+#     literal (`(kicadstamp-config)\n` / `{}\n`), no records to stamp; the file is
+#     filled by a later writer that DOES go through the serializer.
 _CONFIG_WRITE_BYPASSES: dict[tuple[str, str], str] = {
     ("gui/include_recovery.py", "_create_empty"): (
         "creates the missing include file and deliberately does NOT create "

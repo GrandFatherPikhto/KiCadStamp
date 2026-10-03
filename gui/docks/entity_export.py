@@ -23,9 +23,15 @@ ConfigTreeDock from the tree's current selection:
   requested explicitly as a checkbox/button choice in the export dialog,
   not the default.
 """
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from kicadstamp.config.format_version import current_format
+from kicadstamp.config_working_set import graph_root as _graph_root
+from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.i18n import _
 
 from ._common import read_data, write_data, merge_write, upsert_list_entry
 from .rename import DICT_SECTIONS, entry_effective_name
@@ -52,34 +58,48 @@ def _resolve(item: ExportItem) -> Optional[Any]:
     return item.payload
 
 
-def export_entries(target_path: Path, items: List[ExportItem], overwrite: bool) -> None:
+def export_entries(target_path: Path, items: List[ExportItem], overwrite: bool,
+                   graph_root=None) -> None:
     """Writes every entry in `items` into target_path — see module
     docstring for merge vs. overwrite. Entries whose source no longer has
     them (a DICT-section entry deleted between selecting and exporting) are
     silently skipped rather than raising, same "the tree can be stale"
-    tolerance as the rest of ConfigTreeDock's click routing."""
+    tolerance as the rest of ConfigTreeDock's click routing.
+
+    `graph_root` is the TARGET profile's root: an export writes into a FOREIGN
+    graph, so under format 3 the stamp needs THAT root, passed EXPLICITLY (plan
+    §5, У4.2). The GUI call site does not know it (an arbitrary file chosen in a
+    save dialog), so under format 3 the export is refused as Ф4; under format 2
+    it behaves exactly as before."""
+    if current_format() >= 3 and graph_root is None:
+        raise ValidationError(format_fatal_error(
+            _("export between profiles in format 3 is not supported yet (Ф4)"),
+            [_("pass the target graph root explicitly, or export in format 2")]))
+
     resolved = [(item.section, item.name, entry)
                for item in items for entry in [_resolve(item)] if entry is not None]
 
-    if overwrite:
-        combined: Dict[str, Any] = {}
+    ctx = _graph_root(graph_root) if graph_root is not None else nullcontext()
+    with ctx:
+        if overwrite:
+            combined: Dict[str, Any] = {}
+            for section, name, entry in resolved:
+                if section in DICT_SECTIONS:
+                    combined.setdefault(section, {})[name] = entry
+                else:
+                    combined.setdefault(section, []).append(entry)
+            write_data(target_path, combined)
+            return
+
         for section, name, entry in resolved:
             if section in DICT_SECTIONS:
-                combined.setdefault(section, {})[name] = entry
+                merge_write(target_path, {section: {name: entry}}, section=section)
             else:
-                combined.setdefault(section, []).append(entry)
-        write_data(target_path, combined)
-        return
-
-    for section, name, entry in resolved:
-        if section in DICT_SECTIONS:
-            merge_write(target_path, {section: {name: entry}}, section=section)
-        else:
-            # Match by the section's effective name (rules: name-or-net,
-            # coordinate_placements: name-or-cluster/role, the rest name-only)
-            # via rename.py's single formula — otherwise two different
-            # nameless entries (e.g. coordinate_placements with no name:)
-            # would both carry identity None and silently collapse one over
-            # the other on merge (2026-08-13 review, bug 3).
-            upsert_list_entry(target_path, section, entry,
-                              key_fn=lambda e: entry_effective_name(section, e))
+                # Match by the section's effective name (rules: name-or-net,
+                # coordinate_placements: name-or-cluster/role, the rest name-only)
+                # via rename.py's single formula — otherwise two different
+                # nameless entries (e.g. coordinate_placements with no name:)
+                # would both carry identity None and silently collapse one over
+                # the other on merge (2026-08-13 review, bug 3).
+                upsert_list_entry(target_path, section, entry,
+                                  key_fn=lambda e: entry_effective_name(section, e))
