@@ -4,7 +4,7 @@
 # require a running KiCad instance with an active board and a listening IPC
 # socket, so they are deliberately excluded here and only run locally on
 # demand. The exact suite command mirrors the local dev command:
-#   python -m pytest --ignore=tests/integration_tests -m "not integration"
+#   python -m pytest --ignore=tests/integration_tests -m "not integration" -n auto
 #
 # Reference platform: Python 3.12 (matches the project's dev venv). Both
 # Linux and Windows legs are exercised because the project targets both (the
@@ -82,7 +82,9 @@ jobs:
         # lines from `short test summary info`. Measured 01.10.2026 (Ф3.6): the
         # reference run with `-rs` showed 12 SKIPPED and no FAILED line at all —
         # it would have made the log harder to triage, not easier.
-        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf
+        # `-n auto` (pytest-xdist, 03.10.2026): one worker per runner core. Locally
+        # on 24 cores each leg went 3 min -> 40 s with the same 6227 passed.
+        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf -n auto
 
       # The Windows-tick run (Ф3.7). Windows is where a second write inside one
       # filesystem tick broke readers cached by `(path, mtime_ns)`; the probe that
@@ -95,4 +97,4 @@ jobs:
       # locally.
       - name: Run unit test suite under the forced one-tick filesystem (Linux)
         if: runner.os == 'Linux'
-        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf --coarse-mtime
+        run: python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf -n auto --coarse-mtime

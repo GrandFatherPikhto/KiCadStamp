@@ -108,7 +108,7 @@ Dependencies are installed automatically and version-pinned. The ones that carry
 Optional extras:
 
 ```bash
-pip install -e ".[dev]"           # pytest, pytest-qt, babel, pyflakes
+pip install -e ".[dev]"           # pytest, pytest-qt, pytest-xdist, babel, pyflakes
 pip install -e ".[diagnostics]"   # numpy, scipy, psutil, rich, watchdog
 pip install -e ".[mcp]"           # mcp — only needed for the MCP server
 ```

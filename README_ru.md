@@ -107,7 +107,7 @@ pip install -e .
 Дополнительные наборы:
 
 ```bash
-pip install -e ".[dev]"           # pytest, pytest-qt, babel, pyflakes
+pip install -e ".[dev]"           # pytest, pytest-qt, pytest-xdist, babel, pyflakes
 pip install -e ".[diagnostics]"   # numpy, scipy, psutil, rich, watchdog
 pip install -e ".[mcp]"           # mcp — только для MCP-сервера
 ```

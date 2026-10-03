@@ -177,6 +177,31 @@ saved, as the section below says. One consequence to know: `pytest
 tests/integration_tests/` WITHOUT `-m integration` now collects ZERO cells — the path
 and the `-m` filter multiply. That is the protection working, not a breakage.
 
+### Parallel runs — `-n auto`
+
+```bash
+python -m pytest --ignore=tests/integration_tests -m "not integration" -q -rsf -n auto
+```
+
+`-n auto` (the `pytest-xdist` plugin, in `.[dev]` since 03.10.2026) spreads the cells
+over one worker process per core. Measured on 24 cores at `e2dd548`: each of the three
+runs (this one, `--reverse-order`, `--coarse-mtime`) went from 3 min to 40 s with the
+same 6227 passed; a mutation rig's guard set of seven files went from 16 s to 6 s.
+CI runs both of its steps with `-n auto`.
+
+It is opt-in on the command line and NOT in `addopts`, on purpose:
+
+* **Run without `-n`** to debug one cell (`pdb`, `-s` — a worker swallows the output)
+  or to read a hang's thread dump.
+* **A cell that fails only under `-n`** — rerun it without `-n`. Green there means the
+  cell depends on shared state outside `tmp_path` (a file, a cache, a process global
+  another cell touched). That is a defect in the cell; fix the cell, do not drop `-n`.
+* **`--reverse-order` under `-n` is weaker:** the order is reversed inside each worker,
+  and each cell has fewer neighbours. For a change that touches process-wide state
+  (caches, the working set, singletons), run the reverse run without `-n`.
+* `unrecognized arguments: -n` means the plugin is missing in this virtualenv:
+  `pip install -r requirements.txt`.
+
 ### The three kinds by name
 
 The marker already excludes integration, so `--ignore` above is a second belt and
