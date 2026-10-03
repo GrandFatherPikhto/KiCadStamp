@@ -321,13 +321,19 @@ def _anchor_subject_role(cell: Cell) -> str:
                 if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0)
 
 
-def _self_cell(anchor_role: str | None, subject_angle: float) -> Cell:
+def _self_cell(anchor_role: str | None, subject_angle: float,
+               anchor_xy: tuple[float, float] | None = None) -> Cell:
     """The cell of a self-anchor row: the ANCHOR SUBJECT slot (the one the self
-    anchor reads live) carries `subject_angle`; the other slot stays at 0."""
+    anchor reads live) carries `subject_angle`; the other slot stays at 0.
+    `anchor_xy` (S15) stores an explicit mount that does NOT sit on the subject
+    slot, so A != s even though the anchor subject is the cell's own mount
+    surrogate."""
     subject = _anchor_subject_role(_cell(anchor_role=anchor_role))
     if subject == ANCHOR_ROLE:
-        return _cell(anchor_role=anchor_role, anchor_slot_angle=subject_angle)
-    return _cell(anchor_role=anchor_role, other_slot_angle=subject_angle)
+        return _cell(anchor_role=anchor_role, anchor_slot_angle=subject_angle,
+                     anchor_xy=anchor_xy)
+    return _cell(anchor_role=anchor_role, other_slot_angle=subject_angle,
+                 anchor_xy=anchor_xy)
 
 
 def _row_self(*, cell: Cell, node_xy=(0.0, 0.0), node_rot=0.0,
@@ -466,14 +472,26 @@ def main() -> None:
             for board_angle in (0.0, 90.0):
                 label = (f"S  anchor_role={anchor_role or 'none'} "
                          f"slot {subject_angle:.0f} part {board_angle:.0f}")
-                self_rows.append((label, anchor_role, subject_angle, board_angle, 0.0))
+                self_rows.append((label, anchor_role, subject_angle, board_angle,
+                                  0.0, (0.0, 0.0), None))
     self_rows.append(("S13 anchor_role=R slot 0 node rot 90", ANCHOR_ROLE,
-                      0.0, 0.0, 90.0))
+                      0.0, 0.0, 90.0, (0.0, 0.0), None))
+    # S14/S15 -- the two ways a SELF row can still move in POSITION, i.e. the
+    # two claims "the position term of a self anchor is 0 by construction" does
+    # NOT cover: the node's own offset o != 0 (S14) and an explicit anchor_xy
+    # that does not sit on the anchor subject slot, so A != s (S15). Both are
+    # outside the plan's 12 self cells; they are measured because the SH1 guard
+    # has to know whether they are violations before promising any fix text.
+    self_rows.append(("S14 anchor_role=R slot 0 node xy=(2,-3)", ANCHOR_ROLE,
+                      0.0, 0.0, 0.0, (2.0, -3.0), None))
+    self_rows.append(("S15 anchor_role=R anchor_xy=0 (A != s)", ANCHOR_ROLE,
+                      0.0, 0.0, 0.0, (0.0, 0.0), (0.0, 0.0)))
     self_verdicts = []
-    for label, anchor_role, subject_angle, board_angle, node_rot in self_rows:
+    for (label, anchor_role, subject_angle, board_angle, node_rot,
+         node_xy, anchor_xy) in self_rows:
         cfg_s, board_s, _tree_s, subject = _row_self(
-            cell=_self_cell(anchor_role, subject_angle),
-            node_rot=node_rot, board_angle=board_angle)
+            cell=_self_cell(anchor_role, subject_angle, anchor_xy),
+            node_xy=node_xy, node_rot=node_rot, board_angle=board_angle)
         res = _self_loop(cfg_s, board_s, anchor_role=subject, slot_role=subject)
         verdict = _verdict(res)
         self_verdicts.append((label, verdict))
