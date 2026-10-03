@@ -19050,3 +19050,42 @@ msgid ""
 "{lines}\n"
 "Use the full name (with its folder path)"
 msgstr ""
+
+#: kicadstamp/trees.py
+msgid ""
+"the cell's mount A ({ax:.4f}, {ay:.4f}) does not sit on the anchor part's"
+" own slot ({sx:.4f}, {sy:.4f}) — set the cell's anchor_role to {role!r} "
+"(or its anchor_xy to ({sx:.4f}, {sy:.4f}))"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid ""
+"node {ref!r} stands at xy ({ox:.4f}, {oy:.4f}) instead of (0, 0), and "
+"that offset repeats in every redraw — move the node to xy 0 (no "
+"anchor_role on the cell can cure this)"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid ""
+"the rotation already above node {ref!r} ({rho:.1f} deg — the tree's own "
+"angle plus the nodes above it) plus the anchor part's slot angle "
+"({slot:.1f} deg) turns it every redraw — set node {ref!r}'s rotation to "
+"{suggested:.1f} deg (the sum must be 0 mod 360)"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid "or bind the tree to its own node: (anchor (self (ref \"{ref}\")))"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid ""
+"node {ref!r} (cell {cell!r}) drifts by ({dx:.4f}, {dy:.4f}) mm and "
+"{deg:.1f} deg per redraw (tree frame): {hints}"
+msgstr ""
+
+#: kicadstamp/trees.py
+msgid ""
+"tree {tree!r}: the part its own anchor reads live ({role!r}) is placed by"
+" a node of this tree at a pose that is NOT a fixed point — every redraw "
+"would move it, so the tree is NOT redrawn: {violations}"
+msgstr ""

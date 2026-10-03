@@ -232,11 +232,13 @@ def _matches(cfg: Config, tree: Tree) -> list:
 
 def _row_direct(*, cell: Cell, node_xy=(0.0, 0.0), node_rot=0.0,
                 board_angle=0.0, anchor_cluster=ENTITY_CLUSTER,
-                anchor_sheet=None) -> tuple[Config, _FakeBoard, Tree]:
+                anchor_sheet=None, tree_rotation=0.0, pivot_xy=None
+                ) -> tuple[Config, _FakeBoard, Tree]:
     anchor = TreeAnchor(role=ANCHOR_ROLE, anchor_sheet=anchor_sheet,
                         anchor_cluster=anchor_cluster)
     tree = Tree(name="t", anchor=anchor,
-                nodes=[_placement_node(xy=node_xy, rot=node_rot)])
+                nodes=[_placement_node(xy=node_xy, rot=node_rot)],
+                rotation=tree_rotation, pivot_xy=pivot_xy)
     cfg = Config(cells={"C": cell}, entities=[_entity()], trees=[tree])
     board = _FakeBoard([
         {"ref": "X", "role": ANCHOR_ROLE, "cluster": anchor_cluster,
@@ -415,6 +417,33 @@ def main() -> None:
         cfg, board, tree = _row_direct(cell=cell, node_xy=xy, node_rot=rot,
                                        board_angle=board_angle)
         report(label, cfg, tree, _self_loop(cfg, board, anchor_cluster=ENTITY_CLUSTER))
+
+    # -- 1b. the TREE's OWN angle and inner point (tree_effective_base): the
+    #        live `ch0_dac_buf` tree turned out to carry (rotation 45.0) while
+    #        its cell's anchor slot sits at -45, i.e. the two CANCEL -- the SH1
+    #        guard must know this axis or it reports a false positive on live
+    #        data. Measured here, not argued: tree rotation 45 with a slot at
+    #        315 (sum 360) must be a fixed point; tree rotation 45 with a slot
+    #        at 0 must drift by +45; a pivot with nothing else wrong must still
+    #        drift (the pivot is not the anchor part).
+    tree_rows = [
+        ("T1  tree rot 45, slot 315 (sum 360)",
+         _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=315.0),
+         (0.0, 0.0), 0.0, 0.0, 45.0, None),
+        ("T2  tree rot 45, slot 0", _cell(anchor_role=ANCHOR_ROLE),
+         (0.0, 0.0), 0.0, 0.0, 45.0, None),
+        ("T3  pivot (5,0), slot 0", _cell(anchor_role=ANCHOR_ROLE),
+         (0.0, 0.0), 0.0, 0.0, 0.0, (5.0, 0.0)),
+        ("T4  tree rot 45, pivot (5,0), slot 315",
+         _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=315.0),
+         (0.0, 0.0), 0.0, 0.0, 45.0, (5.0, 0.0)),
+    ]
+    for label, cell, xy, rot, board_angle, tree_rot, pivot in tree_rows:
+        cfg_t, board_t, tree_t = _row_direct(
+            cell=cell, node_xy=xy, node_rot=rot, board_angle=board_angle,
+            tree_rotation=tree_rot, pivot_xy=pivot)
+        report(label, cfg_t, tree_t,
+               _self_loop(cfg_t, board_t, anchor_cluster=ENTITY_CLUSTER))
 
     # -- 2. "different part": the anchor cluster names ANOTHER part -- the
     #       guard's own predicate must return NO match (not a verdict by fiat).

@@ -830,20 +830,28 @@ def test_auto_anchor_materializes_on_zero_slot_role():
     placement on an Entity whose cell has ONE zero-offset slot (the "zero",
     self-referencing slot — e.g. role "FPGA") derives its anchor from that
     slot's role and materializes at the live footprint's position — the same
-    live resolution as an explicit (role ...) anchor."""
+    live resolution as an explicit (role ...) anchor.
+
+    The node sits at xy (0, 0) since 2026-10-03 (plan
+    tree_self_anchor_drift_guard, Ш1): a self-anchored tree whose root node
+    carries an OFFSET is NOT a fixed point of a redraw — the anchor subject IS
+    that node's part, so every pass lays it again at `live + offset` and walks
+    (measured, probe row S14), which the drift guard now refuses. The offset was
+    incidental to what THIS test guards (the anchor DERIVATION, still resolved
+    live); the refusal has its own test right below."""
     cell = Cell(name="fpga", components=[
         TemplateComponentSlot(role="FPGA"),                       # zero slot
         TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0),
     ])
     cfg = Config(cells={"fpga": cell},
                  entities=[Entity(name="fpga", cell="fpga")],
-                 trees=[_auto_tree([_node(ref="fpga", xy=(1.0, 2.0))])])
+                 trees=[_auto_tree([_node(ref="fpga", xy=(0.0, 0.0))])])
     clones = materialize_entity_placements(_role_adapter(), cfg, {})
     assert len(clones) == 1
     c = clones[0]
     assert c.name == "fpga"
-    assert c.xy[0] == pytest.approx(31.0)   # IC1 (30,40) + node (1,2)
-    assert c.xy[1] == pytest.approx(42.0)
+    assert c.xy[0] == pytest.approx(30.0)   # IC1's LIVE position (30, 40)
+    assert c.xy[1] == pytest.approx(40.0)
     assert c.rotation_deg == pytest.approx(0.0)
 
 
@@ -851,7 +859,12 @@ def test_auto_anchor_materializes_on_anchor_role_not_at_zero():
     """Design_2026_09_05 v2: a migrated role-anchored cell has NO component at
     the stored (0,0) at all — its MOUNT role is anchor_role (e.g. FPGA at the
     bbox-frame offset (2,1)). Auto-anchor must read THAT role live (not the
-    legacy zero-slot, which would fatal: there is none)."""
+    legacy zero-slot, which would fatal: there is none).
+
+    Node xy is (0, 0) since 2026-10-03 for the same drift reason as the test
+    above; what this test distinguishes is unchanged — the mount role comes from
+    `anchor_role`, the live read is live (mutation: read the legacy zero slot
+    instead -> this cell has none -> the fatal the docstring names)."""
     cell = Cell(name="fpga", components=[
         TemplateComponentSlot(role="FPGA", offset_along_mm=2.0,
                               offset_across_mm=1.0),          # mount, not (0,0)
@@ -860,13 +873,42 @@ def test_auto_anchor_materializes_on_anchor_role_not_at_zero():
     ], anchor_role="FPGA", anchor_xy=(2.0, 1.0))
     cfg = Config(cells={"fpga": cell},
                  entities=[Entity(name="fpga", cell="fpga")],
-                 trees=[_auto_tree([_node(ref="fpga", xy=(1.0, 2.0))])])
+                 trees=[_auto_tree([_node(ref="fpga", xy=(0.0, 0.0))])])
     clones = materialize_entity_placements(_role_adapter(role="FPGA", x=30.0, y=40.0),
                                            cfg, {})
     assert len(clones) == 1
     c = clones[0]
-    assert c.xy[0] == pytest.approx(31.0)   # IC1 (30,40) + node (1,2)
-    assert c.xy[1] == pytest.approx(42.0)
+    assert c.xy[0] == pytest.approx(30.0)   # IC1's LIVE position (30, 40)
+    assert c.xy[1] == pytest.approx(40.0)
+
+
+# ---------------------------------------------------------------------------
+# The tree's OWN anchor part is not a fixed point (2026-10-03, plan
+# tree_self_anchor_drift_guard, Ш1/Ш2): a redraw re-reads that part's pose and
+# lays the node from it, so the part moves every pass. A tree in that shape is
+# SKIPPED with a red error — never redrawn again and again.
+# ---------------------------------------------------------------------------
+
+
+def test_self_anchor_root_node_offset_is_refused_not_drifted(caplog):
+    """Self anchor + root node offset == a per-pass drift (probe row S14): the
+    subject part lands at `live + (1, 2)` every redraw, so the tree is NOT
+    materialized — the ERROR names the node, the shift and the fix, and no clone
+    is produced."""
+    cell = Cell(name="fpga", components=[
+        TemplateComponentSlot(role="FPGA"),                       # zero slot
+        TemplateComponentSlot(role="R_TERM_N", offset_along_mm=1.0),
+    ])
+    cfg = Config(cells={"fpga": cell},
+                 entities=[Entity(name="fpga", cell="fpga")],
+                 trees=[_auto_tree([_node(ref="fpga", xy=(1.0, 2.0))])])
+    with caplog.at_level(logging.ERROR,
+                         logger="kicadstamp.placement.entity_placement"):
+        clones = materialize_entity_placements(_role_adapter(), cfg, {})
+    assert clones == []
+    assert "NOT redrawn" in caplog.text
+    assert "drifts by (1.0000, 2.0000) mm" in caplog.text
+    assert "move the node to xy 0" in caplog.text
 
 
 def test_auto_anchor_no_zero_slot_is_fatal_not_silent():

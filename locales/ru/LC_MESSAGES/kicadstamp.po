@@ -17737,3 +17737,58 @@ msgstr ""
 "[error] --only: неоднозначные короткие имена:\n"
 "{lines}\n"
 "Укажи полное имя (с путём папки)"
+
+#: kicadstamp/trees.py
+msgid ""
+"the cell's mount A ({ax:.4f}, {ay:.4f}) does not sit on the anchor part's"
+" own slot ({sx:.4f}, {sy:.4f}) — set the cell's anchor_role to {role!r} "
+"(or its anchor_xy to ({sx:.4f}, {sy:.4f}))"
+msgstr ""
+"точка монтирования ячейки A ({ax:.4f}, {ay:.4f}) не совпадает со слотом "
+"опорной детали ({sx:.4f}, {sy:.4f}) — задай ячейке anchor_role {role!r} "
+"(или anchor_xy ({sx:.4f}, {sy:.4f}))"
+
+#: kicadstamp/trees.py
+msgid ""
+"node {ref!r} stands at xy ({ox:.4f}, {oy:.4f}) instead of (0, 0), and "
+"that offset repeats in every redraw — move the node to xy 0 (no "
+"anchor_role on the cell can cure this)"
+msgstr ""
+"узел {ref!r} стоит в xy ({ox:.4f}, {oy:.4f}) вместо (0, 0), и это "
+"смещение повторяется при каждой перерисовке — поставь узел в xy 0 "
+"(anchor_role у ячейки тут не поможет)"
+
+#: kicadstamp/trees.py
+msgid ""
+"the rotation already above node {ref!r} ({rho:.1f} deg — the tree's own "
+"angle plus the nodes above it) plus the anchor part's slot angle "
+"({slot:.1f} deg) turns it every redraw — set node {ref!r}'s rotation to "
+"{suggested:.1f} deg (the sum must be 0 mod 360)"
+msgstr ""
+"поворот, уже накопленный над узлом {ref!r} ({rho:.1f} град — собственный "
+"угол дерева и узлы выше), плюс собственный угол слота опорной детали "
+"({slot:.1f} град) поворачивает её при каждой перерисовке — задай узлу "
+"{ref!r} rotation {suggested:.1f} град (сумма должна быть 0 по модулю 360)"
+
+#: kicadstamp/trees.py
+msgid "or bind the tree to its own node: (anchor (self (ref \"{ref}\")))"
+msgstr "или привяжи дерево к своему узлу: (anchor (self (ref \"{ref}\")))"
+
+#: kicadstamp/trees.py
+msgid ""
+"node {ref!r} (cell {cell!r}) drifts by ({dx:.4f}, {dy:.4f}) mm and "
+"{deg:.1f} deg per redraw (tree frame): {hints}"
+msgstr ""
+"узел {ref!r} (ячейка {cell!r}) уезжает на ({dx:.4f}, {dy:.4f}) мм и "
+"{deg:.1f} град за перерисовку (в кадре дерева): {hints}"
+
+#: kicadstamp/trees.py
+msgid ""
+"tree {tree!r}: the part its own anchor reads live ({role!r}) is placed by"
+" a node of this tree at a pose that is NOT a fixed point — every redraw "
+"would move it, so the tree is NOT redrawn: {violations}"
+msgstr ""
+"дерево {tree!r}: деталь, которую читает его собственный якорь ({role!r}), "
+"ставится узлом этого же дерева в позу, которая НЕ является неподвижной "
+"точкой — каждая перерисовка двигала бы её, поэтому дерево НЕ "
+"перерисовывается: {violations}"

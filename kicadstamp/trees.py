@@ -34,11 +34,19 @@ Syntactic rules enforced here (fatal via ValidationError):
      other kind it is the removed own_anchor grammar and is a load-time fatal
      pointing at the tree converter
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from .cloner.sexp import atom, child, children, is_node, load_file, save_file, sval, sym
 from .exceptions import ValidationError
 from .i18n import _
+from .utils.units import MM
+
+if TYPE_CHECKING:
+    # Annotation-only: importing kicadstamp.domain at RUNTIME would execute the
+    # package __init__ (which pulls the board DTOs and kipy) from a module that
+    # sits BELOW config in the import order.
+    from .domain.geometry import Vector2
 
 # Valid node kinds (syntactic whitelist; cross-referencing against Config
 # records is link_trees' job).
@@ -847,12 +855,442 @@ def check_mount_anchor_drift(cfg) -> None:
 
     Deliberately NOT applied to the tree's OWN (role ...) anchor (the empirical
     `dac_buf_tpl` exception documented before 2026-09-11 — that component is the
-    tree's REFERENCE, not something the tree moves). Pure config check, no board
-    needed."""
+    tree's REFERENCE, not something the tree moves). That assumption is FALSE
+    whenever the tree itself places the part its anchor reads: the live `fpga`
+    case (2026-10-03) drifted silently, 4.75 mm per redraw. That shape has its
+    own guard now — `check_tree_self_anchor_drift` below, which is a REDRAW-time
+    ERROR plus a per-tree skip (never a load fatal, so the profile still loads).
+    Pure config check, no board needed."""
     for tree in getattr(cfg, "trees", []) or []:
         for node in _walk_nodes(tree.nodes):
             if node.kind == "mount":
                 resolve_internal_mount_match(cfg, tree, node)
+
+
+# ---------------------------------------------------------------------------
+# Self-anchor drift guard (plan_2026_10_03_tree_self_anchor_drift_guard, SH1)
+# ---------------------------------------------------------------------------
+# "A tree does not move its own anchor part" — the assumption the mount guard
+# above documents — is FALSE when the tree itself places the part its anchor
+# reads live: the redraw re-reads that part's pose and lays the node from it, so
+# the part lands somewhere else, and EVERY redraw repeats the shift. The live
+# `fpga` case: 4.75 mm per apply, silently, until the cluster left the board.
+#
+# The fixed-point condition (measured, plan Ш0/Ш0.2 + the probe rows T1-T4 in
+# kicadstamp/diagnostics/deepseek_probe_tree_self_anchor_drift_2026_10_03.py) —
+# written here in the tree's own frame, because the guard has no board:
+#
+#   shift per redraw  = R_phi( o + R_rho(s - A) - pivot )   (position)
+#   turn  per redraw  = tree.rotation + rho + slot.angle    (orientation)
+#
+# with o the node's own offset, rho the rotation accumulated along the node's
+# path, s the anchor slot's stored offset, A the cell's mount and `pivot` the
+# tree's inner point (phi, the LIVE anchor angle, only rotates the vector — it
+# can never zero it, which is why the whole check is OFFLINE). Both halves must
+# be zero.
+#
+# Two traps the first drafts of this guard fell into, both MEASURED:
+#   * the halves are independent — a role anchor makes A == s (curing position)
+#     but leaves the ANGLE turning whenever `tree.rotation + rho + slot.angle != 0`
+#     (Ш0 rows A12/A13);
+#   * the tree's OWN angle and inner point are part of the composition
+#     (tree_effective_base) — omitting them reported a live FALSE POSITIVE:
+#     `ch0_dac_buf` carries `(rotation 45.0)` against a cell slot at -45, and the
+#     two cancel (probe rows T1/T2; a pivot drifts by exactly `-pivot`, T3/T4).
+
+# The drift is geometric; rotate_local_offset quantises mm -> nm through int(),
+# so a genuinely zero vector can come back a few nm off. 10 nm is still five
+# orders of magnitude below a real drift (mm), and a real turn is whole degrees.
+_DRIFT_TOL_NM = 10
+_DRIFT_TOL_DEG = 1e-6
+# Two stored points are either the same float pair or genuinely apart.
+_MOUNT_TOL_MM = 1e-9
+
+
+def _signed_deg(angle: float) -> float:
+    """An angle in (-180, 180] — the project-wide display convention
+    (cell_frame.normalize_deg). Kept local on purpose: importing cell_frame here
+    would pull geometry.clone_geometry, which imports the config package, and
+    this module is below config in the import order."""
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+@dataclass
+class TreeSelfAnchorDrift:
+    """ONE node of a tree that places the part the tree's OWN anchor reads live,
+    at a pose that is NOT a fixed point of a redraw (measured, plan Ш0/Ш0.2).
+
+    The two halves are INDEPENDENT, and both come out of the planner's own
+    forward mapping in the tree's own frame (see _anchor_part_drift):
+
+      * position — the tree frame vector the live anchor angle merely rotates;
+        zero iff the node's own offset, the anchor slot's offset minus the cell
+        mount, and the tree's inner point cancel out;
+      * orientation — `tree.rotation + rho + slot.angle`; zero iff that sum is 0
+        mod 360. Measured: a role anchor whose slot coincides with the mount is
+        STILL turned when the sum is nonzero (Ш0 rows A12/A13), and the live
+        `ch0_dac_buf` tree's own `(rotation 45.0)` against a cell slot at -45 is
+        a fixed point (probe rows T1/T2) — the axis a first draft missed.
+
+    Every field is OFFLINE config data — the check needs no board. A record is
+    produced only when at least one half is nonzero, and the caller's message
+    picks its fix hint from WHICH one (Denis, 03.10.2026: `anchor_role` cures the
+    mount, not the angle, and not a node's own offset)."""
+    tree: "Tree"
+    node: TreeNode
+    path: list[TreeNode]
+    entity: object
+    cell: object
+    slot: object
+    role: str
+    offset: "Vector2"                 # o + R_rho(s - A), tree frame, nm
+    rotation_deg: float               # rho + slot.angle, in (-180, 180]
+    node_offset: "Vector2"            # o, tree frame, nm
+    accumulated_rotation_deg: float   # rho, INCLUDING this node's own rotation
+    node_rotation_deg: float          # this node's own `rotation` field
+    mount: tuple[float, float]        # A (mm)
+    slot_offset: tuple[float, float]  # s (mm)
+    slot_angle_deg: float
+
+    @property
+    def position_drifts(self) -> bool:
+        """The part MOVES every redraw (o + R_rho(s - A) != 0)."""
+        return (abs(self.offset.x) > _DRIFT_TOL_NM
+                or abs(self.offset.y) > _DRIFT_TOL_NM)
+
+    @property
+    def angle_drifts(self) -> bool:
+        """The part TURNS every redraw (rho + slot.angle != 0 mod 360)."""
+        return abs(self.rotation_deg) > _DRIFT_TOL_DEG
+
+    @property
+    def mount_differs_from_slot(self) -> bool:
+        """A != s — the anchor slot is not where the cell says its mount is."""
+        return (abs(self.slot_offset[0] - self.mount[0]) > _MOUNT_TOL_MM
+                or abs(self.slot_offset[1] - self.mount[1]) > _MOUNT_TOL_MM)
+
+    @property
+    def node_has_offset(self) -> bool:
+        """o != 0 — the node placing the part does not stand at its base."""
+        return (abs(self.node_offset.x) > _DRIFT_TOL_NM
+                or abs(self.node_offset.y) > _DRIFT_TOL_NM)
+
+    @property
+    def rotation_above_deg(self) -> float:
+        """The rotation accumulated ABOVE this node (rho minus its own rotation)
+        — the part of the sum that editing THIS node's rotation must cancel."""
+        return self.accumulated_rotation_deg - self.node_rotation_deg
+
+    @property
+    def suggested_rotation_deg(self) -> float:
+        """The node's own `rotation` value that makes the angle sum 0 mod 360."""
+        return _signed_deg(-(self.rotation_above_deg + self.slot_angle_deg))
+
+
+def _self_anchor_subject_entity(cfg, tree: "Tree", anchor: TreeAnchor):
+    """The Entity whose part a (self ...) anchor reads live: the Entity of the
+    node its (ref ...) names (load-validated to be a placement node of THIS
+    tree), else — for a bare (self) — the tree's single top-level placement node
+    (the SAME EXACTLY-ONE rule `_self_anchor_base` uses). None when neither
+    applies (the live read is a clear fatal there; the guard simply stays
+    silent)."""
+    if anchor.self_ref is not None:
+        for node in _walk_nodes(tree.nodes):
+            if node.ref == anchor.self_ref and node.kind in _PLACEMENT_KINDS:
+                return _find_entity(cfg, node.ref)
+        return None
+    roots = [n for n in tree.nodes if n.kind in _PLACEMENT_KINDS]
+    if len(tree.nodes) != 1 or len(roots) != 1:
+        return None
+    return _find_entity(cfg, roots[0].ref)
+
+
+def _live_subject_role(cell):
+    """The role the LIVE self-anchor read resolves for this cell
+    (entity_placement._entity_own_zero_slot_live_position): `cell.anchor_role`
+    when set, else the role of the SINGLE zero-offset component.
+
+    None when that read would RAISE instead (0 or 2+ zero-offset components, or no
+    cell at all): the guard must stay SILENT there, or it would PREEMPT a genuine
+    config fatal with a skip of its own — measured, not argued:
+    tests/trees/test_entity_placement.py::test_auto_anchor_no_zero_slot_is_fatal_
+    not_silent went red exactly this way on the first draft of this guard.
+
+    Deliberately NOT placement.anchor_identity.entity_anchor_identity: that helper
+    documents a THIRD fallback (the first component's role) for its GUI use, which
+    this live read does not have."""
+    if cell is None:
+        return None
+    if cell.anchor_role is not None:
+        return cell.anchor_role
+    zero = [c for c in cell.components
+            if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0]
+    if len(zero) != 1:
+        return None
+    return zero[0].role
+
+
+def _anchor_live_identity(cfg, tree: "Tree", anchor: TreeAnchor):
+    """(role, sheet, cluster) of the part a tree's anchor reads LIVE, or None
+    when the anchor has no such subject (origin / ref / point, or a self anchor
+    whose subject the live read cannot derive — see _live_subject_role).
+
+    (role ...) — the anchor's own role narrowed by the anchor's sheet/cluster.
+    (self ...) — the subject Entity's own mount role (_live_subject_role) narrowed
+    by that Entity's own sheet/cluster, exactly what the live read passes to
+    resolve_anchor_fp."""
+    if anchor.is_self:
+        entity = _self_anchor_subject_entity(cfg, tree, anchor)
+        if entity is None:
+            return None
+        subject = _live_subject_role(
+            (getattr(cfg, "cells", {}) or {}).get(entity.cell))
+        if subject is None:
+            return None
+        return (subject, entity.sheet, entity.cluster)
+    if anchor.role is None:
+        return None
+    return (anchor.role, anchor.anchor_sheet, anchor.anchor_cluster)
+
+
+def _anchor_part_drift(tree: "Tree", match: RolePlacementMatch, role: str,
+                       forest: dict) -> "TreeSelfAnchorDrift | None":
+    """The drift record of ONE `match`, or None when it cannot be computed
+    offline.
+
+    The drift is measured as the pose the PLANNER'S OWN forward mapping gives the
+    anchor part when the marker sits at the board origin with angle 0 (a
+    ZERO-MARKER frame): every live quantity cancels out of a PER-PASS shift, so
+    what remains is exactly the shift (position — the live anchor angle merely
+    rotates it) and the turn the NEXT redraw would add. The three pieces are the
+    planner's, never a formula of this module:
+
+      * `tree_position.tree_effective_base` — the tree's OWN angle and inner
+        point. NOT optional: the live `ch0_dac_buf` tree carries
+        `(rotation 45.0)` against a cell slot at -45, and the two CANCEL
+        (measured, probe rows T1/T2); a pivot is not the anchor part and drifts
+        by exactly `-pivot` (rows T3/T4);
+      * `tree_position.node_position` — the node path composition from that base;
+      * `geometry.clone_geometry.apply_clone_geometry` — the placed part's pose
+        (position AND angle, mirror rule included), the same mapping the probe
+        validates against a live dry run.
+
+    None (this node is not checked, and says so rather than guessing) when:
+      * the path carries a kind "mount" node — its base needs the live board or
+        the internal-mount resolver;
+      * the cell is a LEGACY pad anchor (anchor_role + anchor_pad, no anchor_xy) —
+        its mount A is resolved from a LIVE instance, so it is not offline data;
+      * the Entity is mirrored — a mirrored placement's angle is
+        `180 - (slot + rot)`, which no single `phi` can make a fixed point, so a
+        per-pass number would be a lie;
+      * the tree's own base cannot be resolved without a board (a pivot-ref tree
+        whose content needs a live read)."""
+    from .config import ClonePlacement          # cycle: config imports trees
+    from .domain.geometry import Vector2        # cycle: kicadstamp.domain
+    from .geometry.cell_anchor import cell_mount_offset  # cycle: geometry/__init__
+    from .geometry.clone_geometry import apply_clone_geometry  # cycle: config
+    from .tree_position import (  # cycle: tree_position imports trees
+        node_offset, node_position, tree_effective_base)
+    cell = match.cell
+    geometry_cell = replace(cell, vias=[], tracks=[])
+    if (cell.anchor_role is not None and cell.anchor_pad is not None
+            and cell.anchor_xy is None):
+        return None                     # live-resolved A — see the docstring
+    if getattr(match.entity, "mirror", False):
+        return None                     # mirrored angle — see the docstring
+    try:
+        base_pos, base_rot = tree_effective_base(
+            tree, Vector2.from_xy(0, 0), 0.0, forest)
+    except Exception:  # noqa: BLE001 — a live-read base: stay silent, not guess
+        return None
+    pos, rot = base_pos, base_rot
+    for node in match.path:
+        if node.kind == "mount":
+            return None
+        pos = node_position(node, pos, rot)
+        rot += node.rotation
+    entity = match.entity
+    transient = ClonePlacement(
+        cluster=entity.cluster or entity.name, cell=cell.name,
+        xy=(pos.x / MM, pos.y / MM), rotation_deg=rot,
+        mirror=bool(getattr(entity, "mirror", False)),
+        name=entity.name, sheet=getattr(entity, "sheet", None))
+    # apply_clone_geometry also walks the cell's copper, and a net_from_role
+    # bearing via needs the nets the calculator resolves BEFORE geometry (its
+    # own fatal says so). The guard has no nets and needs none: the question is
+    # the placed PART's pose, which the copper cannot change — so the geometry
+    # is asked about a copper-less copy of the same cell.
+    layout = apply_clone_geometry(transient, geometry_cell, {role: "X"},
+                                  anchor_position=None, mirror=transient.mirror)
+    placed = next((c for c in layout.components if c.role == role), None)
+    if placed is None:
+        return None
+    slot = match.slot
+    ax, ay = cell_mount_offset(cell)
+    node_off_nm = node_offset(match.node)
+    return TreeSelfAnchorDrift(
+        tree=tree, node=match.node, path=list(match.path), entity=entity,
+        cell=cell, slot=slot, role=role,
+        offset=Vector2.from_xy(placed.position.x, placed.position.y),
+        rotation_deg=_signed_deg(placed.angle_deg),
+        node_offset=node_off_nm,
+        accumulated_rotation_deg=rot,
+        node_rotation_deg=match.node.rotation,
+        mount=(ax, ay),
+        slot_offset=(slot.offset_along_mm, slot.offset_across_mm),
+        slot_angle_deg=slot.angle_deg,
+    )
+
+
+def find_tree_self_anchor_drifts(cfg, tree: "Tree") -> list[TreeSelfAnchorDrift]:
+    """Every node of `tree` that places the part the tree's OWN anchor reads live
+    AND whose placement is NOT a fixed point of a redraw (plan Ш0/Ш0.2). PURE:
+    config only, no board, no logging.
+
+    The predicate "which node places that role" is `find_role_placement_matches`
+    — the project's own rule, shared with the mount guard and the internal-mount
+    resolver. A match living in a tree EMBEDDED through a module node is skipped:
+    the outer tree's base does not lay it (measured, Ш0 row C2 — moving the outer
+    anchor does not move it), so it cannot drag the outer anchor either.
+
+    Both anchor shapes are covered: (role ...) AND (self ...). For a self anchor
+    the position half can still be nonzero — measured, Ш0.2 rows S14 (the node's
+    own offset) and S15 (an explicit anchor_xy that is not the subject slot), so
+    "a self anchor never drifts in position" is NOT a safe assumption."""
+    anchor = getattr(tree, "anchor", None)
+    if anchor is None:
+        return []
+    # A LinkedTree carries the plain TreeAnchor under LinkedAnchor.anchor; accept
+    # both so neither caller has to remember which it holds.
+    if not isinstance(anchor, TreeAnchor):
+        anchor = getattr(anchor, "anchor", None)
+        if anchor is None:
+            return []
+    identity = _anchor_live_identity(cfg, tree, anchor)
+    if identity is None:
+        return []
+    role, sheet, cluster = identity
+    forest = {t.name: t for t in getattr(cfg, "trees", []) or []}
+    drifts: list[TreeSelfAnchorDrift] = []
+    for match in find_role_placement_matches(cfg, tree, role, sheet=sheet,
+                                             cluster=cluster):
+        if match.tree is not tree:
+            continue
+        drift = _anchor_part_drift(tree, match, role, forest)
+        if drift is None:
+            continue
+        if drift.position_drifts or drift.angle_drifts:
+            drifts.append(drift)
+    return drifts
+
+
+def _self_switch_fixes_mount(cfg, drift: TreeSelfAnchorDrift) -> bool:
+    """Would binding the tree to `drift.node` ( (anchor (self (ref ...))) ) make
+    the MOUNT half zero? The subject then becomes that node's Entity's own anchor
+    identity (cell.anchor_role, else the single zero-offset slot) and A stays
+    `cell_mount_offset` — so the two must coincide. Measured Ш0.2 S15: an
+    explicit anchor_xy that is NOT the subject slot survives the switch (A wins),
+    which is why the self hint cannot be offered on the angle half alone."""
+    from .geometry.cell_anchor import cell_mount_offset  # cycle: geometry/__init__
+    subject_role = _live_subject_role(drift.cell)
+    if subject_role is None:
+        return False
+    slot = next((c for c in drift.cell.components if c.role == subject_role),
+                None)
+    if slot is None:
+        return False
+    ax, ay = cell_mount_offset(drift.cell)
+    return (abs(slot.offset_along_mm - ax) <= _MOUNT_TOL_MM
+            and abs(slot.offset_across_mm - ay) <= _MOUNT_TOL_MM)
+
+
+def _tree_is_role_anchored(tree: "Tree") -> bool:
+    """True for an EXPLICIT (role ...) anchor — the only shape the self hint can
+    improve (a self-anchored tree already reads its own node, and an origin/ref/
+    point anchor has no part of this tree to bind to)."""
+    anchor = getattr(tree, "anchor", None)
+    if anchor is None:
+        return False
+    if not isinstance(anchor, TreeAnchor):
+        anchor = getattr(anchor, "anchor", None)
+        if anchor is None:
+            return False
+    return (not anchor.is_self) and anchor.role is not None
+
+
+def _anchor_drift_hints(cfg, drift: TreeSelfAnchorDrift) -> list[str]:
+    """The fix hints for ONE violation, chosen by the VIOLATED half (Denis,
+    03.10.2026). `anchor_role` cures the mount misalignment ONLY — it does not
+    cure a node's own offset and it does not cure the angle (Ш0 rows A12/A13)."""
+    hints: list[str] = []
+    if drift.mount_differs_from_slot:
+        hints.append(_(
+            "the cell's mount A ({ax:.4f}, {ay:.4f}) does not sit on the anchor "
+            "part's own slot ({sx:.4f}, {sy:.4f}) — set the cell's anchor_role "
+            "to {role!r} (or its anchor_xy to ({sx:.4f}, {sy:.4f}))"
+        ).format(ax=drift.mount[0], ay=drift.mount[1], sx=drift.slot_offset[0],
+                 sy=drift.slot_offset[1], role=drift.role))
+    if drift.node_has_offset:
+        hints.append(_(
+            "node {ref!r} stands at xy ({ox:.4f}, {oy:.4f}) instead of (0, 0), "
+            "and that offset repeats in every redraw — move the node to xy 0 "
+            "(no anchor_role on the cell can cure this)"
+        ).format(ref=drift.node.ref, ox=drift.node_offset.x / MM,
+                 oy=drift.node_offset.y / MM))
+    if drift.angle_drifts:
+        hints.append(_(
+            "the rotation already above node {ref!r} ({rho:.1f} deg — the tree's "
+            "own angle plus the nodes above it) plus the anchor part's slot angle "
+            "({slot:.1f} deg) turns it every redraw — set node {ref!r}'s rotation "
+            "to {suggested:.1f} deg (the sum must be 0 mod 360)"
+        ).format(rho=drift.rotation_above_deg, slot=drift.slot_angle_deg,
+                 ref=drift.node.ref, suggested=drift.suggested_rotation_deg))
+    if (not drift.angle_drifts and not drift.node_has_offset
+            and _tree_is_role_anchored(drift.tree)
+            and _self_switch_fixes_mount(cfg, drift)):
+        hints.append(_(
+            "or bind the tree to its own node: (anchor (self (ref \"{ref}\")))"
+        ).format(ref=drift.node.ref))
+    return hints
+
+
+def describe_tree_self_anchor_drift(cfg, tree: "Tree",
+                                   drifts: list[TreeSelfAnchorDrift]) -> str:
+    """The ONE ERROR line for a tree that must not be redrawn: every violation of
+    that tree is listed (never only the first), each with its own shift/turn and
+    its own fix hint — a hint is offered only for the half that is actually
+    broken (Denis, 03.10.2026)."""
+    violations = "; ".join(
+        _("node {ref!r} (cell {cell!r}) drifts by ({dx:.4f}, {dy:.4f}) mm and "
+          "{deg:.1f} deg per redraw (tree frame): {hints}").format(
+              ref=d.node.ref, cell=getattr(d.cell, "name", None),
+              dx=d.offset.x / MM, dy=d.offset.y / MM, deg=d.rotation_deg,
+              hints="; ".join(_anchor_drift_hints(cfg, d)))
+        for d in drifts)
+    return _(
+        "tree {tree!r}: the part its own anchor reads live ({role!r}) is placed "
+        "by a node of this tree at a pose that is NOT a fixed point — every "
+        "redraw would move it, so the tree is NOT redrawn: {violations}"
+    ).format(tree=tree.name, role=drifts[0].role, violations=violations)
+
+
+def check_tree_self_anchor_drift(cfg, tree: "Tree") -> str | None:
+    """The ERROR message for a tree that must NOT be redrawn, or None when the
+    tree is safe to redraw (plan Ш1, decision of 03.10.2026).
+
+    WHY a skip and an ERROR (not a load-time fatal, not a warning): the drifted
+    tree cannot be redrawn without moving its own anchor part again, but the rest
+    of the run is perfectly fine — a fatal would close the WHOLE profile, and a
+    warning would let the silent drift continue. So the tree is skipped, the rest
+    of the run proceeds, and the message is a red LogDock line naming the tree,
+    the node, the cell, the shift and the fix.
+
+    The caller owns the logging (this function only builds the message) and the
+    deduplication policy. Pure: config only, no board."""
+    drifts = find_tree_self_anchor_drifts(cfg, tree)
+    if not drifts:
+        return None
+    return describe_tree_self_anchor_drift(cfg, tree, drifts)
 
 
 def _parse_node(node, seen_refs: set[str], location: str) -> TreeNode:

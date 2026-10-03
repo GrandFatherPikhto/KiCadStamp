@@ -77,9 +77,25 @@ adds its mount slot's `angle_deg` on top of the very angle the anchor was just r
 `conn_pm5v`'s -90.0 under the CONN_PM5V anchor of "power"). "Extract tree from selection" NAMES the
 checked cluster matching the explicit anchor as the tree's own `(self (ref ...))` anchor (2026-09-11,
 plan tree_self_anchor, task Д) instead of creating a second node for it, and the Trees dock highlights an
-existing duplicate so it is safe to delete. Materialization itself does not special-case the node; an
+existing duplicate so it is safe to delete. Materialization does not remove the node as a duplicate; an
 `is_self` tree's single root node is its anchor source by construction and is never treated as a
 duplicate.
+
+Redraw-time drift guard (2026-10-03, plan `tree_self_anchor_drift_guard`): before materializing a tree,
+its config is checked with NO board access — `check_tree_self_anchor_drift` / `find_tree_self_anchor_
+drifts` in `kicadstamp/trees.py` — against the fixed-point condition of the part the tree's OWN anchor
+reads live. A redraw re-reads that part's pose and lays the node from it, so the part moves per pass by
+`R_phi(o + R_rho(s - A) - pivot)` (position; phi is the LIVE anchor angle, it merely ROTATES the vector)
+and turns by `tree.rotation + rho + slot.angle` (orientation) — the two halves are INDEPENDENT, and an
+`anchor_role` that makes the mount coincide with the anchor slot (`A == s`) cures the position half ONLY
+(a slot angle, or a node rotation, that does not cancel it still turns the part every pass). The check
+covers `(role ...)` AND `(self ...)` anchors, computes the drift with the planner's OWN
+`tree_effective_base` / `node_position` / `apply_clone_geometry`, and skips a violating tree with a red
+`logger.error` naming the tree, the node, the cell, the shift and the fix — the rest of the run proceeds
+and the profile still LOADS (deliberately neither a load fatal nor a warning: a fatal would close the whole
+profile, a warning would let the silent drift continue). Outside the check (named, not guessed): a node
+whose path runs under a `kind "mount"` node, a legacy pad-anchor cell, a mirrored Entity, a legacy
+`kind "clone"` node, and a tree whose pivot cannot be resolved offline.
 
 Extraction capture note (2026-09-06): when "Extract tree from selection" autopositions a node it
 records the node's offset in the ANCHOR's LOCAL frame (`xy`) and its `rotation` = (live mount angle −

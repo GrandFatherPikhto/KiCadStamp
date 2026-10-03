@@ -55,6 +55,7 @@ from ..tree_position import (
     resolve_base_rotation_deg,
     tree_effective_base,
 )
+from ..trees import check_tree_self_anchor_drift
 from ..utils.units import MM
 from .services.component_resolver import (
     ComponentResolver,
@@ -826,6 +827,24 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     narrowing = only_set is not None or cluster_paths is not None
     out: list[ClonePlacement] = []
     for tree in linked:
+        # Self-anchor drift guard (plan_2026_10_03_tree_self_anchor_drift_guard
+        # Ш1/Ш1.2): a tree that PLACES the very part its own anchor reads live
+        # re-reads the already-moved part on every redraw and drifts (the live
+        # `fpga` case: 4.75 mm per apply, silently). Such a tree is NOT
+        # materialized — its clones would move it again — while every OTHER tree
+        # of the run proceeds. A red ERROR line (LogDock paints it red), never a
+        # warning (the drift would continue silently) and never a load fatal (it
+        # would close the whole profile).
+        #
+        # BEFORE the --only/--cluster pre-filter on purpose (Denis, 03.10.2026):
+        # the report must be seen for every tree on every run, however narrow the
+        # run is — a silent skip here would hide which application was refused.
+        plain_tree = _plain_tree(cfg, tree.name)
+        drift = (check_tree_self_anchor_drift(cfg, plain_tree)
+                 if plain_tree is not None else None)
+        if drift is not None:
+            logger.error(drift)
+            continue
         if narrowing and not _tree_is_wanted(tree, only_set, cluster_paths):
             logger.debug("Entity materialization: tree %r cannot produce a clone "
                          "matching --only %s / --cluster %s — skipped before its "
@@ -839,7 +858,7 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
             _walk(tree.nodes, anchor_pos, anchor_rot, tree_clones,
                   position_overrides=position_overrides,
                   adapter=adapter, cfg=cfg, sheet_names=sheet_names,
-                  plain_tree=_plain_tree(cfg, tree.name),
+                  plain_tree=plain_tree,
                   tree_base_pos=anchor_pos, tree_base_rot=anchor_rot)
         except _EntityAnchorError:
             # A ref anchor resolving to an Entity that is not placed / placed
