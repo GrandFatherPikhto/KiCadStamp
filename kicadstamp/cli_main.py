@@ -99,6 +99,15 @@ def _rewrite_bare_config_to_apply(argv) -> bool:
     return False
 
 
+def set_cli_active_root(args) -> None:
+    """У4.1: the CLI's ``--config`` IS the active graph root for the format-3
+    writer stamp (a subcommand with no ``--config`` clears it). Extracted so the
+    wiring is testable without running a subcommand."""
+    from .config_working_set import set_active_graph_root
+
+    set_active_graph_root(getattr(args, "config", None))
+
+
 def main() -> int:
     # --version/-V exempted from the bare-config-path -> 'apply' rewrite
     # below, same as the other real subcommands — otherwise it would be
@@ -481,11 +490,7 @@ def main() -> int:
 
     # У4.1: the CLI's --config IS the active graph root for the format-3 writer
     # stamp (some subcommands write config: flatten writes the graph back).
-    # None is fine — the stamp only needs a root under format 3 and only for a
-    # write that actually touches records/references.
-    from .config_working_set import set_active_graph_root
-
-    set_active_graph_root(getattr(args, "config", None))
+    set_cli_active_root(args)
 
     # Pick up log_file from the config before setup_logging() — but WITHOUT a
     # full validated load here. That happens exactly once, inside the apply

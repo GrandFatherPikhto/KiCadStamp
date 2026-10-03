@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from ..utils.file_cache import cached_file_read
 from .includes import _load_config_file, walk_include_tree
 
 logger = logging.getLogger(__name__)
@@ -236,8 +237,12 @@ def _check_format3_graph(root_path: str) -> dict:
     folders: list = []
     refs: list = []
     graph_files = _f3_files(root_path)
+    # cached_file_read, NOT _load_config_file directly (У4, finding Н1): the
+    # loader reads through this cache, which honours the ConfigWorkingSet — so
+    # the check sees the SAME graph the program works in (staged edits included),
+    # not the older bytes on disk.
     for f in graph_files:
-        _f3_collect(_load_config_file(Path(f)), f, records, folders, refs)
+        _f3_collect(cached_file_read(Path(f), _load_config_file), f, records, folders, refs)
 
     # П2: a format-3 record MUST carry a name (Р43) — its own fatal, with the
     # file, section and index; never a phantom "duplicate full name".
@@ -439,7 +444,10 @@ def _build_format3_index(root: Path, path: Path, data: dict) -> _Format3Index:
         is_current = str(Path(f).resolve()) == resolved
         if is_current:
             seen_current = True
-        _index_dict(index, data if is_current else _load_config_file(Path(f)), f)
+        # cached_file_read (У4, Н1): the index must see the working set too, or a
+        # reference to a record that only exists as an unsaved edit would be
+        # refused (or resolved against stale disk bytes).
+        _index_dict(index, data if is_current else cached_file_read(Path(f), _load_config_file), f)
     if not seen_current:
         _index_dict(index, data, str(path))
     return index

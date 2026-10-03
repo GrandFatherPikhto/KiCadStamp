@@ -178,7 +178,13 @@ def _stamp_format3_for_write(path: Path, data: dict, graph_root) -> dict:
     if is_stamp_disabled():
         return data
     root = graph_root if graph_root is not None else active_graph_root()
-    return stamp_format3(data, root=root, path=path)
+    try:
+        return stamp_format3(data, root=root, path=path)
+    except ValidationError as e:
+        # Qt-slot safety, the same rule as _read_data's OSError wrapping: a bare
+        # ValidationError escaping a dock's `except OSError` aborts PyQt6
+        # (measured). The rich, translated message is preserved.
+        raise OSError(str(e)) from e
 
 
 def _serialize(path: Path, data: dict,
@@ -202,13 +208,7 @@ def _serialize(path: Path, data: dict,
     the on-disk format converter uses), so the text written is always a valid
     format-3 graph."""
     if stamp and current_format() >= 3:
-        try:
-            data = _stamp_format3_for_write(Path(path), data, graph_root)
-        except ValidationError as e:
-            # Qt-slot safety, the same rule as _read_data's OSError wrapping: a
-            # bare ValidationError escaping a dock's `except OSError` aborts
-            # PyQt6 (measured). The rich, translated message is preserved.
-            raise OSError(str(e)) from e
+        data = _stamp_format3_for_write(Path(path), data, graph_root)
     suffix = path.suffix.lower()
     if suffix == ".json":
         # current_format() at CALL time — see format_version.current_format for
@@ -350,6 +350,13 @@ def _write_data(path: Path, data: dict) -> None:
     CLI runs and pre-existing unit tests never enable it, so they hit the
     physical path unchanged."""
     if WORKING_SET.enabled:
+        # Stamp the dict about to be STAGED too (У4, finding Н1): staging IS a
+        # write. Without this the working set held records without UUIDs (and
+        # references resolved by hint) until the flush, while the loader and the
+        # format-3 checks already read the STAGED graph — checking one graph and
+        # working in another. The flush re-stamps (idempotent).
+        if current_format() >= 3:
+            data = _stamp_format3_for_write(path, data, None)
         WORKING_SET.stage_write(path, data)
         return
     write_config_file(path, data)
