@@ -312,15 +312,15 @@ class TestApplyOnlyShortNames:
     @staticmethod
     def _two_ldo_rows():
         return _cfg(coordinate_placements=[
-            CoordinatePlacement(cluster="Power", role="ldo",
+            CoordinatePlacement(cluster="Power", role="ldo", name="Power/ldo",
                                 x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
-            CoordinatePlacement(cluster="Analog", role="ldo",
+            CoordinatePlacement(cluster="Analog", role="ldo", name="Analog/ldo",
                                 x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
         ])
 
     def test_short_name_with_one_match_is_taken(self):
         cfg = _cfg(coordinate_placements=[
-            CoordinatePlacement(cluster="Power", role="ldo",
+            CoordinatePlacement(cluster="Power", role="ldo", name="Power/ldo",
                                 x_mm=0.0, y_mm=0.0, rotation_deg=0.0)])
         out = apply_only_filter(cfg, ["ldo"], logger)
         assert [cp.cluster for cp in out.coordinate_placements] == ["Power"]
@@ -337,11 +337,30 @@ class TestApplyOnlyShortNames:
         cfg = _cfg(coordinate_placements=[
             CoordinatePlacement(cluster="X", role="R", name="ldo",
                                 x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
-            CoordinatePlacement(cluster="Power", role="ldo",
+            CoordinatePlacement(cluster="Power", role="ldo", name="Power/ldo",
                                 x_mm=0.0, y_mm=0.0, rotation_deg=0.0),
         ])
         out = apply_only_filter(cfg, ["ldo"], logger)
         assert [cp.name for cp in out.coordinate_placements] == ["ldo"]
+
+    def test_a_hierarchical_net_is_not_shortened(self):
+        """К2: an unnamed chain's identity IS its net, and a hierarchical net's
+        `/` separates schematic SHEETS, not folders. `--only +2V5_OA` must NOT
+        select `/Channel_0/OpAmp/+2V5_OA`; only the full net selects it."""
+        cfg = _cfg(rules=[
+            Rule(net="/Channel_0/OpAmp/+2V5_OA", spokes=[], anchor_role="FPGA"),
+        ])
+        with pytest.raises(PlacerError):
+            apply_only_filter(cfg, ["+2V5_OA"], logger)
+        exact = apply_only_filter(cfg, ["/Channel_0/OpAmp/+2V5_OA"], logger)
+        assert [r.net for r in exact.rules] == ["/Channel_0/OpAmp/+2V5_OA"]
+
+    def test_a_hierarchical_net_tail_is_not_shortened(self):
+        cfg = _cfg(rules=[
+            Rule(net="/Power/VCC", spokes=[], anchor_role="FPGA"),
+        ])
+        with pytest.raises(PlacerError):
+            apply_only_filter(cfg, ["VCC"], logger)
 
     def test_unknown_name_still_fails_not_found(self):
         cfg = _cfg(coordinate_placements=[

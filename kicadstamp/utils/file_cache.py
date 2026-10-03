@@ -102,8 +102,9 @@ _trace: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar(
 def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
     """Memoize loader(path), keyed by (resolved path, mtime_ns) — a changed
     mtime (typically an external hand-edit) is a cache miss on its own.
-    Always returns a deep copy (hit or miss) so no caller can corrupt the
-    cache — or another caller's view — by mutating what it got back.
+    The cache STORES a deep copy, but a HIT returns the stored object itself
+    (no defensive copy) — so callers must not mutate what they got back; the
+    write-path mutators deepcopy before mutating (see the note below).
     loader(path) must never return None for a successfully-read file (both
     current callers already guarantee this via their own `or {}` fallback).
 

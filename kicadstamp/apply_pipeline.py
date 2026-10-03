@@ -221,8 +221,22 @@ def apply_only_filter(cfg, only_names: list[str], _logger=None) -> "Config":
         | component_node_names
     )
     name_set = set(all_names)
+    # В33 short spellings come ONLY from a record's explicit `name:` field (К2):
+    # a name is the record's own identity, while an unnamed record's fallback
+    # identity may be a NET (`/Channel_0/OpAmp/+2V5_OA`) or a cluster, where `/`
+    # separates schematic SHEETS, not folders — shortening those would silently
+    # select the wrong record. A net/cluster identity therefore matches only
+    # EXACTLY, through name_set.
+    short_sources = (
+        {c.name for c in cfg.chains if c.name}
+        | {c.name for c in cfg.clone_placements if c.name}
+        | {t.name for t in cfg.thermal_via_arrays if not t.retired and t.name}
+        | {cp.name for cp in cfg.coordinate_placements if not cp.retired and cp.name}
+        | {nt.name for nt in cfg.net_traces if not nt.retired and nt.name}
+        | {e.name for e in cfg.entities if not e.retired and e.name}
+    )
     by_short: dict[str, list[str]] = {}
-    for full in all_names:
+    for full in sorted(short_sources):
         by_short.setdefault(full.rsplit("/", 1)[-1], []).append(full)
 
     requested: set[str] = set()

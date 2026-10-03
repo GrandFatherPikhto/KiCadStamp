@@ -16,6 +16,7 @@ RuntimeContext/Config construction. The entry loaders are re-imported here so
 this module's namespace — and therefore kicadstamp/config/__init__.py's
 `from .loader import ...` surface — is unchanged.
 """
+import copy
 import difflib
 import logging
 from pathlib import Path
@@ -480,6 +481,13 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # REAL target name, never the file's possibly-lying hint (У2.1.1/У2.1.2).
     if current_format() >= 3:
         data["folders"] = _check_format3_graph(path)
+        # Normalize on a DEEP COPY (К1): the record dicts arrived here through
+        # resolve_includes' SHALLOW merges, so they are the very objects
+        # cached_file_read hands out on a cache hit (and the on-disk sweep reads
+        # every graph file first, making the loader's own read a hit). Mutating
+        # them would rewrite the hints for every later reader — including a
+        # config_writer read — while the disk still holds the old bytes.
+        data = copy.deepcopy(data)
         _normalize_format3_refs(data)
     # sheet_templates: expansion (2026-08-16) — must run after include
     # resolution (a template can live in an included subsystem file) and

@@ -13,12 +13,16 @@ Only tests pin the build to format 3 (`format3`); the product still refuses a
 format-3 file, so everything here sleeps outside these cells.
 """
 import json
+from pathlib import Path
 
 import pytest
 
+from kicadstamp.config.includes import _load_config_file
 from kicadstamp.config.loader import _f3_refs, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config_writer import _read_data
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.utils.file_cache import cached_file_read
 from tests.fakes.format3 import det_uuid, format3  # noqa: F401 (fixture import)
 
 # The two records per section: TARGET is named by the UUID, DECOY is what a
@@ -301,3 +305,34 @@ def test_tree_anchor_point_uuid_without_a_point_is_fatal(format3, tmp_path):
     with pytest.raises(ValidationError) as e:
         load_config(str(p))
     assert "point_uuid needs a point" in str(e.value)
+
+
+# ── К1: the pass must not mutate the SHARED file-cache objects ─────────────
+
+def test_normalization_does_not_corrupt_the_shared_file_cache(format3, tmp_path):
+    """К1: `upgrade_graph_on_disk` reads every graph file first, so the loader's
+    own read is a cache HIT returning the SHARED cached dict; normalizing it in
+    place would rewrite the hints for later readers (and a writer read) while the
+    disk still holds the old bytes. After a load, the cache and
+    config_writer._read_data must still show the on-disk hint — root AND an
+    included file (the check is independent of the Config, which DID resolve)."""
+    sub = tmp_path / "sub.sexp"
+    root = tmp_path / "root.sexp"
+    _write_sexp(sub, {"entities": [{"name": "E2", "cell": "WRONG-SUB",
+                                    "cell_uuid": _u("cell:A"),
+                                    "uuid": det_uuid("entity:E2")}]})
+    _write_sexp(root, {"include": ["sub.sexp"],
+                       "cells": {"c": {"layer": "B.Cu", "uuid": _u("cell:A")}},
+                       "entities": [{"name": "E", "cell": "WRONG-ROOT",
+                                     "cell_uuid": _u("cell:A"),
+                                     "uuid": det_uuid("entity:E")}]})
+
+    cfg, _ = load_config(str(root))
+    # the loader DID resolve by UUID...
+    assert {e.name: e.cell for e in cfg.entities} == {"E": "c", "E2": "c"}
+
+    # ...but the shared cache and a writer read still see the on-disk hint.
+    for path, lie in ((root, "WRONG-ROOT"), (sub, "WRONG-SUB")):
+        hit = cached_file_read(Path(path), _load_config_file)
+        assert hit["entities"][0]["cell"] == lie, "the shared file cache was mutated"
+        assert _read_data(Path(path))["entities"][0]["cell"] == lie
