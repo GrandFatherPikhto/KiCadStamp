@@ -560,3 +560,38 @@ def test_refused_tree_records_are_reported_skipped_not_ok(monkeypatch, tmp_path,
     assert err.startswith("skipped: ")
     assert "NOT redrawn" in err
     assert "tree 'bad'" in caplog.text
+
+
+def test_the_single_tree_redraw_also_skips_its_refused_records(
+        monkeypatch, tmp_path, caplog):
+    """The SAME contract in the other curated entry point: a redraw scoped to
+    the refused tree itself applies NOTHING and reports its record as skipped
+    (the neighbouring-tree half of the forest test has no meaning here — only
+    this tree's plan exists)."""
+    cfg, trees = _drift_cfg_and_trees(tmp_path)
+    calls = []
+
+    class _FakePipeline(_PipelineStubLifetime):
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append(list(only or []))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        results, _warnings = run_curated_tree_redraw(
+            "/root.sexp", cfg, None, trees, "bad", {"bad_e"})
+
+    assert calls == [], "a refused tree must not get a pipeline run at all"
+    assert len(results) == 1
+    name, ok, err = results[0]
+    assert name == "bad_e" and ok is False
+    assert err.startswith("skipped: ")
+    assert "NOT redrawn" in err
+    assert "tree 'bad'" in caplog.text
