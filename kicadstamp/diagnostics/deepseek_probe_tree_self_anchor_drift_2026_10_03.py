@@ -1,5 +1,5 @@
 # kicadstamp/diagnostics/deepseek_probe_tree_self_anchor_drift_2026_10_03.py
-"""Ш0 probe: the fixed-point condition of a tree whose OWN (role ...) anchor is
+"""SH0 probe: the fixed-point condition of a tree whose OWN (role ...) anchor is
 placed by a node of the SAME tree (plan_2026_10_03_tree_self_anchor_drift_guard).
 
 NO PRODUCT EDITS. This measures the drift from the CODE paths the planner uses
@@ -15,18 +15,7 @@ for the mount A), never from a hand-rolled formula:
     it) and materialize again;
   * record the pose shift per pass.
 
-A row is a branch of the position calculation. The axes (plan §Ш0):
-
-  | axis            | values                                                   |
-  |-----------------|----------------------------------------------------------|
-  | cell            | anchor_role = tree anchor role / another role / absent;   |
-  |                 | anchor_xy (v2) present / absent                           |
-  | node            | xy = 0 / != 0; node angle 0 / != 0                        |
-  | anchor part     | board angle 0 / 90 / 315                                  |
-  | nesting         | node directly in the tree / in a tree embedded by a       |
-  |                 | module / a copy from tree_instances                       |
-  | match           | anchor role present in the cell but the entity's          |
-  |                 | cluster/sheet name a DIFFERENT physical part              |
+The printed table is ASCII only (a Windows cp1251 console must not crash on it).
 
 Run:
     .venv/bin/python -m kicadstamp.diagnostics.deepseek_probe_tree_self_anchor_drift_2026_10_03
@@ -43,23 +32,27 @@ from kipy.board_types import FootprintInstance
 
 from kicadstamp.cell_frame import CellFrame
 from kicadstamp.config import Cell, Config, Entity, TemplateComponentSlot
+from kicadstamp.config import _load_cell, _load_entity
+from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.placement.entity_placement import materialize_entity_placements
-from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.trees import (
+    Tree,
+    TreeAnchor,
+    TreeNode,
+    find_role_placement_matches,
+    tree_from_dict,
+)
 from kicadstamp.utils.units import MM
 
-# ── the synthetic geometry ──────────────────────────────────────────────────
+# -- the synthetic geometry --------------------------------------------------
 # The anchor role R sits at a NONZERO stored offset (the fpga case: the anchor
 # component is not the bbox corner); OTHER is the bbox-corner component.
 ANCHOR_ROLE = "R"
 OTHER_ROLE = "OTHER"
 _ANCHOR_OFFSET = (4.7504, -13.6943)
-_COMPONENTS = (
-    (ANCHOR_ROLE, _ANCHOR_OFFSET[0], _ANCHOR_OFFSET[1], 0.0),
-    (OTHER_ROLE, 0.0, 0.0, 0.0),
-)
 
 ENTITY_SHEET = "Sh"
 ENTITY_CLUSTER = "Cl"
@@ -68,19 +61,22 @@ ENTITY_CLUSTER = "Cl"
 _ANCHOR_START = (100.0, 50.0)
 
 
+def _components(anchor_slot_angle: float = 0.0) -> list:
+    return [
+        TemplateComponentSlot(role=ANCHOR_ROLE, offset_along_mm=_ANCHOR_OFFSET[0],
+                              offset_across_mm=_ANCHOR_OFFSET[1],
+                              angle_deg=anchor_slot_angle),
+        TemplateComponentSlot(role=OTHER_ROLE, offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0),
+    ]
+
+
 def _cell(anchor_role: str | None = None,
-          anchor_xy: tuple[float, float] | None = None) -> Cell:
-    return Cell(
-        name="C",
-        layer="F.Cu",
-        components=[
-            TemplateComponentSlot(role=r, offset_along_mm=o,
-                                  offset_across_mm=a, angle_deg=ang)
-            for r, o, a, ang in _COMPONENTS
-        ],
-        anchor_role=anchor_role,
-        anchor_xy=anchor_xy,
-    )
+          anchor_xy: tuple[float, float] | None = None,
+          anchor_slot_angle: float = 0.0) -> Cell:
+    return Cell(name="C", layer="F.Cu",
+                components=_components(anchor_slot_angle),
+                anchor_role=anchor_role, anchor_xy=anchor_xy)
 
 
 def _entity() -> Entity:
@@ -93,8 +89,13 @@ def _placement_node(ref: str = "E", xy=(0.0, 0.0), rot=0.0,
                     name=None, group=None, children=list(children))
 
 
+def _module_node(ref: str = "inner", xy=(0.0, 0.0), children=()) -> TreeNode:
+    return TreeNode(ref=ref, kind="module", xy=xy, polar=None, rotation=0.0,
+                    name=None, group=None, children=list(children))
+
+
 class _FakeBoard:
-    """A deterministic board whose footprints can be MOVED between passes — the
+    """A deterministic board whose footprints can be MOVED between passes -- the
     apply step of the measurement. `get_footprints` rebuilds fresh MagicMocks
     from the current dicts, exactly like the fake in tree_mount_baseline.py."""
 
@@ -131,10 +132,17 @@ class _FakeBoard:
 
     def move(self, *, role: str, cluster: str, x_mm: float, y_mm: float,
              angle: float) -> None:
-        """Move the (role, cluster) footprint to a new pose — the apply step."""
         for f in self._fps:
             if f["role"] == role and f["cluster"] == cluster:
                 f["x_mm"], f["y_mm"], f["angle"] = x_mm, y_mm, angle
+                return
+        raise AssertionError(f"no footprint role={role!r} cluster={cluster!r}")
+
+    def shift(self, *, role: str, cluster: str, dx: float, dy: float) -> None:
+        for f in self._fps:
+            if f["role"] == role and f["cluster"] == cluster:
+                f["x_mm"] += dx
+                f["y_mm"] += dy
                 return
         raise AssertionError(f"no footprint role={role!r} cluster={cluster!r}")
 
@@ -145,13 +153,12 @@ class _FakeBoard:
         raise AssertionError(f"no footprint role={role!r} cluster={cluster!r}")
 
 
-def _placed_anchor_pose(cfg: Config, adapter, slot_role: str
-                        ) -> tuple[float, float, float, object]:
-    """(x_mm, y_mm, angle_deg, clone) of the anchor-role slot in the placed cell
-    — read through the REAL materialization + CellFrame (the same two steps
-    tree_mount_baseline.snapshot uses), never a hand-rolled formula."""
-    clones = materialize_entity_placements(adapter, cfg, {})
-    clone = next(c for c in clones if c.name == "E")
+def _slot_pose_of_clone(cfg: Config, clones, clone_name: str,
+                        slot_role: str) -> tuple[float, float, float]:
+    """World (x_mm, y_mm, angle_deg) of `slot_role` in the placed cell of the
+    clone named `clone_name` -- read through CellFrame + cell_mount_offset (the
+    same two steps tree_mount_baseline.snapshot uses)."""
+    clone = next(c for c in clones if c.name == clone_name)
     cell = cfg.cells[clone.cell]
     frame = CellFrame(
         placement_origin=Vector2.from_xy(int(round(clone.xy[0] * MM)),
@@ -163,141 +170,234 @@ def _placed_anchor_pose(cfg: Config, adapter, slot_role: str
     slot = next(s for s in cell.components if s.role == slot_role)
     wx, wy = frame.point_to_world_mm(slot.offset_along_mm, slot.offset_across_mm)
     ang = (slot.angle_deg + clone.rotation_deg) % 360.0
-    return wx, wy, ang, clone
+    return wx, wy, ang
 
 
-def _measure(cfg: Config, board: _FakeBoard, *, anchor_cluster: str,
-             loop: bool = True) -> dict:
+def _self_loop(cfg: Config, board: _FakeBoard, *, anchor_cluster: str,
+               clone_name: str = "E", slot_role: str = ANCHOR_ROLE) -> dict:
     """Two passes: materialize, move the anchor footprint to the placed pose,
     materialize again. Records the pose shift of the anchor part per pass."""
     adapter = board.adapter()
     x0, y0, a0 = board.pose(role=ANCHOR_ROLE, cluster=anchor_cluster)
 
-    p1 = _placed_anchor_pose(cfg, adapter, ANCHOR_ROLE)
+    p1 = _slot_pose_of_clone(cfg, materialize_entity_placements(adapter, cfg, {}),
+                             clone_name, slot_role)
     d1 = (p1[0] - x0, p1[1] - y0, (p1[2] - a0) % 360.0)
-
-    if not loop:
-        return {"loop": False, "pass1": d1, "pass2": None}
 
     board.move(role=ANCHOR_ROLE, cluster=anchor_cluster,
                x_mm=p1[0], y_mm=p1[1], angle=p1[2])
-    p2 = _placed_anchor_pose(cfg, board.adapter(), ANCHOR_ROLE)
+    p2 = _slot_pose_of_clone(
+        cfg, materialize_entity_placements(board.adapter(), cfg, {}),
+        clone_name, slot_role)
     d2 = (p2[0] - p1[0], p2[1] - p1[1], (p2[2] - p1[2]) % 360.0)
-    return {"loop": True, "pass1": d1, "pass2": d2,
-            "fixed": max(abs(v) for v in d1) < 1e-6}
+    return {"pass1": d1, "pass2": d2}
 
+
+def _matches(cfg: Config, tree: Tree) -> list:
+    """The guard's own predicate: which nodes does find_role_placement_matches
+    say place the tree's anchor role (role + sheet + cluster narrowing)?"""
+    anchor = tree.anchor
+    if anchor is None or anchor.role is None:
+        return []
+    return find_role_placement_matches(
+        cfg, tree, anchor.role, sheet=anchor.anchor_sheet,
+        cluster=anchor.anchor_cluster)
+
+
+# -- row builders ------------------------------------------------------------
 
 def _row_direct(*, cell: Cell, node_xy=(0.0, 0.0), node_rot=0.0,
                 board_angle=0.0, anchor_cluster=ENTITY_CLUSTER,
-                anchor_sheet=None, extra_board=(), loop=True) -> dict:
+                anchor_sheet=None) -> tuple[Config, _FakeBoard, Tree]:
     anchor = TreeAnchor(role=ANCHOR_ROLE, anchor_sheet=anchor_sheet,
                         anchor_cluster=anchor_cluster)
-    cfg = Config(
-        cells={"C": cell}, entities=[_entity()],
-        trees=[Tree(name="t", anchor=anchor,
-                    nodes=[_placement_node(xy=node_xy, rot=node_rot)])],
-    )
+    tree = Tree(name="t", anchor=anchor,
+                nodes=[_placement_node(xy=node_xy, rot=node_rot)])
+    cfg = Config(cells={"C": cell}, entities=[_entity()], trees=[tree])
     board = _FakeBoard([
         {"ref": "X", "role": ANCHOR_ROLE, "cluster": anchor_cluster,
-         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": board_angle},
-        *extra_board,
-    ])
-    return _measure(cfg, board, anchor_cluster=anchor_cluster, loop=loop)
+         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": board_angle}])
+    return cfg, board, tree
 
 
-def _fmt(d) -> str:
+def _row_module_child(*, cell: Cell, board_angle=0.0) -> tuple:
+    """The placing node is a CHILD of a module node in the SAME (outer) tree --
+    so the outer tree's base DOES lay it (trees.py walks a module node's own
+    children as ordinary nodes of this tree)."""
+    inner = Tree(name="inner", anchor=TreeAnchor(is_origin=True), nodes=[])
+    outer = Tree(
+        name="t",
+        anchor=TreeAnchor(role=ANCHOR_ROLE, anchor_cluster=ENTITY_CLUSTER),
+        nodes=[_module_node(children=[_placement_node()])])
+    cfg = Config(cells={"C": cell}, entities=[_entity()], trees=[outer, inner])
+    board = _FakeBoard([
+        {"ref": "X", "role": ANCHOR_ROLE, "cluster": ENTITY_CLUSTER,
+         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": board_angle}])
+    return cfg, board, outer
+
+
+def _row_embedded(*, cell: Cell) -> tuple:
+    """The placing node lives in a tree EMBEDDED by a module node (a DIFFERENT
+    tree with its OWN anchor). find_role_placement_matches(outer) still reports
+    it, but the outer tree's base does NOT lay it -- measured by moving the outer
+    anchor part and checking the embedded clone does not move."""
+    inner = Tree(name="inner", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_placement_node()])
+    outer = Tree(
+        name="t",
+        anchor=TreeAnchor(role=ANCHOR_ROLE, anchor_cluster=ENTITY_CLUSTER),
+        nodes=[_module_node()])
+    cfg = Config(cells={"C": cell}, entities=[_entity()], trees=[outer, inner])
+    board = _FakeBoard([
+        {"ref": "X", "role": ANCHOR_ROLE, "cluster": ENTITY_CLUSTER,
+         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": 0.0}])
+    return cfg, board, outer
+
+
+def _row_instances(*, cell: Cell) -> tuple:
+    """A copy from tree_instances: expand a role-anchored template into a
+    generated top-level tree and build the Config from the expanded dict."""
+    data = {
+        "cells": {"C": {"layer": "F.Cu", "components": [
+            {"role": ANCHOR_ROLE, "offset_along_mm": _ANCHOR_OFFSET[0],
+             "offset_across_mm": _ANCHOR_OFFSET[1],
+             "angle_deg": cell.components[0].angle_deg},
+            {"role": OTHER_ROLE, "offset_along_mm": 0.0,
+             "offset_across_mm": 0.0, "angle_deg": 0.0},
+        ], **({"anchor_role": cell.anchor_role} if cell.anchor_role else {})}},
+        "entities": [{"name": "E", "cell": "C", "sheet": ENTITY_SHEET,
+                      "cluster": ENTITY_CLUSTER}],
+        "trees": [{"name": "tpl",
+                   "anchor": {"role": ANCHOR_ROLE, "cluster": ENTITY_CLUSTER,
+                              "sheet": ENTITY_SHEET},
+                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]}]}],
+        "tree_instances": [{"template": "tpl", "name": "tpl_a",
+                            "sheet": "Own_a", "cluster": ENTITY_CLUSTER}],
+    }
+    expanded = expand_tree_instances(data)
+    cells = {name: _load_cell(name, cdata)
+             for name, cdata in (expanded.get("cells") or {}).items()}
+    entities = [_load_entity(e) for e in (expanded.get("entities") or [])]
+    trees = [tree_from_dict(t) for t in (expanded.get("trees") or [])]
+    gen = next(t for t in trees if t.name == "tpl_a")
+    cfg = Config(cells=cells, entities=entities, trees=trees)
+    board = _FakeBoard([
+        {"ref": "X", "role": ANCHOR_ROLE, "cluster": ENTITY_CLUSTER,
+         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": 0.0}])
+    return cfg, board, gen, "E__tpl_a"
+
+
+# -- output helpers ----------------------------------------------------------
+
+def _fmt_vec(d) -> str:
     if d is None:
-        return "—"
-    return f"({d[0]:+.4f}, {d[1]:+.4f}) ∠{d[2]:+.1f}°"
+        return "-"
+    return f"({d[0]:+.4f}, {d[1]:+.4f}) ang{d[2]:+.1f}"
+
+
+def _verdict(res) -> str:
+    if res is None:
+        return "not measured"
+    p1, p2 = res["pass1"], res["pass2"]
+    stable = (abs(p1[0] - p2[0]) < 1e-6 and abs(p1[1] - p2[1]) < 1e-6
+              and abs(p1[2] - p2[2]) < 1e-6)
+    pos = max(abs(p1[0]), abs(p1[1])) < 1e-6
+    ang = abs(p1[2]) < 1e-6
+    if pos and ang:
+        return "FIXED POINT"
+    if not stable:
+        return "DRIFTS (not constant)"
+    if not pos:
+        return "DRIFTS (position)"
+    return "DRIFTS (angle)"
 
 
 def main() -> None:
-    rows: list[tuple[str, dict]] = []
+    print("SH0: drift of a tree's OWN anchor part per redraw pass")
+    print("vec = (dx_mm, dy_mm) ang_deg; matches = find_role_placement_matches"
+          "(tree, anchor role+sheet+cluster)")
+    print("-" * 118)
 
-    # ── 1. the branch table: cell anchor × node xy/angle × board angle ──────
-    combos = [
-        ("A1  no anchor_role,  xy=0,  rot=0, part 0°",
-         _cell(), (0.0, 0.0), 0.0, 0.0),
-        ("A2  no anchor_role,  xy=0,  rot=0, part 90°",
-         _cell(), (0.0, 0.0), 0.0, 90.0),
-        ("A3  no anchor_role,  xy=0,  rot=0, part 315°",
-         _cell(), (0.0, 0.0), 0.0, 315.0),
-        ("A4  anchor_role=OTHER, xy=0, rot=0, part 0°",
-         _cell(anchor_role=OTHER_ROLE), (0.0, 0.0), 0.0, 0.0),
-        ("A5  anchor_role=R,     xy=0,  rot=0, part 0°",
-         _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 0.0),
-        ("A6  anchor_role=R,     xy=0,  rot=0, part 90°",
-         _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 90.0),
-        ("A7  anchor_role=R,     xy=0,  rot=0, part 315°",
-         _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 315.0),
-        ("A8  anchor_role=R,     xy=0,  rot=90, part 0°",
-         _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 90.0, 0.0),
-        ("A9  anchor_role=R,     xy=(2,-3), rot=0, part 0°",
-         _cell(anchor_role=ANCHOR_ROLE), (2.0, -3.0), 0.0, 0.0),
-        ("A10 anchor_xy=R offset, xy=0, rot=0, part 0°",
-         _cell(anchor_xy=_ANCHOR_OFFSET), (0.0, 0.0), 0.0, 0.0),
-        ("A11 anchor_xy=0 corner, xy=0, rot=0, part 0°",
-         _cell(anchor_xy=(0.0, 0.0)), (0.0, 0.0), 0.0, 0.0),
+    def report(label, cfg, tree, res, *, note="", clone="E"):
+        ms = _matches(cfg, tree)
+        trees_txt = ",".join(sorted({m.tree.name for m in ms})) or "-"
+        print(f"{label:<46} matches={len(ms)} in[{trees_txt}]")
+        print(f"    pass1 {_fmt_vec(res['pass1'])}   pass2 {_fmt_vec(res['pass2'])}"
+              f"   -> {_verdict(res)} {note}")
+
+    # -- 1. direct rows: cell anchor x node xy/angle x slot angle x board angle
+    direct = [
+        ("A1  no anchor_role, slot 0, rot 0, part 0", _cell(), (0.0, 0.0), 0.0, 0.0),
+        ("A2  no anchor_role, slot 0, rot 0, part 90", _cell(), (0.0, 0.0), 0.0, 90.0),
+        ("A3  no anchor_role, slot 0, rot 0, part 315", _cell(), (0.0, 0.0), 0.0, 315.0),
+        ("A4  anchor_role=OTHER, slot 0, rot 0", _cell(anchor_role=OTHER_ROLE), (0.0, 0.0), 0.0, 0.0),
+        ("A5  anchor_role=R, slot 0, rot 0, part 0", _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 0.0),
+        ("A6  anchor_role=R, slot 0, rot 0, part 90", _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 90.0),
+        ("A7  anchor_role=R, slot 0, rot 0, part 315", _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 0.0, 315.0),
+        ("A8  anchor_role=R, slot 0, rot 90", _cell(anchor_role=ANCHOR_ROLE), (0.0, 0.0), 90.0, 0.0),
+        ("A9  anchor_role=R, slot 0, xy=(2,-3)", _cell(anchor_role=ANCHOR_ROLE), (2.0, -3.0), 0.0, 0.0),
+        ("A10 anchor_xy=R offset, slot 0, rot 0", _cell(anchor_xy=_ANCHOR_OFFSET), (0.0, 0.0), 0.0, 0.0),
+        ("A11 anchor_xy=0 corner, slot 0, rot 0", _cell(anchor_xy=(0.0, 0.0)), (0.0, 0.0), 0.0, 0.0),
+        # the slot ANGLE axis (the second half of the condition)
+        ("A12 anchor_role=R, slot 90, rot 0", _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=90.0), (0.0, 0.0), 0.0, 0.0),
+        ("A13 anchor_role=R, slot 315, rot 0", _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=315.0), (0.0, 0.0), 0.0, 0.0),
+        ("A14 anchor_role=R, slot 90, rot 270", _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=90.0), (0.0, 0.0), 270.0, 0.0),
+        ("A15 anchor_role=R, slot 90, rot 315", _cell(anchor_role=ANCHOR_ROLE, anchor_slot_angle=90.0), (0.0, 0.0), 315.0, 0.0),
     ]
-    for label, cell, node_xy, node_rot, board_angle in combos:
-        rows.append((label, _row_direct(
-            cell=cell, node_xy=node_xy, node_rot=node_rot,
-            board_angle=board_angle, anchor_cluster=ENTITY_CLUSTER)))
+    for label, cell, xy, rot, board_angle in direct:
+        cfg, board, tree = _row_direct(cell=cell, node_xy=xy, node_rot=rot,
+                                       board_angle=board_angle)
+        report(label, cfg, tree, _self_loop(cfg, board, anchor_cluster=ENTITY_CLUSTER))
 
-    # ── 2. the "different part" branch: anchor cluster names ANOTHER part ───
-    # The tree anchor is role R + cluster ClX; the node places entity E whose
-    # cluster is Cl — the anchor subject is a DIFFERENT physical part, so the
-    # placed copy never feeds the base back.
-    rows.append((
-        "B1  anchor cluster != entity cluster (other part)",
-        _row_direct(cell=_cell(), anchor_cluster="ClX",
-                    extra_board=[{"ref": "W", "role": ANCHOR_ROLE,
-                                  "cluster": ENTITY_CLUSTER,
-                                  "x_mm": 200.0, "y_mm": 20.0, "angle": 0.0}],
-                    loop=False)))
+    # -- 2. "different part": the anchor cluster names ANOTHER part -- the
+    #       guard's own predicate must return NO match (not a verdict by fiat).
+    cfg_b1, board_b1, tree_b1 = _row_direct(
+        cell=_cell(), anchor_cluster="ClX")
+    board_b1._fps.append({"ref": "W", "role": ANCHOR_ROLE, "cluster": "ClX",
+                          "x_mm": 200.0, "y_mm": 20.0, "angle": 0.0})
+    ms_b1 = _matches(cfg_b1, tree_b1)
+    print(f"{'B1  anchor cluster ClX != entity cluster Cl':<46} matches={len(ms_b1)} "
+          f"-> guard silent (no self-anchor subject)")
 
-    # ── 3. nesting: the placing node lives in a tree EMBEDDED by a module ───
-    # Outer tree `t` carries the role anchor and a module node -> inner tree
-    # `inner` places E. The inner tree is a TOP-LEVEL tree with its OWN (origin)
-    # anchor, so the inner node is NOT laid from `t`'s base at all.
-    inner_cell = _cell()
-    inner_tree = Tree(name="inner", anchor=TreeAnchor(is_origin=True),
-                      nodes=[_placement_node()])
-    module_node = TreeNode(ref="inner", kind="module", xy=(0.0, 0.0), polar=None,
-                           rotation=0.0, name=None, group=None, children=[])
-    outer_tree = Tree(name="t",
-                      anchor=TreeAnchor(role=ANCHOR_ROLE,
-                                        anchor_cluster=ENTITY_CLUSTER),
-                      nodes=[module_node])
-    cfg_mod = Config(cells={"C": inner_cell}, entities=[_entity()],
-                     trees=[outer_tree, inner_tree])
-    board_mod = _FakeBoard([
-        {"ref": "X", "role": ANCHOR_ROLE, "cluster": ENTITY_CLUSTER,
-         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": 0.0}])
-    rows.append(("C1  placing node inside a MODULE-embedded tree",
-                 _measure(cfg_mod, board_mod, anchor_cluster=ENTITY_CLUSTER,
-                          loop=False)))
+    # -- 3. nesting: node as a CHILD of a module node in the SAME tree
+    cell_n = _cell()
+    cfg_n, board_n, tree_n = _row_module_child(cell=cell_n)
+    report("C1  node is a CHILD of a module node (same tree)", cfg_n, tree_n,
+           _self_loop(cfg_n, board_n, anchor_cluster=ENTITY_CLUSTER))
 
-    # ── print ───────────────────────────────────────────────────────────────
-    print("Ш0: drift of the tree's OWN anchor part per redraw pass")
-    print("vector = (dx_mm, dy_mm) + angle_deg; pass1 = first apply; "
-          "pass2 = second apply")
-    print("-" * 100)
-    print(f"{'row':<52} {'pass1':<26} {'pass2':<26} verdict")
-    print("-" * 100)
-    for label, res in rows:
-        if res.get("loop") is False:
-            verdict = "no feedback loop (anchor = other part)"
-        elif res.get("fixed"):
-            verdict = "FIXED POINT"
-        else:
-            verdict = "DRIFTS"
-        print(f"{label:<52} {_fmt(res.get('pass1')):<26} "
-              f"{_fmt(res.get('pass2')):<26} {verdict}")
-    print("-" * 100)
-    print("NOTE: the module row is marked 'no feedback loop' only because the "
-          "inner tree has its OWN anchor; a module-crossing match still needs a "
-          "decision in the guard (see report).")
+    # -- 4. nesting: node inside an EMBEDDED tree (different tree) -- measured
+    #       by moving the outer anchor and checking the clone does not move.
+    cell_n2 = _cell()
+    cfg_n2, board_n2, tree_n2 = _row_embedded(cell=cell_n2)
+    before = _slot_pose_of_clone(
+        cfg_n2, materialize_entity_placements(board_n2.adapter(), cfg_n2, {}),
+        "E", ANCHOR_ROLE)
+    board_n2.shift(role=ANCHOR_ROLE, cluster=ENTITY_CLUSTER, dx=50.0, dy=50.0)
+    after = _slot_pose_of_clone(
+        cfg_n2, materialize_entity_placements(board_n2.adapter(), cfg_n2, {}),
+        "E", ANCHOR_ROLE)
+    moved = max(abs(after[0] - before[0]), abs(after[1] - before[1])) > 1e-6
+    ms_n2 = _matches(cfg_n2, tree_n2)
+    trees_n2 = ",".join(sorted({m.tree.name for m in ms_n2})) or "-"
+    print(f"{'C2  node inside a MODULE-embedded tree':<46} matches={len(ms_n2)} "
+          f"in[{trees_n2}]")
+    print(f"    outer anchor moved 50,50 -> embedded clone moved? {moved}"
+          f"   -> {'DRIFTS' if moved else 'NO dependence on the outer anchor'}"
+          f" (guard must exclude match.tree != tree)")
+
+    # -- 5. nesting: a copy from tree_instances
+    cfg_i, board_i, tree_i, clone_i = _row_instances(cell=_cell())
+    report("D1  copy from tree_instances (generated tpl_a)", cfg_i, tree_i,
+           _self_loop(cfg_i, board_i, anchor_cluster=ENTITY_CLUSTER,
+                      clone_name=clone_i))
+
+    print("-" * 118)
+    print("Condition (derived): drift vector = R_phi(o + R_rho(s - A)); a fixed")
+    print("point needs o + R_rho(s - A) = 0 (position) and rho + slot.angle = 0")
+    print("(orientation), with o/rho the node's offline offset/accumulated")
+    print("rotation, s the anchor-role slot offset, A the cell mount.")
+    print("R_phi is the LIVE anchor angle: it rotates the vector but cannot")
+    print("zero it; the offline part (o, rho, s, A) decides the fixed point.")
 
 
 if __name__ == "__main__":
