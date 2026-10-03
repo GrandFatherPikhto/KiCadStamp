@@ -426,6 +426,26 @@ def _index_dict(index: _Format3Index, d: dict, file_path: str) -> None:
                 index.folders.setdefault(section, {}).setdefault(path_key, uuid)
 
 
+def _load_previous_file(path) -> dict:
+    """The file's PREVIOUS content — the working set first, then disk; {} when
+    the file is new.
+
+    Used by the stamp to inherit a record's UUID on an IN-PLACE edit (plan §5,
+    Н2): a form-built dict (Points / Thermal via / Net trace docks) replaces the
+    record whole and carries no `uuid`, so without this the stamp minted a new
+    one and every reference to the record dangled."""
+    from ..config_working_set import WORKING_SET
+
+    resolved = str(Path(path).resolve())
+    if WORKING_SET.enabled:
+        staged = WORKING_SET.staged_content(resolved)
+        if staged is not None:
+            return staged
+    if not Path(path).exists():
+        return {}
+    return cached_file_read(Path(path), _load_config_file)
+
+
 def _build_format3_index(root: Path, path: Path, data: dict) -> _Format3Index:
     """Index the whole graph; the file `path` contributes `data` (not its
     on-disk bytes), so a record created by THIS write resolves too.
@@ -516,13 +536,26 @@ def stamp_format3(data: dict, root, path) -> dict:
                "project graph; open the profile, or pass --config on the CLI")
              .format(path=path)]))
 
-    # 1. records without a uuid get uuid4 (the copy is ours to mutate).
+    # 1. records without a uuid: INHERIT the uuid from a record of the SAME
+    # section and the SAME full name in the PREVIOUS version of the SAME file
+    # (plan §5, Н2 — an in-place edit from a form must keep its identity, or
+    # every reference to it dangles); otherwise uuid4 (a new record or a copy).
+    # The previous content is the working set or the disk — the same thing the
+    # loader reads.
+    previous = _load_previous_file(path)
+    inherited: dict = {}
+    if previous:
+        for p_section, p_name, p_uuid, _p_i in _f3_records(previous):
+            if p_uuid and p_name is not None:
+                inherited.setdefault((p_section, p_name), p_uuid)
     for section, name, uuid, index in _f3_records(data):
         if uuid:
             continue
         holder = _f3_record_holder(data, section, name, index)
-        if holder is not None:
-            holder["uuid"] = str(uuid4())
+        if holder is None:
+            continue
+        inherited_uuid = inherited.get((section, name)) if name is not None else None
+        holder["uuid"] = inherited_uuid or str(uuid4())
 
     index = _build_format3_index(Path(root), Path(path), data)
 

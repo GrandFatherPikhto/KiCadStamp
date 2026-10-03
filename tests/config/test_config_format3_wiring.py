@@ -16,7 +16,18 @@ import pytest
 
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
-from kicadstamp.config_writer import merge_write, upsert_entity, write_config_file
+from kicadstamp.config.format3 import (
+    _F3_DICT_SECTIONS,
+    _F3_FREE_SECTIONS,
+    _F3_LIST_SECTIONS,
+    _F3_RECORD_SECTIONS,
+)
+from kicadstamp.config_writer import (
+    merge_write,
+    read_data,
+    upsert_entity,
+    write_config_file,
+)
 from kicadstamp.config_working_set import (
     WORKING_SET,
     active_graph_root,
@@ -184,3 +195,110 @@ def test_reference_to_a_record_only_in_the_working_set_resolves(format3, active_
 
     cfg, _ctx = load_config(str(root))
     assert cfg.entities[0].cell_uuid is not None
+
+
+# ── S2: the WRITER listens to the stamp-disabled flag (not only that copy
+#    raises it) ─────────────────────────────────────────────────────────────
+
+def test_writer_listens_to_the_stamp_disabled_flag(format3, active_root, tmp_path):
+    from kicadstamp.config_working_set import format3_stamp_disabled
+
+    path = tmp_path / "root.sexp"
+    active_root(path)
+
+    with format3_stamp_disabled():
+        write_config_file(path, {"cells": {"cap": {}}})
+
+    raw = read_data(path)
+    assert raw["cells"]["cap"].get("uuid") is None, "the stamp must honour the flag"
+
+
+# ── S6m: main() itself calls set_cli_active_root(args) ─────────────────────
+
+def test_main_sets_the_active_root_from_config(monkeypatch, active_root, tmp_path):
+    import sys
+
+    import kicadstamp.cli_main as cli
+
+    root = tmp_path / "r.sexp"
+    root.write_text("(kicadstamp-config\n  (version 2)\n)\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["kicadstamp", "undo", "--config", str(root)])
+    monkeypatch.setattr(cli, "cmd_undo", lambda args: None)
+    active_root(None)
+
+    cli.main()
+
+    assert active_graph_root() == root
+
+
+# ── Н2: an in-place edit (dict without uuid) keeps the record's UUID ───────
+
+def _record(section: str, name: str, uuid) -> dict:
+    rec = {"name": name} if section in _F3_LIST_SECTIONS else {}
+    if uuid:
+        rec["uuid"] = uuid
+    return rec
+
+
+def _section_data(section: str, name: str, uuid) -> dict:
+    rec = _record(section, name, uuid)
+    if section in _F3_DICT_SECTIONS or section in _F3_FREE_SECTIONS:
+        return {section: {name: rec}}
+    return {section: [rec]}
+
+
+def _raw_record(raw: dict, section: str, name: str) -> dict:
+    if section in _F3_DICT_SECTIONS or section in _F3_FREE_SECTIONS:
+        return raw[section][name]
+    return next(r for r in raw[section] if r.get("name") == name)
+
+
+@pytest.mark.parametrize("section", list(_F3_RECORD_SECTIONS))
+def test_inplace_edit_keeps_the_uuid(format3, active_root, tmp_path, section):
+    name = "rec"
+    old = det_uuid(f"{section}:{name}")
+    path = tmp_path / "root.sexp"
+    active_root(path)
+    write_config_file(path, _section_data(section, name, old))   # seed WITH uuid
+
+    # A form-built dict replaces the record whole, carrying NO uuid.
+    write_config_file(path, _section_data(section, name, None))
+
+    assert _raw_record(read_data(path), section, name)["uuid"] == old
+
+
+def test_new_name_in_the_same_file_gets_a_new_uuid(format3, active_root, tmp_path):
+    old = det_uuid("cells:old")
+    path = tmp_path / "root.sexp"
+    active_root(path)
+    write_config_file(path, {"cells": {"old": {"uuid": old}}})
+
+    write_config_file(path, {"cells": {"old": {"uuid": old}, "new": {}}})
+
+    raw = read_data(path)
+    assert raw["cells"]["old"]["uuid"] == old
+    assert raw["cells"]["new"]["uuid"] not in (None, old)
+
+
+def test_same_name_in_another_file_is_not_inherited(format3, active_root, tmp_path):
+    _write_graph(tmp_path, {"root.sexp": {"include": ["sub.sexp"], "cells": {"dup": {}}},
+                            "sub.sexp": {"cells": {}}})
+    active_root(tmp_path / "root.sexp")
+
+    # Writing a same-named record into ANOTHER file must NOT inherit the uuid
+    # (that would be a silent cross-file duplicate); it is a duplicate full name.
+    with pytest.raises(OSError):
+        merge_write(tmp_path / "sub.sexp", {"cells": {"dup": {}}}, section="cells")
+
+
+def test_same_name_in_another_section_is_not_inherited(format3, active_root, tmp_path):
+    cells_uuid = det_uuid("cells:x")
+    path = tmp_path / "root.sexp"
+    active_root(path)
+    write_config_file(path, {"cells": {"x": {"uuid": cells_uuid}},
+                             "points": {"x": {"uuid": det_uuid("points:x")}}})
+
+    write_config_file(path, {"cells": {"x": {"uuid": cells_uuid}},
+                             "points": {"x": {}}})
+
+    assert read_data(path)["points"]["x"]["uuid"] not in (None, cells_uuid)

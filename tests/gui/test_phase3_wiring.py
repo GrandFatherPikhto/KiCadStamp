@@ -2385,3 +2385,29 @@ def test_extract_cluster_refreshes_the_snapshot_first(
     # Same precise partial-selection cause as "Extract tree..." (V.2).
     assert any("selected 1 of 2" in w and "R2" in w for w in warnings)
     assert constructed == []
+
+
+# ── У4 rework: root_changed REACHES the active-graph-root slot (S3c) ───────
+
+def test_root_changed_sets_and_clears_the_active_graph_root(main_window, tmp_path,
+                                                            monkeypatch):
+    """The SIGNAL must reach DockHub._on_root_changed_for_working_set: a cell
+    that called the slot directly left the `connect(...)` line unstowed (У4
+    rework, S3c). A real DockHub + a real emit close that."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    monkeypatch.setattr(WORKING_SET, "enabled", False)
+    set_active_graph_root(None)
+    root = tmp_path / "root.sexp"
+    root.write_text("(kicadstamp-config\n  (version 2)\n)\n", encoding="utf-8")
+
+    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
+    try:
+        hub.root_metadata_dock.root_changed.emit(root)
+        assert active_graph_root() == root
+
+        hub.root_metadata_dock.root_changed.emit(None)
+        assert active_graph_root() is None
+    finally:
+        WORKING_SET.clear()
+        set_active_graph_root(None)
