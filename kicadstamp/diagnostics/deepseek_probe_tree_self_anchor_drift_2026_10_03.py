@@ -1,16 +1,26 @@
 # kicadstamp/diagnostics/deepseek_probe_tree_self_anchor_drift_2026_10_03.py
-"""SH0 probe: the fixed-point condition of a tree whose OWN (role ...) anchor is
+"""SH0 + SH0.2 probe: the fixed-point condition of a tree whose OWN anchor part is
 placed by a node of the SAME tree (plan_2026_10_03_tree_self_anchor_drift_guard).
 
+SH0 measured (anchor (role R ...)) trees. SH0.2 -- the re-acceptance of SH0,
+finding 3 -- adds the canonical "the tree stands on its own node" form,
+(anchor (self (ref "E"))): self x anchor_role (none / R / OTHER) x the ANCHOR
+SUBJECT slot angle (0 / 90) x the part's board angle (0 / 90), plus one node
+rotation row for the accumulated-rotation half.
+
 NO PRODUCT EDITS. This measures the drift from the CODE paths the planner uses
-(entity_placement materialization -> CellFrame materialization, cell_mount_offset
-for the mount A), never from a hand-rolled formula:
+(entity_placement materialization -> clone_geometry.apply_clone_geometry for
+BOTH the position and the angle of a placed component), never from a formula of
+this probe: the angle used to be recomputed here as
+`slot.angle_deg + clone.rotation_deg`, which SH0's re-acceptance flagged
+(finding 1).
 
   * build a synthetic config (in-memory Config/Cell/Entity/Tree) and a fake board
     (the deterministic MagicMock board shape tests/trees/test_tree_internal_mount.py
     and kicadstamp/diagnostics/tree_mount_baseline.py already use);
   * materialize the tree (materialize_entity_placements) and read the world pose
-    of the tree's anchor-role component in the placed cell (CellFrame);
+    of the tree's anchor-role component in the placed cell
+    (apply_clone_geometry -- the planner's own forward mapping);
   * "move" that component on the fake board to its new pose (an apply does move
     it) and materialize again;
   * record the pose shift per pass.
@@ -30,13 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kipy.board_types import FootprintInstance
 
-from kicadstamp.cell_frame import CellFrame
 from kicadstamp.config import Cell, Config, Entity, TemplateComponentSlot
 from kicadstamp.config import _load_cell, _load_entity
 from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
-from kicadstamp.geometry.cell_anchor import cell_mount_offset
+from kicadstamp.geometry.clone_geometry import apply_clone_geometry
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.trees import (
     Tree,
@@ -60,22 +69,31 @@ ENTITY_CLUSTER = "Cl"
 # Board-absolute start of the anchor footprint.
 _ANCHOR_START = (100.0, 50.0)
 
+# "Zero" thresholds for the verdict. NOT 1e-6: apply_clone_geometry composes the
+# placement through rotate_local_offset, which quantises mm -> nm with int()
+# (a 1 nm = 1e-6 mm truncation step), so a genuinely fixed point can come back a
+# few nm off. 10 nm is still five orders of magnitude below a real drift (mm).
+_ZERO_TOL_MM = 1e-5
+_ZERO_TOL_DEG = 1e-6
 
-def _components(anchor_slot_angle: float = 0.0) -> list:
+
+def _components(anchor_slot_angle: float = 0.0,
+                other_slot_angle: float = 0.0) -> list:
     return [
         TemplateComponentSlot(role=ANCHOR_ROLE, offset_along_mm=_ANCHOR_OFFSET[0],
                               offset_across_mm=_ANCHOR_OFFSET[1],
                               angle_deg=anchor_slot_angle),
         TemplateComponentSlot(role=OTHER_ROLE, offset_along_mm=0.0,
-                              offset_across_mm=0.0, angle_deg=0.0),
+                              offset_across_mm=0.0, angle_deg=other_slot_angle),
     ]
 
 
 def _cell(anchor_role: str | None = None,
           anchor_xy: tuple[float, float] | None = None,
-          anchor_slot_angle: float = 0.0) -> Cell:
+          anchor_slot_angle: float = 0.0,
+          other_slot_angle: float = 0.0) -> Cell:
     return Cell(name="C", layer="F.Cu",
-                components=_components(anchor_slot_angle),
+                components=_components(anchor_slot_angle, other_slot_angle),
                 anchor_role=anchor_role, anchor_xy=anchor_xy)
 
 
@@ -156,35 +174,41 @@ class _FakeBoard:
 def _slot_pose_of_clone(cfg: Config, clones, clone_name: str,
                         slot_role: str) -> tuple[float, float, float]:
     """World (x_mm, y_mm, angle_deg) of `slot_role` in the placed cell of the
-    clone named `clone_name` -- read through CellFrame + cell_mount_offset (the
-    same two steps tree_mount_baseline.snapshot uses)."""
+    clone named `clone_name` -- read from clone_geometry.apply_clone_geometry,
+    the PLANNER'S OWN forward mapping, for the position AND the angle. No
+    formula of this probe and no CellFrame duplicate of that mapping; the
+    materialized clone carries an absolute xy and no anchor, so
+    anchor_position=None makes its xy the placement origin (the same
+    composition the calculator performs)."""
     clone = next(c for c in clones if c.name == clone_name)
     cell = cfg.cells[clone.cell]
-    frame = CellFrame(
-        placement_origin=Vector2.from_xy(int(round(clone.xy[0] * MM)),
-                                         int(round(clone.xy[1] * MM))),
-        rotation_deg=clone.rotation_deg,
-        mirror=bool(clone.mirror),
-        mount=cell_mount_offset(cell),
-    )
-    slot = next(s for s in cell.components if s.role == slot_role)
-    wx, wy = frame.point_to_world_mm(slot.offset_along_mm, slot.offset_across_mm)
-    ang = (slot.angle_deg + clone.rotation_deg) % 360.0
-    return wx, wy, ang
+    layout = apply_clone_geometry(clone, cell, {slot_role: "X"},
+                                  anchor_position=None, mirror=bool(clone.mirror))
+    comp = next(c for c in layout.components if c.role == slot_role)
+    return comp.position.x / MM, comp.position.y / MM, comp.angle_deg % 360.0
 
 
-def _self_loop(cfg: Config, board: _FakeBoard, *, anchor_cluster: str,
-               clone_name: str = "E", slot_role: str = ANCHOR_ROLE) -> dict:
+def _self_loop(cfg: Config, board: _FakeBoard,
+               *, anchor_cluster: str = ENTITY_CLUSTER,
+               anchor_role: str = ANCHOR_ROLE, clone_name: str = "E",
+               slot_role: str | None = None) -> dict:
     """Two passes: materialize, move the anchor footprint to the placed pose,
-    materialize again. Records the pose shift of the anchor part per pass."""
+    materialize again. Records the pose shift of the anchor part per pass.
+
+    `anchor_role` is the role of the footprint carrying the tree's anchor
+    identity: the tree's (role ...) role, or -- for a (self ...) anchor -- the
+    role `_entity_own_zero_slot_live_position` reads live (cell.anchor_role
+    when set, else the single zero-offset slot). `slot_role` is the SAME part
+    inside the placed cell and defaults to it."""
+    slot_role = slot_role or anchor_role
     adapter = board.adapter()
-    x0, y0, a0 = board.pose(role=ANCHOR_ROLE, cluster=anchor_cluster)
+    x0, y0, a0 = board.pose(role=anchor_role, cluster=anchor_cluster)
 
     p1 = _slot_pose_of_clone(cfg, materialize_entity_placements(adapter, cfg, {}),
                              clone_name, slot_role)
     d1 = (p1[0] - x0, p1[1] - y0, (p1[2] - a0) % 360.0)
 
-    board.move(role=ANCHOR_ROLE, cluster=anchor_cluster,
+    board.move(role=anchor_role, cluster=anchor_cluster,
                x_mm=p1[0], y_mm=p1[1], angle=p1[2])
     p2 = _slot_pose_of_clone(
         cfg, materialize_entity_placements(board.adapter(), cfg, {}),
@@ -287,6 +311,42 @@ def _row_instances(*, cell: Cell) -> tuple:
     return cfg, board, gen, "E__tpl_a"
 
 
+def _anchor_subject_role(cell: Cell) -> str:
+    """The role a SELF anchor reads live as its subject: cell.anchor_role when
+    set, else the single zero-offset component -- the exact rule of
+    entity_placement._entity_own_zero_slot_live_position (surrogate_role)."""
+    if cell.anchor_role is not None:
+        return cell.anchor_role
+    return next(c.role for c in cell.components
+                if c.offset_along_mm == 0.0 and c.offset_across_mm == 0.0)
+
+
+def _self_cell(anchor_role: str | None, subject_angle: float) -> Cell:
+    """The cell of a self-anchor row: the ANCHOR SUBJECT slot (the one the self
+    anchor reads live) carries `subject_angle`; the other slot stays at 0."""
+    subject = _anchor_subject_role(_cell(anchor_role=anchor_role))
+    if subject == ANCHOR_ROLE:
+        return _cell(anchor_role=anchor_role, anchor_slot_angle=subject_angle)
+    return _cell(anchor_role=anchor_role, other_slot_angle=subject_angle)
+
+
+def _row_self(*, cell: Cell, node_xy=(0.0, 0.0), node_rot=0.0,
+              board_angle=0.0) -> tuple[Config, _FakeBoard, Tree, str]:
+    """An (anchor (self (ref "E"))) tree (plan SH0.2): the base is the LIVE
+    position of the component THIS tree places -- the node the ref names, read
+    through entity_placement._self_anchor_base (the subject is cell.anchor_role
+    when set, else the single zero-offset slot). Returns the subject role too."""
+    anchor = TreeAnchor(is_self=True, self_ref="E")
+    tree = Tree(name="t", anchor=anchor,
+                nodes=[_placement_node(xy=node_xy, rot=node_rot)])
+    cfg = Config(cells={"C": cell}, entities=[_entity()], trees=[tree])
+    subject = _anchor_subject_role(cell)
+    board = _FakeBoard([
+        {"ref": "X", "role": subject, "cluster": ENTITY_CLUSTER,
+         "x_mm": _ANCHOR_START[0], "y_mm": _ANCHOR_START[1], "angle": board_angle}])
+    return cfg, board, tree, subject
+
+
 # -- output helpers ----------------------------------------------------------
 
 def _fmt_vec(d) -> str:
@@ -299,10 +359,11 @@ def _verdict(res) -> str:
     if res is None:
         return "not measured"
     p1, p2 = res["pass1"], res["pass2"]
-    stable = (abs(p1[0] - p2[0]) < 1e-6 and abs(p1[1] - p2[1]) < 1e-6
-              and abs(p1[2] - p2[2]) < 1e-6)
-    pos = max(abs(p1[0]), abs(p1[1])) < 1e-6
-    ang = abs(p1[2]) < 1e-6
+    stable = (abs(p1[0] - p2[0]) < _ZERO_TOL_MM
+              and abs(p1[1] - p2[1]) < _ZERO_TOL_MM
+              and abs(p1[2] - p2[2]) < _ZERO_TOL_DEG)
+    pos = max(abs(p1[0]), abs(p1[1])) < _ZERO_TOL_MM
+    ang = abs(p1[2]) < _ZERO_TOL_DEG
     if pos and ang:
         return "FIXED POINT"
     if not stable:
@@ -390,6 +451,42 @@ def main() -> None:
     report("D1  copy from tree_instances (generated tpl_a)", cfg_i, tree_i,
            _self_loop(cfg_i, board_i, anchor_cluster=ENTITY_CLUSTER,
                       clone_name=clone_i))
+
+    # -- 6. SH0.2: (anchor (self (ref "E"))) rows -- the canonical "the tree
+    #       stands on its own node" form. Axes: anchor_role (none / R / OTHER)
+    #       x the ANCHOR SUBJECT slot angle (0 / 90) x the part's board angle
+    #       (0 / 90), plus one node-rotation row for the rho half.
+    print("-" * 118)
+    print("SH0.2: (anchor (self (ref \"E\"))) rows -- subject = cell.anchor_role")
+    print("       when set, else the single zero-offset slot (the live read of")
+    print("       _entity_own_zero_slot_live_position)")
+    self_rows = []
+    for anchor_role in (None, ANCHOR_ROLE, OTHER_ROLE):
+        for subject_angle in (0.0, 90.0):
+            for board_angle in (0.0, 90.0):
+                label = (f"S  anchor_role={anchor_role or 'none'} "
+                         f"slot {subject_angle:.0f} part {board_angle:.0f}")
+                self_rows.append((label, anchor_role, subject_angle, board_angle, 0.0))
+    self_rows.append(("S13 anchor_role=R slot 0 node rot 90", ANCHOR_ROLE,
+                      0.0, 0.0, 90.0))
+    self_verdicts = []
+    for label, anchor_role, subject_angle, board_angle, node_rot in self_rows:
+        cfg_s, board_s, _tree_s, subject = _row_self(
+            cell=_self_cell(anchor_role, subject_angle),
+            node_rot=node_rot, board_angle=board_angle)
+        res = _self_loop(cfg_s, board_s, anchor_role=subject, slot_role=subject)
+        verdict = _verdict(res)
+        self_verdicts.append((label, verdict))
+        print(f"{label:<46} subject role {subject!r}")
+        print(f"    pass1 {_fmt_vec(res['pass1'])}   pass2 {_fmt_vec(res['pass2'])}"
+              f"   -> {verdict}")
+
+    drifted = [(label, verdict) for label, verdict in self_verdicts
+               if verdict != "FIXED POINT"]
+    print(f"SH0.2 summary: {len(self_verdicts)} self row(s), "
+          f"{len(drifted)} NOT a fixed point")
+    for label, verdict in drifted:
+        print(f"    NOT FIXED: {label} -> {verdict}")
 
     print("-" * 118)
     print("Condition (derived): drift vector = R_phi(o + R_rho(s - A)); a fixed")
