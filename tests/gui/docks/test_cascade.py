@@ -10,7 +10,8 @@ import logging
 
 from unittest.mock import MagicMock
 
-from kicadstamp.config import Config, Cell, TemplateComponentSlot, ClonePlacement
+from kicadstamp.config import (Config, Cell, TemplateComponentSlot, ClonePlacement,
+                               Entity)
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kipy.errors import ApiError, ApiStatusCode
 
@@ -492,3 +493,70 @@ def test_unexpected_exception_keeps_the_traceback_branch(monkeypatch, caplog):
 
     assert results == [("A", False, "boom")]
     assert any(r.exc_info and r.levelno >= logging.ERROR for r in caplog.records)
+
+
+# ── The self-anchor drift guard INSIDE the cascade (Ш1.3, plan
+#    tree_self_anchor_drift_guard, decision of 03.10.2026) ───────────────────
+# The cascade applies every planned name through its OWN ApplyPipeline run, and a
+# tree the guard refuses materializes NOTHING in that run — the pipeline then
+# completes and reports `ok`, i.e. a redraw that never happened, silently. The
+# refused tree's records are therefore dropped from the plan and reported as
+# skipped with the guard's own reason.
+
+def _drift_cfg_and_trees(tmp_path):
+    """A "bad" tree anchored on the role its own node places (its cell's FPGA
+    slot sits at (2,1) while the cell stores no anchor -> the part moves by 2,1
+    every redraw) next to a "good" origin-anchored neighbour (an absolute base,
+    so its node offset is a fixed point by construction)."""
+    trees = _load_tree(tmp_path,
+        '(tree (name "bad") (anchor (role "FPGA"))\n'
+        '      (node (ref "bad_e") (kind placement) (xy 0 0)))\n'
+        '(tree (name "good") (anchor (origin))\n'
+        '      (node (ref "good_e") (kind placement) (xy 1 2)))')
+    cfg = Config(
+        cells={
+            "bad_cell": Cell(name="bad_cell", components=[
+                TemplateComponentSlot(role="FPGA", offset_along_mm=2.0,
+                                      offset_across_mm=1.0)]),
+            "good_cell": Cell(name="good_cell",
+                              components=[TemplateComponentSlot(role="R_G")]),
+        },
+        entities=[Entity(name="bad_e", cell="bad_cell"),
+                  Entity(name="good_e", cell="good_cell")],
+        trees=trees,
+    )
+    return cfg, trees
+
+
+def test_refused_tree_records_are_reported_skipped_not_ok(monkeypatch, tmp_path, caplog):
+    """Ш1.3: a record of the refused tree is NOT applied (no pipeline run at all)
+    and is reported as `skipped: <guard reason>` — never `ok` — while the
+    neighbouring tree is redrawn as usual."""
+    cfg, trees = _drift_cfg_and_trees(tmp_path)
+    calls = []
+
+    class _FakePipeline(_PipelineStubLifetime):
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append(list(only or []))
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR):
+        results, _warnings = run_curated_forest_redraw(
+            "/root.sexp", cfg, None, trees, {"bad_e", "good_e"})
+
+    assert calls == [["good_e"]], "the refused tree must not run at all"
+    by_name = {name: (ok, err) for name, ok, err in results}
+    assert by_name["good_e"] == (True, None)
+    ok, err = by_name["bad_e"]
+    assert ok is False
+    assert err.startswith("skipped: ")
+    assert "NOT redrawn" in err
+    assert "tree 'bad'" in caplog.text

@@ -19089,3 +19089,7 @@ msgid ""
 " a node of this tree at a pose that is NOT a fixed point — every redraw "
 "would move it, so the tree is NOT redrawn: {violations}"
 msgstr ""
+
+#: gui/docks/cascade.py
+msgid "skipped: {reason}"
+msgstr ""

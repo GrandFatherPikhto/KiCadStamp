@@ -42,9 +42,51 @@ from kicadstamp.tree_position import (
     layout_tree_from_base,
     tree_layout_base,
 )
-from kicadstamp.trees import Tree
+from kicadstamp.trees import Tree, check_tree_self_anchor_drift
 
 from ..connection import worker_timeout_ms
+
+
+def _self_anchor_drift_skips(cfg, linked, selected_refs: set[str]
+                             ) -> tuple[Dict[str, str], Dict[str, str]]:
+    """({record name: reason}, {tree name: reason}) for every tree the
+    self-anchor drift guard refuses (plan_2026_10_03_tree_self_anchor_drift_guard
+    Ш1.3, decision of 03.10.2026).
+
+    WHY the cascade needs this at all: it applies every planned name through its
+    OWN ApplyPipeline run, and a refused tree materializes NOTHING in that run —
+    the pipeline then completes and reports `ok`, i.e. a redraw that never
+    happened, silently. The records of a refused tree are therefore dropped from
+    the plan here and reported as skipped with the guard's own reason.
+
+    WHICH names belong to a tree is asked of the planner itself
+    (`curated_redraw_plan` for that one tree), never re-derived here: it is the
+    very authority that produced the run's name list, so no third rule of "what
+    does this tree place" is born in the GUI (and a legacy clone node or a
+    component node is covered by it too, which a materialization-candidate scan
+    would miss). PURE config: no board, no widget."""
+    skips: Dict[str, str] = {}
+    reasons: Dict[str, str] = {}
+    by_name = {t.name: t for t in (getattr(cfg, "trees", []) or [])}
+    for tree in linked:
+        plain = by_name.get(tree.name)
+        reason = (check_tree_self_anchor_drift(cfg, plain)
+                  if plain is not None else None)
+        if reason is None:
+            continue
+        reasons[tree.name] = reason
+        tree_names, _warnings = curated_redraw_plan(tree, selected_refs)
+        for name in tree_names:
+            skips[name] = reason
+    return skips, reasons
+
+
+def _skipped_results(skips: Dict[str, str], names: list) -> List[Tuple[str, bool, Optional[str]]]:
+    """The result entries the dock counts (name, ok, error) for the records the
+    plan dropped: `ok` is False and the text says SKIPPED with the reason — never
+    `ok`, which is what the run would have reported for an inert pipeline."""
+    return [(name, False, _("skipped: {reason}").format(reason=skips[name]))
+            for name in names if name in skips]
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +200,16 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     for warning in warnings:
         logger.warning(warning)
 
+    # A tree the self-anchor drift guard refuses is not redrawn at all (Ш1.3):
+    # its records are dropped from the plan and reported as skipped, and the
+    # tree-level reason is logged once here as a RED line (the materializer logs
+    # the same line for every run whose forest still contains the tree).
+    skips, reasons = _self_anchor_drift_skips(cfg, [tree], selected_refs)
+    for reason in reasons.values():
+        logger.error(reason)
+    results: List[Tuple[str, bool, Optional[str]]] = _skipped_results(skips, names)
+    names = [n for n in names if n not in skips]
+
     # Rigid-group redraw (plan_2026_08_29_tree_live_rigid_redraw.md §1): each
     # selected node is placed at its LIVE-captured offset from its parent,
     # re-projected into the parent's CURRENT (post-move) frame, so moving /
@@ -180,7 +232,6 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         sheet_names = ctx.sheet_names if ctx else {}
         captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
 
-        results: List[Tuple[str, bool, Optional[str]]] = []
         for name in names:
             logger.info(_("Tree redraw: applying {name!r}").format(name=name))
             override = None
@@ -284,6 +335,15 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     for warning in warnings:
         logger.warning(warning)
 
+    # Same drop as in run_curated_tree_redraw above: a refused tree's records are
+    # reported as skipped with the guard's reason instead of being applied by an
+    # inert run that would say `ok`.
+    skips, reasons = _self_anchor_drift_skips(cfg, linked, selected_refs)
+    for reason in reasons.values():
+        logger.error(reason)
+    results: List[Tuple[str, bool, Optional[str]]] = _skipped_results(skips, names)
+    names = [n for n in names if n not in skips]
+
     # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as the
     # curated tree redraw above.
     # THE hot path (×22 per "Redraw the whole tree" click): one local adapter
@@ -335,7 +395,6 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
             captures.update(tree_captures)
             parent_map.update(tree_parent_map)
 
-        results: List[Tuple[str, bool, Optional[str]]] = []
         for name in names:
             logger.info(_("Forest redraw: applying {name!r}").format(name=name))
             override = None
