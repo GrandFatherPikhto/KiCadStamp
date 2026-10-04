@@ -17581,6 +17581,29 @@ msgstr "файл {path}: подъём формата не удался ({error})
 msgid "config file {path}: format {old} is outdated, lifted to {new}. The previous version is saved: {backup}"
 msgstr "файл {path}: формат {old} устарел, поднят до {new}. Прежняя версия сохранена: {backup}"
 
+#: kicadstamp/config/upgrade_on_disk.py
+#, python-brace-format
+msgid "config file {path}: the previous version could not be saved as a backup ({error}) — the format upgrade is refused and the file is left as it is"
+msgstr "файл {path}: прежнюю версию не удалось сохранить как бэкап ({error}) — подъём формата отклонён, файл оставлен как есть"
+
+#: kicadstamp/config/upgrade_on_disk.py
+msgid "check the permissions and the free space of the directory, then open the profile again"
+msgstr "проверь права и свободное место в каталоге, затем открой профиль снова"
+
+#: kicadstamp/config/sync_conflict_guard.py
+#, python-brace-format
+msgid "the format upgrade of {path} is refused: Syncthing conflict files are present"
+msgstr "подъём формата {path} отклонён: есть конфликтные файлы Syncthing"
+
+#: kicadstamp/config/sync_conflict_guard.py
+#, python-brace-format
+msgid "conflict file: {file}"
+msgstr "конфликтный файл: {file}"
+
+#: kicadstamp/config/sync_conflict_guard.py
+msgid "resolve these conflicts first — they are NOT merged or deleted automatically"
+msgstr "сначала разберись с этими конфликтами — они НЕ сливаются и не удаляются автоматически"
+
 #: kicadstamp/board_dedupe.py
 #, python-brace-format
 msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."

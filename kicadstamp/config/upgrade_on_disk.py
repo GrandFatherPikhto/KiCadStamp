@@ -31,14 +31,21 @@ The rules, each of them pinned by a cell in
    walk fatals `MissingIncludeError` on a missing include, which is why the
    `path.exists()` skip below is a safety net rather than a branch that runs
    (acceptance M13).
-4. A copy or a write that fails leaves THAT file exactly as it was, logs the
-   reason, and the load continues from the lifted in-memory content (Т2) — the
-   next open tries again.
+4. A WRITE that fails leaves THAT file exactly as it was, logs the reason, and
+   the load continues from the lifted in-memory content (Т2) — the next open
+   tries again. A `.bak` that cannot be taken is a REFUSAL (У3.3, Р-У3.5): the
+   copy is the only way back, so the file is left untouched and the fatal stops
+   the whole lift rather than rewriting a file nobody could restore.
 5. A file already at CURRENT is not touched at all: no write, no `.bak`, `mtime`
    unchanged.
 6. Nothing is written while the GUI working set holds unsaved changes (У3): that
    file's new content is not on disk yet, and the Save lifts it itself through the
    one writer (`ConfigWorkingSet.flush` -> `write_config_file`).
+7. A `*.sync-conflict-*` file in the profile directory (recursive, always) or in
+   the KiCad project directory (`root_sheet`, resolved — skipped when it is
+   absent) refuses the WHOLE lift BEFORE the first write (У3.3, Р-У3.5): neither
+   this sweep NOR the registries `load_config` lifts right after it writes a
+   byte. See `sync_conflict_guard.py`.
 
 GUI and MCP lifting one profile at the same time give at worst two `.bak` files
 and two identical writes — the content is deterministic, and the two `os.replace`
@@ -50,7 +57,7 @@ import logging
 from pathlib import Path
 
 from ..config_writer import serialize_config, write_config_file
-from ..exceptions import ValidationError
+from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..utils.safe_write import backup_file
 from .format_version import (
@@ -60,6 +67,7 @@ from .format_version import (
     read_version,
     upgrade_data,
 )
+from .sync_conflict_guard import refuse_on_sync_conflicts
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +103,10 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
 
     Raises whatever `read_version` raises (a file NEWER than this build, a
     malformed number) from the PRE-PASS, before a single byte is written: that is
-    what the pre-pass is for. Backup/write failures are NOT raised — they are
-    logged and that file is left alone, so one unwritable file cannot stop a
-    profile from loading."""
+    what the pre-pass is for. A `*.sync-conflict-*` file anywhere in the scanned
+    areas raises before that too (У3.3, Р-У3.5) — the whole lift, registries
+    included, is then refused. A `.bak` that cannot be taken raises as well; a
+    WRITE failure is logged and that file is left alone."""
     from ..config_working_set import WORKING_SET  # lazy — keeps this import-free of the GUI path
 
     if WORKING_SET.is_dirty():
@@ -123,6 +132,15 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
     if not outdated:
         return []
 
+    # Р-У3.5 (У3.3): refuse the WHOLE lift — this graph AND the registries
+    # `load_config` lifts right after this call — while a Syncthing conflict file
+    # is present. Before the loop and before ANY write, so not one byte is
+    # rewritten over a state two machines are still arguing about. Gated on a
+    # pending write: a graph already at CURRENT (the GUI's steady state) must not
+    # parse the root again just to look for `root_sheet`, and with nothing to
+    # write there is nothing to refuse.
+    refuse_on_sync_conflicts(root)
+
     lifted: list[Path] = []
     for path in outdated:
         try:
@@ -135,24 +153,43 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
             # У2: compare by MEANING. _strip_defaults on both sides, exactly as
             # tools/sexp_config_convert.py verifies its own output — the rebuild
             # drops default-valued fields, so raw dicts would never match and the
-            # file would be refused on every open, for ever.
+            # file would be refused on every open, for ever. Kept INSIDE this
+            # `try` on purpose: `_strip_defaults` itself can raise a
+            # ValidationError on content it cannot read (`tree must be a mapping`
+            # for a garbage entry), and the base behaviour is to log that and
+            # leave the file alone — moving the compare out turned that into a
+            # fatal for a config the loader used to diagnose itself.
             parsed_back = parse_raw_text(text, path.suffix.lower(), str(path))[0]
             if _strip_defaults(parsed_back) != _strip_defaults(content):
                 logger.error(_(
                     "config file {path}: the format upgrade is NOT written — the text it would write does not read back as the lifted content; the file is left as it is").format(path=path))
                 continue
-            # Order matters (Д5): the text is serialized and verified first, the
-            # copy is taken second, the write last — so a target the serializer
-            # refuses never leaves a stray copy behind. The copy is taken HERE, by
-            # the same backup_file() the writer uses, because the WARNING below
-            # has to name it; write_config_file is told backup=False, and it still
-            # refuses a file that became newer and still writes atomically.
+        except (OSError, ValidationError) as e:
+            logger.error(_(
+                "config file {path}: the format upgrade failed ({error}) — the file is left as it is; the next open will try again").format(path=path, error=e))
+            continue
+        # Order matters (Д5): the text is serialized and verified first, the copy
+        # is taken second, the write last — so a target the serializer refuses
+        # never leaves a stray copy behind. The copy is taken HERE, by the same
+        # backup_file() the writer uses, because the WARNING below has to name it;
+        # write_config_file is told backup=False, and it still refuses a file that
+        # became newer and still writes atomically.
+        #
+        # Р-У3.5 (У3.3): a copy that CANNOT be taken is a REFUSAL, not the old
+        # log-and-continue. The `.bak` is the only way back (there is no undo), so
+        # the file is left exactly as it is and the fatal stops the whole lift.
+        try:
             backup = backup_file(path)
-            # The text that was just verified IS the text written — not a second
-            # serialization of the same data. Otherwise the check would gate a
-            # value nobody writes, and a lift implemented by INSERTING the number
-            # into the old text (mutant M3 of the Т4 acceptance) would pass it
-            # while the file kept its legacy aliases.
+        except OSError as e:
+            raise ValidationError(format_fatal_error(
+                _("config file {path}: the previous version could not be saved as a backup ({error}) — the format upgrade is refused and the file is left as it is").format(path=path, error=e),
+                [_("check the permissions and the free space of the directory, then open the profile again")])) from e
+        # The text that was just verified IS the text written — not a second
+        # serialization of the same data. Otherwise the check would gate a value
+        # nobody writes, and a lift implemented by INSERTING the number into the
+        # old text (mutant M3 of the Т4 acceptance) would pass it while the file
+        # kept its legacy aliases.
+        try:
             write_config_file(path, content, backup=False, serialized_text=text)
         except (OSError, ValidationError) as e:
             logger.error(_(

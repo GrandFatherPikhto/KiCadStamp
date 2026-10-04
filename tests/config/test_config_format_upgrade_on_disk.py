@@ -40,6 +40,7 @@ from kicadstamp.config import format_version as fv
 from kicadstamp.config.format_version import CURRENT_FORMAT, read_version
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config.sync_conflict_guard import sync_conflict_files
 from kicadstamp.config.upgrade_on_disk import upgrade_graph_on_disk
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config_writer import merge_write
@@ -362,7 +363,110 @@ def test_a_newer_file_anywhere_stops_the_graph_before_any_write(tmp_path):
     assert read_version(root) == 1
 
 
-# ── failures: the file is left alone, the load continues ───────────────────
+# ── sync-conflict (Р-У3.5, У3.3): refuse the lift before the first write ────
+
+def test_a_sync_conflict_file_in_the_profile_refuses_the_lift_before_any_write(tmp_path):
+    """Р-У3.5 (У3.3): a Syncthing conflict file in the PROFILE directory stops
+    the lift BEFORE the first write — the config files are not rewritten and no
+    `.bak` is taken. The fatal NAMES every conflict file it found (a refusal
+    that does not say WHAT it found would send the owner hunting)."""
+    root, sub = _sexp_graph(tmp_path)
+    conflict = tmp_path / "sub.sexp.sync-conflict-20261004-NODE.sexp"
+    conflict.write_text("junk", encoding="utf-8")
+    original_root = root.read_text(encoding="utf-8")
+    original_sub = sub.read_text(encoding="utf-8")
+
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(root))
+
+    assert conflict.name in str(excinfo.value), "the refusal names WHAT it found"
+    assert root.read_text(encoding="utf-8") == original_root
+    assert sub.read_text(encoding="utf-8") == original_sub
+    assert list(tmp_path.glob("*.bak.*")) == [], "and nothing was copied"
+    assert read_version(root) == 1 and read_version(sub) == 1
+
+
+def test_a_sync_conflict_below_the_profile_directory_is_found(tmp_path):
+    """Р-У3.5 (У3.3): the profile directory is scanned RECURSIVELY — a conflict
+    inside `registry/` (or any subdirectory) refuses the lift just like one at
+    the top level. A non-recursive scan would miss it."""
+    root = tmp_path / "root.sexp"
+    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
+    sub = tmp_path / "registry"
+    sub.mkdir()
+    conflict = sub / "config.registry.json.sync-conflict-20261004-NODE.json"
+    conflict.write_text("junk", encoding="utf-8")
+    original = root.read_text(encoding="utf-8")
+
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(root))
+
+    assert conflict.name in str(excinfo.value)
+    assert root.read_text(encoding="utf-8") == original
+
+
+def test_a_sync_conflict_in_the_kicad_project_dir_refuses_the_lift(tmp_path):
+    """Р-У3.5 (У3.3): the KiCad project directory — `Path(root_sheet).parent`,
+    resolved against the config's own directory through
+    `resolve_config_relative_path` (rule 41: never hard-coded) — is scanned too,
+    even when the profile directory itself is clean."""
+    project = tmp_path / "KiCad" / "Proj"
+    project.mkdir(parents=True)
+    conflict = project / "Proj.kicad_sch.sync-conflict-20261004-NODE.kicad_sch"
+    conflict.write_text("junk", encoding="utf-8")
+    profile = tmp_path / "profiles" / "p"
+    profile.mkdir(parents=True)
+    root = profile / "root.sexp"
+    root.write_text(_old_text({
+        "root_sheet": "../../KiCad/Proj/Proj.kicad_sch",
+        "cells": {"c1": {}},
+    }), encoding="utf-8")
+    original = root.read_text(encoding="utf-8")
+
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(root))
+
+    assert conflict.name in str(excinfo.value)
+    assert root.read_text(encoding="utf-8") == original
+    assert list(profile.glob("*.bak.*")) == [], "and nothing was copied"
+
+
+def test_without_root_sheet_the_profile_is_still_scanned(tmp_path):
+    """Р-У3.5 (У3.3): four live profiles have NO `root_sheet` — the KiCad half is
+    then SKIPPED (not an error), but the profile directory is scanned ALWAYS."""
+    root = tmp_path / "root.sexp"
+    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")   # no root_sheet
+    conflict = tmp_path / "root.sexp.sync-conflict-20261004-NODE.sexp"
+    conflict.write_text("junk", encoding="utf-8")
+    original = root.read_text(encoding="utf-8")
+
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(root))
+
+    assert conflict.name in str(excinfo.value)
+    assert root.read_text(encoding="utf-8") == original
+    assert read_version(root) == 1
+
+
+def test_the_conflict_list_covers_both_areas(tmp_path):
+    """The property `refuse_on_sync_conflicts` reports on: the union of the
+    profile directory and the KiCad project directory, each file once."""
+    project = tmp_path / "KiCad" / "Proj"
+    project.mkdir(parents=True)
+    conflict_profile = tmp_path / "root.sexp.sync-conflict-20261004-NODE.sexp"
+    conflict_profile.write_text("junk", encoding="utf-8")
+    conflict_project = project / "p.sync-conflict-1.kicad_sch"
+    conflict_project.write_text("junk", encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(_old_text({
+        "root_sheet": "KiCad/Proj/Proj.kicad_sch", "cells": {"c1": {}}}),
+        encoding="utf-8")
+
+    assert set(sync_conflict_files(root)) == {conflict_profile, conflict_project}
+    assert len(list(sync_conflict_files(root))) == 2, "each file once"
+
+
+# ── failure: a write is logged; a `.bak` that cannot be taken REFUSES ──────
 
 def _unbuildable_unwritable_dir_reason() -> str | None:
     """Why the unwritable-directory cell cannot run here, or None.
@@ -382,19 +486,52 @@ _UNBUILDABLE_UNWRITABLE_DIR = _unbuildable_unwritable_dir_reason()
 
 @pytest.mark.skipif(_UNBUILDABLE_UNWRITABLE_DIR is not None,
                     reason=_UNBUILDABLE_UNWRITABLE_DIR or "")
-def test_an_unwritable_directory_leaves_the_file_and_still_loads(tmp_path, caplog):
+def test_a_backup_that_cannot_be_taken_refuses_the_lift_and_leaves_the_file(tmp_path):
+    """Р-У3.5 (У3.3): a `.bak` that CANNOT be taken is a REFUSAL, not the old
+    log-and-continue. The copy is the only way back (there is no undo), so the
+    file is left exactly as it is and the fatal stops the lift.
+
+    This cell REPLACES the pre-У3.3 `test_an_unwritable_directory_leaves_the_
+    file_and_still_loads`, which pinned the OLD "log and load on" rule: У3.3
+    changes that rule ON PURPOSE. The behaviour was not weakened to make a green
+    (rule 33) — the product rule the old cell measured is gone."""
     root = tmp_path / "root.sexp"
-    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
+    original = _old_text({"cells": {"c1": {}}})
+    root.write_text(original, encoding="utf-8")
     os.chmod(tmp_path, 0o500)
     try:
-        with caplog.at_level(logging.ERROR):
-            cfg, _ = load_config(str(root))
-        assert sorted(cfg.cells) == ["c1"], "the lift happened in memory (Т2)"
-        assert "upgrade failed" in caplog.text, "the reason is in the Log"
-        assert read_version(root) == 1, "the file is untouched"
+        with pytest.raises(ValidationError, match="backup"):
+            load_config(str(root))
+        assert root.read_text(encoding="utf-8") == original, "the file is untouched"
+        assert read_version(root) == 1
         assert list(tmp_path.glob("*.bak.*")) == []
     finally:
         os.chmod(tmp_path, 0o700)
+
+
+def test_a_write_that_fails_after_a_good_backup_is_logged_and_the_load_goes_on(
+        tmp_path, monkeypatch, caplog):
+    """Rule 4 kept for a WRITE failure (the backup WAS taken): the file is left as
+    it is, the reason is a Log line, and the load continues from the lifted
+    in-memory content (Т2). Only the `.bak` failure escalated to a refusal."""
+    from kicadstamp.config import upgrade_on_disk as uod
+
+    root = tmp_path / "root.sexp"
+    original = _old_text({"cells": {"c1": {}}})
+    root.write_text(original, encoding="utf-8")
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(uod, "write_config_file", boom)
+    with caplog.at_level(logging.ERROR):
+        cfg, _ = load_config(str(root))
+
+    assert sorted(cfg.cells) == ["c1"], "the lift happened in memory"
+    assert "upgrade failed" in caplog.text, "the reason is in the Log"
+    assert root.read_text(encoding="utf-8") == original, "the file is untouched"
+    assert read_version(root) == 1
+    assert list(tmp_path.glob("*.bak.*")), "the copy WAS taken before the write"
 
 
 # ── У3: the GUI working set decides ────────────────────────────────────────

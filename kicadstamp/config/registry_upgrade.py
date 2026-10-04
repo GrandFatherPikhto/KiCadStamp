@@ -13,7 +13,9 @@ The rules mirror ``upgrade_on_disk.py`` (its points 3-6), pinned by cells in
 3. ONE registry whose schema is NEWER than this build refuses the WHOLE sweep
    before the first write (pre-pass over both files).
 4. A write that fails leaves that file exactly as it was and logs the reason —
-   the load continues (the next open tries again).
+   the load continues (the next open tries again). A `.bak` that cannot be taken
+   is a REFUSAL (У3.3, Р-У3.5): the copy is the only way back, so the file is
+   left untouched and the whole lift stops.
 5. A registry already at the target schema is not touched at all: no write, no
    ``.bak``, ``mtime`` unchanged. That no-op costs ONE ``os.stat`` on the warm
    path — the schema probe is cached by ``(resolved, mtime_ns)``, exactly like
@@ -55,6 +57,7 @@ from ..persistence import REGISTRY_SCHEMA_VERSION
 from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
+from .sync_conflict_guard import refuse_on_sync_conflicts
 from .models import (
     clone_placement_effective_name,
     entity_effective_name,
@@ -322,6 +325,15 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 .format(path=str(path), version=schema, expected=TARGET_SCHEMA_VERSION))
         schemas[path] = schema
 
+    # Р-У3.5 (У3.3): the config sweep refuses a Syncthing conflict file before it
+    # writes, but it does NOT run when the graph is already current — and the
+    # registries can still need lifting then. So the SAME refusal lives here too,
+    # gated on a pending write (a warm open parses nothing). Raising stops the
+    # whole lift; nothing below writes a byte.
+    to_lift = [p for p in paths if schemas[p] == REGISTRY_SCHEMA_VERSION]
+    if to_lift:
+        refuse_on_sync_conflicts(config_path)
+
     idx = _build_index(cfg)
     lifted: list[Path] = []
     for path in paths:
@@ -348,7 +360,25 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 new_entries[new_key] = value
             data = {"schema_version": TARGET_SCHEMA_VERSION, **new_entries}
             text = json.dumps(data, indent=2, ensure_ascii=False)
+        except (OSError, ValueError) as e:
+            logger.error(
+                "registry {path}: the schema upgrade failed ({error}) — the file "
+                "is left as it is; the next open will try again"
+                .format(path=path, error=e))
+            continue
+        # Р-У3.5 (У3.3): a copy that CANNOT be taken is a REFUSAL, not the old
+        # log-and-continue. The `.bak` is the only way back, so the file is left
+        # exactly as it is and the whole lift stops (the sibling config sweep
+        # refuses a conflict file the same way). Plain English, like the other
+        # refusals of this module — it does not go through `_()`.
+        try:
             backup = backup_file(path)
+        except OSError as e:
+            raise ValueError(
+                "registry {path}: the previous version could not be saved as a "
+                "backup ({error}) — the schema upgrade is refused and the file "
+                "is left as it is".format(path=path, error=e)) from e
+        try:
             write_text_atomic(path, text)
             invalidate_registry_probe(path)
         except (OSError, ValueError) as e:
