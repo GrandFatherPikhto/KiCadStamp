@@ -2,10 +2,19 @@
 """Tests for gui/docks/entity_export.py — ConfigTreeDock's context-menu
 Export (2026-08-05). Pure file-operation tests, same shape as
 tests/gui/test_rename.py / tests/gui/test_entity_delete.py. Fixtures are
-s-expr since core_yaml_removal (2026-08-28)."""
+s-expr since core_yaml_removal (2026-08-28).
+
+Under format 3 the export is REFUSED before any write (Ф4): export_entries
+needs the TARGET profile's graph root, which the GUI (an arbitrary
+save-dialog path) does not know. Denis (04.10): export is not used right now,
+the refusal does NOT block the switch, and returning export to format 3 is
+plan item А7, right after У3. The cells below therefore assert the REFUSAL
+under format 3 and keep the full format-2 behaviour unchanged — no pin."""
 import pytest
 from gui.docks.entity_export import ExportItem, export_entries
+from kicadstamp.config.format_version import current_format
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 
 
 def _write(path, data):
@@ -15,6 +24,18 @@ def _write(path, data):
 
 def _load(path):
     return sexp_to_dict(path.read_text(encoding="utf-8"))
+
+
+def _refused_export(target, items, overwrite):
+    """Run the export; return True when the format-3 Ф4 refusal was the outcome
+    (the caller then skips its format-2 assertions). Under format 2 the export
+    runs unchanged and False is returned."""
+    if current_format() >= 3:
+        with pytest.raises(ValidationError, match="not supported yet"):
+            export_entries(target, items, overwrite=overwrite)
+        return True
+    export_entries(target, items, overwrite=overwrite)
+    return False
 
 
 def test_export_dict_section_entry_reads_fresh_from_source(tmp_path):
@@ -27,7 +48,8 @@ def test_export_dict_section_entry_reads_fresh_from_source(tmp_path):
     target = _write(tmp_path / "out.sexp", {})
     item = ExportItem(source_path=source, section="cells", name="my_cell", payload="stale")
 
-    export_entries(target, [item], overwrite=False)
+    if _refused_export(target, [item], overwrite=False):
+        return
 
     assert _load(target) == {"cells": {"my_cell": {"layer": "B.Cu"}}}
 
@@ -39,7 +61,8 @@ def test_export_list_section_entry_uses_the_payload_directly(tmp_path):
     item = ExportItem(source_path=source, section="clone_placements", name="spoke_1",
                       payload={"name": "spoke_1", "cell": "ldo"})
 
-    export_entries(target, [item], overwrite=False)
+    if _refused_export(target, [item], overwrite=False):
+        return
 
     assert _load(target) == {"clone_placements": [{"name": "spoke_1", "cell": "ldo"}]}
 
@@ -50,7 +73,8 @@ def test_export_merge_preserves_the_target_files_other_content(tmp_path):
         "cells": {"existing": {}}, "include": ["somewhere.sexp"]})
     item = ExportItem(source_path=source, section="cells", name="my_cell", payload=None)
 
-    export_entries(target, [item], overwrite=False)
+    if _refused_export(target, [item], overwrite=False):
+        return
 
     data = _load(target)
     assert data["cells"] == {"existing": {}, "my_cell": {}}
@@ -60,7 +84,9 @@ def test_export_merge_preserves_the_target_files_other_content(tmp_path):
 def test_export_merge_matches_a_nameless_chain_by_net_fallback(tmp_path):
     """chains: falls back to net: as identity when name: is absent (config/
     models.py's chain_effective_name()) — exporting into a target that
-    already has a chain with the same net must REPLACE it, not duplicate."""
+    already has a chain with the same net must REPLACE it, not duplicate.
+    SUBJECT is the format-2 net fallback, but the WRITE path is the same one
+    the format-3 refusal gates, so the refusal is what is asserted there."""
     source = _write(tmp_path / "config.sexp", {
         "chains": [{"net": "+3V3", "anchor_role": "NEW_MCU"}]})
     target = _write(tmp_path / "out.sexp", {
@@ -68,7 +94,8 @@ def test_export_merge_matches_a_nameless_chain_by_net_fallback(tmp_path):
     item = ExportItem(source_path=source, section="chains", name="+3V3",
                       payload={"net": "+3V3", "anchor_role": "NEW_MCU"})
 
-    export_entries(target, [item], overwrite=False)
+    if _refused_export(target, [item], overwrite=False):
+        return
 
     chains = _load(target)["chains"]
     assert len(chains) == 1
@@ -81,7 +108,8 @@ def test_export_overwrite_replaces_the_targets_whole_content(tmp_path):
         "cells": {"unrelated": {}}, "include": ["somewhere.sexp"]})
     item = ExportItem(source_path=source, section="cells", name="my_cell", payload=None)
 
-    export_entries(target, [item], overwrite=True)
+    if _refused_export(target, [item], overwrite=True):
+        return
 
     assert _load(target) == {"cells": {"my_cell": {}}}
 
@@ -98,7 +126,8 @@ def test_export_overwrite_combines_multiple_sections(tmp_path):
                    payload={"name": "spoke_1", "cell": "my_cell"}),
     ]
 
-    export_entries(target, items, overwrite=True)
+    if _refused_export(target, items, overwrite=True):
+        return
 
     data = _load(target)
     assert data["cells"] == {"my_cell": {}}
@@ -113,7 +142,8 @@ def test_export_skips_a_dict_entry_that_no_longer_exists_in_the_source(tmp_path)
     target = _write(tmp_path / "out.sexp", {})
     item = ExportItem(source_path=source, section="cells", name="gone", payload=None)
 
-    export_entries(target, [item], overwrite=False)
+    if _refused_export(target, [item], overwrite=False):
+        return
 
     assert _load(target) in ({}, None)
 
@@ -132,7 +162,8 @@ def test_export_merge_does_not_collapse_two_nameless_coordinate_placements(tmp_p
                    name="X/R2", payload={"cluster": "X", "role": "R2", "x_mm": 3.0, "y_mm": 4.0}),
     ]
 
-    export_entries(target, items, overwrite=False)
+    if _refused_export(target, items, overwrite=False):
+        return
 
     entries = _load(target)["coordinate_placements"]
     assert [e["role"] for e in entries] == ["R1", "R2"]

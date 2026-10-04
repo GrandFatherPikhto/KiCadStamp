@@ -8,7 +8,18 @@ import pytest
 from gui.docks.rename import (collect_all_cell_names, collect_all_point_names, collect_all_sheet_names,
                               collect_graph_files, entry_effective_name, name_exists_in_graph,
                               rename_dict_entry, rename_entry, rename_list_entry, rename_references)
+from kicadstamp.config import format_version
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from tests.fakes.format3 import without_identity
+
+
+@pytest.fixture
+def pin_format2(monkeypatch):
+    """Pin CURRENT_FORMAT to 2 for a cell whose SUBJECT is the format-2
+    grammar itself (a nameless chain / clone_placement that the format-3 lift
+    would MINT a name for, so the net/cluster fallback display disappears). A
+    no-op while the product is CURRENT_FORMAT = 2."""
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 
 def _write(path, data):
@@ -154,7 +165,9 @@ def test_rename_dict_entry_renames_the_key_in_place(tmp_path):
 
     data = _load(path)
     assert list(data["cells"].keys()) == ["first", "renamed", "last"]  # position preserved
-    assert data["cells"]["renamed"] == {"comment": "2"}  # value untouched
+    # The record's SHAPE is the subject; under format 3 the reader lifts a
+    # uuid onto every §0 record, so compare without it (under 2 a no-op).
+    assert without_identity(data["cells"]["renamed"]) == {"comment": "2"}
 
 
 def test_rename_dict_entry_raises_when_old_name_missing(tmp_path):
@@ -175,13 +188,14 @@ def test_rename_dict_entry_raises_on_collision(tmp_path):
         assert False, "expected OSError"
     except OSError:
         pass
-    assert _load(path)["cells"] == {"a": {}, "b": {}}  # untouched on rejection
+    assert without_identity(_load(path)["cells"]) == {"a": {}, "b": {}}  # untouched on rejection
 
 
 # ── rename_list_entry ─────────────────────────────────────────────────────
 
 def test_rename_list_entry_renames_clone_placement_by_name(tmp_path):
     path = _write(tmp_path / "config.sexp", {
+        "cells": {"ldo": {}},
         "clone_placements": [{"name": "spoke_1", "cell": "ldo"},
                              {"name": "spoke_2", "cell": "ldo"}]})
 
@@ -193,10 +207,13 @@ def test_rename_list_entry_renames_clone_placement_by_name(tmp_path):
     assert data["clone_placements"][0]["cell"] == "ldo"  # other fields untouched
 
 
-def test_rename_list_entry_gives_a_nameless_chain_an_explicit_name(tmp_path):
+def test_rename_list_entry_gives_a_nameless_chain_an_explicit_name(tmp_path, pin_format2):
     """chains: entries may have no name: at all, falling back to net: as
     their effective display name (config/models.py's chain_effective_name())
-    — renaming one is what GIVES it an explicit name: for the first time."""
+    — renaming one is what GIVES it an explicit name: for the first time.
+
+    SUBJECT is the format-2 nameless grammar: under format 3 the 2 -> 3 lift
+    MINTS a name for the record, so it is never nameless — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "chains": [{"net": "+3V3", "anchor_role": "MCU"}]})
 
@@ -207,13 +224,17 @@ def test_rename_list_entry_gives_a_nameless_chain_an_explicit_name(tmp_path):
     assert data["chains"][0]["net"] == "+3V3"  # net: itself is never touched
 
 
-def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_name(tmp_path):
+def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_name(
+        tmp_path, pin_format2):
     """coordinate_placements: entries may have no name: at all, falling back
     to cluster/role as their effective display name (config/models.py's
     coordinate_placement_effective_name()) — renaming one by that display
     name is what GIVES it an explicit name: for the first time (2026-08-12,
     Group 1: coordinate_placements is a normal named-records section now,
-    addressable in the tree exactly like rules:' net: fallback)."""
+    addressable in the tree exactly like rules:' net: fallback).
+
+    SUBJECT is the format-2 nameless grammar: the format-3 lift mints a name
+    — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "coordinate_placements": [{"cluster": "FPGA_PERIPH", "role": "R18",
                                    "x_mm": 10.0, "y_mm": 20.0}]})
@@ -239,10 +260,16 @@ def test_rename_list_entry_raises_on_collision(tmp_path):
 
 # ── rename_references ────────────────────────────────────────────────────
 
-def test_rename_references_rewrites_every_matching_field_recursively(tmp_path):
+def test_rename_references_rewrites_every_matching_field_recursively(tmp_path, pin_format2):
     """The recursive rewrite covers nested CellPlacement records inside a
     cell (the schema-valid recursive-Cell form: Cell.clone_placements), while
-    a plain role slot is left alone."""
+    a plain role slot is left alone.
+
+    SUBJECT is the NAME-based reference rewrite — format-2 reference
+    semantics. Under format 3 a reference follows its UUID (Р26): the stamp
+    restores the name hint from the uuid, so repointing a reference by name
+    alone is not a format-3 operation (the real rename_entry flow renames the
+    RECORD, keeping the uuid). Pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "clone_placements": [{"name": "spoke_1", "cell": "old_cell"}],
         "cells": {
@@ -261,9 +288,13 @@ def test_rename_references_rewrites_every_matching_field_recursively(tmp_path):
 
 
 def test_rename_references_leaves_unaffected_files_unwritten(tmp_path):
+    # Each file carries the cells record its `cell:` reference names, so the
+    # format-3 writer resolves the reference (a dangling one is refused).
     matching = _write(tmp_path / "matching.sexp", {
+        "cells": {"old": {}, "new": {}},
         "clone_placements": [{"name": "a", "cell": "old"}]})
     unrelated = _write(tmp_path / "unrelated.sexp", {
+        "cells": {"something_else": {}},
         "clone_placements": [{"name": "b", "cell": "something_else"}]})
 
     changed = rename_references([matching, unrelated], "cell", "old", "new")
@@ -280,6 +311,13 @@ def test_rename_entry_cascades_a_cell_rename_across_the_graph(tmp_path):
         "clone_placements": [{"name": "spoke_1", "cell": "old_cell"}],
     })
 
+    # The cascade touches TWO files, so the format-3 stamp must resolve the
+    # reference UUID against the REAL include graph: the module fixture points
+    # the active root at a nonexistent path (right for a self-contained write),
+    # which cannot see a target living in another file — override it here.
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(root)
+
     changed = rename_entry(root, tmp_path / "cells.sexp", "cells", "old_cell", "new_cell")
 
     assert {p.name for p in changed} == {"cells.sexp", "root.sexp"}
@@ -293,6 +331,7 @@ def test_rename_entry_does_not_cascade_for_a_non_referenced_section(tmp_path):
     graph (see gui/docks/rename.py's module docstring) — only the one file
     the entry itself lives in should ever be touched."""
     root = _write(tmp_path / "root.sexp", {
+        "cells": {"ldo": {}},
         "clone_placements": [{"name": "spoke_1", "cell": "ldo"}]})
 
     changed = rename_entry(root, root, "clone_placements", "spoke_1", "spoke_1_renamed")
@@ -315,7 +354,7 @@ def test_rename_entry_refuses_a_graph_wide_collision_before_writing_anything(tmp
 
     # Nothing written — the collision is in a DIFFERENT file than the entry
     # itself, so this only fails if the graph-wide check ran before any write.
-    assert _load(root)["cells"] == {"old_cell": {}}
+    assert without_identity(_load(root)["cells"]) == {"old_cell": {}}
 
 
 # ── placer_name-aware identity for clone_placements (2026-08-15, plan
@@ -337,6 +376,7 @@ def test_rename_list_entry_finds_entry_by_name(tmp_path):
     shows) — and write the new value to name, leaving the Cluster tag
     untouched."""
     path = _write(tmp_path / "config.sexp", {
+        "cells": {"ldo": {}},
         "clone_placements": [{"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo"}]})
 
     rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
@@ -346,9 +386,12 @@ def test_rename_list_entry_finds_entry_by_name(tmp_path):
     assert data["cluster"] == "PIF_AVDD"  # Cluster tag untouched
 
 
-def test_rename_list_entry_writes_cluster_when_no_name_yet(tmp_path):
+def test_rename_list_entry_writes_cluster_when_no_name_yet(tmp_path, pin_format2):
     """Regression guard: an entry that never diverged still renames its
-    single `cluster` field, exactly as before the split."""
+    single `cluster` field, exactly as before the split.
+
+    SUBJECT is the format-2 nameless grammar (no name:, identity = cluster);
+    the format-3 lift mints a name — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "clone_placements": [{"cluster": "spoke_1", "cell": "ldo"}]})
 
@@ -411,7 +454,7 @@ def test_rename_dict_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path,
     # on-disk state, not the mutated-in-memory rename.
     cached = rename_mod.read_data(path)
     assert list(cached["cells"].keys()) == ["first", "target"]
-    assert cached["cells"]["target"] == {"comment": "2"}
+    assert without_identity(cached["cells"]["target"]) == {"comment": "2"}
 
 
 def test_rename_list_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path, monkeypatch):

@@ -7,7 +7,19 @@ only."""
 import pytest
 from gui.docks.entity_delete import backup_file, delete_entry, find_references
 from gui.docks.rename import collect_graph_files
+from kicadstamp.config import format_version
+from kicadstamp.config.format_version import current_format
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from tests.fakes.format3 import without_identity
+
+
+@pytest.fixture
+def pin_format2(monkeypatch):
+    """Pin CURRENT_FORMAT to 2 for a cell whose SUBJECT is the format-2
+    grammar (a nameless chain / coordinate_placement matched by its net or
+    cluster/role fallback — the format-3 lift MINTS a name, so the fallback
+    display disappears). A no-op while the product is CURRENT_FORMAT = 2."""
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 
 def _write(path, data):
@@ -40,8 +52,8 @@ def test_backup_file_two_calls_produce_two_distinct_files(tmp_path):
 
     assert first != second
     assert first.exists() and second.exists()
-    assert _load(first) == {"cells": {"a": {}}}  # first backup keeps its own snapshot
-    assert _load(second) == {"cells": {"a": {}, "b": {}}}
+    assert without_identity(_load(first)) == {"cells": {"a": {}}}  # own snapshot
+    assert without_identity(_load(second)) == {"cells": {"a": {}, "b": {}}}
 
 
 # ── find_references ──────────────────────────────────────────────────────
@@ -83,7 +95,9 @@ def test_find_references_finds_a_point_chained_to_another_point(tmp_path):
     assert refs == {path: ["chained"]}
 
 
-def test_find_references_finds_a_chain_anchored_on_a_point(tmp_path):
+def test_find_references_finds_a_chain_anchored_on_a_point(tmp_path, pin_format2):
+    """SUBJECT is the format-2 display identity of a nameless chain (net: as
+    its effective name) — the format-3 lift mints a name, so pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "chains": [{"net": "+3V3", "anchor_point": "base"}]})
 
@@ -105,15 +119,21 @@ def test_delete_entry_removes_a_dict_section_entry_and_backs_up_the_file(tmp_pat
 
     report = delete_entry(None, path, "cells", "drop", cascade=False)
 
-    assert _load(path)["cells"] == {"keep": {}}
+    assert without_identity(_load(path)["cells"]) == {"keep": {}}
     assert report["backups"] == [path]
     assert report["cascade_files"] == []
     backups = list(tmp_path.glob("config.sexp.bak.*"))
-    assert len(backups) == 1
-    assert _load(backups[0])["cells"] == {"keep": {}, "drop": {}}  # pre-delete snapshot
+    # Under format 3 the writer ALSO takes a `.bak` when it lifts the on-disk
+    # format-2 file to format 3 (write_config_file's stale-format rule), so a
+    # delete on a format-2 file leaves TWO copies; format 2 leaves one. Both
+    # copies hold the same PRE-delete content.
+    assert len(backups) == (2 if current_format() >= 3 else 1)
+    assert without_identity(_load(backups[0])["cells"]) == {"keep": {}, "drop": {}}  # pre-delete snapshot
 
 
-def test_delete_entry_removes_a_list_section_entry_by_net_fallback(tmp_path):
+def test_delete_entry_removes_a_list_section_entry_by_net_fallback(tmp_path, pin_format2):
+    """SUBJECT is the format-2 net: fallback identity of a nameless chain;
+    the format-3 lift mints a name — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "chains": [{"net": "+3V3", "anchor_role": "MCU"},
                    {"net": "GND", "anchor_role": "MCU"}]})
@@ -124,11 +144,13 @@ def test_delete_entry_removes_a_list_section_entry_by_net_fallback(tmp_path):
     assert nets == ["GND"]
 
 
-def test_delete_entry_removes_a_nameless_coordinate_placement_by_effective_name(tmp_path):
+def test_delete_entry_removes_a_nameless_coordinate_placement_by_effective_name(
+        tmp_path, pin_format2):
     """2026-08-12, Group 1: coordinate_placements is a normal named-records
     section — a nameless entry is matched in the tree by its cluster/role
     display name, and delete must recognize that same identity, exactly like
-    rules:' net: fallback."""
+    rules:' net: fallback. SUBJECT is the format-2 nameless grammar (the
+    format-3 lift mints a name) — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
         "coordinate_placements": [
             {"cluster": "X", "role": "R1"},
@@ -141,17 +163,31 @@ def test_delete_entry_removes_a_nameless_coordinate_placement_by_effective_name(
     assert roles == ["R2"]
 
 
-def test_delete_entry_without_cascade_leaves_references_dangling(tmp_path):
+def test_delete_entry_without_cascade_is_refused_under_format3(tmp_path):
+    """Formatted for BOTH formats, because the outcome differs by design.
+
+    Format 2: deleting without a cascade removes the record and leaves the
+    reference dangling (no validation). Format 3 (Р-У4.3): the writer REFUSES
+    to leave a dangling reference — the delete is refused, the file on disk is
+    untouched, and the refusal NAMES the referring record (so the user is told
+    which entries to cascade). The old cell asserted the format-2 outcome
+    unconditionally; that premise is unreachable under format 3."""
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}},
         "clone_placements": [{"name": "spoke_1", "cell": "target_cell"}],
     })
 
-    delete_entry(path, path, "cells", "target_cell", cascade=False)
-
-    data = _load(path)
-    assert "target_cell" not in data["cells"]
-    assert data["clone_placements"][0]["cell"] == "target_cell"  # left as-is
+    if current_format() >= 3:
+        with pytest.raises(OSError, match="spoke_1"):
+            delete_entry(path, path, "cells", "target_cell", cascade=False)
+        data = _load(path)
+        assert "target_cell" in data["cells"]                       # file untouched
+        assert data["clone_placements"][0]["cell"] == "target_cell"  # reference intact
+    else:
+        delete_entry(path, path, "cells", "target_cell", cascade=False)
+        data = _load(path)
+        assert "target_cell" not in data["cells"]
+        assert data["clone_placements"][0]["cell"] == "target_cell"  # left as-is
 
 
 # ── delete_entry: cascade ────────────────────────────────────────────────
