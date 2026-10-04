@@ -30,14 +30,27 @@ position/net/drill/diameter; a registry entry whose UUID is not found alive on
 the board is considered stale (not fatal — just recreate as if the entry never
 existed).
 """
+from __future__ import annotations
+
 import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import TypeVar, Generic
+from typing import TYPE_CHECKING, TypeVar, Generic
 
-from .placement.commands import ViaCommand, TrackCommand
+# The registry key is the registry's OWN identity concept: placement builds it by
+# importing from the registry (single direction placement -> registry). So this
+# module must NOT import `placement` at RUNTIME — `ViaCommand`/`TrackCommand` are
+# needed only in annotations, which `from __future__ import annotations` turns
+# into strings. That module-level import used to be the registry end of the
+# registry <-> placement import cycle (registry -> placement.commands ->
+# placement/__init__ -> executor -> registry), which made `import
+# kicadstamp.registry` fail in a fresh process (found again in У5.5 (г): the
+# registry-upgrade test could not be collected on its own).
+if TYPE_CHECKING:
+    from .placement.commands import ViaCommand, TrackCommand
+
 from .utils.units import MM
 from .utils.layers import layer_to_str
 # The four config-derived default-path helpers live in kicadstamp/utils/paths.py
@@ -703,7 +716,17 @@ def registries_empty_for(config_path) -> bool:
     # the defaults made this hint inspect DIFFERENT files than a redraw used.
     from .cli_common import peek_registry_paths  # lazy — registry stays import-light
     via_path, trk_path = peek_registry_paths(config_path)
-    return not load_registry(via_path) and not load_track_registry(trk_path)
+    try:
+        return not load_registry(via_path) and not load_track_registry(trk_path)
+    except ValidationError:
+        # Under the format-3 gate an UNLIFTED (schema-1) registry is a FATAL in
+        # load_registry/load_track_registry (Н3). This function is only a "first
+        # run" heads-up, called from a Qt redraw slot that must never raise
+        # (gui/docks/_common.py:67 calls it OUTSIDE a try — a ValidationError
+        # escaping a Qt slot takes PyQt6 down). Treat the unlifted registry as
+        # NOT empty: the hint stays silent and the run itself refuses, loudly,
+        # with its own fatal in the Log.
+        return False
 
 
 # ── Track registry ────────────────────────────────────────────────────────────

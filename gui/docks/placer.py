@@ -1987,8 +1987,13 @@ class PlacerDock(QWidget):
         # worker must not read a widget), carried into the worker's answer.
         name = (coordinate_placement_effective_name(placement)
                 if self.is_coordinate else clone_placement_effective_name(placement))
-        from kicadstamp.registry import (registry_path_for_config,
-                                         track_registry_path_for_config)
+        # The two registry paths come from the SAME explicit-vs-default decision
+        # as the on-disk lift and the apply (registry_paths_for_config) — NOT a
+        # private "ctx or default" here, or this dock could resolve copper from
+        # files the apply never touched (У5.4 Н3; У5.5 (б)).
+        from kicadstamp.utils.paths import registry_paths_for_config
+        registry_path, track_registry_path = registry_paths_for_config(
+            str(self._placer_path), ctx.registry_path, ctx.track_registry_path)
 
         payload = {
             # The dock's OWN adapter — the one this click always used, held by
@@ -1998,10 +2003,8 @@ class PlacerDock(QWidget):
             "cfg": cfg,
             "ctx": ctx,
             "placement": placement,
-            "registry_path": (ctx.registry_path
-                              or registry_path_for_config(str(self._placer_path))),
-            "track_registry_path": (ctx.track_registry_path
-                                    or track_registry_path_for_config(str(self._placer_path))),
+            "registry_path": registry_path,
+            "track_registry_path": track_registry_path,
         }
         self._active_op = start_long_op(
             connection, self._action_buttons(),

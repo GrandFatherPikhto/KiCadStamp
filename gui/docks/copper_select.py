@@ -36,13 +36,17 @@ logger = logging.getLogger(__name__)
 
 def _readonly_registries(adapter, config_path):
     """The via/track registries of `config_path`, LOADED ONLY. Nothing here ever
-    calls `_save_entries` — the read path must not claim ownership (plan P.3.2)."""
-    from kicadstamp.registry import (PlacementRegistry, TrackRegistry,
-                                     registry_path_for_config,
-                                     track_registry_path_for_config)
-    path = str(config_path)
-    return (PlacementRegistry(adapter, registry_path_for_config(path)),
-            TrackRegistry(adapter, track_registry_path_for_config(path)))
+    calls `_save_entries` — the read path must not claim ownership (plan P.3.2).
+
+    The paths come from `peek_registry_paths` — the SAME explicit-vs-default
+    decision the lift and `apply` use (У5.4 Н3), never a private guess: a
+    profile with an explicit `registry_path:` must be read here too, or this
+    dock would highlight copper from files the apply never touched."""
+    from kicadstamp.cli_common import peek_registry_paths
+    from kicadstamp.registry import PlacementRegistry, TrackRegistry
+    via_path, trk_path = peek_registry_paths(str(config_path))
+    return (PlacementRegistry(adapter, via_path),
+            TrackRegistry(adapter, trk_path))
 
 
 def resolve_record(cfg, *, identity=None, net=None):
@@ -201,23 +205,29 @@ class IdentifyResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def _registry_key_identity(key: str):
+def _registry_key_identity(key: str, resolve=None):
     """The `net_traces:` record identity inside a registry key, or None when
     the key belongs to another mechanism. Keys are
     `anchor_id|template_name|role|index` and a net trace's anchor_id is
-    `net:<identity>` (net_trace_anchor_id)."""
+    `net:<identity>` (net_trace_anchor_id).
+
+    Under the format-3 gate the VALUE is the record's UUID, not its name
+    (Р-У5.1) — `resolve` (a uuid -> name lookup from the LOADED config) is
+    applied to it so the caller is shown the NAME (Р-У5.8), never the UUID."""
     anchor_id = key.split("|", 1)[0]
     if anchor_id.startswith("net:"):
-        return anchor_id[len("net:"):]
+        raw = anchor_id[len("net:"):]
+        return resolve(raw) if resolve is not None else raw
     return None
 
 
-def _uuid_identity_map(entries: dict) -> dict[str, str]:
+def _uuid_identity_map(entries: dict, resolve=None) -> dict[str, str]:
     """uuid -> record identity for every net-trace registry entry. TIER 1 of
-    Э3: the registry is an exact, uuid-based answer — no geometry involved."""
+    Э3: the registry is an exact, uuid-based answer — no geometry involved.
+    `resolve` turns a format-3 uuid key part back into the record NAME."""
     out: dict[str, str] = {}
     for key, entry in entries.items():
-        identity = _registry_key_identity(key)
+        identity = _registry_key_identity(key, resolve)
         if identity is not None:
             out.setdefault(entry.uuid, identity)
     return out
@@ -242,11 +252,23 @@ def identify_selected_copper(adapter, cfg, selected, *, via_registry,
     tracks = [i for i in selected if isinstance(i, Track)]
     vias = [i for i in selected if isinstance(i, Via)]
     result = IdentifyResult(total=len(tracks) + len(vias))
-    records = {net_trace_effective_name(nt): nt
-               for nt in (getattr(cfg, "net_traces", None) or [])}
+    net_traces = list(getattr(cfg, "net_traces", None) or [])
+    records = {net_trace_effective_name(nt): nt for nt in net_traces}
 
-    via_map = _uuid_identity_map(via_registry.entries)
-    track_map = _uuid_identity_map(track_registry.entries)
+    # Р-У5.8: under the format-3 gate a key part is the record's UUID, but the
+    # user must be shown its NAME. Both key parts that identify the record —
+    # `net:<uuid>` in the anchor_id and the template_name (Р-У5.1) — carry the
+    # record's uuid, so ONE uuid -> name map from the LOADED config serves both.
+    # In format 2 the parts are names; the map is then empty/irrelevant and
+    # `_name_of` returns the part unchanged.
+    names_by_uuid = {nt.uuid: net_trace_effective_name(nt)
+                     for nt in net_traces if getattr(nt, "uuid", None)}
+
+    def _name_of(part: str) -> str:
+        return names_by_uuid.get(part, part)
+
+    via_map = _uuid_identity_map(via_registry.entries, _name_of)
+    track_map = _uuid_identity_map(track_registry.entries, _name_of)
     owned_vias = {e.uuid for e in via_registry.entries.values()}
     owned_tracks = {e.uuid for e in track_registry.entries.values()}
 
@@ -298,7 +320,9 @@ def identify_selected_copper(adapter, cfg, selected, *, via_registry,
                 if (piece.tier != TIER_GEOMETRY or piece.live is None
                         or piece.live.uuid not in remaining_uuids):
                     continue
-                identity = piece.expectation.registry_key.split("|", 2)[1]
+                # The SECOND key part is the template_name — the record's
+                # identity in format 2, its uuid under the gate (Р-У5.1/Р-У5.8).
+                identity = _name_of(piece.expectation.registry_key.split("|", 2)[1])
                 result.identified[identity] = result.identified.get(identity, 0) + 1
                 remaining_uuids.discard(piece.live.uuid)
 

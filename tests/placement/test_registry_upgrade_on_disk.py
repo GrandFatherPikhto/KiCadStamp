@@ -38,8 +38,10 @@ from kicadstamp.config.registry_upgrade import _build_index, map_registry_key
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.registry import load_registry
-from kicadstamp.utils.paths import registry_path_for_config, track_registry_path_for_config
+from kicadstamp.registry import (load_registry, load_track_registry,
+                                 registries_empty_for)
+from kicadstamp.utils.paths import (registry_path_for_config,
+                                    track_registry_path_for_config)
 from tests.fakes.format3 import det_uuid, format3, mint_format3  # noqa: F401
 
 
@@ -455,3 +457,67 @@ def test_format3_refuses_a_schema1_registry(tmp_path, format3):  # noqa: F811
     _write_registry(str(p), {"pad:1|leaf|__spoke__|0": _VIA}, schema=1)
     with pytest.raises(ValidationError, match="not lifted"):
         load_registry(str(p))
+
+
+def test_format3_refuses_an_unlifted_track_registry(tmp_path, format3):  # noqa: F811
+    """H2 (У5.5): the read gate is on the TRACK loader too. In `apply` the
+    placement registry is built FIRST and masked a track loader that had stopped
+    refusing; a tracks-only profile has no via file to mask at all.
+
+    The file has NO ``schema_version`` (the legacy form, schema 1 by convention):
+    ``check_schema_version`` ACCEPTS a missing field, so ``_refuse_unlifted_
+    registry`` is the ONLY thing standing between such a file and a lenient read
+    that would let its name-keyed tracks go to prune (exactly H2)."""
+    p = tmp_path / "t.registry.json"
+    p.write_text(json.dumps({"net:nt1|nt1|__spoke__|0": _TRK}), encoding="utf-8")
+    with pytest.raises(ValidationError, match="not lifted"):
+        load_track_registry(str(p))
+
+
+# ── H11 (У5.5): the first-run hint reads the SAME files apply/lift use ───────
+
+@pytest.mark.parametrize("explicit_empty, expected", [
+    (True, True),    # the explicit pair is empty, the defaults are not
+    (False, False),  # the explicit pair is not empty, the defaults are
+])
+def test_registries_empty_for_reads_the_explicit_paths(tmp_path, explicit_empty, expected):
+    """H11 (У5.5): ``registries_empty_for`` must inspect the files an apply uses
+    — the config's explicit ``registry_path:``/``track_registry_path:`` when set,
+    not the defaults. EACH row makes the default answer WRONG: a function that
+    fell back to the defaults would report the opposite of ``expected``."""
+    config = tmp_path / "root.json"
+    config.write_text(json.dumps({
+        "registry_path": "alt/via.registry.json",
+        "track_registry_path": "alt/trk.registry.json",
+    }), encoding="utf-8")
+    explicit = {} if explicit_empty else _VIA_OLD
+    default = _VIA_OLD if explicit_empty else {}
+    _write_registry(str(tmp_path / "alt" / "via.registry.json"), explicit)
+    _write_registry(str(tmp_path / "alt" / "trk.registry.json"), explicit)
+    _write_registry(registry_path_for_config(str(config)), default)
+    _write_registry(track_registry_path_for_config(str(config)), default)
+
+    assert registries_empty_for(str(config)) is expected
+
+
+def test_registries_empty_for_does_not_raise_on_an_unlifted_registry(tmp_path, format3):  # noqa: F811
+    """У5.5 (а): under the gate an UNLIFTED registry makes ``load_registry``
+    raise (Н3). ``registries_empty_for`` is called from a Qt redraw slot that
+    must never raise (``gui/docks/_common.py`` calls it OUTSIDE a try — a
+    ValidationError escaping a slot takes PyQt6 down), so it treats the unlifted
+    registry as NOT empty: the "first run" hint stays silent and the run itself
+    refuses with its own fatal. A profile with no registries at all is still
+    honestly empty."""
+    config = tmp_path / "root.json"
+    config.write_text(json.dumps({}), encoding="utf-8")
+
+    # No registry files at all -> empty, and no raise.
+    assert registries_empty_for(str(config)) is True
+
+    # A single UNLIFTED (fieldless, schema-1-by-convention) via registry.
+    via = registry_path_for_config(str(config))
+    Path(via).parent.mkdir(parents=True, exist_ok=True)
+    Path(via).write_text(json.dumps({"name:cabs|leaf|__spoke__|0": _VIA}),
+                         encoding="utf-8")
+
+    assert registries_empty_for(str(config)) is False

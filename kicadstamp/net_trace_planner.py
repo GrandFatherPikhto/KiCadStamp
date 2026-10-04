@@ -52,6 +52,14 @@ from .i18n import _
 logger = logging.getLogger(__name__)
 
 
+def _net_trace_key_part(nt: NetTrace) -> str:
+    """The record-identifying PART of a net trace's registry key: the record's
+    uuid in format 3, its identity in format 2 (Р-У5.1/Р-У5.2 via
+    record_key_part). ONE computation feeding both the `net:` anchor id and the
+    key's `template_name`, so they can never disagree."""
+    return record_key_part(net_trace_effective_name(nt), getattr(nt, "uuid", None))
+
+
 def net_trace_anchor_id(nt: NetTrace) -> str:
     """Registry anchor_id for one net trace — `net:<identity>`, where the
     identity is net_trace_effective_name(nt): the record's own name:, or its
@@ -67,7 +75,21 @@ def net_trace_anchor_id(nt: NetTrace) -> str:
     legacy record the whole key is byte-identical to before. In format 3 the
     VALUE becomes the record's uuid (Р-У5.1/Р-У5.2) — the prefix and the
     template_name rule are untouched."""
-    return f"net:{record_key_part(net_trace_effective_name(nt), getattr(nt, 'uuid', None))}"
+    return f"net:{_net_trace_key_part(nt)}"
+
+
+def net_trace_registry_key(nt: NetTrace, index: int) -> str:
+    """THE ONE builder of a net-trace registry key (anchor_id + template_name +
+    index), used by BOTH `plan_net_traces` (the apply/redraw plan) and
+    `find_live_copper` (the read-only "whose copper" search).
+
+    K11b (У5.5): with TWO copies of this composition a mutation that left one
+    copy on the record's NAME while the other used its UUID was invisible —
+    the plan and the search then disagreed, the registry tier missed, and an
+    unresolvable anchor made `find_live_copper` find NOTHING. One builder, so
+    the plan and the search cannot diverge."""
+    part = _net_trace_key_part(nt)
+    return make_registry_key(f"net:{part}", part, None, index)
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:
@@ -172,14 +194,10 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         # =0.0 exactly as before — 100% back-compat, nothing replays silently.
         rotation_deg = (relative_rotation_deg(anchor_fp.angle_deg, nt.anchor_rotation_deg)
                         if nt.anchor_rotation_deg is not None else 0.0)
-        anchor_id = net_trace_anchor_id(nt)
-        # The registry key's template_name component is the record's IDENTITY
-        # (net_trace_effective_name) — for a legacy record that is exactly the
-        # net it always was, so no existing key changes; for a named record it
-        # keeps two bridges of one net apart (net: prefix included). Under the
-        # format gate the value is the record's uuid (Р-У5.1).
+        # The registry key is built by ONE function (net_trace_registry_key),
+        # shared with find_live_copper — its template_name is the record's
+        # IDENTITY in format 2 and its UUID in format 3 (Р-У5.1).
         identity = net_trace_effective_name(nt)
-        template_part = record_key_part(identity, getattr(nt, "uuid", None))
         label = _("net_traces entry (net {net!r})").format(net=identity)
         for i, t in enumerate(nt.tracks):
             # A literal net, or a (role, pad) reference resolved live — see
@@ -192,7 +210,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 net_name=net_name,
                 layer=_layer_to_board(t.layer),
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, template_part, None, i),
+                registry_key=net_trace_registry_key(nt, i),
             ))
         for i, v in enumerate(nt.vias):
             net_name = _item_net_name(adapter, nt, v, _sn, label)
@@ -202,7 +220,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 diameter_mm=v.diameter_mm,
                 net_name=net_name,
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, template_part, None, i),
+                registry_key=net_trace_registry_key(nt, i),
             ))
         logger.info(_("net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned")
                     .format(net=nt.net, tracks=len(nt.tracks), vias=len(nt.vias)))
@@ -376,8 +394,6 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
     Nothing is written anywhere.
     """
     identity = net_trace_effective_name(nt)
-    template_part = record_key_part(identity, getattr(nt, "uuid", None))
-    anchor_id = net_trace_anchor_id(nt)
     _sn = dict(sheet_names or {})
 
     planned_vias: list[ViaCommand] | None = None
@@ -402,14 +418,14 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
                    if planned_vias is not None and i < len(planned_vias) else None)
         expectations.append(Expectation(
             kind=VIA, index=i,
-            registry_key=make_registry_key(anchor_id, template_part, None, i),
+            registry_key=net_trace_registry_key(nt, i),
             command=command))
     for i in range(len(nt.tracks)):
         command = (planned_tracks[i]
                    if planned_tracks is not None and i < len(planned_tracks) else None)
         expectations.append(Expectation(
             kind=TRACK, index=i,
-            registry_key=make_registry_key(anchor_id, template_part, None, i),
+            registry_key=net_trace_registry_key(nt, i),
             command=command))
 
     pieces = match_net_trace_pieces(adapter, expectations,
@@ -487,6 +503,7 @@ __all__ = [
     "find_live_copper",
     "match_net_trace_pieces",
     "net_trace_anchor_id",
+    "net_trace_registry_key",
     "plan_net_traces",
     "resolve_live_anchor",
 ]

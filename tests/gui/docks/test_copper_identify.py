@@ -21,9 +21,11 @@ from kicadstamp.config import Config, NetTrace, TemplateTrack, TemplateVia
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.board import BoardLayer, Track, Via
 from kicadstamp.domain.geometry import Vector2
-from kicadstamp.net_trace_planner import net_trace_anchor_id
+from kicadstamp.net_trace_planner import (net_trace_anchor_id,
+                                          net_trace_registry_key)
 from kicadstamp.registry import make_registry_key
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import format3  # noqa: F401 — pytest fixture
 
 import gui.docks.copper_select as copper_select_mod
 import gui.docks.trees_dock as trees_dock_mod
@@ -295,3 +297,41 @@ def test_action_starts_the_worker_with_explicit_paths(main_window, tmp_path, mon
 
     assert launched[0]["config_path"] == str(root_path)
     assert launched[0]["cfg"] is dock._cfg
+
+
+# ── Р-У5.8 (У5.5): the record NAME is shown, not the uuid ────────────────────
+
+def test_format3_tier1_shows_the_record_name_not_the_uuid(format3):  # noqa: F811
+    """Р-У5.8, first key-reading point: under the gate the key's `net:` anchor_id
+    carries the record's UUID; the "identified" answer must name the RECORD."""
+    nt = _record(name="bridge")
+    nt.uuid = "nt-uuid"
+    selected = [_live_track("sel-trk")]
+    track_reg = _Reg({net_trace_registry_key(nt, 0): _entry("sel-trk")})
+
+    result = identify_selected_copper(
+        _fake_adapter(), Config(net_traces=[nt]), selected,
+        via_registry=_Reg(), track_registry=track_reg)
+
+    assert result.identified == {"bridge": 1}
+    assert "nt-uuid" not in result.identified
+    assert result.unknown_records == []
+
+
+def test_format3_geometry_identity_shows_the_record_name(format3):  # noqa: F811
+    """Р-У5.8, SECOND key-reading point (the geometry tier reads the key's
+    template_name): under the gate that part is the record's UUID too — it must
+    still be presented as the NAME."""
+    nt = _record(name="bridge")
+    nt.uuid = "nt-uuid"
+    track = _live_track("hand-trk")
+    via = _live_via("hand-via")
+    adapter = _fake_adapter(live_tracks=[track], live_vias=[via],
+                            selected=[track, via])
+
+    result = identify_selected_copper(
+        adapter, Config(net_traces=[nt]), [track, via],
+        via_registry=_Reg(), track_registry=_Reg())
+
+    assert result.identified == {"bridge": 2}
+    assert "nt-uuid" not in result.identified

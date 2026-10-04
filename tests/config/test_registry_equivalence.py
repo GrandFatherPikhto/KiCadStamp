@@ -433,3 +433,60 @@ def test_explicit_registry_paths_are_lifted_and_equivalent(tmp_path, monkeypatch
     assert v_create == [] and t_create == []
     assert v_delete == [] and t_delete == []
     assert _board_uuids(adapter) == board_before
+
+
+# ── H2 (У5.5): the track loader's refusal, with nothing masking it ──────────
+#
+# The Н3 cells above stub the lift for BOTH files, so the VIA loader refuses
+# first and masks the track loader. Here the via registry is lifted (or the
+# profile has no via registry at all — a tracks-only profile), leaving the
+# UNLIFTED track registry as the only thing that can refuse. The file has no
+# `schema_version` (the legacy form): `check_schema_version` accepts a missing
+# field, so `_refuse_unlifted_registry` is the only guard. Without it reconcile
+# would treat every uuid-keyed track command as "create" and every name-keyed
+# entry as "prune" — deleting and redrawing the tracks (exactly what H2 was).
+
+_TRK_ENTRY = {"uuid": "u-trk", "start_x_mm": 0.0, "start_y_mm": 0.0,
+              "end_x_mm": 1.0, "end_y_mm": 0.0, "width_mm": 0.25,
+              "net": "GND", "layer": "F.Cu"}
+
+
+@pytest.mark.parametrize("via_present", [True, False],
+                         ids=["via-lifted-track-not", "tracks-only-profile"])
+def test_an_unlifted_track_registry_is_a_fatal_when_nothing_masks_it(
+        via_present, tmp_path, monkeypatch):
+    root = tmp_path / "root.sexp"
+    _write(root, _data(), 2)
+    adapter = _Adapter()
+    cfg2, _ = load_config(str(root))
+    vias2, tracks2 = _commands("name_clone", cfg2, adapter)
+    _apply(adapter, cfg2, root, vias2, tracks2)
+    board_before = _board_uuids(adapter)
+    assert board_before
+
+    root.write_text(dict_to_sexp(mint_format3(_data()), format_number=3),
+                    encoding="utf-8")
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
+    cfg3, _ = load_config(str(root))                     # lifts both to schema 2
+    via_path, trk_path = _registry_paths(cfg3, root)
+    assert json.loads(Path(via_path).read_text(encoding="utf-8"))["schema_version"] == 2
+
+    # ONE failed write: the track registry stays UNLIFTED (no `schema_version`
+    # — the legacy schema-1-by-convention form the reader must still refuse).
+    Path(trk_path).write_text(
+        json.dumps({"name:cabs|leaf|__spoke__|0": _TRK_ENTRY}),
+        encoding="utf-8")
+    track_before = Path(trk_path).read_text(encoding="utf-8")
+    if not via_present:
+        Path(via_path).unlink()                          # tracks-only profile
+
+    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+    if not via_present:
+        vias3 = []                                       # no via records planned
+
+    with pytest.raises(ValidationError):
+        _apply(adapter, cfg3, root, vias3, tracks3)
+
+    assert _board_uuids(adapter) == board_before, "the tracks were pruned"
+    assert Path(trk_path).read_text(encoding="utf-8") == track_before, (
+        "the schema-1 track registry was modified")

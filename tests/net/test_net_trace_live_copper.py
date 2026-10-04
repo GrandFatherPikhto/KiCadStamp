@@ -31,6 +31,7 @@ from kicadstamp.net_trace_planner import (
     adopt_net_trace_copper,
     find_live_copper,
     net_trace_anchor_id,
+    net_trace_registry_key,
     plan_net_traces,
 )
 from kicadstamp.registry import (
@@ -42,6 +43,7 @@ from kicadstamp.registry import (
     make_registry_key,
 )
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import format3  # noqa: F401 — pytest fixture
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -323,3 +325,53 @@ def test_live_copper_imports_are_public():
         Expectation, LiveCopper, MatchedCopper, match_net_trace_pieces,
     )
     assert SimpleNamespace is not None
+
+
+# ── K11b (У5.5): ONE key builder shared by the plan and the search ───────────
+
+def test_the_net_trace_key_has_one_builder_for_plan_and_search(tmp_path, format3):  # noqa: F811
+    """K11b property (rule 35): the key `find_live_copper` consults IS the key
+    `plan_net_traces` emitted. Under the gate BOTH parts (`net:` anchor_id and
+    template_name) are the record's uuid, and one builder produces them, so the
+    plan and the search cannot diverge."""
+    nt = _net_trace()
+    nt.name = "bridge"
+    nt.uuid = "nt-uuid"
+    adapter = _adapter(52, 52)                 # the FPGA anchor resolves
+    _vreg, _treg = _registries(adapter, tmp_path)
+
+    _, tracks = plan_net_traces(adapter, [nt])
+    key = net_trace_registry_key(nt, 0)
+
+    assert key == tracks[0].registry_key, (
+        "the search's key differs from the plan's — the builders diverged")
+    assert key == "net:nt-uuid|nt-uuid|__spoke__|0", (
+        "under the gate both key parts must be the record's uuid")
+
+
+def test_find_live_copper_finds_by_registry_when_the_anchor_does_not_resolve(tmp_path, format3):  # noqa: F811
+    """K11b (У5.5): format 3, the record is in the registry, and the anchor no
+    longer resolves live — the plan cannot be built, so ONLY tier 1 (the
+    registry) can answer. A search builder that left the key's template part on
+    the record's NAME (the K11b mutant) would build a key the registry does not
+    hold and find NOTHING."""
+    nt = _net_trace()
+    nt.name = "bridge"
+    nt.uuid = "nt-uuid"
+    live_track = _make_live_track(53, 54, 55, 56, "DAC_DB0", 0.2, uuid="stored-trk")
+    good = _adapter(52, 52, live_tracks=[live_track])
+    vreg, treg = _registries(good, tmp_path)
+    _, tracks = plan_net_traces(good, [nt])
+    treg.entries[tracks[0].registry_key] = treg._build_entry(tracks[0], "stored-trk")
+
+    # The SAME board loses its anchor footprint: the plan now raises.
+    broken = _adapter(52, 52, live_tracks=[live_track])
+    broken.get_footprints.return_value = []
+    broken.get_field_value.side_effect = lambda fp, name: None
+
+    result = find_live_copper(broken, nt, via_registry=vreg, track_registry=treg)
+
+    assert result.reason is not None, "an unresolvable anchor must be a reason"
+    found = {p.live.uuid for p in result.pieces if p.live is not None}
+    assert found == {"stored-trk"}, "tier 1 (registry) must still find the copper"
+    assert result.found_by_registry == 1
