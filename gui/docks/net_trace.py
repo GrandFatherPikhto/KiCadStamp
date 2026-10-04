@@ -490,6 +490,14 @@ class NetTraceDock(QWidget):
             existing = {}
         for saved in existing.get("net_traces") or []:
             if isinstance(saved, dict) and saved.get("net") == entry["net"]:
+                # У3.5 finding: a format-3 record MUST carry a name (Р43) — the
+                # form has no name field, so a save of an already-named record
+                # would REPLACE it with a nameless one and the profile would stop
+                # loading. Carry the saved record's name across exactly like the
+                # machine-written geometry below (the identity is unchanged: it
+                # is name: else net:, the same rule on both formats).
+                if "name" in saved:
+                    entry["name"] = saved["name"]
                 if "tracks" in saved:
                     entry["tracks"] = saved["tracks"]
                 if "vias" in saved:

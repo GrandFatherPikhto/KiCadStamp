@@ -58,13 +58,23 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
     def test_rule(self, main_window, tmp_path):
         sub = tmp_path / "sub.sexp"
-        _write(sub, {"chains": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}]})
+        # У3.5: under format 3 a chain's identity is its NAME (the lift mints one
+        # for a nameless record); name it by its net so the edit lands on THIS
+        # record and the assert below reads back what was written (source).
+        _write(sub, {"chains": [{"net": "+3V3", "name": "+3V3",
+                                 "anchor_role": "FPGA", "spokes": []}]})
         root = tmp_path / "root.sexp"
         _write(root, {"include": ["sub.sexp"]})
 
         dock = ChainDock(main_window)
         dock.set_root_path(root)
-        dock.load_chain({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
+        # У3.5 (class (в)): the edit is written into the INCLUDED file; the
+        # format-3 writer stamp resolves references against the ACTIVE GRAPH
+        # ROOT, so it must be the profile this file belongs to.
+        from kicadstamp.config_working_set import set_active_graph_root
+        set_active_graph_root(root)
+        dock.load_chain({"net": "+3V3", "name": "+3V3",
+                         "anchor_role": "FPGA", "spokes": []})
         dock.retired_checkbox.setChecked(True)
         dock._on_save()
 
@@ -90,13 +100,18 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
     def test_net_trace(self, main_window, tmp_path):
         sub = tmp_path / "sub.sexp"
-        _write(sub, {"net_traces": [{"net": "DAC_DB0", "anchor_role": "AD_DAC"}]})
+        # У3.5: explicit name (the record's format-3 identity) = its net (source).
+        _write(sub, {"net_traces": [{"net": "DAC_DB0", "name": "DAC_DB0",
+                                     "anchor_role": "AD_DAC"}]})
         root = tmp_path / "root.sexp"
         _write(root, {"include": ["sub.sexp"]})
 
         dock = NetTraceDock(main_window)
         dock.set_root_path(root)
-        dock.load_entry({"net": "DAC_DB0", "anchor_role": "AD_DAC"})
+        from kicadstamp.config_working_set import set_active_graph_root
+        set_active_graph_root(root)
+        dock.load_entry({"net": "DAC_DB0", "name": "DAC_DB0",
+                         "anchor_role": "AD_DAC"})
         dock.retired_checkbox.setChecked(True)
         dock._on_save()
 
@@ -106,7 +121,13 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
     def test_clone_placement(self, main_window, tmp_path):
         sub = tmp_path / "sub.sexp"
-        _write(sub, {"clone_placements": [{"cluster": "p1", "cell": "c1"}]})
+        # У3.5: explicit name (the record's format-3 identity) = its cluster
+        # (source).
+        # У3.5: the placer writes `name:` only when it DIFFERS from the Cluster
+        # tag (a redundant field is omitted), and a format-3 record must carry a
+        # name — so the record's identity is its own name here, not the cluster.
+        _write(sub, {"clone_placements": [{"cluster": "p1", "name": "p1_name",
+                                           "cell": "c1"}]})
         root = tmp_path / "root.sexp"
         _write(root, {
             "cells": {"c1": {"components": [], "vias": [], "tracks": [], "layer": "F.Cu"}},
@@ -115,7 +136,9 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         dock = PlacerDock(main_window)
         dock.set_root_path(root)
-        dock.load_placement({"cluster": "p1", "cell": "c1"})
+        from kicadstamp.config_working_set import set_active_graph_root
+        set_active_graph_root(root)
+        dock.load_placement({"cluster": "p1", "name": "p1_name", "cell": "c1"})
         dock.rotation_edit.setText("45")
         dock._do_save()
 
