@@ -573,7 +573,12 @@ class TestUpsertPreservesUndeclaredFields:
     def test_declared_place_and_angle_survive_the_write(self, tmp_path):
         """§И.7.1.2: the NEW axes survive the same write when the row carries
         them back unchanged (the "edits them, but the row did not change" case)
-        — and such a write is recognised as a no-op."""
+        — and such a write is recognised as a no-op at ANY current format.
+
+        Under format 3 the on-disk declaration's anchor carries a machine-added
+        `point_uuid` the dialog row cannot carry; `upsert_tree_instances` now
+        compares the declarations by MEANING (`_without_identity`), so this is
+        a true no-op and the file is not rewritten (Д1/находка 5)."""
         from kicadstamp.config_writer import upsert_tree_instances
         p = self._file(tmp_path, [{
             "template": "dac_buf_tpl", "name": "ch1_dac_buf",
@@ -582,13 +587,7 @@ class TestUpsertPreservesUndeclaredFields:
         changed = upsert_tree_instances(p, "dac_buf_tpl", [
             {"name": "ch1_dac_buf", "sheet": "Channel_1",
              "anchor": {"point": "p_home"}, "rotation": 90.0}])
-        # The AXES survive (the point of §И.7.1.2). The no-op flag is
-        # format-dependent: under the format-3 gate the on-disk declaration's
-        # anchor carries a machine-added `point_uuid` the dialog row does not,
-        # so the overlay is seen as a change and the file is rewritten with the
-        # same axes (named in the handoff note).
-        from kicadstamp.config.format_version import current_format
-        assert changed is (current_format() >= 3)
+        assert changed is False
         assert without_identity(self._read(p)) == [{
             "template": "dac_buf_tpl", "name": "ch1_dac_buf",
             "sheet": "Channel_1", "anchor": {"point": "p_home"},

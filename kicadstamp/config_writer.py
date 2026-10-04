@@ -770,7 +770,15 @@ def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
             if key not in r:
                 merged.pop(key, None)
         new_items.append(merged)
-    if new_items == before_list:
+    # Д1/находка 5 (У3.5): compare by MEANING, not raw dicts. Under format 3 the
+    # on-disk declaration's anchor carries a machine-added `point_uuid`
+    # (config/format_version._step_2_to_3) that a dialog row cannot carry, so a
+    # raw compare saw "changed" on EVERY write — the file was rewritten with the
+    # same axes for nothing. `_without_identity` drops the machine
+    # `uuid`/`*_uuid` keys on both sides (the same helper the identical-node
+    # check in append_tree_child_node uses), so a repeat write is a TRUE no-op
+    # and `point_uuid` is never re-added on top of itself.
+    if _without_identity(new_items) == _without_identity(before_list):
         return False
     if new_items:
         existing["tree_instances"] = new_items
