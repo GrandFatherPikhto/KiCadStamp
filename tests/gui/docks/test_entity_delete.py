@@ -212,7 +212,7 @@ def test_delete_entry_cascade_removes_referencing_clone_placement(tmp_path):
 
 def test_delete_entry_cascade_removes_only_the_referencing_spoke_not_the_whole_chain(tmp_path):
     path = _write(tmp_path / "config.sexp", {
-        "cells": {"target_cell": {}},
+        "cells": {"target_cell": {}, "keep_cell": {}},
         "chains": [{
             "name": "power_chain", "anchor_role": "MCU",
             "spokes": [{"pad": "17", "cell": "target_cell"},
@@ -263,6 +263,122 @@ def test_delete_entry_never_backs_up_the_same_file_twice(tmp_path):
     report = delete_entry(path, path, "cells", "target_cell", cascade=True)
 
     assert report["backups"] == [path]  # entry_path == the only cascade file, listed once
+
+
+# ── cascade: end state built in memory, then ONE ordered write per file ────
+#
+# У3.5 delete-cascade finding. Rule 35 table for delete_entry(cascade=True):
+#   end state        | cell
+#   one file         | the record AND the reference to it in the SAME file
+#   two files        | the reference in the OTHER file
+# Every row is checked under BOTH formats: format 2 (no reference check at all)
+# and format 3 (the writer REFUSES a file whose reference names a missing
+# record — the shape the old "primary removal first" order could not survive).
+
+def _reload(path):
+    """Load the graph through the PRODUCT loader: proves what was written is a
+    legal graph, not merely parseable text."""
+    from kicadstamp.config import load_config
+    return load_config(str(path))[0]
+
+
+def test_delete_cascade_in_one_file_leaves_no_reference_and_the_graph_reloads(tmp_path):
+    """The SAME file holds the deleted record and the reference to it. After the
+    cascading delete the record is gone, no reference remains, and the graph
+    LOADS. Under format 3 the writer refuses a write whose reference names a
+    missing record, so the old order (primary removal written before the
+    reference was pruned) failed on exactly this shape."""
+    path = _write(tmp_path / "config.sexp", {
+        "cells": {"target_cell": {}, "other_cell": {}},
+        "clone_placements": [
+            {"name": "spoke_1", "cluster": "CH0", "cell": "target_cell", "xy": [0.0, 0.0]},
+            {"name": "spoke_2", "cluster": "CH0", "cell": "other_cell", "xy": [0.0, 0.0]},
+        ],
+    })
+
+    delete_entry(path, path, "cells", "target_cell", cascade=True)
+
+    data = _load(path)
+    assert without_identity(data["cells"]) == {"other_cell": {}}
+    assert [e["name"] for e in data["clone_placements"]] == ["spoke_2"]
+    assert _reload(path).clone_placements[0].name == "spoke_2"
+
+
+def test_delete_cascade_across_two_files_leaves_no_reference_and_the_graph_reloads(tmp_path):
+    """The record lives in cells.sexp; the reference to it lives in the ROOT
+    that includes it. Both files must be updated, and the root must still LOAD
+    after the delete."""
+    _write(tmp_path / "cells.sexp", {"cells": {"target_cell": {}}})
+    root = _write(tmp_path / "root.sexp", {
+        "include": ["cells.sexp"],
+        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
+                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+    })
+
+    report = delete_entry(root, tmp_path / "cells.sexp", "cells", "target_cell", cascade=True)
+
+    assert "target_cell" not in _load(tmp_path / "cells.sexp")["cells"]
+    assert _load(root)["clone_placements"] == []
+    assert {p.name for p in report["cascade_files"]} == {"root.sexp"}
+    assert _reload(root).clone_placements == []
+
+
+def test_delete_cascade_writes_the_referencing_file_before_the_deleted_records_file(
+        tmp_path, monkeypatch):
+    """Write ORDER is the invariant that keeps the on-disk graph legal at every
+    step: every file that only REFERENCES the record is written first, and the
+    file that HELD it is written LAST. Reversed, the record's file would be
+    written while the referencing file still named it — an intermediate graph
+    the format-3 writer refuses."""
+    import gui.docks.entity_delete as entity_delete_mod
+
+    _write(tmp_path / "cells.sexp", {"cells": {"target_cell": {}}})
+    root = _write(tmp_path / "root.sexp", {
+        "include": ["cells.sexp"],
+        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
+                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+    })
+    entry = tmp_path / "cells.sexp"
+
+    calls = []
+    real_write = entity_delete_mod.write_data
+
+    def _spy(path, data):
+        calls.append(path)
+        return real_write(path, data)
+
+    monkeypatch.setattr(entity_delete_mod, "write_data", _spy)
+
+    delete_entry(root, entry, "cells", "target_cell", cascade=True)
+
+    assert calls.index(root) < calls.index(entry)
+
+
+def test_delete_cascade_writes_a_file_that_holds_record_and_reference_once(
+        tmp_path, monkeypatch):
+    """When the deleted record and the reference to it share ONE file, that file
+    is written EXACTLY ONCE — the old code wrote it twice (the primary removal,
+    then the prune), and the first of those writes was the refused one."""
+    import gui.docks.entity_delete as entity_delete_mod
+
+    path = _write(tmp_path / "config.sexp", {
+        "cells": {"target_cell": {}},
+        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
+                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+    })
+
+    calls = []
+    real_write = entity_delete_mod.write_data
+
+    def _spy(p, data):
+        calls.append(p)
+        return real_write(p, data)
+
+    monkeypatch.setattr(entity_delete_mod, "write_data", _spy)
+
+    delete_entry(path, path, "cells", "target_cell", cascade=True)
+
+    assert calls == [path]
 
 
 # ── collect_graph_files reuse sanity check ───────────────────────────────

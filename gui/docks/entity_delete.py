@@ -62,25 +62,29 @@ def _entry_identity(section: str, entry: Dict[str, Any]) -> Any:
     return entry_effective_name(section, entry)
 
 
-def _remove_entry(path: Path, section: str, name: str) -> bool:
-    """Removes `name` from `section` in `path` — dict KEY for cells:/
-    points:/extract_profiles:/clone_profiles:, matching-identity list item
-    for clone_placements:/thermal_via_arrays:/rules:, same identity rule
-    (name, falling back to net: for rules:) as rename.py's
-    rename_list_entry(). Returns whether anything was actually removed."""
-    data = copy.deepcopy(read_data(path))
+def _remove_entry_from_data(data: Dict[str, Any], section: str, name: str) -> bool:
+    """Removes `name` from `section` in `data` (mutated in place) — dict KEY
+    for cells:/points:/extract_profiles:/clone_profiles:, matching-identity
+    list item for clone_placements:/thermal_via_arrays:/rules:, same identity
+    rule (name, falling back to net: for rules:) as rename.py's
+    rename_list_entry(). Returns whether anything was actually removed.
+
+    The IN-MEMORY half of the old `_remove_entry()`: delete_entry() now builds
+    every touched file's END STATE in memory first and writes LAST (a format-3
+    writer validates the whole file it is handed, so a partial write — the
+    record removed while a reference to it still stands — is refused), which
+    means the removal must be expressible without touching disk."""
     if section in DICT_SECTIONS:
         section_dict = data.get(section) or {}
         if name not in section_dict:
             return False
         del section_dict[name]
-    else:
-        items = data.get(section) or []
-        kept = [e for e in items if not (isinstance(e, dict) and _entry_identity(section, e) == name)]
-        if len(kept) == len(items):
-            return False
-        data[section] = kept
-    write_data(path, data)
+        return True
+    items = data.get(section) or []
+    kept = [e for e in items if not (isinstance(e, dict) and _entry_identity(section, e) == name)]
+    if len(kept) == len(items):
+        return False
+    data[section] = kept
     return True
 
 
@@ -184,9 +188,17 @@ def delete_entry(root_path: Optional[Path], entry_path: Path, section: str, name
     """Removes `name` from `section` in `entry_path`, backing up
     `entry_path` first. If `cascade` and `section` has a CASCADE_FIELD
     entry (cells:/points:), also removes every referencing entry anywhere
-    in root_path's include: graph (see module docstring) — each file this
-    touches is backed up before it's written, once per file even if the
-    primary removal and the cascade both touch the same file.
+    in root_path's include: graph (see module docstring).
+
+    Every touched file's END STATE is built in memory FIRST and written LAST
+    (2026-10-04, У3.5 delete-cascade finding): a format-3 writer validates the
+    whole dict it is handed, so writing the primary removal before the
+    references are pruned is refused when a reference to the record lives IN
+    THE SAME FILE (“cannot write — N reference(s) point at a uuid that is
+    missing”). Each file is written EXACTLY ONCE, and the write ORDER is
+    fixed: the REFERENCING files first, the deleted record's OWN file LAST —
+    so the on-disk graph is legal at every intermediate step, not only at the
+    end. Each written file is backed up first, once per file.
 
     Callers should run find_references() first to decide whether to ask
     about cascade at all, and only pass cascade=True after the user agreed.
@@ -201,17 +213,44 @@ def delete_entry(root_path: Optional[Path], entry_path: Path, section: str, name
             backup_file(path)
             backed_up.append(path)
 
+    # entry_path's own backup is unconditional and always first (the documented
+    # "backups" contract): the file is snapshotted before any write, even when
+    # the removal turns out to find nothing.
     _ensure_backup(entry_path)
-    _remove_entry(entry_path, section, name)
 
-    cascade_files: List[Path] = []
     field_name = CASCADE_FIELD.get(section)
-    if cascade and field_name and root_path is not None:
+    do_cascade = bool(cascade and field_name and root_path is not None)
+
+    # ── 1/2. Build every touched file's END STATE in memory; write nothing. ──
+    plans: Dict[Path, Dict[str, Any]] = {}
+    changed: Dict[Path, bool] = {}
+
+    def _plan(path: Path) -> Dict[str, Any]:
+        if path not in plans:
+            plans[path] = copy.deepcopy(read_data(path))
+            changed[path] = False
+        return plans[path]
+
+    # Primary removal (entry_path's file).
+    if _remove_entry_from_data(_plan(entry_path), section, name):
+        changed[entry_path] = True
+
+    # Cascade: prune every referencing entry anywhere in the graph. This runs
+    # over entry_path TOO — the record may be referenced from its OWN file, the
+    # exact case the old write-order could not survive.
+    cascade_files: List[Path] = []
+    if do_cascade:
         for path in collect_graph_files(root_path):
-            data = copy.deepcopy(read_data(path))
-            if _prune_file_data(data, field_name, name, on_match=lambda e: None):
-                _ensure_backup(path)
-                write_data(path, data)
+            if _prune_file_data(_plan(path), field_name, name, on_match=lambda e: None):
+                changed[path] = True
                 cascade_files.append(path)
+
+    # ── 3. Write: referencing files first, the deleted record's file LAST. ──
+    order = [p for p in cascade_files if p != entry_path]
+    order.append(entry_path)
+    for path in order:
+        if changed.get(path):
+            _ensure_backup(path)
+            write_data(path, plans[path])
 
     return {"backups": backed_up, "cascade_files": cascade_files}
