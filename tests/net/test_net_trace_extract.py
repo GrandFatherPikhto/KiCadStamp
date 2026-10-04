@@ -22,6 +22,7 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.config import NetTrace
+from kicadstamp.config import format_version
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.net_trace_extract import (extract_net_trace, write_net_trace,
@@ -325,12 +326,15 @@ def test_load_config_net_traces_missing_anchor_role_fatal(tmp_path):
         load_config(str(cfg_path))
 
 
-def test_load_config_net_traces_duplicate_name_fatal(tmp_path):
+def test_load_config_net_traces_duplicate_name_fatal(tmp_path, monkeypatch):
     """Renamed 2026-09-12 (plan_2026_09_12_internode_copper_core Э2): the
     IDENTITY moved from net: to name:, so a nameless record's effective name
     IS its net and two of them still collide — the fatal is the same, only its
     message now names the identity correctly (name:). Two records on one net
-    are legal as soon as they carry explicit, different name: values."""
+    are legal as soon as they carry explicit, different name: values.
+
+    Subject: the FORMAT-2 duplicate fatal (У3.5 К3, row 13) — pin the format."""
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     from kicadstamp.config import load_config
     cfg_path = tmp_path / "board.sexp"
     cfg_path.write_text(dict_to_sexp({
@@ -436,11 +440,15 @@ def test_write_net_trace_yaml_output_is_fatal(tmp_path):
 # _read_data/_write_data and config/includes.py's _load_config_file.
 
 
-def test_write_net_trace_sexp_roundtrips(tmp_path):
+def test_write_net_trace_sexp_roundtrips(tmp_path, monkeypatch):
     """--output foo.sexp writes REAL s-expr text: sexp_to_dict reads back the
     same net_traces record the YAML path produces (compared against the
     default-stripped canonical form — dict_to_sexp omits fields equal to their
-    dataclass default, the same contract test_sexp_config_roundtrip asserts)."""
+    dataclass default, the same contract test_sexp_config_roundtrip asserts).
+
+    Subject: the FORMAT-2 s-expr output shape (У3.5 К3, row 13) — pin the format,
+    or the writer would stamp version 3 and add a uuid the expectation lacks."""
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     from kicadstamp.config import TemplateTrack, TemplateVia
     from kicadstamp.config.sexp_format import _strip_defaults, sexp_to_dict
 

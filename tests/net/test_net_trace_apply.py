@@ -25,6 +25,7 @@ from kicadstamp.apply_pipeline import (apply_only_filter, apply_cluster_filter,
                                        drop_inactive_items, _compute_all_anchor_ids)
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _make_fp(ref, role, x_mm, y_mm, angle_deg=0.0):
@@ -68,6 +69,7 @@ def _net_trace(anchor_x_mm=52.0, anchor_y_mm=52.0):
     track (1,2)->(3,4), local via (5,6)."""
     return NetTrace(
         net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
+        uuid=det_uuid("net_traces:DAC_DB0"),
         tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
                               end_along_mm=3, end_across_mm=4, width_mm=0.2,
                               net="DAC_DB0", layer="F.Cu")],
@@ -115,9 +117,13 @@ def test_anchor_moved_between_runs_recomputes_positions():
 def test_registry_key_structure():
     nt = _net_trace()
     vias, tracks = plan_net_traces(_adapter(52, 52), [nt])
-    assert net_trace_anchor_id(nt) == "net:DAC_DB0"
-    assert tracks[0].registry_key == f"net:DAC_DB0|DAC_DB0|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
-    assert vias[0].registry_key == f"net:DAC_DB0|DAC_DB0|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
+    # Both the anchor_id part and the template part carry the record's identity
+    # (Р-У5.1: a net_trace's template_name IS its identity) — the name in
+    # format 2, the uuid under the gate; the prefixes and physics are unchanged.
+    part = identity_value("DAC_DB0", nt.uuid)
+    assert net_trace_anchor_id(nt) == f"net:{part}"
+    assert tracks[0].registry_key == f"net:{part}|{part}|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
+    assert vias[0].registry_key == f"net:{part}|{part}|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
 
 
 def test_retired_and_skip_plan_nothing():
@@ -132,7 +138,8 @@ def test_retired_and_skip_plan_nothing():
     assert len(tracks) == 1
     assert len(vias) == 1
     # net_trace_anchor_id still includes non-retired records only.
-    assert _compute_all_anchor_ids(Config(net_traces=[retired, active])) == {"net:DAC_DB0"}
+    assert _compute_all_anchor_ids(Config(net_traces=[retired, active])) == \
+        {f"net:{identity_value('DAC_DB0', active.uuid)}"}
 
 
 # ── filters ───────────────────────────────────────────────────────────────────
@@ -158,11 +165,14 @@ def test_skip_filter_drops_but_keeps_registry_protection():
     skipped.skip = True
     active = _net_trace()
     active.net = "DAC_DB1"
+    active.uuid = det_uuid("net_traces:DAC_DB1")
     cfg = Config(net_traces=[skipped, active])
     out = drop_inactive_items(cfg)
     assert [nt.net for nt in out.net_traces] == ["DAC_DB1"]
     # Skipped record still protected in known_anchor_ids (not retired).
-    assert _compute_all_anchor_ids(cfg) == {"net:DAC_DB0", "net:DAC_DB1"}
+    assert _compute_all_anchor_ids(cfg) == {
+        f"net:{identity_value('DAC_DB0', skipped.uuid)}",
+        f"net:{identity_value('DAC_DB1', active.uuid)}"}
 
 
 # ── registry adoption / idempotency ──────────────────────────────────────────
@@ -190,8 +200,9 @@ def test_adoption_claims_existing_copper_then_reconcile_skips(tmp_path):
 
     # Reconcile with a full registry now sees everything "already correctly
     # placed" -> 0 new operations (the idempotency contract of §3.2).
-    to_create_v, to_delete_v = vreg.reconcile(vias, known_anchor_ids={"net:DAC_DB0"})
-    to_create_t, to_delete_t = treg.reconcile(tracks, known_anchor_ids={"net:DAC_DB0"})
+    nt_id = f"net:{identity_value('DAC_DB0', nt.uuid)}"
+    to_create_v, to_delete_v = vreg.reconcile(vias, known_anchor_ids={nt_id})
+    to_create_t, to_delete_t = treg.reconcile(tracks, known_anchor_ids={nt_id})
     assert to_create_v == []
     assert to_create_t == []
     assert to_delete_v == []
@@ -231,8 +242,9 @@ def test_anchor_moved_reconcile_deletes_and_recreates(tmp_path):
     pad42.position = Vector2.from_xy(int(72 * MM), int(72 * MM))
     vias2, tracks2 = plan_net_traces(adapter, [nt])
 
-    to_create_v, to_delete_v = vreg.reconcile(vias2, known_anchor_ids={"net:DAC_DB0"})
-    to_create_t, to_delete_t = treg.reconcile(tracks2, known_anchor_ids={"net:DAC_DB0"})
+    nt_id = f"net:{identity_value('DAC_DB0', nt.uuid)}"
+    to_create_v, to_delete_v = vreg.reconcile(vias2, known_anchor_ids={nt_id})
+    to_create_t, to_delete_t = treg.reconcile(tracks2, known_anchor_ids={nt_id})
     assert len(to_create_v) == 1
     assert len(to_create_t) == 1
     assert to_create_v[0].position.x / MM == 77.0
@@ -412,6 +424,7 @@ def _net_trace_with_layer(layer: str) -> NetTrace:
     no cell to inherit one from)."""
     return NetTrace(
         net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
+        uuid=det_uuid("net_traces:DAC_DB0"),
         tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
                               end_along_mm=3, end_across_mm=4, width_mm=0.2,
                               net="DAC_DB0", layer=layer)],

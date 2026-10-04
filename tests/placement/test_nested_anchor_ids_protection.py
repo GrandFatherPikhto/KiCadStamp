@@ -31,14 +31,15 @@ from kicadstamp.registry import (
     RegistryEntry,
     make_registry_key,
 )
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _cells(*, nested: bool = True) -> dict:
     """cells with one composite 'outer' cell that nests 'inner'."""
     return {
-        "inner": Cell(name="inner"),
+        "inner": Cell(name="inner", uuid=det_uuid("cells:inner")),
         "outer": Cell(
-            name="outer",
+            name="outer", uuid=det_uuid("cells:outer"),
             clone_placements=[CellPlacement(name="inner", cell="inner")]
             if nested else [],
         ),
@@ -46,12 +47,25 @@ def _cells(*, nested: bool = True) -> dict:
 
 
 def _clone_cfg(*, nested: bool = True) -> Config:
-    clone = ClonePlacement(cluster="c", xy=(0.0, 0.0), cell="outer")
+    clone = ClonePlacement(cluster="c", xy=(0.0, 0.0), cell="outer",
+                           uuid=det_uuid("clone_placements:c"))
     return Config(cells=_cells(nested=nested), clone_placements=[clone])
 
 
 def _entity_cfg(*, nested: bool = True) -> Config:
-    return Config(cells=_cells(nested=nested), entities=[Entity(name="E", cell="outer")])
+    return Config(cells=_cells(nested=nested),
+                  entities=[Entity(name="E", cell="outer",
+                                   uuid=det_uuid("entities:E"))])
+
+
+def _clone_id() -> str:
+    """The `name:` anchor_id of `_clone_cfg`'s clone under ANY format — the
+    product's own builder (format 3 keys records by uuid, Р-У5.2)."""
+    return f"name:{identity_value('c', det_uuid('clone_placements:c'))}"
+
+
+def _entity_id() -> str:
+    return f"name:{identity_value('E', det_uuid('entities:E'))}"
 
 
 def _seed_and_reconcile(anchor_id, known, tmp_path, template="inner"):
@@ -114,18 +128,22 @@ def test_anchor_ids_with_nested_cycle_is_skipped_not_raised():
 # ── _compute_all_anchor_ids ───────────────────────────────────────────────────
 
 def test_compute_all_anchor_ids_includes_a_clone_nested_id():
-    assert {"name:c", "name:c/inner"} <= _compute_all_anchor_ids(_clone_cfg())
+    cid = _clone_id()
+    assert {cid, f"{cid}/inner"} <= _compute_all_anchor_ids(_clone_cfg())
 
 
 def test_compute_all_anchor_ids_includes_an_entity_cell_nested_id():
-    assert {"name:E", "name:E/inner"} <= _compute_all_anchor_ids(_entity_cfg())
+    eid = _entity_id()
+    assert {eid, f"{eid}/inner"} <= _compute_all_anchor_ids(_entity_cfg())
 
 
 def test_compute_all_anchor_ids_slash_in_cluster_is_preserved():
     """A clone whose identity itself contains a slash (cluster name, Р7)."""
-    clone = ClonePlacement(cluster="BANK/VCCIO/139", xy=(0.0, 0.0), cell="outer")
+    clone = ClonePlacement(cluster="BANK/VCCIO/139", xy=(0.0, 0.0), cell="outer",
+                           uuid=det_uuid("clone_placements:BANK/VCCIO/139"))
     ids = _compute_all_anchor_ids(Config(cells=_cells(), clone_placements=[clone]))
-    assert "name:BANK/VCCIO/139/inner" in ids
+    cid = f"name:{identity_value('BANK/VCCIO/139', det_uuid('clone_placements:BANK/VCCIO/139'))}"
+    assert f"{cid}/inner" in ids
 
 
 # ── the behaviour: nested copper survives --only, stale nested copper does not ─
@@ -134,7 +152,7 @@ def test_nested_anchor_is_protected_from_prune(tmp_path):
     """Red on base: the nested key vanished from known_anchor_ids, so an --only
     run that excluded the placement pruned it (to_delete == ['u-1'])."""
     known = _compute_all_anchor_ids(_clone_cfg())
-    anchor_id = "name:c/inner"
+    anchor_id = f"{_clone_id()}/inner"
     assert anchor_id in known
     reg, key, to_delete = _seed_and_reconcile(anchor_id, known, tmp_path)
     assert to_delete == []
@@ -143,7 +161,7 @@ def test_nested_anchor_is_protected_from_prune(tmp_path):
 
 def test_entity_cell_nested_anchor_is_protected_from_prune(tmp_path):
     known = _compute_all_anchor_ids(_entity_cfg())
-    anchor_id = "name:E/inner"
+    anchor_id = f"{_entity_id()}/inner"
     assert anchor_id in known
     reg, key, to_delete = _seed_and_reconcile(anchor_id, known, tmp_path)
     assert to_delete == []
@@ -154,6 +172,6 @@ def test_nested_anchor_is_pruned_when_no_longer_in_the_cell(tmp_path):
     """Boundary: the fix must NOT protect a nested id that no longer exists in
     the cell — the placement really shrank, so its old copper is stale."""
     known = _compute_all_anchor_ids(_clone_cfg(nested=False))
-    reg, key, to_delete = _seed_and_reconcile("name:c/inner", known, tmp_path)
+    reg, key, to_delete = _seed_and_reconcile(f"{_clone_id()}/inner", known, tmp_path)
     assert to_delete == ["u-1"]
     assert key not in reg.entries

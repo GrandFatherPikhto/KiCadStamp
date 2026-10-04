@@ -35,6 +35,63 @@ def det_uuid(n) -> str:
     return migration_uuid("", str(n))
 
 
+def identity_value(name: str, uuid: str | None) -> str:
+    """The record-identity VALUE a registry key uses under the CURRENT format:
+    the uuid under the format-3 gate (Р-У5.1/Р-У5.2), the name in format 2.
+
+    A test helper so a key-shape cell can pass under BOTH CURRENT_FORMAT = 2
+    (today) and 3 (after the switch) without being pinned to either."""
+    from kicadstamp.config.format_version import current_format
+    return uuid if current_format() >= 3 else name
+
+
+def stamp_config(cfg):
+    """Assign `det_uuid` to every §0 record of a Config that has none.
+
+    A TEST helper (У3.5 К3, rule 35): model-built records default to
+    `uuid=None`. Under CURRENT_FORMAT = 3 the registry-key builders refuse a
+    record without a uuid (Р-У5.7), so a hand-built Config a planner is driven
+    with must carry one. The uuid is keyed by the record's identity exactly like
+    `det_uuid("<section>:<identity>")`, so a cell can spell the expected key.
+
+    Only records of the §0 sections are touched; a nested CellPlacement (no uuid
+    of its own) and anchored branches keep their deterministic name.
+    """
+    def _one(rec, section, identity):
+        if rec is not None and getattr(rec, "uuid", None) is None and identity:
+            rec.uuid = det_uuid(f"{section}:{identity}")
+
+    def _link(rec):
+        """A reference to a points: record also carries its uuid under the gate
+        (the `point:` anchor branch, Р-У5.1)."""
+        point = getattr(rec, "anchor_point", None)
+        if point and not getattr(rec, "anchor_point_uuid", None):
+            rec.anchor_point_uuid = det_uuid(f"points:{point}")
+
+    for name, rec in (getattr(cfg, "cells", None) or {}).items():
+        _one(rec, "cells", name)
+    for name, rec in (getattr(cfg, "points", None) or {}).items():
+        _one(rec, "points", name)
+        _link(rec)
+    for rec in (getattr(cfg, "clone_placements", None) or []):
+        _one(rec, "clone_placements", getattr(rec, "name", None) or rec.cluster)
+        _link(rec)
+    for rec in (getattr(cfg, "thermal_via_arrays", None) or []):
+        _one(rec, "thermal_via_arrays", rec.name)
+        _link(rec)
+    for rec in (getattr(cfg, "coordinate_placements", None) or []):
+        _one(rec, "coordinate_placements", rec.name)
+        _link(rec)
+    for rec in (getattr(cfg, "entities", None) or []):
+        _one(rec, "entities", rec.name)
+    for rec in (getattr(cfg, "chains", None) or []):
+        _one(rec, "chains", rec.name)
+        _link(rec)
+    for rec in (getattr(cfg, "net_traces", None) or []):
+        _one(rec, "net_traces", rec.name or rec.net)
+    return cfg
+
+
 # ── §0 record sections (mirror of config/loader's tables) ──────────────────
 # Deliberately duplicated HERE: this is a TEST stub and the product must never
 # import it. The reference walk itself is NOT duplicated — it reuses the

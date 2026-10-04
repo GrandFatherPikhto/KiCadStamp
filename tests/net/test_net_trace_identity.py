@@ -15,6 +15,7 @@ import pytest
 
 from kicadstamp.apply_pipeline import apply_only_filter
 from kicadstamp.config import Config, NetTrace, load_config
+from kicadstamp.config import format_version
 from kicadstamp.config.models import net_trace_effective_name
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_writer import read_data, write_data
@@ -24,6 +25,7 @@ from kicadstamp.link_trees import link_trees
 from kicadstamp.net_trace_extract import net_trace_to_dict
 from kicadstamp.net_trace_planner import net_trace_anchor_id
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _legacy_record(net="DAC_DB0", **overrides):
@@ -56,12 +58,17 @@ def test_named_record_effective_name_is_its_name():
 
 def test_anchor_id_uses_the_name_and_keeps_the_net_prefix():
     """The registry key changes only in its middle: the `net:` PROTECTION
-    prefix stays (design §11 — a cosmetic rename is not worth a registry
-    migration), a legacy record's key is byte-identical to before."""
-    legacy = NetTrace(net="DAC_DB0", anchor_role="FPGA")
-    assert net_trace_anchor_id(legacy) == "net:DAC_DB0"
-    named = NetTrace(net="DAC_DB0", anchor_role="FPGA", name="dac_db0__a__b")
-    assert net_trace_anchor_id(named) == "net:dac_db0__a__b"
+    prefix stays (design §11); in format 2 the middle is the effective name
+    (`name or net`), under the format-3 gate it is the record's uuid (Р-У5.1).
+    The prefix is what this cell guards."""
+    legacy = NetTrace(net="DAC_DB0", anchor_role="FPGA",
+                      uuid=det_uuid("net_traces:DAC_DB0"))
+    assert net_trace_anchor_id(legacy) == \
+        f"net:{identity_value('DAC_DB0', legacy.uuid)}"
+    named = NetTrace(net="DAC_DB0", anchor_role="FPGA", name="dac_db0__a__b",
+                     uuid=det_uuid("net_traces:dac_db0__a__b"))
+    assert net_trace_anchor_id(named) == \
+        f"net:{identity_value('dac_db0__a__b', named.uuid)}"
 
 
 # ── --only: a name, and (for compatibility) a net ─────────────────────────
@@ -108,7 +115,10 @@ def test_two_records_on_one_net_are_legal_when_named(tmp_path):
     assert [nt.net for nt in cfg.net_traces] == ["DAC_DB0", "DAC_DB0"]
 
 
-def test_two_records_with_the_same_name_are_fatal(tmp_path):
+def test_two_records_with_the_same_name_are_fatal(tmp_path, monkeypatch):
+    # Subject: the FORMAT-2 duplicate-name fatal — pin the format so the on-disk
+    # format-2 data is not lifted before the check runs (У3.5 К3, row 13).
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     path = tmp_path / "board.sexp"
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(net="A", name="same"),
@@ -118,9 +128,11 @@ def test_two_records_with_the_same_name_are_fatal(tmp_path):
         load_config(str(path))
 
 
-def test_two_nameless_records_on_one_net_stay_fatal(tmp_path):
+def test_two_nameless_records_on_one_net_stay_fatal(tmp_path, monkeypatch):
     """Backward compatible: with no name: the effective name IS the net, so the
     old "one record per net" fatal still fires — no silent override."""
+    # Subject: the FORMAT-2 duplicate fatal (row 13) — pin the format.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     path = tmp_path / "board.sexp"
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(), _legacy_record(),
@@ -150,10 +162,13 @@ def test_named_record_serializes_with_its_name():
     assert net_trace_to_dict(nt)["name"] == "dac_db0__a__b"
 
 
-def test_legacy_profile_load_and_save_is_byte_identical(tmp_path):
+def test_legacy_profile_load_and_save_is_byte_identical(tmp_path, monkeypatch):
     """The mandatory Э2 compatibility test: an existing profile (no name:
     anywhere) is loaded and written back BYTE-IDENTICALLY, and re-emitting the
     record from the LOADED MODEL adds no name: key either."""
+    # Subject: the FORMAT-2 byte behaviour (row 13) — pin the format, or the
+    # load would lift the file to format 3 and the bytes would differ.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     original = dict_to_sexp({"net_traces": [_legacy_record()]}, format_number=2)
     path = tmp_path / "board.sexp"
     path.write_text(original, encoding="utf-8")
@@ -171,12 +186,14 @@ def test_legacy_profile_load_and_save_is_byte_identical(tmp_path):
     assert "name" not in sexp_to_dict(reemitted)["net_traces"][0]
 
 
-def test_named_record_survives_a_save(tmp_path):
+def test_named_record_survives_a_save(tmp_path, monkeypatch):
     """A record WITH name: survives load -> save byte-identically and keeps the
     name as its identity. (The fixture is produced through net_trace_to_dict,
     exactly like a real save: in s-expr the field order follows the dataclass,
     so a hand-written file with the nodes in another order is normalized on
     save — the same convention every other field already has.)"""
+    # Subject: the FORMAT-2 byte behaviour (row 13) — pin the format.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     named = NetTrace(net="DAC_DB0", anchor_role="FPGA", name="dac_db0__a__b")
     original = dict_to_sexp({"net_traces": [net_trace_to_dict(named)]}, format_number=2)
     path = tmp_path / "board.sexp"

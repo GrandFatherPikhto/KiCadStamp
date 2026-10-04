@@ -38,8 +38,23 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.config import (Config, Rule, ManualSpoke, Cell,
                                TemplateComponentSlot, chain_effective_name)
 from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs of this module carry no uuid; stamp them
+    at the ONE entry point — the calculator (uuid-помощник, not pin). No effect
+    under CURRENT_FORMAT = 2."""
+    original = ManualPositionCalculator.__init__
+
+    def _init(self, adapter, cfg, *args, **kwargs):
+        stamp_config(cfg)
+        original(self, adapter, cfg, *args, **kwargs)
+
+    monkeypatch.setattr(ManualPositionCalculator, "__init__", _init)
 
 
 def _make_pad(number, x_mm, y_mm, net_name):

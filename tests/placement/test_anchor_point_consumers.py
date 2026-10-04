@@ -21,8 +21,27 @@ from kicadstamp.placement.services.clone_position_calculator import ClonePositio
 from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.placement.services.point_resolver import ResolvedPoint
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs of this module carry no uuid; stamp them
+    at the ONE entry point of EACH calculator driven here (uuid-помощник, not
+    pin). No effect under CURRENT_FORMAT = 2."""
+    def _wrap(cls):
+        original = cls.__init__
+
+        def _init(self, adapter, cfg, *args, **kwargs):
+            stamp_config(cfg)
+            original(self, adapter, cfg, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "__init__", _init)
+
+    for cls in (ClonePositionCalculator, ManualPositionCalculator, ViaPlanner):
+        _wrap(cls)
 
 
 def _make_pad(number, x_mm, y_mm, net_name="NET1"):

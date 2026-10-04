@@ -21,6 +21,7 @@ from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.net_trace_planner import plan_net_traces
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _fp(ref, x_mm=0.0, y_mm=0.0, role=None, cluster=None):
@@ -74,6 +75,8 @@ def _record(tracks=None, vias=None, **overrides):
     fields = dict(net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
                   tracks=tracks or [], vias=vias or [])
     fields.update(overrides)
+    fields.setdefault("uuid", det_uuid(
+        f"net_traces:{fields.get('name') or fields['net']}"))
     return NetTrace(**fields)
 
 
@@ -196,16 +199,20 @@ def test_item_without_a_net_falls_back_to_the_record_net():
 
 
 def test_registry_key_keeps_the_net_prefix_and_uses_the_identity():
-    """A legacy record's key is byte-identical to before; a named record keys by
-    its name — so two bridges of one net never collide in the registry."""
+    """A legacy record's key keys by its effective name (the net) in format 2 and
+    by its uuid under the gate; a named record keys by its name / uuid — so two
+    bridges of one net never collide in the registry. The `net:` prefix and the
+    template part BOTH carry the record's identity (Р-У5.1)."""
     legacy = _record(tracks=[TemplateTrack(net="LITERAL", layer="F.Cu")])
     named = _record(name="bridge__a__b",
                     tracks=[TemplateTrack(net="LITERAL", layer="F.Cu")])
     adapter = _board([_fp("U_FPGA", role="FPGA")], {})
     _v, legacy_tracks = plan_net_traces(adapter, [legacy])
     _v2, named_tracks = plan_net_traces(adapter, [named])
-    assert legacy_tracks[0].registry_key.startswith("net:DAC_DB0|DAC_DB0|")
-    assert named_tracks[0].registry_key.startswith("net:bridge__a__b|bridge__a__b|")
+    legacy_id = identity_value("DAC_DB0", legacy.uuid)
+    named_id = identity_value("bridge__a__b", named.uuid)
+    assert legacy_tracks[0].registry_key.startswith(f"net:{legacy_id}|{legacy_id}|")
+    assert named_tracks[0].registry_key.startswith(f"net:{named_id}|{named_id}|")
 
 
 # ── loader: the two fields are mutually exclusive, pad needs a role ───────

@@ -7,11 +7,19 @@ from kicadstamp.placement.services.clone_position_calculator import (
     clone_anchor_id,
     entity_anchor_id,
 )
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _clone(**kwargs):
     defaults = dict(cluster="c", cell="t", xy=(0.0, 0.0))
     defaults.update(kwargs)
+    # The record's identity (name-or-cluster) and, for a Point-anchored clone,
+    # the point's uuid — both needed under the format-3 gate (Р-У5.1).
+    if "uuid" not in defaults:
+        defaults["uuid"] = det_uuid(
+            f"clone_placements:{defaults.get('name') or defaults['cluster']}")
+    if defaults.get("anchor_point") and "anchor_point_uuid" not in defaults:
+        defaults["anchor_point_uuid"] = det_uuid(f"points:{defaults['anchor_point']}")
     return ClonePlacement(**defaults)
 
 
@@ -54,7 +62,7 @@ class TestCloneAnchorId:
         (name-or-cluster), as before."""
         a = clone_anchor_id(_clone(cluster="x", xy=(1.0, 2.0)))
         b = clone_anchor_id(_clone(cluster="x", xy=(99.0, -99.0)))
-        assert a == b == "name:x"
+        assert a == b == f"name:{identity_value('x', det_uuid('clone_placements:x'))}"
 
     def test_anchor_point_is_not_the_name_fallback(self):
         """Found 2026-08-06: anchor_point had NO branch at all here, so it fell
@@ -62,8 +70,8 @@ class TestCloneAnchorId:
         coordinates, and with none of the rename-safety anchor_ref/anchor_role
         get. A Point-anchored clone must key on the point + offset, not name."""
         result = clone_anchor_id(_clone(cluster="x", anchor_point="Origin", xy=(4.0, -110.0)))
-        assert result != "name:x"
-        assert "Origin" in result
+        assert result != f"name:{identity_value('x', det_uuid('clone_placements:x'))}"
+        assert identity_value("Origin", det_uuid("points:Origin")) in result
 
     def test_anchor_point_includes_offset(self):
         a = clone_anchor_id(_clone(anchor_point="Origin", xy=(4.0, -110.0)))
@@ -105,11 +113,15 @@ class TestEntityAnchorId:
     design, so there are no physical-binding branches, only the name."""
 
     def test_entity_id_is_name_branch(self):
-        assert entity_anchor_id(Entity(name="CH0_DAC_BUF", cell="c")) == "name:CH0_DAC_BUF"
+        entity = Entity(name="CH0_DAC_BUF", cell="c",
+                        uuid=det_uuid("entities:CH0_DAC_BUF"))
+        assert entity_anchor_id(entity) == \
+            f"name:{identity_value('CH0_DAC_BUF', entity.uuid)}"
 
     def test_entity_id_stable_across_instances(self):
         """The id depends only on the (required, unique) name — two identical
         entities produce the same id, matching the materialized clone's
         name:-branch (clone.name == entity.name, phase 4.1)."""
-        assert entity_anchor_id(Entity(name="E", cell="c")) == \
-            entity_anchor_id(Entity(name="E", cell="c"))
+        entity_uuid = det_uuid("entities:E")
+        assert entity_anchor_id(Entity(name="E", cell="c", uuid=entity_uuid)) == \
+            entity_anchor_id(Entity(name="E", cell="c", uuid=entity_uuid))

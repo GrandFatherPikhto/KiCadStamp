@@ -19,8 +19,23 @@ from kicadstamp.config import (
 )
 from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs of this module carry no uuid; stamp them
+    at the ONE entry point — the planner (uuid-помощник, not pin). No effect
+    under CURRENT_FORMAT = 2."""
+    original = PlacementPlanner.__init__
+
+    def _init(self, adapter, cfg, target_ref=None, *args, **kwargs):
+        stamp_config(cfg)
+        original(self, adapter, cfg, target_ref, *args, **kwargs)
+
+    monkeypatch.setattr(PlacementPlanner, "__init__", _init)
 
 
 def _make_pad(number, x_mm, y_mm, net_name):

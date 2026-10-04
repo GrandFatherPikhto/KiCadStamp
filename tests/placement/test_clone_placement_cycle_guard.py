@@ -26,8 +26,25 @@ from kipy.board_types import Pad, FootprintInstance
 from kicadstamp.config import Config, Cell, CellPlacement, ClonePlacement, TemplateComponentSlot
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the in-memory Configs of this module carry no uuid; under the
+    format-3 gate the identity builders refuse that (Р-У5.7). Stamp the Config
+    at the ONE entry point — the calculator (uuid-помощник, not pin). The clones
+    under test are inside the Config, so this covers them too. No effect under
+    CURRENT_FORMAT = 2."""
+    original = ClonePositionCalculator.__init__
+
+    def _init(self, adapter, cfg, *args, **kwargs):
+        stamp_config(cfg)
+        original(self, adapter, cfg, *args, **kwargs)
+
+    monkeypatch.setattr(ClonePositionCalculator, "__init__", _init)
 
 
 def _make_pad(number, x_mm, y_mm, net_name):

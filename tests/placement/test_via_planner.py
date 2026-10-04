@@ -18,6 +18,7 @@ from kipy.board_types import Pad
 from kicadstamp.config import Config, ThermalViaArrayConfig
 from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.placement.services.via_planner import ViaPlanner
+from tests.fakes.format3 import det_uuid, identity_value
 
 MM = 1_000_000
 
@@ -52,6 +53,7 @@ def _make_adapter(fp, pad):
 def _make_cfg():
     tva = ThermalViaArrayConfig(
         name="q1_thermal",
+        uuid=det_uuid("thermal_via_arrays:q1_thermal"),
         pad="1",
         anchor_ref="Q1",
         net="GND",
@@ -157,9 +159,11 @@ class TestMultipleThermalViaArrays:
         adapter.get_bounding_boxes.return_value = []
 
         tva1 = ThermalViaArrayConfig(name="q1_thermal", pad="1", anchor_ref="Q1", net="GND",
+                                     uuid=det_uuid("thermal_via_arrays:q1_thermal"),
                                      rows=1, cols=1, margin_mm=0.0, pattern="grid",
                                      drill_mm=0.3, diameter_mm=0.6)
         tva2 = ThermalViaArrayConfig(name="q2_thermal", pad="1", anchor_ref="Q2", net="GND",
+                                     uuid=det_uuid("thermal_via_arrays:q2_thermal"),
                                      rows=1, cols=1, margin_mm=0.0, pattern="grid",
                                      drill_mm=0.3, diameter_mm=0.6)
         planner = ViaPlanner(adapter, self._cfg_two_targets(tva1, tva2))
@@ -169,7 +173,9 @@ class TestMultipleThermalViaArrays:
 
         assert len(thermal) == 2
         registry_names = {v.registry_key.split("|")[0] for v in thermal}
-        assert registry_names == {"thermal:q1_thermal", "thermal:q2_thermal"}
+        assert registry_names == {
+            f"thermal:{identity_value('q1_thermal', det_uuid('thermal_via_arrays:q1_thermal'))}",
+            f"thermal:{identity_value('q2_thermal', det_uuid('thermal_via_arrays:q2_thermal'))}"}
 
     def test_retired_array_contributes_no_via_the_other_still_does(self):
         pad1 = _make_thermal_pad(x_mm=0.0)
@@ -186,9 +192,11 @@ class TestMultipleThermalViaArrays:
         adapter.get_bounding_boxes.return_value = []
 
         tva1 = ThermalViaArrayConfig(name="q1_thermal", pad="1", anchor_ref="Q1", net="GND",
+                                     uuid=det_uuid("thermal_via_arrays:q1_thermal"),
                                      rows=1, cols=1, margin_mm=0.0, pattern="grid",
                                      drill_mm=0.3, diameter_mm=0.6, retired=True)
         tva2 = ThermalViaArrayConfig(name="q2_thermal", pad="1", anchor_ref="Q2", net="GND",
+                                     uuid=det_uuid("thermal_via_arrays:q2_thermal"),
                                      rows=1, cols=1, margin_mm=0.0, pattern="grid",
                                      drill_mm=0.3, diameter_mm=0.6)
         planner = ViaPlanner(adapter, self._cfg_two_targets(tva1, tva2))
@@ -197,4 +205,5 @@ class TestMultipleThermalViaArrays:
         thermal = _thermal_vias(vias)
 
         assert len(thermal) == 1
-        assert thermal[0].registry_key.startswith("thermal:q2_thermal")
+        assert thermal[0].registry_key.startswith(
+            f"thermal:{identity_value('q2_thermal', det_uuid('thermal_via_arrays:q2_thermal'))}")

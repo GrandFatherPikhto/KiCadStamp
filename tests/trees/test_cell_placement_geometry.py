@@ -19,8 +19,24 @@ from kicadstamp.geometry.spoke_layout import rotate_local_offset, local_to_absol
 from kicadstamp.placement.services import role_narrowing
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 from kicadstamp.tree_position import PositionOverride
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs of this module carry no uuid; under the
+    format-3 gate the cell-identity builders refuse that (Р-У5.7). Stamp them at
+    the ONE entry point — the calculator — keyed by identity (uuid-помощник, not
+    pin). No effect under CURRENT_FORMAT = 2 (the value is unused there)."""
+    original = ClonePositionCalculator.__init__
+
+    def _init(self, adapter, cfg, *args, **kwargs):
+        stamp_config(cfg)
+        original(self, adapter, cfg, *args, **kwargs)
+
+    monkeypatch.setattr(ClonePositionCalculator, "__init__", _init)
 
 
 def _make_pad(number, x_mm, y_mm, net_name):

@@ -22,15 +22,20 @@ from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import entity_anchor_id
 from kicadstamp.placement.services.component_pool import ROLE_FIELD_NAME
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _cell(name="c"):
-    return Cell(name=name)
+    return Cell(name=name, uuid=det_uuid(f"cells:{name}"))
 
 
 def _cfg(entities, trees):
+    entities = list(entities)
+    for e in entities:  # the record identity under the gate (Р-У5.1)
+        if getattr(e, "uuid", None) is None:
+            e.uuid = det_uuid(f"entities:{e.name}")
     return Config(cells={e.cell: _cell(e.cell) for e in entities},
-                  entities=list(entities), trees=list(trees))
+                  entities=entities, trees=list(trees))
 
 
 def _origin_tree(nodes):
@@ -66,7 +71,9 @@ def test_origin_anchor_top_level_node_position():
     assert c.xy == (5.0, 2.0)
     assert c.rotation_deg == 90.0
     # registry identity aligns with entity_anchor_id (phase 3.1)
-    assert entity_anchor_id(Entity(name="E1", cell="c")) == "name:E1"
+    assert entity_anchor_id(Entity(name="E1", cell="c",
+                                   uuid=det_uuid("entities:E1"))) == \
+        f"name:{identity_value('E1', det_uuid('entities:E1'))}"
 
 
 def test_nested_node_rotation_accumulates():

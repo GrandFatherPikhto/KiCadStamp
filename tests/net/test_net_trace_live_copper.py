@@ -45,7 +45,7 @@ from kicadstamp.registry import (
     make_registry_key,
 )
 from kicadstamp.utils.units import MM
-from tests.fakes.format3 import format3  # noqa: F401 — pytest fixture
+from tests.fakes.format3 import det_uuid, format3  # noqa: F401 — pytest fixture
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -94,6 +94,7 @@ def _net_trace(anchor_x_mm=52.0, anchor_y_mm=52.0):
     via (57,58)."""
     return NetTrace(
         net="DAC_DB0", anchor_role="FPGA", anchor_pad="42",
+        uuid=det_uuid("net_traces:DAC_DB0"),
         tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
                               end_along_mm=3, end_across_mm=4, width_mm=0.2,
                               net="DAC_DB0", layer="F.Cu")],
@@ -246,7 +247,9 @@ def test_unresolvable_anchor_is_honest_not_exception(tmp_path):
     # The registry still knows the via's uuid.
     live_via = _make_live_via(57, 58, "DAC_DB0", 0.3, 0.6, uuid="known-via")
     adapter.get_vias.return_value = [live_via]
-    vreg.entries[make_registry_key(net_trace_anchor_id(nt), "DAC_DB0", None, 0)] = \
+    # The SHARED builder (not a hand-spelled key): under the gate both parts are
+    # the record's uuid, so a hand-spelled "DAC_DB0" template would not match.
+    vreg.entries[net_trace_registry_key(nt, 0)] = \
         RegistryEntry(uuid="known-via", x_mm=57.0, y_mm=58.0, net="DAC_DB0",
                       drill_mm=0.3, diameter_mm=0.6)
 

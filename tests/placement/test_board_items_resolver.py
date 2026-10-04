@@ -18,6 +18,7 @@ from kicadstamp.placement.services.clone_position_calculator import clone_anchor
 from kicadstamp.registry import (RegistryEntry, TrackRegistryEntry, make_registry_key,
                                  save_registry, save_track_registry)
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import det_uuid
 
 
 def _make_fp(ref, role=None, nets=None, cluster=None):
@@ -60,15 +61,16 @@ def _by_nets_adapter(fps):
 
 
 def _cell():
-    return Cell(name="cella", components=[
+    return Cell(name="cella", uuid=det_uuid("cells:cella"), components=[
         TemplateComponentSlot(role="A"),
         TemplateComponentSlot(role="B"),
     ])
 
 
 def _clone():
-    # No anchor set -> clone_anchor_id == f"name:{cluster}".
+    # No anchor set -> clone_anchor_id == f"name:{identity}".
     return ClonePlacement(cluster="myclone", cell="cella", xy=(0.0, 0.0),
+                          uuid=det_uuid("clone_placements:myclone"),
                           nets={"A": "NET_A", "B": "NET_B"})
 
 
@@ -124,6 +126,7 @@ class TestResolveCloneBoardItems:
         adapter = _by_nets_adapter(fps)
         adapter.get_selected_items.return_value = fps
         clone = ClonePlacement(cluster="myclone", cell="cella", xy=(0.0, 0.0),
+                               uuid=det_uuid("clone_placements:myclone"),
                                by_selection=True)
 
         items = resolve_clone_board_items(adapter, Config(cells={"cella": _cell()}),
@@ -230,7 +233,8 @@ class TestCloneWorldOrigin:
     shift). Feeds ExtractDock's Sub-placements xy (2026-08-25, Задание 1)."""
 
     def test_absolute_clone_origin_is_xy(self):
-        clone = ClonePlacement(cluster="myclone", cell="cella", xy=(5.0, 2.0))
+        clone = ClonePlacement(cluster="myclone", cell="cella", xy=(5.0, 2.0),
+                               uuid=det_uuid("clone_placements:myclone"))
         cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
 
         origin = clone_world_origin(_by_nets_adapter([]), cfg, clone)
@@ -241,6 +245,7 @@ class TestCloneWorldOrigin:
         anchor = _make_fp("U1", role="FPGA", nets=[])
         anchor.position = Vector2.from_xy(int(100.0 * MM), int(200.0 * MM))
         clone = ClonePlacement(cluster="myclone", cell="cella", xy=(5.0, 2.0),
+                               uuid=det_uuid("clone_placements:myclone"),
                                anchor_ref="U1")
         cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
 
@@ -250,6 +255,7 @@ class TestCloneWorldOrigin:
 
     def test_polar_clone_origin_uses_rotated_shift(self):
         clone = ClonePlacement(cluster="myclone", cell="cella", xy=(0.0, 0.0),
+                               uuid=det_uuid("clone_placements:myclone"),
                                radius_mm=5.0, angle_deg=90.0)
         cfg = Config(cells={"cella": _cell()}, clone_placements=[clone])
 

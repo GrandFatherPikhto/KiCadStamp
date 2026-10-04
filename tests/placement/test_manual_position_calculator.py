@@ -16,8 +16,24 @@ from kicadstamp.domain.geometry import BoardLayer
 from kicadstamp.config import (Config, Rule, ManualSpoke, Cell, TemplateComponentSlot,
                                TemplateVia, TemplateTrack)
 from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs of this module carry no uuid; under the
+    format-3 gate the cell-identity builders refuse that (Р-У5.7). Stamp them at
+    the ONE entry point — the calculator — keyed by identity (uuid-помощник, not
+    pin). No effect under CURRENT_FORMAT = 2."""
+    original = ManualPositionCalculator.__init__
+
+    def _init(self, adapter, cfg, *args, **kwargs):
+        stamp_config(cfg)
+        original(self, adapter, cfg, *args, **kwargs)
+
+    monkeypatch.setattr(ManualPositionCalculator, "__init__", _init)
 
 
 def _make_pad(number, net_name, x_mm=0.0, y_mm=0.0):

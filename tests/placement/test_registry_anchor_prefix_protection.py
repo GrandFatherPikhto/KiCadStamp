@@ -31,11 +31,17 @@ from kicadstamp.registry import (
     RegistryEntry,
     make_registry_key,
 )
+from tests.fakes.format3 import det_uuid
 
 
 def _one_clone(**anchor):
-    return clone_anchor_id(ClonePlacement(cluster="c", xy=(0.0, 0.0), cell="c",
-                                          **anchor))
+    # A record without a uuid is refused under the gate (Р-У5.7) — the branch
+    # under test is the PREFIX, so supply the identity each branch reads.
+    if anchor.get("anchor_point") and "anchor_point_uuid" not in anchor:
+        anchor["anchor_point_uuid"] = det_uuid(f"points:{anchor['anchor_point']}")
+    return clone_anchor_id(ClonePlacement(
+        cluster="c", xy=(0.0, 0.0), cell="c",
+        uuid=det_uuid("clone_placements:c"), **anchor))
 
 
 def _builder_anchor_ids():
@@ -44,15 +50,20 @@ def _builder_anchor_ids():
     yield _one_clone(anchor_ref="IC1")                          # anchor:
     yield _one_clone(anchor_role="R")                           # role:
     yield _one_clone(anchor_point="P")                          # point:
-    yield entity_anchor_id(Entity(name="E", cell="c"))          # name: (entity)
-    yield thermal_anchor_id(SimpleNamespace(name="q1_thermal"))  # thermal:
-    yield net_trace_anchor_id(SimpleNamespace(name="nt", net="N"))  # net:
+    yield entity_anchor_id(Entity(name="E", cell="c",
+                                  uuid=det_uuid("entities:E")))  # name: (entity)
+    yield thermal_anchor_id(SimpleNamespace(                     # thermal:
+        name="q1_thermal", uuid=det_uuid("thermal_via_arrays:q1_thermal")))
+    yield net_trace_anchor_id(SimpleNamespace(                   # net:
+        name="nt", net="N", uuid=det_uuid("net_traces:nt")))
     yield next(iter(chain_anchor_ids(                           # pad: (spoke)
         Chain(net="N", spokes=[ManualSpoke(pad="17", cell="c")]))))
     # nested cell placement — "<outer>/<nested.name>"; the "/" must not change
     # the protected prefix (У5.1б). A slash is legal in a cluster name (Р7).
     yield nested_anchor_id(_one_clone(anchor_role="R"), "inner")           # role: + "/"
-    yield nested_anchor_id(entity_anchor_id(Entity(name="E", cell="c")), "inner")  # name: + "/"
+    yield nested_anchor_id(
+        entity_anchor_id(Entity(name="E", cell="c", uuid=det_uuid("entities:E"))),
+        "inner")                                                                # name: + "/"
 
 
 _ANCHOR_IDS = list(_builder_anchor_ids())

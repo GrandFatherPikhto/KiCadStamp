@@ -25,6 +25,31 @@ from kicadstamp.config import Config, ClonePlacement, Cell, TemplateComponentSlo
 from kicadstamp.kicad.adapter import KiCadBoardAdapter
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 from kicadstamp.exceptions import ValidationError
+from tests.fakes.format3 import det_uuid, stamp_config
+
+
+@pytest.fixture(autouse=True)
+def _stamp_configs(monkeypatch):
+    """У3.5 К3: the hand-built Configs/clones of this module carry no uuid; under
+    the format-3 gate the identity builders refuse that (Р-У5.7). Stamp them at
+    the calculator's entry points, keyed by identity (uuid-помощник, not pin).
+    No effect under CURRENT_FORMAT = 2."""
+    orig_init = ClonePositionCalculator.__init__
+    orig_positions = ClonePositionCalculator.compute_raw_positions
+
+    def _init(self, adapter, cfg, *args, **kwargs):
+        stamp_config(cfg)
+        orig_init(self, adapter, cfg, *args, **kwargs)
+
+    def _positions(self, clones, *args, **kwargs):
+        for clone in clones:
+            if getattr(clone, "uuid", None) is None:
+                clone.uuid = det_uuid(
+                    f"clone_placements:{clone.name or clone.cluster}")
+        return orig_positions(self, clones, *args, **kwargs)
+
+    monkeypatch.setattr(ClonePositionCalculator, "__init__", _init)
+    monkeypatch.setattr(ClonePositionCalculator, "compute_raw_positions", _positions)
 
 
 def _make_fp(ref):
