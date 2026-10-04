@@ -233,8 +233,27 @@ import logging
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from .format_version import current_format
+from .uuids import derived_uuid
 
 logger = logging.getLogger(__name__)
+
+
+def _derive_copy_uuid(original: dict, instance_name: str) -> str | None:
+    """The COMPUTED uuid of one generated copy of `original` (Р-У5.3), or None
+    when the original carries no uuid (format < 3, or a direct dict-level call
+    whose template has no uuid — the gate and the format-3 checks make None
+    impossible on the product path).
+
+    Deterministic in (original uuid, instance name): two copies of one template
+    in DIFFERENT instances get DIFFERENT uuids, a copy never shares its
+    original's uuid, and renaming a declaration changes every copy's uuid
+    (which recreates that instance's copper — the same effect names had before
+    this step, named in docs)."""
+    original_uuid = original.get('uuid')
+    if not original_uuid:
+        return None
+    return derived_uuid(f"{original_uuid}|tree_instance:{instance_name}")
 
 
 def _record_identity(record: dict) -> str | None:
@@ -753,6 +772,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                 if isinstance(v, dict) and v.get('net'):
                     v['net'] = _substitute_net_sheet(v['net'], old_sheet, sheet,
                                                      template_name, orig_ref)
+        if current_format() >= 3:
+            # Р-У5.3: the generated net_trace is a NEW record — its uuid is
+            # computed, never the template record's. Р-У5.4: the generated node
+            # references the COPY, so its ref_uuid follows the very same uuid.
+            copy_uuid = _derive_copy_uuid(record, instance_name)
+            if copy_uuid is not None:
+                gen_nt['uuid'] = copy_uuid
+                gen['ref_uuid'] = copy_uuid
         generated_net_traces.append(gen_nt)
         children = node.get('children') or []
         if children:
@@ -809,6 +836,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         merged_params = dict(ent.get('params') or {})
         merged_params.update(params)
         ent['params'] = merged_params
+    if current_format() >= 3:
+        # Р-У5.3/Р-У5.4: the Entity copy is a NEW record, and the generated
+        # placement node references the COPY, not the template Entity — so the
+        # record's uuid AND the node's ref_uuid are the computed uuid.
+        copy_uuid = _derive_copy_uuid(entity, instance_name)
+        if copy_uuid is not None:
+            ent['uuid'] = copy_uuid
+            gen['ref_uuid'] = copy_uuid
     generated_entities.append(ent)
     return gen
 

@@ -375,6 +375,34 @@ def _normalize_format3_refs(data: dict) -> int:
     return rewritten
 
 
+def _check_expanded_uuids_unique(data: dict) -> None:
+    """У5.2: after the template expansions, every UUID in the graph must still
+    be unique — a DERIVED copy's uuid (Р-У5.3) could collide with another copy
+    or with an original. `_check_format3_graph` ran on the RAW files BEFORE the
+    expansions, so this is the only place that sees the generated records.
+
+    Runs on the expanded dict (``_f3_records`` walks the sections the copies were
+    appended to: entities / net_traces / clone_placements /
+    coordinate_placements). A collision is a fatal NAMING BOTH records — the
+    graph the loader is about to build would otherwise carry two records under
+    one UUID, and every later reference would resolve to the first."""
+    owner: dict = {}
+    for section, name, uuid, i in _f3_records(data):
+        if not uuid:
+            continue
+        label = f"{section} {name!r}" if name is not None else f"{section}[{i}]"
+        prev = owner.get(uuid)
+        if prev is not None and prev != label:
+            raise ValidationError(format_fatal_error(
+                _("format 3: duplicate uuid {uuid} after template expansion — "
+                  "{a} and {b}").format(uuid=uuid, a=prev, b=label),
+                [_("a generated copy's computed UUID must be unique across the "
+                   "whole graph (it is a function of the ORIGINAL record's uuid "
+                   "plus the instance identity) — two records sharing one UUID "
+                   "would resolve every reference to the first")]))
+        owner[uuid] = label
+
+
 # ── the WRITER STAMP (У4.1) ────────────────────────────────────────────────
 
 class _Format3Index:

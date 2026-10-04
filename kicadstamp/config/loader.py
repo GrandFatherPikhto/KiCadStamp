@@ -112,6 +112,7 @@ from .format3 import (  # noqa: E402,F401  (re-exported)
     _F3_REF_TARGET, _F3_NODE_KIND_TARGET, _F3Ref,
     _f3_files, _f3_walk_nodes, _f3_records, _f3_refs, _f3_collect,
     _check_format3_graph, _normalize_format3_refs,
+    _check_expanded_uuids_unique,
 )
 
 
@@ -183,6 +184,12 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # the loader parses it into cfg.tree_instances below (see
     # kicadstamp/config/tree_instances.py).
     data = expand_tree_instances(data)
+    if current_format() >= 3:
+        # У5.2: the two expansions above GENERATE copies carrying COMPUTED
+        # uuids (Р-У5.3); the raw-file check (_check_format3_graph) ran BEFORE
+        # them, so uniqueness across copies and originals is re-proven here.
+        # No copies under format < 3 — the gate keeps the product byte-identical.
+        _check_expanded_uuids_unique(data)
 
     if 'target_ref' in data:
         raise ValidationError(format_fatal_error(

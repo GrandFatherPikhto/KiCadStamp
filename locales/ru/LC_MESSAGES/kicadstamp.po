@@ -17856,3 +17856,11 @@ msgstr "экспорт между профилями в формате 3 пок�
 msgid "pass the target graph root explicitly, or export in format 2"
 msgstr "передай корень целевого графа явно или экспортируй в формате 2"
 
+#: kicadstamp/config/format3.py
+msgid "format 3: duplicate uuid {uuid} after template expansion — {a} and {b}"
+msgstr "формат 3: дубль UUID {uuid} после раскрытия шаблонов — {a} и {b}"
+
+#: kicadstamp/config/format3.py
+msgid "a generated copy's computed UUID must be unique across the whole graph (it is a function of the ORIGINAL record's uuid plus the instance identity) — two records sharing one UUID would resolve every reference to the first"
+msgstr "вычисляемый UUID сгенерированной копии обязан быть уникальным по всему графу (он — функция UUID ОРИГИНАЛЬНОЙ записи и идентичности экземпляра) — две записи с одним UUID свели бы каждую ссылку к первой"
+

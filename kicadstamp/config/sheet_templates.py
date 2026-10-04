@@ -56,6 +56,8 @@ import logging
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from .format_version import current_format
+from .uuids import derived_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +177,23 @@ def expand_sheet_templates(data: dict) -> dict:
                             gen['name'] = f"{sheet}_{base}"
                         else:
                             gen['name'] = f"{sheet}_{_identity_base(entry, section)}"
+                    if current_format() >= 3:
+                        # Р-У5.3: a generated nested placement has NO uuid of its
+                        # own (the template T carries one, the copies do not) —
+                        # under format 3 it gets the COMPUTED uuid of the copy,
+                        # at ONE sheet as well. The seed is (template uuid,
+                        # section, the identity base, the sheet): deterministic
+                        # across loads, distinct per sheet, never equal to the
+                        # template's own uuid, and a rename of the template/sheet
+                        # changes it (the same recreation names always caused).
+                        # Р-У5.4: the copy's own `<field>_uuid` references stay
+                        # as copied — they name SHARED targets (cells, points),
+                        # which this expansion does not copy.
+                        tpl_uuid = tpl.get('uuid')
+                        if tpl_uuid:
+                            gen['uuid'] = derived_uuid(
+                                f"{tpl_uuid}|{section}|"
+                                f"{_identity_base(entry, section)}|sheet:{sheet}")
                     result[section].append(gen)
 
     logger.info(_("Expanded {count} sheet_templates: blocks into "
