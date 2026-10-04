@@ -179,8 +179,15 @@ def test_broken_sexp_unquoted_string_raises_validation_error(tmp_path):
 
 def test_load_profile_reads_sexp_profiles(tmp_path):
     """cli_extract.load_profile — the extract/clone-extract profiles reader —
-    selects the parser by extension too."""
-    from kicadstamp.cli_extract import load_profile
+    selects the parser by extension too.
+
+    У3.5 Ф1: the known-key set is the PRODUCT's EXTRACT_PROFILE_KNOWN_KEYS, not
+    a duplicate list — the reader lifts a format-2 profile to CURRENT_FORMAT,
+    which under format 3 stamps `uuid` on the record. A hand-copied subset
+    without `uuid` would fatal on a format-3 file ("unknown fields … 'uuid'"),
+    making the cell fail for a reason outside its subject (parser selection).
+    """
+    from kicadstamp.cli_extract import EXTRACT_PROFILE_KNOWN_KEYS, load_profile
 
     _write(tmp_path, "profiles.sexp", dict_to_sexp({
         "extract_profiles": {
@@ -189,7 +196,7 @@ def test_load_profile_reads_sexp_profiles(tmp_path):
     }, format_number=2))
     prof = load_profile(str(tmp_path / "profiles.sexp"), "extract_profiles",
                         "dac", root_defaults=["output"],
-                        known_keys={"name", "output", "raw_selection"})
+                        known_keys=EXTRACT_PROFILE_KNOWN_KEYS)
     assert prof["name"] == "dac"
     assert prof["raw_selection"] is True
 

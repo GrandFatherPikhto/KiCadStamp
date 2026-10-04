@@ -42,13 +42,20 @@ logger = logging.getLogger(__name__)
 # read_data/write_data). The old underscore-prefixed spellings were the
 # original public contract here; they are dropped since only in-repo callers
 # used them and all have been updated.
+# `uuid` is a legitimate key of an extract_profiles / clone_profiles record
+# under format 3: both are §0 free-form sections, so the reader's lift to
+# CURRENT_FORMAT (sexp_to_dict -> format_version) stamps a `uuid` on every
+# record — exactly as the writer's stamp does. Without it in the known set, a
+# format-3 profile file fatals the moment it is read ("unknown fields in
+# extract_profiles 'dac': 'uuid'"). The key is NOT stripped before the check:
+# the profile dict keeps it, like every other §0 record.
 EXTRACT_PROFILE_KNOWN_KEYS = {
     'name', 'output', 'params', 'net_template', 'net_template_role', 'rule_nets',
     'origin_by_via_net', 'origin_by_component_role', 'origin_by_component_pad',
     'origin_by_component_cluster', 'origin_by_component_sheet',
-    'raw_selection',
+    'raw_selection', 'uuid',
 }
-CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output'}
+CLONE_EXTRACT_PROFILE_KNOWN_KEYS = {'net', 'pcb', 'channel', 'output', 'uuid'}
 
 
 def load_profile(profiles_path: str, top_key: str, profile_name: str,
