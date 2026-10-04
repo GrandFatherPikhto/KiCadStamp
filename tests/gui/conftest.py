@@ -24,7 +24,7 @@ import time
 import pytest
 
 
-from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtWidgets import QApplication, QMessageBox, QMainWindow
 
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 
@@ -135,6 +135,45 @@ def _capture_dock_logs(caplog):
     default — success/warning messages (the common case) sit below caplog's
     WARNING default and would otherwise be silently missed."""
     caplog.set_level(logging.INFO)
+
+
+@pytest.fixture(autouse=True)
+def _no_modal_message_boxes(monkeypatch):
+    """`QMessageBox.warning` / `.critical` FAIL LOUDLY instead of hanging.
+
+    У3.5 / К1 of plan_2026_10_02_uuid_format_2_to_3.md §7. У3.0 found the
+    `node down` deaths of the format-3 run were not a crash: a cell that triggers
+    a dock's refusal path (`gui/dock_hub.py::_write_record_result` ->
+    `QMessageBox.warning`) opens a MODAL box in the offscreen run, and the test
+    hangs until the pytest timeout, which then kills the xdist worker. The modal
+    is invisible and the death shows only as `[gwN] node down`.
+
+    A modal in a headless run is always a defect in the CELL (it never installed
+    its own stand-in), never something to wait out — so these two kinds raise an
+    `AssertionError` carrying the dialog's TITLE and TEXT, which is what turns
+    "no verdict at all" into a named failure naming the refused operation.
+
+    A cell that patches the box itself keeps working: its `monkeypatch.setattr`
+    runs AFTER this autouse fixture (both are function-scoped; autouse fixtures
+    are set up before the cell body), so its stand-in wins.
+
+    Only `warning` and `critical` are covered: those are the two kinds product
+    code opens for a refusal or an error (rule 43 bans them, the replacement with
+    a Log line is a separate task, not У3). `information` / `question` are left
+    alone — cells that exercise them patch them deliberately."""
+    def _refuse(kind):
+        def _explode(*args, **kwargs):
+            title = args[1] if len(args) > 1 else kwargs.get("title", "")
+            text = args[2] if len(args) > 2 else kwargs.get("text", "")
+            raise AssertionError(
+                "QMessageBox.{kind} opened in a headless test — title={title!r}, "
+                "text={text!r}. Install a stand-in in the cell (monkeypatch), or "
+                "fix the refusal path under test.".format(
+                    kind=kind, title=title, text=text))
+        return staticmethod(_explode)
+
+    monkeypatch.setattr(QMessageBox, "warning", _refuse("warning"))
+    monkeypatch.setattr(QMessageBox, "critical", _refuse("critical"))
 
 
 class _FakeConnection:
