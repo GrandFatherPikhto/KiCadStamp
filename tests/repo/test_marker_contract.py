@@ -196,6 +196,11 @@ def test_the_default_run_does_not_skip_the_three_kind_check(request):
         "go quiet")
 
 
+# 180 s: this cell runs THREE FULL `--collect-only` sweeps of the whole suite.
+# Alone that is ~57 s; under `-n auto` the worker also pays xdist startup and
+# collected over the ini's 60 s, so the default timeout killed it (measured in
+# the У3.1 acceptance). 180 s keeps it alive without masking a real hang.
+@pytest.mark.timeout(180)
 def test_a_bare_run_collects_no_integration_cells():
     """Ф1.12's protection, by CONSTRUCTION: a bare `pytest` must collect ZERO
     integration-marked cells, because running them writes to a live board.

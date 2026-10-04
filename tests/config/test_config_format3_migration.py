@@ -45,7 +45,7 @@ from kicadstamp.config.format3 import (
 )
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.config.uuids import migration_folder_uuid, migration_uuid
+from kicadstamp.config.uuids import NS_MIGRATION, migration_folder_uuid, migration_uuid
 from kicadstamp.config.upgrade_on_disk import upgrade_graph_on_disk
 from kicadstamp.exceptions import ValidationError
 from tests.fakes.format3 import format3  # noqa: F401 (fixture import)
@@ -61,6 +61,23 @@ def _step(data, path="profiles/p/r.sexp"):
 
 def _write_sexp(path, data, number=2) -> None:
     path.write_text(dict_to_sexp(data, format_number=number), encoding="utf-8")
+
+
+# ── the Р-1 seed is FIXED forever: pinned as LITERALS, not against itself ──
+
+def test_the_migration_seed_is_pinned_by_literal_values():
+    """The seed must NEVER drift: a profile lifted by one build and a reference
+    lifted by another would otherwise disagree, and the reference would dangle.
+
+    Every other cell of this module compares a PRODUCT call with ANOTHER product
+    call (`migration_uuid(...) == migration_uuid(...)`), so a change to the
+    separator, the `folder:` marker or the namespace would keep them all green.
+    These three values are the identity of LIVE profiles — DO NOT CHANGE THEM
+    (the acceptance rows Y11/Y12/Y13 exist to keep this cell honest)."""
+    assert str(NS_MIGRATION) == "8f0c1e6a-9b3d-4a72-8c5e-1d4f7a2b9e30"
+    assert migration_uuid("cells", "cap") == "49bf967e-9e3e-50e5-ba7f-99aa390b1822"
+    assert (migration_folder_uuid("cells", "Power")
+            == "4fd95765-d295-572a-8f90-0077ebf2146a")
 
 
 # ── §0 records: one row per product section ───────────────────────────────
@@ -256,6 +273,18 @@ def test_a_name_without_a_slash_adds_no_folder_table():
     assert "folders" not in out
 
 
+def test_an_existing_folder_row_is_never_overwritten():
+    """В39 idempotence one level down: a folder row that already carries a UUID
+    keeps it — only MISSING rows are added. A format-2 file has no folder table,
+    so this path is nearly unreachable today, but the promise is 'never
+    overwritten' and the cell is as cheap as the record one."""
+    data = {"cells": {"Power/c": {"layer": "B.Cu"}},
+            "folders": {"cells": {"Power": "keep-me"}}}
+    out = _step(data)
+    assert out["folders"]["cells"]["Power"] == "keep-me"
+    assert out["cells"]["Power/c"]["uuid"] == migration_uuid("cells", "Power/c")
+
+
 # ── the file path lives in NO seed: cross-file and cross-directory ─────────
 
 def test_a_reference_across_files_resolves_after_both_are_lifted(format3, tmp_path):
@@ -304,6 +333,20 @@ def test_one_folder_path_in_two_files_gets_one_uuid(format3, tmp_path):
     assert (r["folders"]["cells"]["Power"] == s["folders"]["cells"]["Power"]
             == migration_folder_uuid("cells", "Power"))
     load_config(str(root))  # В39: one UUID per path -> the graph loads
+
+
+# ── the step is pure: it works on a deep copy of its input ────────────────
+
+def test_the_step_leaves_the_input_dict_untouched():
+    """`_step_2_to_3` promises to run on a deep copy. Without it the step would
+    mutate the dict the caller handed in — and a file read through
+    `cached_file_read` hands out a SHARED object, so the mutation would leak into
+    the cache (the К1 class of У2)."""
+    data = {"cells": {"Power/c": {"layer": "B.Cu"}},
+            "entities": [{"name": "E", "cell": "Power/c"}]}
+    before = copy.deepcopy(data)
+    _step(data)
+    assert data == before
 
 
 # ── idempotence on disk ────────────────────────────────────────────────────
