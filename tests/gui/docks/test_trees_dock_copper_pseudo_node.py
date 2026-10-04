@@ -30,6 +30,7 @@ from types import SimpleNamespace
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import QTreeWidgetItemIterator
 
+import kicadstamp.config_working_set as config_working_set
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.trees import tree_to_sexp
 
@@ -38,6 +39,19 @@ from gui import settings
 from gui.docks.trees_dock import TreesDock
 
 from tests.fakes.write_later import write_later
+
+
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): restore the process-wide ACTIVE GRAPH ROOT after each cell.
+    `_dock_with` points it at the file it wrote (the format-3 writer resolves
+    references against that graph); snapshotted here so it does not leak into
+    the next cell. Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
 
 
 # Т1.1: copper refs that are LEXICOGRAPHICALLY FIRST (digits sort before
@@ -67,10 +81,22 @@ def _dock_with(main_window, tmp_path, nodes, name="t"):
     same ``mtime_ns`` leaves the first tree cached under a key the second read
     still hits, and the cell would measure the cache, not the re-read."""
     root = tmp_path / "root.sexp"
-    write_later(root, dict_to_sexp({"trees": [
-        {"name": name, "anchor": {"origin": True}, "nodes": nodes}]}, format_number=2))
+    # A format-3 load resolves every reference, and a kind="net_trace" node's
+    # `ref` names a net_traces: record — provide the targets the fixture's tree
+    # points at (their content is irrelevant to these view cells).
+    write_later(root, dict_to_sexp({
+        "net_traces": [{"name": r, "net": "GND", "anchor_role": "FPGA",
+                        "tracks": [], "vias": []}
+                       for r in COPPER_REFS + ["new__a__b"]],
+        "trees": [{"name": name, "anchor": {"origin": True}, "nodes": nodes}]},
+        format_number=2))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
+    # The re-read cells write this file: point the format-3 writer's ACTIVE
+    # GRAPH ROOT at it (after main_window's own setup, which does not know it).
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(root)
     return dock, root
 
 
@@ -371,7 +397,11 @@ def test_reread_adds_to_the_root_and_creates_no_container(main_window, tmp_path,
     folding."""
     monkeypatch.setattr("kicadstamp.internode_capture.reread_report_lines",
                         lambda name, plan: [])
-    dock, _root = _dock_with(main_window, tmp_path, _copper_tree_nodes())
+    dock, root = _dock_with(main_window, tmp_path, _copper_tree_nodes())
+    # The write the re-read triggers needs the format-3 writer's ACTIVE GRAPH
+    # ROOT; the real product sets it in dock_hub on root_changed, a standalone
+    # TreesDock never does. Pin it to this cell's file.
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
     tree = dock._current_tree()
     _finish_reread(dock, ["new__a__b"])
 
@@ -392,7 +422,8 @@ def test_reread_uses_the_existing_container(main_window, tmp_path, monkeypatch):
         {"ref": "my_copper", "kind": "copper", "children": [
             {"ref": COPPER_REFS[1], "kind": "net_trace"}]},
     ]
-    dock, _root = _dock_with(main_window, tmp_path, nodes)
+    dock, root = _dock_with(main_window, tmp_path, nodes)
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
     tree = dock._current_tree()
     _finish_reread(dock, ["new__a__b"])
 

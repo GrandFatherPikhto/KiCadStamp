@@ -49,6 +49,7 @@ from PyQt6.QtWidgets import QDialog
 import gui.docks.create_entity as create_entity_mod
 from kicadstamp.config import load_config
 
+from tests.fakes.format3 import without_identity
 from tests.gui.create_entity_helpers import (
     RealCreateEntityDialog,
     accepted_real_form,
@@ -328,7 +329,10 @@ def test_a_second_entity_on_the_same_cell_with_another_cluster_is_created(
     assert sorted(names_of(root)) == ["e1", "e2"], (
         "вторая сущность на (my_cell, CH1) обязана создаться — ключ это ПАРА "
         "(мутация М5а); сейчас: " + repr(entities_of(root)))
-    assert {"name": "e2", "cell": "my_cell", "cluster": "CH1"} in entities_of(root)
+    # The entity's own uuid and its `cell_uuid` are the format-3 writer's; the
+    # subject is the (cell, cluster) pair that was written.
+    assert {"name": "e2", "cell": "my_cell", "cluster": "CH1"} \
+        in without_identity(entities_of(root))
 
 
 def test_a_second_entity_for_the_same_imprint_on_another_sheet_is_created(
@@ -356,8 +360,8 @@ def test_a_second_entity_for_the_same_imprint_on_another_sheet_is_created(
     assert sorted(names_of(root)) == ["e1", "e2"], (
         "вторая сущность на (amp, Channel_1) обязана создаться — ключ это "
         "ПАРА (мутация М5а); сейчас: " + repr(entities_of(root)))
-    assert {"name": "e2", "imprint": "amp",
-            "sheet": "Channel_1"} in entities_of(root)
+    assert {"name": "e2", "imprint": "amp", "sheet": "Channel_1"} \
+        in without_identity(entities_of(root))
 
 
 def test_a_blank_cluster_finds_any_entity_on_the_cell(
@@ -646,8 +650,8 @@ def test_a_typed_cluster_through_the_real_form_reaches_the_record(
 
     action.trigger()
 
-    assert entities_of(root) == [{"name": "my_cell", "cell": "my_cell",
-                                  "cluster": "CH1"}], (
+    assert without_identity(entities_of(root)) == [
+        {"name": "my_cell", "cell": "my_cell", "cluster": "CH1"}], (
         "то, что человек напечатал в поле Cluster, обязано доехать до записи "
         "как есть — иначе сущность нельзя клонировать по кластеру, и никто об "
         "этом не скажет; сейчас: " + repr(entities_of(root)))
@@ -677,8 +681,8 @@ def test_a_typed_sheet_through_the_real_form_reaches_the_record(
 
     action.trigger()
 
-    assert entities_of(root) == [{"name": "amp", "imprint": "amp",
-                                  "sheet": "Channel_1"}], (
+    assert without_identity(entities_of(root)) == [
+        {"name": "amp", "imprint": "amp", "sheet": "Channel_1"}], (
         "напечатанный лист обязан доехать до записи — это целевой лист "
         "twin-резолва, без него сущность клонируется не на тот лист; сейчас: "
         + repr(entities_of(root)))

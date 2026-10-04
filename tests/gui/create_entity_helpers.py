@@ -30,7 +30,11 @@ from kicadstamp.config_working_set import WORKING_SET
 # ── Конфиг в tmp_path ───────────────────────────────────────────────────
 
 def write_config(path, data) -> None:
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    # Author the fixture as FORMAT 2 (its grammar), explicitly: under the
+    # format-3 build the product LIFTS it on load (mints uuids), while a
+    # dict_to_sexp at the current format would write format-3 bytes with no
+    # uuid on the records and the load would refuse them.
+    path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
 
 
 def load_config_data(path) -> dict:
