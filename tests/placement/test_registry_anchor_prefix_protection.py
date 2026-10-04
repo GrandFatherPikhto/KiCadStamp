@@ -19,6 +19,7 @@ from kicadstamp.net_trace_planner import net_trace_anchor_id
 from kicadstamp.placement.services.clone_position_calculator import (
     clone_anchor_id,
     entity_anchor_id,
+    nested_anchor_id,
 )
 from kicadstamp.placement.services.manual_position_calculator import (
     chain_anchor_ids,
@@ -48,6 +49,10 @@ def _builder_anchor_ids():
     yield net_trace_anchor_id(SimpleNamespace(name="nt", net="N"))  # net:
     yield next(iter(chain_anchor_ids(                           # pad: (spoke)
         Chain(net="N", spokes=[ManualSpoke(pad="17", cell="c")]))))
+    # nested cell placement — "<outer>/<nested.name>"; the "/" must not change
+    # the protected prefix (У5.1б). A slash is legal in a cluster name (Р7).
+    yield nested_anchor_id(_one_clone(anchor_role="R"), "inner")           # role: + "/"
+    yield nested_anchor_id(entity_anchor_id(Entity(name="E", cell="c")), "inner")  # name: + "/"
 
 
 _ANCHOR_IDS = list(_builder_anchor_ids())

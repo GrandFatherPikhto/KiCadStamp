@@ -142,6 +142,54 @@ def entity_anchor_id(entity: "Entity") -> str:
     return f"name:{entity_effective_name(entity)}"
 
 
+def nested_anchor_id(anchor_id: str, nested_name: str) -> str:
+    """Registry anchor_id of ONE nested cell placement inside `anchor_id` — the
+    path-composed ``"<outer>/<nested.name>"`` (Phase 4 recursive cell).
+
+    ONE builder, shared by _resolve_one_level (which stamps the real registry
+    keys) and apply_pipeline._compute_all_anchor_ids (which must PROTECT those
+    same keys from an --only prune). Built by CONSTRUCTION, never by splitting a
+    key on "/": a slash is legal inside a cluster name (Р7 — e.g.
+    FPGA_PWR_BANK/VCCIO/139), which is also the `name:` fallback identity, so a
+    parse would be ambiguous."""
+    return f"{anchor_id}/{nested_name}"
+
+
+def anchor_ids_with_nested(anchor_id: str, cell_name: str | None, cells) -> set[str]:
+    """`anchor_id` PLUS the anchor_id of EVERY nested cell placement at every
+    depth: ``"<outer>/<nested.name>"``, then ``"<outer>/<nested.name>/<inner.name>"``
+    … — the SAME path composition _resolve_one_level recurses with.
+
+    Called by apply_pipeline._compute_all_anchor_ids: reconcile() matches an
+    anchor_id WHOLE, so a nested key absent from known_anchor_ids is pruned by
+    any --only run that excludes its placement — silently deleting the nested
+    cell's copper (same class as the point: bug fixed in У5.1). A `cell:`-name
+    reference recurses; a `role:`-only nested placement synthesises a
+    one-component cell (no nesting), so nothing deeper is needed.
+
+    A cycle (A -> B -> A) is SKIPPED, not raised: load_config rejects one
+    (check_no_cell_definition_cycles), and an in-memory cfg that still has one
+    cannot be applied anyway — the protection set only has to be a superset."""
+    out = {anchor_id}
+    if cell_name:
+        _collect_nested_anchor_ids(cell_name, anchor_id, cells, (), out)
+    return out
+
+
+def _collect_nested_anchor_ids(cell_name: str, prefix: str, cells, chain, out: set) -> None:
+    if cell_name in chain or not cells:
+        return
+    cell = cells.get(cell_name)
+    if cell is None:
+        return
+    chain = chain + (cell_name,)
+    for nested in (getattr(cell, "clone_placements", None) or ()):
+        nid = nested_anchor_id(prefix, nested.name)
+        out.add(nid)
+        if nested.cell is not None:
+            _collect_nested_anchor_ids(nested.cell, nid, cells, chain, out)
+
+
 class ClonePositionCalculator:
     def __init__(self, adapter: KiCadBoardAdapter, config: Config, sheet_names=None,
                  resolved_points=None):
@@ -511,7 +559,7 @@ class ClonePositionCalculator:
                 nested, nested_cell, nested_cell_name,
                 anchor_position=layout.origin,
                 parent_rotation_deg=world_rotation_deg,
-                anchor_id=f"{anchor_id}/{nested.name}",
+                anchor_id=nested_anchor_id(anchor_id, nested.name),
                 chain=chain + (nested_cell_name,),
             )
             components_result.extend(nc)

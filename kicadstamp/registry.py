@@ -68,8 +68,14 @@ _POSITION_TOLERANCE_MM = POSITION_TOLERANCE_MM
 # branch since 2026-08-06) lost its copper on any --only run. Guarded by
 # tests/placement/test_registry_anchor_prefix_protection.py, which enumerates
 # every builder's output.
-# (imprint: registry keys are built in imprint_apply.py and are NOT part of
-# known_anchor_ids at all — a separate recorded open item, not this list.)
+# (imprint: NOT in this list, and not a gap — imprint copper never reaches a
+# registry at all: execute_imprint_plans runs through BatchExecutor.execute with
+# registry=None (imprint_apply.py), so no `imprint:` record is ever stored and
+# prune has nothing to delete; imprint idempotency is positional. A stretch test
+# asserts the registry files stay untouched across an imprint execution — if
+# imprints ever DO start writing registry entries, that test fails and
+# `imprint:` must join both this constant and
+# apply_pipeline._compute_all_anchor_ids.)
 PROTECTED_ANCHOR_PREFIXES = ("anchor:", "role:", "name:", "point:",
                              "thermal:", "pad:", "net:")
 

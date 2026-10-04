@@ -31,6 +31,7 @@ from kicadstamp.imprint_apply import (
 from kicadstamp.tree_position import curated_redraw_plan
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
+from tests.fakes.live_board import FakeLiveBoardAdapter
 
 F = BoardLayer.BL_F_Cu
 
@@ -404,6 +405,48 @@ class TestExecutionIdempotency:
         plans = plan_all_imprints(adapter, _scheme_cfg(), {})
         failed = execute_imprint_plans(adapter, plans)
         assert failed == ([], [], [])
+
+
+def test_execute_imprint_plans_never_writes_a_registry(monkeypatch):
+    """Stretch (У5.1б, accept note 04.10): imprint copper never reaches a
+    registry. execute_imprint_plans runs through BatchExecutor.execute with
+    registry=None (imprint_apply.execute_imprint_plans), so no `imprint:`
+    record is ever stored — prune has nothing to delete, and `imprint:` is
+    deliberately absent from registry.PROTECTED_ANCHOR_PREFIXES.
+
+    If imprints ever DO start writing registry entries, THIS cell fails, and
+    `imprint:` must then join registry.PROTECTED_ANCHOR_PREFIXES AND
+    apply_pipeline._compute_all_anchor_ids."""
+    import kicadstamp.registry as registry_mod
+
+    registry_writes = []
+    monkeypatch.setattr(registry_mod, "save_registry",
+                        lambda *a, **k: registry_writes.append("vias"))
+    monkeypatch.setattr(registry_mod, "save_track_registry",
+                        lambda *a, **k: registry_writes.append("tracks"))
+    # self-check: the spies ARE the entry points a registry would write through
+    registry_mod.save_registry("x", {})
+    registry_mod.save_track_registry("x", {})
+    assert registry_writes == ["vias", "tracks"]
+    registry_writes.clear()
+
+    # U1 already stands at the E1 target (100,50) -> its move is filtered by
+    # positional idempotency; the via and the track are NEW and really execute
+    # through BatchExecutor (the copper path a registry would touch).
+    adapter = FakeLiveBoardAdapter(_fp("U1", 100, 50))
+    rec = _rec(
+        components=[_comp("U1", 0, 0, 0.0)],
+        vias=[ImprintViaRecord(offset_along_mm=10.0, drill_mm=0.3,
+                                   diameter_mm=0.6, net=CH0)],
+        tracks=[ImprintTrackRecord(start_along_mm=0.0, start_across_mm=0.0,
+                                       end_along_mm=10.0, end_across_mm=0.0,
+                                       width_mm=0.25, layer="F.Cu", net=CH0)],
+        source_sheet="Channel_0")
+    plan = plan_imprint(Entity(name="E1", imprint="psu", sheet=""), rec, adapter,
+                            Vector2.from_xy_mm(100, 50), 0.0)
+    failed = execute_imprint_plans(adapter, [plan], config=Config())
+    assert failed == ([], [], [])
+    assert registry_writes == [], f"imprint execution wrote a registry: {registry_writes}"
 
 
 def test_gui_redraw_plan_emits_imprint_node_not_dropped():

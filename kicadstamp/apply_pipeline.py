@@ -40,6 +40,7 @@ from .placement.dependency_order import resolve_execution_order
 from .placement.entity_placement import (materialize_component_nodes,
                                          materialize_entity_placements)
 from .placement.services.clone_position_calculator import (
+    anchor_ids_with_nested,
     clone_anchor_id,
     entity_anchor_id,
 )
@@ -414,13 +415,30 @@ def _component_node_names(cfg) -> set[str]:
 
 def _compute_all_anchor_ids(cfg) -> set[str]:
     """Build the FULL set of anchor IDs (before --only/--cluster narrow)
-    for registry.reconcile()'s known_anchor_ids protection."""
-    ids = {clone_anchor_id(c) for c in cfg.clone_placements if not c.retired}
+    for registry.reconcile()'s known_anchor_ids protection.
+
+    Each clone/entity contributes its OWN anchor_id AND every nested
+    "<outer>/<nested.name>" at every depth (anchor_ids_with_nested): reconcile()
+    matches an anchor_id WHOLE, so a nested key missing from this set is pruned
+    by any --only run that excludes its placement, silently deleting the nested
+    cell's copper (У5.1б — same class as the point: bug of У5.1; both product
+    bugs, no gate)."""
+    cells = cfg.cells
+    ids: set[str] = set()
+    for c in cfg.clone_placements:
+        if not c.retired:
+            ids |= anchor_ids_with_nested(clone_anchor_id(c), c.cell, cells)
     # entities: — registry protection by Entity.name (phase 3.1): an entity's
     # name: anchor id joins known_anchor_ids so a --only-filtered run never
-    # prunes copper belonging to an entity outside the selection. No physical
-    # vias/tracks exist yet (apply is Phase 4), so this is future-proofing.
-    ids |= {entity_anchor_id(e) for e in cfg.entities if not e.retired}
+    # prunes copper belonging to an entity outside the selection. The nested ids
+    # of the entity's own cell are protected through entity_anchor_id too:
+    # entity placements are materialized into transient clones of that same cell
+    # (entity_placement._to_clone, name=entity.name → clone_anchor_id ==
+    # entity_anchor_id), and this set is computed BEFORE materialization
+    # (ApplyPipeline._resolve_order), so it must come from cfg.entities here.
+    for e in cfg.entities:
+        if not e.retired:
+            ids |= anchor_ids_with_nested(entity_anchor_id(e), e.cell, cells)
     for c in cfg.chains:
         ids |= chain_anchor_ids(c)
     ids |= {thermal_anchor_id(t) for t in cfg.thermal_via_arrays if not t.retired}
