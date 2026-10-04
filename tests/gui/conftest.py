@@ -139,7 +139,7 @@ def _capture_dock_logs(caplog):
 
 @pytest.fixture(autouse=True)
 def _no_modal_message_boxes(monkeypatch):
-    """`QMessageBox.warning` / `.critical` FAIL LOUDLY instead of hanging.
+    """`QMessageBox.warning` / `.critical` / `.question` FAIL LOUDLY instead of hanging.
 
     У3.5 / К1 of plan_2026_10_02_uuid_format_2_to_3.md §7. У3.0 found the
     `node down` deaths of the format-3 run were not a crash: a cell that triggers
@@ -157,10 +157,12 @@ def _no_modal_message_boxes(monkeypatch):
     runs AFTER this autouse fixture (both are function-scoped; autouse fixtures
     are set up before the cell body), so its stand-in wins.
 
-    Only `warning` and `critical` are covered: those are the two kinds product
-    code opens for a refusal or an error (rule 43 bans them, the replacement with
-    a Log line is a separate task, not У3). `information` / `question` are left
-    alone — cells that exercise them patch them deliberately."""
+    `warning` and `critical` are the kinds product code opens for a refusal or an
+    error (rule 43 bans them; the replacement with a Log line is a separate task,
+    not У3). `question` is added because a confirmation box hangs the same way,
+    and a cell that reaches one with a broken config is exactly the silent hang
+    this guard exists to surface (Денис 04.10: `_cfg is None` -> `_base_pose` ->
+    `question`). `information` is left alone — no product path opens it."""
     def _refuse(kind):
         def _explode(*args, **kwargs):
             title = args[1] if len(args) > 1 else kwargs.get("title", "")
@@ -174,6 +176,7 @@ def _no_modal_message_boxes(monkeypatch):
 
     monkeypatch.setattr(QMessageBox, "warning", _refuse("warning"))
     monkeypatch.setattr(QMessageBox, "critical", _refuse("critical"))
+    monkeypatch.setattr(QMessageBox, "question", _refuse("question"))
 
 
 class _FakeConnection:

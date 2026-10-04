@@ -51,12 +51,18 @@ GRAMMAR_TREES = {
         {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
          "nodes": [
              {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
-              "children": [{"ref": "C_OUT", "xy": [1.0, 0]}]},
-             {"ref": "R_AROUND", "polar": [3.0, 45.0]},
+              "children": [{"ref": "C_OUT", "kind": "external", "xy": [1.0, 0]}]},
+             {"ref": "R_AROUND", "kind": "external", "polar": [3.0, 45.0]},
          ]},
         {"name": "misc", "anchor": {"origin": True},
-         "nodes": [{"ref": "R_DEBUG", "xy": [100.0, 50.0]}]},
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [100.0, 50.0]}]},
     ],
+    # У3.5 К3, row 1: the format-2 -> 3 converter refuses a node without a `kind`
+    # (Р-У3.3), and a `clone` node's ref must resolve to a clone_placements record
+    # (whose cell must resolve too) or the format-3 load is a dangling reference.
+    "cells": {"c_out_cell": {}},
+    "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
+                          "cell": "c_out_cell", "xy": [0.0, 0.0]}],
 }
 
 # A trees: section for the SAVE tests (which run _do_save's link_trees
@@ -84,7 +90,7 @@ def _children(item):
     return [item.child(i) for i in range(item.childCount())]
 
 
-def _dock_with(main_window, tmp_path, trees=None):
+def _dock_with(main_window, tmp_path, trees=None, expect_load_failure=False):
     """A TreesDock pointed at a root config (s-expr) carrying the given trees:
     section — the current way trees get into the dock (set_root_file, no
     Open/New of a .trees file anymore).
@@ -93,12 +99,23 @@ def _dock_with(main_window, tmp_path, trees=None):
     ``_module_dock``) call this TWICE on one ``tmp_path``, i.e. write the SAME
     `root.sexp` again, and the dock re-reads it through readers cached by
     ``(path, mtime_ns)`` — a second write landing on the same tick would be
-    invisible to them, which is the Windows class W2/Ф3.6."""
+    invisible to them, which is the Windows class W2/Ф3.6.
+
+    Денис 04.10: after ``set_root_file`` the config MUST be loaded — otherwise
+    ``_cfg`` is None and the cell cascades into confusing NoneType failures
+    (the dock logs 'Trees: root config failed to load: …' with the reason). So
+    this fails loudly here, naming that reason; a cell that WANTS a broken
+    config passes ``expect_load_failure=True``."""
     trees = trees if trees is not None else GRAMMAR_TREES
     root = tmp_path / "root.sexp"
     write_later(root, dict_to_sexp(trees, format_number=2))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
+    if not expect_load_failure:
+        assert dock._cfg is not None, (
+            "TreesDock._cfg is None after set_root_file — the root config failed "
+            "to load (see the 'Trees: root config failed to load:' Log line above "
+            "for the reason); pass expect_load_failure=True if that is intended")
     return dock, root
 
 
@@ -337,10 +354,14 @@ def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_windo
     assert "CONN_PM5V" in tops[0].text(0)
     nodes = _children(tops[0])
     assert len(nodes) == 2
+    # Every node kind is now EXPLICIT (the format-2 -> 3 converter needs it,
+    # Р-У3.3), and the dock shows the kind tag next to a ref whenever it is set
+    # (gui/docks/trees_dock.py:_KIND_TAGS) — so the child/polar nodes carry their
+    # "(external)" tag too.
     assert nodes[0].text(0) == "AMS1117_REG (clone)"
-    assert nodes[1].text(0) == "R_AROUND"
+    assert nodes[1].text(0) == "R_AROUND (external)"
     ams_children = _children(nodes[0])
-    assert [c.text(0) for c in ams_children] == ["C_OUT"]
+    assert [c.text(0) for c in ams_children] == ["C_OUT (external)"]
 
 
 # ── Static preview ────────────────────────────────────────────────────────
@@ -2043,8 +2064,10 @@ def test_add_mode_prefills_x_and_y_with_zero(main_window, tmp_path):
     assert dlg.offset_widget.radius_edit.text() == ""
     assert dlg.offset_widget.angle_edit.text() == ""
 
-    dlg.ref_combo.setCurrentText("at_origin")
+    # Set the KIND first: changing it repopulates the ref combo and clears a
+    # free-text ref, so the ref must be typed AFTER the kind.
     dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    dlg.ref_combo.setCurrentText("at_origin")
     node = dlg.build_node()
     assert node is not None
     assert node.xy == (0.0, 0.0)
@@ -2129,8 +2152,9 @@ def test_add_mode_ok_accepts_a_valid_form_and_hands_out_the_built_node(
                         lambda *a, **k: warnings.append(a) or None)
 
     def _fill(dlg, ref, x, y):
-        dlg.ref_combo.setCurrentText(ref)
+        # KIND before ref — changing the kind clears a free-text ref.
         dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+        dlg.ref_combo.setCurrentText(ref)
         dlg.offset_widget.x_edit.setText(x)
         dlg.offset_widget.y_edit.setText(y)
 
@@ -2241,6 +2265,7 @@ def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, 
 # board, so the tests run with a bare object() adapter.
 ANCHOR_POINT_CFG = {
     "points": {"Origin": {"xy": [10.0, 20.0]}},
+    "cells": {"t": {}},
     "clone_placements": [
         {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
          "anchor_point": "Origin"},
@@ -2255,6 +2280,7 @@ ANCHOR_POINT_CFG = {
 # so it CAN legitimately reference a clone+anchor_point record).
 ANCHOR_POINT_ANCHOR_CFG = {
     "points": {"Origin": {"xy": [10.0, 20.0]}},
+    "cells": {"t": {}},
     "clone_placements": [
         {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
          "anchor_point": "Origin"},
@@ -2262,7 +2288,7 @@ ANCHOR_POINT_ANCHOR_CFG = {
     ],
     "trees": [
         {"name": "t1", "anchor": {"ref": "CL_AP"},
-         "nodes": [{"ref": "CL_OK"}]},
+         "nodes": [{"ref": "CL_OK", "kind": "clone"}]},
     ],
 }
 
@@ -2275,6 +2301,7 @@ ANCHOR_POINT_ANCHOR_CFG = {
 # resolve.md). Before that plan the placement branch artificially refused ANY
 # Entity parent (the old crash-plan AssertionError -> ValidationError).
 ENTITY_PARENT_CFG = {
+    "cells": {"c": {}},
     "entities": [
         {"name": "ENT_A", "cell": "c"},
         {"name": "ENT_B", "cell": "c"},
@@ -2293,6 +2320,7 @@ ENTITY_PARENT_CFG = {
 # "not placed in any tree" text as a warning (fields untouched), never a silent
 # guess or a crash.
 UNPLACED_ENTITY_PARENT_CFG = {
+    "cells": {"c": {}, "t": {}},
     "entities": [
         {"name": "ENT_A", "cell": "c"},
     ],
@@ -2301,7 +2329,7 @@ UNPLACED_ENTITY_PARENT_CFG = {
     ],
     "trees": [
         {"name": "t1", "anchor": {"ref": "ENT_A"},
-         "nodes": [{"ref": "CL_X"}]},
+         "nodes": [{"ref": "CL_X", "kind": "clone"}]},
     ],
 }
 
@@ -2317,6 +2345,7 @@ ZERO_SLOT_ENTITY_CFG = {
     ],
     "cells": {
         "f": {"components": [{"role": "FPGA"}]},
+        "c": {},
     },
     "trees": [
         {"name": "t1", "anchor": {"origin": True},
@@ -2511,6 +2540,7 @@ def test_node_dialog_read_position_unplaced_entity_child_zero_slot_resolves(
 # being read. The read is a passive live-board lookup, not a config-computed
 # position, so it must resolve regardless.
 DENIS_CFG = {
+    "cells": {"dac_buf": {}},
     "clone_placements": [
         {"name": "CH0_DAC_BUF", "cluster": "DAC_BUF", "cell": "dac_buf",
          "xy": [0.0, 25.0], "anchor_role": "FPGA", "anchor_sheet": "FPGA",
@@ -2583,6 +2613,7 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
 # collision between sections (SHARED exists as BOTH a clone and a rule) — the
 # case the node dialog's auto mode must show prefixed ({kind}:{name}).
 KIND_FILTER_CFG = {
+    "cells": {"t": {}},
     "clone_placements": [
         {"name": "CL_A", "cluster": "c", "cell": "t", "xy": [1.0, 2.0]},
         {"name": "SHARED", "cluster": "c2", "cell": "t", "xy": [3.0, 4.0]},
@@ -2835,7 +2866,7 @@ MODULE_TREES = {
         # inner point lives on the EMBEDDED TREE now, not on the module node.
         {"name": "ch0_dac_buf", "anchor": {"origin": True},
          "pivot_xy": [1.0, 2.0],
-         "nodes": [{"ref": "D0", "xy": [0.0, 0.0]}]},
+         "nodes": [{"ref": "D0", "kind": "external", "xy": [0.0, 0.0]}]},
         {"name": "dac_x", "anchor": {"origin": True}, "nodes": []},
     ],
 }
@@ -2982,6 +3013,7 @@ def test_node_dialog_module_prefill_round_trips_the_marker_offset(main_window, t
 #   wrap  -> dac_tpl         (embeds the TEMPLATE: the chain
 #                             wrap -> dac_tpl -> ch1_dac_buf)
 SELF_EMBED_CFG = {
+    "cells": {"c1": {}},
     "entities": [{"name": "N1", "cell": "c1"}],
     "trees": [
         {"name": "dac_tpl", "anchor": {"role": "R", "sheet": "Channel_0"},
@@ -3436,6 +3468,7 @@ def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
 # ── tree_instances: read-only + save protection (2026-09-02, P1/F3) ────────
 
 INSTANCE_CFG = {
+    "cells": {"c_dac": {}, "c_pif": {}},
     "entities": [
         {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
         {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
@@ -4137,7 +4170,14 @@ def test_context_menu_on_copper_node_offers_redraw(main_window, tmp_path, monkey
     trees = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
         {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0]},
         {"ref": "2v5_oa__dac_buf__pif_oa_n2v5", "kind": "net_trace"},
-    ]}]}
+    ]}],
+        # У3.5 К3, row 1: the format-3 load resolves every node ref, so the
+        # clone and the net_trace records must exist.
+        "cells": {"c": {}},
+        "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
+                              "cell": "c", "xy": [0.0, 0.0]}],
+        "net_traces": [{"name": "2v5_oa__dac_buf__pif_oa_n2v5", "net": "N",
+                        "anchor_role": "FPGA", "anchor_pad": "1"}]}
     dock, _root = _dock_with(main_window, tmp_path, trees)
     tree_widget = dock._current_tree_widget()
     copper_item = dock._node_items["2v5_oa__dac_buf__pif_oa_n2v5"]
@@ -4491,6 +4531,7 @@ LIVE_CLUSTER_CFG = {
 # idempotency test — the base is MOCKED there, so the records only need to
 # resolve by name/kind.
 REREAD_ROT_CFG = {
+    "cells": {"t": {}},
     "clone_placements": [
         {"name": "PARENT", "cluster": "c", "cell": "t", "xy": [0.0, 0.0]},
         {"name": "CHILD", "cluster": "c", "cell": "t", "xy": [3.0, 2.0]},
@@ -5351,6 +5392,8 @@ MOUNT_INTERNAL_CFG = {
     "cells": {"t": {"components": [{"role": "FPGA", "offset_along_mm": 0.0,
                                     "offset_across_mm": 0.0,
                                     "angle_deg": 0.0}]}},
+    "clone_placements": [{"name": "CL_CHILD", "cluster": "DAC_BUF", "cell": "t",
+                          "xy": [2.0, -1.0]}],
     "entities": [{"name": "ENT_A", "cell": "t", "cluster": "CL"}],
     "trees": [
         {"name": "t1", "anchor": {"origin": True},

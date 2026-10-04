@@ -39,7 +39,10 @@ def _template_data(instances, entity_sheet=None, anchor=None,
     main_cluster = uniform_cluster if uniform_cluster is not None else "DAC_BUF"
     sub_cluster = uniform_cluster if uniform_cluster is not None else "PIF_AVDD"
     return {
-        "cells": {},
+        # У3.5 К3, row 2: the entities reference these cells, and a format-3
+        # load resolves every reference (the cells used to be absent — the
+        # template only ever needed the tree SHAPE).
+        "cells": {"c_dac": {}, "c_pif": {}},
         "entities": [
             {"name": "dac_buf", "cell": "c_dac", "cluster": main_cluster},
             {"name": "pif_avdd", "cell": "c_pif", "cluster": sub_cluster,
