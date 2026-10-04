@@ -28,6 +28,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_writer import append_tree_child_node
 from kicadstamp.config import load_config
 from kicadstamp.link_trees import link_trees
+from tests.fakes.format3 import without_identity
 
 
 def _write(path: Path, data: dict) -> None:
@@ -94,7 +95,12 @@ def _placement_node(ref, x=1.0, y=2.0, rotation=None):
 class TestAppendTreeChildNode:
     def test_top_level_parent_none_appends_to_tree_nodes(self, tmp_path):
         path = tmp_path / "root.sexp"
-        _write(path, {"trees": [
+        # У3.5 К3, row 7: every placement node ref needs its entities record
+        # (a format-3 load resolves references); the appended E1 too.
+        _write(path, {"cells": {"c": {}},
+                      "entities": [{"name": "PARENT", "cell": "c"},
+                                   {"name": "E1", "cell": "c"}],
+                      "trees": [
             {"name": "main", "anchor": {"origin": True},
              "nodes": [{"ref": "PARENT", "kind": "placement", "xy": [0.0, 0.0]}]},
         ]})
@@ -108,7 +114,10 @@ class TestAppendTreeChildNode:
 
     def test_child_by_ref_appends_to_parent_children(self, tmp_path):
         path = tmp_path / "root.sexp"
-        _write(path, {"trees": [
+        _write(path, {"cells": {"c": {}},
+                      "entities": [{"name": "PARENT", "cell": "c"},
+                                   {"name": "E1", "cell": "c"}],
+                      "trees": [
             {"name": "main", "anchor": {"origin": True},
              "nodes": [{"ref": "PARENT", "kind": "placement", "xy": [0.0, 0.0]}]},
         ]})
@@ -126,7 +135,11 @@ class TestAppendTreeChildNode:
 
     def test_child_under_deeply_nested_parent(self, tmp_path):
         path = tmp_path / "root.sexp"
-        _write(path, {"trees": [
+        _write(path, {"cells": {"c": {}},
+                      "entities": [{"name": "GP", "cell": "c"},
+                                   {"name": "PARENT", "cell": "c"},
+                                   {"name": "E1", "cell": "c"}],
+                      "trees": [
             {"name": "main", "anchor": {"origin": True},
              "nodes": [{"ref": "GP", "kind": "placement", "xy": [0.0, 0.0],
                         "children": [{"ref": "PARENT", "kind": "placement",
@@ -164,15 +177,22 @@ class TestAppendTreeChildNode:
     def test_preserves_other_trees_and_root_keys(self, tmp_path):
         path = tmp_path / "root.sexp"
         _write(path, {
+            "cells": {"c": {}},
+            "imprints": [_scheme_record_dict()],
             "trees": [
                 {"name": "keep", "anchor": {"origin": True},
                  "nodes": [{"ref": "OTHER", "kind": "placement", "xy": [1.0, 1.0]}]},
             ],
-            "entities": [{"name": "E0", "imprint": "psu"}],
+            "entities": [{"name": "E0", "imprint": "psu"},
+                         {"name": "OTHER", "cell": "c"},
+                         {"name": "E1", "cell": "c"}],
         })
         append_tree_child_node(path, "keep", None, _placement_node("E1"))
         data = _load(path)
-        assert data["entities"] == [{"name": "E0", "imprint": "psu"}]
+        # the OTHER key (entities) survives; compare its shape without the uuid
+        # the format-3 write stamps.
+        e0 = [e for e in data["entities"] if e["name"] == "E0"]
+        assert without_identity(e0) == [{"name": "E0", "imprint": "psu"}]
         assert len(data["trees"]) == 1
         _, other = _find_node(data["trees"][0], "OTHER")
         assert other["xy"] == [1.0, 1.0]
@@ -180,7 +200,9 @@ class TestAppendTreeChildNode:
     def test_identical_node_is_noop(self, tmp_path):
         path = tmp_path / "root.sexp"
         node = _placement_node("E1")
-        _write(path, {"trees": [
+        _write(path, {"cells": {"c": {}},
+                      "entities": [{"name": "E1", "cell": "c"}],
+                      "trees": [
             {"name": "main", "anchor": {"origin": True}, "nodes": [node]},
         ]})
         changed = append_tree_child_node(path, "main", None, dict(node))
@@ -212,6 +234,7 @@ class TestImprintEntityRoundTrip:
         # pre-existing placement node too (a placement ref always resolves).
         root.write_text(dict_to_sexp({
             "imprints": [_scheme_record_dict()],
+            "cells": {"c_parent": {}},
             "entities": [
                 {"name": "PARENT", "cell": "c_parent"},
                 build_imprint_entity("PSU_CH0", "psu", "Channel_0"),

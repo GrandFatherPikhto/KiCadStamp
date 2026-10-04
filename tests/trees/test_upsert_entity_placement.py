@@ -11,6 +11,7 @@ import pytest
 
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_writer import upsert_entity_placement
+from tests.fakes.format3 import without_identity
 
 
 def _write(path: Path, data: dict) -> None:
@@ -40,19 +41,29 @@ def _find(trees, ref):
     return None, None
 
 
+# У3.5 К3, row 7: a format-3 load resolves EVERY reference, so the tree nodes
+# and anchors below need their target records present. The records are the
+# "source data" the cells always MEANT; the template only ever exercised the
+# tree SHAPE, so they were absent. `without_identity` drops the uuid the writer
+# stamps (the subject here is the node writer, never the uuid).
+_CELLS = {"c": {}}
+
+
 def test_creates_a_new_origin_tree_when_none_matches(tmp_path):
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": []})
+    _write(path, {"trees": [], "cells": _CELLS,
+                  "entities": [{"name": "E1", "cell": "c"}]})
     changed = upsert_entity_placement(path, "E1", {"mode": "xy", "x": 5.0, "y": 2.0})
     assert changed is True
     tree, node = _find(_load(path)["trees"], "E1")
     assert tree["anchor"] == {"origin": True}
-    assert node == {"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}
+    assert without_identity(node) == {"ref": "E1", "kind": "placement", "xy": [5.0, 2.0]}
 
 
 def test_updates_existing_node_in_place(tmp_path):
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": [
+    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
+                  "trees": [
         {"name": "flat", "anchor": {"origin": True},
          "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 1.0]}]},
     ]})
@@ -66,7 +77,8 @@ def test_updates_existing_node_in_place(tmp_path):
 
 def test_moves_node_when_anchor_changes(tmp_path):
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": [
+    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
+                  "points": {"P1": {}}, "trees": [
         {"name": "flat", "anchor": {"origin": True},
          "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 1.0]}]},
     ]})
@@ -75,7 +87,7 @@ def test_moves_node_when_anchor_changes(tmp_path):
                              "shift_x": 0.0, "shift_y": 0.0})
     trees = _load(path)["trees"]
     tree, node = _find(trees, "E1")
-    assert tree["anchor"] == {"point": "P1"}
+    assert without_identity(tree["anchor"]) == {"point": "P1"}
     assert node["xy"] == [0.0, 0.0]
     # exactly one tree holds E1 — the origin tree no longer does
     holding = [t for t in trees if _find([t], "E1")[1] is not None]
@@ -85,15 +97,21 @@ def test_moves_node_when_anchor_changes(tmp_path):
 def test_preserves_other_trees_nodes_and_root_keys(tmp_path):
     path = tmp_path / "root.sexp"
     _write(path, {
+        "cells": _CELLS,
+        "entities": [{"name": "E1", "cell": "c"}, {"name": "OTHER", "cell": "c"}],
         "trees": [
             {"name": "keep", "anchor": {"origin": True},
              "nodes": [{"ref": "OTHER", "kind": "placement", "xy": [1.0, 1.0]}]},
         ],
-        "entities": [{"name": "E1", "cell": "c"}],
     })
     upsert_entity_placement(path, "E1", {"mode": "xy", "x": 0.0, "y": 0.0})
     data = _load(path)
-    assert data["entities"] == [{"name": "E1", "cell": "c"}]  # other keys preserved
+    # other keys preserved (E1 and OTHER both need an entity record so the
+    # format-3 write can resolve their tree nodes)
+    names = {e["name"] for e in data["entities"]}
+    assert names == {"E1", "OTHER"}
+    assert without_identity([e for e in data["entities"] if e["name"] == "E1"]) \
+        == [{"name": "E1", "cell": "c"}]
     # E1 shares the EXISTING (origin)-anchored "keep" tree (matching anchor —
     # no duplicate tree), while OTHER's own node is untouched.
     assert len(data["trees"]) == 1
@@ -106,7 +124,8 @@ def test_preserves_other_trees_nodes_and_root_keys(tmp_path):
 
 def test_rotation_and_polar_are_written(tmp_path):
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": []})
+    _write(path, {"trees": [], "cells": _CELLS,
+                  "entities": [{"name": "E1", "cell": "c"}]})
     upsert_entity_placement(path, "E1", {"mode": "xy", "radius": 3.0, "angle": 45.0},
                             rotation=90.0)
     _, node = _find(_load(path)["trees"], "E1")
@@ -116,7 +135,8 @@ def test_rotation_and_polar_are_written(tmp_path):
 
 def test_role_anchor_with_narrowing_fields(tmp_path):
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": []})
+    _write(path, {"trees": [], "cells": _CELLS,
+                  "entities": [{"name": "E1", "cell": "c"}]})
     upsert_entity_placement(
         path, "E1",
         {"mode": "anchor", "role": "FPGA", "sheet": "Channel_0", "cluster": "CH0",
@@ -142,7 +162,10 @@ def test_moves_nested_node_to_matching_anchor_tree(tmp_path):
     "already has a node elsewhere" fatal. A nested Entity must be moved
     cleanly out of its parent to the matching-anchor tree, no fatal."""
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": [
+    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
+                  "clone_placements": [{"name": "PARENT", "cluster": "PARENT",
+                                        "cell": "c"}],
+                  "trees": [
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [{"ref": "PARENT", "kind": "clone", "xy": [0.0, 0.0],
                     "children": [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}]}]},
@@ -162,7 +185,11 @@ def test_removes_deeply_nested_node(tmp_path):
     """Two levels of nesting: the recursive prune must walk node.children on
     every level, not just the tree's own nodes list."""
     path = tmp_path / "root.sexp"
-    _write(path, {"trees": [
+    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
+                  "clone_placements": [{"name": "GP", "cluster": "GP", "cell": "c"},
+                                       {"name": "PARENT", "cluster": "PARENT",
+                                        "cell": "c"}],
+                  "trees": [
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [{"ref": "GP", "kind": "clone", "xy": [0.0, 0.0],
                     "children": [{"ref": "PARENT", "kind": "clone", "xy": [1.0, 1.0],

@@ -30,7 +30,8 @@ MINIMAL_SEXP = """\
       (layer "B.Cu")
       (components
         (component (role "DAC_BUF") (offset_along_mm 1.0)
-                   (offset_across_mm 0.0) (angle_deg 0.0))))))
+                   (offset_across_mm 0.0) (angle_deg 0.0))))
+    (cell "fpga_pwr_bank")))
 """
 
 MINIMAL_YAML = """\
@@ -85,17 +86,24 @@ def test_sexp_profile_loads(tmp_path):
 def test_sexp_include_graph(tmp_path):
     """An include: graph written in .sexp resolves the same way as YAML: the
     root includes sub.sexp and both load into one merged Config."""
+    # У3.5 К3, row 7: an unnamed rule in EACH file makes the 2->3 converter
+    # mint the SAME name (chain_001) in both, which the include merge fatals on;
+    # a format-3 record needs a name, so the source gives one. The cells record
+    # the spokes reference is added too.
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "rules": [
-            {"net": "+1V2_VCCINT", "anchor_role": "FPGA",
+            {"name": "+1V2_VCCINT_rule", "net": "+1V2_VCCINT",
+             "anchor_role": "FPGA",
              "spokes": [{"pad": "5", "cell": "fpga_pwr_bank",
                          "shift_x_mm": 1.2, "shift_y_mm": 2.0}]},
         ],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "layer": "B.Cu",
+        "cells": {"fpga_pwr_bank": {}},
         "rules": [
-            {"net": "+3V3_VCCIO", "anchor_role": "FPGA",
+            {"name": "+3V3_VCCIO_rule", "net": "+3V3_VCCIO",
+             "anchor_role": "FPGA",
              "spokes": [{"pad": "17", "cell": "fpga_pwr_bank",
                          "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},
         ],
@@ -113,12 +121,13 @@ def test_mixed_include_graph_sexp_json(tmp_path):
     2026-08-28, so a mixed graph mixes only the two supported formats)."""
     import json
     _write(tmp_path, "sub.json", json.dumps({
-        "clone_placements": [{"cluster": "CH0", "cell": "dac_buf",
+        "clone_placements": [{"name": "CH0", "cluster": "CH0", "cell": "dac_buf",
                               "xy": [0.0, 0.0]}],
     }))
     _write(tmp_path, "root.sexp", dict_to_sexp({
+        "cells": {"dac_buf": {}},
         "clone_placements": [
-            {"cluster": "ROOT", "cell": "dac_buf", "xy": [1.0, 1.0]},
+            {"name": "ROOT", "cluster": "ROOT", "cell": "dac_buf", "xy": [1.0, 1.0]},
         ],
         "include": ["sub.json"],
     }, format_number=2))

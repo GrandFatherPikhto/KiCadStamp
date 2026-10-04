@@ -45,6 +45,25 @@ def identity_value(name: str, uuid: str | None) -> str:
     return uuid if current_format() >= 3 else name
 
 
+def without_identity(value):
+    """Deep copy with every uuid / ``*_uuid`` key and the ``folders`` table
+    dropped (У3.5 К3, row 8 helper).
+
+    A cell whose SUBJECT is NOT the uuid still reads back a written graph, which
+    under format 3 carries a ``uuid`` on every §0 record and a ``*_uuid`` sibling
+    on every reference. This lets such a cell compare the SHAPE it cares about
+    without pinning ``CURRENT_FORMAT``; under format 2 the drop is a no-op, so one
+    cell body passes under both formats. Rule 35: use it ONLY where the uuid is
+    not what the cell is about — a cell about the uuid itself must see it.
+    """
+    if isinstance(value, dict):
+        return {k: without_identity(v) for k, v in value.items()
+                if k != "folders" and k != "uuid" and not k.endswith("_uuid")}
+    if isinstance(value, list):
+        return [without_identity(v) for v in value]
+    return value
+
+
 def stamp_config(cfg):
     """Assign `det_uuid` to every §0 record of a Config that has none.
 

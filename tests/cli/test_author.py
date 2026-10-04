@@ -245,6 +245,7 @@ class TestDumpTemplate:
         """Unlike cmd_extract's merge-into-existing behaviour, dump_template
         always overwrites — a script regenerating its own dedicated file
         should get a clean result, not accumulate stale entries."""
+        from tests.fakes.format3 import without_identity
         out = tmp_path / "cell.sexp"
         dump_template({"old_name": {"components": []}}, str(out))
         dump_template({"new_name": {"components": []}}, str(out))
@@ -252,7 +253,9 @@ class TestDumpTemplate:
         loaded = sexp_to_dict(out.read_text(encoding="utf-8"))
         # default-stripped canonical form (empty components: [] is omitted by the
         # s-expr writer) — the important invariant is overwrite, not accumulate.
-        assert loaded == {"cells": {"new_name": {}}}
+        # У3.5 К3, row 7: the format-3 write stamps a uuid on the record; the
+        # subject here is overwrite-vs-accumulate, so compare without it.
+        assert without_identity(loaded) == {"cells": {"new_name": {}}}
 
 
 @pytest.fixture(autouse=True)
