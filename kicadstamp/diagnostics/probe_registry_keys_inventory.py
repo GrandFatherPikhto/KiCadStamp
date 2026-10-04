@@ -119,6 +119,11 @@ def report(root: Path) -> None:
     print(f"  root: {config.name}")
     cfg = _config_of(config)
     by_section, kind = _identities(cfg)
+    # PART 2 of the key — template_name (accept note 04.10). Per Р-У5.1 it also
+    # moves to a UUID (the cell name / net-trace identity), and it is present on
+    # every key, including the pad: ones the anchor_id check calls "physics".
+    cell_names = set(cfg.cells or {})
+    net_trace_names = {net_trace_effective_name(nt) for nt in (cfg.net_traces or [])}
 
     for label, reg_path in (("vias", root / "registry" / "config.registry.json"),
                             ("tracks", root / "tracks" / "config.tracks.registry.json")):
@@ -161,6 +166,38 @@ def report(root: Path) -> None:
               f"ambiguous {ambiguous} | orphans {orphans}")
         if ex_orphans:
             print(f"    orphan sample: {ex_orphans}")
+
+        # template_name (parts[1]) — cells / net_traces / the literal
+        # "thermal_via_array" (via_planner.py:303); orphan and ambiguous counted
+        # the same way as the anchor_id part. Expected: orphans 0, else STOP.
+        tm_cells = tm_net_traces = tm_literal = tm_ambiguous = tm_orphans = 0
+        tm_examples = []
+        for key in entries:
+            parts = key.split("|")
+            if len(parts) < 2:
+                continue
+            tm_name = parts[1]
+            if _anchor_form(parts[0]) == "thermal":
+                tm_literal += 1
+                continue
+            in_cells = tm_name in cell_names
+            in_nt = tm_name in net_trace_names
+            hits = int(in_cells) + int(in_nt)
+            if hits > 1:
+                tm_ambiguous += 1
+            elif in_nt:
+                tm_net_traces += 1
+            elif in_cells:
+                tm_cells += 1
+            else:
+                tm_orphans += 1
+                if len(tm_examples) < 5:
+                    tm_examples.append(tm_name)
+        print(f"    template_name: cells {tm_cells} | net_traces {tm_net_traces} | "
+              f"literal 'thermal_via_array' {tm_literal} | ambiguous {tm_ambiguous} | "
+              f"orphans {tm_orphans}")
+        if tm_examples:
+            print(f"    template_name orphan sample: {tm_examples}")
 
 
 def main(argv):
