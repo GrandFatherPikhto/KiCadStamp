@@ -155,18 +155,17 @@ class TestFindHardcodedNetTemplates:
         cfg, _ctx = load_config(str(path))
         assert find_hardcoded_net_templates(cfg) == []
 
-    def test_dangling_cell_reference_skipped(self, tmp_path):
-        """Defensive: an Entity whose cell name is NOT in cfg.cells (dangling
-        ref, caught by validation elsewhere) must not crash the audit and is
-        simply not reported — there is no Cell data to inspect."""
-        path = _write(tmp_path / "cfg.sexp", {
-            "cells": {},
-            "entities": [
-                {"name": "e0", "cell": "no_such_cell", "sheet": "Channel_0"},
-                {"name": "e1", "cell": "no_such_cell", "sheet": "Channel_1"},
-            ],
-        })
-        cfg, _ctx = load_config(str(path))
+    def test_dangling_cell_reference_skipped(self):
+        """Defensive: an Entity whose cell name is NOT in cfg.cells must not
+        crash the audit and is simply not reported — there is no Cell data to
+        inspect. Under the format-3 gate such a config can no longer be LOADED
+        (the load-time graph check refuses a dangling reference), so the invalid
+        state is built in memory; the audit's own branch is the subject here."""
+        from kicadstamp.config import Config, Entity
+        cfg = Config(cells={}, entities=[
+            Entity(name="e0", cell="no_such_cell", sheet="Channel_0"),
+            Entity(name="e1", cell="no_such_cell", sheet="Channel_1"),
+        ])
         assert find_hardcoded_net_templates(cfg) == []
 
 

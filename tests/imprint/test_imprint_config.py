@@ -328,8 +328,10 @@ def test_config_duplicate_imprint_name_fatal(tmp_path: Path):
         ],
     })
     # same name, disjoint refs (so this isolates the name check from the
-    # cross-record ref-uniqueness check below)
-    with pytest.raises(ValidationError, match="duplicate name"):
+    # cross-record ref-uniqueness check below). Refusal check: format 2
+    # "duplicate name", format 3 "duplicate full name".
+    with pytest.raises(ValidationError,
+                       match="duplicate name|duplicate full name"):
         load_config(str(main))
 
 
@@ -367,5 +369,8 @@ def test_entity_imprint_must_reference_existing_record(tmp_path: Path):
     main = _write_json(tmp_path / "cfg.json", {
         "entities": [{"name": "E1", "imprint": "missing"}],
     })
-    with pytest.raises(ValidationError, match="missing imprints entry"):
+    # Refusal check: format 2 "missing imprints entry", format 3 the dangling
+    # reference UUID ("not in imprints").
+    with pytest.raises(ValidationError,
+                       match="missing imprints entry|not in imprints"):
         load_config(str(main))

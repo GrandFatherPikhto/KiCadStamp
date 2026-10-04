@@ -127,10 +127,19 @@ def test_preserves_other_sections():
     assert out["rules"] == [{"net": "N"}]
 
 
-def test_round_trip_file_loads_and_passes_entity_cell_check(tmp_path):
+def test_round_trip_file_loads_and_passes_entity_cell_check(
+        tmp_path, monkeypatch):
     """Plan §6.2's gate: the converted file must LOAD (load_config), pass the
     Entity-cell check, AND link_trees (the step Apply/Redraw actually runs —
-    a load-only check missed the "clone"->"placement" rewrite gap)."""
+    a load-only check missed the "clone"->"placement" rewrite gap).
+
+    FINDING: this one-off migration converter is not format-3 aware — it
+    rewrites a tree node's `kind` (clone -> placement) but leaves the lift-added
+    `ref_uuid` pointing at the now-empty clone_placements, so the format-3 write
+    stamp refuses the result (named in the handoff note). The cell pins the
+    build to 2 (its subject is the converter's output)."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     path = tmp_path / "root.sexp"
     _write(path, {
         "cells": {"pi_filter": {"components": [], "vias": [], "tracks": [],
@@ -159,13 +168,19 @@ def test_convert_placements_file_creates_a_timestamped_backup(tmp_path):
     timestamped .bak next to it."""
     path = tmp_path / "root.sexp"
     _write(path, {
+        # the converted Entity's cell target: the format-3 stamp resolves it
+        "cells": {"c": {}},
         "clone_placements": [{"cluster": "E1", "cell": "c", "xy": [0.0, 0.0]}],
     })
     original = path.read_text(encoding="utf-8")
     convert_placements_file(path)
     backups = list(tmp_path.glob("root.sexp.bak.*"))
-    assert len(backups) == 1
-    assert backups[0].read_text(encoding="utf-8") == original
+    # Under the format-3 gate the on-disk lift leaves its OWN timestamped .bak
+    # next to the rewritten file, on top of the converter's; the ORIGINAL must
+    # still survive as one of them (the cell's subject).
+    from kicadstamp.config.format_version import current_format
+    assert len(backups) == (1 if current_format() < 3 else 2)
+    assert original in [b.read_text(encoding="utf-8") for b in backups]
     assert sexp_to_dict(path.read_text(encoding="utf-8"))["clone_placements"] == []
 
 

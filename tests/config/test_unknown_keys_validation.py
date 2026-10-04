@@ -53,9 +53,14 @@ class TestManualSpokeUnknownKeys:
         key before the loader runs, so keep this coverage on JSON."""
         config_file = _write(tmp_path, "test.json", {
             "layer": "B.Cu",
-            "cells": {},
-            "rules": [{
-                "net": "+3V3_VCCIO", "anchor_role": "FPGA",
+            "cells": {"t": {}},
+            # Canonical `chains` (not the legacy `rules`): under format 3 a JSON
+            # legacy-key record is not visited by the lift and reaches the graph
+            # check without a uuid, which would preempt the unknown-key check.
+            # The section key is irrelevant to this cell's subject (the spoke
+            # suggestion), so the canonical key is used.
+            "chains": [{
+                "name": "r1", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
                 "spokes": [{"pad": "17", "cell": "t", "retierd": False}],
             }],
         })
@@ -65,9 +70,10 @@ class TestManualSpokeUnknownKeys:
     def test_all_known_spoke_fields_load_fine(self, tmp_path):
         config_file = _write(tmp_path, "test.sexp", {
             "layer": "B.Cu",
-            "cells": {},
+            # The spoke's cell target: a format-3 load resolves the reference.
+            "cells": {"t": {}},
             "rules": [{
-                "net": "+3V3_VCCIO", "anchor_role": "FPGA",
+                "name": "r1", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
                 "spokes": [{
                     "pad": "17", "cell": "t",
                     "shift_x_mm": 1.0, "shift_y_mm": -1.0,

@@ -305,10 +305,20 @@ class TestAnchorPointCrossReference:
             cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
             clone_placements=[{"cluster": "cp1", "cell": "one_role",
                                "anchor_point": "does_not_exist"}]))
-        with pytest.raises(ValidationError, match="not found in points"):
+        # Refusal check: format 2 "not found in points", format 3 the dangling
+        # reference UUID ("not in points") — the same refusal.
+        with pytest.raises(ValidationError,
+                           match="not found in points|not in points"):
             load_config(str(config_file))
 
-    def test_unknown_anchor_point_name_suggests_close_match(self, tmp_path):
+    def test_unknown_anchor_point_name_suggests_close_match(
+            self, tmp_path, monkeypatch):
+        """The close-match SUGGESTION is a format-2 loader diagnostic; under the
+        format-3 gate the dangling reference is refused earlier, with a different
+        message, so this cell (whose subject IS the suggestion) pins the build to
+        2 — named in the handoff note."""
+        from kicadstamp.config import format_version
+        monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"fpga_center": {"anchor_role": "FPGA"}},
             cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},

@@ -23,13 +23,17 @@ def _write(tmp_path, name, data) -> Path:
 
 
 def test_include_merges_clone_placements_and_rules(tmp_path):
+    # Explicit names: under format 3 a nameless record is minted a name on lift,
+    # so two nameless records across files would collide on the minted name.
     _write(tmp_path, "sub.sexp", {**MINIMAL, "clone_placements": [
-        {"cluster": "from_sub", "cell": "one_role", "xy": [1.0, 2.0]}]})
+        {"name": "from_sub", "cluster": "from_sub", "cell": "one_role",
+         "xy": [1.0, 2.0]}]})
 
     root = _write(tmp_path, "root.sexp", {
         "include": ["sub.sexp"],
         "clone_placements": [
-            {"cluster": "from_root", "cell": "one_role", "xy": [0.0, 0.0]}]})
+            {"name": "from_root", "cluster": "from_root", "cell": "one_role",
+             "xy": [0.0, 0.0]}]})
 
     cfg, _ = load_config(str(root))
     names = {cp.cluster for cp in cfg.clone_placements}
@@ -58,14 +62,14 @@ def test_include_merges_thermal_via_arrays(tmp_path):
 
 def test_include_merges_coordinate_placements(tmp_path):
     _write(tmp_path, "sub.sexp", {"coordinate_placements": [
-        {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 1.0, "y_mm": 2.0,
-         "rotation_deg": 0.0}]})
+        {"name": "FPGA_PERIPH/R18", "cluster": "FPGA_PERIPH", "role": "R18",
+         "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0}]})
 
     root = _write(tmp_path, "root.sexp", {
         "include": ["sub.sexp"],
         "coordinate_placements": [
-            {"cluster": "FPGA_PERIPH", "role": "R19", "x_mm": 3.0, "y_mm": 4.0,
-             "rotation_deg": 0.0}]})
+            {"name": "FPGA_PERIPH/R19", "cluster": "FPGA_PERIPH", "role": "R19",
+             "x_mm": 3.0, "y_mm": 4.0, "rotation_deg": 0.0}]})
 
     cfg, _ = load_config(str(root))
     roles = {cp.role for cp in cfg.coordinate_placements}
@@ -87,7 +91,10 @@ def test_duplicate_coordinate_placement_name_across_includes_is_fatal(tmp_path):
             {"cluster": "FPGA_PERIPH", "role": "R18", "x_mm": 3.0, "y_mm": 4.0,
              "rotation_deg": 0.0}]})
 
-    with pytest.raises(ValidationError, match="duplicate name"):
+    # Refusal check: format 2 names the collision "duplicate name"; format 3
+    # catches it earlier as "duplicate full name". Same refusal.
+    with pytest.raises(ValidationError,
+                       match="duplicate name|duplicate full name"):
         load_config(str(root))
 
 
@@ -100,7 +107,9 @@ def test_duplicate_thermal_via_array_name_across_includes_is_fatal(tmp_path):
         "thermal_via_arrays": [
             {"name": "dup", "anchor_ref": "U1", "pad": "1"}]})
 
-    with pytest.raises(ValidationError, match="duplicate name"):
+    # Refusal check: format 2 "duplicate name", format 3 "duplicate full name".
+    with pytest.raises(ValidationError,
+                       match="duplicate name|duplicate full name"):
         load_config(str(root))
 
 

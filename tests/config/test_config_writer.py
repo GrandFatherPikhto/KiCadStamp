@@ -25,6 +25,8 @@ import pytest
 from kicadstamp.config_writer import _read_data, _write_data
 from kicadstamp.exceptions import ValidationError
 
+from tests.fakes.format3 import without_identity
+
 
 def _yaml_removed_msg(exc):
     return str(exc.value)
@@ -111,10 +113,12 @@ def test_no_extension_is_os_error(tmp_path):
 def test_sexp_and_json_work(tmp_path):
     sexp = tmp_path / "cfg.sexp"
     _write_data(sexp, {"layer": "B.Cu"})
-    assert _read_data(sexp) == {"layer": "B.Cu"}
+    assert without_identity(_read_data(sexp)) == {"layer": "B.Cu"}
     js = tmp_path / "cfg.json"
     _write_data(js, {"cells": {"a": {}}})
-    assert _read_data(js) == {"cells": {"a": {}}}
+    # The round-tripped record carries a uuid under the format-3 gate; this cell
+    # is about the FORMAT DISPATCH, not the uuid.
+    assert without_identity(_read_data(js)) == {"cells": {"a": {}}}
 
 
 @pytest.fixture(autouse=True)

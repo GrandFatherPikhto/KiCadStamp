@@ -242,8 +242,15 @@ class TestClonePlanCli:
     def test_writes_sexp_block(self, tmp_path):
         from types import SimpleNamespace
         from kicadstamp.cli import cmd_clone_plan
-        from kicadstamp.config.sexp_format import sexp_to_dict
+        from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
         _fixture(tmp_path)  # writes channels.net / channels.kicad_pcb
+        # The format-3 stamp resolves the fragment's `cell: dac` against the
+        # ACTIVE graph root; give it a root that declares that cell.
+        from kicadstamp.config_working_set import set_active_graph_root
+        root = tmp_path / "graph.sexp"
+        root.write_text(dict_to_sexp({"cells": {"dac": {}}}, format_number=2),
+                        encoding="utf-8")
+        set_active_graph_root(root)
         out = tmp_path / "clone.sexp"
         args = SimpleNamespace(
             net=str(tmp_path / "channels.net"),

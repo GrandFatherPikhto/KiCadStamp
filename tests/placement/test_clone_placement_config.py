@@ -9,11 +9,15 @@ from kicadstamp.exceptions import ValidationError
 
 
 def _write(tmp_path, name: str, placements, with_cell: bool = True) -> Path:
-    """Write clone_placements (with an optional empty cell 't') as s-expr and
-    return the path."""
+    """Write clone_placements (with an optional empty cell 't' plus a stub for
+    every cell the records reference) as s-expr and return the path."""
     data: dict = {}
     if with_cell:
-        data["cells"] = {"t": {"components": []}}
+        cells = {"t": {"components": []}}
+        for p in placements:
+            if p.get("cell"):
+                cells.setdefault(p["cell"], {"components": []})
+        data["cells"] = cells
     data["clone_placements"] = placements
     p = tmp_path / name
     p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
@@ -37,7 +41,7 @@ def test_clone_placements_loaded_with_all_fields(tmp_path):
          "xy": [80.0, 40.0], "rotation_deg": 90.0, "params": {"channel": 2}},
         {"cluster": "mcu_section", "cell": "dac_channel", "xy": [0.0, 0.0],
          "net_overrides": {"/STM32F4xx/BOOT0": "/STM32F4xx_2/BOOT0"}},
-    ], with_cell=False)
+    ])
 
     cfg, _ = load_config(str(config_file))
     assert len(cfg.clone_placements) == 2

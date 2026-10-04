@@ -197,10 +197,16 @@ class TestRoundTripThroughTheConfigWriter:
         chain into its file -> read it back. A replacement must land in place,
         a new spoke must land last."""
         path = tmp_path / "config.sexp"
+        # Explicit chain name = its net: under format 3 the lift mints a name
+        # for an unnamed record, and the upsert key ("name or net") must still
+        # match the stored record.
         path.write_text("(kicadstamp-config\n"
-                        "  (chains (chain (net \"%s\") (anchor_ref \"U5\")\n"
+                        "  (cells (cell \"%s\"))\n"
+                        "  (chains (chain (name \"%s\") (net \"%s\") "
+                        "(anchor_ref \"U5\")\n"
                         "                  (spokes (spoke (pad \"1\") "
-                        "(cell \"%s\"))))))\n" % (NET, CELL), encoding="utf-8")
+                        "(cell \"%s\"))))))\n" % (CELL, NET, NET, CELL),
+                        encoding="utf-8")
 
         plan, problems = stage_spoke_write(_chain([_existing("1")]), _new("48"))
         assert problems == [] and plan is not None
