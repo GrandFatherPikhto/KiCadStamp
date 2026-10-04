@@ -39,6 +39,22 @@ from tests.paths import FIXTURES_DIR
 
 FIXTURES = FIXTURES_DIR / "trees_and_overlay"
 
+
+@pytest.fixture(autouse=True)
+def _fixture_copy_in_tmp(tmp_path, monkeypatch):
+    """§2а (У3.5 К3): `load_config` LIFTS the graph ON DISK when the on-disk
+    format is older (config/loader.upgrade_graph_on_disk), so a `load_config`
+    on the frozen test/expect pair would rewrite
+    `tests/fixtures/trees_and_overlay/config.converted.sexp` (and leave a
+    `.bak`) under the temporary format 3. Run the whole module against a
+    tmp_path copy — the tracked fixtures stay byte-identical. Under format 2 no
+    lift happens, so the copy is a pure no-op."""
+    import shutil
+    dst = tmp_path / "trees_and_overlay"
+    shutil.copytree(FIXTURES, dst)
+    monkeypatch.setattr(__name__ + ".FIXTURES", dst)
+
+
 _ORIGIN = Vector2.from_xy(0, 0)
 _BASE_ANGLE = 30.0
 

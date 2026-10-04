@@ -40,6 +40,58 @@ from kicadstamp.i18n import setup_i18n
 setup_i18n()
 
 
+def _tracked_config_fixture_digest(repo: Path) -> dict:
+    """sha256 of every TRACKED config fixture: `kicadstamp_templates_example.sexp`
+    and the `*.sexp`/`*.json` under `tests/fixtures/`."""
+    import hashlib
+
+    guarded = [repo / "kicadstamp_templates_example.sexp"]
+    guarded += sorted((repo / "tests" / "fixtures").rglob("*.sexp"))
+    guarded += sorted((repo / "tests" / "fixtures").rglob("*.json"))
+    return {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in guarded if p.is_file()}
+
+
+def _stray_fixture_backups(repo: Path) -> list:
+    """Any `*.bak*` a run left under `tests/fixtures/` or beside
+    `kicadstamp_templates_example.sexp` — the fingerprint of a `load_config`
+    that lifted a tracked fixture IN PLACE (config/loader.upgrade_graph_on_disk)."""
+    candidates = list((repo / "tests" / "fixtures").rglob("*.bak*"))
+    candidates += list(repo.glob("kicadstamp_templates_example.sexp.*"))
+    return sorted(str(p.relative_to(repo)) for p in candidates)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _guard_tracked_config_fixtures():
+    """§2а (У3.5 К3): the tracked config fixtures must NOT change during a run.
+
+    `load_config` LIFTS the graph ON DISK when the on-disk format is older
+    (config/loader.upgrade_graph_on_disk). Under the temporary format 3 that
+    rewrote `tests/fixtures/internal_mount/config.sexp` and
+    `tests/fixtures/trees_and_overlay/config.converted.sexp` and left `*.bak`s.
+    A cell that needs one of these through `load_config` copies it into
+    `tmp_path` first (that is the fix); this guard is the detector — it takes a
+    content snapshot at session start and fails the session if anything changed,
+    was added, or a `*.bak` appeared. Under the shipped format 2 no lift runs
+    and the guard is trivially green.
+
+    Session-scoped and autouse: it must watch the WHOLE run, not one file."""
+    repo = Path(__file__).resolve().parents[1]
+    before = _tracked_config_fixture_digest(repo)
+    yield
+    after = _tracked_config_fixture_digest(repo)
+    changed = sorted(k for k in before if after.get(k) != before[k])
+    added = sorted(k for k in after if k not in before)
+    backups = _stray_fixture_backups(repo)
+    assert not changed and not added and not backups, (
+        "the tracked config fixtures (tests/fixtures/**, "
+        "kicadstamp_templates_example.sexp) must stay byte-identical during a "
+        "run: a load_config on them lifts the graph ON DISK when the format is "
+        "newer (config/loader.upgrade_graph_on_disk). Copy the fixture into "
+        "tmp_path before loading it. "
+        f"changed={changed} added={added} stray_backups={backups}")
+
+
 @pytest.fixture(autouse=True)
 def _reset_logging_after_test():
     """The queue-based logging rework (2026-08-15, see

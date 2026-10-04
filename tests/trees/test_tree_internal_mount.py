@@ -41,6 +41,23 @@ from tests.paths import FIXTURES_DIR
 
 FIXTURES = FIXTURES_DIR / "internal_mount"
 
+
+@pytest.fixture(autouse=True)
+def _fixture_copy_in_tmp(tmp_path, monkeypatch):
+    """§2а (У3.5 К3): `load_config` LIFTS the graph ON DISK when the on-disk
+    format is older (config/loader.upgrade_graph_on_disk). Under the temporary
+    format 3 that REWRITES `tests/fixtures/internal_mount/config.sexp` and
+    leaves a `*.bak`. Copy the fixture into tmp_path and load the copy — the
+    tracked fixtures tree must stay byte-identical across a run. The fixture
+    carries no root_sheet/include, so the copy's depth does not matter.
+
+    Under format 2 no lift happens, so the copy is a pure no-op for the cell."""
+    import shutil
+    dst = tmp_path / "internal_mount"
+    shutil.copytree(FIXTURES, dst)
+    monkeypatch.setattr(__name__ + ".FIXTURES", dst)
+
+
 _ORIGIN = Vector2.from_xy(0, 0)
 
 # (ref, role, cluster, x_mm, y_mm, angle_deg, layer, {pad: (dx_mm, dy_mm)})
