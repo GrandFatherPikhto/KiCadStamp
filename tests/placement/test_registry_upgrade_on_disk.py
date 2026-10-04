@@ -557,29 +557,6 @@ def test_kicadstamp_registry_imports_in_a_fresh_process():
         "placement import cycle is back:\n" + proc.stderr)
 
 
-# ── Р-У3.5 (У3.3): the sync-conflict refusal covers the registries too ──────
-
-def test_a_sync_conflict_in_the_profile_refuses_the_registry_lift(tmp_path, format3):  # noqa: F811
-    """A Syncthing conflict file in the profile directory refuses the lift before
-    the schema-1 registry files are touched. The graph here is ALREADY format 3,
-    so the config sweep has nothing to lift and never runs its own guard — the
-    registry sweep is the ONLY writer, and it must refuse by itself."""
-    root, via, trk = _setup(tmp_path)
-    conflict = tmp_path / "root.sexp.sync-conflict-20261004-NODE.sexp"
-    conflict.write_text("junk", encoding="utf-8")
-    via_before = Path(via).read_text(encoding="utf-8")
-    trk_before = Path(trk).read_text(encoding="utf-8")
-
-    with pytest.raises(ValidationError) as excinfo:
-        load_config(str(root))
-
-    assert conflict.name in str(excinfo.value)
-    assert Path(via).read_text(encoding="utf-8") == via_before
-    assert Path(trk).read_text(encoding="utf-8") == trk_before
-    assert list(Path(via).parent.glob("*.bak.*")) == []
-    assert list(Path(trk).parent.glob("*.bak.*")) == []
-
-
 def test_a_registry_backup_that_cannot_be_taken_refuses_the_lift(
         tmp_path, monkeypatch, format3):  # noqa: F811
     """Р-У3.5 (У3.3): a `.bak` that CANNOT be taken refuses the whole lift — the

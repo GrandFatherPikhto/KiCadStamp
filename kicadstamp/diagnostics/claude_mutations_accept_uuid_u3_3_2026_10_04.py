@@ -1,21 +1,12 @@
 # kicadstamp/diagnostics/claude_mutations_accept_uuid_u3_3_2026_10_04.py
 """Claude's acceptance of U3.3 (353003c + 9fab1ec, plan §7, Р-У3.5: refuse the
-on-disk format upgrade on Syncthing conflict files and on a failed .bak; cells
-Н4/Н5 of the stub), 2026-10-04. Grown from
+on-disk format upgrade on a failed .bak; cells Н4/Н5 of the stub), 2026-10-04.
+Grown from
 claude_mutations_accept_uuid_u3_2_2026_10_04.py (rule 38): the machinery and ALL
 its rows are kept — Z2b survived the U3.2 acceptance and MUST die now (Н4) —
 plus:
 
   * Z5 — a section dropped from the stub's own table (Н5).
-  * S1/S2 — the sync-conflict refusal unhooked from the config sweep / from the
-    registry sweep.
-  * S3 — the scan not recursive.
-  * S4 — the KiCad project half ignored.
-  * S5 — no root_sheet becomes an error instead of a skip.
-  * S6 — the refusal does not name the conflict files.
-  * S7 — the marker misspelled (nothing is ever found).
-  * S8 — directories matched instead of files.
-  * G1 — the refusal also runs on a WARM open (nothing to write).
   * B1/B2 — a failed .bak logged and skipped again (config / registry).
   * B3 — a WRITE failure after a good .bak becomes fatal (rule 4 lost).
   * C1 — a cosmetic comment edit. MUST survive.
@@ -362,15 +353,14 @@ GUARDS = list(_T_BASENAMES)
 # imports mint_format3* guards the Z rows.
 STUB_GUARDS = GUARDS + ["test_format3_equivalence.py", "test_registry_equivalence.py",
                         "test_registry_upgrade_on_disk.py"]
-# U3.3: the refusal lives in the config sweep AND the registry sweep; the
+# U3.3: the `.bak` refusal lives in the config sweep AND the registry sweep; the
 # tree_instances file caught the Demon's own regression (rule 39).
-SYNC_GUARDS = GUARDS + ["test_registry_upgrade_on_disk.py", "test_tree_instances.py",
-                        "test_registry_equivalence.py"]
+BAK_GUARDS = GUARDS + ["test_registry_upgrade_on_disk.py", "test_tree_instances.py",
+                       "test_registry_equivalence.py"]
 
 FV = "kicadstamp/config/format_version.py"
 UU = "kicadstamp/config/uuids.py"
 ST = "tests/fakes/format3.py"
-SG = "kicadstamp/config/sync_conflict_guard.py"
 UD = "kicadstamp/config/upgrade_on_disk.py"
 RU = "kicadstamp/config/registry_upgrade.py"
 
@@ -442,42 +432,18 @@ MUTATIONS = [
     ("Z5 stub table drops a section", ST,
      '                  "coordinate_placements", "net_traces", "entities", "imprints")',
      '                  "coordinate_placements", "net_traces", "entities")', "die", STUB_GUARDS, ()),
-    ("S1 refusal unhooked from the config sweep", UD,
-     "    refuse_on_sync_conflicts(root)\n\n    lifted: list[Path] = []",
-     "    pass\n\n    lifted: list[Path] = []", "die", SYNC_GUARDS, ()),
-    ("S2 refusal unhooked from the registry sweep", RU,
-     "    if to_lift:\n        refuse_on_sync_conflicts(config_path)",
-     "    if False:\n        refuse_on_sync_conflicts(config_path)", "die", SYNC_GUARDS, ()),
-    ("S3 scan not recursive", SG,
-     'directory.rglob(f"*{SYNC_CONFLICT_MARKER}*")', 'directory.glob(f"*{SYNC_CONFLICT_MARKER}*")',
-     "die", SYNC_GUARDS, ()),
-    ("S4 KiCad project half ignored", SG,
-     "    project = _kicad_project_dir(root)", "    project = None", "die", SYNC_GUARDS, ()),
-    ("S5 no root_sheet is an error", SG,
-     "    if not raw:\n        return None",
-     '    if not raw:\n        raise ValidationError("no root_sheet")', "die", SYNC_GUARDS, ()),
-    ("S6 refusal does not name the files", SG,
-     '[_("conflict file: {file}").format(file=str(f)) for f in conflicts]', "[]", "die", SYNC_GUARDS, ()),
-    ("S7 marker misspelled", SG,
-     'SYNC_CONFLICT_MARKER = "sync-conflict"', 'SYNC_CONFLICT_MARKER = "sync_conflict"', "die", SYNC_GUARDS, ()),
-    ("S8 directories matched instead of files", SG,
-     "if p.is_file()]", "if p.is_dir()]", "die", SYNC_GUARDS, ()),
-    ("G1 refusal on a warm open too", UD,
-     "    if not outdated:\n        return []\n\n    # Р-У3.5",
-     "    refuse_on_sync_conflicts(root)\n    if not outdated:\n        return []\n\n    # Р-У3.5",
-     "die", SYNC_GUARDS, ()),
     ("B1 config .bak failure logged and skipped", UD,
      "            backup = backup_file(path)\n        except OSError as e:\n            raise ValidationError(",
      "            backup = backup_file(path)\n        except OSError as e:\n            continue\n            raise ValidationError(",
-     "die", SYNC_GUARDS, ()),
+     "die", BAK_GUARDS, ()),
     ("B2 registry .bak failure logged and skipped", RU,
      "            backup = backup_file(path)\n        except OSError as e:\n            raise ValueError(",
      "            backup = backup_file(path)\n        except OSError as e:\n            continue\n            raise ValueError(",
-     "die", SYNC_GUARDS, ()),
+     "die", BAK_GUARDS, ()),
     ("B3 write failure after a good .bak is fatal", UD,
      "            write_config_file(path, content, backup=False, serialized_text=text)\n        except (OSError, ValidationError) as e:",
      "            write_config_file(path, content, backup=False, serialized_text=text)\n        except ():",
-     "die", SYNC_GUARDS, ()),
+     "die", BAK_GUARDS, ()),
     ("C1 cosmetic comment (control)", UU,
      "def migration_uuid(section: str, full_name: str) -> str:",
      "def migration_uuid(section: str, full_name: str) -> str:  # control", "survive", GUARDS, ()),

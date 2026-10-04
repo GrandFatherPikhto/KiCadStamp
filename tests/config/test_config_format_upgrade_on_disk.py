@@ -40,7 +40,6 @@ from kicadstamp.config import format_version as fv
 from kicadstamp.config.format_version import CURRENT_FORMAT, read_version
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.config.sync_conflict_guard import sync_conflict_files
 from kicadstamp.config.upgrade_on_disk import upgrade_graph_on_disk
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config_writer import merge_write
@@ -361,109 +360,6 @@ def test_a_newer_file_anywhere_stops_the_graph_before_any_write(tmp_path):
     assert root.read_text(encoding="utf-8") == original_root, "the OLD file was not lifted"
     assert list(tmp_path.glob("*.bak.*")) == [], "and nothing was copied"
     assert read_version(root) == 1
-
-
-# ── sync-conflict (Р-У3.5, У3.3): refuse the lift before the first write ────
-
-def test_a_sync_conflict_file_in_the_profile_refuses_the_lift_before_any_write(tmp_path):
-    """Р-У3.5 (У3.3): a Syncthing conflict file in the PROFILE directory stops
-    the lift BEFORE the first write — the config files are not rewritten and no
-    `.bak` is taken. The fatal NAMES every conflict file it found (a refusal
-    that does not say WHAT it found would send the owner hunting)."""
-    root, sub = _sexp_graph(tmp_path)
-    conflict = tmp_path / "sub.sexp.sync-conflict-20261004-NODE.sexp"
-    conflict.write_text("junk", encoding="utf-8")
-    original_root = root.read_text(encoding="utf-8")
-    original_sub = sub.read_text(encoding="utf-8")
-
-    with pytest.raises(ValidationError) as excinfo:
-        load_config(str(root))
-
-    assert conflict.name in str(excinfo.value), "the refusal names WHAT it found"
-    assert root.read_text(encoding="utf-8") == original_root
-    assert sub.read_text(encoding="utf-8") == original_sub
-    assert list(tmp_path.glob("*.bak.*")) == [], "and nothing was copied"
-    assert read_version(root) == 1 and read_version(sub) == 1
-
-
-def test_a_sync_conflict_below_the_profile_directory_is_found(tmp_path):
-    """Р-У3.5 (У3.3): the profile directory is scanned RECURSIVELY — a conflict
-    inside `registry/` (or any subdirectory) refuses the lift just like one at
-    the top level. A non-recursive scan would miss it."""
-    root = tmp_path / "root.sexp"
-    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
-    sub = tmp_path / "registry"
-    sub.mkdir()
-    conflict = sub / "config.registry.json.sync-conflict-20261004-NODE.json"
-    conflict.write_text("junk", encoding="utf-8")
-    original = root.read_text(encoding="utf-8")
-
-    with pytest.raises(ValidationError) as excinfo:
-        load_config(str(root))
-
-    assert conflict.name in str(excinfo.value)
-    assert root.read_text(encoding="utf-8") == original
-
-
-def test_a_sync_conflict_in_the_kicad_project_dir_refuses_the_lift(tmp_path):
-    """Р-У3.5 (У3.3): the KiCad project directory — `Path(root_sheet).parent`,
-    resolved against the config's own directory through
-    `resolve_config_relative_path` (rule 41: never hard-coded) — is scanned too,
-    even when the profile directory itself is clean."""
-    project = tmp_path / "KiCad" / "Proj"
-    project.mkdir(parents=True)
-    conflict = project / "Proj.kicad_sch.sync-conflict-20261004-NODE.kicad_sch"
-    conflict.write_text("junk", encoding="utf-8")
-    profile = tmp_path / "profiles" / "p"
-    profile.mkdir(parents=True)
-    root = profile / "root.sexp"
-    root.write_text(_old_text({
-        "root_sheet": "../../KiCad/Proj/Proj.kicad_sch",
-        "cells": {"c1": {}},
-    }), encoding="utf-8")
-    original = root.read_text(encoding="utf-8")
-
-    with pytest.raises(ValidationError) as excinfo:
-        load_config(str(root))
-
-    assert conflict.name in str(excinfo.value)
-    assert root.read_text(encoding="utf-8") == original
-    assert list(profile.glob("*.bak.*")) == [], "and nothing was copied"
-
-
-def test_without_root_sheet_the_profile_is_still_scanned(tmp_path):
-    """Р-У3.5 (У3.3): four live profiles have NO `root_sheet` — the KiCad half is
-    then SKIPPED (not an error), but the profile directory is scanned ALWAYS."""
-    root = tmp_path / "root.sexp"
-    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")   # no root_sheet
-    conflict = tmp_path / "root.sexp.sync-conflict-20261004-NODE.sexp"
-    conflict.write_text("junk", encoding="utf-8")
-    original = root.read_text(encoding="utf-8")
-
-    with pytest.raises(ValidationError) as excinfo:
-        load_config(str(root))
-
-    assert conflict.name in str(excinfo.value)
-    assert root.read_text(encoding="utf-8") == original
-    assert read_version(root) == 1
-
-
-def test_the_conflict_list_covers_both_areas(tmp_path):
-    """The property `refuse_on_sync_conflicts` reports on: the union of the
-    profile directory and the KiCad project directory, each file once."""
-    project = tmp_path / "KiCad" / "Proj"
-    project.mkdir(parents=True)
-    conflict_profile = tmp_path / "root.sexp.sync-conflict-20261004-NODE.sexp"
-    conflict_profile.write_text("junk", encoding="utf-8")
-    conflict_project = project / "p.sync-conflict-1.kicad_sch"
-    conflict_project.write_text("junk", encoding="utf-8")
-    root = tmp_path / "root.sexp"
-    root.write_text(_old_text({
-        "root_sheet": "KiCad/Proj/Proj.kicad_sch", "cells": {"c1": {}}}),
-        encoding="utf-8")
-
-    assert set(sync_conflict_files(root)) == {conflict_profile, conflict_project}
-    assert len(list(sync_conflict_files(root))) == 2, "each file once"
 
 
 # ── failure: a write is logged; a `.bak` that cannot be taken REFUSES ──────

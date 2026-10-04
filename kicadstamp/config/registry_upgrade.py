@@ -57,7 +57,6 @@ from ..persistence import REGISTRY_SCHEMA_VERSION
 from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
-from .sync_conflict_guard import refuse_on_sync_conflicts
 from .models import (
     clone_placement_effective_name,
     entity_effective_name,
@@ -325,15 +324,6 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 .format(path=str(path), version=schema, expected=TARGET_SCHEMA_VERSION))
         schemas[path] = schema
 
-    # Р-У3.5 (У3.3): the config sweep refuses a Syncthing conflict file before it
-    # writes, but it does NOT run when the graph is already current — and the
-    # registries can still need lifting then. So the SAME refusal lives here too,
-    # gated on a pending write (a warm open parses nothing). Raising stops the
-    # whole lift; nothing below writes a byte.
-    to_lift = [p for p in paths if schemas[p] == REGISTRY_SCHEMA_VERSION]
-    if to_lift:
-        refuse_on_sync_conflicts(config_path)
-
     idx = _build_index(cfg)
     lifted: list[Path] = []
     for path in paths:
@@ -368,8 +358,7 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             continue
         # Р-У3.5 (У3.3): a copy that CANNOT be taken is a REFUSAL, not the old
         # log-and-continue. The `.bak` is the only way back, so the file is left
-        # exactly as it is and the whole lift stops (the sibling config sweep
-        # refuses a conflict file the same way). Plain English, like the other
+        # exactly as it is and the whole lift stops. Plain English, like the other
         # refusals of this module — it does not go through `_()`.
         try:
             backup = backup_file(path)

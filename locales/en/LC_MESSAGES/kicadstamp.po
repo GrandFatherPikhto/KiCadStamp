@@ -18908,20 +18908,6 @@ msgstr ""
 msgid "check the permissions and the free space of the directory, then open the profile again"
 msgstr ""
 
-#: kicadstamp/config/sync_conflict_guard.py
-#, python-brace-format
-msgid "the format upgrade of {path} is refused: Syncthing conflict files are present"
-msgstr ""
-
-#: kicadstamp/config/sync_conflict_guard.py
-#, python-brace-format
-msgid "conflict file: {file}"
-msgstr ""
-
-#: kicadstamp/config/sync_conflict_guard.py
-msgid "resolve these conflicts first — they are NOT merged or deleted automatically"
-msgstr ""
-
 #: kicadstamp/board_dedupe.py
 #, python-brace-format
 msgid "Removed {removed} duplicate copper item(s); kept one per group in {groups} group(s)."

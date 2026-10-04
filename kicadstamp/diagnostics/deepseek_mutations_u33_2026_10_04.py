@@ -1,12 +1,12 @@
 # kicadstamp/diagnostics/deepseek_mutations_u33_2026_10_04.py
 """Rule-28 / rule-38 mutation harness for the У3.3 заход (Р-У3.5, plan §7):
-refuse the on-disk lift on a `*.sync-conflict-*` file and on a `.bak` failure.
+refuse the on-disk lift on a failed `.bak` (the Syncthing half was withdrawn).
 
 Grown from ``deepseek_mutations_u32_2026_10_04.py`` (rule 38): the same
 machinery — the ``count != 1`` template refusal, restore from a COPY (never
 ``git checkout``: the tree holds this заход's uncommitted work), a zero-red
 verdict reported as a MISS rather than accepted. Unlike У3.2, the subject is
-the PRODUCT (three files), so the rig mutates one file per row.
+the PRODUCT (two files), so the rig mutates one file per row.
 
 Run from the repo root:
 
@@ -14,15 +14,9 @@ Run from the repo root:
 
 Rows (the §7 "Строки мутаций" closed here):
 
-  * M1 — the graph sweep no longer checks sync-conflict at all ("sync-conflict
-    не проверяется", config side).
-  * M2 — the registry sweep no longer checks it (the same row, registry side:
-    the graph is current there, so ONLY the registry guard can refuse).
   * M3 — a `.bak` failure in the graph sweep is log-and-continue again
     (".bak-сбой не отказ", config side).
   * M4 — the same in the registry sweep.
-  * M5 — the KiCad project directory is no longer scanned.
-  * M6 — the profile scan is no longer RECURSIVE.
   * M7 — the format-3 stub's folder walk skips LIST sections (Z2b).
   * M8 — a section is dropped from the stub's own section table.
   * C1 — a cosmetic comment edit. MUST survive.
@@ -39,7 +33,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-GUARD = ROOT / "kicadstamp/config/sync_conflict_guard.py"
 UOD = ROOT / "kicadstamp/config/upgrade_on_disk.py"
 REG = ROOT / "kicadstamp/config/registry_upgrade.py"
 STUB = ROOT / "tests/fakes/format3.py"
@@ -50,19 +43,6 @@ TESTS_MIG = "tests/config/test_config_format3_migration.py"
 
 # (id, file, old, new, expect, target test node(s))
 MUTATIONS = [
-    ("M1 graph sync-conflict check removed",
-     UOD,
-     "    refuse_on_sync_conflicts(root)",
-     "    pass  # mutation",
-     "die",
-     [f"{TESTS_CFG}::test_a_sync_conflict_file_in_the_profile_refuses_the_lift_before_any_write",
-      f"{TESTS_CFG}::test_without_root_sheet_the_profile_is_still_scanned"]),
-    ("M2 registry sync-conflict check removed",
-     REG,
-     "        refuse_on_sync_conflicts(config_path)",
-     "        pass  # mutation",
-     "die",
-     [f"{TESTS_REG}::test_a_sync_conflict_in_the_profile_refuses_the_registry_lift"]),
     ("M3 graph .bak failure is log-and-continue again",
      UOD,
      '            raise ValidationError(format_fatal_error(\n'
@@ -85,18 +65,6 @@ MUTATIONS = [
      '            continue',
      "die",
      [f"{TESTS_REG}::test_a_registry_backup_that_cannot_be_taken_refuses_the_lift"]),
-    ("M5 the KiCad project directory is not scanned",
-     GUARD,
-     "    if project is not None and project.is_dir():",
-     "    if project is not None and False:  # mutation",
-     "die",
-     [f"{TESTS_CFG}::test_a_sync_conflict_in_the_kicad_project_dir_refuses_the_lift"]),
-    ("M6 the profile scan is not recursive",
-     GUARD,
-     "    return [p for p in directory.rglob(f\"*{SYNC_CONFLICT_MARKER}*\") if p.is_file()]",
-     "    return [p for p in directory.glob(f\"*{SYNC_CONFLICT_MARKER}*\") if p.is_file()]",
-     "die",
-     [f"{TESTS_CFG}::test_a_sync_conflict_below_the_profile_directory_is_found"]),
     ("M7 the stub folder walk skips LIST sections",
      STUB,
      '                for prefix in _folder_prefixes(rec.get("name") or ""):',
@@ -114,7 +82,7 @@ MUTATIONS = [
      "def _graph_files(root: str | Path) -> list[Path]:",
      "def _graph_files(root: str | Path) -> list[Path]:  # control",
      "survive",
-     [f"{TESTS_CFG}::test_a_sync_conflict_file_in_the_profile_refuses_the_lift_before_any_write"]),
+     [f"{TESTS_CFG}::test_a_repeat_open_writes_nothing_and_parses_nothing_for_the_number"]),
 ]
 
 BACKUP_DIR = ROOT / "kicadstamp/diagnostics/.u33_backups"
@@ -139,7 +107,7 @@ def _run(tests) -> subprocess.CompletedProcess:
 
 def main() -> int:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    files = {UOD, REG, GUARD, STUB}
+    files = {UOD, REG, STUB}
     backups = {f: BACKUP_DIR / f.name for f in files}
     for f, b in backups.items():
         shutil.copy(f, b)

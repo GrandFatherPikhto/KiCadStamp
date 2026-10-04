@@ -41,11 +41,6 @@ The rules, each of them pinned by a cell in
 6. Nothing is written while the GUI working set holds unsaved changes (У3): that
    file's new content is not on disk yet, and the Save lifts it itself through the
    one writer (`ConfigWorkingSet.flush` -> `write_config_file`).
-7. A `*.sync-conflict-*` file in the profile directory (recursive, always) or in
-   the KiCad project directory (`root_sheet`, resolved — skipped when it is
-   absent) refuses the WHOLE lift BEFORE the first write (У3.3, Р-У3.5): neither
-   this sweep NOR the registries `load_config` lifts right after it writes a
-   byte. See `sync_conflict_guard.py`.
 
 GUI and MCP lifting one profile at the same time give at worst two `.bak` files
 and two identical writes — the content is deterministic, and the two `os.replace`
@@ -67,7 +62,6 @@ from .format_version import (
     read_version,
     upgrade_data,
 )
-from .sync_conflict_guard import refuse_on_sync_conflicts
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +97,7 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
 
     Raises whatever `read_version` raises (a file NEWER than this build, a
     malformed number) from the PRE-PASS, before a single byte is written: that is
-    what the pre-pass is for. A `*.sync-conflict-*` file anywhere in the scanned
-    areas raises before that too (У3.3, Р-У3.5) — the whole lift, registries
-    included, is then refused. A `.bak` that cannot be taken raises as well; a
+    what the pre-pass is for. A `.bak` that cannot be taken raises as well; a
     WRITE failure is logged and that file is left alone."""
     from ..config_working_set import WORKING_SET  # lazy — keeps this import-free of the GUI path
 
@@ -131,15 +123,6 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
             outdated.append(path)
     if not outdated:
         return []
-
-    # Р-У3.5 (У3.3): refuse the WHOLE lift — this graph AND the registries
-    # `load_config` lifts right after this call — while a Syncthing conflict file
-    # is present. Before the loop and before ANY write, so not one byte is
-    # rewritten over a state two machines are still arguing about. Gated on a
-    # pending write: a graph already at CURRENT (the GUI's steady state) must not
-    # parse the root again just to look for `root_sheet`, and with nothing to
-    # write there is nothing to refuse.
-    refuse_on_sync_conflicts(root)
 
     lifted: list[Path] = []
     for path in outdated:
