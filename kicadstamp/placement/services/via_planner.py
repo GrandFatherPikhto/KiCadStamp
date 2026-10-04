@@ -15,7 +15,7 @@ from ...geometry.thermal_grid import compute_thermal_via_grid
 from ...kicad.adapter import KiCadBoardAdapter
 from ...utils.units import MM
 from ...exceptions import GeometryError, ComponentNotFoundError, ValidationError
-from ...registry import make_registry_key
+from ...registry import make_registry_key, record_key_part
 from ..commands import ViaCommand, PlacedComponentInfo
 from .clone_role_resolver import resolve_footprint_by_role
 from .component_resolver import resolve_footprint_by_ref
@@ -26,8 +26,11 @@ logger = logging.getLogger(__name__)
 
 def thermal_anchor_id(tva: ThermalViaArrayConfig) -> str:
     """Registry identity for thermal vias — single point shared with
-    kicadstamp_cli.py (known_anchor_ids), so the two never drift apart."""
-    return f"thermal:{tva.name}"
+    kicadstamp_cli.py (known_anchor_ids), so the two never drift apart.
+
+    The `thermal:` prefix is kept; the VALUE is the record's uuid in format 3
+    and its name in format 2 (Р-У5.1/Р-У5.2)."""
+    return f"thermal:{record_key_part(tva.name, getattr(tva, 'uuid', None))}"
 
 
 class ViaPlanner:

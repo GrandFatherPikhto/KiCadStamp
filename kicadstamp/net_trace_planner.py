@@ -44,7 +44,7 @@ from .geometry.spoke_layout import local_to_absolute
 from .placement.commands import ViaCommand, TrackCommand
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .net_resolution import resolve_net_from_role
-from .registry import make_registry_key, track_matches, via_matches
+from .registry import make_registry_key, record_key_part, track_matches, via_matches
 from .tree_position import relative_rotation_deg
 from .utils.layers import layer_from_str_strict
 from .i18n import _
@@ -64,8 +64,10 @@ def net_trace_anchor_id(nt: NetTrace) -> str:
     The `net:` PREFIX is deliberately KEPT as it is (design §11): it is the
     registry's protection marker for this section, and renaming it to `trace:`
     would force a registry migration on both machines for pure cosmetics. On a
-    legacy record the whole key is byte-identical to before."""
-    return f"net:{net_trace_effective_name(nt)}"
+    legacy record the whole key is byte-identical to before. In format 3 the
+    VALUE becomes the record's uuid (Р-У5.1/Р-У5.2) — the prefix and the
+    template_name rule are untouched."""
+    return f"net:{record_key_part(net_trace_effective_name(nt), getattr(nt, 'uuid', None))}"
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:
@@ -174,8 +176,10 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         # The registry key's template_name component is the record's IDENTITY
         # (net_trace_effective_name) — for a legacy record that is exactly the
         # net it always was, so no existing key changes; for a named record it
-        # keeps two bridges of one net apart (net: prefix included).
+        # keeps two bridges of one net apart (net: prefix included). Under the
+        # format gate the value is the record's uuid (Р-У5.1).
         identity = net_trace_effective_name(nt)
+        template_part = record_key_part(identity, getattr(nt, "uuid", None))
         label = _("net_traces entry (net {net!r})").format(net=identity)
         for i, t in enumerate(nt.tracks):
             # A literal net, or a (role, pad) reference resolved live — see
@@ -188,7 +192,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 net_name=net_name,
                 layer=_layer_to_board(t.layer),
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, identity, None, i),
+                registry_key=make_registry_key(anchor_id, template_part, None, i),
             ))
         for i, v in enumerate(nt.vias):
             net_name = _item_net_name(adapter, nt, v, _sn, label)
@@ -198,7 +202,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 diameter_mm=v.diameter_mm,
                 net_name=net_name,
                 owner_ref=nt.net,
-                registry_key=make_registry_key(anchor_id, identity, None, i),
+                registry_key=make_registry_key(anchor_id, template_part, None, i),
             ))
         logger.info(_("net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned")
                     .format(net=nt.net, tracks=len(nt.tracks), vias=len(nt.vias)))
@@ -372,6 +376,7 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
     Nothing is written anywhere.
     """
     identity = net_trace_effective_name(nt)
+    template_part = record_key_part(identity, getattr(nt, "uuid", None))
     anchor_id = net_trace_anchor_id(nt)
     _sn = dict(sheet_names or {})
 
@@ -397,14 +402,14 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
                    if planned_vias is not None and i < len(planned_vias) else None)
         expectations.append(Expectation(
             kind=VIA, index=i,
-            registry_key=make_registry_key(anchor_id, identity, None, i),
+            registry_key=make_registry_key(anchor_id, template_part, None, i),
             command=command))
     for i in range(len(nt.tracks)):
         command = (planned_tracks[i]
                    if planned_tracks is not None and i < len(planned_tracks) else None)
         expectations.append(Expectation(
             kind=TRACK, index=i,
-            registry_key=make_registry_key(anchor_id, identity, None, i),
+            registry_key=make_registry_key(anchor_id, template_part, None, i),
             command=command))
 
     pieces = match_net_trace_pieces(adapter, expectations,

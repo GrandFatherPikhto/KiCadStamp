@@ -52,6 +52,7 @@ from .utils.paths import (default_log_file_for_config,
                           registry_path_for_config,
                           track_registry_path_for_config)
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .exceptions import ValidationError, format_fatal_error
 from .persistence import REGISTRY_SCHEMA_VERSION, check_schema_version
 from .i18n import _
 
@@ -99,6 +100,40 @@ def make_registry_key(anchor_id: str, template_name: str, role: str | None, inde
     return f"{anchor_id}|{template_name}|{role_part}|{index}"
 
 
+def record_key_part(name: str, uuid: str | None) -> str:
+    """The RECORD-identifying part of a registry key (Р-У5.1/Р-У5.2, У5.3).
+
+    ONE point of the format gate: in format 3 the part is the record's UUID, in
+    format 2 its NAME. Callers pass the record's own uuid (``record.uuid``, or
+    the reference field such as ``clone.anchor_point_uuid``) and the name it
+    stood for. Only the VALUE changes — every PREFIX of the key is untouched,
+    and so is the physics (``pad:``/``anchor:``/``role:``/offsets/index).
+
+    A record WITHOUT a uuid under the gate is a PROGRAM ERROR (Р-У5.7): the
+    format-3 checks (loader) and the writer stamp guarantee every record
+    carries one, so this is reached only by a builder that bypassed both.
+    Fatal, NEVER a fallback to the name: one registry mixing name- and
+    uuid-keys would have ``reconcile`` prune the difference, deleting half of
+    the profile's copper on the next apply.
+
+    Not a §0 record (a synthesized ``role:``-only nested cell) has no uuid to
+    read — such a caller does not come through here, it keeps its deterministic
+    name (see clone_position_calculator._resolve_content).
+
+    Imported lazily: ``kicadstamp.registry`` is reached by placement before the
+    config package is fully loaded, so a module-level import of
+    ``current_format`` would add an import edge the registry does not need."""
+    from .config.format_version import current_format
+    if current_format() >= 3:
+        if not uuid:
+            raise ValidationError(format_fatal_error(
+                _("registry key: record {name!r} has no uuid").format(name=name),
+                [_("format 3 gives every record a uuid (checked at load and at "
+                   "write) — falling back to the name would split one registry "
+                   "into name- and uuid-keys, and prune would then delete the "
+                   "difference")]))
+        return uuid
+    return name
 
 
 # registry_path_for_config / track_registry_path_for_config /

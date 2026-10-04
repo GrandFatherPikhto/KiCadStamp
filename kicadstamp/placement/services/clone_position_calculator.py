@@ -35,7 +35,7 @@ from ...geometry.clone_geometry import (
     clone_shift_mm,
 )
 from ...net_resolution import resolve_net_from_role
-from ...registry import make_registry_key
+from ...registry import make_registry_key, record_key_part
 from ...utils.layers import inner_copper_layers, layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import (
@@ -120,13 +120,17 @@ def clone_anchor_id(clone: ClonePlacement) -> str:
     """
     ox, oy = clone_shift_mm(clone)
     if clone.anchor_point is not None:
-        return f"point:{clone.anchor_point}:{ox:.4f}:{oy:.4f}"
+        # point: part is the record-identifying value (Р-У5.2): the Point's UUID
+        # in format 3, its name in format 2 — never the name under the gate.
+        point_part = record_key_part(clone.anchor_point,
+                                     getattr(clone, "anchor_point_uuid", None))
+        return f"point:{point_part}:{ox:.4f}:{oy:.4f}"
     if clone.anchor_ref is not None:
         return f"anchor:{clone.anchor_ref}:{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}"
     if clone.anchor_role is not None:
         return (f"role:{clone.anchor_role}:{clone.anchor_sheet or ''}:{clone.anchor_cluster or ''}"
                 f":{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}")
-    return f"name:{clone_placement_effective_name(clone)}"
+    return f"name:{record_key_part(clone_placement_effective_name(clone), getattr(clone, 'uuid', None))}"
 
 
 def entity_anchor_id(entity: "Entity") -> str:
@@ -139,7 +143,7 @@ def entity_anchor_id(entity: "Entity") -> str:
     stable, rename-safe identifier an Entity has is its name, exactly like an
     absolute-coordinate ClonePlacement's name: fallback. Name is REQUIRED and
     unique per load, so this key never collides."""
-    return f"name:{entity_effective_name(entity)}"
+    return f"name:{record_key_part(entity_effective_name(entity), getattr(entity, 'uuid', None))}"
 
 
 def nested_anchor_id(anchor_id: str, nested_name: str) -> str:
@@ -286,7 +290,7 @@ class ClonePositionCalculator:
         return position
 
     def _resolve_content(self, cell_ref: str | None, role_ref: str | None,
-                         label: str) -> tuple[Cell | None, str]:
+                         label: str) -> tuple[Cell | None, str, str]:
         """Resolve a placement's content to a Cell. Top-level ClonePlacement
         (2026-08-12, Group 0 consolidation: cell: is now mandatory — the
         role:/cluster: single-component modes migrated to coordinate_placements'
@@ -295,29 +299,40 @@ class ClonePositionCalculator:
         role: (a one-component recipe inside a cell), which synthesises a
         temporary one-component Cell on the fly (cheap, no caching needed —
         a separate cell file just for one role with no via/track would be
-        cumbersome). Returns (None, label) if a cell: reference doesn't exist
-        (caller logs and skips — same behaviour as before this was factored
-        out)."""
+        cumbersome).
+
+        Returns (cell, cell_name, key_part) — key_part is the template_name
+        part of the registry key (Р-У5.1): the cell's uuid in format 3, its
+        name in format 2; a synthesized role:-cell is not a §0 record and
+        keeps its name. (None, label, label) if a cell: reference doesn't
+        exist (caller logs and skips — same behaviour as before this was
+        factored out)."""
         if cell_ref is not None:
             cell = self.cfg.cells.get(cell_ref)
             if cell is None:
                 logger.warning(_("{name}: cell {cell!r} not found in cells, skipping")
                                .format(name=label, cell=cell_ref))
-                return None, cell_ref
-            return cell, cell_ref
+                return None, cell_ref, cell_ref
+            # The registry key's template_name is the CELL's record part (Р-У5.1):
+            # uuid in format 3, name in format 2.
+            return cell, cell_ref, record_key_part(cell_ref, cell.uuid)
         cell = Cell(
             name=f"__role__{role_ref}",
             components=[TemplateComponentSlot(
                 role=role_ref, offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0,
             )],
         )
-        return cell, cell.name
+        # A role:-only nested placement has NO cells: record — this synthesized
+        # one-component cell is not a §0 record and carries no uuid, so it keeps
+        # its deterministic name as the template_name part under either gate.
+        return cell, cell.name, cell.name
 
     def _resolve_one_level(
         self,
         placement: ClonePlacement | CellPlacement,
         cell: Cell,
         cell_name: str,
+        cell_key_part: str,
         anchor_position: Vector2 | None,
         parent_rotation_deg: float,
         anchor_id: str,
@@ -459,7 +474,7 @@ class ClonePositionCalculator:
             vias_result.append(ViaCommand(
                 position=via.position, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
                 net_name=via.net, owner_ref=placement_label,
-                registry_key=make_registry_key(anchor_id, cell_name, None, via_index),
+                registry_key=make_registry_key(anchor_id, cell_key_part, None, via_index),
             ))
             logger.debug(_("  [{name}] spoke‑level via: ({x:.3f}, {y:.3f}) mm, net={net}")
                          .format(name=placement_label, x=via.position.x/1e6,
@@ -474,7 +489,7 @@ class ClonePositionCalculator:
             tracks_result.append(TrackCommand(
                 start=track.start, end=track.end, width_mm=track.width_mm,
                 net_name=track.net, layer=track_layer, owner_ref=placement_label,
-                registry_key=make_registry_key(anchor_id, cell_name, None, track_index),
+                registry_key=make_registry_key(anchor_id, cell_key_part, None, track_index),
             ))
             logger.debug(_("  [{name}] track: ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, "
                            "net={net}, layer={layer}")
@@ -506,7 +521,7 @@ class ClonePositionCalculator:
                 vias_result.append(ViaCommand(
                     position=via.position, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
                     net_name=via.net, owner_ref=comp_layout.ref,
-                    registry_key=make_registry_key(anchor_id, cell_name, comp_layout.role, via_index),
+                    registry_key=make_registry_key(anchor_id, cell_key_part, comp_layout.role, via_index),
                 ))
 
         # Recurse into nested clone_placements, if any — composing this
@@ -533,7 +548,7 @@ class ClonePositionCalculator:
                 merged_params = dict(nested.params)
                 merged_params.setdefault("sheet", effective_sheet)
                 nested = dataclasses.replace(nested, sheet=effective_sheet, params=merged_params)
-            nested_cell, nested_cell_name = self._resolve_content(
+            nested_cell, nested_cell_name, nested_cell_key_part = self._resolve_content(
                 nested.cell, nested.role, f"{placement_label}/{nested.name}")
             if nested_cell is None:
                 continue
@@ -556,7 +571,7 @@ class ClonePositionCalculator:
                        "indirectly; check the clone_placements: of cell {head!r}")
                      .format(cell=nested_cell_name, path=chain_path, head=chain[0])]))
             nc, nv, nt = self._resolve_one_level(
-                nested, nested_cell, nested_cell_name,
+                nested, nested_cell, nested_cell_name, nested_cell_key_part,
                 anchor_position=layout.origin,
                 parent_rotation_deg=world_rotation_deg,
                 anchor_id=nested_anchor_id(anchor_id, nested.name),
@@ -581,8 +596,8 @@ class ClonePositionCalculator:
             if clone.retired:
                 continue
 
-            cell, cell_name = self._resolve_content(clone.cell, None,
-                                                    clone_placement_effective_name(clone))
+            cell, cell_name, cell_key_part = self._resolve_content(
+                clone.cell, None, clone_placement_effective_name(clone))
             if cell is None:
                 continue
 
@@ -618,11 +633,12 @@ class ClonePositionCalculator:
                 effective_clone = dataclasses.replace(
                     clone, xy=(0.0, 0.0), radius_mm=None, angle_deg=None, rotation_deg=0.0)
                 c, v, t = self._resolve_one_level(
-                    effective_clone, cell, cell_name, anchor_position,
+                    effective_clone, cell, cell_name, cell_key_part, anchor_position,
                     parent_rotation_deg=override.rotation_deg, anchor_id=anchor_id,
                     chain=(cell_name,))
             else:
-                c, v, t = self._resolve_one_level(clone, cell, cell_name, anchor_position,
+                c, v, t = self._resolve_one_level(clone, cell, cell_name, cell_key_part,
+                                                  anchor_position,
                                                   parent_rotation_deg=0.0, anchor_id=anchor_id,
                                                   chain=(cell_name,))
             components_result.extend(c)

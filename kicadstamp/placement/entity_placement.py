@@ -507,9 +507,15 @@ def _to_clone(entity: Entity, pos_nm: Vector2, rot_deg: float) -> ClonePlacement
     """Materialize a transient ClonePlacement from an Entity + absolute
     position (nm -> mm for the clone's xy). cluster falls back to the entity
     name (ClonePlacement.cluster is required; Entity.cluster is optional)."""
+    # The transient clone must carry the Entity's uuid (Р-У5.1): the planner keys
+    # its copper through clone_anchor_id, which reads clone.uuid under the format
+    # gate, and that key has to equal entity_anchor_id(real Entity) that
+    # apply_pipeline._compute_all_anchor_ids protects from an --only prune.
     return ClonePlacement(
         cluster=entity.cluster or entity.name,
         cell=entity.cell,
+        cell_uuid=entity.cell_uuid,
+        uuid=entity.uuid,
         xy=(pos_nm.x / MM, pos_nm.y / MM),
         rotation_deg=float(rot_deg),
         nets=entity.nets,

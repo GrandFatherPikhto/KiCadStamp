@@ -10,7 +10,7 @@ from ...kicad.adapter import KiCadBoardAdapter
 from ...exceptions import ValidationError, format_fatal_error
 from ...geometry.spoke_layout import apply_spoke_geometry
 from ...net_resolution import resolve_net_from_role
-from ...registry import make_registry_key
+from ...registry import make_registry_key, record_key_part
 from ...utils.layers import layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
 from .clone_role_resolver import resolve_footprint_by_role
@@ -277,6 +277,9 @@ class ManualPositionCalculator:
                         .format(pad=spoke.pad, cell=spoke.cell)
                     )
                     continue
+                # The registry key's template_name is the CELL's record part
+                # (Р-У5.1): uuid in format 3, name in format 2.
+                cell_key_part = record_key_part(spoke.cell, cell.uuid)
 
                 pad = self.adapter.get_pad_by_number(target_fp, spoke.pad)
                 if pad is None:
@@ -336,7 +339,7 @@ class ManualPositionCalculator:
                     vias_result.append(ViaCommand(
                         position=via.position, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
                         net_name=via.net, owner_ref=anchor_ref_resolved,
-                        registry_key=make_registry_key(anchor_id, spoke.cell, None, via_index),
+                        registry_key=make_registry_key(anchor_id, cell_key_part, None, via_index),
                     ))
                     logger.debug(
                         _("  spoke‑level via (pad {pad}): ({x:.3f}, {y:.3f}) mm, net={net}")
@@ -355,7 +358,7 @@ class ManualPositionCalculator:
                     tracks_result.append(TrackCommand(
                         start=track.start, end=track.end, width_mm=track.width_mm,
                         net_name=track.net, layer=track_layer, owner_ref=anchor_ref_resolved,
-                        registry_key=make_registry_key(anchor_id, spoke.cell, None, track_index),
+                        registry_key=make_registry_key(anchor_id, cell_key_part, None, track_index),
                     ))
                     logger.debug(
                         _("  spoke‑level track (pad {pad}): ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}, layer={layer}")
@@ -390,7 +393,7 @@ class ManualPositionCalculator:
                         vias_result.append(ViaCommand(
                             position=via.position, drill_mm=via.drill_mm, diameter_mm=via.diameter_mm,
                             net_name=via.net, owner_ref=comp_layout.ref,
-                            registry_key=make_registry_key(anchor_id, spoke.cell, comp_layout.role, via_index),
+                            registry_key=make_registry_key(anchor_id, cell_key_part, comp_layout.role, via_index),
                         ))
                         logger.debug(
                             _("    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}")
