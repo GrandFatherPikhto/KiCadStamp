@@ -16,6 +16,8 @@ from gui.docks._common import (
 )
 from kicadstamp.config.sexp_format import dict_to_sexp
 
+from tests.fakes.format3 import without_identity
+
 import gui.config_io as config_io_mod
 
 
@@ -57,8 +59,12 @@ def test_write_data_sexp_roundtrips(tmp_path):
     data = {
         "layer": "B.Cu",
         "place_components": False,
+        # the spoke's cell target and an explicit chain name (under the gate the
+        # lift mints a name for a nameless record — the round-trip would carry
+        # one the input dict does not).
+        "cells": {"fpga_pwr_bank": {}},
         "chains": [
-            {"net": "+3V3_VCCIO", "anchor_role": "FPGA",
+            {"name": "+3V3_VCCIO", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
              "spokes": [{"pad": "17", "cell": "fpga_pwr_bank",
                          "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},
         ],
@@ -71,7 +77,9 @@ def test_write_data_sexp_roundtrips(tmp_path):
     assert '"B.Cu"' in text
     back = _load(path)
     from kicadstamp.config.sexp_format import _strip_defaults
-    assert back == _strip_defaults(data)
+    # the round-trip carries uuid siblings under the format-3 gate; this cell is
+    # about the WRITE/READ shape, not the uuid.
+    assert without_identity(back) == without_identity(_strip_defaults(data))
     assert back["place_components"] is False
 
 
@@ -120,7 +128,7 @@ def test_upsert_list_entry_sexp_replaces_by_key(tmp_path):
     assert upsert_list_entry(path, "thermal_via_arrays",
                              {"name": "B", "pad": "1"}) is False
     data = _load(path)
-    assert data["thermal_via_arrays"] == [
+    assert without_identity(data["thermal_via_arrays"]) == [
         {"name": "A", "pad": "9"},
         {"name": "B", "pad": "1"},
     ]
@@ -129,12 +137,15 @@ def test_upsert_list_entry_sexp_replaces_by_key(tmp_path):
 def test_upsert_clone_placement_sexp(tmp_path):
     path = tmp_path / "cfg.sexp"
     path.write_text(dict_to_sexp({
+        "cells": {"dac_buf": {}},
         "clone_placements": [
-            {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0]},
+            # explicit name: the upsert key is the record's name, and under the
+            # gate a nameless record is minted a name that would not match.
+            {"name": "CH0", "cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0]},
         ],
     }, format_number=2), encoding="utf-8")
-    assert upsert_clone_placement(path, {"cluster": "CH0", "cell": "dac_buf",
-                                         "xy": [1.0, 2.0]}) is True
+    assert upsert_clone_placement(path, {"name": "CH0", "cluster": "CH0",
+                                         "cell": "dac_buf", "xy": [1.0, 2.0]}) is True
     data = _load(path)
     assert data["clone_placements"][0]["xy"] == [1.0, 2.0]
 

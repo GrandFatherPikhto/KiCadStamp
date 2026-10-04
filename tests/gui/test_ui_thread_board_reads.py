@@ -43,9 +43,13 @@ from tests.gui.conftest import _pump
 
 # A ref anchor (NOT origin) with ONE external node — the external kind needs no
 # config record and no cluster, so the read path only ever touches the adapter.
-BRANCH_TREES = {"trees": [
-    {"name": "power_tree", "anchor": {"ref": "U1"},
-     "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}
+BRANCH_TREES = {
+    # the Entity the anchor-base flow stages names this cell; a format-3 write
+    # resolves the reference against the graph.
+    "cells": {"cell1": {}},
+    "trees": [
+        {"name": "power_tree", "anchor": {"ref": "U1"},
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}
 
 
 def _dock_with(main_window, tmp_path, trees=None):

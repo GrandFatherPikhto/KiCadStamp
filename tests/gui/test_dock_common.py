@@ -22,6 +22,7 @@ from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                upsert_clone_placement, upsert_list_entry)
 import gui.docks._common as common_mod
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from tests.fakes.format3 import without_identity
 
 
 @pytest.fixture(autouse=True)
@@ -94,8 +95,10 @@ def test_merge_write_section_merges_only_that_nested_dict(config_path):
         config_path, {"extract_profiles": {"p2": {"b": 2}}}, section="extract_profiles")
     assert overwritten is False
     data = _load(config_path)
-    assert data["clone_placements"] == [{"name": "A"}]  # other top-level key untouched
-    assert data["extract_profiles"] == {"p1": {"a": 1}, "p2": {"b": 2}}
+    # uuid-free shape: the records carry a uuid under the format-3 gate.
+    assert without_identity(data["clone_placements"]) == [{"name": "A"}]
+    assert without_identity(data["extract_profiles"]) == {"p1": {"a": 1},
+                                                          "p2": {"b": 2}}
 
 
 def test_merge_write_creates_missing_file(config_path):
@@ -158,7 +161,8 @@ def test_add_list_entry_refuses_non_list_section(config_path):
 
 def test_upsert_clone_placement_replaces_by_name_and_appends(config_path):
     config_path.write_text(
-        _dump(config_path, {"clone_placements": [{"name": "A", "cell": "c1"}]}),
+        _dump(config_path, {"cells": {"c1": {}, "c2": {}},
+                            "clone_placements": [{"name": "A", "cell": "c1"}]}),
         encoding="utf-8")
     assert upsert_clone_placement(config_path, {"name": "A", "cell": "c2"}) is True
     assert upsert_clone_placement(config_path, {"name": "B", "cell": "c1"}) is False
@@ -200,11 +204,17 @@ def test_upsert_list_entry_refuses_non_list(config_path):
         upsert_list_entry(config_path, "thermal_via_arrays", {"name": "A"})
 
 
-def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path):
+def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path, monkeypatch):
     """chains: needs this (2026-09-01, plan rules_to_chains — was rules:) — a
     Chain's identity falls back to net: when name: is absent
     (config/models.py's chain_effective_name()), unlike thermal_via_arrays:/
-    clone_placements: which always require an explicit name:."""
+    clone_placements: which always require an explicit name:.
+
+    The nameless fallback is format-2 semantics: under the format-3 gate the
+    lift mints a name for a nameless record, so the key becomes the minted name
+    — pin the build to 2 (named in the handoff note)."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     identity = lambda e: e.get("name") or e.get("net")  # noqa: E731
     config_path.write_text(
         _dump(config_path, {"chains": [{"net": "+3V3", "anchor_role": "FPGA"}]}),
