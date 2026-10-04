@@ -35,7 +35,16 @@ either present and carried, or the cell is vacuous):
   net_traces         a `net:` keyed trace
   trees              the tree that places the entity
   tree_instances     two generated copies of one entity (DIFFERENT keys)
-  sheet_templates    generated copies at one and at several sheets
+  sheet_templates    generated copies, DISTINCT keys: `one` keeps anchor_point
+                     P1 but SHIFTED (its own point:P1:3.0000:0.0000, not
+                     cpoint's), `many` is ABSOLUTE -> name:S4_csheet2 /
+                     name:S5_csheet2
+
+Before the lift (phase 1) the cell also asserts the SET of registry anchor parts
+carries EVERY form above as its OWN binding (Н1, 04.10.2026): a copy that slips
+onto another form's key — the three ``sheet_templates`` copies used to collapse
+onto ``cpoint``'s ``point:P1:0.0000:0.0000``, so losing the whole section in the
+step was invisible — leaves its own form missing and reddens HERE, in the cell.
 
 The apply is the REGISTRY path only (reconcile + create + ``record_created``),
 exactly as the У5.4 main cell: the positional pre-check is an independent
@@ -169,14 +178,19 @@ def _root_data() -> dict:
                                     "end_along_mm": 2.0, "end_across_mm": 0.0,
                                     "width_mm": 0.25, "net": "GND", "layer": "F.Cu"}]}],
         "sheet_templates": {
+            # Н1: `one` keeps the anchor_point reference (exercised INSIDE the
+            # section) but is SHIFTED to [3.0, 0.0], so its key is its own —
+            # not cpoint's point:P1:0.0000:0.0000.
             "one": {"sheets": ["S3"],
                     "clone_placements": [{"name": "csheet1", "cluster": "csheet1",
                                           "cell": "leaf", "anchor_point": "P1",
-                                          "xy": [0.0, 0.0]}]},
+                                          "xy": [3.0, 0.0]}]},
+            # `many` copies are ABSOLUTE (no anchor_point): multi-sheet naming
+            # gives S4_csheet2 / S5_csheet2, two DISTINCT `name:` keys — the
+            # derived copy UUIDs also ride through the lift.
             "many": {"sheets": ["S4", "S5"],
                      "clone_placements": [{"name": "csheet2", "cluster": "csheet2",
-                                           "cell": "leaf", "anchor_point": "P1",
-                                           "xy": [0.0, 0.0]}]},
+                                           "cell": "leaf", "xy": [0.0, 0.0]}]},
         },
     }
 
@@ -291,6 +305,66 @@ def _board_positions(adapter):
     return out
 
 
+def _anchor_parts(commands) -> set:
+    """The ANCHOR part — the record identity, left of the first ``|`` — of every
+    planned registry key. The form-space the phase-1 non-vacuity check asserts."""
+    return {cmd.registry_key.split("|", 1)[0]
+            for cmd in commands if cmd.registry_key}
+
+
+def _form_is_bound(parts: set, form: str) -> bool:
+    """True when some anchor part IS this form. A ``name:`` form must match
+    EXACTLY: ``name:E`` must NOT be satisfied by ``name:E__ti1`` (a
+    tree_instances copy) — that collapse is exactly the Н1 the cell catches.
+    The physics forms carry offsets after the identity, so the form counts when
+    it is the whole part OR a prefix followed by ``:`` (``point:P1`` binds
+    ``point:P1:0.0000:0.0000``)."""
+    if form.startswith("name:"):
+        return form in parts
+    return any(part == form or part.startswith(form + ":") for part in parts)
+
+
+def _assert_every_form_is_bound(commands) -> None:
+    """Н1 (04.10.2026): the union of the two registries' anchor parts must carry
+    EVERY form the fixture declares, each as its OWN binding. Two forms that
+    share one key leave one unbound and redden HERE, in the through cell — the
+    old ``csheet1`` / ``S4_csheet2`` / ``S5_csheet2`` copies all sat on
+    ``cpoint``'s ``point:P1:0.0000:0.0000``, so losing the whole
+    ``sheet_templates`` block in the step was invisible."""
+    parts = _anchor_parts(commands)
+    assert parts, "no registry key was planned — the form check would be vacuous"
+
+    missing = [form for form in (
+        "name:E",                     # the tree-placed entity itself
+        "name:E__ti1",                # tree_instances copy 1 (its own key)
+        "name:E__ti2",                # tree_instances copy 2 (its own key)
+        "name:cabs",                  # absolute clone_placement
+        "name:cnest/inner1/inner2",   # nested cell, path-composed at depth
+        "name:S4_csheet2",            # sheet_template `many`, absolute, sheet S4
+        "name:S5_csheet2",            # sheet_template `many`, absolute, sheet S5
+        "point:P1",                   # cpoint — anchor_point at origin
+        "point:P2",                   # csub — cross-file point
+        "anchor:U1",                  # cref — anchor_ref
+        "role:FPGA",                  # crole — anchor_role
+        "pad:1",                      # chain spoke
+        "thermal:tva1",               # thermal_via_arrays matrix
+        "net:nt1",                    # net_traces trace
+    ) if not _form_is_bound(parts, form)]
+
+    # The `one` sheet_template keeps `anchor_point P1` but is SHIFTED to
+    # [3.0, 0.0]: either key proves the copy survived the step AND stayed
+    # distinct from `cpoint`.
+    if not (any(p == "name:csheet1" for p in parts)
+            or any(p.startswith("point:P1:3") for p in parts)):
+        missing.append("name:csheet1 | point:P1:3")
+
+    assert not missing, (
+        "the declared form(s) "
+        + ", ".join(repr(m) for m in missing)
+        + " produced no own registry binding — collapsed onto another form; "
+        f"anchor parts: {sorted(parts)}")
+
+
 def _schema(path) -> int | None:
     p = Path(path)
     if not p.exists():
@@ -364,6 +438,7 @@ def test_a_format2_graph_lifted_on_open_keeps_the_second_apply_empty(
 
     vias2, tracks2 = _all_commands(cfg2, adapter)
     assert vias2 or tracks2, "the fixture planned no copper (vacuous cell)"
+    _assert_every_form_is_bound(list(vias2) + list(tracks2))
     _apply(adapter, cfg2, root, vias2, tracks2)
     board_before = _board_uuids(adapter)
     positions_before = _board_positions(adapter)
