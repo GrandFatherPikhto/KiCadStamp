@@ -33,6 +33,7 @@ from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
+from tests.fakes.format3 import det_uuid
 
 INNER = "In1.Cu"
 
@@ -230,7 +231,8 @@ class TestExtractWriteLoadPlanChain:
 
         # 3) planning keeps it on that layer (Э2 restores exactly this):
         clone = ClonePlacement(cluster="chain", cell="chain_cell", xy=(100.0, 200.0),
-                               nets={"R1": "NET1"})
+                               nets={"R1": "NET1"},
+                               uuid=det_uuid("clone_placements:chain"))
         calc = ClonePositionCalculator(self._planning_adapter(), cfg)
         _placed, _vias, tracks = calc.compute_raw_positions([clone])
         assert len(tracks) == 1

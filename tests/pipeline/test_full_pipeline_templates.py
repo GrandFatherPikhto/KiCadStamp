@@ -22,6 +22,7 @@ from kicadstamp.config import (
 from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
 
@@ -82,7 +83,9 @@ def _build_config():
         via_keepout_clearance_mm=0.2, via_search_step_mm=0.1,
         via_search_max_radius_mm=3.0, via_search_n_directions=8,
     )
-    return cfg
+    # §0 record identity (Р-У5.7): the planner's registry-key builders refuse a
+    # record without a uuid under the format-3 gate; inert under format 2.
+    return stamp_config(cfg)
 
 
 def _make_pool_adapter(ic1, cap_fps):

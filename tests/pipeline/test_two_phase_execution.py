@@ -31,6 +31,7 @@ from kicadstamp.placement.planner import PlacementPlanner
 from kicadstamp.placement.executor import BatchExecutor
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
 
@@ -58,6 +59,9 @@ def test_two_phase_flow_completes_and_via_geometry_is_correct():
         cells={"t": cell},
         chains=[Rule(net="+3V3", anchor_ref='IC1', spokes=[spoke])],
     )
+    # §0 record identity (Р-У5.7): the planner's registry-key builders refuse a
+    # record without a uuid under the format-3 gate; inert under format 2.
+    stamp_config(cfg)
 
     ic1 = MagicMock()
     ic1.ref = "IC1"

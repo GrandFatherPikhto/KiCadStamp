@@ -18,14 +18,23 @@ from kicadstamp.apply_pipeline import (
 )
 from kicadstamp.cli_extract import load_profile, EXTRACT_PROFILE_KNOWN_KEYS, CLONE_EXTRACT_PROFILE_KNOWN_KEYS
 from kicadstamp.exceptions import PlacerError, ValidationError
+from tests.fakes.format3 import det_uuid, identity_value, stamp_config
 
 logger = logging.getLogger("test_cli_filters")
 
 
 def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
-    return Config(chains=rules or [], clone_placements=clone_placements or [],
-                  thermal_via_arrays=thermal_via_arrays or [],
-                  coordinate_placements=coordinate_placements or [])
+    # §0 record identity (Р-У5.7): the registry-key builder refuses a record
+    # without a uuid under the format-3 gate; the stamp is inert under format 2.
+    return stamp_config(Config(chains=rules or [], clone_placements=clone_placements or [],
+                               thermal_via_arrays=thermal_via_arrays or [],
+                               coordinate_placements=coordinate_placements or []))
+
+
+def _thermal_id(name: str) -> str:
+    """The anchor id of one thermal_via_arrays record under the CURRENT format —
+    its uuid under the gate (Р-У5.1), its name in format 2."""
+    return f"thermal:{identity_value(name, det_uuid(f'thermal_via_arrays:{name}'))}"
 
 
 class TestSplitCommaValues:
@@ -97,7 +106,8 @@ class TestComputeAllAnchorIds:
             ThermalViaArrayConfig(anchor_role="AD9707", pad="7", name="ad9707_ch2_thermal"),
         ])
         ids = _compute_all_anchor_ids(cfg)
-        assert ids == {"thermal:ad9707_ch1_thermal", "thermal:ad9707_ch2_thermal"}
+        assert ids == {_thermal_id("ad9707_ch1_thermal"),
+                       _thermal_id("ad9707_ch2_thermal")}
 
     def test_retired_thermal_via_array_excluded_others_kept(self):
         cfg = _cfg(thermal_via_arrays=[
@@ -105,7 +115,7 @@ class TestComputeAllAnchorIds:
             ThermalViaArrayConfig(anchor_role="AD9707", pad="7", name="ad9707_ch2_thermal", retired=False),
         ])
         ids = _compute_all_anchor_ids(cfg)
-        assert ids == {"thermal:ad9707_ch2_thermal"}
+        assert ids == {_thermal_id("ad9707_ch2_thermal")}
 
 
 class TestDropInactiveItems:

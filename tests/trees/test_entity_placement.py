@@ -22,7 +22,7 @@ from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import entity_anchor_id
 from kicadstamp.placement.services.component_pool import ROLE_FIELD_NAME
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
-from tests.fakes.format3 import det_uuid, identity_value
+from tests.fakes.format3 import det_uuid, identity_value, stamp_config
 
 
 def _cell(name="c"):
@@ -523,14 +523,16 @@ def _mixed_tree_cfg():
     """The REAL fpga-tree shape (bug #3, 2026-08-30): ONE tree mixes a
     kind="placement" node (an Entity) with a kind="rule" node (a rules: entry)
     — a neighbor section of the SAME tree."""
-    return Config(
+    # §0 record identity (Р-У5.7): the pipeline's anchor-id builders refuse a
+    # record without a uuid under the format-3 gate; inert under format 2.
+    return stamp_config(Config(
         cells={"c": _cell("c")},
         entities=[Entity(name="E1", cell="c", cluster="CH0")],
         chains=[Rule(name="R1", net="+3V3_VCCIO", spokes=[])],
         trees=[Tree(name="t", anchor=TreeAnchor(is_origin=True),
                     nodes=[_node(ref="E1", xy=(1.0, 0.0)),
                            _node(ref="R1", kind="rule", xy=(2.0, 0.0))])],
-    )
+    ))
 
 
 def test_only_on_placement_narrows_neighbor_rule_section():
@@ -1212,6 +1214,9 @@ def test_placement_live_resolve_autoderives_net_for_role_without_template():
         entities=[Entity(name="fpga_flash", cell="fpga_flash")],
         trees=[_origin_tree([_node(ref="fpga_flash", xy=(0.0, 0.0))])],
     )
+    # §0 record identity (Р-У5.7): the planner's registry-key builders refuse a
+    # record without a uuid under the format-3 gate; inert under format 2.
+    stamp_config(cfg)
     adapter = _fpga_flash_mock_adapter()
 
     materialized = materialize_entity_placements(adapter, cfg, {})

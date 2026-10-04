@@ -27,6 +27,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.board import BoardLayer, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.utils.units import MM
+from tests.fakes.format3 import det_uuid
 
 import gui.docks.copper_select as copper_select_mod
 import gui.docks.net_trace as net_trace_mod
@@ -41,8 +42,11 @@ from gui.docks.trees_dock import TreesDock
 
 
 def _record(name="bridge", net="N", anchor_role="FPGA"):
+    # §0 record identity (Р-У5.7): the registry key builder refuses a record
+    # without a uuid under the format-3 gate; inert under format 2.
     return NetTrace(
         net=net, name=name, anchor_role=anchor_role, anchor_pad="42",
+        uuid=det_uuid(f"net_traces:{name}"),
         tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
                               end_along_mm=3, end_across_mm=4, width_mm=0.2,
                               net=net, layer="F.Cu")],

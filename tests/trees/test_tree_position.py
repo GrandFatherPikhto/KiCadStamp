@@ -340,6 +340,7 @@ class TestRigidGroupCaptureApply:
 
 
 from tests.fakes.resolver import FakeComponentResolver  # noqa: E402
+from tests.fakes.format3 import stamp_config  # noqa: E402
 
 
 class TestRigidCaptureMountParent:
@@ -1461,6 +1462,9 @@ def test_mixed_tree_rule_override_lands_on_override_not_own_anchor(monkeypatch):
     rule = Chain(net="RULE_N", anchor_role="R_FPGA",
                 spokes=[ManualSpoke(pad="1", cell="tpl")])
     cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
+    # §0 record identity (Р-У5.7): the planner's registry-key builder refuses a
+    # record without a uuid under the format-3 gate; inert under format 2.
+    stamp_config(cfg)
 
     # ── 4. ApplyPipeline with the override (bug #5 path) ──
     pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg,

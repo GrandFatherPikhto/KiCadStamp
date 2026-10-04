@@ -32,6 +32,7 @@ from kicadstamp.geometry.pad_area import pad_area_of
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.geometry.thermal_grid import compute_thermal_via_grid
 from kicadstamp.placement.services.via_planner import ViaPlanner
+from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
 # The measured Д1 shift of EVERY pad box of a footprint at 315°.
@@ -170,7 +171,10 @@ _IDEAL_LOCAL_UM = [(x, y) for x in (-1125, -375, 375, 1125)
 
 
 def _thermal_vias(board: _FakeBoard, cfg: Config | None = None) -> list:
-    vias = ViaPlanner(board, cfg or _config()).plan_vias([], [])
+    # §0 record identity (Р-У5.7): under the format-3 gate the registry key
+    # builder refuses a record without a uuid, so a hand-built Config carries
+    # one; under format 2 the stamp is inert.
+    vias = ViaPlanner(board, stamp_config(cfg or _config())).plan_vias([], [])
     return [v for v in vias if v.registry_key is not None]
 
 

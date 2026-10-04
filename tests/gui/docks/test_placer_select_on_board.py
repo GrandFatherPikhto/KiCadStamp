@@ -25,6 +25,7 @@ from kicadstamp.config import load_clone_placement, load_coordinate_placement
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.placement.services.clone_position_calculator import clone_anchor_id
 from tests.gui.conftest import _pump
+from tests.fakes.format3 import det_uuid, identity_value
 
 
 def _write(path, data) -> None:
@@ -176,8 +177,13 @@ def test_highlight_placeholder_does_not_change_clone_anchor_id(
 
     c_hi = load_clone_placement(hi)
     c_full = load_clone_placement(full)
+    # §0 record identity (Р-У5.1): under the format-3 gate the key carries the
+    # record uuid, so stamp both the same way and spell the key through
+    # identity_value. The property this cell guards — the placeholder must not
+    # change the identity — holds under either format.
+    c_hi.uuid = c_full.uuid = det_uuid("clone_placements:PIF_3V3_VDD")
     assert clone_anchor_id(c_hi) == clone_anchor_id(c_full)
-    assert clone_anchor_id(c_hi) == "name:PIF_3V3_VDD"
+    assert clone_anchor_id(c_hi) == f"name:{identity_value('PIF_3V3_VDD', c_hi.uuid)}"
 
 
 def test_anchor_point_identity_ignores_form_xy(main_window, tmp_path):
@@ -190,13 +196,20 @@ def test_anchor_point_identity_ignores_form_xy(main_window, tmp_path):
 
     entry = dock._build_entry_dict()
     assert entry["anchor_point"] == "origin_point"
-    key = clone_anchor_id(load_clone_placement(entry))
-    assert key == "point:origin_point:0.0000:0.0000"
+    # §F.3 point branch (Р-У5.2): under the gate the point part is the Point's
+    # uuid, so stamp it and spell the expected key through identity_value.
+    point_uuid = det_uuid("points:origin_point")
+    c = load_clone_placement(entry)
+    c.anchor_point_uuid = point_uuid
+    key = clone_anchor_id(c)
+    assert key == f"point:{identity_value('origin_point', point_uuid)}:0.0000:0.0000"
 
     dock.x_edit.setText("5")
     dock.y_edit.setText("6")
     entry2 = dock._build_entry_dict()
-    assert clone_anchor_id(load_clone_placement(entry2)) == key
+    c2 = load_clone_placement(entry2)
+    c2.anchor_point_uuid = point_uuid
+    assert clone_anchor_id(c2) == key
 
 
 # ── §F.3 — Save/Redraw keep the full strictness ───────────────────────────
