@@ -59,6 +59,20 @@ logger = logging.getLogger(__name__)
 
 _POSITION_TOLERANCE_MM = POSITION_TOLERANCE_MM
 
+# The anchor_id prefixes whose copper is PROTECTED from a prune in an
+# --only/--cluster run (reconcile's known_anchor_ids). ONE list: every anchor_id
+# a builder produces must start with one of these, or selecting another record
+# with --only silently DELETES this record's vias/tracks from the board.
+# `point:` was missing from the original inline tuple (found 2026-10-04): a
+# Point-anchored clone_placement (anchor_point set — clone_anchor_id's first
+# branch since 2026-08-06) lost its copper on any --only run. Guarded by
+# tests/placement/test_registry_anchor_prefix_protection.py, which enumerates
+# every builder's output.
+# (imprint: registry keys are built in imprint_apply.py and are NOT part of
+# known_anchor_ids at all — a separate recorded open item, not this list.)
+PROTECTED_ANCHOR_PREFIXES = ("anchor:", "role:", "name:", "point:",
+                             "thermal:", "pad:", "net:")
+
 
 def make_registry_key(anchor_id: str, template_name: str, role: str | None, index: int) -> str:
     """Build a composite registry key for vias/tracks.
@@ -317,7 +331,7 @@ class BaseRegistry(ABC, Generic[TEntry]):
             # does not apply here (see IMPORTANT note above).
             if (anchor_id not in seen_anchor_ids
                     and known_anchor_ids is not None
-                    and anchor_id.startswith(('anchor:', 'role:', 'name:', 'thermal:', 'pad:', 'net:'))
+                    and anchor_id.startswith(PROTECTED_ANCHOR_PREFIXES)
                     and anchor_id in known_anchor_ids):
                 logger.debug(_("  {key}: not processed in this run (--only filtered "
                                "{anchor_id!r}), but it is still in the config — NOT pruned")
