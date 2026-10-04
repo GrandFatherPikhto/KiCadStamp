@@ -420,3 +420,17 @@ def test_do_save_survives_a_broken_legacy_entry_in_the_same_file(main_window, tm
     data = sexp_to_dict(target_file.read_text(encoding="utf-8"))
     roles = sorted(e.get("role") for e in data["coordinate_placements"])
     assert roles == ["R18", "R_LEGACY"]
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 (class (в)): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

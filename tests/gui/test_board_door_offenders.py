@@ -1358,3 +1358,17 @@ def test_the_form_reads_the_live_adapter_not_the_one_it_was_built_with(
     assert handed == [second], (
         f"the form must read through the LIVE adapter — got {handed!r} while "
         f"{first!r} is the dead one it was built with")
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 (class (в)): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

@@ -21,6 +21,8 @@ from pathlib import Path
 from gui.docks.placer import PlacerDock
 from kicadstamp.config import load_entity
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config_working_set import set_active_graph_root
+from tests.fakes.format3 import without_identity
 
 
 def _write(path: Path, data: dict) -> None:
@@ -49,6 +51,9 @@ def _make_entity_dock(main_window, tmp_path, entities=None, cells=None, trees=No
     root_data = {
         "clone_placements": [],
         "include": ["cells.sexp"],
+        # a point the "Origin -> point P1" save path names; the format-3 stamp
+        # resolves that reference at write time.
+        "points": {"P1": {"anchor_role": "FPGA"}},
         "entities": entities or [
             {"name": "E1", "cell": "pi_filter", "cluster": "CL1",
              "nets": {"C_IN": "+3V3"}, "refs": {"C_IN": "C5"}},
@@ -59,6 +64,9 @@ def _make_entity_dock(main_window, tmp_path, entities=None, cells=None, trees=No
         root_data["trees"] = trees
     root_file = tmp_path / "root.sexp"
     _write(root_file, root_data)
+    # The format-3 stamp walks the include graph from the ACTIVE root; point it
+    # at THIS root so the included cells.sexp participates in resolution.
+    set_active_graph_root(root_file)
     dock = PlacerDock(main_window)
     dock.set_root_path(root_file)
     return dock, root_file
@@ -336,9 +344,13 @@ def test_entity_save_moves_node_to_matching_anchor_tree(main_window, tmp_path):
     dock._do_save()
     data = _load(root_file)
     trees = data.get("trees") or []
-    point_tree = next(t for t in trees if t.get("anchor") == {"point": "P1"})
+    # The point anchor carries a machine-added point_uuid under the gate; this
+    # cell is about the MOVE, not the uuid.
+    point_tree = next(t for t in trees
+                      if without_identity(t.get("anchor")) == {"point": "P1"})
     assert _contains_node(point_tree, "E1")
-    flat = next(t for t in trees if t.get("anchor") == {"origin": True})
+    flat = next(t for t in trees
+                if without_identity(t.get("anchor")) == {"origin": True})
     assert not _contains_node(flat, "E1")  # moved, not duplicated
 
 
@@ -398,6 +410,7 @@ def _make_scheme_entity_dock(main_window, tmp_path):
             {"name": "S1", "imprint": "psu", "sheet": "Channel_1"},
         ],
     })
+    set_active_graph_root(root_file)   # walk the include graph for the stamp
     dock = PlacerDock(main_window)
     dock.set_root_path(root_file)
     return dock, root_file
@@ -434,3 +447,17 @@ def test_imprint_entity_pick_is_readonly_and_save_refused(main_window, tmp_path,
     dock.entity_combo.setCurrentText("E1")
     assert dock._selected_cell == "pi_filter"
     assert dock._loaded_entity_imprint is None
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 (class (в)): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
