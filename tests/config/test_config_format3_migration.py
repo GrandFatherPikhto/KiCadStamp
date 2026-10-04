@@ -80,6 +80,26 @@ def test_the_migration_seed_is_pinned_by_literal_values():
             == "4fd95765-d295-572a-8f90-0077ebf2146a")
 
 
+# ── the test stub mints on the SAME product seed (Р-У3.4, У3.2) ────────────
+
+def test_the_format3_stub_seed_is_the_product_seed():
+    """The stub of tests/fakes/format3.py must mint in the PRODUCT namespace
+    (У3.2 / Р-У3.4), not in a private one: a fixture-built format-3 graph and
+    the real converter have to compute the SAME uuid for the same record, or a
+    comparison of the two would compare different identities. The product never
+    imports the stub (that stays true)."""
+    from tests.fakes.format3 import det_uuid, mint_format3
+
+    assert det_uuid("cells:cap") == migration_uuid("cells", "cap")
+    assert det_uuid("entities:E") == migration_uuid("entities", "E")
+
+    minted = mint_format3({"cells": {"Power/cap": {}}})
+    assert minted["cells"]["Power/cap"]["uuid"] == migration_uuid(
+        "cells", "Power/cap")
+    assert (minted["folders"]["cells"]["Power"]
+            == migration_folder_uuid("cells", "Power"))
+
+
 # ── §0 records: one row per product section ───────────────────────────────
 
 def _record_data(section):

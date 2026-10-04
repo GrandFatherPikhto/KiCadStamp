@@ -7,22 +7,32 @@ substituting the MODULE attribute (never a from-import — both
 ``format_version.current_format()`` and ``refuse_newer()`` read
 ``CURRENT_FORMAT`` at call time; the pattern is test_config_format_version.py:171).
 
-``det_uuid`` gives deterministic UUIDs so byte snapshots do not drift.
+``det_uuid`` mints in the PRODUCT migration namespace (У3.2 / Р-У3.4), so a
+fixture-built format-3 graph carries the SAME UUIDs the real converter writes;
+deterministic, so byte snapshots do not drift.
 """
 import copy
-import uuid
 
 import pytest
 
 from kicadstamp.config import format_version
-
-# A fixed namespace: det_uuid(n) is stable across runs and machines.
-_NS = uuid.UUID("00000000-0000-0000-0000-0000000000ab")
+from kicadstamp.config.uuids import migration_folder_uuid, migration_uuid
 
 
 def det_uuid(n) -> str:
-    """A deterministic UUID for a small integer/name — one per record/target."""
-    return str(uuid.uuid5(_NS, str(n)))
+    """A deterministic UUID in the PRODUCT migration namespace (У3.2).
+
+    The key follows this stub's own `<section>:<full name>` convention
+    (`det_uuid("cells:cap")`), so the stub and the real 2 -> 3 step mint the SAME
+    uuid for the same record — ONE seed for the product and the tests, never a
+    private `…00ab` namespace (Р-У3.4). A key WITHOUT a colon is a helper value
+    (a dangling uuid, a hand-written fixture) and stays deterministic in the
+    same namespace.
+    """
+    section, sep, name = str(n).partition(":")
+    if sep:
+        return migration_uuid(section, name)
+    return migration_uuid("", str(n))
 
 
 # ── §0 record sections (mirror of config/loader's tables) ──────────────────
@@ -99,6 +109,35 @@ def mint_format3_files(raw_by_path: dict) -> dict:
                     f"mint_format3: {ref.label} names no unique {ref.target} "
                     f"record ({name!r})")
             ref.holder[ref.uuid_field] = resolved
+
+    # Folder rows (В39) — the mirror of the real step: every path prefix of every
+    # record name, seeded by the PRODUCT folder builder, so a stub-minted graph
+    # carries the folder table the converter would write and one path in two
+    # files keeps ONE uuid. `_folder_prefixes` is the product's own walk (test
+    # import only), so the stub cannot drift from В39.
+    from kicadstamp.config.format3 import _folder_prefixes  # test-only
+
+    for data in out.values():
+        rows: dict = {}
+        for section in _DICT_SECTIONS + _FREE_SECTIONS:
+            for key in (data.get(section) or {}):
+                for prefix in _folder_prefixes(key):
+                    rows.setdefault(section, {}).setdefault(
+                        prefix, migration_folder_uuid(section, prefix))
+        for section in _LIST_SECTIONS:
+            for rec in (data.get(section) or []):
+                for prefix in _folder_prefixes(rec.get("name") or ""):
+                    rows.setdefault(section, {}).setdefault(
+                        prefix, migration_folder_uuid(section, prefix))
+        if not rows:
+            continue
+        # Merge, never clobber: an existing row keeps its uuid, exactly like the
+        # real step (a hand-written folder row passed in must survive).
+        table = data.setdefault("folders", {})
+        for section, path_map in rows.items():
+            section_table = table.setdefault(section, {})
+            for prefix, folder_uuid in path_map.items():
+                section_table.setdefault(prefix, folder_uuid)
     return out
 
 
