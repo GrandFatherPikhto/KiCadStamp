@@ -38,6 +38,18 @@ def _write(tmp_path, name, data) -> Path:
     return p
 
 
+@pytest.fixture
+def format2(monkeypatch):
+    """Pin CURRENT_FORMAT to 2 (У3.5 К3, row 13).
+
+    The name-REQUIRED/rule-name-OPTIONAL cells' subject IS the format-2 naming
+    contract: under format 3 the 2->3 lift MINTS a name on every unnamed record
+    (В36), so "no name -> fatal" and "name falls back to net" are simply false
+    there. The cells assert the format-2 contract — pin, do not rewire."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
+
 class TestEffectiveNameAccessors:
     """rule_effective_name/thermal_via_array_effective_name — just .name
     for ThermalViaArrayConfig (the loader guarantees it's set for anything
@@ -115,7 +127,7 @@ class TestNameRequired:
     every thermal_via_arrays entry, clone_placement (closes an old hole
     with a silent '?')."""
 
-    def test_thermal_via_array_without_name_is_fatal(self, tmp_path):
+    def test_thermal_via_array_without_name_is_fatal(self, tmp_path, format2):
         config_file = _write(tmp_path, "test.sexp", _cfg(
             thermal_via_arrays=[{"anchor_role": "FPGA", "pad": "145"}]))
         with pytest.raises(ValidationError):
@@ -153,7 +165,7 @@ class TestRuleNameOptional:
     is a working fallback for the identity of a SINGLE rule (not a grouping
     mechanism)."""
 
-    def test_rule_without_name_loads_fine(self, tmp_path):
+    def test_rule_without_name_loads_fine(self, tmp_path, format2):
         config_file = _write(tmp_path, "test.sexp", _cfg(
             rules=[{"net": "+3V3_VCCIO", "anchor_role": "FPGA"}]))
         cfg, _ = load_config(str(config_file))
@@ -161,7 +173,7 @@ class TestRuleNameOptional:
         assert rule.name is None
         assert rule_effective_name(rule) == "+3V3_VCCIO"
 
-    def test_two_rules_same_net_without_name_is_fatal(self, tmp_path):
+    def test_two_rules_same_net_without_name_is_fatal(self, tmp_path, format2):
         """Two anchors (e.g. two different ICs) on the same GND net without
         a distinguishing name: — an --only identity collision, must be
         caught at load time, not silently resolved in favour of either one."""
@@ -171,7 +183,7 @@ class TestRuleNameOptional:
         with pytest.raises(ValidationError):
             load_config(str(config_file))
 
-    def test_two_rules_same_net_with_distinguishing_name_is_ok(self, tmp_path):
+    def test_two_rules_same_net_with_distinguishing_name_is_ok(self, tmp_path, format2):
         config_file = _write(tmp_path, "test.sexp", _cfg(
             rules=[{"net": "GND", "anchor_role": "FPGA", "name": "fpga_gnd"},
                    {"net": "GND", "anchor_role": "GD32F470"}]))
@@ -203,7 +215,10 @@ class TestRuleSkip:
     drop_inactive_items in kicadstamp_cli.py, added 2026-07-29)."""
 
     def test_default_is_not_skip(self, tmp_path):
+        # У3.5 К3, row 13: the spoke's cell: is a §0 reference; under format 3
+        # the load resolves it, so the target cell must exist in the graph.
         config_file = _write(tmp_path, "test.sexp", _cfg(
+            cells={"t": {}},
             rules=[{"net": "+3V3_VCCIO", "anchor_role": "FPGA",
                     "spokes": [{"pad": "17", "cell": "t"}]}]))
         cfg, _ = load_config(str(config_file))
@@ -212,6 +227,7 @@ class TestRuleSkip:
 
     def test_skip_true_loaded_from_config_on_rule_and_spoke(self, tmp_path):
         config_file = _write(tmp_path, "test.sexp", _cfg(
+            cells={"t": {}},
             rules=[{"net": "+3V3_VCCIO", "anchor_role": "FPGA", "skip": True,
                     "spokes": [{"pad": "17", "cell": "t", "skip": True}]}]))
         cfg, _ = load_config(str(config_file))

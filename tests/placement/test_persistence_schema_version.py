@@ -50,15 +50,29 @@ class TestCheckSchemaVersion:
             check_schema_version(2, REGISTRY_SCHEMA_VERSION, "x.json", "registry")
 
 
+@pytest.fixture
+def format2(monkeypatch):
+    """Pin CURRENT_FORMAT to 2 (У3.5 К3, row 12).
+
+    The registry SCHEMA-VERSION cells' subject IS the format-2 registry: it is
+    keyed by name and carries schema 1. Under format 3 the same registry is
+    keyed by uuid and carries schema 2 (REGISTRY_SCHEMA_VERSION_FORMAT3), so the
+    format-2 expectations are the cell's own subject — pin them, do not rewire
+    them to the format-3 shape. format_version reads CURRENT_FORMAT at call
+    time, and registry.current_format is imported lazily, so the pin holds."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
+
 class TestRegistrySchemaVersion:
-    def test_save_registry_writes_schema_version(self, tmp_path):
+    def test_save_registry_writes_schema_version(self, tmp_path, format2):
         path = tmp_path / "r.registry.json"
         save_registry(str(path), {"pad:1|c|__spoke__|0": _via_entry()})
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["schema_version"] == REGISTRY_SCHEMA_VERSION
         assert "pad:1|c|__spoke__|0" in data
 
-    def test_load_registry_accepts_legacy_flat_file(self, tmp_path):
+    def test_load_registry_accepts_legacy_flat_file(self, tmp_path, format2):
         path = tmp_path / "r.registry.json"
         path.write_text(json.dumps({
             "pad:1|c|__spoke__|0": {
@@ -88,7 +102,7 @@ class TestRegistrySchemaVersion:
         with pytest.raises(ValueError, match="schema_version 999"):
             load_registry(str(path))
 
-    def test_track_registry_roundtrip_and_schema_version(self, tmp_path):
+    def test_track_registry_roundtrip_and_schema_version(self, tmp_path, format2):
         path = tmp_path / "t.tracks.registry.json"
         save_track_registry(str(path), {"pad:1|c|__spoke__|0": _track_entry()})
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -97,7 +111,7 @@ class TestRegistrySchemaVersion:
         assert "schema_version" not in entries
         assert "pad:1|c|__spoke__|0" in entries
 
-    def test_load_track_registry_accepts_legacy_flat_file(self, tmp_path):
+    def test_load_track_registry_accepts_legacy_flat_file(self, tmp_path, format2):
         path = tmp_path / "t.tracks.registry.json"
         path.write_text(json.dumps({
             "pad:1|c|__spoke__|0": {

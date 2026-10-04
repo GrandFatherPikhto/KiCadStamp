@@ -24,6 +24,20 @@ import pytest
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.extract_writer import run_extract_to_file
+from tests.fakes.format3 import without_identity
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 К3, row 10: under format 3 the writer stamp needs the active graph
+    root; these cells write a self-contained cells:/extract_profiles: file. The
+    root path does NOT exist, so the stamp indexes only THIS write's records
+    (config/format3._build_format3_index). Under format 2 the root is never
+    consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
 
 
 def _fill_cell_defaults(data: dict) -> dict:
@@ -82,10 +96,18 @@ class _CapturingExtract:
 def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=None,
          rule_nets=None, origin_kwargs=None, save_profile=False, profile_key="cell1",
          profile_path=None, placer_path=None, raw_selection=False, extract_fn=None,
-         adapter="ADAPTER", clone_placements=None):
+         adapter="ADAPTER", clone_placements=None, seed_cells=None):
     """Run run_extract_to_file with a fresh cells target under tmp_path and a
-    default capturing extractor (unless one is supplied)."""
+    default capturing extractor (unless one is supplied).
+
+    `seed_cells` pre-writes the target with {name: {}} records — the targets of
+    a Sub-placement's `cell:` reference. Under format 3 the load/write resolves
+    that reference (У3.5 К3, row 10), so the referenced cell must exist in the
+    graph; under format 2 the seed is inert extra content."""
     target = tmp_path / "cells.sexp"
+    if seed_cells:
+        target.write_text(_dump(target, {"cells": {n: {} for n in seed_cells}}),
+                          encoding="utf-8")
     fn = extract_fn if extract_fn is not None else _CapturingExtract()
     result = run_extract_to_file(
         adapter,
@@ -119,8 +141,10 @@ def test_extract_writes_entity_with_params_and_no_position(tmp_path):
 
     assert "error" not in result
     data = _load(target)
-    assert data["entities"] == [{"name": "cell1", "cell": "cell1",
-                                 "params": {"CH": "0"}}]
+    # У3.5 К3, row 8: the format-3 write stamps the entity's uuid and the
+    # cell reference's cell_uuid; the subject here is the SHAPE (no position).
+    assert without_identity(data["entities"]) == [{"name": "cell1", "cell": "cell1",
+                                                   "params": {"CH": "0"}}]
     assert all(not any(k in e for k in
                        ("xy", "anchor_ref", "anchor_role", "rotation_deg"))
                for e in data["entities"])
@@ -133,8 +157,8 @@ def test_extract_re_run_replaces_entity_in_place(tmp_path):
     target, result, _ = _run(tmp_path, params={"CH": "1"})
     assert "error" not in result
     data = _load(target)
-    assert data["entities"] == [{"name": "cell1", "cell": "cell1",
-                                 "params": {"CH": "1"}}]
+    assert without_identity(data["entities"]) == [{"name": "cell1", "cell": "cell1",
+                                                   "params": {"CH": "1"}}]
 
 
 def test_success_returns_the_raw_template_dict(tmp_path):
@@ -184,7 +208,7 @@ def test_clone_placements_written_into_the_extracted_cell(tmp_path):
     clone_placements: section — the same geometry is referenced, not copied
     flat (the flat exclusion happens earlier, in the GUI payload building)."""
     target, result, _fn = _run(
-        tmp_path, name="dac_buf",
+        tmp_path, name="dac_buf", seed_cells=["pif_avdd"],
         clone_placements=[{
             "name": "ch0_pif_avdd", "cell": "pif_avdd",
             "xy": [5.0, 2.0], "rotation_deg": 90.0, "mirror": True, "layer": "B.Cu",
@@ -192,7 +216,8 @@ def test_clone_placements_written_into_the_extracted_cell(tmp_path):
 
     assert "error" not in result
     data = _load(target)
-    assert data["cells"]["dac_buf"]["clone_placements"] == [{
+    # row 8: drop the written cell reference's cell_uuid (subject: the shape).
+    assert without_identity(data["cells"]["dac_buf"]["clone_placements"]) == [{
         "name": "ch0_pif_avdd", "cell": "pif_avdd",
         "xy": [5.0, 2.0], "rotation_deg": 90.0, "mirror": True, "layer": "B.Cu",
     }]
@@ -215,7 +240,7 @@ def test_pure_composite_does_not_call_extract_fn(tmp_path):
     be called; the cell dict is synthesized with empty flat lists instead."""
     fn = _CapturingExtract()
     target, result, fn = _run(
-        tmp_path, name="dac_buf", items=[],
+        tmp_path, name="dac_buf", items=[], seed_cells=["pif_avdd"],
         clone_placements=[{"name": "ch0_pif_avdd", "cell": "pif_avdd",
                            "xy": [5.0, 2.0]}],
         extract_fn=fn)
@@ -227,7 +252,7 @@ def test_pure_composite_does_not_call_extract_fn(tmp_path):
     assert cell["components"] == []
     assert cell["vias"] == []
     assert cell["tracks"] == []
-    assert cell["clone_placements"] == [{
+    assert without_identity(cell["clone_placements"]) == [{
         "name": "ch0_pif_avdd", "cell": "pif_avdd", "xy": [5.0, 2.0]}]
     # default Cell layer when no Sub-placement declares one
     assert cell["layer"] == "F.Cu"
@@ -237,7 +262,7 @@ def test_pure_composite_layer_from_first_sub_placement(tmp_path):
     """A Sub-placement that declares its own layer gives the pure-composite
     cell a meaningful layer instead of the 'F.Cu' default."""
     target, result, _fn = _run(
-        tmp_path, name="dac_buf", items=[],
+        tmp_path, name="dac_buf", items=[], seed_cells=["x"],
         clone_placements=[{"name": "a", "cell": "x", "xy": [0.0, 0.0],
                            "layer": "B.Cu"}])
 
@@ -320,7 +345,9 @@ def test_profile_omits_defaults_when_profile_key_equals_name(tmp_path):
     target, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)
 
     entry = _load(profile)["extract_profiles"]["cell1"]
-    assert set(entry.keys()) == {"output"}               # no name/params/... defaults
+    # row 8: the format-3 write stamps the profile record's uuid; the subject is
+    # which FIELDS the writer omits, so compare without the identity key.
+    assert set(without_identity(entry).keys()) == {"output"}  # no name/params/... defaults
     assert entry["output"] == str(target)
 
 
@@ -463,7 +490,7 @@ def test_raw_selection_default_omitted_from_profile(tmp_path):
     _, _, _ = _run(tmp_path, save_profile=True, profile_key="cell1", profile_path=profile)
 
     entry = _load(profile)["extract_profiles"]["cell1"]
-    assert set(entry.keys()) == {"output"}
+    assert set(without_identity(entry).keys()) == {"output"}
 
 
 def test_annotations_are_collected_and_returned(tmp_path):

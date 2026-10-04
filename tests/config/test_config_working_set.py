@@ -12,6 +12,20 @@ from kicadstamp.config_writer import merge_write, read_data, upsert_list_entry
 from kicadstamp.config_working_set import WORKING_SET, backup_to_history
 
 
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 К3, row 11: under format 3 the writer stamp needs the active graph
+    root (config_writer._stamp_format3_for_write). These cells write
+    self-contained configs and load_config/merge_write only THIS file; the root
+    is a path that does NOT exist, so the stamp indexes only this write's own
+    records (config/format3._build_format3_index). Under format 2 the root is
+    never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
+
+
 def _write_sexp(path, data: dict) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
 
