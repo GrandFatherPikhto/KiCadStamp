@@ -5,6 +5,8 @@ tree roadmap Этап 1/2, corrected same day from an earlier flat,
 non-recursive version — see handoff_2026_08_03_gui_tree_risks_resolved.md
 and the config-architecture-brainstorm memory)."""
 
+import logging
+
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
@@ -1232,6 +1234,31 @@ def test_delete_with_a_reference_declined_cancels_the_whole_delete(
     assert not list(tmp_path.glob("root.sexp.bak.*"))
 
 
+def test_on_delete_logs_a_refusal_and_the_process_survives(
+        main_window, tmp_path, monkeypatch, caplog):
+    """A refused delete must NOT escape the Qt slot — a bare exception aborts
+    PyQt6 (measured), and п.43 bans the blocking dialog. It is reported as a RED
+    Log line instead, and the tree is left matching the untouched files."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    def _refuse(*a, **k):
+        raise ValidationError("boom: refusing to write a dangling reference")
+
+    monkeypatch.setattr(config_tree_mod, "delete_entry", _refuse)
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+
+    with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
+        dock._on_delete(root, "cells", "one_role")   # must NOT raise
+
+    assert "Delete failed" in caplog.text
+    assert "boom" in caplog.text
+    assert "one_role" in _load(root)["cells"]        # the file is untouched
+
+
 # ── Export (2026-08-05) ──────────────────────────────────────────────────
 
 def test_export_multi_select_enabled(main_window):
@@ -1281,7 +1308,8 @@ def test_export_action_label_switches_to_plural_for_multiple_leaves(main_window,
     assert "Export selected..." in captured
 
 
-def test_on_export_to_a_new_file_merges_without_prompting(main_window, tmp_path, monkeypatch):
+def test_on_export_to_a_new_file_merges_without_prompting(
+        main_window, tmp_path, monkeypatch, caplog):
     root = tmp_path / "root.sexp"
     _write(root, MINIMAL_CELL)
     target = tmp_path / "out.sexp"
@@ -1299,10 +1327,12 @@ def test_on_export_to_a_new_file_merges_without_prompting(main_window, tmp_path,
     if current_format() >= 3:
         # Ф4: export needs the TARGET profile's graph root, which the GUI (an
         # arbitrary save-dialog path) does not know — refused until А7 (return
-        # of export, after У3), NOT pinned. The target is only the empty
-        # placeholder this method writes; the SOURCE is untouched either way.
-        with pytest.raises(ValidationError, match="not supported yet"):
+        # of export, after У3), NOT pinned. The refusal is a RED Log line
+        # (п.43), no exception out of the slot; the target is only the empty
+        # placeholder this method writes, the SOURCE untouched.
+        with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
             dock._on_export(dock._selected_export_items())
+        assert "Export failed" in caplog.text
         assert "cells" not in _load(target)
         assert without_identity(_load(root)) == MINIMAL_CELL
     else:
@@ -1312,7 +1342,8 @@ def test_on_export_to_a_new_file_merges_without_prompting(main_window, tmp_path,
             MINIMAL_CELL  # the source is untouched — pure copy
 
 
-def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(main_window, tmp_path, monkeypatch):
+def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(
+        main_window, tmp_path, monkeypatch, caplog):
     root = tmp_path / "root.sexp"
     _write(root, MINIMAL_CELL)
     target = tmp_path / "out.sexp"
@@ -1336,9 +1367,10 @@ def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(main_window, 
 
     data = _load(target)
     if current_format() >= 3:
-        # Ф4: refused — the target keeps exactly what it had.
-        with pytest.raises(ValidationError, match="not supported yet"):
+        # Ф4: refused (RED Log line, п.43) — the target keeps exactly what it had.
+        with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
             dock._on_export(dock._selected_export_items())
+        assert "Export failed" in caplog.text
         assert set(_load(target)["cells"].keys()) == {"existing"}
     else:
         dock._on_export(dock._selected_export_items())
@@ -1347,7 +1379,7 @@ def test_on_export_to_a_non_empty_file_merges_when_merge_is_chosen(main_window, 
 
 
 def test_on_export_to_a_non_empty_file_overwrites_when_overwrite_is_chosen(
-        main_window, tmp_path, monkeypatch):
+        main_window, tmp_path, monkeypatch, caplog):
     root = tmp_path / "root.sexp"
     _write(root, MINIMAL_CELL)
     target = tmp_path / "out.sexp"
@@ -1367,9 +1399,10 @@ def test_on_export_to_a_non_empty_file_overwrites_when_overwrite_is_chosen(
                         staticmethod(lambda *a, **k: None))
 
     if current_format() >= 3:
-        # Ф4: refused — the whole target (cells AND include:) is untouched.
-        with pytest.raises(ValidationError, match="not supported yet"):
+        # Ф4: refused (RED Log line, п.43) — the whole target is untouched.
+        with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
             dock._on_export(dock._selected_export_items())
+        assert "Export failed" in caplog.text
         data = _load(target)
         assert set(data["cells"].keys()) == {"existing"}
         assert data["include"] == ["somewhere.sexp"]
@@ -1501,7 +1534,7 @@ def test_remove_file_emits_graph_changed_once(main_window, tmp_path, monkeypatch
     assert emitted == [True]
 
 
-def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
+def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch, caplog):
     """Export copies content to a separate file WITHOUT wiring it into
     include: (Denis: "Перенос пока не делаем") — the graph's shape does not
     change, so graph_changed must NOT fire (a second, separate
@@ -1523,14 +1556,44 @@ def test_export_does_not_emit_graph_changed(main_window, tmp_path, monkeypatch):
                         staticmethod(lambda *a, **k: None))
 
     if current_format() >= 3:
-        # Ф4: the export is refused (target root unknown) — and graph_changed
-        # must still NOT fire.
-        with pytest.raises(ValidationError, match="not supported yet"):
+        # Ф4: the export is refused (target root unknown, RED Log line п.43) —
+        # and graph_changed must still NOT fire.
+        with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
             dock._on_export(dock._selected_export_items())
+        assert "Export failed" in caplog.text
     else:
         dock._on_export(dock._selected_export_items())
 
     assert emitted == []
+
+
+def test_on_export_logs_a_validation_error_and_writes_nothing(
+        main_window, tmp_path, monkeypatch, caplog):
+    """A ValidationError from export_entries must not escape the Qt slot
+    (SIGABRT, measured) — it becomes a RED Log line (п.43) and the target is
+    left as it was."""
+    root = tmp_path / "root.sexp"
+    _write(root, MINIMAL_CELL)
+    target = tmp_path / "out.sexp"
+    dock = ConfigTreeDock(main_window)
+    dock.set_root_file(root)
+
+    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf.setSelected(True)
+
+    def _refuse(*a, **k):
+        raise ValidationError("boom: export is not supported yet (Ф4)")
+
+    monkeypatch.setattr(config_tree_mod.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    monkeypatch.setattr(config_tree_mod, "export_entries", _refuse)
+
+    with caplog.at_level(logging.ERROR, logger="gui.docks.config_tree"):
+        dock._on_export(dock._selected_export_items())   # must NOT raise
+
+    assert "Export failed" in caplog.text
+    assert "boom" in caplog.text
+    assert "cells" not in _load(target)
 
 
 # ── Rename confirmation toggle (2026-08-25) ──────────────────────────────

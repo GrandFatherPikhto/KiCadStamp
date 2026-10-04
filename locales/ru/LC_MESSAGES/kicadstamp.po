@@ -2252,6 +2252,10 @@ msgstr "Перезаписать"
 msgid "Export failed"
 msgstr "Экспорт не удался"
 
+#: gui/docks/config_tree.py:1631
+msgid "Delete failed"
+msgstr "Удаление не удалось"
+
 #: gui/docks/config_tree.py:1346
 msgid "Exported"
 msgstr "Экспортировано"

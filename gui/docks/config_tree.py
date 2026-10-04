@@ -1628,7 +1628,16 @@ class ConfigTreeDock(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        report = delete_entry(self._root_path, file_path, section, name, cascade=cascade)
+        try:
+            report = delete_entry(self._root_path, file_path, section, name, cascade=cascade)
+        except (OSError, ValidationError) as e:
+            # Qt-slot safety: a bare exception escaping a slot aborts PyQt6
+            # (measured). A refused delete (e.g. format-3 writer refusing a
+            # dangling reference) is reported as a RED Log line, not a modal
+            # dialog (п.43) — nothing was written, so the tree still matches
+            # the files on disk.
+            logger.error("%s: %s", _("Delete failed"), e)
+            return
         self.refresh()
         self.graph_changed.emit()
 
@@ -1813,8 +1822,12 @@ class ConfigTreeDock(QWidget):
 
         try:
             export_entries(target_path, items, overwrite=overwrite)
-        except OSError as e:
-            QMessageBox.warning(self, _("Export failed"), str(e))
+        except (OSError, ValidationError) as e:
+            # Catch ValidationError too: export_entries raises it for the
+            # format-3 Ф4 refusal (no target graph_root), and a bare exception
+            # out of a Qt slot aborts PyQt6 (measured). п.43: a RED Log line,
+            # not a modal dialog.
+            logger.error("%s: %s", _("Export failed"), e)
             return
         QMessageBox.information(
             self, _("Exported"),

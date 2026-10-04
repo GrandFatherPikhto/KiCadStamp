@@ -2239,6 +2239,10 @@ msgstr "Overwrite"
 msgid "Export failed"
 msgstr "Export failed"
 
+#: gui/docks/config_tree.py:1631
+msgid "Delete failed"
+msgstr "Delete failed"
+
 #: gui/docks/config_tree.py:1346
 msgid "Exported"
 msgstr "Exported"
