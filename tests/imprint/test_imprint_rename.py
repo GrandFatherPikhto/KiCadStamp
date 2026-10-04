@@ -203,15 +203,14 @@ class TestLegacyProfileLoadsIdentically:
         assert signatures[0] == signatures[1]
         assert signatures[0][3] and signatures[0][4] and signatures[0][5]
 
-    def test_legacy_json_profile_loads_too(self, tmp_path, monkeypatch):
-        """A legacy-key JSON profile loads through the alias. FINDING: under the
-        format-3 gate the section alias is normalized AFTER the 2->3 lift, so
-        the legacy `scheme_lists:` records reach the graph check without a uuid
-        and the load is refused (a JSON-specific lift/alias ordering gap, named
-        in the handoff note). This cell's subject is the alias loading, so it
-        pins the build to 2."""
-        from kicadstamp.config import format_version
-        monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    def test_legacy_json_profile_loads_too(self, tmp_path):
+        """A legacy-key JSON profile loads through the section alias, at ANY
+        current format: the JSON read path normalizes aliases BEFORE the 2->3
+        lift (config/format_version.parse_raw_text), so a legacy `scheme_lists:`
+        profile keeps loading under format 3 too — the lift mints UUIDs for the
+        canonical `imprints` records it now sees. (Before the fix the on-disk
+        sweep saw the legacy key, stamped the number with no uuid and the load
+        was refused — a JSON-only lift/alias ordering gap.)"""
         path = tmp_path / "legacy.json"
         path.write_text(json.dumps(_profile("scheme_lists", "scheme_list")),
                         encoding="utf-8")

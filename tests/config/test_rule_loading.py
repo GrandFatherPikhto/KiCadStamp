@@ -173,18 +173,18 @@ def test_alias_both_keys_in_one_file_is_fatal(tmp_path):
         load_config(str(p))
 
 
-def test_alias_legacy_json_key_loads_as_chains(tmp_path, monkeypatch):
-    """A legacy-key JSON profile loads through the alias. FINDING: under the
-    format-3 gate the section alias is normalized AFTER the 2->3 lift, so a
-    legacy-key record reaches the graph check without a uuid and the load is
-    refused (a JSON-specific lift/alias ordering gap, named in the handoff
-    note). This cell's subject is the alias loading, so it pins the build to 2."""
+def test_alias_legacy_json_key_loads_as_chains(tmp_path):
+    """A legacy-key JSON profile loads through the section alias, at ANY current
+    format: the JSON read path normalizes aliases BEFORE the 2->3 lift
+    (config/format_version.parse_raw_text), so a legacy `rules:` profile keeps
+    loading under format 3 too — the lift mints UUIDs for the canonical
+    `chains` records it now sees. (Before the fix the on-disk sweep saw the
+    legacy key, stamped the number with no uuid and the load was refused — a
+    JSON-only lift/alias ordering gap.)"""
     import json
 
-    from kicadstamp.config import format_version
     from kicadstamp.config import load_config
 
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     p = tmp_path / "legacy.json"
     p.write_text(json.dumps({"cells": {}, "rules": [
         {"name": "r1", "net": "GND", "anchor_ref": "U1", "spokes": []}]}),

@@ -493,7 +493,22 @@ def parse_raw_text(text: str, suffix: str,
         data = json.loads(text)
         if not isinstance(data, dict):
             return {}, 1
-        data = dict(data)
+        # Д1/находка 1 (У3.5): the RAW JSON read normalizes the legacy SECTION
+        # aliases BEFORE returning — exactly as this docstring promises and as
+        # every other JSON reader does (includes._load_config_file,
+        # config_writer._read_data). The docstring claimed it while the branch
+        # did not do it, so the on-disk sweep read a legacy-key dict, the 2->3
+        # step saw no canonical section and stamped the number WITHOUT minting
+        # any uuid — leaving a format-3 file whose records have no identity (a
+        # JSON-only lift/alias ordering gap).
+        #
+        # Imported here (function-level), like sexp_to_dict just above: aliases
+        # imports exceptions/i18n only, but the parse layer is called on the hot
+        # path and the module-level import would be one more thing to reason
+        # about for no gain.
+        from .aliases import normalize_section_aliases
+
+        data = normalize_section_aliases(dict(data))
         return data, take_version(data, path)
     return {}, 1
 
