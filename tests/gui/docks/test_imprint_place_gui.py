@@ -45,6 +45,20 @@ from tests.fakes.write_later import write_later
 _TOP_LEVEL_LABEL = "— top level (no parent) —"
 
 
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 (в): the format-3 writer resolves references against the ACTIVE
+    GRAPH ROOT. Every cell here writes `root.sexp` (which carries the imprints
+    and cells the placed entity points at), so point the root AT that file —
+    the stamp then resolves against the same graph the test reads back. Under
+    format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "root.sexp")
+    yield
+    set_active_graph_root(None)
+
+
 # ── Shared config builders (format-agnostic .sexp fixtures) ───────────────
 
 
@@ -81,7 +95,10 @@ def _project_dict(*, schemes=("amp",), extra_entities=(), extra_trees=()) -> dic
     """A root config that loads cleanly and gives the Place page something to
     work with: imprints: (the records to place), an entities:/trees: pair
     with a PARENT node so both a top-level AND a child placement resolve."""
-    data = {"imprints": [_scheme_record(name) for name in schemes]}
+    # The entity's `cell:` is a format-3 reference the load resolves, so the
+    # target cell record must exist (content irrelevant to these cells).
+    data = {"imprints": [_scheme_record(name) for name in schemes],
+            "cells": {"c_parent": {}}}
     data["entities"] = [{"name": "PARENT", "cell": "c_parent"}, *extra_entities]
     data["trees"] = [{
         "name": "main", "anchor": {"origin": True},

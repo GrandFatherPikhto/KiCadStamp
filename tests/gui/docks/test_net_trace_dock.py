@@ -31,8 +31,24 @@ from kicadstamp.utils.units import MM
 from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _load(path) -> dict:
@@ -221,7 +237,11 @@ def test_load_entry_fills_form(main_window, tmp_path):
 
 def test_comment_saves_and_loads_back(main_window, tmp_path):
     dock, target = _make_dock(main_window, tmp_path, data={
-        "net_traces": [{"net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
+        # The name IS the record's identity under format 3 (a legacy nameless
+        # record would be renamed by the lift and stop matching by net), so the
+        # fixture names it after its effective name (== net when nameless).
+        "net_traces": [{"name": "/Channel_0/DAC_DB2",
+                        "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
                         "tracks": [], "vias": []}],
     })
     dock.load_entry({"net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
@@ -243,6 +263,7 @@ def test_save_updates_anchor_retired_and_preserves_geometry(main_window, tmp_pat
     tracks:/vias: (machine-written geometry)."""
     dock, target = _make_dock(main_window, tmp_path, data={
         "net_traces": [{
+            "name": "/Channel_0/DAC_DB2",   # record identity under format 3
             "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
             "tracks": [{"start_along_mm": 1.0, "start_across_mm": 2.0,
                         "end_along_mm": 3.0, "end_across_mm": 4.0,
@@ -279,6 +300,7 @@ def test_save_preserves_anchor_rotation_deg(main_window, tmp_path, caplog):
     on apply (plan_2026_09_08_net_trace_rotation_aware.md)."""
     dock, target = _make_dock(main_window, tmp_path, data={
         "net_traces": [{
+            "name": "/Channel_0/DAC_DB2",   # record identity under format 3
             "net": "/Channel_0/DAC_DB2", "anchor_role": "FPGA",
             "anchor_rotation_deg": 180.0,
             "tracks": [{"start_along_mm": 1.0, "start_across_mm": 2.0,
@@ -396,7 +418,8 @@ def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):
     already-saved record but must NOT silently clear its hand-set retired:
     (same net, record already marked retired: true)."""
     dock, target = _make_dock(main_window, tmp_path, data={
-        "net_traces": [{"net": "DAC_DB0", "anchor_role": "FPGA", "retired": True}]
+        "net_traces": [{"name": "DAC_DB0",   # record identity under format 3
+                        "net": "DAC_DB0", "anchor_role": "FPGA", "retired": True}]
     })
     _connect_board(dock, [_make_fp("U1", "FPGA", 50, 50)],
                    [_make_track(53, 54, 55, 56, "DAC_DB0")], [])

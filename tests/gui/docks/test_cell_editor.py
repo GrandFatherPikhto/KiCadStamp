@@ -25,6 +25,8 @@ from kicadstamp.exceptions import ValidationError
 
 from tests.fakes.write_later import write_later
 
+from tests.fakes.format3 import without_identity
+
 
 def _fill_cell_defaults(data: dict) -> dict:
     """s-expr omits default-valued Cell fields (layer='F.Cu', empty
@@ -39,6 +41,19 @@ def _fill_cell_defaults(data: dict) -> dict:
     return data
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     """A write to a file this rig ALSO wrote earlier (Ф3.7): the G.1 cells below
     change a cell on disk while the dock holds the previous content, and the
@@ -46,6 +61,9 @@ def _write(path, data) -> None:
     same `mtime_ns` (the Windows tick), leaving the old content under a cache key
     the read still hits, so the write goes through `write_later`."""
     write_later(path, dict_to_sexp(data, format_number=2))
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _load(path) -> dict:
@@ -610,9 +628,12 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
     dock._on_save()
 
     data = _load(target)
-    assert data["cells"] == {"t": {"layer": "F.Cu", "components": [{"role": "A"}],
-                                   "vias": [], "tracks": [], "clone_placements": []}}
-    assert data["points"] == {"origin": {"xy": [0, 0]}}
+    # The records' own uuids are the format-3 writer's; the subject is the
+    # written cell/point content.
+    assert without_identity(data["cells"]) == {
+        "t": {"layer": "F.Cu", "components": [{"role": "A"}],
+              "vias": [], "tracks": [], "clone_placements": []}}
+    assert without_identity(data["points"]) == {"origin": {"xy": [0, 0]}}
     assert any("Wrote" in r.message for r in caplog.records)
 
 
@@ -688,7 +709,9 @@ def test_load_entry_round_trips_everything(main_window, tmp_path):
     assert dock._components == [{"role": "A", "offset_along_mm": 1.0}]
     assert dock._vias == [{"offset_along_mm": 0.5, "net": "GND"}]
     assert dock._tracks == [{"end_along_mm": 5.0, "width_mm": 0.3}]
-    assert dock._nested == [{"name": "inner", "cell": "leaf", "xy": [1.0, 1.0]}]
+    # The nested clone_placement's `cell:` is a format-3 reference; compare the
+    # shape (name/cell/xy) without its uuid sibling.
+    assert without_identity(dock._nested) == [{"name": "inner", "cell": "leaf", "xy": [1.0, 1.0]}]
     assert dock.components_table.rowCount() == 1
     assert dock.vias_table.rowCount() == 1
     assert dock.tracks_table.rowCount() == 1

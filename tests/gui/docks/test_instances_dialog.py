@@ -14,12 +14,33 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 from gui.docks.instances_dialog import TreeInstancesDialog
 
+from tests.fakes.format3 import without_identity
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 (в): the format-3 writer resolves a reference's UUID against the
+    ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is a
+    path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
+
 
 def _root(tmp_path, instances=None, extra=None) -> Path:
     """A root config with one template tree (`dac_buf_tpl`, role anchor + an
     entity placement node) and the given tree_instances declarations. `extra`
     adds further top-level sections (e.g. points: for an anchor round-trip)."""
     data = {
+        # The entity's `cell:` and a declaration's `anchor: {point: …}` are
+        # format-3 references; the load resolves them, so the target records
+        # must exist (their content is irrelevant here).
+        "cells": {"c_dac": {}},
+        "points": {"p_home": {"xy": [10.0, 20.0]}},
         "entities": [
             {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
         ],
@@ -209,10 +230,13 @@ def test_existing_place_and_angle_loaded_into_the_new_columns(main_window, tmp_p
         {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
          "anchor": {"point": "p_home"}, "rotation": 90}])
     assert dlg.table.item(0, 3).text() == "90"
-    assert dlg.table.cellWidget(0, 4).anchor == {"point": "p_home"}
+    # The subject is the anchor's point NAME, not its uuid (which a lifted
+    # format-3 declaration carries), so compare without the identity keys.
+    assert without_identity(dlg.table.cellWidget(0, 4).anchor) == {"point": "p_home"}
     assert dlg.table.cellWidget(0, 4).label.text().startswith("point")
-    assert dlg.rows() == [{"name": "ch1_dac_buf", "sheet": "Channel_1",
-                           "rotation": 90.0, "anchor": {"point": "p_home"}}]
+    assert without_identity(dlg.rows()) == [
+        {"name": "ch1_dac_buf", "sheet": "Channel_1",
+         "rotation": 90.0, "anchor": {"point": "p_home"}}]
 
 
 def test_rotation_cell_writes_a_number_and_a_blank_cell_omits_the_key(
@@ -334,9 +358,9 @@ def test_anchor_cell_cancel_keeps_the_previous_place(main_window, tmp_path,
     monkeypatch.setattr(TreeInstancesDialog, "_edit_anchor",
                         lambda self, current: _CANCELLED)
     dlg.table.cellWidget(0, 4).button.click()
-    assert dlg.table.cellWidget(0, 4).anchor == {"point": "p_home"}
+    assert without_identity(dlg.table.cellWidget(0, 4).anchor) == {"point": "p_home"}
     assert dlg._apply() is True   # an untouched row stays untouched
-    assert _instances_on_disk(p) == [{
+    assert without_identity(_instances_on_disk(p)) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
         "sheet": "Channel_1", "anchor": {"point": "p_home"}}]
 

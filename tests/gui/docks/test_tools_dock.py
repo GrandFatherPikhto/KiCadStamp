@@ -13,8 +13,24 @@ from gui.docks.tools import ToolsDock
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path: Path, data: dict) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _load(path: Path) -> dict:

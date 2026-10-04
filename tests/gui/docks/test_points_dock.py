@@ -28,6 +28,8 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.utils.units import MM
 
+from tests.fakes.format3 import without_identity
+
 
 def _fill_cell_defaults(data: dict) -> dict:
     """s-expr omits default-valued Cell fields (layer='F.Cu', empty
@@ -42,8 +44,24 @@ def _fill_cell_defaults(data: dict) -> dict:
     return data
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _load(path) -> dict:
@@ -220,9 +238,12 @@ def test_save_writes_dict_section_and_preserves_other_keys(main_window, tmp_path
     dock._on_save()
 
     data = _load(target)
-    assert data["points"] == {"origin": {"xy": [1.0, 2.0]}}
-    assert data["cells"] == {"c1": {"layer": "F.Cu", "vias": [], "components": [],
-                                     "tracks": [], "clone_placements": []}}
+    # The records' own uuids are the format-3 writer's; the subject is that the
+    # written points/cells sections carry exactly the expected content.
+    assert without_identity(data["points"]) == {"origin": {"xy": [1.0, 2.0]}}
+    assert without_identity(data["cells"]) == {
+        "c1": {"layer": "F.Cu", "vias": [], "components": [],
+               "tracks": [], "clone_placements": []}}
     assert any("Wrote" in r.message for r in caplog.records)
 
 
@@ -235,7 +256,7 @@ def test_save_overwrites_an_existing_point_by_name(main_window, tmp_path, caplog
 
     dock._on_save()
 
-    assert _load(target)["points"] == {"origin": {"xy": [5.0, 6.0]}}
+    assert without_identity(_load(target)["points"]) == {"origin": {"xy": [5.0, 6.0]}}
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
@@ -264,7 +285,7 @@ def test_comment_saves_and_loads_back(main_window, tmp_path):
 
     dock._on_save()
 
-    assert _load(target)["points"]["origin"] == \
+    assert without_identity(_load(target)["points"]["origin"]) == \
         {"xy": [5.0, 6.0], "comment": "a point note"}
     dock.load_entry("origin")
     assert dock.comment_edit.text() == "a point note"
@@ -1037,7 +1058,7 @@ def test_read_then_save_then_resolve_lands_exactly_on_the_dragged_point(
     dock._do_read_position()
     dock._on_save()
 
-    saved = _load(target)["points"]
+    saved = without_identity(_load(target)["points"])
     assert "xy" not in saved["p"]
     points = {n: load_point(n, d) for n, d in saved.items()}
     resolved = resolve_point_chain(adapter, points, "p", sheet_names={})

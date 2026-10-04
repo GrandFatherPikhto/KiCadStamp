@@ -335,6 +335,10 @@ def test_an_unlifted_registry_is_a_fatal_before_any_copper_moves(form, tmp_path,
     _write(root, _data(), 2)
     adapter = _Adapter()
 
+    # Pass 1 runs under FORMAT 2 (the sub-step "before"): load_config must NOT
+    # lift the file/registry yet — the whole cell is the SECOND pass seeing an
+    # unlifted (schema 1, name-keyed) registry while the plan is uuid-keyed.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     cfg2, _ = load_config(str(root))
     vias2, tracks2 = _commands(form, cfg2, adapter)
     _apply(adapter, cfg2, root, vias2, tracks2)
@@ -370,6 +374,9 @@ def test_an_unlifted_registry_is_a_fatal_under_only_too(tmp_path, monkeypatch):
     _write(root, _data(), 2)
     adapter = _Adapter()
 
+    # Pass 1 under FORMAT 2 (see the parametrized cell above): the file/registry
+    # must still be unlifted when pass 2 runs under format 3.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     cfg2, _ = load_config(str(root))
     v1, t1 = _commands("name_clone", cfg2, adapter)   # cabs
     v2, t2 = _commands("point", cfg2, adapter)        # cpoint

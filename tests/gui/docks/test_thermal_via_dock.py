@@ -15,14 +15,32 @@ from gui.docks.thermal_via import ThermalViaArrayDock
 from kicadstamp.config import Config, RuntimeContext, ThermalViaArrayConfig, load_thermal_via_array
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
+from tests.fakes.format3 import without_identity
+
 
 # Moved to tests/fakes/pipeline.py (Ф1.4b): six copies had drifted into two
 # shapes. Kept under the same name so the _FakePipeline subclasses are untouched.
 from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _make_dock(main_window, tmp_path):
@@ -173,7 +191,10 @@ def test_save_preserves_other_keys_in_the_file(main_window, tmp_path):
     dock._on_save()
 
     saved = sexp_to_dict(target_file.read_text())
-    assert saved["cells"] == {"c1": {"components": [{"role": "A"}]}}
+    # The cell record's own uuid is the format-3 writer's; the subject here is
+    # that the untouched cells section survives the save.
+    assert without_identity(saved["cells"]) == {
+        "c1": {"components": [{"role": "A"}]}}
 
 
 def test_load_entry_round_trips_anchor_ref(main_window, tmp_path):

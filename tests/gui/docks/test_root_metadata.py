@@ -13,6 +13,8 @@ from gui.hotkeys import registered_hotkeys
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.config_working_set import WORKING_SET
 
+from tests.fakes.format3 import without_identity
+
 MINIMAL_CELL = {
     "cells": {
         "one_role": {
@@ -25,8 +27,24 @@ MINIMAL_CELL = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this restores the previous value.
+    Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _load(path) -> dict:
@@ -532,7 +550,7 @@ def test_removed_files_keys_survive_saving_another_field(main_window, tmp_path):
     assert data["track_registry_path"] == "custom/tracks.json"
     assert data["log_file"] == "custom/run.log"
     assert data["operation_log_dir"] == "custom/operational"
-    assert data["cells"] == {"c1": {}}
+    assert without_identity(data["cells"]) == {"c1": {}}
 
 
 def test_populates_widgets_from_existing_scalar_keys(main_window, tmp_path):
@@ -581,7 +599,7 @@ def test_save_with_nothing_changed_and_nothing_present_writes_nothing(main_windo
     dock.set_target_file(path)
     dock._on_save()
 
-    assert _load(path) == {"cells": {"c1": {}}}
+    assert without_identity(_load(path)) == {"cells": {"c1": {}}}
     assert any("default" in r.message for r in caplog.records)
 
 
@@ -597,7 +615,7 @@ def test_save_writes_only_changed_field_and_preserves_other_keys(main_window, tm
     data = _load(path)
     # the field is shown as .kicad_pro but STORED as root_sheet (.kicad_sch)
     assert data["root_sheet"] == "../../schematics/board.kicad_sch"
-    assert data["cells"] == {"c1": {}}
+    assert without_identity(data["cells"]) == {"c1": {}}
     assert any("Saved" in r.message for r in caplog.records)
 
 
@@ -786,7 +804,7 @@ def test_reload_schematic_sheets_requires_a_project(main_window, tmp_path, caplo
 
     dock._reload_schematic_sheets()
 
-    assert _load(config) == {"cells": {"c1": {}}}
+    assert without_identity(_load(config)) == {"cells": {"c1": {}}}
     assert any("Pick a KiCad project" in r.message for r in caplog.records)
 
 

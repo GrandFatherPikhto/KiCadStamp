@@ -26,14 +26,35 @@ from kicadstamp.config import (Config, RuntimeContext, chain_effective_name,
                                load_chain as _lc)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
+from tests.fakes.format3 import without_identity
+
 
 # Moved to tests/fakes/pipeline.py (Ф1.4b): six copies had drifted into two
 # shapes. Kept under the same name so the _FakePipeline subclasses are untouched.
 from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _restore_active_graph_root():
+    """У3.5 (в): keep the process-wide ACTIVE GRAPH ROOT from leaking between
+    tests. `_write` points it at the file it just wrote (the format-3 writer
+    resolves references against that graph); this snapshot restores whatever
+    was there before the cell. Under format 2 (< 3) the root is not consulted."""
+    from kicadstamp.config_working_set import active_graph_root, set_active_graph_root
+
+    previous = active_graph_root()
+    yield
+    set_active_graph_root(previous)
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    # The format-3 writer resolves a spoke's `cell:` reference against the
+    # ACTIVE GRAPH ROOT — point it at the graph just written (self-contained
+    # here: the file that holds the chains also holds the cells they name).
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(path)
 
 
 def _fill_cell_defaults(data: dict) -> dict:
@@ -75,7 +96,11 @@ def _bulk_graph(tmp_path):
         {"net": "GND", "anchor_role": "FPGA", "spokes": []},
     ]})
     root = tmp_path / "root.sexp"
-    _write(root, {"include": ["chains.sexp", "sibling.sexp"]})
+    # The spokes' `cell:` are format-3 references resolved against the whole
+    # include graph, so the target cells (old, and the bulk-set destination)
+    # must exist somewhere reachable from the root.
+    _write(root, {"include": ["chains.sexp", "sibling.sexp"],
+                  "cells": {"old_a": {}, "old_b": {}, "new_cell": {}}})
     return target, sibling, root
 
 
@@ -231,26 +256,31 @@ def test_save_writes_chains_section_and_preserves_other_keys(main_window, tmp_pa
     dock, target = _make_dock(main_window, tmp_path, {"cells": {"c1": {"components": []}}})
     dock.net_edit.setCurrentText("+3V3")
     dock.origin_widget.load(mode="anchor", role="FPGA")
+    dock.name_edit.setText("ch1")   # a format-3 record needs a name; give it one
     dock._on_save()
 
     data = _load(target)
-    assert data["chains"] == [{"net": "+3V3", "anchor_role": "FPGA"}]
+    # uuid is the format-3 writer's; the subject here is the chain's fields.
+    assert without_identity(data["chains"]) == [
+        {"net": "+3V3", "anchor_role": "FPGA", "name": "ch1"}]
     assert data["cells"]["c1"]["components"] == []
     assert any("Wrote" in r.message for r in caplog.records)
 
 
 def test_save_overwrites_by_name_or_net(main_window, tmp_path, caplog):
     dock, target = _make_dock(main_window, tmp_path, {"chains": [
-        {"net": "+3V3", "anchor_role": "FPGA", "spokes": []},
+        {"name": "ch1", "net": "+3V3", "anchor_role": "FPGA", "spokes": []},
     ]})
-    dock.load_chain({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
+    dock.load_chain({"name": "ch1", "net": "+3V3", "anchor_role": "FPGA",
+                     "spokes": []})
     dock.net_edit.setCurrentText("+3V3")
     dock.comment_edit.setText("updated")
     dock._on_save()
 
     data = _load(target)
-    assert data["chains"] == [{"net": "+3V3", "anchor_role": "FPGA",
-                               "comment": "updated", "spokes": []}]
+    assert without_identity(data["chains"]) == [
+        {"name": "ch1", "net": "+3V3", "anchor_role": "FPGA",
+         "comment": "updated", "spokes": []}]
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
@@ -301,24 +331,30 @@ def test_new_pad_clears_form_and_appends(main_window, tmp_path):
 
 
 def test_persist_pad_updates_existing_spoke_in_place(main_window, tmp_path):
-    dock, target = _make_dock(main_window, tmp_path, {"chains": [
-        {"net": "+3V3", "anchor_ref": "U1",
-         "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "3", "cell": "cap"}]},
-    ]})
+    dock, target = _make_dock(main_window, tmp_path, {
+        "cells": {"fpga": {}, "cap": {}, "new_cell": {}},
+        "chains": [
+            {"net": "+3V3", "anchor_ref": "U1",
+             "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "3", "cell": "cap"}]},
+        ]})
     chain = _load(target)["chains"][0]
     dock.load_pad(chain, 0)
     dock.spoke_cell_combo.setCurrentText("new_cell")
     dock._on_save_pad()
 
     data = _load(target)
-    assert data["chains"][0]["spokes"] == [
+    # Each spoke's `cell_uuid` is the format-3 writer's; the subject is the
+    # cell NAME each spoke was rewritten to.
+    assert without_identity(data["chains"][0]["spokes"]) == [
         {"pad": "17", "cell": "new_cell"}, {"pad": "3", "cell": "cap"}]
 
 
 def test_persist_pad_appends_when_new(main_window, tmp_path):
-    dock, target = _make_dock(main_window, tmp_path, {"chains": [
-        {"net": "+3V3", "anchor_ref": "U1", "spokes": [{"pad": "17", "cell": "fpga"}]},
-    ]})
+    dock, target = _make_dock(main_window, tmp_path, {
+        "cells": {"fpga": {}, "cap": {}},
+        "chains": [
+            {"net": "+3V3", "anchor_ref": "U1", "spokes": [{"pad": "17", "cell": "fpga"}]},
+        ]})
     chain = _load(target)["chains"][0]
     dock.new_pad(chain, target)
     _fill_pad_form(dock, pad="26", cell="cap")
@@ -634,9 +670,11 @@ def test_pad_apply_button_commits_pad_form(main_window, tmp_path):
     """The pad page 'Apply' button persists the current pad-mode form into the
     config (same write as _on_save_pad/_persist_pad) — it replaces the spoke at
     its index in the parent chain and leaves the other spokes untouched."""
-    dock, target = _make_dock(main_window, tmp_path, {"chains": [
-        {"net": "+3V3", "anchor_role": "FPGA",
-         "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}]})
+    dock, target = _make_dock(main_window, tmp_path, {
+        "cells": {"fpga": {}, "cap": {}, "new_cell": {}},
+        "chains": [
+            {"net": "+3V3", "anchor_role": "FPGA",
+             "spokes": [{"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}]})
     chain = _load(target)["chains"][0]
     dock.load_pad(chain, 0)
     dock.spoke_cell_combo.setCurrentText("new_cell")

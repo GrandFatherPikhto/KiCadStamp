@@ -52,6 +52,8 @@ from kicadstamp.placement.services.clone_position_calculator import (
 from kicadstamp.registry import (TrackRegistry, track_registry_path_for_config,
                                  filter_existing_tracks, adopt_matching_unowned)
 
+from tests.fakes.format3 import det_uuid, identity_value, stamp_config
+
 MM = 1_000_000
 
 
@@ -140,7 +142,9 @@ def _entity_tree_cfg():
                      polar=None, rotation=0.0, name=None, group=None),
         ],
     )
-    return Config(cells={"c": _cell()}, entities=[entity], trees=[tree])
+    # Under format 3 a registry-key builder refuses a record without a uuid
+    # (Р-У5.7); `stamp_config` gives the §0 records their deterministic uuid.
+    return stamp_config(Config(cells={"c": _cell()}, entities=[entity], trees=[tree]))
 
 
 def _plan_and_create(adapter, cfg, reg_path):
@@ -198,7 +202,11 @@ def test_move_first_empty_registry_still_orphans_old_copper():
         adapter, cfg, old_reg)
     assert live_old == 3
     assert created_old == 3 and deleted_old == 0
-    assert first_key == "name:fpga|c|__spoke__|0", first_key
+    # Under format 3 the registry key is uuid-based (Р-У5.1); identity_value
+    # yields the name under format 2 and the uuid under format 3.
+    assert first_key == (
+        f"name:{identity_value('fpga', det_uuid('entities:fpga'))}"
+        f"|{identity_value('c', det_uuid('cells:c'))}|__spoke__|0"), first_key
 
     # NEW profile: empty registry. User moved the FPGA (+10,+10 mm) as the FIRST
     # action, tree redraw.

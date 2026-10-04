@@ -40,6 +40,8 @@ from kicadstamp.registry import (PlacementRegistry, RegistryEntry,
                                  track_registry_path_for_config)
 from kicadstamp.apply_pipeline import ApplyPipeline
 
+from tests.fakes.format3 import det_uuid, identity_value, stamp_config
+
 MM = 1_000_000
 
 
@@ -133,7 +135,9 @@ def _entity_tree_cfg():
                      polar=None, rotation=0.0, name=None, group=None),
         ],
     )
-    return Config(cells={"c": _cell()}, entities=[entity], trees=[tree])
+    # Under format 3 a registry-key builder refuses a record without a uuid
+    # (Р-У5.7); `stamp_config` gives the §0 records their deterministic uuid.
+    return stamp_config(Config(cells={"c": _cell()}, entities=[entity], trees=[tree]))
 
 
 def _plan_and_create(adapter, cfg, reg_path, clones):
@@ -188,7 +192,7 @@ def _via_clone_cfg():
         anchor_role="FPGA", anchor_sheet="FPGA", anchor_cluster="FPGA",
         nets={"FPGA": "+3V3_VCCIO"},
     )
-    cfg = Config(cells={"c2": _cell_with_via()}, clone_placements=[clone])
+    cfg = stamp_config(Config(cells={"c2": _cell_with_via()}, clone_placements=[clone]))
     return cfg, [clone]
 
 
@@ -239,7 +243,9 @@ def test_entity_only_two_redraws_no_growth():
 
     clone = materialize_entity_placements(adapter, cfg, {})
     assert len(clone) == 1
-    assert clone_anchor_id(clone[0]) == "name:fpga"
+    # Under format 3 the entity's anchor id is uuid-based (Р-У5.1).
+    assert clone_anchor_id(clone[0]) == (
+        f"name:{identity_value('fpga', det_uuid('entities:fpga'))}")
 
     count1, _ = _plan_and_create(adapter, cfg, reg_path, clone)
     count2, _ = _plan_and_create(adapter, cfg, reg_path, clone)
