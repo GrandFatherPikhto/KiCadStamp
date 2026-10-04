@@ -20,6 +20,12 @@ checkable in ONE place:
 ``derived_uuid`` is the ONE builder of a generated copy's uuid — never inline
 the ``uuid5`` call at a call site, or the two expansions (tree_instances /
 sheet_templates) could drift apart.
+
+``migration_uuid`` / ``migration_folder_uuid`` are the ONE builders of the Р-1
+migration identity (step 2 -> 3, У3.1): a record and a folder row of a
+format-2 file lifted by the converter. They live here, beside ``NS_MIGRATION``,
+so the CONVERTER and the test stub cannot invent two different seeds for the
+same record — a divergence no cell could catch from the outside.
 """
 from __future__ import annotations
 
@@ -44,3 +50,34 @@ def derived_uuid(seed: str) -> str:
     the same derived UUIDs, so a redraw never recreates copper that has not
     changed."""
     return str(uuid5(NS_DERIVED, seed))
+
+
+# ── the Р-1 migration seed (step 2 -> 3) ───────────────────────────────────
+
+def migration_uuid(section: str, full_name: str) -> str:
+    """The Р-1 migration UUID of ONE §0 record, deterministic in `(section,
+    full name)` and — deliberately — in NOTHING ELSE (Денис, 04.10).
+
+    The seed carries NO file path: `uuid5(NS_MIGRATION, "<section>|<full
+    name>")`. The path was dropped so the step is a PURE function of ONE file
+    (reopened Р-1): a reference to a record living in ANOTHER file of the graph
+    is computed from the reference's own name hint alone, with no graph walk.
+    The path added nothing anyway — a UUID is unique within a graph (§0) and a
+    full name is unique within its section across the graph (Р43) — and one
+    more thing is gained: a shared file of two profiles gets the SAME UUIDs
+    whatever the lift order.
+
+    `full_name` is the record's full name (with `/` folder separators, when the
+    name has any), NOT the file-scoped key."""
+    return str(uuid5(NS_MIGRATION, f"{section}|{full_name}"))
+
+
+def migration_folder_uuid(section: str, path: str) -> str:
+    """The Р-1 migration UUID of ONE folder row (В39), `(section, path)`.
+
+    Seed `uuid5(NS_MIGRATION, "<section>|folder:<path>")` — the `folder:`
+    marker keeps a folder from ever colliding with a record whose full name
+    happens to equal the folder path. No file path for the same reason as
+    :func:`migration_uuid`: a folder row may stand in EACH file that has records
+    under it (В39), and every one of them must carry the SAME UUID."""
+    return str(uuid5(NS_MIGRATION, f"{section}|folder:{path}"))

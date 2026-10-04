@@ -129,8 +129,10 @@ def format3(monkeypatch):
     """Pin this build's CURRENT_FORMAT to 3 (plan §У1.4).
 
     With CURRENT_FORMAT = 3 the reader accepts ``(version 3)`` and the writer
-    stamps it; no 2->3 converter exists yet, so lifting a format-2 file is a
-    'hole in the chain' fatal — deliberately, that is what U1 leaves for U3."""
+    stamps it; since У3.1 a format-2 file is LIFTED by ``_step_2_to_3`` (the
+    Р-1 seed). A cell whose SUBJECT is format 2 (a byte-for-byte comparison of a
+    format-2 write, the number converter) must therefore pin the constant back
+    to 2 itself, or use data that already carries UUIDs."""
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
     return 3
 

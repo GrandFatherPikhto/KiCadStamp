@@ -18842,6 +18842,16 @@ msgstr ""
 msgid "the converter chain has a hole — this is an internal error, not a problem with the file"
 msgstr ""
 
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "the kind of tree node {ref!r} — without it the converter cannot tell which section its ref points into"
+msgstr ""
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "format 2->3: {section}[{index}] in {path} has no name — the converter minted {name!r}"
+msgstr ""
+
 #: kicadstamp/config/sexp_format.py
 msgid "s-expr: more than one root format number"
 msgstr ""

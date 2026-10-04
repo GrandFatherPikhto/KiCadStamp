@@ -17524,6 +17524,16 @@ msgstr "нет конвертера формата из {from_version} в {to_ve
 msgid "the converter chain has a hole — this is an internal error, not a problem with the file"
 msgstr "в цепочке конвертеров дыра — это внутренняя ошибка, а не проблема файла"
 
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "the kind of tree node {ref!r} — without it the converter cannot tell which section its ref points into"
+msgstr "вид узла дерева {ref!r} — без него конвертер не может сказать, в какой раздел ведёт его ref"
+
+#: kicadstamp/config/format_version.py
+#, python-brace-format
+msgid "format 2->3: {section}[{index}] in {path} has no name — the converter minted {name!r}"
+msgstr "формат 2->3: {section}[{index}] в {path} без имени — конвертер сочинил {name!r}"
+
 #: kicadstamp/config/sexp_format.py
 msgid "s-expr: more than one root format number"
 msgstr "s-expr: номеров формата в корне больше одного"

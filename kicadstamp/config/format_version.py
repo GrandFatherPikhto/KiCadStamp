@@ -43,8 +43,10 @@ back is the ``.bak`` the on-disk upgrade leaves next to the file.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -52,6 +54,9 @@ from typing import Any, Callable
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from .uuids import migration_folder_uuid, migration_uuid
+
+logger = logging.getLogger(__name__)
 
 # The format a freshly written file gets. Raised by one per converter; a release
 # that does not change the grammar must NOT bump it.
@@ -183,9 +188,144 @@ def _step_1_to_2(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
     return data
 
 
+# ── step 2 -> 3: the Р-1 migration identity (У3.1) ─────────────────────────
+
+# The singular of each §0 LIST section — the name В36 mints for an UNNAMED
+# record (`<singular>_<NNN>`). Only list sections can be unnamed: dict and
+# free-form sections are keyed by the very name a record is identified by. A
+# test pins this table against the product's `_F3_LIST_SECTIONS`, so a new list
+# section cannot slip in without a singular (and a cell).
+_SECTION_SINGULAR = {
+    "chains": "chain",
+    "clone_placements": "clone_placement",
+    "thermal_via_arrays": "thermal_via_array",
+    "coordinate_placements": "coordinate_placement",
+    "net_traces": "net_trace",
+    "entities": "entity",
+    "imprints": "imprint",
+}
+
+
+def _mint_unnamed(data: dict, section: str, path: str) -> None:
+    """В36: give every unnamed record of ONE list section a deterministic name.
+
+    `<singular>_<NNN>`, where NNN is the record's 1-based POSITION in the file's
+    section (`{i + 1:03d}`). A name already used in the section appends `_2`,
+    `_3`… until free. Deterministic in the file alone; the WARNING names the
+    file and the position so a human can rename it afterwards."""
+    items = data.get(section)
+    if not isinstance(items, list):
+        return
+    used = {rec.get("name") for rec in items
+            if isinstance(rec, dict) and rec.get("name")}
+    singular = _SECTION_SINGULAR[section]
+    for i, rec in enumerate(items):
+        if not isinstance(rec, dict) or rec.get("name"):
+            continue
+        base = f"{singular}_{i + 1:03d}"
+        name = base
+        suffix = 2
+        while name in used:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        rec["name"] = name
+        used.add(name)
+        logger.warning(_(
+            "format 2->3: {section}[{index}] in {path} has no name — the "
+            "converter minted {name!r}").format(
+                section=section, index=i, path=path, name=name))
+
+
+def _step_2_to_3(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
+    """Format 2 -> 3: stamp the Р-1 migration identity on ONE file.
+
+    A PURE function of ONE file — no graph and no disk (Р-1 was REOPENED and
+    resolved 04.10 for exactly this). The seed carries NO file path:
+    `uuid5(NS_MIGRATION, "<section>|<full name>")` for a record and
+    `uuid5(NS_MIGRATION, "<section>|folder:<path>")` for a folder row
+    (`config/uuids.py`). So a reference to a record living in ANOTHER file of
+    the graph is computed from the reference's OWN name hint, with no walk:
+
+    1. every §0 record without a uuid gets the seed of its `(section, full
+       name)`; an unnamed list record is named first (В36);
+    2. every reference without a `<field>_uuid` — the ONE `_f3_refs` table
+       shared with У2/У4, so a new form cannot enter one and be missed here —
+       gets the seed of `(target section, name hint)`;
+    3. a folder row is added for every path prefix of every record name (В39),
+       seeded by `(section, path)`, so one path yields ONE UUID however many
+       files carry records under it;
+    4. a tree node WITHOUT a kind refuses the whole step: its target section
+       cannot be known, and guessing it is forbidden (Р-У3.3).
+
+    Idempotence is TOTAL: a record, a reference or a folder row that already
+    carries a UUID is left exactly as it is, so re-running the step over a
+    lifted file changes nothing. Runs on a deep copy; the input is untouched."""
+    from .format3 import (
+        _F3_LIST_SECTIONS, _f3_record_holder, _f3_records, _f3_refs,
+        _f3_walk_nodes, _folder_prefixes,
+    )
+
+    data = copy.deepcopy(data)
+
+    # Р-У3.3 — BEFORE anything is stamped: a node without a kind names no target
+    # section. An auto node would have to be guessed as an Entity, which §0
+    # forbids mid-migration. Refuse loudly, naming the node and the file.
+    for tree in data.get("trees") or []:
+        if not isinstance(tree, dict):
+            continue
+        nodes: list = []
+        _f3_walk_nodes(tree.get("nodes"), nodes)
+        for node in nodes:
+            if (isinstance(node, dict) and node.get("kind") is None
+                    and node.get("ref") is not None):
+                refuse_step(2, _(
+                    "the kind of tree node {ref!r} — without it the converter "
+                    "cannot tell which section its ref points into").format(
+                        ref=node.get("ref")), ctx.path)
+
+    # В36: names first — a record's UUID is a function of its full name.
+    for section in _F3_LIST_SECTIONS:
+        _mint_unnamed(data, section, ctx.path)
+
+    # 1. records without a UUID -> the Р-1 seed.
+    for section, name, uuid, index in _f3_records(data):
+        if uuid or name is None:
+            continue
+        holder = _f3_record_holder(data, section, name, index)
+        if holder is not None:
+            holder["uuid"] = migration_uuid(section, name)
+
+    # 2. references without a UUID -> the seed of the TARGET (section, hint).
+    for ref in _f3_refs(data):
+        if ref.uuid:
+            continue
+        hint = ref.holder.get(ref.name_field)
+        if hint is not None:
+            ref.holder[ref.uuid_field] = migration_uuid(ref.target, hint)
+
+    # 3. folder rows from the paths in the record names (В39). Only MISSING
+    # rows are added, so an existing row's UUID is never overwritten.
+    rows: dict = {}
+    for section, name, _uuid, _index in _f3_records(data):
+        if not name:
+            continue
+        for prefix in _folder_prefixes(name):
+            rows.setdefault(section, {}).setdefault(
+                prefix, migration_folder_uuid(section, prefix))
+    if rows:
+        table = data.setdefault("folders", {})
+        for section, path_map in rows.items():
+            section_table = table.setdefault(section, {})
+            for prefix, folder_uuid in path_map.items():
+                section_table.setdefault(prefix, folder_uuid)
+
+    return data
+
+
 # version -> the converter taking that version to the next one.
 STEPS: dict[int, Callable[[dict[str, Any], UpgradeContext], dict[str, Any]]] = {
     1: _step_1_to_2,
+    2: _step_2_to_3,
 }
 
 
