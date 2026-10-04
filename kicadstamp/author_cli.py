@@ -83,7 +83,10 @@ def cli_main(build_fn: Callable[[], list[ClonePlacement]], output_path: str,
     def _run() -> None:
         clones = build_fn()
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        dump_clone_placements(clones, output_path)
+        # root_config_path is WHERE the fragment is included, so it is the graph
+        # the format-3 stamp resolves the fragment's references against
+        # (У3.5 Ф2) — pass it explicitly; under format 2 the argument is inert.
+        dump_clone_placements(clones, output_path, graph_root=root_config_path)
         print(f"wrote {len(clones)} clone_placements to {output_path}")
 
         if args.apply:

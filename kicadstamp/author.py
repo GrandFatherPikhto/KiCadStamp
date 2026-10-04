@@ -28,6 +28,7 @@ from .config import Chain, ClonePlacement, Config, RuntimeContext
 from .config.sexp_format import dict_to_sexp
 from .constants import DEFAULT_BATCH_SIZE, DEFAULT_TIMEOUT_MS
 from .apply_pipeline import RunOptions, run_apply
+from .i18n import _
 
 _MISSING = dataclasses.MISSING
 
@@ -79,28 +80,58 @@ def _prune_defaults(obj: Any) -> Any:
     return obj
 
 
-def dump_clone_placements(clones: list[ClonePlacement], path: str) -> None:
+def _require_fragment_graph_root(path: str, graph_root) -> None:
+    """Refuse a format-3 fragment write without the graph root it belongs to.
+
+    dump_clone_placements/dump_chains write a FRAGMENT: its records reference
+    §0 records (cells:, points:, …) that live in the profile root the fragment
+    is later include:'d into, NOT in the fragment itself. Under format 3 the
+    writer's stamp resolves every reference UUID against the graph of an
+    explicit `graph_root` (У4.2, the same contract as gui/docks/entity_export);
+    a fragment alone has no such graph, so the write is refused with a hint
+    rather than let the stamp fail on a dangling reference. Under format 2 no
+    stamp runs and `graph_root` is inert."""
+    from .config.format_version import current_format
+    from .exceptions import ValidationError, format_fatal_error
+
+    if current_format() >= 3 and graph_root is None:
+        raise ValidationError(format_fatal_error(
+            _("format 3: cannot write the fragment — the graph root is not set"),
+            [_("in {path}: pass graph_root — the root config the fragment will "
+               "be included into; a fragment cannot resolve its own references")
+             .format(path=path)]))
+
+
+def dump_clone_placements(clones: list[ClonePlacement], path: str, *,
+                          graph_root=None) -> None:
     """Writes {'clone_placements': [...]} to path as s-expr — a file directly
     usable via include: (see kicadstamp/config/includes.py) or as a whole
     profile. The caller is responsible for naming the output .sexp (the
-    config graph is s-expr/.json only since 2026-08-28)."""
+    config graph is s-expr/.json only since 2026-08-28).
+
+    `graph_root` is the profile root the fragment will be included into —
+    REQUIRED under format 3, where the write resolves the fragment's reference
+    UUIDs against that graph (see _require_fragment_graph_root); ignored under
+    format 2."""
     data = {"clone_placements": [_prune_defaults(c) for c in clones]}
     # Through the ONE config writer (Т3): it stamps the CURRENT format number,
     # writes atomically, and takes the `.bak` itself when the target is still an
     # older format.
     from .config_writer import write_config_file
 
-    write_config_file(path, data)
+    _require_fragment_graph_root(path, graph_root)
+    write_config_file(path, data, graph_root=graph_root)
 
 
-def dump_chains(chains: list[Chain], path: str) -> None:
+def dump_chains(chains: list[Chain], path: str, *, graph_root=None) -> None:
     """Writes {'chains': [...]} to path as s-expr — same include:-ready shape
-    as dump_clone_placements."""
+    and same `graph_root` contract as dump_clone_placements."""
     data = {"chains": [_prune_defaults(c) for c in chains]}
     # Through the ONE config writer (Т3), same contract as dump_clone_placements.
     from .config_writer import write_config_file
 
-    write_config_file(path, data)
+    _require_fragment_graph_root(path, graph_root)
+    write_config_file(path, data, graph_root=graph_root)
 
 
 # Backward-compat alias for the 2026-09-01 Rule -> Chain rename.

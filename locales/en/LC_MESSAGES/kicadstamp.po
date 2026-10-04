@@ -19204,3 +19204,11 @@ msgstr ""
 msgid "format 3 gives every record a uuid (checked at load and at write) — falling back to the name would split one registry into name- and uuid-keys, and prune would then delete the difference"
 msgstr ""
 
+
+#: kicadstamp/author.py
+msgid "format 3: cannot write the fragment — the graph root is not set"
+msgstr ""
+
+#: kicadstamp/author.py
+msgid "in {path}: pass graph_root — the root config the fragment will be included into; a fragment cannot resolve its own references"
+msgstr ""

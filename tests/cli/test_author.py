@@ -7,11 +7,13 @@ import pytest
 from unittest.mock import patch
 
 from kicadstamp.config import ClonePlacement, Config, ManualSpoke, Rule, load_config
-from kicadstamp.config.sexp_format import sexp_to_dict
+from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
                                dump_rules, dump_template)
 from kicadstamp.author_cli import cli_main
 from kicadstamp.apply_pipeline import RunOptions
+from tests.fakes.format3 import format3  # noqa: F401  (pytest fixture: pin to 3)
 
 
 class TestPruneDefaults:
@@ -43,19 +45,42 @@ class TestPruneDefaults:
         assert d["spokes"] == [{"pad": "1", "cell": "t", "shift_x_mm": 2.0}]
 
 
+def _fragment_profile_root(tmp_path, cells, fragment_name):
+    """A profile root that INCLUDES the fragment, plus the fragment as a
+    placeholder (walk_include_tree needs the include file to exist before the
+    first dump overwrites it).
+
+    The dump writes a FRAGMENT: under format 3 its references resolve against
+    the profile root the fragment is included into (У3.5 Ф2), so the root must
+    carry the referenced cells: records. Loading the root (not the fragment
+    alone) is the only shape a format-3 fragment round-trips through — a bare
+    fragment has no graph to resolve its own references against. Under format 2
+    the root is inert and the merge is the same as before.
+    """
+    (tmp_path / fragment_name).write_text(
+        dict_to_sexp({"cells": {}}, format_number=2), encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(
+        {"cells": {name: {} for name in cells}, "include": [fragment_name]},
+        format_number=2), encoding="utf-8")
+    return root
+
+
 class TestDumpRoundTrip:
     def test_clone_placements_round_trip(self, tmp_path):
         clones = [
-            ClonePlacement(cluster="channel_0_ad9707", cell="ad_dac",
+            ClonePlacement(name="channel_0_ad9707", cluster="channel_0_ad9707",
+                           cell="ad_dac",
                            anchor_role="FPGA", anchor_sheet="Channel_{channel}",
                            nets={"AD_DAC": "/Channel_{channel}/DAC/DAC_OUT_P"},
                            params={"channel": 0},
                            xy=(0.0, 25.0), rotation_deg=270.0),
         ]
         out = tmp_path / "generated.sexp"
-        dump_clone_placements(clones, str(out))
+        root = _fragment_profile_root(tmp_path, ["ad_dac"], "generated.sexp")
+        dump_clone_placements(clones, str(out), graph_root=str(root))
 
-        cfg, _ = load_config(str(out))
+        cfg, _ = load_config(str(root))
         assert len(cfg.clone_placements) == 1
         loaded = cfg.clone_placements[0]
         original = clones[0]
@@ -75,9 +100,11 @@ class TestDumpRoundTrip:
                                     shift_y_mm=-0.5, rotation_deg=90.0, cluster="FPGA_PWR_BANK")]),
         ]
         out = tmp_path / "generated_rules.sexp"
-        dump_rules(rules, str(out))
+        root = _fragment_profile_root(tmp_path, ["cap_pair_standard"],
+                                      "generated_rules.sexp")
+        dump_rules(rules, str(out), graph_root=str(root))
 
-        cfg, _ = load_config(str(out))
+        cfg, _ = load_config(str(root))
         assert len(cfg.rules) == 1
         loaded = cfg.rules[0]
         assert loaded.net == "+3V3_VCCIO"
@@ -90,9 +117,10 @@ class TestDumpRoundTrip:
     def test_minimal_clone_placement_omits_defaults_in_sexp_text(self, tmp_path):
         """Sanity check on the actual written text, not just the round-trip —
         confirms the s-expr stays close to the hand-written minimal style."""
-        clones = [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
+        clones = [ClonePlacement(name="c", cluster="c", cell="t", xy=(1.0, 2.0))]
         out = tmp_path / "generated.sexp"
-        dump_clone_placements(clones, str(out))
+        root = _fragment_profile_root(tmp_path, ["t"], "generated.sexp")
+        dump_clone_placements(clones, str(out), graph_root=str(root))
         text = out.read_text(encoding="utf-8")
         assert "rotation_deg" not in text
         assert "retired" not in text
@@ -103,17 +131,36 @@ class TestDumpRoundTrip:
         (radius_mm/angle_deg) reloaded fatally with "has both xy and
         radius_mm/angle_deg" — the round-trip that used to work was broken
         for any script-generated polar clone."""
-        clones = [ClonePlacement(cluster="polar", cell="t", xy=(0.0, 0.0),
-                                 radius_mm=5.0, angle_deg=37.0)]
+        clones = [ClonePlacement(name="polar", cluster="polar", cell="t",
+                                 xy=(0.0, 0.0), radius_mm=5.0, angle_deg=37.0)]
         out = tmp_path / "polar.sexp"
-        dump_clone_placements(clones, str(out))
+        root = _fragment_profile_root(tmp_path, ["t"], "polar.sexp")
+        dump_clone_placements(clones, str(out), graph_root=str(root))
         text = out.read_text(encoding="utf-8")
         assert "xy" not in text
 
-        cfg, _ = load_config(str(out))
+        cfg, _ = load_config(str(root))
         cp = cfg.clone_placements[0]
         assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
         assert cp.xy == (0.0, 0.0)  # loader default, not a dumped field
+
+
+class TestDumpRefusesWithoutGraphRoot:
+    """У3.5 Ф2: under format 3 a fragment write WITHOUT its graph root is
+    refused with a hint ("pass graph_root") instead of a dangling-reference
+    fatal — a fragment cannot resolve its own references. The `format3` fixture
+    pins the build to 3 for these cells regardless of the ambient format."""
+
+    def test_clone_placements_refuses_without_graph_root(self, tmp_path, format3):
+        with pytest.raises(ValidationError, match="pass graph_root"):
+            dump_clone_placements(
+                [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))],
+                str(tmp_path / "f.sexp"))
+
+    def test_rules_refuses_without_graph_root(self, tmp_path, format3):
+        with pytest.raises(ValidationError, match="pass graph_root"):
+            dump_rules([Rule(net="N", name="N", spokes=[])],
+                       str(tmp_path / "r.sexp"))
 
 
 class TestApplyConfig:
@@ -181,11 +228,23 @@ class TestCliMain:
     def _build():
         return [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
 
+    @staticmethod
+    def _root(tmp_path):
+        """A minimal root carrying the referenced cell ("t"), so the fragment
+        write resolves its reference under format 3 (У3.5 Ф2). Passing the root
+        is now part of cli_main's contract: it hands root_config_path to
+        dump_clone_placements as graph_root."""
+        root = tmp_path / "root.sexp"
+        root.write_text(dict_to_sexp({"cells": {"t": {}}}, format_number=2),
+                        encoding="utf-8")
+        return root
+
     def test_without_apply_only_writes_output(self, tmp_path):
         out = tmp_path / "generated.sexp"
+        root = self._root(tmp_path)
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
-            cli_main(self._build, str(out), "root.yaml", argv=[])
+            cli_main(self._build, str(out), str(root), argv=[])
 
         assert out.exists()
         mock_load_config.assert_not_called()
@@ -197,29 +256,32 @@ class TestCliMain:
         anchor_sheet-based clone_placements would fatal with "sheet name dictionary
         is empty" even though sheet_names had been built correctly."""
         out = tmp_path / "generated.sexp"
+        root = self._root(tmp_path)
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", "ctx-sentinel")
-            cli_main(self._build, str(out), "root.yaml", argv=["--apply", "--dry-run"])
+            cli_main(self._build, str(out), str(root), argv=["--apply", "--dry-run"])
 
-        mock_load_config.assert_called_once_with("root.yaml")
+        mock_load_config.assert_called_once_with(str(root))
         mock_apply_config.assert_called_once_with(
-            "cfg-sentinel", "root.yaml", ctx="ctx-sentinel", dry_run=True)
+            "cfg-sentinel", str(root), ctx="ctx-sentinel", dry_run=True)
 
     def test_apply_without_dry_run_forwards_dry_run_false(self, tmp_path):
         out = tmp_path / "generated.sexp"
+        root = self._root(tmp_path)
         with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
              patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
             mock_load_config.return_value = ("cfg-sentinel", None)
-            cli_main(self._build, str(out), "root.yaml", argv=["--apply"])
+            cli_main(self._build, str(out), str(root), argv=["--apply"])
 
         assert mock_apply_config.call_args.kwargs["dry_run"] is False
 
     def test_creates_missing_parent_directories(self, tmp_path):
         out = tmp_path / "nested" / "dir" / "generated.sexp"
+        root = self._root(tmp_path)
         with patch("kicadstamp.author_cli.load_config"), \
              patch("kicadstamp.author_cli.apply_config"):
-            cli_main(self._build, str(out), "root.yaml", argv=[])
+            cli_main(self._build, str(out), str(root), argv=[])
 
         assert out.exists()
 
