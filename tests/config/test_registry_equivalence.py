@@ -23,6 +23,8 @@ The apply is the REGISTRY path only (reconcile + create + ``record_created``):
 the positional pre-check is an independent mechanism for UNREGISTERED copper and
 would make the cell vacuous for forms whose geometry overlaps.
 """
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,6 +38,7 @@ from kicadstamp.config import (
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.net_trace_planner import plan_net_traces
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import (
@@ -48,6 +51,7 @@ from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
 from kicadstamp.utils.paths import (
     registry_path_for_config,
+    registry_paths_for_config,
     track_registry_path_for_config,
 )
 from tests.fakes.format3 import mint_format3
@@ -214,10 +218,43 @@ _FORMS = ["name_entity", "name_clone", "point", "role", "anchor", "thermal",
 
 # ── the registry-path apply (reconcile + create + record) ───────────────────
 
+def _registry_paths(cfg, root):
+    """The SAME two registry paths an apply uses (Н3): the config's explicit
+    ``registry_path:``/``track_registry_path:`` when set, else the defaults.
+    Mirrors ``apply_pipeline._execute`` through the shared helper, so a cell can
+    never test a different file than the product writes."""
+    return registry_paths_for_config(str(root), getattr(cfg, "registry_path", None),
+                                     getattr(cfg, "track_registry_path", None))
+
+
+def _registry_bytes(cfg, root) -> dict:
+    """{path: bytes | None} for both registry files, so a cell can prove a file
+    was NOT touched (same bytes, still schema 1)."""
+    out = {}
+    for path in _registry_paths(cfg, root):
+        p = Path(path)
+        out[path] = p.read_bytes() if p.exists() else None
+    return out
+
+
+def _stub_lift(monkeypatch):
+    """Make the on-disk registry lift a no-op for THIS profile open — the Н3
+    scenario where it did not run (read-only registry directory, a failed write,
+    a working set that stood it down).
+
+    Patched on the MODULE ``kicadstamp.config.registry_upgrade``, deliberately
+    NOT on ``loader``: ``load_config`` imports the symbol LAZILY inside the
+    function body (``from .registry_upgrade import upgrade_registries_on_disk``),
+    so a stub set on ``loader``'s module namespace is never consulted."""
+    import kicadstamp.config.registry_upgrade as ru
+    monkeypatch.setattr(ru, "upgrade_registries_on_disk", lambda *a, **k: [])
+
+
 def _apply(adapter, cfg, root, vias, tracks):
     known = _compute_all_anchor_ids(cfg)
+    via_path, trk_path = _registry_paths(cfg, root)
 
-    vreg = PlacementRegistry(adapter, registry_path_for_config(str(root)))
+    vreg = PlacementRegistry(adapter, via_path)
     live_vias = adapter.get_vias()
     v_create, v_delete = vreg.reconcile(vias, known_anchor_ids=known, live_items=live_vias)
     if v_delete:
@@ -229,7 +266,7 @@ def _apply(adapter, cfg, root, vias, tracks):
         adapter.live_vias.append(item)
         vreg.record_created(cmd, item.uuid)
 
-    treg = TrackRegistry(adapter, track_registry_path_for_config(str(root)))
+    treg = TrackRegistry(adapter, trk_path)
     live_tracks = adapter.get_tracks()
     t_create, t_delete = treg.reconcile(tracks, known_anchor_ids=known, live_items=live_tracks)
     if t_delete:
@@ -279,3 +316,120 @@ def test_a_format2_apply_survives_the_format3_registry_lift(form, tmp_path, monk
         f"registry entry was seen as stale")
     assert _board_uuids(adapter) == board_before, (
         f"{form}: the board's UUID set changed across the lift")
+
+
+# ── Н3 (У5.4 rework): the lift that did NOT happen must not delete copper ────
+#
+# When the lift is skipped the registry stays schema 1 (NAME keys) while the
+# plan carries UUID keys. Reading it would make reconcile "create" every command
+# and "prune" every stored entry — deleting and recreating the profile's copper.
+# Р-У5.7 says that mix is worse than a fatal, so a format-3 apply REFUSES at
+# registry load, before reconcile, leaving the board and the file untouched.
+
+
+@pytest.mark.parametrize("form", _FORMS)
+def test_an_unlifted_registry_is_a_fatal_before_any_copper_moves(form, tmp_path, monkeypatch):
+    """The lift did not run → a format-3 apply is a FATAL, and NOTHING moves."""
+    root = tmp_path / "root.sexp"
+    _write(root, _data(), 2)
+    adapter = _Adapter()
+
+    cfg2, _ = load_config(str(root))
+    vias2, tracks2 = _commands(form, cfg2, adapter)
+    _apply(adapter, cfg2, root, vias2, tracks2)
+    board_before = _board_uuids(adapter)
+    assert board_before, f"{form}: nothing reached the board"
+    bytes_before = _registry_bytes(cfg2, root)
+    assert any(v is not None for v in bytes_before.values()), (
+        f"{form}: no registry file was written")
+
+    root.write_text(dict_to_sexp(mint_format3(_data()), format_number=3),
+                    encoding="utf-8")
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
+    _stub_lift(monkeypatch)
+    cfg3, _ = load_config(str(root))
+    vias3, tracks3 = _commands(form, cfg3, adapter)
+
+    with pytest.raises(ValidationError):
+        _apply(adapter, cfg3, root, vias3, tracks3)
+
+    assert _board_uuids(adapter) == board_before, (
+        f"{form}: the board changed — copper was deleted or created")
+    assert _registry_bytes(cfg3, root) == bytes_before, (
+        f"{form}: the schema-1 registry file was modified")
+
+
+def test_an_unlifted_registry_is_a_fatal_under_only_too(tmp_path, monkeypatch):
+    """The --only path of the Н3 probe: the Point-anchored clone ``cpoint`` is on
+    the board and in the name-keyed registry; an apply --only ``cabs`` is planned
+    with the FULL known-anchor-id set. Under the mix, ``cpoint``'s name-keyed
+    anchor_id matches no uuid-keyed known id and would be PRUNED. With the fix
+    the apply refuses BEFORE reconcile, so ``cpoint``'s copper stays."""
+    root = tmp_path / "root.sexp"
+    _write(root, _data(), 2)
+    adapter = _Adapter()
+
+    cfg2, _ = load_config(str(root))
+    v1, t1 = _commands("name_clone", cfg2, adapter)   # cabs
+    v2, t2 = _commands("point", cfg2, adapter)        # cpoint
+    _apply(adapter, cfg2, root, v1 + v2, t1 + t2)
+    board_before = _board_uuids(adapter)
+    assert board_before
+    bytes_before = _registry_bytes(cfg2, root)
+
+    root.write_text(dict_to_sexp(mint_format3(_data()), format_number=3),
+                    encoding="utf-8")
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
+    _stub_lift(monkeypatch)
+    cfg3, _ = load_config(str(root))
+    # --only cabs: only cabs' commands, but _apply still passes the FULL known
+    # anchor-id set (what apply_pipeline._compute_all_anchor_ids returns).
+    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+
+    with pytest.raises(ValidationError):
+        _apply(adapter, cfg3, root, vias3, tracks3)
+
+    assert _board_uuids(adapter) == board_before, (
+        "the --only apply deleted cpoint's copper")
+    assert _registry_bytes(cfg3, root) == bytes_before
+
+
+def test_explicit_registry_paths_are_lifted_and_equivalent(tmp_path, monkeypatch):
+    """Н3 part 2, one decision for both files: a config with explicit
+    ``registry_path:``/``track_registry_path:`` has THOSE files lifted, and the
+    second apply is 0 / 0. On the old code the lift always used the defaults, so
+    the explicit files stayed schema 1 (and, after the load gate, the apply would
+    refuse)."""
+    data = _data()
+    data["registry_path"] = "alt/via.registry.json"
+    data["track_registry_path"] = "alt/trk.registry.json"
+    root = tmp_path / "root.sexp"
+    _write(root, data, 2)
+    adapter = _Adapter()
+
+    cfg2, _ = load_config(str(root))
+    via2, trk2 = _registry_paths(cfg2, root)
+    assert via2 == str(tmp_path / "alt" / "via.registry.json")
+    assert trk2 == str(tmp_path / "alt" / "trk.registry.json")
+
+    vias2, tracks2 = _commands("name_clone", cfg2, adapter)
+    _apply(adapter, cfg2, root, vias2, tracks2)
+    board_before = _board_uuids(adapter)
+    assert board_before
+    assert Path(via2).exists() and Path(trk2).exists()
+    # the DEFAULT files were never written — proving the explicit paths were used
+    assert not Path(registry_path_for_config(str(root))).exists()
+    assert not Path(track_registry_path_for_config(str(root))).exists()
+
+    root.write_text(dict_to_sexp(mint_format3(data), format_number=3),
+                    encoding="utf-8")
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
+    cfg3, _ = load_config(str(root))       # lifts the EXPLICIT files
+    assert json.loads(Path(via2).read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(Path(trk2).read_text(encoding="utf-8"))["schema_version"] == 2
+
+    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+    v_create, v_delete, t_create, t_delete = _apply(adapter, cfg3, root, vias3, tracks3)
+    assert v_create == [] and t_create == []
+    assert v_delete == [] and t_delete == []
+    assert _board_uuids(adapter) == board_before

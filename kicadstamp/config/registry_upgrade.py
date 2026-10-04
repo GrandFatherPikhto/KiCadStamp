@@ -52,7 +52,7 @@ import threading
 from pathlib import Path
 
 from ..persistence import REGISTRY_SCHEMA_VERSION
-from ..utils.paths import registry_path_for_config, track_registry_path_for_config
+from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
 from .models import (
@@ -301,8 +301,13 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             "registry schema upgrade on disk skipped: the working set holds unsaved changes")
         return []
 
-    paths = [Path(registry_path_for_config(str(config_path))),
-             Path(track_registry_path_for_config(str(config_path)))]
+    # Н3: the SAME explicit-vs-default decision as apply_pipeline — an explicit
+    # registry_path:/track_registry_path: in the config is honoured here too, so
+    # the lift and the apply can never point at different files.
+    via_path, trk_path = registry_paths_for_config(
+        str(config_path), getattr(cfg, "registry_path", None),
+        getattr(cfg, "track_registry_path", None))
+    paths = [Path(via_path), Path(trk_path)]
 
     # Pre-pass: decide for EVERY file before the first write, so one newer file
     # cannot leave a half-lifted pair on disk.

@@ -37,6 +37,8 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.config.registry_upgrade import _build_index, map_registry_key
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.registry import load_registry
 from kicadstamp.utils.paths import registry_path_for_config, track_registry_path_for_config
 from tests.fakes.format3 import det_uuid, format3, mint_format3  # noqa: F401
 
@@ -420,3 +422,36 @@ def test_an_orphan_and_an_ambiguous_key_are_kept_with_a_warning(tmp_path, caplog
     assert any("NOT lifted" in m for m in warnings), warnings
     assert any("name:ghost" in m for m in warnings)
     assert any("name:E" in m for m in warnings)
+
+
+# ── the READ gate (Н3): schema 1 is refused under format 3, read under 2 ─────
+#
+# The mirror image of the sweep: the lift WRITES schema 2, and the reader must
+# REFUSE to read schema 1 back under the gate — otherwise reconcile sees a
+# name-keyed registry against a uuid-keyed plan and prunes the copper. Below the
+# gate (the product, format 2) schema 1 is read exactly as before.
+
+def test_format2_still_reads_a_schema1_registry(tmp_path):
+    """Boundary: below the gate a schema-1 (name-keyed) registry loads, as it
+    always did — the refusal is format-3 only."""
+    p = tmp_path / "via.registry.json"
+    _write_registry(str(p), {"pad:1|leaf|__spoke__|0": _VIA}, schema=1)
+    entries = load_registry(str(p))
+    assert set(entries) == {"pad:1|leaf|__spoke__|0"}
+
+
+def test_format3_reads_a_schema2_registry(tmp_path, format3):  # noqa: F811
+    """Under the gate the LIFTED schema 2 (what the sweep writes) reads fine."""
+    p = tmp_path / "via.registry.json"
+    _write_registry(str(p), {"pad:1|leaf|__spoke__|0": _VIA}, schema=2)
+    entries = load_registry(str(p))
+    assert set(entries) == {"pad:1|leaf|__spoke__|0"}
+
+
+def test_format3_refuses_a_schema1_registry(tmp_path, format3):  # noqa: F811
+    """The gate: a schema-1 registry is a FATAL under format 3 — not a lenient
+    read that would delete the copper (Н3)."""
+    p = tmp_path / "via.registry.json"
+    _write_registry(str(p), {"pad:1|leaf|__spoke__|0": _VIA}, schema=1)
+    with pytest.raises(ValidationError, match="not lifted"):
+        load_registry(str(p))

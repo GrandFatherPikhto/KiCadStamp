@@ -50,6 +50,7 @@ from .utils.layers import layer_to_str
 from .utils.paths import (default_log_file_for_config,
                           default_operation_log_dir_for_config,
                           registry_path_for_config,
+                          registry_paths_for_config,
                           track_registry_path_for_config)
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .exceptions import ValidationError, format_fatal_error
@@ -144,15 +145,51 @@ def _registry_schema_versions() -> tuple[int, ...]:
     """Registry schema versions this build READS, by the format gate.
 
     Format 2 (the product today): only schema 1 — byte-identical behaviour.
-    Format 3: schema 2 (the uuid-keyed registry the on-disk lift writes,
-    kicadstamp/config/registry_upgrade.py) AND schema 1 — a registry the lift
-    could not write (read-only directory) is left at schema 1 on purpose, and
-    refusing to read it would turn a logged, recoverable write failure into a
-    fatal on the very next apply."""
+
+    Format 3: ONLY schema 2 (the uuid-keyed registry the on-disk lift writes,
+    kicadstamp/config/registry_upgrade.py). Schema 1 must NOT be read under the
+    gate — see :func:`_refuse_unlifted_registry` (Н3): a name-keyed registry
+    against a uuid-keyed plan is the mix Р-У5.7 forbids, and reading it deletes
+    the profile's copper. This used to accept {1, 2} on the argument that a
+    failed lift (read-only registry directory) must stay readable; that traded
+    a loud fatal for silent copper deletion, the wrong way around."""
     from .config.format_version import current_format
     if current_format() >= 3:
-        return (REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION_FORMAT3)
+        return (REGISTRY_SCHEMA_VERSION_FORMAT3,)
     return (REGISTRY_SCHEMA_VERSION,)
+
+
+def _refuse_unlifted_registry(raw: dict, path: str) -> None:
+    """Н3 (У5.4 rework): under the format-3 gate, a registry that has NOT been
+    lifted to the uuid-keyed schema is a FATAL — checked BEFORE the lenient
+    entry parse, and therefore before ``reconcile`` and before any deletion.
+
+    Why a fatal, not a lenient read. Under the gate the plan carries UUID keys
+    (Р-У5.1/Р-У5.7). A schema-1 registry carries NAME keys, so ``reconcile``
+    sees every planned command as "create" and every stored entry as "prune":
+    it would delete and recreate the profile's whole copper. Р-У5.7 says the
+    name/uuid mix is worse than a fatal, and this is exactly that mix.
+
+    When can the lift have failed to run? The lift runs on EVERY profile open
+    (``load_config`` → ``upgrade_registries_on_disk``); reaching here means it
+    did not, e.g. a registry directory that is not writable, a failed write, or
+    a config whose explicit ``registry_path`` points somewhere the lift never
+    looked. The message says what to do: reopen the profile (the lift runs on
+    open) or make the registry directory writable.
+
+    A file with NO ``schema_version`` is the pre-2026-08-25 legacy form —
+    schema 1 by convention (``check_schema_version``) — and is refused too.
+    """
+    from .config.format_version import current_format
+    if current_format() < 3:
+        return
+    version = raw.get("schema_version")
+    if version is None or version == REGISTRY_SCHEMA_VERSION:
+        raise ValidationError(_(
+            "The copper registry {path} was not lifted to UUID keys — apply "
+            "stopped, the board was not touched; reopen the profile (the lift "
+            "runs on open) or check that the registry directory is writable"
+        ).format(path=str(path)))
 
 
 def _registry_schema_version_for_write() -> int:
@@ -203,6 +240,9 @@ def load_registry(path: str) -> dict[str, RegistryEntry]:
                        .format(path=path, type=type(e).__name__, e=e))
         return {}
     if isinstance(raw, dict):
+        # Under the format-3 gate a name-keyed (schema 1) registry is a FATAL
+        # before anything else (Н3) — reading it would delete the copper.
+        _refuse_unlifted_registry(raw, path)
         # A future schema_version fails loudly (before the lenient entry parse
         # below) — mis-parsing a newer format could recreate duplicate copper.
         check_schema_version(raw.get("schema_version"), _registry_schema_versions(),
@@ -239,6 +279,7 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
                        .format(path=path, type=type(e).__name__, e=e))
         return {}
     if isinstance(raw, dict):
+        _refuse_unlifted_registry(raw, path)
         check_schema_version(raw.get("schema_version"), _registry_schema_versions(),
                              path, "track registry")
         raw = {k: v for k, v in raw.items() if k != "schema_version"}
@@ -657,8 +698,11 @@ def registries_empty_for(config_path) -> bool:
     adapter: the GUI uses it to decide whether to show the "adopt existing
     copper?" heads-up before a redraw (Bug 3, 2026-09-05)."""
     config_path = str(config_path)
-    via_path = registry_path_for_config(config_path)
-    trk_path = track_registry_path_for_config(config_path)
+    # Н3: the paths come from the SAME decision as apply/lift, honouring an
+    # explicit registry_path:/track_registry_path: in the config. Reading only
+    # the defaults made this hint inspect DIFFERENT files than a redraw used.
+    from .cli_common import peek_registry_paths  # lazy — registry stays import-light
+    via_path, trk_path = peek_registry_paths(config_path)
     return not load_registry(via_path) and not load_track_registry(trk_path)
 
 

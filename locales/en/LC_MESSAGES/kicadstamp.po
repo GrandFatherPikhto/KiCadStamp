@@ -6555,6 +6555,22 @@ msgstr ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
 "empty (all tracks will be created anew)"
 
+#: kicadstamp/cli_common.py:230
+#, python-brace-format
+msgid "Could not read registry paths from config {path}: {e}"
+msgstr "Could not read registry paths from config {path}: {e}"
+
+#: kicadstamp/registry.py:187
+#, python-brace-format
+msgid ""
+"The copper registry {path} was not lifted to UUID keys — apply stopped, the "
+"board was not touched; reopen the profile (the lift runs on open) or check "
+"that the registry directory is writable"
+msgstr ""
+"The copper registry {path} was not lifted to UUID keys — apply stopped, the "
+"board was not touched; reopen the profile (the lift runs on open) or check "
+"that the registry directory is writable"
+
 #: kicadstamp/registry.py:282
 #, python-brace-format
 msgid ""

@@ -54,9 +54,8 @@ from .imprint_apply import execute_imprint_plans, plan_all_imprints
 from .exceptions import PlacerError
 from .trees import _walk_nodes as _walk_tree_nodes
 from .validation import run_all_checks, check_config_structure
-from .registry import (PlacementRegistry, registry_path_for_config,
-                       TrackRegistry, track_registry_path_for_config,
-                       default_operation_log_dir_for_config,
+from .registry import (PlacementRegistry, registry_paths_for_config,
+                       TrackRegistry, default_operation_log_dir_for_config,
                        filter_existing_tracks, filter_existing_vias,
                        adopt_matching_unowned)
 from .i18n import _
@@ -873,10 +872,14 @@ class ApplyPipeline:
         # the raw Config value only when no ctx was preloaded — author.py's
         # apply_config may be called with ctx=None and a manually built Config
         # whose registry_path is already absolute (see its docstring).
-        registry_path = ((ctx.registry_path if ctx else self.cfg.registry_path)
-                         or registry_path_for_config(self.config_path))
-        track_registry_path = ((ctx.track_registry_path if ctx else self.cfg.track_registry_path)
-                               or track_registry_path_for_config(self.config_path))
+        # Н3: ONE decision with the on-disk lift (registry_paths_for_config).
+        # ctx.registry_path is the RESOLVED absolute value (a relative
+        # cfg.registry_path resolved against the config dir by the loader); an
+        # absolute value is kept as-is; both unset → the config-derived default.
+        registry_path, track_registry_path = registry_paths_for_config(
+            self.config_path,
+            (ctx.registry_path if ctx else self.cfg.registry_path),
+            (ctx.track_registry_path if ctx else self.cfg.track_registry_path))
         executor = BatchExecutor(
             self.adapter, self.cfg, batch_size=self.batch_size,
             operation_log_dir=((ctx.operation_log_dir if ctx else self.cfg.operation_log_dir)

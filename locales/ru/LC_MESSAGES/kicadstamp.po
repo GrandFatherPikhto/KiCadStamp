@@ -6600,6 +6600,22 @@ msgstr ""
 "Не удалось прочитать реестр треков {path}: {type}: {e} — считаю реестр "
 "пустым (все треки будут созданы заново)"
 
+#: kicadstamp/cli_common.py:230
+#, python-brace-format
+msgid "Could not read registry paths from config {path}: {e}"
+msgstr "Не удалось прочитать пути реестров из конфига {path}: {e}"
+
+#: kicadstamp/registry.py:187
+#, python-brace-format
+msgid ""
+"The copper registry {path} was not lifted to UUID keys — apply stopped, the "
+"board was not touched; reopen the profile (the lift runs on open) or check "
+"that the registry directory is writable"
+msgstr ""
+"Реестр меди {path} не поднят до UUID-ключей — применение остановлено, плата "
+"не тронута; откройте профиль заново (подъём выполняется при открытии) или "
+"проверьте, можно ли писать в каталог реестра"
+
 #: kicadstamp/registry.py:282
 #, python-brace-format
 msgid ""

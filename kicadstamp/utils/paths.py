@@ -111,6 +111,34 @@ def track_registry_path_for_config(config_path: str) -> str:
     return str(p.parent / "tracks" / (p.stem + ".tracks.registry.json"))
 
 
+def registry_paths_for_config(config_path: str, registry_path: str | None = None,
+                              track_registry_path: str | None = None) -> tuple[str, str]:
+    """The ONE decision of WHICH two files hold a config's copper registries.
+
+    Shared by the on-disk lift (``kicadstamp/config/registry_upgrade.py``) and
+    an apply (``kicadstamp/apply_pipeline.py``) so the two can never point at
+    different files — the У5.4 Н3 finding: the lift always used the defaults
+    while ``apply`` honoured ``ctx.registry_path``/``cfg.registry_path``, so a
+    profile with an explicit ``registry_path:`` lifted one file and applied
+    against another, leaving the real registry unlifted and its copper pruned.
+
+    ``registry_path``/``track_registry_path`` — the explicit values, when the
+    caller has them (``Config.registry_path`` raw, or the resolved
+    ``RuntimeContext.registry_path``). A RELATIVE value is resolved against the
+    config's own directory, exactly the rule config/loader.py applies when it
+    builds ``ctx.registry_path``; an absolute one is kept as-is. Both omitted
+    (``None``/empty) → the config-derived default (:func:`registry_path_for_config`
+    / :func:`track_registry_path_for_config`).
+    """
+    base = Path(config_path).parent
+
+    def _one(raw: str | None, default) -> str:
+        return resolve_config_relative_path(base, raw) if raw else default(str(config_path))
+
+    return (_one(registry_path, registry_path_for_config),
+            _one(track_registry_path, track_registry_path_for_config))
+
+
 def overrides_path_for_config(config_path: str) -> str:
     """<config>.sexp -> <config-dir>/overrides/<config-stem>.fields.json.
 

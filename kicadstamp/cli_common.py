@@ -23,6 +23,7 @@ from .i18n import _
 from .utils.file_cache import cached_file_read
 from .utils.paths import (default_log_file_for_config,
                           default_operation_log_dir_for_config,
+                          registry_paths_for_config,
                           resolve_config_relative_path)
 
 
@@ -210,3 +211,29 @@ def peek_operation_log_dir(config_path: str) -> str | None:
         logging.warning(_("Could not read operation_log_dir from config {path}: {e}")
                         .format(path=config_path, e=e))
         return None
+
+
+def peek_registry_paths(config_path: str) -> tuple[str, str]:
+    """Cheap, non-raising (via, track) registry paths for a config file.
+
+    Reads ONLY the root config's ``registry_path`` / ``track_registry_path``
+    top-level keys (``include:`` never contributes them — see
+    config/includes.py) and delegates the explicit-vs-default decision to
+    :func:`~kicadstamp.utils.paths.registry_paths_for_config`, so the GUI's
+    first-run hint (:func:`kicadstamp.registry.registries_empty_for`) and the
+    apply/lift agree on WHICH two files hold the copper — the У5.4 Н3 finding
+    was exactly two consumers answering this question differently.
+
+    Never raises: an unreadable/broken config logs a warning and falls back to
+    the config-derived defaults (the same paths that were used before this
+    helper existed)."""
+    data: dict = {}
+    try:
+        raw = cached_file_read(Path(config_path), _read_root_yaml)
+        if isinstance(raw, dict):
+            data = raw
+    except Exception as e:
+        logging.warning(_("Could not read registry paths from config {path}: {e}")
+                        .format(path=config_path, e=e))
+    return registry_paths_for_config(config_path, data.get("registry_path"),
+                                     data.get("track_registry_path"))
