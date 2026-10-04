@@ -620,6 +620,21 @@ def _find_node_by_ref(nodes: list, ref: str) -> Optional[dict]:
     return None
 
 
+def _without_identity(value):
+    """Deep copy of a config node with every `uuid` / `*_uuid` key dropped.
+
+    The format-3 stamp puts a UUID on every reference (a placement node's
+    `ref_uuid`, a nested anchor's `*_uuid`), so two otherwise-identical nodes
+    read back at different times/sources must compare equal without those keys
+    (append_tree_child_node's "identical node is a no-op" check, У3.5 Ф3)."""
+    if isinstance(value, dict):
+        return {k: _without_identity(v) for k, v in value.items()
+                if k != "uuid" and not k.endswith("_uuid")}
+    if isinstance(value, list):
+        return [_without_identity(v) for v in value]
+    return value
+
+
 def append_tree_child_node(path: Path, tree_name: str,
                            parent_ref: Optional[str],
                            node_dict: Dict[str, Any]) -> bool:
@@ -664,7 +679,8 @@ def append_tree_child_node(path: Path, tree_name: str,
             raise OSError(_("tree {name!r} has no node {ref!r} to append under")
                           .format(name=tree_name, ref=parent_ref))
         target = parent.setdefault("children", [])
-    if node_dict in target:
+    if any(_without_identity(n) == _without_identity(node_dict)
+           for n in target if isinstance(n, dict)):
         return False
     target.append(node_dict)
     _write_data(path, data)
