@@ -17,6 +17,7 @@ Rule 35 table (section x direction), all under format 3:
   * gate: CURRENT_FORMAT=2 -> byte-identical (no uuid, still version 2).
 """
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -376,3 +377,53 @@ def test_every_writer_leaves_a_stamped_file(format3, active_root, tmp_path,
     assert missing == [], f"records without a uuid after the write: {missing}"
     if expect_load:
         load_config(str(root))
+
+
+# ── К3.5: a reference WITH a uuid stays on ONE line ────────────────────────
+# Pure serializer-layout cells (no fixture): `format_number` is passed
+# explicitly, so they are independent of CURRENT_FORMAT.
+
+def test_a_format3_reference_with_a_uuid_is_written_on_one_line():
+    """Subject: the reference node's LAYOUT. A format-3 reference keeps its uuid
+    on the SAME line — `(cell "cap" (uuid "…"))` — instead of the four-line
+    column `_dumps` would otherwise produce (plan §7 К3.5, Денис 04.10)."""
+    text = dict_to_sexp(
+        {"cells": {"cap": {"uuid": "u-cap"}},
+         "entities": [{"name": "e1", "cell": "cap", "cell_uuid": "u-cap"}]},
+        format_number=3)
+    # The reference stands as ONE line at the entity record's indentation …
+    assert re.search(r'^      \(cell "cap" \(uuid "u-cap"\)\)$', text, re.M)
+    # … and it is NOT wrapped: no bare `(cell` line at THAT indentation (the
+    # cells record's own node is indented two spaces less and is irrelevant).
+    assert not re.search(r'^      \(cell$', text, re.M)
+
+
+def test_a_format2_reference_snapshot_is_unchanged():
+    """Subject: the format-2 LAYOUT. Without a uuid every reference is a plain
+    all-atom node, already on one line; the К3.5 change must not move a byte.
+    `format_number=2` is written explicitly: the subject is format 2 itself."""
+    text = dict_to_sexp({"cells": {"cap": {}},
+                         "entities": [{"name": "e1", "cell": "cap"}]},
+                        format_number=2)
+    assert text == (
+        "(kicadstamp-config\n"
+        "  (version 2)\n"
+        "  (cells\n"
+        '    (cell "cap")\n'
+        "  )\n"
+        "  (entities\n"
+        "    (entity\n"
+        '      (name "e1")\n'
+        '      (cell "cap")\n'
+        "    )\n"
+        "  )\n"
+        ")\n"
+    )
+
+
+def test_a_format3_non_reference_nested_node_keeps_the_column_layout():
+    """Subject: the К3.5 exception is NARROW — only a reference node is inlined;
+    every other multi-child node (here a record's own `(uuid …)` child) keeps
+    the multi-line column layout."""
+    text = dict_to_sexp({"cells": {"Power/cap": {"uuid": "u1"}}}, format_number=3)
+    assert '(cell\n      "Power/cap"\n      (uuid "u1")\n    )' in text

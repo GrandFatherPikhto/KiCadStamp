@@ -147,12 +147,22 @@ _REF_FIELDS = {
 }
 
 
+class _InlineNode(list):
+    """A node `_dumps` writes on ONE line. Used only for a format-3 reference
+    that carries a UUID — `(cell "x" (uuid "…"))` — so the rest of the layout
+    stays byte for byte as it was (plan §7 К3.5, Денис 04.10)."""
+
+
 def _ref_field_to_sexp(name: str, value, uuid: str | None):
     """(cell "x") or (cell "x" (uuid "…")) — the reference keeps its name in
-    place (readability) with the target's UUID beside it."""
+    place (readability) with the target's UUID beside it.
+
+    With a UUID the node is an `_InlineNode`, so `_dumps` keeps it on one line;
+    without one it stays a plain all-atom list (already one line)."""
     node = [sym(name), value]
     if uuid is not None:
         node.append([sym("uuid"), uuid])
+        return _InlineNode(node)
     return node
 
 
@@ -343,14 +353,27 @@ def _atom_str(x) -> str:
     return sexpdata.dumps(x)
 
 
+def _inline(obj) -> str:
+    """Render a node on ONE line, recursively — the `_InlineNode` shape."""
+    if isinstance(obj, list):
+        return "(" + " ".join(_inline(x) for x in obj) + ")"
+    return _atom_str(obj)
+
+
 def _dumps(obj, level: int = 0) -> str:
     """Multi-line s-expr text with 2-space indentation. Free-form line breaks
     (the grammar does not fix them) — this just makes the output readable for
-    humans/AI; parsing is whitespace-insensitive."""
+    humans/AI; parsing is whitespace-insensitive.
+
+    A reference-with-UUID node (`_InlineNode`) is the one exception: it stays on
+    one line, `(cell "x" (uuid "…"))`, so lifting a live profile does not blow
+    every reference into four lines (plan §7 К3.5)."""
     pad = "  " * level
     if isinstance(obj, list):
         if not obj:
             return pad + "()"
+        if isinstance(obj, _InlineNode):
+            return pad + _inline(obj)
         if all(_is_atom(x) for x in obj):
             return pad + "(" + " ".join(_atom_str(x) for x in obj) + ")"
         lines = [pad + "(" + _atom_str(obj[0])]
