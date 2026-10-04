@@ -48,26 +48,12 @@ _TOP_LEVEL_LABEL = "— top level (no parent) —"
 # ── Shared config builders (format-agnostic .sexp fixtures) ───────────────
 
 
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _write(path: Path, data: dict) -> None:
     """The DockHub cell writes the SAME root twice (Ф3.7): once to give the hub
     a root, once with an extra tree `saved` must pick up. The second write has to
     be a LATER one — on the same `mtime_ns` the caches keyed by `(path, mtime_ns)`
     answer with the first content, and the refresh would be measured as a no-op."""
-    write_later(path, dict_to_sexp(data))
+    write_later(path, dict_to_sexp(data, format_number=2))
 
 
 def _load(path: Path) -> dict:

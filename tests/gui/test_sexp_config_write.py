@@ -19,20 +19,19 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 import gui.config_io as config_io_mod
 
 
-
-
 @pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
 
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
+
 
 def _write(tmp_path, name, text) -> Path:
     p = tmp_path / name
@@ -104,7 +103,7 @@ def test_merge_write_sexp_section_merges_nested(tmp_path):
     path = tmp_path / "cfg.sexp"
     path.write_text(dict_to_sexp({
         "extract_profiles": {"p1": {"name": "p1", "output": "o1.yaml"}},
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     merge_write(path, {"extract_profiles": {"p2": {"name": "p2", "output": "o2.yaml"}}},
                 section="extract_profiles")
     data = _load(path)
@@ -115,7 +114,7 @@ def test_upsert_list_entry_sexp_replaces_by_key(tmp_path):
     path = tmp_path / "cfg.sexp"
     path.write_text(dict_to_sexp({
         "thermal_via_arrays": [{"name": "A", "pad": "2"}],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     assert upsert_list_entry(path, "thermal_via_arrays",
                              {"name": "A", "pad": "9"}) is True
     assert upsert_list_entry(path, "thermal_via_arrays",
@@ -133,7 +132,7 @@ def test_upsert_clone_placement_sexp(tmp_path):
         "clone_placements": [
             {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0]},
         ],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     assert upsert_clone_placement(path, {"cluster": "CH0", "cell": "dac_buf",
                                          "xy": [1.0, 2.0]}) is True
     data = _load(path)
@@ -163,7 +162,7 @@ def test_config_io_load_data_sexp(tmp_path):
     path = _write(tmp_path, "cfg.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "cells": {"a": {"layer": "B.Cu"}},
-    }))
+    }, format_number=2))
     data = config_io_mod.load_data(path)
     assert data["layer"] == "B.Cu"
     assert data["cells"]["a"]["layer"] == "B.Cu"
@@ -179,6 +178,6 @@ def test_config_io_load_data_sexp_malformed_returns_empty(tmp_path):
 def test_config_io_existing_keys_sexp(tmp_path):
     path = _write(tmp_path, "cfg.sexp", dict_to_sexp({
         "cells": {"a": {}, "b": {}},
-    }))
+    }, format_number=2))
     assert config_io_mod.existing_keys(path) == {"cells"}
     assert config_io_mod.existing_keys(path, "cells") == {"a", "b"}

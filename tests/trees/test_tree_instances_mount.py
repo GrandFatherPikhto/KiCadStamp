@@ -45,20 +45,6 @@ FIXTURES = FIXTURES_DIR / "tree_instances_mount"
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _tree(data: dict, name: str) -> dict:
     return next(t for t in data["trees"] if t["name"] == name)
 
@@ -172,7 +158,7 @@ def test_converter_drops_a_zero_pivot_on_an_instance_module_node():
     assert "pivot_xy" not in node
     assert report["instance_pivots_dropped"] == 1
     assert report["pivots_moved"] == 0
-    sexp_to_dict(dict_to_sexp(converted))          # now serializable
+    sexp_to_dict(dict_to_sexp(converted, format_number=2))          # now serializable
 
 
 def test_converter_stops_on_a_nonzero_pivot_over_an_instance():

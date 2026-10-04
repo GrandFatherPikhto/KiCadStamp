@@ -26,21 +26,6 @@ from kicadstamp.net_trace_planner import net_trace_anchor_id
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _legacy_record(net="DAC_DB0", **overrides):
     """A valid net_traces record dict WITHOUT name: — the shape every existing
     profile on disk has."""
@@ -117,7 +102,7 @@ def test_two_records_on_one_net_are_legal_when_named(tmp_path):
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(name="dac_db0__a__b"),
         _legacy_record(name="dac_db0__b__c"),
-    ]}), encoding="utf-8")
+    ]}, format_number=2), encoding="utf-8")
     cfg, _ctx = load_config(str(path))
     assert [nt.name for nt in cfg.net_traces] == ["dac_db0__a__b", "dac_db0__b__c"]
     assert [nt.net for nt in cfg.net_traces] == ["DAC_DB0", "DAC_DB0"]
@@ -128,7 +113,7 @@ def test_two_records_with_the_same_name_are_fatal(tmp_path):
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(net="A", name="same"),
         _legacy_record(net="B", name="same"),
-    ]}), encoding="utf-8")
+    ]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="unique name"):
         load_config(str(path))
 
@@ -139,7 +124,7 @@ def test_two_nameless_records_on_one_net_stay_fatal(tmp_path):
     path = tmp_path / "board.sexp"
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(), _legacy_record(),
-    ]}), encoding="utf-8")
+    ]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="unique name"):
         load_config(str(path))
 
@@ -148,7 +133,7 @@ def test_empty_name_is_fatal(tmp_path):
     path = tmp_path / "board.sexp"
     path.write_text(dict_to_sexp({"net_traces": [
         _legacy_record(name="   "),
-    ]}), encoding="utf-8")
+    ]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="empty name"):
         load_config(str(path))
 
@@ -169,7 +154,7 @@ def test_legacy_profile_load_and_save_is_byte_identical(tmp_path):
     """The mandatory Э2 compatibility test: an existing profile (no name:
     anywhere) is loaded and written back BYTE-IDENTICALLY, and re-emitting the
     record from the LOADED MODEL adds no name: key either."""
-    original = dict_to_sexp({"net_traces": [_legacy_record()]})
+    original = dict_to_sexp({"net_traces": [_legacy_record()]}, format_number=2)
     path = tmp_path / "board.sexp"
     path.write_text(original, encoding="utf-8")
 
@@ -181,7 +166,7 @@ def test_legacy_profile_load_and_save_is_byte_identical(tmp_path):
     assert path.read_text(encoding="utf-8") == original
 
     # Model -> dict -> s-expr reproduces the input text exactly (no name: key).
-    reemitted = dict_to_sexp({"net_traces": [net_trace_to_dict(cfg.net_traces[0])]})
+    reemitted = dict_to_sexp({"net_traces": [net_trace_to_dict(cfg.net_traces[0])]}, format_number=2)
     assert reemitted == original
     assert "name" not in sexp_to_dict(reemitted)["net_traces"][0]
 
@@ -193,7 +178,7 @@ def test_named_record_survives_a_save(tmp_path):
     so a hand-written file with the nodes in another order is normalized on
     save — the same convention every other field already has.)"""
     named = NetTrace(net="DAC_DB0", anchor_role="FPGA", name="dac_db0__a__b")
-    original = dict_to_sexp({"net_traces": [net_trace_to_dict(named)]})
+    original = dict_to_sexp({"net_traces": [net_trace_to_dict(named)]}, format_number=2)
     path = tmp_path / "board.sexp"
     path.write_text(original, encoding="utf-8")
 
@@ -201,7 +186,7 @@ def test_named_record_survives_a_save(tmp_path):
     write_data(path, read_data(path))
     assert path.read_text(encoding="utf-8") == original
     assert net_trace_effective_name(cfg.net_traces[0]) == "dac_db0__a__b"
-    assert dict_to_sexp({"net_traces": [net_trace_to_dict(cfg.net_traces[0])]}) \
+    assert dict_to_sexp({"net_traces": [net_trace_to_dict(cfg.net_traces[0])]}, format_number=2) \
         == original
 
 

@@ -31,23 +31,8 @@ from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  
 from tests.fakes.planner import FakePlanner  # noqa: E402
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _write(path, data) -> None:
-    path.write_text(dict_to_sexp(data), encoding="utf-8")
+    path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
 
 
 def _load(path) -> dict:
@@ -1484,3 +1469,15 @@ def test_unrelated_edit_preserves_stored_override_fields(main_window, tmp_path):
     assert "refs" not in rebuilt2
 
 
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

@@ -48,21 +48,6 @@ BYPASS = "C_FPGA_BYPASS"
 CLUSTER = "FPGA_PWR_BANK"
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _fp(ref, role, cluster, x_mm, y_mm):
     """A live footprint with its Role/Cluster FIELD values, standing at (x, y)."""
     fp = Footprint(ref=ref, uuid=f"u-{ref}",
@@ -580,7 +565,7 @@ def _cell_config(tmp_path, name="fpga_pwr_bank",
         "layer": "F.Cu",
         "components": [{"role": role, "offset_along_mm": 0.0,
                         "offset_across_mm": 0.0} for role in roles],
-        "vias": [], "tracks": [], "clone_placements": []}}}), encoding="utf-8")
+        "vias": [], "tracks": [], "clone_placements": []}}}, format_number=2), encoding="utf-8")
     return root
 
 

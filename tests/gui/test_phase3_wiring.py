@@ -40,21 +40,6 @@ import kicadstamp.net_trace_extract as net_trace_extract_mod
 from tests.fakes.write_later import write_later
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _find_item(model, text):
     def walk(item):
         for row in range(item.rowCount()):
@@ -85,7 +70,7 @@ def _write(path, data=None):
     # measures the wiring, not the cache — and, unlike the helper that reset the
     # product's caches, it still lets a cell assert that the product ITSELF
     # notices an external edit (Ф3.7: one helper per property).
-    write_later(path, dict_to_sexp(data if data is not None else {}))
+    write_later(path, dict_to_sexp(data if data is not None else {}, format_number=2))
 
 
 def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_window, tmp_path):
@@ -1551,7 +1536,7 @@ def test_cell_click_reload_clears_the_working_context(real_main_window, tmp_path
                               "offset_across_mm": 0.0}]},
         "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
                               "offset_across_mm": 0.0}]},
-    }}), encoding="utf-8")
+    }}, format_number=2), encoding="utf-8")
     hub.cell_anchor_view.set_root_path(target)
     hub.cell_anchor_view.load_entry("A", target)
     hub.cell_anchor_view._cluster_combo.setCurrentText("PIF_3V3_VDD")

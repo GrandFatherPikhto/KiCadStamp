@@ -26,21 +26,6 @@ from kicadstamp.exceptions import ValidationError
 from tests.fakes.write_later import write_later
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _fill_cell_defaults(data: dict) -> dict:
     """s-expr omits default-valued Cell fields (layer='F.Cu', empty
     vias/components/tracks/clone_placements lists); re-apply them so the
@@ -60,7 +45,7 @@ def _write(path, data) -> None:
     save-time read must see the NEW bytes. A bare `write_text` can land on the
     same `mtime_ns` (the Windows tick), leaving the old content under a cache key
     the read still hits, so the write goes through `write_later`."""
-    write_later(path, dict_to_sexp(data))
+    write_later(path, dict_to_sexp(data, format_number=2))
 
 
 def _load(path) -> dict:

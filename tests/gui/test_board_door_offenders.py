@@ -37,21 +37,6 @@ from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.domain.geometry import Vector2
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _arm_the_door(monkeypatch) -> None:
     """The door's guard, ARMED for this test's UI thread in the rig's mode: a
     violation raises instead of writing a red Log line, which is what makes these
@@ -82,7 +67,7 @@ def test_opening_a_root_does_not_read_the_board_unsigned(
     `TreesDock._clear_all_tree_markers` and this fails with a refusal naming
     gui/docks/trees_dock.py's `_live_adapter` line."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"cells": {}, "trees": []}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"cells": {}, "trees": []}, format_number=2), encoding="utf-8")
     real_main_window.connection.board = SimpleNamespace(adapter=object())
 
     real_main_window._dock_hub.trees_dock.set_root_file(root)   # must not raise
@@ -190,7 +175,7 @@ def test_the_instantiate_continuation_does_not_read_the_board_unsigned(
     import gui.docks.trees_dock as td_mod
 
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"cells": {}, "trees": []}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"cells": {}, "trees": []}, format_number=2), encoding="utf-8")
     dock = real_main_window._dock_hub.trees_dock
     dock.set_root_file(root)
 
@@ -273,7 +258,7 @@ def test_the_node_reread_flow_does_not_read_the_board_unsigned(
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({"trees": [
         {"name": "probe_tree", "anchor": {"ref": "U1"},
-         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}),
+         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}, format_number=2),
         encoding="utf-8")
     dock = real_main_window._dock_hub.trees_dock
     dock.set_root_file(root)                     # built BEFORE the door is armed
@@ -415,7 +400,7 @@ def _rehang_dock(window, tmp_path, monkeypatch):
     from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"trees": []}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"trees": []}, format_number=2), encoding="utf-8")
     dock = trees_mod.TreesDock(window)
     dock.set_root_file(root)             # built BEFORE the door is armed
     # Т2-8 removed the `_rebuild_tabs` stub that stood here: the tab rebuild builds
@@ -549,7 +534,7 @@ def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
 
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({"trees": [
-        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}), encoding="utf-8")
+        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}, format_number=2), encoding="utf-8")
     dock = trees_mod.TreesDock(real_main_window)
     dock.set_root_file(root)                     # built BEFORE the door is armed
     tree = dock._trees[0]
@@ -623,7 +608,7 @@ def test_instantiate_tab_2_does_not_read_the_board_unsigned(
 
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({"trees": [
-        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}), encoding="utf-8")
+        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}, format_number=2), encoding="utf-8")
     dock = trees_mod.TreesDock(real_main_window)
     dock.set_root_file(root)                     # built BEFORE the door is armed
     real_main_window.connection.board = SimpleNamespace(adapter=object())
@@ -759,7 +744,7 @@ def test_one_point_marker_removal_does_not_read_the_board_unsigned(
     monkeypatch.setattr(points_mod, "start_long_op",
                         lambda *a, **k: started.append(a) or None)
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"points": {}}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"points": {}}, format_number=2), encoding="utf-8")
     dock = points_mod.PointsDock(real_main_window)
     dock.set_root_path(root)                     # built BEFORE the door is armed
     settings.state.set(points_mod.overlay_markers.OVERLAY_MARKERS_KEY,
@@ -785,7 +770,7 @@ def test_the_whole_point_layer_removal_does_not_read_the_board_unsigned(
     monkeypatch.setattr(points_mod, "start_long_op",
                         lambda *a, **k: started.append(a) or None)
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"points": {}}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"points": {}}, format_number=2), encoding="utf-8")
     dock = points_mod.PointsDock(real_main_window)
     dock.set_root_path(root)
     settings.state.set(points_mod.overlay_markers.OVERLAY_MARKERS_KEY,
@@ -838,7 +823,7 @@ def _place_dock(window, tmp_path):
         "trees": [{"name": "main", "anchor": {"origin": True},
                    "nodes": [{"ref": "PARENT", "kind": "placement",
                               "xy": [0.0, 0.0]}]}],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     dock = window._dock_hub.imprint_place_dock
     dock.set_root_path(root)                 # built BEFORE the door is armed
     dock.tree_combo.setCurrentText("main")
@@ -1147,7 +1132,7 @@ def _form_dock(window, tmp_path):
     import gui.docks.trees_dock as trees_mod
 
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(_FORM_TREE), encoding="utf-8")
+    root.write_text(dict_to_sexp(_FORM_TREE, format_number=2), encoding="utf-8")
     dock = trees_mod.TreesDock(window)
     dock.set_root_file(root)
     adapter = SimpleNamespace(name="the-shared-adapter")

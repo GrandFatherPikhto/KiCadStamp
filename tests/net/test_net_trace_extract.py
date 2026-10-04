@@ -29,21 +29,6 @@ from kicadstamp.net_trace_extract import (extract_net_trace, write_net_trace,
 from kicadstamp.utils.units import MM
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _make_fp(ref, role, x_mm, y_mm, angle_deg=0.0):
     fp = MagicMock()
     fp.ref = ref
@@ -264,7 +249,7 @@ def test_extract_fatal_when_anchor_pad_missing_on_footprint():
 def test_write_net_trace_replaces_same_net_and_preserves_other_keys(tmp_path):
     out = tmp_path / "trace.sexp"
     # Pre-existing content with another top-level key.
-    out.write_text(dict_to_sexp({"chains": [{"net": "GND"}]}), encoding="utf-8")
+    out.write_text(dict_to_sexp({"chains": [{"net": "GND"}]}, format_number=2), encoding="utf-8")
 
     nt = NetTrace(net="DAC_DB0", anchor_role="FPGA",
                   tracks=[], vias=[])
@@ -320,7 +305,7 @@ def test_load_config_net_traces_roundtrip(tmp_path):
             "vias": [{"offset_along_mm": 5.0, "offset_across_mm": 6.0,
                       "net": "DAC_DB0", "drill_mm": 0.3, "diameter_mm": 0.6}],
         }],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     cfg, _ctx = load_config(str(cfg_path))
     assert len(cfg.net_traces) == 1
     nt = cfg.net_traces[0]
@@ -334,7 +319,7 @@ def test_load_config_net_traces_roundtrip(tmp_path):
 def test_load_config_net_traces_missing_anchor_role_fatal(tmp_path):
     from kicadstamp.config import load_config
     cfg_path = tmp_path / "board.sexp"
-    cfg_path.write_text(dict_to_sexp({"net_traces": [{"net": "DAC_DB0"}]}),
+    cfg_path.write_text(dict_to_sexp({"net_traces": [{"net": "DAC_DB0"}]}, format_number=2),
                         encoding="utf-8")
     with pytest.raises(ValidationError, match="without anchor_role"):
         load_config(str(cfg_path))
@@ -353,7 +338,7 @@ def test_load_config_net_traces_duplicate_name_fatal(tmp_path):
             {"net": "DAC_DB0", "anchor_role": "FPGA"},
             {"net": "DAC_DB0", "anchor_role": "FPGA"},
         ],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="unique name"):
         load_config(str(cfg_path))
 
@@ -374,7 +359,7 @@ def test_load_config_net_traces_track_without_layer_fatal(tmp_path):
                         "end_along_mm": 3.0, "end_across_mm": 4.0,
                         "net": "DAC_DB0"}],
         }],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="has no layer"):
         load_config(str(cfg_path))
 
@@ -403,7 +388,7 @@ def test_read_net_trace_flags(tmp_path):
             {"net": "DAC_DB0", "anchor_role": "FPGA", "retired": True},
             {"net": "DAC_DB1", "anchor_role": "FPGA", "skip": True},
         ],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     assert read_net_trace_flags(str(out), "DAC_DB0") == (True, False)
     assert read_net_trace_flags(str(out), "DAC_DB1") == (False, True)
     assert read_net_trace_flags(str(out), "DAC_DB9") == (False, False)
@@ -512,7 +497,7 @@ def test_read_net_trace_flags_sexp(tmp_path):
             {"net": "DAC_DB0", "anchor_role": "FPGA", "retired": True},
             {"net": "DAC_DB1", "anchor_role": "FPGA", "skip": True},
         ],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
 
     assert read_net_trace_flags(str(out), "DAC_DB0") == (True, False)
     assert read_net_trace_flags(str(out), "DAC_DB1") == (False, True)
@@ -593,7 +578,7 @@ def test_anchor_rotation_dict_roundtrip_and_legacy_none(tmp_path):
     assert d["anchor_rotation_deg"] == 180.0
 
     out = tmp_path / "trace.sexp"
-    out.write_text(dict_to_sexp({"net_traces": [d]}), encoding="utf-8")
+    out.write_text(dict_to_sexp({"net_traces": [d]}, format_number=2), encoding="utf-8")
     cfg, _ctx = load_config(str(out))
     assert cfg.net_traces[0].anchor_rotation_deg == 180.0
 
@@ -601,7 +586,21 @@ def test_anchor_rotation_dict_roundtrip_and_legacy_none(tmp_path):
     legacy = NetTrace(net="DAC_DB1", anchor_role="FPGA", tracks=[], vias=[])
     assert "anchor_rotation_deg" not in net_trace_to_dict(legacy)
     out2 = tmp_path / "legacy.sexp"
-    out2.write_text(dict_to_sexp({"net_traces": [net_trace_to_dict(legacy)]}),
+    out2.write_text(dict_to_sexp({"net_traces": [net_trace_to_dict(legacy)]}, format_number=2),
                     encoding="utf-8")
     cfg2, _ctx2 = load_config(str(out2))
     assert cfg2.net_traces[0].anchor_rotation_deg is None
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

@@ -51,21 +51,6 @@ TREES_CFG = {
 }
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _no_boxes(*a, **k):
     """Stand-in for QMessageBox.warning that FAILS the test if called — the
     strongest form of "this state error must not open a dialog"."""
@@ -91,7 +76,7 @@ def test_record_imprint_without_connection_logs_one_error(
     in the Log, no modal, and the Record dialog is never even constructed (the
     flow stops right there — X.1.4)."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"cells": {}}, format_number=2), encoding="utf-8")
     real_main_window.root_metadata_dock.set_root_file(root)
 
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _no_boxes)
@@ -113,7 +98,7 @@ def test_resource_imprint_without_connection_logs_one_error(
     """The Re-source... twin of the flow above (X.1.2) — same one ERROR line,
     no modal, no dialog, nothing captured."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"cells": {}}, format_number=2), encoding="utf-8")
     real_main_window.root_metadata_dock.set_root_file(root)
 
     monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _no_boxes)
@@ -139,7 +124,7 @@ def test_reread_node_without_connection_logs_one_error(
     ONE ERROR line, no modal, and the node keeps its stored values (X.1.4 —
     the operation still stops)."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(TREES_CFG), encoding="utf-8")
+    root.write_text(dict_to_sexp(TREES_CFG, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     tree = dock._trees[0]
@@ -169,7 +154,7 @@ def test_cell_editor_live_flows_without_connection_log_one_error_each(
     modal. Guards the X.1.3 claim that these six places are NOT touched by the
     conversion."""
     target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp({"cells": {}}), encoding="utf-8")
+    target.write_text(dict_to_sexp({"cells": {}}, format_number=2), encoding="utf-8")
     dock = CellDock(main_window)
     dock.set_root_path(target)
 
@@ -192,7 +177,7 @@ def test_net_trace_extract_without_connection_logs_one_error(
     patched at the class itself — ANY dialog opened anywhere in the process
     during this test fails it."""
     target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp({}), encoding="utf-8")
+    target.write_text(dict_to_sexp({}, format_number=2), encoding="utf-8")
     dock = NetTraceDock(main_window)
     dock.set_root_path(target)
 
@@ -217,7 +202,7 @@ def test_node_form_offline_hint_stays_and_is_not_logged(
     fields — it must stay exactly as it was and must NOT be routed to the Log.
     An offline open+save is a legal, explicitly supported workflow."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(TREES_CFG), encoding="utf-8")
+    root.write_text(dict_to_sexp(TREES_CFG, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     tree = dock._trees[0]

@@ -40,20 +40,6 @@ from gui.docks.trees_dock import TreesDock
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _record(name="bridge", net="N", anchor_role="FPGA"):
     return NetTrace(
         net=net, name=name, anchor_role=anchor_role, anchor_pad="42",
@@ -223,7 +209,7 @@ def _root(tmp_path):
             {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
             {"ref": "bridge_one", "kind": "net_trace"},
         ]}],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     return root
 
 
@@ -330,7 +316,7 @@ def _dock_with_two_bridges(main_window, tmp_path):
     root.write_text(dict_to_sexp({"net_traces": [
         {"net": "N", "name": "bridge_one", "anchor_role": "A", "tracks": [], "vias": []},
         {"net": "N", "name": "bridge_two", "anchor_role": "A", "tracks": [], "vias": []},
-    ]}), encoding="utf-8")
+    ]}, format_number=2), encoding="utf-8")
     dock = NetTraceDock(main_window)
     dock.set_root_path(root)
     dock._connection.board = SimpleNamespace(adapter=MagicMock())
@@ -356,7 +342,7 @@ def test_dock_button_uses_the_opened_record_identity(main_window, tmp_path, monk
 
 def test_dock_button_without_board_is_a_log_message(main_window, tmp_path, monkeypatch, caplog):
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"net_traces": []}), encoding="utf-8")
+    root.write_text(dict_to_sexp({"net_traces": []}, format_number=2), encoding="utf-8")
     dock = NetTraceDock(main_window)
     dock.set_root_path(root)
     dock._connection.board = None

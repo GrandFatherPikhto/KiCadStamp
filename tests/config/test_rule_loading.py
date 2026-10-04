@@ -11,21 +11,6 @@ from kicadstamp.config import load_rule
 from kicadstamp.exceptions import ValidationError
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def test_anchor_role_rule_loads():
     rule = load_rule({"net": "+3V3", "anchor_role": "FPGA", "spokes": []})
     assert rule.net == "+3V3"
@@ -151,7 +136,7 @@ def test_alias_legacy_rules_key_loads_as_chains(tmp_path):
             {"pad": "17", "cell": "c", "shift_x_mm": 1.2}]},
     ]}
     p = tmp_path / "legacy.sexp"
-    p.write_text(dict_to_sexp(legacy), encoding="utf-8")
+    p.write_text(dict_to_sexp(legacy, format_number=2), encoding="utf-8")
 
     cfg, _ = load_config(str(p))
     assert len(cfg.chains) == 1

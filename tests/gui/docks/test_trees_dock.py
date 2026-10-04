@@ -36,20 +36,6 @@ from gui.docks.trees_dock import (
 from tests.fakes.write_later import write_later
 
 
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """This file's DATA is a format-2 config graph: a bare ``trees:`` section
-    whose node refs point at records the config does NOT contain (see
-    GRAMMAR_TREES / SAVE_TREES). Under format 3 every such ref must carry its
-    target's UUID (plan §4 У2.2), which this data cannot express without adding
-    records the cells deliberately do not have — so the file is pinned to
-    format 2 (У3.5 К3; Денис 04.10: pin allowed for files whose DATA is a
-    format-2 graph). A cell that requests the ``format3`` fixture still wins:
-    that fixture's monkeypatch is applied after this autouse one."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 # _pump: "Reread current position" now resolves the node on a worker under
 # start_long_op (plan_2026_09_12_ui_thread_board_reads Э1), so the tests below
 # drive the event loop until the operation's token is released before they
@@ -110,7 +96,7 @@ def _dock_with(main_window, tmp_path, trees=None):
     invisible to them, which is the Windows class W2/Ф3.6."""
     trees = trees if trees is not None else GRAMMAR_TREES
     root = tmp_path / "root.sexp"
-    write_later(root, dict_to_sexp(trees))
+    write_later(root, dict_to_sexp(trees, format_number=2))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root
@@ -192,7 +178,7 @@ def test_reload_trees_rebinds_cfg_trees_on_clean_reload(main_window, tmp_path):
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }))
+    }, format_number=2))
 
     dock.reload_trees()
 
@@ -216,7 +202,7 @@ def test_reload_trees_rebinds_cfg_trees_after_dirty_merge(
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }))
+    }, format_number=2))
 
     dock.reload_trees()
 
@@ -246,7 +232,7 @@ def test_reload_trees_picks_up_external_write(main_window, tmp_path):
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }))
+    }, format_number=2))
 
     dock.reload_trees()
 
@@ -269,7 +255,7 @@ def test_reload_trees_preserves_dirty_edits(main_window, tmp_path):
             {"name": "misc", "anchor": {"origin": True}, "nodes": []},
             {"name": "from_selection", "anchor": {"role": "DAC"}, "nodes": []},
         ],
-    }))
+    }, format_number=2))
 
     dock.reload_trees()
 
@@ -2669,7 +2655,7 @@ def test_refresh_ref_candidates_preserves_dirty_trees_and_sees_new_entity(
     changed["clone_placements"] = KIND_FILTER_CFG["clone_placements"] + [
         {"name": "BRAND_NEW_ENTITY", "cluster": "c3", "cell": "t",
          "xy": [5.0, 6.0]}]
-    root.write_text(dict_to_sexp(changed), encoding="utf-8")
+    root.write_text(dict_to_sexp(changed, format_number=2), encoding="utf-8")
 
     dock.refresh_ref_candidates()
 
@@ -3016,7 +3002,7 @@ SELF_EMBED_CFG = {
 
 def _self_embed_dock(main_window, tmp_path):
     root = tmp_path / "self_embed.sexp"
-    root.write_text(dict_to_sexp(SELF_EMBED_CFG), encoding="utf-8")
+    root.write_text(dict_to_sexp(SELF_EMBED_CFG, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root
@@ -3473,7 +3459,7 @@ def _instance_dock(main_window, tmp_path):
     template tree + one tree_instances: declaration (the materialized instance
     is an ordinary cfg.trees entry / tab, marked read-only via the index)."""
     root = tmp_path / "inst.sexp"
-    root.write_text(dict_to_sexp(INSTANCE_CFG), encoding="utf-8")
+    root.write_text(dict_to_sexp(INSTANCE_CFG, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root
@@ -3588,7 +3574,7 @@ def test_template_tab_shows_instance_items_and_switches(main_window, tmp_path):
     tree_instances declaration; double-clicking each switches to that instance
     tab (instances are ordinary tabs in self._trees)."""
     root = tmp_path / "inst2.sexp"
-    root.write_text(dict_to_sexp(INSTANCE_CFG2), encoding="utf-8")
+    root.write_text(dict_to_sexp(INSTANCE_CFG2, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     names = [t.name for t in dock._trees]
@@ -3612,7 +3598,7 @@ def test_instance_tab_shows_back_item_and_switches_to_template(main_window, tmp_
     """P2: an instance tab has one top "⇐ instance of {template} (sheet=…)"
     pseudo item; double-clicking it switches back to the template tab."""
     root = tmp_path / "inst.sexp"
-    root.write_text(dict_to_sexp(INSTANCE_CFG), encoding="utf-8")
+    root.write_text(dict_to_sexp(INSTANCE_CFG, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     names = [t.name for t in dock._trees]
@@ -3700,7 +3686,7 @@ def test_active_tab_unknown_persisted_name_falls_back_to_tab_0(main_window, tmp_
     """Fatal-safety: a persisted active_tab that does not name any loaded tree
     (renamed/deleted/foreign project) must not crash — fall back to tab 0."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(GRAMMAR_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(GRAMMAR_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"active_tab": "no_such_tree"})
     dock = TreesDock(main_window)
     dock.set_root_file(root)
@@ -3766,7 +3752,7 @@ def test_expansion_persists_and_restores_across_dock_recreate(main_window, tmp_p
     """Expand the anchor + 2 nodes on tree alpha, leave tree beta collapsed; a
     fresh dock over the same gui_state.json restores exactly that state."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
 
@@ -3794,7 +3780,7 @@ def test_expansion_survives_in_session_rebuild(main_window, tmp_path):
     """A structural rebuild (which before this phase collapsed every tree) must
     re-apply the saved expansion instead of resetting to the Qt default."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
 
@@ -3815,7 +3801,7 @@ def test_collapse_removes_ref_and_stale_entries_are_fatal_safe(main_window, tmp_
     entry may reference a node that no longer exists — it is simply ignored on
     restore, never an error."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"trees": {
         "alpha": {"anchor_expanded": True,
                   "expanded_refs": ["N1", "GHOST_DELETED"]}}})
@@ -3837,7 +3823,7 @@ def test_unknown_tree_name_state_is_ignored_defaults_collapsed(main_window, tmp_
     renamed since, or a foreign project) is ignored — that tree renders at the
     Qt default (collapsed), same as a first run."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"trees": {
         "gamma": {"anchor_expanded": True, "expanded_refs": ["X"]}}})
 
@@ -3853,7 +3839,7 @@ def test_persist_ui_state_flushes_all_tree_expansion(main_window, tmp_path):
     tree's expansion straight from the widgets — the collapsed default of a
     tree the user never touched AND a stale ref whose node is gone is dropped."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"trees": {
         "alpha": {"anchor_expanded": True, "expanded_refs": ["N1", "GHOST"]}}})
     dock = TreesDock(main_window)
@@ -3878,7 +3864,7 @@ def test_persist_ui_state_flushes_per_tree_splitter_sizes(main_window, tmp_path)
     """The quit-flush captures alpha's page splitter into its per-tree entry
     as a plain two-int pixel list (splitter_sizes), alongside expansion."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     dock = TreesDock(main_window)
     dock.set_root_file(root)
 
@@ -3901,7 +3887,7 @@ def test_tree_splitter_sizes_restored_on_dock_recreate(main_window, tmp_path, qa
     page QSplitter — once the dock is shown/laid out, the form panel (stretch 0)
     holds its saved width and the tree absorbs the rest."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"trees": {
         "alpha": {"anchor_expanded": True, "splitter_sizes": [260, 720]}}})
 
@@ -3925,7 +3911,7 @@ def test_tree_splitter_sizes_invalid_saved_value_is_ignored(main_window, tmp_pat
     """A malformed saved splitter_sizes value must not crash the build — the
     page falls back to the default split (same fatal-safe rule as expansion)."""
     root = tmp_path / "p2.sexp"
-    root.write_text(dict_to_sexp(P2_TREES), encoding="utf-8")
+    root.write_text(dict_to_sexp(P2_TREES, format_number=2), encoding="utf-8")
     settings.state.set("trees_dock", {"trees": {
         "alpha": {"splitter_sizes": "not-a-list"},
         "beta": {"splitter_sizes": [1, 2, 3]}}})
@@ -6619,7 +6605,7 @@ def test_root_switch_clears_both_namespaces(
     assert len(_tree_circles(adapter)) == 3
 
     other = tmp_path / "other.sexp"
-    other.write_text(dict_to_sexp(_marker_cfg(name="t9")), encoding="utf-8")
+    other.write_text(dict_to_sexp(_marker_cfg(name="t9"), format_number=2), encoding="utf-8")
     dock.set_root_file(other)
 
     assert [k for k in markers_mod.owner.keys()
@@ -7650,3 +7636,17 @@ def test_reread_node_flow_payload_carries_the_component_address(
     assert captured["component_address"] is node.anchor
     assert captured["base_anchor"] is None
     assert captured["kind"] == "component"
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

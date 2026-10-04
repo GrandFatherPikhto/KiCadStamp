@@ -24,6 +24,7 @@ into a caller's dict (plan §10.1), and rule 33 gives no permission to touch the
 import ast
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -1146,10 +1147,15 @@ def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
     fixture = (FIXTURES_DIR
                / "tree_instances_mount" / "config.sexp")
     text = fixture.read_text(encoding="utf-8")
-    assert f"(version {CURRENT_FORMAT})" in text, "the fixture is current format"
+    # The premise is only that the fixture CARRIES a number line — NOT that the
+    # number equals CURRENT_FORMAT. This fixture is an OLD-TREE-GRAMMAR file the
+    # product lifts only after the tree converter; its number is incidental here
+    # (У3.5 разбор остановки К4, п.1). Asserting `== CURRENT_FORMAT` was a
+    # coincidence that turned red the moment CURRENT_FORMAT moved to 3.
+    assert re.search(r"^\s*\(version \d+\)\n", text, re.M), "the fixture carries a number"
     old = tmp_path / "old.sexp"
-    # The SAME content, one number older: the root line is the only difference.
-    old.write_text(text.replace(f"  (version {CURRENT_FORMAT})\n", ""),
+    # The SAME content, with the number line taken out: no number means format 1.
+    old.write_text(re.sub(r"^\s*\(version \d+\)\n", "", text, flags=re.M),
                    encoding="utf-8")
 
     out = tmp_path / "converted.sexp"

@@ -30,18 +30,6 @@ from kicadstamp.internode_capture import apply_reread_plan, plan_internode_rerea
 from gui.docks.trees_dock import _STALE_NET_TRACE_TAG, TreesDock
 
 
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """This file's DATA is a format-2 config graph (trees + the records they
-    reference), built as dict literals and written by ``dict_to_sexp`` — a
-    format-2 shape. Pinned to format 2 (У3.5 К3; Денис 04.10: pin allowed for
-    files whose DATA is a format-2 graph). A cell that requests `format3` still
-    wins."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
-
 # ── fixtures ──────────────────────────────────────────────────────────────
 
 def _root(tmp_path, record, nodes=None):
@@ -65,7 +53,7 @@ def _root(tmp_path, record, nodes=None):
                      {"name": "e_b", "cell": "c", "cluster": "B"}],
         "net_traces": [record],
         "trees": [{"name": "t", "anchor": {"origin": True}, "nodes": nodes}],
-    }), encoding="utf-8")
+    }, format_number=2), encoding="utf-8")
     return root
 
 
@@ -369,3 +357,17 @@ def test_reread_internode_copper_disables_the_menu_action_while_it_runs(
     assert widgets_seen == [[action], []]
     assert enabled_seen == [False, True], \
         "a trigger-less call must not touch the menu action"
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

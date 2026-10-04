@@ -19,21 +19,6 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_path
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _sexp_loader(path):
     """A loader that returns a fresh dict from the s-expr at `path` — the same
     `sexp_to_dict(...) or {}` contract the real callers use (never None)."""
@@ -62,7 +47,7 @@ def _pin_mtime(path: Path, mtime_ns: int) -> None:
 
 def test_repeat_read_on_unchanged_file_calls_loader_once(tmp_path):
     path = tmp_path / "conf.sexp"
-    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"a": 1}, format_number=2), encoding="utf-8")
     calls = []
 
     def loader(p):
@@ -78,7 +63,7 @@ def test_repeat_read_on_unchanged_file_calls_loader_once(tmp_path):
 
 def test_changed_file_is_reread(tmp_path):
     path = tmp_path / "conf.sexp"
-    path.write_text(dict_to_sexp({"value": 1}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"value": 1}, format_number=2), encoding="utf-8")
     calls = []
 
     def loader(p):
@@ -91,7 +76,7 @@ def test_changed_file_is_reread(tmp_path):
     # External hand-edit: new content + a bumped mtime (a changed mtime is a
     # cache miss on its own — that's how external edits are picked up with no
     # explicit invalidate() call anywhere).
-    path.write_text(dict_to_sexp({"value": 2}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"value": 2}, format_number=2), encoding="utf-8")
     _bump_mtime_forward(path)
     assert cached_file_read(path, loader) == {"value": 2}
     assert len(calls) == 2
@@ -104,7 +89,7 @@ def test_returned_dict_is_safe_to_mutate(tmp_path):
     nested objects, so this is the guarantee that makes auditing every
     downstream mutator unnecessary)."""
     path = tmp_path / "conf.sexp"
-    path.write_text(dict_to_sexp({"items": {"a": 1}}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"items": {"a": 1}}, format_number=2), encoding="utf-8")
 
     first = cached_file_read(path, _sexp_loader)
     first["items"]["a"] = 999
@@ -132,7 +117,7 @@ def test_missing_file_calls_loader_directly_and_is_not_cached_as_absent(tmp_path
         cached_file_read(path, loader)
     assert len(calls) == 1
 
-    path.write_text(dict_to_sexp({"seen": True}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"seen": True}, format_number=2), encoding="utf-8")
     assert cached_file_read(path, loader) == {"seen": True}
     assert len(calls) == 2  # re-parsed from scratch, never cached while absent
 
@@ -142,7 +127,7 @@ def test_invalidate_path_forces_reread_without_mtime_change(tmp_path):
     the cache, invalidate with NO content/mtime change on disk, read again:
     the loader must run a second time."""
     path = tmp_path / "conf.sexp"
-    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"a": 1}, format_number=2), encoding="utf-8")
     calls = []
 
     def loader(p):
@@ -166,7 +151,7 @@ def test_two_loaders_for_same_path_share_one_cache_entry(tmp_path):
     and config/includes' _load_yaml_file read the SAME file with different
     loader functions, and must still parse it once, not once per reader."""
     path = tmp_path / "conf.sexp"
-    path.write_text(dict_to_sexp({"a": 1}), encoding="utf-8")
+    path.write_text(dict_to_sexp({"a": 1}, format_number=2), encoding="utf-8")
     calls = []
 
     def loader_a(p):
@@ -213,3 +198,17 @@ def test_write_data_delete_then_upsert_never_stale(tmp_path):
 
     data = config_writer._read_data(path)
     assert [e["name"] for e in data["clone_placements"]] == ["new"]
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

@@ -35,21 +35,6 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 logger = logging.getLogger("test_clone_placement_cluster_name")
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
@@ -100,7 +85,7 @@ def test_upsert_clone_placement_matches_by_name(tmp_path):
     CH0_PIF_AVDD)."""
     path = tmp_path / "root.sexp"
     _write(path, dict_to_sexp({"clone_placements": [
-        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}))
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}, format_number=2))
     assert upsert_clone_placement(
         path, {"cluster": "NEW_TAG", "name": "CH0_PIF_AVDD", "cell": "c2"}) is True
     data = sexp_to_dict(path.read_text(encoding="utf-8"))
@@ -114,7 +99,7 @@ def test_upsert_clone_placement_without_name_matches_by_cluster(tmp_path):
     so untouched existing configs keep working."""
     path = tmp_path / "root.sexp"
     _write(path, dict_to_sexp({"clone_placements": [
-        {"cluster": "PIF_AVDD", "cell": "c1"}]}))
+        {"cluster": "PIF_AVDD", "cell": "c1"}]}, format_number=2))
     assert upsert_clone_placement(path, {"cluster": "PIF_AVDD", "cell": "c2"}) is True
     data = sexp_to_dict(path.read_text(encoding="utf-8"))
     assert len(data["clone_placements"]) == 1
@@ -126,7 +111,7 @@ def test_upsert_clone_placement_same_cluster_different_name_appends(tmp_path):
     distinct identities and must NOT collide."""
     path = tmp_path / "root.sexp"
     _write(path, dict_to_sexp({"clone_placements": [
-        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}))
+        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c1"}]}, format_number=2))
     assert upsert_clone_placement(
         path, {"cluster": "PIF_AVDD", "name": "CH1_PIF_AVDD", "cell": "c2"}) is False
     data = sexp_to_dict(path.read_text(encoding="utf-8"))
@@ -188,3 +173,17 @@ def test_apply_only_does_not_match_by_raw_cluster_once_name_set():
     cfg = Config(clone_placements=[_clone("PIF_AVDD", name="CH0_PIF_AVDD")])
     with pytest.raises(PlacerError):
         apply_only_filter(cfg, ["PIF_AVDD"], logger)
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

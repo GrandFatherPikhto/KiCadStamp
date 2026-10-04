@@ -34,19 +34,6 @@ from kicadstamp.utils.units import MM
 # pad must actually be an instance of the patched class.
 
 
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _dummy_pad_cls():
     return type("Pad", (), {"number": "1"})
 
@@ -580,7 +567,7 @@ def _cell_data():
 
 def _make_view(main_window, tmp_path, data=None):
     target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp(data if data is not None else _cell_data()),
+    target.write_text(dict_to_sexp(data if data is not None else _cell_data(), format_number=2),
                       encoding="utf-8")
     view = CellAnchorView(main_window, connection=main_window.connection,
                           parent=main_window)
@@ -1023,7 +1010,7 @@ def _view_with_placements(main_window, tmp_path, placements):
                         "offset_across_mm": 0.0}],
     }}, "clone_placements": placements}
     target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp(data), encoding="utf-8")
+    target.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
     view = CellAnchorView(main_window, connection=main_window.connection,
                           parent=main_window)
     view.set_root_path(target)
@@ -1143,7 +1130,7 @@ def test_cell_selection_by_keyboard_opens_the_merged_page(real_main_window,
                               "offset_across_mm": 0.0}]},
         "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
                               "offset_across_mm": 0.0}]},
-    }}), encoding="utf-8")
+    }}, format_number=2), encoding="utf-8")
     hub.config_tree_dock.set_root_file(target)
     hub.cell_anchor_view.set_root_path(target)
 

@@ -17,21 +17,6 @@ from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.config.sexp_format import dict_to_sexp
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _bump_mtime_forward(path: Path, seconds: float = 1.0) -> None:
     """os.utime() the file a full second into the future so a coarse-timer
     filesystem cannot give the rewrite the same mtime_ns as the original
@@ -58,7 +43,7 @@ def _cell_yaml(name: str) -> str:
     2026-08-28, core_yaml_removal)."""
     return dict_to_sexp({"cells": {name: {"components": [
         {"role": "R1", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
-         "angle_deg": 0.0}]}}})
+         "angle_deg": 0.0}]}}}, format_number=2)
 
 
 _ROOT_BASE = {"layer": "F.Cu", "rules": [], "cells": {}, "points": {},
@@ -66,7 +51,7 @@ _ROOT_BASE = {"layer": "F.Cu", "rules": [], "cells": {}, "points": {},
 
 
 def _write_minimal(root: Path) -> Path:
-    root.write_text(dict_to_sexp(_ROOT_BASE), encoding="utf-8")
+    root.write_text(dict_to_sexp(_ROOT_BASE, format_number=2), encoding="utf-8")
     return root
 
 
@@ -74,7 +59,7 @@ def _write_multi(root: Path, sub: Path, cell_name: str) -> None:
     """root includes sub; sub carries one cell. Same shape the GUI's per-dock
     graph walks exercise on every startup."""
     sub.write_text(_cell_yaml(cell_name), encoding="utf-8")
-    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["sub.sexp"]}), encoding="utf-8")
+    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["sub.sexp"]}, format_number=2), encoding="utf-8")
 
 
 def test_repeat_load_config_on_unchanged_path_runs_body_once(tmp_path, monkeypatch):
@@ -152,7 +137,7 @@ def test_topology_change_via_new_include_is_seen(tmp_path):
 
     b = tmp_path / "b.sexp"
     b.write_text(_cell_yaml("from_b"), encoding="utf-8")
-    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["b.sexp"]}), encoding="utf-8")
+    root.write_text(dict_to_sexp({**_ROOT_BASE, "include": ["b.sexp"]}, format_number=2), encoding="utf-8")
     _bump_mtime_forward(root)
 
     cfg2, _ = load_config(str(root))
@@ -214,3 +199,17 @@ def test_graph_cache_returns_shared_snapshot_copy_before_mutate(tmp_path):
 
     cfg3, _ = load_config(str(root))
     assert cfg3.thermal_via_arrays == []  # cached snapshot untouched
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

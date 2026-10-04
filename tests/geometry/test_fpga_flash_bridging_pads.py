@@ -306,21 +306,6 @@ _FPGA_FLASH_CELL = {'vias': [{'offset_along_mm': 5.557,
              'net_from_role_pad': '1'}]}
 
 
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """This module's DATA is a FORMAT-2 config graph (the committed
-    ``_FPGA_FLASH_CELL`` dict, written with ``dict_to_sexp`` and loaded back).
-    Format 3 requires every record to carry a UUID (plan §1/§4 У2.2), which the
-    fixture does not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph.
-
-    ``fpga_flash_cell`` is a FUNCTION-scoped fixture (see below), so this
-    function-scoped pin is set up before it writes."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _slot(cell, role: str):
     """The component slot of `role` in `cell`."""
     return next(s for s in cell.components if s.role == role)
@@ -336,7 +321,7 @@ def fpga_flash_cell(tmp_path):
     module-scoped fixture would be built BEFORE the pin and the write would land
     at format 3 (measured: "record 'fpga_flash' has no uuid")."""
     path = tmp_path / "cfg.sexp"
-    path.write_text(dict_to_sexp({"cells": {_CELL_NAME: _FPGA_FLASH_CELL}}),
+    path.write_text(dict_to_sexp({"cells": {_CELL_NAME: _FPGA_FLASH_CELL}}, format_number=2),
                     encoding="utf-8")
     cfg, _ctx = load_config(str(path))
     return cfg.cells[_CELL_NAME]

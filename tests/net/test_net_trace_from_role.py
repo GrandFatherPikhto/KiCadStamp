@@ -23,21 +23,6 @@ from kicadstamp.net_trace_planner import plan_net_traces
 from kicadstamp.utils.units import MM
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _fp(ref, x_mm=0.0, y_mm=0.0, role=None, cluster=None):
     return SimpleNamespace(ref=ref, position=Vector2.from_xy_mm(x_mm, y_mm),
                            angle_deg=0.0, _role=role, _cluster=cluster)
@@ -233,7 +218,7 @@ def test_loader_rejects_net_and_net_from_role_on_one_item(tmp_path):
                     "end_along_mm": 3.0, "end_across_mm": 4.0,
                     "width_mm": 0.2, "net": "DAC_DB0",
                     "net_from_role": "DAC_BUF", "layer": "F.Cu"}],
-    }]}), encoding="utf-8")
+    }]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="mutually exclusive"):
         load_config(str(path))
 
@@ -245,7 +230,7 @@ def test_loader_rejects_net_from_role_pad_without_a_role(tmp_path):
         "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
                   "net_from_role_pad": "5", "drill_mm": 0.3,
                   "diameter_mm": 0.6}],
-    }]}), encoding="utf-8")
+    }]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="without via.net_from_role"):
         load_config(str(path))
 
@@ -259,6 +244,6 @@ def test_loader_keeps_the_record_level_net_required_with_role_items(tmp_path):
         "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
                   "net_from_role": "DAC_BUF", "drill_mm": 0.3,
                   "diameter_mm": 0.6}],
-    }]}), encoding="utf-8")
+    }]}, format_number=2), encoding="utf-8")
     with pytest.raises(ValidationError, match="without net"):
         load_config(str(path))

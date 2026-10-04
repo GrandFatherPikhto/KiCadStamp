@@ -19,21 +19,6 @@ from kicadstamp.placement.services.clone_role_resolver import (
 from kicadstamp.exceptions import ValidationError
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _make_fp(ref, role=None, nets=None, cluster=None):
     fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
                    angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
@@ -1495,7 +1480,7 @@ class TestReservedSheetPlaceholderEndToEnd:
         from kicadstamp.config import load_config
         from kicadstamp.config.sexp_format import dict_to_sexp
         p = tmp_path / "cfg.sexp"
-        p.write_text(dict_to_sexp(self._config_data()), encoding="utf-8")
+        p.write_text(dict_to_sexp(self._config_data(), format_number=2), encoding="utf-8")
         return load_config(str(p))[0]
 
     def test_entities_carry_sheet_but_no_params(self, tmp_path):

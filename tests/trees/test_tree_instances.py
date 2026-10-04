@@ -19,24 +19,9 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _write(tmp_path, name, data) -> Path:
     p = tmp_path / name
-    p.write_text(dict_to_sexp(data), encoding="utf-8")
+    p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
     return p
 
 
@@ -320,7 +305,7 @@ class TestSexpRoundTrip:
         data = _template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
         ])
-        text = dict_to_sexp(data)
+        text = dict_to_sexp(data, format_number=2)
         from kicadstamp.config.sexp_format import sexp_to_dict
         back = sexp_to_dict(text)
         assert back["tree_instances"] == data["tree_instances"]
@@ -351,7 +336,7 @@ class TestSexpRoundTrip:
             data = _template_data([{
                 "template": "dac_buf_tpl", "name": "ch1_dac_buf",
                 "sheet": "Channel_1", "anchor": anchor, "rotation": 90.0}])
-            text = dict_to_sexp(data)
+            text = dict_to_sexp(data, format_number=2)
             # Whitespace-free comparison: the writer breaks a node with several
             # children over lines (free-form by grammar), so only the tokens
             # matter here.
@@ -1581,7 +1566,7 @@ class TestDeclarationOwnPlace:
             "rotation": 90.0}])
         data["trees"][0]["rotation"] = 30.0
         p = tmp_path / "rot.sexp"
-        p.write_text(dict_to_sexp(data), encoding="utf-8")
+        p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
         cfg, _ = load_config(str(p))
         assert _tree_by_name(cfg, "ch1_dac_buf").rotation == 90.0
 
@@ -2004,3 +1989,17 @@ class TestDuplicateTreeNameDiagnosis:
         for name in ("ch1_dac_buf", "ch2_dac_buf", "ch3_dac_buf"):
             assert _entity_by_name(cfg, f"dac_buf__{name}").cell == "c_dac"
             assert _tree_by_name(cfg, name).nodes[0].ref == f"dac_buf__{name}"
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against
+    the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
+    a path that does NOT exist, so the stamp indexes THIS write's own records
+    (config/format3._build_format3_index) — the format-3 product path, no
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)

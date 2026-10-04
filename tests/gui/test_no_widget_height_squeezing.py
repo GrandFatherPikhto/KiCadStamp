@@ -65,21 +65,6 @@ _SCROLLABLE_HINTS = ("list", "table", "tree", "text", "log", "stack", "area",
 _FIELD_HINTS = ("combo", "edit", "spin", "field", "button", "check")
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _receiver_tokens(expr: ast.expr) -> set[str]:
     """Every Name/attribute token inside a receiver expression.
 
@@ -154,7 +139,7 @@ def _build_panel(case: str, window, tmp_path: Path):
                 "nodes": [{"ref": "AMS1117_REG", "kind": "clone",
                            "xy": [5.0, 2.0]}],
             }],
-        }), encoding="utf-8")
+        }, format_number=2), encoding="utf-8")
         dock = hub.trees_dock
         dock.set_root_file(root)
         return dock, dock._active_form_page()

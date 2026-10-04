@@ -57,21 +57,6 @@ cells:
 """
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _write(tmp_path, name, text) -> Path:
     p = tmp_path / name
     p.write_text(text, encoding="utf-8")
@@ -106,7 +91,7 @@ def test_sexp_include_graph(tmp_path):
              "spokes": [{"pad": "5", "cell": "fpga_pwr_bank",
                          "shift_x_mm": 1.2, "shift_y_mm": 2.0}]},
         ],
-    }))
+    }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "rules": [
@@ -115,7 +100,7 @@ def test_sexp_include_graph(tmp_path):
                          "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},
         ],
         "include": ["sub.sexp"],
-    }))
+    }, format_number=2))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
     # both rules merged: root's own first, then the include's
@@ -136,7 +121,7 @@ def test_mixed_include_graph_sexp_json(tmp_path):
             {"cluster": "ROOT", "cell": "dac_buf", "xy": [1.0, 1.0]},
         ],
         "include": ["sub.json"],
-    }))
+    }, format_number=2))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
     assert [c.cluster for c in cfg.clone_placements] == ["ROOT", "CH0"]
@@ -149,11 +134,11 @@ def test_walk_include_tree_reads_sexp(tmp_path):
 
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "chains": [{"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}],
-    }))
+    }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "chains": [{"net": "M", "spokes": [{"pad": "2", "cell": "c"}]}],
         "include": ["sub.sexp"],
-    }))
+    }, format_number=2))
 
     tree = walk_include_tree(str(tmp_path / "root.sexp"))
     assert tree.path.name == "root.sexp"
@@ -192,7 +177,7 @@ def test_load_profile_reads_sexp_profiles(tmp_path):
         "extract_profiles": {
             "dac": {"name": "dac", "output": "cells.yaml", "raw_selection": True},
         },
-    }))
+    }, format_number=2))
     prof = load_profile(str(tmp_path / "profiles.sexp"), "extract_profiles",
                         "dac", root_defaults=["output"],
                         known_keys={"name", "output", "raw_selection"})

@@ -40,18 +40,6 @@ from gui.docks.trees_dock import TreesDock
 from tests.fakes.write_later import write_later
 
 
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """This file's DATA is a format-2 config graph (a bare `trees:` section whose
-    node refs may name records the config does not carry). Format 3 requires every
-    ref to have a target UUID (plan §4 У2.2), which this data cannot express — so
-    the file is pinned to format 2 (У3.5 К3; Денис 04.10: pin allowed for files
-    whose DATA is a format-2 graph, trees GUI and similar). A cell that requests
-    `format3` still wins (its monkeypatch is applied later)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 # Т1.1: copper refs that are LEXICOGRAPHICALLY FIRST (digits sort before
 # letters) — Denis' own profile shape, and the case that made the redraw-order
 # bug visible. They also prove the pseudo node keeps DOCUMENT order, not a
@@ -80,7 +68,7 @@ def _dock_with(main_window, tmp_path, nodes, name="t"):
     still hits, and the cell would measure the cache, not the re-read."""
     root = tmp_path / "root.sexp"
     write_later(root, dict_to_sexp({"trees": [
-        {"name": name, "anchor": {"origin": True}, "nodes": nodes}]}))
+        {"name": name, "anchor": {"origin": True}, "nodes": nodes}]}, format_number=2))
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     return dock, root

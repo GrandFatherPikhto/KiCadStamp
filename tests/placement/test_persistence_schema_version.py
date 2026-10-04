@@ -27,21 +27,6 @@ from kicadstamp.placement.executor.operation_logger import OperationLogger
 from kicadstamp.undo import undo_last_operation
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _via_entry(uuid="v1"):
     return RegistryEntry(uuid=uuid, x_mm=1.0, y_mm=2.0, net="GND",
                          drill_mm=0.3, diameter_mm=0.6)

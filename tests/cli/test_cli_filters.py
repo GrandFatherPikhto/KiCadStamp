@@ -22,21 +22,6 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 logger = logging.getLogger("test_cli_filters")
 
 
-
-
-@pytest.fixture(autouse=True)
-def _pin_current_format_2(monkeypatch):
-    """The fixtures of this module are a FORMAT-2 config graph (dict literals
-    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
-    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
-    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
-    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
-    requests the ``format3`` fixture still wins (its monkeypatch is applied
-    after this autouse one)."""
-    from kicadstamp.config import format_version
-
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
 def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
     return Config(chains=rules or [], clone_placements=clone_placements or [],
                   thermal_via_arrays=thermal_via_arrays or [],
@@ -610,7 +595,7 @@ class TestLoadProfileRootDefaults:
 
     def _write(self, tmp_path, data):
         p = tmp_path / "profiles.sexp"
-        p.write_text(dict_to_sexp(data), encoding="utf-8")
+        p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
         return str(p)
 
     def test_root_default_fills_missing_field(self, tmp_path):
@@ -654,10 +639,10 @@ class TestLoadProfileIncludes:
 
     def test_extract_profiles_from_include_are_visible(self, tmp_path):
         (tmp_path / "sub.sexp").write_text(
-            dict_to_sexp({"extract_profiles": {"b": {"name": "b"}}}),
+            dict_to_sexp({"extract_profiles": {"b": {"name": "b"}}}, format_number=2),
             encoding="utf-8")
         path = tmp_path / "profiles.sexp"
-        path.write_text(dict_to_sexp({"include": ["sub.sexp"]}), encoding="utf-8")
+        path.write_text(dict_to_sexp({"include": ["sub.sexp"]}, format_number=2), encoding="utf-8")
 
         prof = load_profile(str(path), "extract_profiles", "b")
         assert prof["name"] == "b"
@@ -674,7 +659,7 @@ class TestLoadProfileErrors:
 
     def test_missing_profile_raises_placer_error(self, tmp_path):
         path = tmp_path / "profiles.sexp"
-        path.write_text(dict_to_sexp({"extract_profiles": {"a": {"name": "a"}}}),
+        path.write_text(dict_to_sexp({"extract_profiles": {"a": {"name": "a"}}}, format_number=2),
                         encoding="utf-8")
         with pytest.raises(PlacerError, match="profile 'b' not found"):
             load_profile(str(path), "extract_profiles", "b")
@@ -691,7 +676,7 @@ class TestLoadProfileKnownKeys:
 
     def _write(self, tmp_path, data):
         p = tmp_path / "profiles.sexp"
-        p.write_text(dict_to_sexp(data), encoding="utf-8")
+        p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
         return str(p)
 
     def test_dash_typo_in_extract_profile_is_fatal(self, tmp_path):
