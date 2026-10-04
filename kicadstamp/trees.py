@@ -1628,10 +1628,18 @@ def _node_to_sexp(node: TreeNode) -> list:
     """Serialize one TreeNode into the nested s-expr node shape. Fields with
     default values are OMITTED (kind None, rotation 0.0, name/group None) —
     load_trees would re-default them on read anyway, so writing them is pure
-    noise (same "no `sheet: null`" principle the YAML config uses)."""
-    ref_node: list = [sym("ref"), node.ref]
-    if node.ref_uuid is not None:
-        ref_node.append([sym("uuid"), node.ref_uuid])
+    noise (same "no `sheet: null`" principle the YAML config uses).
+
+    The `ref` node goes through `sexp_format._ref_field_to_sexp` — the SAME
+    helper a RECORD's reference field uses — so a format-3 node keeps its
+    `(ref "x" (uuid "…"))` on ONE line instead of exploding into three. К3.5
+    inlined record reference fields only; a tree NODE'S ref was missed, and
+    every format-3 lift of a profile with a tree rewrote those nodes (plan §7
+    К4, Денис 04.10). Imported at function level: trees <-> sexp_format is a
+    module cycle (sexp_format from-imports trees at ITS module level)."""
+    from .config.sexp_format import _ref_field_to_sexp
+
+    ref_node = _ref_field_to_sexp("ref", node.ref, node.ref_uuid)
     out: list = [sym("node"), ref_node]
     if node.kind is not None:
         # kind is a Symbol in the grammar ((kind clone)), not a quoted string —

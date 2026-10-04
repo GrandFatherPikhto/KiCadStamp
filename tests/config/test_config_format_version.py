@@ -985,22 +985,51 @@ def test_every_config_write_goes_through_the_one_config_writer():
         f"found: {sorted(set(_CONFIG_WRITE_BYPASSES) - found)}")
 
 
-def test_every_tracked_sexp_carries_the_current_format():
-    """Т5's guard (plan §Т5): every `git ls-files '*.sexp'` carries
-    `(version CURRENT)`. That is why the six fixtures were lifted in the SAME
-    commit as the default flip, and it will force 2 -> 3 and 3 -> 4 to lift their
-    own fixtures too, instead of letting every test run rewrite them and litter
-    `.bak` files into the tree."""
+# Т5's guard EXCLUDES these two by name (Денис, 04.10.2026): they are the tree
+# CONVERTER's INPUTS — a pre-migration `own_anchor` grammar the product REFUSES
+# as a config and that must be converted first — not configs, so they carry the
+# number they were written with. They stay FROZEN fixtures (never lifted, never
+# touched). The converse cell below VERIFIES the exclusion rather than asserting
+# it: each really is refused as a config, naming the tree converter.
+_TREE_CONVERTER_INPUTS = {
+    "tests/fixtures/tree_instances_mount/config.sexp":
+        "the old-grammar INPUT read by test_the_tree_converter_keeps_the_number_"
+        "it_read and test_tree_instances_mount (its .converted sibling is the output)",
+    "tests/fixtures/trees_and_overlay/config.sexp":
+        "the PRE-migration half of the frozen pair test_tree_mount_conversion reads",
+}
+
+
+def test_every_tracked_sexp_config_carries_the_current_format():
+    """Т5's guard (plan §Т5): every tracked `*.sexp` that IS a CONFIG carries
+    `(version CURRENT)`. That is why the config fixtures were lifted in the SAME
+    commit as the default flip, and it will force 3 -> 4 to lift its own configs
+    too, instead of letting every test run rewrite them and litter `.bak` files
+    into the tree. The tree-converter INPUTS are excluded BY NAME — see
+    `_TREE_CONVERTER_INPUTS` and the converse cell right below."""
     import subprocess
 
     names = subprocess.check_output(["git", "ls-files", "*.sexp"], text=True).split()
     assert names, "the file list is empty — this cell would pass vacuously"
+    configs = [n for n in names if n not in _TREE_CONVERTER_INPUTS]
+    assert configs, "the config list is empty — the exclusion would pass vacuously"
     missing = [
-        name for name in names
+        name for name in configs
         if f"(version {CURRENT_FORMAT})" not in
         (_REPO_ROOT / name).read_text(encoding="utf-8")
     ]
-    assert missing == [], f"these tracked .sexp do not carry (version {CURRENT_FORMAT}): {missing}"
+    assert missing == [], f"these tracked configs do not carry (version {CURRENT_FORMAT}): {missing}"
+
+
+@pytest.mark.parametrize("name", sorted(_TREE_CONVERTER_INPUTS))
+def test_a_tree_converter_input_is_not_a_config(name):
+    """The CONVERSE of the guard above (Денис, 04.10.2026): the excluded files
+    are genuinely not configs — each is REFUSED as one, with the tree-converter
+    message. Without this the exclusion would be an unverified claim, and a file
+    that quietly became loadable (or a vanished refusal) would go unnoticed."""
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(_REPO_ROOT / name))
+    assert "run the tree converter" in str(excinfo.value)
 
 
 # ── Т3b: the cells the Т3 acceptance found empty ───────────────────────────

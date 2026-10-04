@@ -1404,12 +1404,17 @@ def test_save_backs_up_before_writing_and_clears_dirty(main_window, tmp_path, mo
     dock, root = _dock_with(main_window, tmp_path, SAVE_TREES)
     _make_dirty(dock)
 
+    # К4: `_dock_with` writes a FORMAT-2 root on purpose (the product lifts it on
+    # the first load, leaving its OWN timestamped `.bak`), so the save's backup is
+    # the one that APPEARS after `_do_save` — not simply `glob(...)[0]`, whose
+    # order is readdir-dependent and made this cell flaky under `--coarse-mtime`.
+    before = set(tmp_path.glob("root.sexp.bak.*"))
     old_text = root.read_text(encoding="utf-8")
     dock._do_save()
 
-    baks = list(tmp_path.glob("root.sexp.bak.*"))
-    assert baks, "expected a timestamped backup"
-    assert baks[0].read_text(encoding="utf-8") == old_text
+    new_baks = sorted(set(tmp_path.glob("root.sexp.bak.*")) - before)
+    assert len(new_baks) == 1, "the save takes exactly one timestamped backup"
+    assert new_baks[0].read_text(encoding="utf-8") == old_text
     assert dock._dirty is False
     cfg, _ = load_config(str(root))
     assert [t.name for t in cfg.trees] == ["power_tree", "misc", "extra"]

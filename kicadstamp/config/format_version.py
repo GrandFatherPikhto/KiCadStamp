@@ -60,7 +60,16 @@ logger = logging.getLogger(__name__)
 
 # The format a freshly written file gets. Raised by one per converter; a release
 # that does not change the grammar must NOT bump it.
-CURRENT_FORMAT = 2
+#
+# 2 -> 3 (the UUID identity step, plan_2026_10_02_uuid_format_2_to_3): switched
+# to 3 on 04.10.2026 (У3.5). The tracked .sexp CONFIG fixtures were lifted in
+# the SAME commit — the Т5 guard (tests/config/test_config_format_version.py::
+# test_every_tracked_sexp_config_carries_the_current_format) forces every future
+# step to do the same instead of letting each test run rewrite them and litter
+# `.bak`. The tree converter's INPUT fixtures are excluded there by name: the
+# product refuses them as configs (they must be run through the tree converter
+# first), so they keep the number they were written with.
+CURRENT_FORMAT = 3
 
 
 def current_format() -> int:

@@ -26,7 +26,10 @@ neighbour):
               and still loads;
 - У3        — unsaved changes in the GUI working set stop the upgrade (the Save
               lifts that file itself);
-- JSON      — the JSON side is lifted by the same sweep.
+- JSON      — the JSON side is lifted by the same sweep;
+- К4        — a REAL open (product's own constant, no `format3` fixture) lifts a
+              format-2 graph on disk with a `.bak` AND the copper registries to
+              schema 2.
 """
 import json
 import logging
@@ -467,6 +470,44 @@ def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypat
     assert errors == []
     assert read_version(root) == CURRENT_FORMAT, "the Save stamped the number"
     assert list((tmp_path / ".history").glob("*")), "its own copy is in .history/"
+
+
+# ── К4: the product's OWN constant — a real open lifts a format-2 graph ─────
+# WITHOUT the `format3` fixture: after the flip the fixture is a no-op, so only
+# a cell reading the product's own constant can notice a drift (Денис 04.10.2026).
+
+def test_opening_a_format_2_graph_lifts_it_on_disk_and_the_registries_to_schema_2(
+        tmp_path):
+    """К4: the product's OWN open path — `load_config` -> `upgrade_graph_on_disk`
+    -> `upgrade_registries_on_disk` — lifts a format-2 graph file ON DISK to the
+    current format, keeping the previous bytes in a `.bak`, and lifts the copper
+    registries to schema 2."""
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(
+        {"cells": {"leaf": {}}, "entities": [{"name": "E", "cell": "leaf"}],
+         "registry_path": "alt/via.json", "track_registry_path": "alt/trk.json"},
+        format_number=2), encoding="utf-8")
+    via = tmp_path / "alt" / "via.json"
+    trk = tmp_path / "alt" / "trk.json"
+    via.parent.mkdir(parents=True, exist_ok=True)
+    via.write_text(json.dumps({"name:E|leaf|__spoke__|0": {
+        "uuid": "u", "x_mm": 0.0, "y_mm": 0.0, "net": "GND",
+        "drill_mm": 0.3, "diameter_mm": 0.6}}), encoding="utf-8")
+    trk.write_text(json.dumps({"pad:1|leaf|__spoke__|0": {
+        "uuid": "u", "start_x_mm": 0.0, "start_y_mm": 0.0, "end_x_mm": 1.0,
+        "end_y_mm": 0.0, "width_mm": 0.25, "net": "GND", "layer": "F.Cu"}}),
+        encoding="utf-8")
+
+    load_config(str(root))
+
+    assert read_version(root) == CURRENT_FORMAT
+    assert list(tmp_path.glob("root.sexp.bak.*")), "the previous bytes are kept"
+    for p in (via, trk):
+        assert json.loads(p.read_text(encoding="utf-8"))["schema_version"] == 2, (
+            f"{p.name} was not lifted to schema 2")
+    # the NAME-keyed entries really were rewritten to uuid keys
+    assert "name:E|leaf|__spoke__|0" not in via.read_text(encoding="utf-8")
+    assert "pad:1|leaf|__spoke__|0" not in trk.read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":  # pragma: no cover

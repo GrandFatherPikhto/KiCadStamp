@@ -1,11 +1,12 @@
 (kicadstamp-config
-  (version 2)
+  (version 3)
   (layer "B.Cu")
   (thermal_via_arrays
     (thermal_via_array
       (name "ic1_thermal")
       (anchor_ref "IC1")
       (pad "145")
+      (uuid "92d571c1-7a9b-50ce-9a77-dd4f3a923cc9")
     )
   )
   (cells
@@ -42,6 +43,7 @@
           )
         )
       )
+      (uuid "334612e7-b749-5a49-bba1-9729caa4a39a")
     )
   )
   (chains
@@ -52,16 +54,17 @@
       (spokes
         (spoke
           (pad "109")
-          (cell "cap_pair_standard")
+          (cell "cap_pair_standard" (uuid "334612e7-b749-5a49-bba1-9729caa4a39a"))
           (rotation_deg 90.0)
         )
         (spoke
           (pad "62")
-          (cell "cap_pair_standard")
+          (cell "cap_pair_standard" (uuid "334612e7-b749-5a49-bba1-9729caa4a39a"))
           (shift_x_mm 0.4)
           (rotation_deg 270.0)
         )
       )
+      (uuid "42458c2a-f9a3-5417-994a-4cd17147b5e7")
     )
   )
 )

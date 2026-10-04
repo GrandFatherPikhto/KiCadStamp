@@ -18,7 +18,10 @@ files are in git); the CONVERTED file is what the converter must reproduce —
 compared as NORMALIZED TEXT (CRLF/CR -> LF), never as raw bytes: git may lay a
 text fixture out with CRLF (core.autocrlf on Windows) while the converter always
 writes LF, and a line break is not part of the s-expr grammar (plan
-plan_2026_09_11_fixture_newlines_windows).
+plan_2026_09_11_fixture_newlines_windows). The reference is ALSO a CONFIG, so the
+Т5 guard keeps it at the CURRENT format while the converter writes the number it
+READ from its input; the cells therefore lift the converter's output the SAME way
+the product lifts a config before the two texts are compared (К4, Денис 04.10.2026).
 
 The fixture's mount anchors deliberately name roles (HOST / FOREIGN) that are
 NOT in any cell the tree places, or the load-time drift guard (trees.py::
@@ -30,6 +33,7 @@ from pathlib import Path
 import pytest
 
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config.upgrade_on_disk import upgrade_graph_on_disk
 from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.tree_mount_convert import convert_config_file, convert_trees_dict
@@ -191,10 +195,6 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     out = tmp_path / "converted.sexp"
     convert_config_file(root=str(FIXTURES / "config.sexp"), output=str(out))
 
-    # the committed reference, compared as NORMALIZED TEXT — never raw bytes:
-    # git may lay the fixture out with CRLF on Windows, the converter writes LF
-    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
-
     # Read the converter's OWN bytes (upgrade=False): the converter writes the
     # new tree grammar but not a current-format file, and `expand_tree_instances`
     # consumes that raw dict. Lifting here would also lift the legacy literal-net
@@ -217,6 +217,12 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     convert_config_file(root=str(out), output=str(again))
     assert _read_text_lf(again) == _read_text_lf(out)
 
+    # the committed reference IS a CONFIG: the Т5 guard keeps it at the CURRENT
+    # format (Денис 04.10.2026), so the converter's own output is lifted the SAME
+    # way the product lifts a config before the two texts are compared.
+    upgrade_graph_on_disk(out)
+    assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
+
 
 def test_conversion_is_independent_of_the_input_line_endings(tmp_path):
     """Н.3.3 (plan_2026_09_11_fixture_newlines_windows): a CRLF input — how git
@@ -230,6 +236,9 @@ def test_conversion_is_independent_of_the_input_line_endings(tmp_path):
 
     out = tmp_path / "converted.sexp"
     convert_config_file(root=str(crlf_in), output=str(out))
+    # the reference is a CONFIG (Т5: current format) — lift the output the same
+    # way the product lifts a config, then compare (К4, Денис 04.10.2026).
+    upgrade_graph_on_disk(out)
     assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
 

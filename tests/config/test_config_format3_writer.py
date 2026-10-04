@@ -398,6 +398,50 @@ def test_a_format3_reference_with_a_uuid_is_written_on_one_line():
     assert not re.search(r'^      \(cell$', text, re.M)
 
 
+def test_a_format3_tree_node_ref_with_a_uuid_is_written_on_one_line():
+    """Subject: the TREE-NODE ref layout. К3.5 inlined a RECORD's reference
+    FIELDS only — a tree node's `ref` was missed, so a format-3 lift rewrote
+    every node as a three-line column (`(ref` / `"x"` / `)`). It now goes
+    through the SAME helper (`sexp_format._ref_field_to_sexp`), so
+    `(ref "e1" (uuid "u-node"))` stands on one line (plan §7 К4, Денис 04.10)."""
+    text = dict_to_sexp(
+        {"trees": [{"name": "t", "anchor": {"origin": True},
+                    "nodes": [{"ref": "e1", "kind": "placement",
+                               "xy": [1.0, 2.0], "ref_uuid": "u-node"}]}]},
+        format_number=3)
+    assert re.search(r'^        \(ref "e1" \(uuid "u-node"\)\)$', text, re.M)
+    assert not re.search(r'^        \(ref$', text, re.M)
+
+
+def test_a_format2_tree_node_snapshot_is_unchanged():
+    """Subject: the format-2 tree-node LAYOUT — no uuid, a plain all-atom node
+    already on one line; the fix must not move a byte (Денис: «снимки формата 2
+    — байт в байт»)."""
+    text = dict_to_sexp(
+        {"trees": [{"name": "t", "anchor": {"origin": True},
+                    "nodes": [{"ref": "e1", "kind": "placement",
+                               "xy": [1.0, 2.0]}]}]},
+        format_number=2)
+    assert text == (
+        "(kicadstamp-config\n"
+        "  (version 2)\n"
+        "  (trees\n"
+        "    (tree\n"
+        '      (name "t")\n'
+        "      (anchor\n"
+        "        (origin)\n"
+        "      )\n"
+        "      (node\n"
+        '        (ref "e1")\n'
+        "        (kind placement)\n"
+        "        (xy 1.0 2.0)\n"
+        "      )\n"
+        "    )\n"
+        "  )\n"
+        ")\n"
+    )
+
+
 def test_a_format2_reference_snapshot_is_unchanged():
     """Subject: the format-2 LAYOUT. Without a uuid every reference is a plain
     all-atom node, already on one line; the К3.5 change must not move a byte.
@@ -427,3 +471,28 @@ def test_a_format3_non_reference_nested_node_keeps_the_column_layout():
     the multi-line column layout."""
     text = dict_to_sexp({"cells": {"Power/cap": {"uuid": "u1"}}}, format_number=3)
     assert '(cell\n      "Power/cap"\n      (uuid "u1")\n    )' in text
+
+
+# ── К4: the product's OWN constant (no `format3` fixture) ──────────────────
+# Deliberately WITHOUT the `format3` fixture: after the 2 -> 3 flip the fixture
+# would be a no-op, so only a cell that reads the PRODUCT's own constant can
+# notice the constant and the writer drifting apart (Денис, 04.10.2026).
+
+def test_a_fresh_config_is_written_in_the_current_format_with_a_uuid_per_record(
+        tmp_path):
+    """К4: a NEW config written by the product is born in the format the build
+    writes — `(version CURRENT)` — with a UUID on EVERY record."""
+    root = tmp_path / "fresh.sexp"
+    set_active_graph_root(root)   # the stamp resolves references against it
+    try:
+        write_config_file(root, {"cells": {"cap": {}},
+                                 "entities": [{"name": "e1", "cell": "cap"}]})
+    finally:
+        set_active_graph_root(None)
+
+    text = root.read_text(encoding="utf-8")
+    assert f"(version {format_version.CURRENT_FORMAT})" in text
+    data = read_data(root)
+    assert data["cells"]["cap"]["uuid"], "the cell record carries an identity"
+    assert data["entities"][0]["uuid"], "the entity record carries an identity"
+    assert data["entities"][0]["cell_uuid"] == data["cells"]["cap"]["uuid"]

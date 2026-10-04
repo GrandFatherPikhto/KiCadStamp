@@ -695,7 +695,9 @@ def test_new_storage_is_a_valid_empty_sexp_config(main_window, tmp_path):
 
     assert written.name == "scheme_lists.sexp"
     text = written.read_text(encoding="utf-8")
-    assert text == dict_to_sexp({}, format_number=2)
+    # К4: the storage is created in the format the BUILD writes — the number is
+    # the product's own constant, not a pinned 2 (Денис, 04.10.2026).
+    assert text == dict_to_sexp({})
     assert sexp_to_dict(text) == {}
     cfg, _ = load_config(str(root))
     assert cfg.imprints == []

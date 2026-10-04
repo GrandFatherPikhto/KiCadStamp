@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 2)
+  (version 3)
   (trees
     (tree
       (name "tpl")
@@ -8,7 +8,7 @@
       )
       (pivot-xy 0.0 0.0)
       (node
-        (ref "tpl_root")
+        (ref "tpl_root" (uuid "37c9854d-ee0a-57fa-81ff-8561c9fede7e"))
         (kind placement)
         (xy 0.0 0.0)
         (node
@@ -20,7 +20,7 @@
             (cluster "GRP")
           )
           (node
-            (ref "tpl_own")
+            (ref "tpl_own" (uuid "93dc40fa-129b-5b2a-938f-883a5dc69fe1"))
             (kind placement)
             (xy 1.0 0.0)
           )
@@ -34,13 +34,13 @@
             (cluster "GRP")
           )
           (node
-            (ref "tpl_foreign")
+            (ref "tpl_foreign" (uuid "4fe1ba9f-514b-5c5c-977e-42fb8a745252"))
             (kind placement)
             (xy 0.0 1.0)
           )
         )
         (node
-          (ref "/Own/GRP/+3V3")
+          (ref "/Own/GRP/+3V3" (uuid "d00c11be-e2c9-5f13-b1d5-dde4835741aa"))
           (kind net_trace)
         )
       )
@@ -77,6 +77,7 @@
           (role "R2")
         )
       )
+      (uuid "9f66e37d-df75-5e24-b6cc-f02ee60d56dc")
     )
     (cell
       "sub_a"
@@ -91,26 +92,30 @@
           (role "S3")
         )
       )
+      (uuid "04b19435-550d-5dbc-88d6-08f2bb6fba41")
     )
   )
   (entities
     (entity
       (name "tpl_root")
-      (cell "root_cell")
+      (cell "root_cell" (uuid "9f66e37d-df75-5e24-b6cc-f02ee60d56dc"))
       (sheet "Own")
       (cluster "GRP")
+      (uuid "37c9854d-ee0a-57fa-81ff-8561c9fede7e")
     )
     (entity
       (name "tpl_own")
-      (cell "sub_a")
+      (cell "sub_a" (uuid "04b19435-550d-5dbc-88d6-08f2bb6fba41"))
       (sheet "Own")
       (cluster "GRP")
+      (uuid "93dc40fa-129b-5b2a-938f-883a5dc69fe1")
     )
     (entity
       (name "tpl_foreign")
-      (cell "sub_a")
+      (cell "sub_a" (uuid "04b19435-550d-5dbc-88d6-08f2bb6fba41"))
       (sheet "Own")
       (cluster "GRP")
+      (uuid "4fe1ba9f-514b-5c5c-977e-42fb8a745252")
     )
   )
   (net_traces
@@ -130,6 +135,8 @@
           (net "/Own/GRP/+3V3")
         )
       )
+      (name "net_trace_001")
+      (uuid "15a350e6-d148-555a-8ee2-f4a0bb9e2a56")
     )
   )
   (tree_instances

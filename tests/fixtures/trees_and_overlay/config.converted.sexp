@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 2)
+  (version 3)
   (trees
     (tree
       (name "ch0_dac_buf")
@@ -18,7 +18,7 @@
           (pad "3")
         )
         (node
-          (ref "pif_dvdd_channel_0")
+          (ref "pif_dvdd_channel_0" (uuid "c36ff739-b55a-51f4-931b-3e0e0facec67"))
           (kind placement)
           (xy -1.5 0.0)
         )
@@ -33,7 +33,7 @@
           (pad "11")
         )
         (node
-          (ref "pif_clkvdd_channel_0")
+          (ref "pif_clkvdd_channel_0" (uuid "9dcc28bb-c7bc-5b7f-bb9f-27b68fe09af6"))
           (kind placement)
           (xy 0.0 1.5)
         )
@@ -48,7 +48,7 @@
           (pad "18")
         )
         (node
-          (ref "pif_avdd_channel_0")
+          (ref "pif_avdd_channel_0" (uuid "b32bc49f-c6f8-57e2-9f20-4a8b235cebc1"))
           (kind placement)
           (xy 1.5 0.5)
         )
@@ -63,7 +63,7 @@
           (pad "8")
         )
         (node
-          (ref "pif_oa_p2v5_channel_0")
+          (ref "pif_oa_p2v5_channel_0" (uuid "44ab1c27-09e3-574b-83f6-14fc65a7bf04"))
           (kind placement)
           (xy 1.0 -1.0)
           (rotation 90.0)
@@ -79,7 +79,7 @@
           (pad "4")
         )
         (node
-          (ref "pif_oa_n2v5_channel_0")
+          (ref "pif_oa_n2v5_channel_0" (uuid "05d1c88d-b297-5d8e-8a8f-f424c2377061"))
           (kind placement)
           (xy -1.7 1.0)
           (rotation 90.0)
@@ -307,6 +307,7 @@
         )
       )
       (anchor_xy 3.770838 -5.042229)
+      (uuid "955d6142-1e65-59ad-94d2-6d75c57df0b6")
     )
     (cell
       "pif_clkvdd"
@@ -518,6 +519,7 @@
       )
       (layer "B.Cu")
       (anchor_xy 1.363201 -7.108488)
+      (uuid "8d8e5722-1cd1-5336-b344-57893619752e")
     )
     (cell
       "pif_avdd"
@@ -712,6 +714,7 @@
       )
       (layer "B.Cu")
       (anchor_xy -0.861078 -6.957408)
+      (uuid "7edbb9e3-073f-53d2-a74c-b36fa252f532")
     )
     (cell
       "pif_oa_p2v5"
@@ -919,6 +922,7 @@
         )
       )
       (anchor_xy 0.867754 -7.610876)
+      (uuid "cf84086f-b739-50e5-abbe-7b84b58f7321")
     )
     (cell
       "pif_oa_n2v5"
@@ -1131,38 +1135,44 @@
         )
       )
       (anchor_xy -2.295744 -5.486445)
+      (uuid "9d6cf7ae-96c7-593f-8a99-4d82df4aed51")
     )
   )
   (entities
     (entity
       (name "pif_dvdd_channel_0")
-      (cell "pif_dvdd")
+      (cell "pif_dvdd" (uuid "955d6142-1e65-59ad-94d2-6d75c57df0b6"))
       (cluster "PIF_DVDD")
       (sheet "Channel_0")
+      (uuid "c36ff739-b55a-51f4-931b-3e0e0facec67")
     )
     (entity
       (name "pif_clkvdd_channel_0")
-      (cell "pif_clkvdd")
+      (cell "pif_clkvdd" (uuid "8d8e5722-1cd1-5336-b344-57893619752e"))
       (cluster "PIF_CLKVDD")
       (sheet "Channel_0")
+      (uuid "9dcc28bb-c7bc-5b7f-bb9f-27b68fe09af6")
     )
     (entity
       (name "pif_avdd_channel_0")
-      (cell "pif_avdd")
+      (cell "pif_avdd" (uuid "7edbb9e3-073f-53d2-a74c-b36fa252f532"))
       (cluster "PIF_AVDD")
       (sheet "Channel_0")
+      (uuid "b32bc49f-c6f8-57e2-9f20-4a8b235cebc1")
     )
     (entity
       (name "pif_oa_p2v5_channel_0")
-      (cell "pif_oa_p2v5")
+      (cell "pif_oa_p2v5" (uuid "cf84086f-b739-50e5-abbe-7b84b58f7321"))
       (cluster "PIF_OA_P2V5")
       (sheet "Channel_0")
+      (uuid "44ab1c27-09e3-574b-83f6-14fc65a7bf04")
     )
     (entity
       (name "pif_oa_n2v5_channel_0")
-      (cell "pif_oa_n2v5")
+      (cell "pif_oa_n2v5" (uuid "9d6cf7ae-96c7-593f-8a99-4d82df4aed51"))
       (cluster "PIF_OA_N2V5")
       (sheet "Channel_0")
+      (uuid "05d1c88d-b297-5d8e-8a8f-f424c2377061")
     )
   )
 )
