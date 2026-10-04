@@ -28,20 +28,17 @@ def _write(tmp_path, name, text) -> Path:
     return p
 
 
-def test_yaml_to_sexp_first_conversion_writes_no_bak(tmp_path, monkeypatch):
+def test_yaml_to_sexp_first_conversion_writes_no_bak(tmp_path):
     """A fresh conversion (no pre-existing output) writes NO .bak — the
     input file is never modified and there is nothing at the output path to
     lose. (The .bak only exists when it protects a pre-existing output, see
     test_pre_existing_output_is_backed_up_before_overwrite.)
 
-    FINDING: the converter's round-trip self-verify reads the written .sexp RAW
-    (upgrade=False) while the writer stamps the CURRENT format, so under the
-    format-3 gate the raw read carries uuids the input dict does not and the
-    verify fails (named in the handoff note). This is a legacy migration tool,
-    so the cell pins the build to 2."""
-    from kicadstamp.config import format_version
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-    # the spoke's cell target is declared so the format-3 writer resolves it
+    Runs at ANY current format (Д1/находка 3): the translator writes with
+    `stamp=False`, so the output carries the SOURCE's number and content, never
+    the current format's machine identity — the raw self-verify then matches and
+    the output is a loadable translation."""
+    # the spoke's cell target is declared (a format-3 load would resolve it)
     p = _write(tmp_path, "cfg.yaml", "layer: B.Cu\ncells:\n  c1: {}\n"
                                      "chains:\n- net: +3V3\n"
                                      "  spokes:\n  - pad: '1'\n    cell: c1\n")
@@ -138,11 +135,9 @@ def test_missing_input_raises_clear_error(tmp_path):
         convert_file(tmp_path / "nope.yaml", to_sexp=True)
 
 
-def test_convert_all_profiles_generates_sexp_next_to_yaml(tmp_path, monkeypatch):
-    """Same self-verify finding as test_yaml_to_sexp_first_conversion_writes_no_bak
-    (legacy migration tool) — pinned to 2."""
-    from kicadstamp.config import format_version
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+def test_convert_all_profiles_generates_sexp_next_to_yaml(tmp_path):
+    """Mass mode writes a raw translation next to each YAML, at ANY current
+    format (Д1/находка 3; see test_yaml_to_sexp_first_conversion_writes_no_bak)."""
     (tmp_path / "sub").mkdir()
     _write(tmp_path / "sub", "one.yaml", "layer: B.Cu\n")
     _write(tmp_path / "sub", "two.yaml",

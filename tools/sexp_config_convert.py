@@ -105,9 +105,19 @@ def _write_dict(path: Path, data: dict, version: int) -> None:
         # Through the ONE config writer (Т3b): the number it is given, an atomic
         # write, and no second copy — convert_file already copies an existing
         # output before overwriting it.
+        #
+        # stamp=False (Д1/находка 3, У3.5): a TRANSLATOR must never run the
+        # current format's stamp over its translation. With the default stamp the
+        # format-3 writer added UUIDs/folders to the output while the number kept
+        # the source's own (1 for a YAML source) — a file that is neither format 2
+        # nor a valid format 3, and the round-trip self-verify (which reads RAW)
+        # refused it AFTER it was written. stamp=False writes exactly the source's
+        # content under the source's number, which is what a translation is and
+        # what makes the output load at any current format.
         from kicadstamp.config_writer import write_config_file
 
-        write_config_file(path, data, format_number=version, backup=False)
+        write_config_file(path, data, format_number=version, backup=False,
+                          stamp=False)
     else:
         path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False,
                                   default_flow_style=False), encoding="utf-8")

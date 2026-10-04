@@ -10,6 +10,7 @@ from pathlib import Path
 
 from kicadstamp.config import entity_effective_name, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import check_entity_cells_exist
 
 from tools.convert_placements import (
@@ -127,19 +128,22 @@ def test_preserves_other_sections():
     assert out["rules"] == [{"net": "N"}]
 
 
+@pytest.mark.parametrize("fmt", [2, 3])
 def test_round_trip_file_loads_and_passes_entity_cell_check(
-        tmp_path, monkeypatch):
+        tmp_path, monkeypatch, fmt):
     """Plan §6.2's gate: the converted file must LOAD (load_config), pass the
     Entity-cell check, AND link_trees (the step Apply/Redraw actually runs —
     a load-only check missed the "clone"->"placement" rewrite gap).
 
-    FINDING: this one-off migration converter is not format-3 aware — it
-    rewrites a tree node's `kind` (clone -> placement) but leaves the lift-added
-    `ref_uuid` pointing at the now-empty clone_placements, so the format-3 write
-    stamp refuses the result (named in the handoff note). The cell pins the
-    build to 2 (its subject is the converter's output)."""
+    Д1/находка 3 (У3.5): the migration is a format-2 tool and is not format-3
+    aware — under the format-3 gate the read LIFTS the file, the rewrite clears
+    `clone_placements` while a node's lift-added `ref_uuid` still points at it,
+    and the write stamp refuses the result. So under format 3 the tool REFUSES
+    loudly and writes NOTHING, rather than leave a profile that cannot be
+    loaded. Both branches run in ONE suite: the format is the parameter, not the
+    build's constant."""
     from kicadstamp.config import format_version
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", fmt)
     path = tmp_path / "root.sexp"
     _write(path, {
         "cells": {"pi_filter": {"components": [], "vias": [], "tracks": [],
@@ -149,6 +153,12 @@ def test_round_trip_file_loads_and_passes_entity_cell_check(
         "trees": [{"name": "pre", "anchor": {"origin": True},
                    "nodes": [{"ref": "PIF_AVDD", "kind": "clone", "xy": [0.0, 0.0]}]}],
     })
+    original = path.read_text(encoding="utf-8")
+    if fmt >= 3:
+        with pytest.raises(ValidationError, match="not format-3 aware"):
+            convert_placements_file(path)
+        assert path.read_text(encoding="utf-8") == original  # nothing written
+        return
     convert_placements_file(path)
     cfg, _ctx = load_config(str(path))
     assert [entity_effective_name(e) for e in cfg.entities] == ["PIF_AVDD"]
@@ -163,23 +173,32 @@ def test_round_trip_file_loads_and_passes_entity_cell_check(
     assert linked[0].nodes[0].node.kind == "placement"
 
 
-def test_convert_placements_file_creates_a_timestamped_backup(tmp_path):
+@pytest.mark.parametrize("fmt", [2, 3])
+def test_convert_placements_file_creates_a_timestamped_backup(tmp_path, monkeypatch, fmt):
     """A real conversion rewrites the input — the original must survive as a
-    timestamped .bak next to it."""
+    timestamped .bak next to it.
+
+    Д1/находка 3: under format 3 the migration refuses before ANY read or write,
+    so there is no backup at all and the input is byte-identical — the second
+    branch runs in the same suite, not only on a format-3 build."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", fmt)
     path = tmp_path / "root.sexp"
     _write(path, {
-        # the converted Entity's cell target: the format-3 stamp resolves it
+        # the converted Entity's cell target: a format-3 stamp would resolve it
         "cells": {"c": {}},
         "clone_placements": [{"cluster": "E1", "cell": "c", "xy": [0.0, 0.0]}],
     })
     original = path.read_text(encoding="utf-8")
+    if fmt >= 3:
+        with pytest.raises(ValidationError, match="not format-3 aware"):
+            convert_placements_file(path)
+        assert list(tmp_path.glob("root.sexp.bak.*")) == []
+        assert path.read_text(encoding="utf-8") == original
+        return
     convert_placements_file(path)
     backups = list(tmp_path.glob("root.sexp.bak.*"))
-    # Under the format-3 gate the on-disk lift leaves its OWN timestamped .bak
-    # next to the rewritten file, on top of the converter's; the ORIGINAL must
-    # still survive as one of them (the cell's subject).
-    from kicadstamp.config.format_version import current_format
-    assert len(backups) == (1 if current_format() < 3 else 2)
+    assert len(backups) == 1
     assert original in [b.read_text(encoding="utf-8") for b in backups]
     assert sexp_to_dict(path.read_text(encoding="utf-8"))["clone_placements"] == []
 

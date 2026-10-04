@@ -177,7 +177,31 @@ def convert_placements_file(path: Path) -> Dict[str, Any]:
     """Read a config file (.sexp/.json), migrate clone_placements -> Entity +
     tree, write back (after a timestamped .bak of the input). Returns the new
     config dict. Raises OSError on a non-readable/non-writable file (same
-    contract as config_writer)."""
+    contract as config_writer).
+
+    Д1/находка 3 (У3.5): REFUSED LOUDLY under the format-3 gate, before ANY read
+    or write. This is a one-off format-2 migration (the clone_placements grammar)
+    and is not format-3 aware: the read LIFTS the file to 3 (minting UUIDs and a
+    `ref_uuid` on the tree node), the rewrite clears `clone_placements` and
+    rewrites the node's `kind`, and the format-3 write stamp then refuses the
+    result — a `ref_uuid` pointing at a record that no longer exists. Rather
+    than write a profile that cannot be loaded, the tool says why and stops
+    (full format-3 support is a later step, out of scope for У3.5)."""
+    from kicadstamp.config.format_version import current_format
+    from kicadstamp.exceptions import ValidationError, format_fatal_error
+
+    if current_format() >= 3:
+        # Plain English like every other message in this dev tool (it is not
+        # part of the shipped GUI/CLI i18n surface).
+        raise ValidationError(format_fatal_error(
+            "convert_placements is a format-2 migration and is not format-3 "
+            "aware — nothing was written",
+            ["under format 3 the migration cannot write its result: the "
+             "rewrite keeps a UUID that points at the cleared "
+             "clone_placements and the write stamp refuses it. Run this "
+             "migration with a format-2 build, or let a format-3 KiCadStamp "
+             "open the profile once and lift it with the built-in converter."]))
+
     from kicadstamp.config_writer import read_data, write_data
 
     data = read_data(path)
@@ -197,9 +221,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("path", help="config file to convert (.sexp)")
     args = parser.parse_args(argv)
     path = Path(args.path)
+    from kicadstamp.exceptions import ValidationError
+
     try:
         converted = convert_placements_file(path)
-    except OSError as e:
+    except (OSError, ValidationError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(f"converted {path}: "
