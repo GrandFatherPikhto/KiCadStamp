@@ -195,8 +195,12 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     # git may lay the fixture out with CRLF on Windows, the converter writes LF
     assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
-    # readable by the NORMAL reader, no pivot-* left ON A NODE
-    data = sexp_to_dict(out.read_text(encoding="utf-8"))
+    # Read the converter's OWN bytes (upgrade=False): the converter writes the
+    # new tree grammar but not a current-format file, and `expand_tree_instances`
+    # consumes that raw dict. Lifting here would also lift the legacy literal-net
+    # net_trace record (a name is minted), which the raw-dict expansion does not
+    # expect. Under format 2 the two reads are identical.
+    data = sexp_to_dict(out.read_text(encoding="utf-8"), upgrade=False)
     assert _pivot_keys_on_nodes(data["trees"]) == []
     # ... the zero inner point legitimately moved onto the TREE
     assert _tree(data, "tpl")["pivot_xy"] == [0.0, 0.0]

@@ -26,6 +26,8 @@ from kicadstamp.trees import (
 
 from tools.trees_to_config import main, migrate
 
+from tests.fakes.format3 import without_identity
+
 # ── trees.py dict bridges (FORK-2 Variant B) ───────────────────────────────
 
 
@@ -36,9 +38,9 @@ def _sample_tree() -> Tree:
         nodes=[
             TreeNode(ref="AMS1117_REG", kind="clone", xy=(5.0, 2.0), polar=None,
                      rotation=0.0, name=None, group=None,
-                     children=[TreeNode(ref="C_OUT", kind=None, xy=(1.0, 0), polar=None,
+                     children=[TreeNode(ref="C_OUT", kind="module", xy=(1.0, 0), polar=None,
                                         rotation=0.0, name=None, group=None, children=[])]),
-            TreeNode(ref="R_AROUND", kind=None, xy=None, polar=(3.0, 45.0),
+            TreeNode(ref="R_AROUND", kind="module", xy=None, polar=(3.0, 45.0),
                      rotation=90.0, name="around", group="g", children=[]),
         ],
     )
@@ -134,34 +136,46 @@ def _write(tmp_path, name, text) -> Path:
 
 SEXP_WITH_TREES = dict_to_sexp({
     "layer": "B.Cu",
+    # Row 14 ("add the source"): a clone node names a clone_placements record,
+    # which in turn names a cells record — the format-3 load resolves both. The
+    # kind-less sibling nodes become LOCAL `module` nodes (no record).
+    "cells": {"c_ams": {}},
+    "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
+                          "cell": "c_ams", "xy": [0.0, 0.0]}],
     "trees": [
         {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
          "nodes": [{"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
-                    "children": [{"ref": "C_OUT", "xy": [1.0, 0]}]},
-                   {"ref": "R_AROUND", "polar": [3.0, 45.0], "rotation": 90.0}]},
+                    "children": [{"ref": "C_OUT", "kind": "module", "xy": [1.0, 0]}]},
+                   {"ref": "R_AROUND", "kind": "module", "polar": [3.0, 45.0],
+                    "rotation": 90.0}]},
         {"name": "misc", "anchor": {"origin": True},
-         "nodes": [{"ref": "R_DEBUG", "xy": [100.0, 50.0]}]},
+         "nodes": [{"ref": "R_DEBUG", "kind": "module", "xy": [100.0, 50.0]}]},
     ],
-}, 2)  # pinned to format 2 (see _pin_current_format_2): this constant is built
-       # at IMPORT time, before the fixture runs, so it must carry the number the
-       # pinned module writes/reads (У3.5 К3).
+}, 2)  # pinned to format 2: this constant is built at IMPORT time, before any
+       # fixture runs, and is lifted by load_config under the format-3 gate.
 
 
 def test_sexp_roundtrip_trees_section(tmp_path):
     data = {"layer": "B.Cu",
+            "cells": {"c_ams": {}},
+            "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
+                                  "cell": "c_ams", "xy": [0.0, 0.0]}],
             "trees": [
                 {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
                  "nodes": [{"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
-                            "children": [{"ref": "C_OUT", "xy": [1.0, 0]}]},
-                           {"ref": "R_AROUND", "polar": [3.0, 45.0], "rotation": 90.0}]},
+                            "children": [{"ref": "C_OUT", "kind": "module", "xy": [1.0, 0]}]},
+                           {"ref": "R_AROUND", "kind": "module", "polar": [3.0, 45.0],
+                            "rotation": 90.0}]},
                 {"name": "misc", "anchor": {"origin": True},
-                 "nodes": [{"ref": "R_DEBUG", "xy": [100.0, 50.0]}]},
+                 "nodes": [{"ref": "R_DEBUG", "kind": "module", "xy": [100.0, 50.0]}]},
             ]}
     s = dict_to_sexp(data, format_number=2)
     assert s.strip().startswith("(kicadstamp-config")
     assert "(trees" in s
     back = sexp_to_dict(s)
-    assert back == _strip_defaults(data)
+    # The lift adds uuid siblings under the format-3 gate; this cell is about
+    # the SECTION round-trip, so compare the uuid-free shape.
+    assert without_identity(back) == without_identity(_strip_defaults(data))
     assert back["trees"][0]["nodes"][0]["ref"] == "AMS1117_REG"
     assert back["trees"][1]["anchor"] == {"origin": True}
 
@@ -191,11 +205,11 @@ def test_load_config_yaml_trees_is_fatal(tmp_path):
 def test_include_merges_trees_sections(tmp_path):
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "trees": [{"name": "sub_tree", "anchor": {"origin": True},
-                   "nodes": [{"ref": "SUB_N", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "SUB_N", "kind": "module", "xy": [0.0, 0.0]}]}],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "trees": [{"name": "root_tree", "anchor": {"origin": True},
-                   "nodes": [{"ref": "ROOT_N", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "ROOT_N", "kind": "module", "xy": [0.0, 0.0]}]}],
         "include": ["sub.sexp"],
     }, format_number=2))
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
@@ -207,11 +221,11 @@ def test_duplicate_tree_name_across_include_graph_fatal(tmp_path):
     (unique names across the WHOLE include graph, not per file)."""
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "trees": [{"name": "same", "anchor": {"origin": True},
-                   "nodes": [{"ref": "A", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "A", "kind": "module", "xy": [0.0, 0.0]}]}],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "trees": [{"name": "same", "anchor": {"origin": True},
-                   "nodes": [{"ref": "B", "xy": [1.0, 1.0]}]}],
+                   "nodes": [{"ref": "B", "kind": "module", "xy": [1.0, 1.0]}]}],
         "include": ["sub.sexp"],
     }, format_number=2))
     with pytest.raises(ValidationError, match="duplicate"):
@@ -223,11 +237,16 @@ def test_duplicate_node_ref_across_include_graph_fatal(tmp_path):
     a fatal (single seen_refs shared across the whole graph)."""
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "trees": [{"name": "t1", "anchor": {"origin": True},
-                   "nodes": [{"ref": "DUP", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "DUP", "kind": "clone", "xy": [0.0, 0.0]}]}],
     }, format_number=2))
+    # Row 14: both trees reference ONE clone_placements record DUP (the ref
+    # collision the cell asserts), whose cell target is declared here.
     _write(tmp_path, "root.sexp", dict_to_sexp({
+        "cells": {"c_dup": {}},
+        "clone_placements": [{"name": "DUP", "cluster": "DUP_CL",
+                              "cell": "c_dup", "xy": [0.0, 0.0]}],
         "trees": [{"name": "t2", "anchor": {"origin": True},
-                   "nodes": [{"ref": "DUP", "xy": [1.0, 1.0]}]}],
+                   "nodes": [{"ref": "DUP", "kind": "clone", "xy": [1.0, 1.0]}]}],
         "include": ["sub.sexp"],
     }, format_number=2))
     with pytest.raises(ValidationError, match="already has a node"):
@@ -240,7 +259,12 @@ def test_migrator_moves_old_trees_into_root_config(tmp_path):
     old = tmp_path / "old.trees"
     save_trees(str(old), [_sample_tree()])
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"layer": "B.Cu"}, format_number=2), encoding="utf-8")
+    # Row 14: the migrated tree's clone node names this clone_placements record
+    # (and its cell); a format-3 load resolves both.
+    _root_data = {"layer": "B.Cu", "cells": {"c_ams": {}},
+                  "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
+                                        "cell": "c_ams", "xy": [0.0, 0.0]}]}
+    root.write_text(dict_to_sexp(_root_data, format_number=2), encoding="utf-8")
 
     trees = migrate(root, [old])
     assert [t["name"] for t in trees] == ["power_tree"]
@@ -275,13 +299,18 @@ def test_migrator_self_verify_catches_duplicate_tree_name(tmp_path, monkeypatch,
     # Same tree name, but node refs unique within the merge — so the failure
     # is the duplicate-NAME check, not a node-ref collision.
     twin = Tree(name="power_tree", anchor=TreeAnchor(ref="CONN_OTHER", is_origin=False),
-                nodes=[TreeNode(ref="N_OTHER", kind=None, xy=(0.0, 0.0), polar=None,
+                nodes=[TreeNode(ref="N_OTHER", kind="module", xy=(0.0, 0.0), polar=None,
                                 rotation=0.0, name=None, group=None, children=[])])
     old_b = tmp_path / "b.trees"
     save_trees(str(old_b), [twin])
 
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"layer": "B.Cu"}, format_number=2), encoding="utf-8")
+    # Row 14: the tree's clone node names this clone_placements record (and its
+    # cell), so load_config reaches the duplicate-NAME check the cell asserts.
+    _root_data = {"layer": "B.Cu", "cells": {"c_ams": {}},
+                  "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
+                                        "cell": "c_ams", "xy": [0.0, 0.0]}]}
+    root.write_text(dict_to_sexp(_root_data, format_number=2), encoding="utf-8")
 
     monkeypatch.setattr(sys, "argv",
                         ["trees_to_config", str(root), str(old_a), str(old_b)])

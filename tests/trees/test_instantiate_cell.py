@@ -61,7 +61,9 @@ class TestBuildInstantiatedEntity:
         ent = build_instantiated_entity("c_pif", "PIF_1V2_VCCINT",
                                         "PIF_1V2_VCCINT", "FPGA")
         data = {
-            "cells": {},
+            # Row 2: the entities reference this cell; a format-3 load resolves
+            # the reference.
+            "cells": {"c_pif": {}},
             "entities": [
                 {"name": "pif_p2v5_vcca", "cell": "c_pif",
                  "cluster": "PIF_P2V5_VCCA"},

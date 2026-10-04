@@ -17,6 +17,19 @@ import pytest
 from kicadstamp.config import load_config, TreeInstance
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
+from tests.fakes.format3 import without_identity
+
+
+def _pin_format2(monkeypatch):
+    """Pin this build to format 2 for a cell whose SUBJECT is format-2
+    semantics: the LEGACY literal-net net_trace expansion (a nameless record's
+    nets are rewritten by replacing the leading sheet segment). Under format 3
+    the lift mints a name for a nameless record and the product then treats it
+    as a NAMED (role, pad)-based record whose nets are deliberately NOT
+    rewritten — Path A of tree_instances.py is unreachable under the gate.
+    Named in the handoff note."""
+    from kicadstamp.config import format_version
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 
 def _write(tmp_path, name, data) -> Path:
@@ -161,6 +174,7 @@ class TestNesting:
             [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
             nodes=nodes)
         data["entities"].append({"name": "deep", "cell": "c_deep"})
+        data["cells"]["c_deep"] = {}
         p = _write(tmp_path, "t.sexp", data)
         cfg, _ = load_config(str(p))
         tree = _tree_by_name(cfg, "ch1_dac_buf")
@@ -222,7 +236,11 @@ class TestFatals:
             [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}],
             nodes=[{"ref": "no_entity", "kind": "placement", "xy": [0.0, 0.0]}])
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="no matching entities"):
+        # The subject is "a dangling node ref is refused": format 2 refuses it
+        # at expansion ("no matching entities"), format 3 sooner, at load
+        # ("references uuid … not in entities"). Both are the same refusal.
+        with pytest.raises(ValidationError,
+                           match="no matching entities|not in entities"):
             load_config(str(p))
 
     def test_declaration_missing_field_is_fatal(self, tmp_path):
@@ -272,6 +290,9 @@ class TestInclude:
         """Include-graph: the template (tree+entities) lives in one included
         file, the tree_instance declaration in another, the root includes both."""
         _write(tmp_path, "tpl.sexp", {
+            # Row 2: the template entities reference these cells; a format-3
+            # load resolves every reference.
+            "cells": {"c_dac": {}, "c_pif": {}},
             "entities": [
                 {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
                 {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
@@ -349,7 +370,9 @@ class TestSexpRoundTrip:
             assert '("origin"' not in compact
             assert '("point"' not in compact
             back = sexp_to_dict(text)["tree_instances"][0]
-            assert back["anchor"] == anchor
+            # The lift adds a `point_uuid` sibling to the point anchor under the
+            # format-3 gate; this cell is about the anchor GRAMMAR, not the uuid.
+            assert without_identity(back["anchor"]) == without_identity(anchor)
             assert back["rotation"] == 90.0
 
 
@@ -439,7 +462,11 @@ class TestUpsertPreservesUndeclaredFields:
                     .get("tree_instances") or [])
 
     def _file(self, tmp_path, instances) -> Path:
-        return _write(tmp_path, "preserve.sexp", _template_data(instances))
+        data = _template_data(instances)
+        # Row 7 ("add the source"): the declared point anchor names this target;
+        # a format-3 write resolves the reference against the file's own graph.
+        data["points"] = {"p_home": {}}
+        return _write(tmp_path, "preserve.sexp", data)
 
     def test_params_axis_survives_an_unchanged_round_trip(self, tmp_path):
         """The live defect, measured: BEFORE has params, the dialog's own row
@@ -555,8 +582,14 @@ class TestUpsertPreservesUndeclaredFields:
         changed = upsert_tree_instances(p, "dac_buf_tpl", [
             {"name": "ch1_dac_buf", "sheet": "Channel_1",
              "anchor": {"point": "p_home"}, "rotation": 90.0}])
-        assert changed is False
-        assert self._read(p) == [{
+        # The AXES survive (the point of §И.7.1.2). The no-op flag is
+        # format-dependent: under the format-3 gate the on-disk declaration's
+        # anchor carries a machine-added `point_uuid` the dialog row does not,
+        # so the overlay is seen as a change and the file is rewritten with the
+        # same axes (named in the handoff note).
+        from kicadstamp.config.format_version import current_format
+        assert changed is (current_format() >= 3)
+        assert without_identity(self._read(p)) == [{
             "template": "dac_buf_tpl", "name": "ch1_dac_buf",
             "sheet": "Channel_1", "anchor": {"point": "p_home"},
             "rotation": 90}]
@@ -617,7 +650,10 @@ def _net_trace_template_data(instances, anchor_sheet="Channel_0",
         }],
     }
     return {
-        "cells": {},
+        # Row 2 (same as _template_data): entities reference these cells and a
+        # format-3 load resolves every reference; the template only needed the
+        # tree SHAPE before.
+        "cells": {"c_dac": {}, "c_pif": {}},
         "entities": [
             {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF",
              "sheet": anchor_sheet},
@@ -649,7 +685,9 @@ class TestNetTrace:
     def _nt_by_net(cfg, net):
         return next(nt for nt in cfg.net_traces if nt.net == net)
 
-    def test_net_trace_nodes_materialize_one_record_per_instance(self, tmp_path):
+    def test_net_trace_nodes_materialize_one_record_per_instance(
+            self, tmp_path, monkeypatch):
+        _pin_format2(monkeypatch)
         p = _write(tmp_path, "t.sexp", _net_trace_template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
             {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
@@ -699,7 +737,10 @@ class TestNetTrace:
             anchor_sheet="Channel_0",
             net="/Foo/DAC/+3V3_AVDD")
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="net path"):
+        # Refusal check: format 2 says "net path", format 3 catches the dangling
+        # node ref first ("not in net_traces"). Same refusal, different wording.
+        with pytest.raises(ValidationError,
+                           match="net path|not in net_traces"):
             load_config(str(p))
 
     def test_net_trace_node_without_record_is_fatal(self, tmp_path):
@@ -710,7 +751,10 @@ class TestNetTrace:
             net="/Channel_0/DAC/+3V3_AVDD",
             include_record=False)
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="no matching net_traces"):
+        # Refusal check: format 2 "no matching net_traces", format 3 the dangling
+        # node ref ("not in net_traces").
+        with pytest.raises(ValidationError,
+                           match="no matching net_traces|not in net_traces"):
             load_config(str(p))
 
     def test_net_trace_node_requires_template_anchor_sheet(self, tmp_path):
@@ -722,7 +766,10 @@ class TestNetTrace:
             net="/Channel_0/DAC/+3V3_AVDD",
             template_anchor={"role": "DAC_BUF"})  # role anchor, NO sheet
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="anchor sheet"):
+        # Refusal check: format 2 needs the anchor sheet ("anchor sheet"),
+        # format 3 catches the dangling node ref first ("not in net_traces").
+        with pytest.raises(ValidationError,
+                           match="anchor sheet|not in net_traces"):
             load_config(str(p))
 
     def test_non_net_trace_kinds_stay_fatal(self, tmp_path):
@@ -735,7 +782,13 @@ class TestNetTrace:
         data["trees"][0]["nodes"].append(
             {"ref": "other", "kind": "chain", "xy": [3.0, 4.0]})
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="unsupported node kind 'chain'"):
+        # Refusal check: format 2 "unsupported node kind 'chain'"; format 3
+        # catches a dangling ref first — either the chain node ("not in chains")
+        # or, since this fixture's net_trace node is a legacy literal-net record
+        # that format 3 mints a name for, that node ("not in net_traces").
+        with pytest.raises(ValidationError,
+                           match="unsupported node kind 'chain'|not in chains"
+                                 "|not in net_traces"):
             load_config(str(p))
 
 
@@ -810,11 +863,13 @@ class TestClusterOverride:
             load_tree_instance({"template": "dac_buf_tpl", "name": "ch1_dac_buf",
                                 "sheet": "Channel_1", "cluter": "CLUST_A"})
 
-    def test_net_trace_anchor_cluster_ignores_declaration_cluster(self, tmp_path):
+    def test_net_trace_anchor_cluster_ignores_declaration_cluster(
+            self, tmp_path, monkeypatch):
         """The design §3 split, enforced in code: a declaration-level `cluster:`
         override rewrites the Entity copies (and role anchor), but MUST NOT
         leak into net_trace materialization — a net_trace's anchor_cluster is
         a different concept (external anchor search), never overwritten here."""
+        _pin_format2(monkeypatch)
         p = _write(tmp_path, "t.sexp", _net_trace_template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
              "cluster": "CLUST_A"},
@@ -998,7 +1053,8 @@ def _composite_dac_buf_data(instances) -> dict:
     four genuinely different template clusters) — the COMPOSITE case that the
     v1.2.1 composite-guard must NOT blanket-override per copy."""
     return {
-        "cells": {},
+        # Row 2: entities reference these cells; a format-3 load resolves them.
+        "cells": {"c_dac": {}, "c_pif": {}},
         "entities": [
             {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
             {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
@@ -1212,7 +1268,8 @@ def _auto_net_trace_template_data(instances) -> dict:
                 "drill_mm": 0.3, "diameter_mm": 0.6, "net": net}],
         })
     return {
-        "cells": {},
+        # Row 2: entities reference these cells; a format-3 load resolves them.
+        "cells": {"c_dac": {}, "c_pif": {}},
         "entities": [
             {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF",
              "sheet": "Channel_0"},
@@ -1350,7 +1407,9 @@ class TestAutoAnchorTemplates:
             nodes=[{"ref": "no_entity", "kind": "placement",
                     "xy": [0.0, 0.0]}]))
         p = _write(tmp_path, "t.sexp", data)
-        with pytest.raises(ValidationError, match="no matching entities"):
+        # Refusal check — same as TestFatals::test_placement_node_without_entity_is_fatal.
+        with pytest.raises(ValidationError,
+                           match="no matching entities|not in entities"):
             load_config(str(p))
 
     def test_generated_tree_stays_auto(self, tmp_path):
@@ -1402,7 +1461,9 @@ class TestAutoAnchorTemplates:
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "OVERRIDE"
         assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "OVERRIDE"
 
-    def test_net_trace_children_rewritten_from_root_entity_sheet(self, tmp_path):
+    def test_net_trace_children_rewritten_from_root_entity_sheet(
+            self, tmp_path, monkeypatch):
+        _pin_format2(monkeypatch)
         """ch0_dac_buf-shaped end-to-end (plan regression): an AUTO template
         (root `dac_buf` + a nested PIF placement + DAC copper net_trace
         children, all on /Channel_0/) instantiated to Channel_1 with a
