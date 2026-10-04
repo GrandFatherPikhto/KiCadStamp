@@ -143,9 +143,17 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
       directory, failed copy) still loads, with the WARNING/ERROR in the Log.
     """
     from .upgrade_on_disk import upgrade_graph_on_disk  # lazy — avoids an import cycle
+    from .registry_upgrade import upgrade_registries_on_disk  # lazy — same reason
 
     upgrade_graph_on_disk(path)
-    return cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
+    result = cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
+    # У5.4 (Р-У5.5): the copper registries are lifted in the SAME open, AFTER the
+    # cached computation — never inside it (a write there would invalidate the
+    # very cache entry being built). The materialized Config is what resolves a
+    # registry key's record names against generated tree_instances/sheet_templates
+    # copies. Under format < 3 the sweep is a no-op (the gate lives inside it).
+    upgrade_registries_on_disk(path, result[0])
+    return result
 
 
 def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:

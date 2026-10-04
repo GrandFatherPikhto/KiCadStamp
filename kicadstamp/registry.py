@@ -53,7 +53,11 @@ from .utils.paths import (default_log_file_for_config,
                           track_registry_path_for_config)
 from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .exceptions import ValidationError, format_fatal_error
-from .persistence import REGISTRY_SCHEMA_VERSION, check_schema_version
+from .persistence import (
+    REGISTRY_SCHEMA_VERSION,
+    REGISTRY_SCHEMA_VERSION_FORMAT3,
+    check_schema_version,
+)
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -136,6 +140,29 @@ def record_key_part(name: str, uuid: str | None) -> str:
     return name
 
 
+def _registry_schema_versions() -> tuple[int, ...]:
+    """Registry schema versions this build READS, by the format gate.
+
+    Format 2 (the product today): only schema 1 — byte-identical behaviour.
+    Format 3: schema 2 (the uuid-keyed registry the on-disk lift writes,
+    kicadstamp/config/registry_upgrade.py) AND schema 1 — a registry the lift
+    could not write (read-only directory) is left at schema 1 on purpose, and
+    refusing to read it would turn a logged, recoverable write failure into a
+    fatal on the very next apply."""
+    from .config.format_version import current_format
+    if current_format() >= 3:
+        return (REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION_FORMAT3)
+    return (REGISTRY_SCHEMA_VERSION,)
+
+
+def _registry_schema_version_for_write() -> int:
+    """The schema a freshly written registry gets: 2 under the format-3 gate, 1
+    in format 2 (so the product's registry files stay byte-identical today)."""
+    from .config.format_version import current_format
+    return (REGISTRY_SCHEMA_VERSION_FORMAT3 if current_format() >= 3
+            else REGISTRY_SCHEMA_VERSION)
+
+
 # registry_path_for_config / track_registry_path_for_config /
 # default_log_file_for_config / default_operation_log_dir_for_config are
 # imported (re-exported) from kicadstamp/utils/paths.py above — see that
@@ -178,7 +205,8 @@ def load_registry(path: str) -> dict[str, RegistryEntry]:
     if isinstance(raw, dict):
         # A future schema_version fails loudly (before the lenient entry parse
         # below) — mis-parsing a newer format could recreate duplicate copper.
-        check_schema_version(raw.get("schema_version"), REGISTRY_SCHEMA_VERSION, path, "registry")
+        check_schema_version(raw.get("schema_version"), _registry_schema_versions(),
+                             path, "registry")
         raw = {k: v for k, v in raw.items() if k != "schema_version"}
     else:
         raw = {}
@@ -194,7 +222,7 @@ def load_registry(path: str) -> dict[str, RegistryEntry]:
 def save_registry(path: str, entries: dict[str, RegistryEntry]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {"schema_version": REGISTRY_SCHEMA_VERSION,
+    data = {"schema_version": _registry_schema_version_for_write(),
             **{k: asdict(v) for k, v in entries.items()}}
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -211,7 +239,7 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
                        .format(path=path, type=type(e).__name__, e=e))
         return {}
     if isinstance(raw, dict):
-        check_schema_version(raw.get("schema_version"), REGISTRY_SCHEMA_VERSION,
+        check_schema_version(raw.get("schema_version"), _registry_schema_versions(),
                              path, "track registry")
         raw = {k: v for k, v in raw.items() if k != "schema_version"}
     else:
@@ -228,7 +256,7 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
 def save_track_registry(path: str, entries: dict[str, TrackRegistryEntry]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    data = {"schema_version": REGISTRY_SCHEMA_VERSION,
+    data = {"schema_version": _registry_schema_version_for_write(),
             **{k: asdict(v) for k, v in entries.items()}}
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 

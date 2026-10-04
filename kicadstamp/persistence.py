@@ -16,15 +16,26 @@ log_file..."`` warning in gui/dock_hub.py).
 """
 
 REGISTRY_SCHEMA_VERSION = 1
+# The registry schema a format-3 (UUID-keyed) profile carries. Kept here next to
+# the format-2 value so the registry reader/writer and the on-disk lift
+# (kicadstamp/config/registry_upgrade.py) agree on ONE source of truth. Do NOT
+# raise REGISTRY_SCHEMA_VERSION itself: in format 2 (CURRENT_FORMAT = 2, the
+# product today) the registry files must stay byte-identical, schema 1 included.
+REGISTRY_SCHEMA_VERSION_FORMAT3 = 2
 OPERATION_LOG_SCHEMA_VERSION = 1
 
 
-def check_schema_version(version, expected: int, path, kind: str) -> None:
-    """Refuse a persisted file whose ``schema_version`` is newer than ``expected``.
+def check_schema_version(version, expected, path, kind: str) -> None:
+    """Refuse a persisted file whose ``schema_version`` is not one this build
+    supports.
 
     ``version`` — the raw ``schema_version`` value read from the file (``None``
     when the field is absent, i.e. a legacy pre-2026-08-25 file — accepted).
-    ``path``/``kind`` — used only to build the error message.
+    ``expected`` — a single supported version (the usual case, and what every
+    caller but the format-3 registry passes), or an iterable of supported
+    versions: the registry reader under the format-3 gate accepts BOTH the
+    not-yet-lifted schema 1 (a write failure can leave it there) and the lifted
+    schema 2. ``path``/``kind`` — used only to build the error message.
 
     Raises :class:`ValueError` on a version this build does not understand:
     silently proceeding would mis-parse entries and corrupt the board, so a
@@ -32,11 +43,14 @@ def check_schema_version(version, expected: int, path, kind: str) -> None:
     """
     if version is None:
         return
-    if version != expected:
+    supported = tuple(expected) if isinstance(expected, (tuple, list, set)) else (expected,)
+    if version not in supported:
+        shown = (supported[0] if len(supported) == 1
+                 else " or ".join(str(v) for v in supported))
         raise ValueError(
             "{kind} {path!r} has schema_version {version}, but this build only "
             "supports schema_version {expected} — the on-disk format changed. "
             "Regenerate or migrate the file before running.".format(
-                kind=kind, path=str(path), version=version, expected=expected,
+                kind=kind, path=str(path), version=version, expected=shown,
             )
         )
