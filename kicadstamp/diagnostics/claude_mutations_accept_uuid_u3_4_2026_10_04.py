@@ -17,6 +17,15 @@ through file ALONE so a kill proves the NEW cells see it:
     not covered.
   * C1 — a cosmetic comment edit. MUST survive.
 
+The H1 rework (8a2ede6, landed as dc72336 after a rebase): T7 must die now, and
+the rows below check the new by-form assertion, again on the through file alone:
+
+  * T9 — sheet_templates expands ONE copy per template (the `many` S5 copy is
+    lost in both formats — the phase-1 form check must see it).
+  * T10 — a sheet_templates copy takes the TEMPLATE's uuid instead of its
+    derived one (format 3 only — the derived copy uuids ride through the lift).
+  * T11 — tree_instances expands only the first instance.
+
 Previous rig docstring follows.
 Claude's acceptance of U3.3 (353003c + 9fab1ec, plan §7, Р-У3.5: refuse the
 on-disk format upgrade on a failed .bak; cells Н4/Н5 of the stub), 2026-10-04.
@@ -489,6 +498,15 @@ MUTATIONS = [
      '    data.pop("sheet_templates", None)\n' + _STEP_END, "die", THROUGH, ()),
     ("T8 step loses tree_instances", FV, _STEP_END,
      '    data.pop("tree_instances", None)\n' + _STEP_END, "die", THROUGH, ()),
+    ("T9 sheet_templates one copy per template", "kicadstamp/config/sheet_templates.py",
+     "                for sheet in sheets:\n", "                for sheet in sheets[:1]:\n",
+     "die", THROUGH, ()),
+    ("T10 sheet_templates copy takes the template uuid", "kicadstamp/config/sheet_templates.py",
+     "                            gen['uuid'] = derived_uuid(",
+     "                            gen['uuid'] = tpl_uuid or derived_uuid(", "die", THROUGH, ()),
+    ("T11 tree_instances only the first instance", "kicadstamp/config/tree_instances.py",
+     "    for idx, inst in enumerate(instances):", "    for idx, inst in enumerate(instances[:1]):",
+     "die", THROUGH, ()),
     ("C1 cosmetic comment (control)", UU,
      "def migration_uuid(section: str, full_name: str) -> str:",
      "def migration_uuid(section: str, full_name: str) -> str:  # control", "survive", GUARDS, ()),

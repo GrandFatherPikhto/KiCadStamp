@@ -202,8 +202,17 @@ def real_main_window(qapp):
     teardown so a torn-down window doesn't keep polling (and writing
     MockLogRecords/touching connections) in the background across the rest
     of the test session — the embedded fieldstool MainWindow has none of
-    its own to stop, it's driven entirely through this window's poll."""
+    its own to stop, it's driven entirely through this window's poll.
+
+    The two timers are stopped BEFORE the test body too: many cells swap
+    `window.connection` for a SimpleNamespace fake, and a selection tick
+    (every SELECTION_POLL_INTERVAL_MS) landing inside a slow cell then reads
+    attributes the fake does not have — a flake seen on the Windows CI runner
+    (2026-10-04, test_extract_cluster_remembers_cell_edit_context). A cell
+    that needs a tick calls _poll()/_poll_board_selection() itself."""
     window = MainWindow(timeout_ms=10, verbose=False)
+    window._timer.stop()
+    window._selection_timer.stop()
     yield window
     window._timer.stop()
     window._selection_timer.stop()
