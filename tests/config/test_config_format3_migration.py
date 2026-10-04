@@ -100,6 +100,39 @@ def test_the_format3_stub_seed_is_the_product_seed():
             == migration_folder_uuid("cells", "Power"))
 
 
+def test_the_format3_stub_mints_folders_for_list_sections_too():
+    """Н4 (Z2b of the У3.1/У3.2 acceptance): the stub's folder walk must run for
+    LIST sections as well as dict ones — a list record's name may carry a path,
+    and ONE path yields ONE uuid whatever the section (В39). The stub cell above
+    covers only the dict `cells` branch, so a stub that skipped the list branch
+    stayed green; this row kills it."""
+    from tests.fakes.format3 import mint_format3
+
+    minted = mint_format3({
+        "entities": [{"name": "Power/E", "cell": "cap"}],
+        "cells": {"cap": {}},
+    })
+    assert (minted["folders"]["entities"]["Power"]
+            == migration_folder_uuid("entities", "Power"))
+
+
+def test_the_format3_stub_section_tables_match_the_product():
+    """Н5: the stub deliberately DUPLICATES the three §0 section tables, and from
+    У3.2 the folder rows lean on them too. This cell imports the PRODUCT tables
+    (the product still never imports the stub) and pins the three pairs — a
+    section dropped from the stub's copy turns it red."""
+    from kicadstamp.config.format3 import (
+        _F3_DICT_SECTIONS, _F3_FREE_SECTIONS, _F3_LIST_SECTIONS,
+    )
+    from tests.fakes.format3 import (
+        _DICT_SECTIONS, _FREE_SECTIONS, _LIST_SECTIONS,
+    )
+
+    assert set(_DICT_SECTIONS) == set(_F3_DICT_SECTIONS)
+    assert set(_LIST_SECTIONS) == set(_F3_LIST_SECTIONS)
+    assert set(_FREE_SECTIONS) == set(_F3_FREE_SECTIONS)
+
+
 # ── §0 records: one row per product section ───────────────────────────────
 
 def _record_data(section):
