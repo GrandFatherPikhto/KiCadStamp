@@ -23,6 +23,7 @@ import pytest
 
 
 from kicadstamp.domain.board import Footprint, Pad, BoardLayer            # noqa: E402
+from kicadstamp.config.sexp_format import dict_to_sexp                    # noqa: E402
 from kicadstamp.config_writer import read_data, write_data                # noqa: E402
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME      # noqa: E402
 from kicadstamp.domain.geometry import Vector2                            # noqa: E402
@@ -320,12 +321,38 @@ class TestFailedWriteRollback:
     must not leave the cell behind (rollback), and a rollback that itself fails
     must SAY the config is half-updated."""
 
-    def _chain_file(self, tmp_path):
-        path = tmp_path / "chains.sexp"
-        write_data(path, {"chains": [{"net": NET, "name": "MCU Vdd",
-                                      "anchor_ref": "U5",
-                                      "spokes": [{"pad": "1", "cell": CELL}]}]})
-        return path
+    def _rollback_files(self, tmp_path):
+        """(root, chain_file) for the rollback cells: the root holds ONLY the cell
+        the chain's spoke references, the chain lives in its OWN file.
+
+        У3.5: the format-3 writer stamp resolves the spoke's `cell:` against the
+        ACTIVE GRAPH ROOT, so the root is set active; and under the gate the two
+        files are written ALREADY CURRENT (minted together, so the spoke carries
+        the SAME uuid the root's cell has) — a format-2 file would be LIFTED with
+        a fresh uuid4 each time, and the rollback's write would then point at a
+        uuid the just-rewritten root no longer has. Under format 2 the pair is
+        written verbatim, as before."""
+        root = tmp_path / "config.sexp"
+        chain = tmp_path / "chains.sexp"
+        root_data = {"cells": {CELL: _cell_entry()}}
+        chain_data = {"chains": [{"net": NET, "name": "MCU Vdd", "anchor_ref": "U5",
+                                  "spokes": [{"pad": "1", "cell": CELL}]}]}
+        from kicadstamp.config.format_version import current_format
+        if current_format() >= 3:
+            from tests.fakes.format3 import mint_format3_files
+            files = mint_format3_files({"config.sexp": root_data,
+                                        "chains.sexp": chain_data})
+            root.write_text(dict_to_sexp(files["config.sexp"], format_number=3),
+                            encoding="utf-8")
+            chain.write_text(dict_to_sexp(files["chains.sexp"], format_number=3),
+                             encoding="utf-8")
+        else:
+            write_data(root, root_data)
+            chain.write_text(dict_to_sexp(chain_data, format_number=2),
+                             encoding="utf-8")
+        from kicadstamp.config_working_set import set_active_graph_root
+        set_active_graph_root(root)
+        return root, chain
 
     def _write(self, root, chain_file):
         return mod.write_spoke_extraction(
@@ -336,12 +363,12 @@ class TestFailedWriteRollback:
             spoke=_spoke("new_pair"), replace=False,
             origin_role=BULK, expected_refs=("C41", "C42"))
 
-    def test_c8_a_failed_chain_write_rolls_the_cell_back(self, root, tmp_path,
+    def test_c8_a_failed_chain_write_rolls_the_cell_back(self, tmp_path,
                                                          monkeypatch):
         """С8/М8: the chain write fails with OSError AFTER the cell landed —
         both files must be back at their pre-write content, and the message says
         so instead of the old bare "Write failed"."""
-        chain_file = self._chain_file(tmp_path)
+        root, chain_file = self._rollback_files(tmp_path)
         monkeypatch.setattr(mod, "extract_template_from_selection",
                             lambda adapter, name, **kw: {name: _cell_entry()})
 
@@ -349,6 +376,7 @@ class TestFailedWriteRollback:
             raise OSError("disk full")
         monkeypatch.setattr(mod, "upsert_list_entry", boom)
         before = read_data(root)
+        chain_before = read_data(chain_file)["chains"]
 
         result = self._write(root, chain_file)
 
@@ -357,13 +385,13 @@ class TestFailedWriteRollback:
         assert "nothing was written" in result.messages[0]
         assert read_data(root) == before
         assert "new_pair" not in read_data(root)["cells"]
-        assert read_data(chain_file)["chains"] == before["chains"]
+        assert read_data(chain_file)["chains"] == chain_before
 
-    def test_c8_a_failed_rollback_names_the_half_state(self, root, tmp_path,
+    def test_c8_a_failed_rollback_names_the_half_state(self, tmp_path,
                                                        monkeypatch):
         """When the cell cannot be taken back, the message must NAME the half
         state: the user has to know the config already changed."""
-        chain_file = self._chain_file(tmp_path)
+        root, chain_file = self._rollback_files(tmp_path)
         monkeypatch.setattr(mod, "extract_template_from_selection",
                             lambda adapter, name, **kw: {name: _cell_entry()})
 

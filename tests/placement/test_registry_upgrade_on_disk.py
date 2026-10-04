@@ -48,6 +48,18 @@ from kicadstamp.utils.paths import (registry_path_for_config,
 from tests.fakes.format3 import det_uuid, format3, mint_format3  # noqa: F401
 
 
+@pytest.fixture
+def format2(monkeypatch):
+    """Pin this build's CURRENT_FORMAT to 2 (У3.5, class (б)).
+
+    The cells that request this fixture have the FORMAT-2 registry SCHEMA as
+    their subject (name keys / schema 1): under the gate the sweep writes schema
+    2 and the reader refuses schema 1, which is a DIFFERENT subject. Under the
+    product (CURRENT_FORMAT = 2) this is a no-op."""
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    return 2
+
+
 @pytest.fixture(autouse=True)
 def _isolate_working_set():
     """The working set is a process-global singleton — a leaked staged state
@@ -381,7 +393,7 @@ def test_the_working_set_stands_the_sweep_down(tmp_path, monkeypatch, format3): 
     assert list(Path(via).parent.glob("*.bak.*")) == []
 
 
-def test_without_the_gate_nothing_is_written(tmp_path):
+def test_without_the_gate_nothing_is_written(tmp_path, format2):
     """Format 2 (the product today): the sweep is a no-op — the registry keeps
     its schema-1 bytes. A gate widened to ``>= 2`` turns this cell red."""
     root = tmp_path / "root.sexp"
@@ -436,7 +448,7 @@ def test_an_orphan_and_an_ambiguous_key_are_kept_with_a_warning(tmp_path, caplog
 # name-keyed registry against a uuid-keyed plan and prunes the copper. Below the
 # gate (the product, format 2) schema 1 is read exactly as before.
 
-def test_format2_still_reads_a_schema1_registry(tmp_path):
+def test_format2_still_reads_a_schema1_registry(tmp_path, format2):
     """Boundary: below the gate a schema-1 (name-keyed) registry loads, as it
     always did — the refusal is format-3 only."""
     p = tmp_path / "via.registry.json"
@@ -483,7 +495,8 @@ def test_format3_refuses_an_unlifted_track_registry(tmp_path, format3):  # noqa:
     (True, True),    # the explicit pair is empty, the defaults are not
     (False, False),  # the explicit pair is not empty, the defaults are
 ])
-def test_registries_empty_for_reads_the_explicit_paths(tmp_path, explicit_empty, expected):
+def test_registries_empty_for_reads_the_explicit_paths(tmp_path, explicit_empty,
+                                                       expected, format2):
     """H11 (У5.5): ``registries_empty_for`` must inspect the files an apply uses
     — the config's explicit ``registry_path:``/``track_registry_path:`` when set,
     not the defaults. EACH row makes the default answer WRONG: a function that

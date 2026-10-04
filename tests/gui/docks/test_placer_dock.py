@@ -59,6 +59,11 @@ def _make_cell_and_dock(main_window, tmp_path):
     }})
     placer_file = tmp_path / "root.sexp"
     _write(placer_file, {"clone_placements": [], "include": ["cells.sexp"]})
+    # У3.5 (class (в)): a clone_placement's `cell:` is a REFERENCE the format-3
+    # writer stamp resolves against the ACTIVE GRAPH ROOT — point it at the
+    # placer's own root, so the included cells.sexp (pi_filter) is in the graph.
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(placer_file)
 
     dock = PlacerDock(main_window)
     dock.set_root_path(placer_file)
@@ -1283,7 +1288,7 @@ def test_save_after_renaming_placer_name_removes_old_entry(main_window, tmp_path
     _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
-    ]})
+    ], "include": ["cells.sexp"]})
     dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.placer_name_edit.setText("CH1_PIF_AVDD")
@@ -1301,9 +1306,14 @@ def test_save_after_renaming_cluster_without_placer_name_removes_old_entry(main_
     duplicate."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write(placer_file, {"clone_placements": [
-        {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
-    ]})
-    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+        # У3.5: under format 3 the record's identity is its NAME (the lift
+        # mints one for a nameless record); name it by its cluster so the
+        # loaded entry and the saved entry agree (source).
+        {"cluster": "PIF_AVDD", "name": "PIF_AVDD", "cell": "pi_filter",
+         "xy": [1.0, 1.0]},
+    ], "include": ["cells.sexp"]})
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.cluster_edit.setCurrentText("CH0_PIF_AVDD")
     dock._do_save()
 
@@ -1318,9 +1328,13 @@ def test_save_without_identity_change_still_replaces_in_place(main_window, tmp_p
     spurious delete cycles."""
     dock, _, placer_file = _make_cell_and_dock(main_window, tmp_path)
     _write(placer_file, {"clone_placements": [
-        {"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]},
-    ]})
-    dock.load_placement({"cluster": "PIF_AVDD", "cell": "pi_filter", "xy": [1.0, 1.0]})
+        # У3.5: explicit name = cluster, so the format-3 identity matches the
+        # form's entry on both saves (source).
+        {"cluster": "PIF_AVDD", "name": "PIF_AVDD", "cell": "pi_filter",
+         "xy": [1.0, 1.0]},
+    ], "include": ["cells.sexp"]})
+    dock.load_placement({"cluster": "PIF_AVDD", "name": "PIF_AVDD",
+                         "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock._do_save()
     dock._do_save()
 
@@ -1354,7 +1368,7 @@ def test_save_twice_in_a_row_after_rename_does_not_error(main_window, tmp_path):
     _write(placer_file, {"clone_placements": [
         {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "pi_filter",
          "xy": [1.0, 1.0]},
-    ]})
+    ], "include": ["cells.sexp"]})
     dock.load_placement({"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD",
                          "cell": "pi_filter", "xy": [1.0, 1.0]})
     dock.placer_name_edit.setText("CH1_PIF_AVDD")

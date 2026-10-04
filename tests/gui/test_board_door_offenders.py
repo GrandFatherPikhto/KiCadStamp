@@ -819,6 +819,9 @@ def _place_dock(window, tmp_path):
     needs no fake board to answer it. Returns (dock, connection)."""
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({
+        # У3.5: the entity's `cell:` and the node's `ref` are REFERENCES a
+        # format-3 load resolves; the targets must exist (source).
+        "cells": {"c_parent": {"components": [{"role": "R1"}]}},
         "entities": [{"name": "PARENT", "cell": "c_parent"}],
         "trees": [{"name": "main", "anchor": {"origin": True},
                    "nodes": [{"ref": "PARENT", "kind": "placement",
@@ -1361,14 +1364,22 @@ def test_the_form_reads_the_live_adapter_not_the_one_it_was_built_with(
 
 
 @pytest.fixture(autouse=True)
-def _active_graph_root(tmp_path):
+def _active_graph_root(tmp_path, monkeypatch):
     """У3.5 (class (в)): the format-3 writer resolves a reference's UUID against
     the ACTIVE GRAPH ROOT. These cells write a self-contained config; the root is
     a path that does NOT exist, so the stamp indexes THIS write's own records
     (config/format3._build_format3_index) — the format-3 product path, no
-    on-disk graph walked. Under format 2 (< 3) the root is never consulted."""
+    on-disk graph walked. Under format 2 (< 3) the root is never consulted.
+
+    `real_main_window` builds a REAL DockHub, whose constructor calls
+    `set_active_graph_root(None)` on startup — it would clobber this fixture's
+    value for the two cells that write through the dock. Neutralise ONLY that
+    binding, so the fixture's own root survives (the fixture still sets it via
+    the real function below, in whatever order the window is built)."""
+    import gui.dock_hub as dock_hub_mod
     from kicadstamp.config_working_set import set_active_graph_root
 
+    monkeypatch.setattr(dock_hub_mod, "set_active_graph_root", lambda root: None)
     set_active_graph_root(tmp_path / "active_root.sexp")
     yield
     set_active_graph_root(None)

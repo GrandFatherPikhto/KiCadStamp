@@ -26,7 +26,8 @@ from kicadstamp.net_trace_planner import (net_trace_anchor_id,
                                           net_trace_registry_key)
 from kicadstamp.registry import make_registry_key
 from kicadstamp.utils.units import MM
-from tests.fakes.format3 import format3  # noqa: F401 — pytest fixture
+from tests.fakes.format3 import (det_uuid, format3,  # noqa: F401 — pytest fixture
+                                 identity_value)
 
 import gui.docks.copper_select as copper_select_mod
 import gui.docks.trees_dock as trees_dock_mod
@@ -62,7 +63,11 @@ def _loose_track(uuid="loose"):
 
 
 def _record(name="bridge", net="N", anchor_role="FPGA"):
+    # У3.5 (U1): under format 3 the registry-key builder REFUSES a record with
+    # no uuid (Р-У5.7) — mint one in the product migration namespace, keyed by
+    # the record's identity, so tier 1/2 build the same key on both sides.
     return NetTrace(
+        uuid=det_uuid(f"net_traces:{name}"),
         net=net, name=name, anchor_role=anchor_role, anchor_pad="42",
         tracks=[TemplateTrack(start_along_mm=1, start_across_mm=2,
                               end_along_mm=3, end_across_mm=4, width_mm=0.2,
@@ -129,8 +134,13 @@ def test_registry_identity_without_config_record_is_surfaced():
         adapter, Config(net_traces=[]), selected,
         via_registry=_Reg(), track_registry=track_reg)
 
-    assert result.identified == {"ghost": 1}
-    assert result.unknown_records == ["ghost"]
+    # У3.5: with NO config record to translate it, the identity the product can
+    # surface is whatever the key carries — the NAME in format 2, the record's
+    # UUID under the gate (there is no name to resolve). identity_value spells
+    # the one that applies, so the same cell passes under both formats.
+    expected = identity_value("ghost", det_uuid("net_traces:ghost"))
+    assert result.identified == {expected: 1}
+    assert result.unknown_records == [expected]
 
 
 # ── pure identify: tier 2 ──────────────────────────────────────────────────

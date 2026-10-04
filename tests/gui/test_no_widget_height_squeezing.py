@@ -133,7 +133,15 @@ def _build_panel(case: str, window, tmp_path: Path):
     hub = window._dock_hub
     if case == "trees_form_panel":
         root = tmp_path / "root.sexp"
+        # У3.5: the `kind: clone` node names a clone_placements record, whose
+        # `cell:` names a cells record — a format-3 load resolves both (source),
+        # so the tree actually loads and the form panel exists to measure.
         root.write_text(dict_to_sexp({
+            "cells": {"c1": {"components": [{"role": "R1"}]}},
+            "clone_placements": [
+                {"cluster": "AMS1117_REG", "name": "AMS1117_REG",
+                 "cell": "c1", "xy": [0.0, 0.0]},
+            ],
             "trees": [{
                 "name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
                 "nodes": [{"ref": "AMS1117_REG", "kind": "clone",

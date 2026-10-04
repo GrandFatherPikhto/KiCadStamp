@@ -53,8 +53,9 @@ def _cell_data(role: str) -> dict:
     ]}
 
 
-def _write(path, data) -> None:
-    path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+def _write(path, data, format_number: int = 2) -> None:
+    path.write_text(dict_to_sexp(data, format_number=format_number),
+                    encoding="utf-8")
 
 
 def _write_test_project(tmp_path):
@@ -62,9 +63,25 @@ def _write_test_project(tmp_path):
     sub1.sexp/sub2.sexp and points schematic_dir at a directory of .kicad_sch
     files — the exact shape that makes every startup read path
     (walk_include_tree, collect_graph_files, read_data, collect_all_*,
-    load_config) reach the SAME files over and over. Returns the root path."""
-    _write(tmp_path / "sub1.sexp", {"cells": {"sub1_cell": _cell_data("R1")}})
-    _write(tmp_path / "sub2.sexp", {"cells": {"sub2_cell": _cell_data("R2")}})
+    load_config) reach the SAME files over and over. Returns the root path.
+
+    У3.5: under the format-3 gate the project is written ALREADY CURRENT
+    (minted, `(version 3)`), for the same reason the cells exist: opening a
+    format-2 project LIFTS it on disk (a write → the cache entry for the very
+    file just written is invalidated → that file is parsed a SECOND time). That
+    is the lift's business, not a cache miss, so the precondition "the files are
+    current" keeps this module measuring the cache under BOTH formats."""
+    from kicadstamp.config.format_version import current_format
+    from tests.fakes.format3 import mint_format3_files
+
+    sub1 = {"cells": {"sub1_cell": _cell_data("R1")}}
+    sub2 = {"cells": {"sub2_cell": _cell_data("R2")}}
+    root_data = {
+        "cells": {},
+        "points": {},
+        "include": ["sub1.sexp", "sub2.sexp"],
+        "schematic_dir": "sheets",
+    }
 
     sheets = tmp_path / "sheets"
     sheets.mkdir()
@@ -81,13 +98,17 @@ def _write_test_project(tmp_path):
         '  )\n'
         ')\n', encoding="utf-8")
 
+    if current_format() >= 3:
+        files = mint_format3_files(
+            {"sub1.sexp": sub1, "sub2.sexp": sub2, "root.sexp": root_data})
+        fmt = 3
+    else:
+        files = {"sub1.sexp": sub1, "sub2.sexp": sub2, "root.sexp": root_data}
+        fmt = 2
+    _write(tmp_path / "sub1.sexp", files["sub1.sexp"], fmt)
+    _write(tmp_path / "sub2.sexp", files["sub2.sexp"], fmt)
     root = tmp_path / "root.sexp"
-    _write(root, {
-        "cells": {},
-        "points": {},
-        "include": ["sub1.sexp", "sub2.sexp"],
-        "schematic_dir": "sheets",
-    })
+    _write(root, files["root.sexp"], fmt)
     return root
 
 

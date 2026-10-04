@@ -20,7 +20,12 @@ def _write(path, data) -> None:
 
 def _make_dock(main_window, tmp_path, entities):
     root = tmp_path / "root.sexp"
-    _write(root, {"entities": entities})
+    # У3.5: an entity's `cell:` is a REFERENCE a format-3 write/load resolves;
+    # provide the target the cells used below name (source, not a pin).
+    _write(root, {
+        "cells": {"c1": {"components": [{"role": "R1"}]}},
+        "entities": entities,
+    })
     dock = EntityInfoDock(main_window)
     dock.set_root_path(root)
     return dock, root

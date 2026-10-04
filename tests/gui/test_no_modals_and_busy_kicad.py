@@ -40,10 +40,15 @@ from gui.docks.trees_dock import TreesDock, _NodeDialog
 
 from kicadstamp.config.sexp_format import dict_to_sexp
 
-# A minimal root config with one tree whose single node is a "clone" (never
-# resolved against the config here — the dock is only driven up to its
-# connection guard).
+# A minimal root config with one tree whose single node is a "clone". Under
+# format 3 a load RESOLVES that node ref (clone_placements) and the clone's own
+# `cell:` (cells) — the dock is only driven to its connection guard, but the
+# graph must still be valid to load at all (У3.5, source — not a pin).
 TREES_CFG = {
+    "cells": {"c1": {"components": [{"role": "R1"}]}},
+    "clone_placements": [
+        {"cluster": "R1", "name": "R1", "cell": "c1", "xy": [0.0, 0.0]},
+    ],
     "trees": [
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [{"ref": "R1", "kind": "clone", "xy": [5.0, 2.0]}]},

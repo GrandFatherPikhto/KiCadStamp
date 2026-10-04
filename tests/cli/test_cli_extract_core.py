@@ -192,6 +192,7 @@ class TestExtractTemplateSexpOutput:
         the default-stripped canonical form — the s-expr writer omits fields
         equal to their dataclass default)."""
         from kicadstamp.config.sexp_format import _strip_defaults, sexp_to_dict
+        from tests.fakes.format3 import without_identity
 
         template = {
             "vias": [{"offset_along_mm": 1.0, "offset_across_mm": 2.0,
@@ -211,7 +212,10 @@ class TestExtractTemplateSexpOutput:
         text = out.read_text(encoding="utf-8")
         assert text.lstrip().startswith("(kicadstamp-config")  # s-expr, not YAML
         expected = _strip_defaults({"cells": {"cell1": template}})
-        assert sexp_to_dict(text) == expected
+        # У3.5: the format-3 write stamps a uuid on the cell — the cell's
+        # subject is the s-expr round-trip, not the identity (without_identity;
+        # a no-op under format 2).
+        assert without_identity(sexp_to_dict(text)) == expected
 
     def test_sexp_upsert_merges_two_cells(self, monkeypatch, tmp_path):
         """A pre-existing .sexp with one cells: name + a new extract of another

@@ -143,7 +143,10 @@ def test_suitability_ok_when_all_roles_present(main_window):
 
 def _dock(main_window, tmp_path):
     cfg_dict = {
-        "cells": {},
+        # У3.5: the entity's `cell:` is a REFERENCE a format-3 load resolves;
+        # the cell it names must exist in the graph (under format 2 there is no
+        # such check). Source, not a pin.
+        "cells": {"c_pif": {"components": [{"role": "R1"}]}},
         "entities": [
             {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
         ],
@@ -369,7 +372,9 @@ def test_instantiate_from_cell_requires_real_anchor(main_window, tmp_path,
     never opens, no node is added, nothing is staged."""
     import gui.docks.trees_dock as td_mod
     cfg_dict = {
-        "cells": {},
+        # У3.5: the entity names cell `c_pif`; a format-3 load resolves that
+        # reference, so the target must be present (source).
+        "cells": {"c_pif": {"components": [{"role": "R1"}]}},
         "entities": [
             {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
         ],
@@ -490,7 +495,10 @@ def test_instantiate_from_cell_new_cell_name_collision_warns_without_write(
     import gui.docks.trees_dock as td_mod
     from types import SimpleNamespace
     cfg_dict = {
-        "cells": {"pif_avdd": {"components": []}},   # the name already exists
+        # `pif_avdd` is the colliding name; `c_pif` is the cell the entity
+        # references (a format-3 load resolves it — source).
+        "cells": {"pif_avdd": {"components": []},
+                  "c_pif": {"components": [{"role": "R1"}]}},
         "entities": [
             {"name": "pif_p2v5_vcca", "cell": "c_pif", "cluster": "PIF_P2V5_VCCA"},
         ],

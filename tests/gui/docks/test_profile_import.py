@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from tests.fakes.format3 import without_identity
 
 import gui.docks.profile_import as profile_import_mod
 from gui.docks.profile_import import ProfileImportDialog, run_import_dialog
@@ -86,7 +87,11 @@ def test_import_dialog_multi_select_imports_all_checked(qapp, tmp_path, monkeypa
 
     data = _read(root)
     assert set(data["cells"]) == {"c1", "c2"}  # E1's cell c1 comes via closure
-    assert data["entities"] == [{"name": "E1", "cell": "c1", "nets": {"R1": "/N1"}}]
+    # У3.5: under format 3 the write stamps a uuid on the entity and a
+    # `cell_uuid` on the reference — the cell's subject is the import, not the
+    # identity, so compare without it (without_identity; no-op under format 2).
+    assert without_identity(data["entities"]) == [
+        {"name": "E1", "cell": "c1", "nets": {"R1": "/N1"}}]
     assert infos, "multi-import must report a summary"
     assert "E1" in infos[0] and "c2" in infos[0]
 

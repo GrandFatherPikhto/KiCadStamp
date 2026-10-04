@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QDialog, QTabWidget
 from gui.schema_model import SchematicComponent
 from kicadstamp.config import NetTrace
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from tests.fakes.format3 import without_identity
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.domain.board import Track
 from kicadstamp.domain.geometry import Vector2
@@ -282,7 +283,11 @@ def test_chain_saved_refreshes_config_tree_chains(real_main_window, tmp_path):
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
     assert root_item.childCount() == 0
 
-    _write(rules_file, {"chains": [{"net": "+3V3", "anchor_role": "FPGA"}]})
+    # У3.5: under format 3 a chain's identity is its NAME (the lift mints one
+    # for a nameless record). Give it the net as its name, so the tree labels it
+    # the same way on both formats (source).
+    _write(rules_file, {"chains": [
+        {"net": "+3V3", "name": "+3V3", "anchor_role": "FPGA"}]})
     real_main_window.chain_dock.saved.emit()
 
     root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
@@ -499,19 +504,35 @@ def test_tools_menu_delete_net_removes_selected_chain(real_main_window, tmp_path
     currently selected in the Config tree via delete_entry (timestamped
     backup)."""
     rules_file = tmp_path / "rules.sexp"
+    # У3.5: a chain's identity is its NAME under format 3 (minted by the lift
+    # for a nameless record); name each chain by its net and hand the SAME name
+    # to the delete so the selection and the record agree (source).
     _write(rules_file, {"chains": [
-        {"net": "+3V3", "anchor_ref": "U1", "spokes": []},
-        {"net": "GND", "anchor_ref": "U1", "spokes": []},
+        {"net": "+3V3", "name": "+3V3", "anchor_ref": "U1", "spokes": []},
+        {"net": "GND", "name": "GND", "anchor_ref": "U1", "spokes": []},
     ]})
     hub = real_main_window._dock_hub
     hub.config_tree_dock.set_root_file(rules_file)
-    hub.config_tree_dock.selected_chain = lambda: (rules_file, {"net": "+3V3", "anchor_ref": "U1", "spokes": []})
+    # У3.5 (class (в)): this cell drives the delete through the Config tree, not
+    # the RootMetadata dock, so nothing has set the ACTIVE GRAPH ROOT the
+    # format-3 writer stamp needs — set it to the profile being edited.
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(rules_file)
+    hub.config_tree_dock.selected_chain = lambda: (
+        rules_file,
+        {"net": "+3V3", "name": "+3V3", "anchor_ref": "U1", "spokes": []})
 
     real_main_window.delete_chain_action.trigger()
 
     data = sexp_to_dict(rules_file.read_text(encoding="utf-8"))
     assert [c["net"] for c in data["chains"]] == ["GND"]
-    assert len(list(tmp_path.glob("rules.sexp.bak.*"))) == 1
+    # У3.5: delete_entry ALWAYS takes its own timestamped backup. Under the
+    # format-3 gate the write takes one more (the on-disk file is not in the
+    # format about to be written, so write_config_file snapshots it too) — so
+    # exactly ONE backup under format 2, TWO under format 3.
+    from kicadstamp.config.format_version import current_format
+    expected_backups = 2 if current_format() >= 3 else 1
+    assert len(list(tmp_path.glob("rules.sexp.bak.*"))) == expected_backups
 
 
 def test_entity_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
@@ -1239,11 +1260,17 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     data = sexp_to_dict(root.read_text(encoding="utf-8"))
     entities = data.get("entities") or []
     ent = next(e for e in entities if e["name"] == "pif_avdd_channel_1")
-    assert ent == {"name": "pif_avdd_channel_1", "cell": "pif_avdd",
-                   "cluster": "PIF_AVDD", "sheet": "Channel_1"}
+    # У3.5: under format 3 the write stamps a uuid on the record and a
+    # `<field>_uuid` on each reference — the cell's SUBJECT is the addressing,
+    # not the identity, so compare the shape without it (without_identity; a
+    # no-op under format 2).
+    assert without_identity(ent) == {"name": "pif_avdd_channel_1",
+                                     "cell": "pif_avdd",
+                                     "cluster": "PIF_AVDD",
+                                     "sheet": "Channel_1"}
     # The generated cell survived the s-expr write; sexp normalizes the 0.0
     # offsets away, so only the role remains on the component.
-    assert (data.get("cells") or {}).get("pif_avdd") == {
+    assert without_identity((data.get("cells") or {}).get("pif_avdd")) == {
         "components": [{"role": "DAC"}]}
     # No tree / net_trace got written by this narrower flow.
     assert not (data.get("trees") or [])
@@ -1410,6 +1437,10 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
         "cells": {"dac_pif_avdd": {"components": [{"role": "DAC"}]}},
     })
     real_main_window.root_metadata_dock.set_root_file(root)
+    # У3.5: opening a format-2 profile under the gate LIFTS it on disk (writing
+    # the file + a `.bak`) — a separate, legitimate open-time write. The reuse
+    # itself must write nothing, so count backups BEFORE and compare AFTER.
+    backups_before = sorted(tmp_path.glob("root.sexp.bak*"))
     hub = real_main_window._dock_hub
     sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
     real_main_window.connection = SimpleNamespace(
@@ -1449,8 +1480,9 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
 
     hub.extract_cluster_from_selection()
 
-    # Nothing was written: no backup, and the on-disk entities: are unchanged.
-    assert list(tmp_path.glob("root.sexp.bak*")) == []
+    # Nothing was written by the REUSE: no NEW backup, and the on-disk
+    # entities: are unchanged.
+    assert sorted(tmp_path.glob("root.sexp.bak*")) == backups_before
     data = sexp_to_dict(root.read_text(encoding="utf-8"))
     assert len(data.get("entities") or []) == 1
     assert refresh_called
