@@ -36,9 +36,12 @@ def _write(path, data) -> None:
 from tests.fakes.explore_board import FakeExploreBoard as _FakeBoard  # noqa: E402
 
 
-def _make_cell_dock(main_window, tmp_path):
+def _make_cell_dock(main_window, tmp_path, extra_root=None):
     """Cell (ClonePlacement) mode, cell+cluster+sheet filled, Origin tab left
-    on the default Absolute XY with EMPTY X/Y (the exact live broken state)."""
+    on the default Absolute XY with EMPTY X/Y (the exact live broken state).
+
+    `extra_root` adds top-level keys to the Placer file (e.g. explicit
+    ``registry_path:``/``track_registry_path:``)."""
     cells = tmp_path / "cells.sexp"
     _write(cells, {"cells": {
         "pi_filter": {
@@ -48,7 +51,10 @@ def _make_cell_dock(main_window, tmp_path):
         }
     }})
     placer = tmp_path / "root.sexp"
-    _write(placer, {"clone_placements": [], "include": ["cells.sexp"]})
+    root_data = {"clone_placements": [], "include": ["cells.sexp"]}
+    if extra_root:
+        root_data.update(extra_root)
+    _write(placer, root_data)
     dock = PlacerDock(main_window)
     dock.set_root_path(placer)
     dock._selected_cell = "pi_filter"
@@ -455,3 +461,39 @@ def test_the_highlight_door_read_is_signed(
 
     dock._on_select_on_board()          # must not raise
     _pump(qapp, lambda: not connection.long_op_active)
+
+
+# ── Х4 (V6, У5.5): the dock forwards the EXPLICIT registry-path files ──────────
+
+def test_select_on_board_passes_the_explicit_registry_paths(
+        qapp, main_window, tmp_path, monkeypatch):
+    """Х4 (V6, У5.5): with explicit ``registry_path:``/``track_registry_path:``
+    in the profile, the dock must forward THOSE files to the resolver — the SAME
+    explicit-vs-default decision the on-disk lift and the apply use (У5.4 Н3,
+    ``registry_paths_for_config``). A private "ctx or default" guess would
+    resolve copper from files the apply never touches, so this dock would
+    highlight copper the apply does not manage."""
+    dock, _placer = _make_cell_dock(
+        main_window, tmp_path,
+        extra_root={"registry_path": "alt/via.registry.json",
+                    "track_registry_path": "alt/trk.registry.json"})
+    explicit_via = tmp_path / "alt" / "via.registry.json"
+    explicit_trk = tmp_path / "alt" / "trk.registry.json"
+    main_window.connection.board = _FakeBoard()
+
+    seen = []
+
+    def _fake(adapter, cfg, ctx, placement, **kwargs):
+        seen.append(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        "kicadstamp.placement.services.board_items_resolver.resolve_clone_board_items",
+        _fake)
+
+    dock._on_select_on_board()
+    _pump(qapp, lambda: not main_window.connection.long_op_active)
+
+    assert len(seen) == 1
+    assert seen[0]["registry_path"] == str(explicit_via)
+    assert seen[0]["track_registry_path"] == str(explicit_trk)

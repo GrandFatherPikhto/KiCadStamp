@@ -15,6 +15,8 @@ Covers (plan E4):
     never an exception;
   * find_live_copper writes nothing.
 """
+import pytest
+
 from pathlib import Path
 
 
@@ -349,23 +351,37 @@ def test_the_net_trace_key_has_one_builder_for_plan_and_search(tmp_path, format3
         "under the gate both key parts must be the record's uuid")
 
 
-def test_find_live_copper_finds_by_registry_when_the_anchor_does_not_resolve(tmp_path, format3):  # noqa: F811
+@pytest.mark.parametrize("kind", [VIA, TRACK])
+def test_find_live_copper_finds_by_registry_when_the_anchor_does_not_resolve(
+        tmp_path, format3, kind):  # noqa: F811
     """K11b (У5.5): format 3, the record is in the registry, and the anchor no
     longer resolves live — the plan cannot be built, so ONLY tier 1 (the
     registry) can answer. A search builder that left the key's template part on
     the record's NAME (the K11b mutant) would build a key the registry does not
-    hold and find NOTHING."""
+    hold and find NOTHING.
+
+    Parametrized over BOTH copper kinds (rule 35): find_live_copper composes one
+    key per kind, so a mutation that bypasses the shared ``net_trace_registry_key``
+    on EITHER branch must go red. The track-only cell let the VIA-branch bypass
+    (V1 of the U5.5 acceptance) survive."""
     nt = _net_trace()
     nt.name = "bridge"
     nt.uuid = "nt-uuid"
     live_track = _make_live_track(53, 54, 55, 56, "DAC_DB0", 0.2, uuid="stored-trk")
-    good = _adapter(52, 52, live_tracks=[live_track])
+    live_via = _make_live_via(57, 58, "DAC_DB0", 0.3, 0.6, uuid="stored-via")
+    stored = "stored-trk" if kind == TRACK else "stored-via"
+    good = _adapter(52, 52, live_tracks=[live_track], live_vias=[live_via])
     vreg, treg = _registries(good, tmp_path)
-    _, tracks = plan_net_traces(good, [nt])
-    treg.entries[tracks[0].registry_key] = treg._build_entry(tracks[0], "stored-trk")
+    planned_vias, planned_tracks = plan_net_traces(good, [nt])
+    if kind == VIA:
+        vreg.entries[planned_vias[0].registry_key] = vreg._build_entry(
+            planned_vias[0], stored)
+    else:
+        treg.entries[planned_tracks[0].registry_key] = treg._build_entry(
+            planned_tracks[0], stored)
 
     # The SAME board loses its anchor footprint: the plan now raises.
-    broken = _adapter(52, 52, live_tracks=[live_track])
+    broken = _adapter(52, 52, live_tracks=[live_track], live_vias=[live_via])
     broken.get_footprints.return_value = []
     broken.get_field_value.side_effect = lambda fp, name: None
 
@@ -373,5 +389,5 @@ def test_find_live_copper_finds_by_registry_when_the_anchor_does_not_resolve(tmp
 
     assert result.reason is not None, "an unresolvable anchor must be a reason"
     found = {p.live.uuid for p in result.pieces if p.live is not None}
-    assert found == {"stored-trk"}, "tier 1 (registry) must still find the copper"
+    assert found == {stored}, "tier 1 (registry) must still find the copper"
     assert result.found_by_registry == 1

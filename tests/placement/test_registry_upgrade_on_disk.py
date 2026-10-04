@@ -16,10 +16,13 @@ Two axes, one table each (rule 35):
   write; the working set stands the sweep down; both registry files are lifted;
   without the format-3 gate nothing is written at all.
 
-Imports go through ``kicadstamp.config`` first on purpose: importing
-``kicadstamp.registry`` as the FIRST module hits a pre-existing import cycle
-(registry -> placement.commands -> placement/__init__ -> executor -> registry),
-documented and unchanged since У5.3.
+This module imports ``kicadstamp.config`` first, which populates the module
+graph and would MASK a reintroduced ``registry -> placement.commands ->
+placement/__init__ -> executor -> registry`` cycle. U5.5 broke that cycle (the
+``ViaCommand``/``TrackCommand`` import moved under ``TYPE_CHECKING``);
+``test_kicadstamp_registry_imports_in_a_fresh_process`` below is the explicit
+witness that it stays broken — the rest of the suite imports config first and
+would never notice.
 """
 import json
 import logging
@@ -521,3 +524,34 @@ def test_registries_empty_for_does_not_raise_on_an_unlifted_registry(tmp_path, f
                          encoding="utf-8")
 
     assert registries_empty_for(str(config)) is False
+
+
+# ── V8 (У5.5): the import cycle stays broken in a FRESH process ──────────────
+
+def test_kicadstamp_registry_imports_in_a_fresh_process():
+    """V8 (У5.5): ``import kicadstamp.registry`` must succeed as the FIRST
+    import in a fresh interpreter. U5.5 broke the ``registry <-> placement.
+    executor`` cycle by moving ``ViaCommand``/``TrackCommand`` under
+    ``TYPE_CHECKING``, and NOTHING else checks it: pytest imports
+    ``kicadstamp.config`` first (this file, and the whole rig guard set), which
+    populates the module graph and MASKS a reintroduced cycle.
+
+    A copy of the fix reverted into ``registry.py`` makes a bare
+    ``python -c "import kicadstamp.registry"`` fail while the rest of the suite
+    stays green — this cell is the only witness."""
+    import os
+    import subprocess
+    import sys
+
+    from tests.paths import REPO_ROOT
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(REPO_ROOT), env.get("PYTHONPATH", "")) if part)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-c", "import kicadstamp.registry"],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60, env=env)
+    assert proc.returncode == 0, (
+        "a fresh `import kicadstamp.registry` failed — the registry <-> "
+        "placement import cycle is back:\n" + proc.stderr)

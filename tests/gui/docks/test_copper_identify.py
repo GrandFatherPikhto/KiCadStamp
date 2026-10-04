@@ -335,3 +335,52 @@ def test_format3_geometry_identity_shows_the_record_name(format3):  # noqa: F811
 
     assert result.identified == {"bridge": 2}
     assert "nt-uuid" not in result.identified
+
+
+# ── Х3 (V5, У5.5): the read-only registries read the EXPLICIT path files ──────
+
+def test_readonly_registries_read_the_explicit_paths(tmp_path):
+    """Х3 (V5, У5.5): with explicit ``registry_path:``/``track_registry_path:``,
+    the dock's read-only registries are THOSE files — the SAME explicit-vs-default
+    decision the on-disk lift and the apply use (У5.4 Н3). A private default-path
+    guess would read files the apply never touches (and highlight copper the
+    apply does not manage).
+
+    Both files hold DIFFERENT keys, so a default-path reader answers with the
+    WRONG entries, not merely with none."""
+    from gui.docks.copper_select import _readonly_registries
+    from kicadstamp.registry import (RegistryEntry, TrackRegistryEntry,
+                                     save_registry, save_track_registry)
+
+    config = tmp_path / "root.sexp"
+    config.write_text(dict_to_sexp({
+        "registry_path": "alt/via.registry.json",
+        "track_registry_path": "alt/trk.registry.json"}), encoding="utf-8")
+
+    explicit_key = "net:explicit|explicit|__spoke__|0"
+    default_key = "net:default|default|__spoke__|0"
+    save_registry(str(tmp_path / "alt" / "via.registry.json"),
+                  {explicit_key: RegistryEntry(
+                      uuid="explicit-via", x_mm=1.0, y_mm=2.0, net="N",
+                      drill_mm=0.3, diameter_mm=0.6)})
+    save_track_registry(str(tmp_path / "alt" / "trk.registry.json"),
+                        {explicit_key: TrackRegistryEntry(
+                            uuid="explicit-trk", start_x_mm=0.0, start_y_mm=0.0,
+                            end_x_mm=1.0, end_y_mm=0.0, width_mm=0.2, net="N",
+                            layer="F.Cu")})
+    save_registry(str(tmp_path / "registry" / "root.registry.json"),
+                  {default_key: RegistryEntry(
+                      uuid="default-via", x_mm=1.0, y_mm=2.0, net="N",
+                      drill_mm=0.3, diameter_mm=0.6)})
+    save_track_registry(str(tmp_path / "tracks" / "root.tracks.registry.json"),
+                        {default_key: TrackRegistryEntry(
+                            uuid="default-trk", start_x_mm=0.0, start_y_mm=0.0,
+                            end_x_mm=1.0, end_y_mm=0.0, width_mm=0.2, net="N",
+                            layer="F.Cu")})
+
+    via_reg, track_reg = _readonly_registries(MagicMock(), str(config))
+
+    assert set(via_reg.entries) == {explicit_key}
+    assert set(track_reg.entries) == {explicit_key}
+    assert default_key not in via_reg.entries
+    assert default_key not in track_reg.entries
