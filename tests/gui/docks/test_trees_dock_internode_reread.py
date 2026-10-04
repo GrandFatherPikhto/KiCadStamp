@@ -20,12 +20,26 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from kicadstamp.config import Config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import BoardLayer, Footprint, Track
 from kicadstamp.internode_capture import apply_reread_plan, plan_internode_reread
 
 from gui.docks.trees_dock import _STALE_NET_TRACE_TAG, TreesDock
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """This file's DATA is a format-2 config graph (trees + the records they
+    reference), built as dict literals and written by ``dict_to_sexp`` — a
+    format-2 shape. Pinned to format 2 (У3.5 К3; Денис 04.10: pin allowed for
+    files whose DATA is a format-2 graph). A cell that requests `format3` still
+    wins."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────

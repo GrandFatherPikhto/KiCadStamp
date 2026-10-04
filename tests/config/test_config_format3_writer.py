@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from kicadstamp.config import format_version
 from kicadstamp.config import load_config
 from kicadstamp.config import loader as _loader
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -268,7 +269,10 @@ def test_copy_inside_the_graph_gets_a_new_uuid(format3, active_root, tmp_path):
 
 # ── the gate: CURRENT_FORMAT = 2 (no fixture) leaves bytes unchanged ───────
 
-def test_gate_current_format_2_leaves_bytes_unchanged(tmp_path):
+def test_gate_current_format_2_leaves_bytes_unchanged(monkeypatch, tmp_path):
+    # Gate cell (У3.5 К3): its SUBJECT is the format-2 write, so it pins the
+    # constant (a cell that needs format 3 requests the `format3` fixture).
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     set_active_graph_root(None)
     root = tmp_path / "r.sexp"
     root.write_text(dict_to_sexp({"cells": {"cap": {}}}), encoding="utf-8")

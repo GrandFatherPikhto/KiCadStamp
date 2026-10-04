@@ -10,6 +10,7 @@ planned vias to the keepout as circular obstacles
 (kicadstamp/placement/services/via_planner.py:_build_keepout).
 """
 
+import pytest
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2, Angle
 from kipy.board_types import Pad
@@ -20,6 +21,21 @@ from kicadstamp.placement.services.via_planner import ViaPlanner
 
 MM = 1_000_000
 
+
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 def _make_thermal_pad(number="1", x_mm=0.0, y_mm=0.0, size_mm=4.0):
     """Pad with a size_mm x size_mm copper layer centred at (x_mm, y_mm),

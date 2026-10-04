@@ -35,6 +35,21 @@ from gui.docks.trees_dock import (
 
 from tests.fakes.write_later import write_later
 
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """This file's DATA is a format-2 config graph: a bare ``trees:`` section
+    whose node refs point at records the config does NOT contain (see
+    GRAMMAR_TREES / SAVE_TREES). Under format 3 every such ref must carry its
+    target's UUID (plan §4 У2.2), which this data cannot express without adding
+    records the cells deliberately do not have — so the file is pinned to
+    format 2 (У3.5 К3; Денис 04.10: pin allowed for files whose DATA is a
+    format-2 graph). A cell that requests the ``format3`` fixture still wins:
+    that fixture's monkeypatch is applied after this autouse one."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
 # _pump: "Reread current position" now resolves the node on a worker under
 # start_long_op (plan_2026_09_12_ui_thread_board_reads Э1), so the tests below
 # drive the event loop until the operation's token is released before they

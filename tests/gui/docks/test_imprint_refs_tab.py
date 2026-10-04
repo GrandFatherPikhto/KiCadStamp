@@ -42,6 +42,21 @@ from kicadstamp.utils.paths import overrides_path_for_config
 UUID = {"BZ1": "uuid-BZ1", "Q1": "uuid-Q1", "R6": "uuid-R6", "D6": "uuid-D6"}
 
 
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
 class _AdapterSpy:
     """Any attribute access is a FAILURE — guard С12. The tab is handed a live
     -looking connection with this adapter behind it; if any code path ever

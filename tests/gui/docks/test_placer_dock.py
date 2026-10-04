@@ -10,6 +10,7 @@ pipeline, see test_redraw_preserves_other_placements_for_registry_safety).
 Actually invoking the real pipeline against a live board is left to
 manual verification against KiCad, same as every other dock this session.
 """
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -29,6 +30,21 @@ from kicadstamp.exceptions import ValidationError
 from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  # noqa: E402
 from tests.fakes.planner import FakePlanner  # noqa: E402
 
+
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data), encoding="utf-8")

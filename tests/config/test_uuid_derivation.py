@@ -21,6 +21,7 @@ import copy
 
 import pytest
 
+from kicadstamp.config import format_version
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.config.sheet_templates import expand_sheet_templates
@@ -144,7 +145,9 @@ def test_tree_instance_net_trace_copy_uuid_and_node_ref(format3):
 
 # ── 6. format < 3: the product path is untouched ────────────────────────────
 
-def test_tree_instance_copy_keeps_the_original_uuid_without_the_gate():
+def test_tree_instance_copy_keeps_the_original_uuid_without_the_gate(monkeypatch):
+    # Gate cell (У3.5 К3): subject is the FORMAT-2 branch (no gate), so it pins.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     # A format-2 template node carries no ref_uuid at all (trees get no UUIDs in
     # this step), so the no-gate branch is exercised on a node WITHOUT one.
     data = _ti_data([{"template": "tpl", "name": "a", "sheet": "S1"}],
@@ -188,7 +191,9 @@ def test_sheet_template_uuid_is_deterministic(format3):
     assert one["clone_placements"][0]["uuid"] == two["clone_placements"][0]["uuid"]
 
 
-def test_sheet_template_copy_has_no_uuid_without_the_gate():
+def test_sheet_template_copy_has_no_uuid_without_the_gate(monkeypatch):
+    # Gate cell (У3.5 К3): subject is the FORMAT-2 branch (no gate), so it pins.
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     out = expand_sheet_templates(_st_data(["S1", "S2"]))
     assert all("uuid" not in cp for cp in out["clone_placements"])
 

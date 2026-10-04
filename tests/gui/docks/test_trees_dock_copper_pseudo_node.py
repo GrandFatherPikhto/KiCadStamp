@@ -23,6 +23,7 @@ What is pinned down here, per Т1.1-Т1.4:
   * the VIEW never touches the DATA: the tree serializes byte-identically before
     and after a render.
 """
+import pytest
 from types import SimpleNamespace
 
 
@@ -37,6 +38,19 @@ from gui import settings
 from gui.docks.trees_dock import TreesDock
 
 from tests.fakes.write_later import write_later
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """This file's DATA is a format-2 config graph (a bare `trees:` section whose
+    node refs may name records the config does not carry). Format 3 requires every
+    ref to have a target UUID (plan §4 У2.2), which this data cannot express — so
+    the file is pinned to format 2 (У3.5 К3; Денис 04.10: pin allowed for files
+    whose DATA is a format-2 graph, trees GUI and similar). A cell that requests
+    `format3` still wins (its monkeypatch is applied later)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 # Т1.1: copper refs that are LEXICOGRAPHICALLY FIRST (digits sort before
 # letters) — Denis' own profile shape, and the case that made the redraw-order

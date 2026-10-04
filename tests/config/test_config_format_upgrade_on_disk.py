@@ -52,6 +52,20 @@ from tests.paths import FIXTURES_DIR
 FIXTURES = FIXTURES_DIR
 
 
+@pytest.fixture
+def pin_format2(monkeypatch):
+    """Pin this build to format 2 for ONE cell whose SUBJECT is the format-2
+    lift/write (У3.5 К3; pin is allowed for a cell whose subject IS format 2).
+
+    Patches BOTH the product constant (read at call time by the sweep/writer) and
+    this module's from-imported ``CURRENT_FORMAT`` name, so the cell's own
+    ``dict_to_sexp(...)`` expectations and ``read_version(...) == CURRENT_FORMAT``
+    checks stay self-consistent."""
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 2)
+    monkeypatch.setattr(sys.modules[__name__], "CURRENT_FORMAT", 2)
+    return 2
+
+
 @pytest.fixture(autouse=True)
 def _isolate_working_set():
     """Same isolation as tests/test_config_working_set.py: the working set is a
@@ -89,7 +103,7 @@ def _sexp_graph(tmp_path: Path) -> tuple[Path, Path]:
 
 # ── the lift itself ────────────────────────────────────────────────────────
 
-def test_the_whole_graph_is_lifted_and_the_old_bytes_are_kept(tmp_path):
+def test_the_whole_graph_is_lifted_and_the_old_bytes_are_kept(tmp_path, pin_format2):
     root, sub = _sexp_graph(tmp_path)
     old_root = root.read_text(encoding="utf-8")
     old_sub = sub.read_text(encoding="utf-8")
@@ -184,7 +198,7 @@ def test_a_diamond_lifts_the_shared_file_and_its_backup_once(tmp_path):
 
 # ── quiet paths: nothing to do, and nothing done ───────────────────────────
 
-def test_an_already_current_graph_is_not_touched_at_all(tmp_path):
+def test_an_already_current_graph_is_not_touched_at_all(tmp_path, pin_format2):
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp({"cells": {"c1": {}}}), encoding="utf-8")
     text = root.read_text(encoding="utf-8")
@@ -234,7 +248,7 @@ def test_a_repeat_open_writes_nothing_and_parses_nothing_for_the_number(tmp_path
 # ── У2: the check before the write is by MEANING ───────────────────────────
 
 def test_an_explicit_default_value_is_dropped_by_the_rebuild_and_still_lifts(tmp_path, caplog,
-                                                                            records_from):
+                                                                            records_from, pin_format2):
     """У2 with teeth, and the reason this cell exists.
 
     `Cell.layer` defaults to `'F.Cu'` and the writer DROPS a field equal to its
@@ -432,7 +446,7 @@ def test_a_write_that_fails_after_a_good_backup_is_logged_and_the_load_goes_on(
 
 # ── У3: the GUI working set decides ────────────────────────────────────────
 
-def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypatch):
+def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypatch, pin_format2):
     """У3: `load_config` is called with the working set DIRTY by the flush itself
     (step 1 validates the staged graph). Lifting the disk file there would write a
     state the user has not saved — so the sweep stands down and the Save lifts the

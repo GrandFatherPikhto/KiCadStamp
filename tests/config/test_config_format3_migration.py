@@ -434,7 +434,10 @@ def test_the_step_is_registered_as_the_2_to_3_converter():
     assert fv.STEPS[2] is fv._step_2_to_3
 
 
-def test_the_product_lifts_nothing_while_current_format_is_2():
+def test_the_product_lifts_nothing_while_current_format_is_2(monkeypatch):
+    # The cell's SUBJECT is the format-2 gate itself (У3.5 К3), so it pins the
+    # constant it asserts — not the ambient value.
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 2)
     assert fv.CURRENT_FORMAT == 2
     data = {"entities": [{"name": "E", "cell": "c"}]}
     before = copy.deepcopy(data)

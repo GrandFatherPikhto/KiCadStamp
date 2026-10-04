@@ -24,6 +24,7 @@ seam itself (`_resolve_live_offset` / `_anchor_base_live_position` /
 records the token's state at the moment it is entered — so every "does not
 touch the board" test fails on the pre-2026-09-12 code for the right reason.
 """
+import pytest
 import logging
 import threading
 
@@ -46,6 +47,21 @@ BRANCH_TREES = {"trees": [
     {"name": "power_tree", "anchor": {"ref": "U1"},
      "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [1.0, 2.0]}]}]}
 
+
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 def _dock_with(main_window, tmp_path, trees=None):
     """A TreesDock pointed at a throwaway root config carrying `trees` — the

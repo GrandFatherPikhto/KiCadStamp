@@ -43,6 +43,21 @@ from kicadstamp.config.sexp_format import _strip_defaults, dict_to_sexp, sexp_to
 from kicadstamp.exceptions import ValidationError
 
 
+@pytest.fixture
+def pin_format2(monkeypatch):
+    """Pin this build to format 2 for ONE cell whose SUBJECT is the format-2
+    write or the number converter (У3.5 К3; pin is allowed for a cell whose
+    subject IS format 2).
+
+    Patches BOTH the product constant (read at call time by the writer and the
+    converters) AND this module's from-imported ``CURRENT_FORMAT`` name: a
+    ``from … import CURRENT_FORMAT`` froze the number at import time, so patching
+    only ``fv`` would leave the cell's own expected strings at the import value."""
+    monkeypatch.setattr(fv, "CURRENT_FORMAT", 2)
+    monkeypatch.setattr(sys.modules[__name__], "CURRENT_FORMAT", 2)
+    return 2
+
+
 def _wrap(body: str) -> str:
     return "(kicadstamp-config\n" + body + ")\n"
 
@@ -833,7 +848,7 @@ def test_write_config_file_can_be_asked_for_the_copy_always(tmp_path):
     assert baks[0].read_text(encoding="utf-8") == original
 
 
-def test_write_config_file_writes_json_with_the_number_first(tmp_path):
+def test_write_config_file_writes_json_with_the_number_first(tmp_path, pin_format2):
     """The JSON rule of Т3, read back by the product's OWN reader: the number
     goes in first and comes out on read, so both formats behave alike."""
     from kicadstamp.config_writer import read_data, write_config_file
@@ -1072,7 +1087,7 @@ def _legacy_rules_file(tmp_path, name):
     return p
 
 
-def test_the_rule_to_chain_converter_keeps_the_number_it_read(tmp_path):
+def test_the_rule_to_chain_converter_keeps_the_number_it_read(tmp_path, pin_format2):
     from tools.convert_rules_to_chains import convert_file
 
     p = _legacy_rules_file(tmp_path, "old.sexp")
@@ -1089,7 +1104,7 @@ def test_the_rule_to_chain_converter_keeps_the_number_it_read(tmp_path):
     assert f"(version {CURRENT_FORMAT})" not in text
 
 
-def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path):
+def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path, pin_format2):
     from tools.convert_rules_to_chains import convert_file
 
     p = _legacy_rules_file(tmp_path, "cur.sexp")                   # current format
@@ -1101,7 +1116,7 @@ def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path):
     assert "(version 1)" not in text
 
 
-def test_the_rule_to_chain_converter_keeps_a_current_json_number(tmp_path):
+def test_the_rule_to_chain_converter_keeps_a_current_json_number(tmp_path, pin_format2):
     """Y6: the JSON branch of the SAME converter. Every converter cell above is
     on `.sexp`, so writing a literal `version = 1` instead of the number read
     survived all of them — while in the field it stamps `"version": 1` over a

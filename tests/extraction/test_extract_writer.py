@@ -10,6 +10,7 @@ gui.docks.extract.extract_template_from_selection.
 
 2026-08-28, core_yaml_removal: the write helpers (merge_write/add_list_entry/
 non_includable_keys) dispatch on file extension and YAML support was removed
+import pytest
 from the config graph — the targets are .sexp now (the project's main format),
 read back via sexp_to_dict + a small Cell-default fill (the s-expr writer omits
 default-valued record fields, e.g. layer='F.Cu' and empty vias/components/
@@ -18,10 +19,27 @@ identical to the old yaml.safe_load reads)."""
 import json
 from pathlib import Path
 
+import pytest
+
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import PlacerError
 from kicadstamp.extract_writer import run_extract_to_file
 
+
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 def _fill_cell_defaults(data: dict) -> dict:
     """s-expr omits default-valued record fields (design grammar §3.1); the

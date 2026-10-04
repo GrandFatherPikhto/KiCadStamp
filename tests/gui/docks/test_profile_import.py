@@ -4,6 +4,7 @@ copy_cell_entity_from_profile) — the picker dialog in gui/docks/profile_import
 Modal QMessageBox dialogs are monkeypatched away so the tests cannot block; the
 actual copy + collision logic itself is covered thoroughly (and headlessly) by
 tests/test_profile_copy.py."""
+import pytest
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -14,6 +15,21 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 import gui.docks.profile_import as profile_import_mod
 from gui.docks.profile_import import ProfileImportDialog, run_import_dialog
 
+
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
 
 def _write_sexp(path: Path, data: dict) -> Path:
     path.write_text(dict_to_sexp(data), encoding="utf-8")

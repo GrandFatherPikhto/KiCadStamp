@@ -54,6 +54,21 @@ for _i in range(8):
     _BODY.append((str(25 + _i), _x, -2.45, 0.300, 0.850, 0.0))
 
 
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
 class _FakeBoard:
     """The smallest adapter the real ViaPlanner needs — and a faithful KiCad:
     pads are posed from their local geometry, so a rotated footprint really

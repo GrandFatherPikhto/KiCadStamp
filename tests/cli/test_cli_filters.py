@@ -22,6 +22,21 @@ from kicadstamp.exceptions import PlacerError, ValidationError
 logger = logging.getLogger("test_cli_filters")
 
 
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_format_2(monkeypatch):
+    """The fixtures of this module are a FORMAT-2 config graph (dict literals
+    written with ``dict_to_sexp`` and loaded back). Format 3 requires every
+    record and every reference to carry a UUID (plan §1/§4 У2.2), which those
+    fixtures do not; so the module is pinned to format 2 — У3.5 К3, Денис
+    04.10: pin is allowed for files whose DATA is a format-2 graph. A cell that
+    requests the ``format3`` fixture still wins (its monkeypatch is applied
+    after this autouse one)."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+
 def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
     return Config(chains=rules or [], clone_placements=clone_placements or [],
                   thermal_via_arrays=thermal_via_arrays or [],
