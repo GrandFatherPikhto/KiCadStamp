@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-05 14:03+0300\n"
+"POT-Creation-Date: 2026-10-05 14:22+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -9441,30 +9441,35 @@ msgstr ""
 "unrecognised keys are silently ignored – common source of quiet "
 "bugs{extra}: {problems}"
 
-#: kicadstamp/explode.py:410
+#: kicadstamp/explode.py:468
 #, fuzzy
 msgid "(via)"
 msgstr "Via"
 
-#: kicadstamp/explode.py:424
+#: kicadstamp/explode.py:482
 #, fuzzy
 msgid "net_traces anchor"
 msgstr "Set anchor"
 
-#: kicadstamp/explode.py:492
+#: kicadstamp/explode.py:564
 #, python-brace-format
 msgid "no instance of {cell} on the board for {where}"
 msgstr ""
 
-#: kicadstamp/explode.py:508
+#: kicadstamp/explode.py:580
 #, python-brace-format
 msgid "the instance of {cell} has no measurable frame"
 msgstr ""
 
-#: kicadstamp/explode.py:599
+#: kicadstamp/explode.py:665
+#, python-brace-format
+msgid "T-branch: the cell's inner part ({pads}) leaves with the foreign cluster"
+msgstr ""
+
+#: kicadstamp/explode.py:670
 #, python-brace-format
 msgid ""
-"tee piece {uuid} touches several clusters — it moves with the first; "
+"piece {uuid} touches several foreign clusters — it moves with the first; "
 "check by hand"
 msgstr ""
 
@@ -21839,5 +21844,11 @@ msgstr "Total spokes: {count}"
 #~ msgstr ""
 
 #~ msgid "subtracted from selection: {vias} via(s), {tracks} track(s) — {records}"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "tee piece {uuid} touches several "
+#~ "clusters — it moves with the "
+#~ "first; check by hand"
 #~ msgstr ""
 

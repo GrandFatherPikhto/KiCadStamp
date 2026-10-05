@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-05 14:03+0300\n"
+"POT-Creation-Date: 2026-10-05 14:22+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -9928,31 +9928,36 @@ msgstr ""
 "нераспознанные ключи молча игнорируются — частый источник тихих "
 "багов{extra}: {problems}"
 
-#: kicadstamp/explode.py:410
+#: kicadstamp/explode.py:468
 msgid "(via)"
 msgstr "(переходное)"
 
-#: kicadstamp/explode.py:424
+#: kicadstamp/explode.py:482
 msgid "net_traces anchor"
 msgstr "якорь net_traces"
 
-#: kicadstamp/explode.py:492
+#: kicadstamp/explode.py:564
 #, python-brace-format
 msgid "no instance of {cell} on the board for {where}"
 msgstr "на плате нет экземпляра {cell} для {where}"
 
-#: kicadstamp/explode.py:508
+#: kicadstamp/explode.py:580
 #, python-brace-format
 msgid "the instance of {cell} has no measurable frame"
 msgstr "у экземпляра {cell} нет измеримой рамки"
 
-#: kicadstamp/explode.py:599
+#: kicadstamp/explode.py:665
+#, python-brace-format
+msgid "T-branch: the cell's inner part ({pads}) leaves with the foreign cluster"
+msgstr "Т-ответвление: внутренняя часть ячейки ({pads}) уедет вместе с ним"
+
+#: kicadstamp/explode.py:670
 #, python-brace-format
 msgid ""
-"tee piece {uuid} touches several clusters — it moves with the first; check "
-"by hand"
+"piece {uuid} touches several foreign clusters — it moves with the first; "
+"check by hand"
 msgstr ""
-"кусок-тройник {uuid} касается нескольких кластеров — едет с первым; проверь "
+"кусок {uuid} касается нескольких чужих кластеров — едет с первым; проверь "
 "руками"
 
 #: kicadstamp/explode_cli.py:67

@@ -117,12 +117,8 @@ ROWS = [
      "                track_same.setdefault(gkey(point), []).append(i)  # MUTATION",
      "die", G, ()),
     ("X12 a T-piece is classified as cell", EXPLODE,
-     "    foreign = {c for c in classes if c != \"cell\"}\n"
-     "    if \"cell\" in classes:\n"
-     "        return \"tee\"          # cell pads on both sides AND a foreign pad",
-     "    foreign = {c for c in classes if c != \"cell\"}\n"
-     "    if \"cell\" in classes:\n"
-     "        return \"cell\"  # MUTATION",
+     "    if len(cell) >= 2:\n        return \"tee\"",
+     "    if len(cell) >= 2:\n        return \"cell\"  # MUTATION",
      "die", G, ()),
     ("X13 an unticked table piece travels anyway", EXPLODE,
      "        if piece.ticked:\n            if piece.touches in vector_by_label:",
@@ -132,9 +128,32 @@ ROWS = [
      "        t = max(0.0, min(ts)) if ts else 0.0",
      "        t = 0.0  # MUTATION",
      "die", G, ()),
-    ("X15 a cell piece is ticked by default", EXPLODE,
-     "            ticked = touches not in _UNTOUCHED",
-     "            ticked = True  # MUTATION",
+    ("X15 a net_traces cell piece is not marked inter-cluster", EXPLODE,
+     "            if touches == \"cell\":",
+     "            if False:  # MUTATION",
+     "die", G, ()),
+    ("X16 tee at ONE cell pad", EXPLODE,
+     "    if len(cell) >= 2:\n        return \"tee\"",
+     "    if len(cell) >= 1:  # MUTATION\n        return \"tee\"",
+     "die", G, ()),
+    ("X17 tee without a warning", EXPLODE,
+     "        if piece.touches == \"tee\":\n"
+     "            warnings.append(_(\n"
+     "                \"T-branch: the cell's inner part ({pads}) leaves with the \"\n"
+     "                \"foreign cluster\").format(\n"
+     "                    pads=_cell_pads_text(classes, piece.item)))",
+     "        if piece.touches == \"tee\":\n"
+     "            pass  # MUTATION",
+     "die", G, ()),
+    ("X18 multi merged into tee", EXPLODE,
+     "    if len(foreign) >= 2:\n        return \"multi\"",
+     "    if len(foreign) >= 2:  # MUTATION\n        return \"tee\"",
+     "die", G, ()),
+    ("X19 record identity instead of cell identity", EXPLODE,
+     "        if any(_address_is(addr, inst_key) for addr in addresses.values()):\n"
+     "            out.append((cell_identity(cell_name, cell), addresses))",
+     "        if any(_address_is(addr, inst_key) for addr in addresses.values()):\n"
+     "            out.append((next(iter(addresses)), addresses))  # MUTATION",
      "die", G, ()),
     ("K1 cosmetic comment (control)", EXPLODE,
      "def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,",

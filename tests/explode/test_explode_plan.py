@@ -12,7 +12,7 @@ import pytest
 from types import SimpleNamespace
 
 from kicadstamp.domain.geometry import Box2, Vector2
-from kicadstamp.registry import make_registry_key, record_key_part
+from kicadstamp.registry import make_registry_key
 from kicadstamp import explode as explode_mod
 
 from tests.explode.board import ExplodeBoard, fp, via, track, pad, F_CU, B_CU
@@ -61,10 +61,14 @@ def _scenario(monkeypatch, *, owner=None, net_pieces=None):
         cells={"dac_buf": SimpleNamespace(uuid="cu"),
                "pif_cell": SimpleNamespace(uuid="pu")},
         entities=[cell_entry, pif_entry], clone_placements=[],
-        net_traces=[_nt("rec")])
+        # anchor_cluster matching the CELL instance so the Р1а-4 pre-filter keeps
+        # this record (a record with no address falls to the anchor resolve).
+        net_traces=[_nt("rec", anchor_cluster="CELL")])
 
-    # t1's key names the PIF instance's cell as its OWN (anchor:C1).
-    pif_identity = record_key_part("pe", "peu")
+    # t1's key names the PIF instance's cell as its OWN (anchor:C1). The key's
+    # TEMPLATE part is the CELL identity, built by the SAME helper the plan and
+    # the real redraw use (Р1а-3) — never by hand.
+    pif_identity = explode_mod.cell_identity("pif_cell", cfg.cells["pif_cell"])
     own_key = make_registry_key("anchor:C1", pif_identity, None, 0)
     owner = {} if owner is None else dict(owner)
     owner.setdefault("t1", own_key)
@@ -121,7 +125,9 @@ def test_instance_copper_via_registry_and_unregistered(monkeypatch):
 def test_cell_copper_never_leaves(monkeypatch):
     board, cfg = _scenario(monkeypatch)
     # A track recorded for the CELL cell at this instance is NOT foreign.
-    cell_key = make_registry_key("anchor:U1", record_key_part("ce", "ceu"), None, 0)
+    cell_key = make_registry_key(
+        "anchor:U1",
+        explode_mod.cell_identity("dac_buf", cfg.cells["dac_buf"]), None, 0)
     board, cfg = _scenario(monkeypatch, owner={"ct": cell_key})
     from tests.explode.board import track as _t
     board._tracks.append(_t("ct", F_CU, 0.0, 0.0, 0.4, 0.0))
@@ -135,7 +141,7 @@ def test_table_classifies_cell_and_foreign_and_ticks(monkeypatch):
     board, cfg = _scenario(monkeypatch)
     plan = _plan(board, cfg)
     rows = {r.uuid: r for r in plan.table}
-    assert rows["nt1"].touches == "cell" and rows["nt1"].ticked is False
+    assert rows["nt1"].touches == "cell (via)" and rows["nt1"].ticked is True
     assert rows["nt2"].touches == "PIF" and rows["nt2"].ticked is True
     moved = {mv.uuid for mv in plan.moves}
     assert "nt2" in moved                        # a ticked piece travels
@@ -151,18 +157,56 @@ def test_tick_overrides_change_the_default(monkeypatch):
     assert rows["nt1"].ticked is True
 
 
-def test_tee_when_a_piece_touches_cell_and_foreign(monkeypatch):
+def test_ordinary_intercluster_piece_is_foreign_not_tee(monkeypatch):
+    """Р1а-1 (D23-like): ONE cell pad + ONE foreign pad is the FOREIGN label and
+    a normal tick — NOT tee, and NO tee warning."""
     board, cfg = _scenario(monkeypatch)
-    # nt3 spans the CELL pad and the PIF pad in ONE component.
     from tests.explode.board import track as _t
-    nt3 = _t("nt3", F_CU, 0.0, 0.0, 3.0, 0.0)
-    board._tracks.append(nt3)
+    nt5 = _t("nt5", F_CU, 0.0, 0.0, 3.0, 0.0)   # U1.1 -> PIF pad
+    board._tracks.append(nt5)
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt5)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt5")
+    assert row.touches == "PIF" and row.ticked is True
+    assert not any("T-branch" in w for w in plan.warnings)
+
+
+def test_tee_is_two_cell_pads_plus_foreign(monkeypatch):
+    """Р1а-1: a component joining TWO DIFFERENT cell pads AND a foreign pad is
+    the dangerous tee — the cell's inner piece leaves with the foreign cluster."""
+    board, cfg = _scenario(monkeypatch)
+    from tests.explode.board import pad as _pad, track as _t
+    board._pads["c1"] = [_pad("1", 0.0, 0.0), _pad("2", 1.0, 0.0)]
+    nt4 = _t("nt4", F_CU, 0.0, 0.0, 1.0, 0.0)   # U1.1 -> U1.2 (inner)
+    nt3 = _t("nt3", F_CU, 1.0, 0.0, 3.0, 0.0)   # U1.2 -> PIF pad
+    board._tracks += [nt4, nt3]
     monkeypatch.setattr(explode_mod, "find_live_copper",
                         lambda *a, **k: SimpleNamespace(
                             pieces=[SimpleNamespace(live=nt3)], reason=None))
     plan = _plan(board, cfg)
     row = next(r for r in plan.table if r.uuid == "nt3")
     assert row.touches == "tee" and row.ticked is True
+    assert any("T-branch" in w for w in plan.warnings)
+
+
+def test_multi_is_several_foreign_clusters(monkeypatch):
+    """Р1а-1/2: two foreign instances at once — `multi`, with its own warning."""
+    board, cfg = _scenario(monkeypatch)
+    from tests.explode.board import fp as _fp, pad as _pad, track as _t
+    far = _fp("p3", "C3", "PIF2", 4.0, 0.0, role="C")
+    board._fps.append(far)
+    board._pads["p3"] = [_pad("1", 4.0, 0.0)]
+    nt6 = _t("nt6", F_CU, 3.0, 0.0, 4.0, 0.0)   # PIF pad -> PIF2 pad
+    board._tracks.append(nt6)
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt6)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt6")
+    assert row.touches == "multi" and row.ticked is True
+    assert any("several foreign" in w for w in plan.warnings)
 
 
 # ── pad layers (Ответ Демону) ───────────────────────────────────────────────
@@ -203,7 +247,7 @@ def test_through_pad_connects_both_layers(monkeypatch):
     classes = explode_mod._copper_classes(
         board.get_tracks(), board.get_vias(),
         explode_mod._pad_areas(board, {"cell": [u1]}))
-    assert classes["ft"] == {"cell"} and classes["bt"] == {"cell"}
+    assert classes["ft"] == {"cell:U1:1"} and classes["bt"] == {"cell:U1:1"}
 
 
 # ── vectors ─────────────────────────────────────────────────────────────────

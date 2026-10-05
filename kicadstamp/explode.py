@@ -43,7 +43,7 @@ from .geometry.union_find import UnionFind
 from .i18n import _
 from .net_trace_planner import find_live_copper
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
-from .registry import load_registry_entries
+from .registry import load_registry_entries, record_key_part
 from .selection_narrowing import (
     FootprintInfo,
     cell_record_addresses,
@@ -270,15 +270,24 @@ def _ray(origin: tuple, target: tuple) -> tuple:
 # ── copper connectivity ─────────────────────────────────────────────────────
 
 def _pad_areas(adapter, class_fps: dict) -> list:
-    """[(PadArea, label, copper_layers)] over every pad of every class."""
+    """[(PadArea, label, copper_layers)] over every pad of every class.
+
+    A CELL pad gets its OWN label ``cell:<ref>:<pad>`` (Р1а-1), so a component
+    that touches TWO different cell pads is distinguishable from one that
+    touches a single pad — the basis of the ``tee`` rule. A foreign pad keeps its
+    ``<cluster>/<sheet>`` instance label."""
     out = []
     for label, fps in class_fps.items():
         for fp in fps:
+            ref = getattr(fp, "ref", None) or getattr(fp, "uuid", "?")
             for pad in adapter.get_footprint_pads(fp):
                 area = pad_area_of(pad)
-                if area is not None:
-                    out.append((area, label,
-                                getattr(pad, "copper_layers", None)))
+                if area is None:
+                    continue
+                pad_label = (f"cell:{ref}:{getattr(pad, 'number', '?')}"
+                             if label == "cell" else label)
+                out.append((area, pad_label,
+                            getattr(pad, "copper_layers", None)))
     return out
 
 
@@ -345,18 +354,44 @@ def _copper_classes(tracks, vias, pads) -> dict:
     return out
 
 
+def _cell_pads(classes: set) -> set:
+    """The CELL-pad labels of a component (``cell`` or ``cell:<ref>:<pad>``)."""
+    return {c for c in classes if c == "cell" or c.startswith("cell:")}
+
+
+def _foreign_labels(classes: set) -> set:
+    """The foreign-instance labels (``<cluster>/<sheet>``) of a component."""
+    return {c for c in classes
+            if not (c == "cell" or c.startswith("cell:"))}
+
+
 def _classify(classes: set) -> str:
-    """cell / <foreign> / none / tee."""
-    if not classes:
+    """cell / <cluster>/<sheet> / tee / multi / none (Р1а-1).
+
+    An ordinary inter-cluster track runs from ONE cell pad to ONE foreign pad
+    (D23 -> PIF): that is the FOREIGN label, NOT ``tee``. ``tee`` is the DANGEROUS
+    case the plan names: a component joining TWO DIFFERENT cell pads (the cell's
+    inner piece) AND a foreign pad — the inner piece would leave with the foreign
+    cluster. ``multi`` — several foreign instances without the tee condition —
+    is its own label so ``tee`` means one thing."""
+    cell = _cell_pads(classes)
+    foreign = _foreign_labels(classes)
+    if not cell and not foreign:
         return "none"
-    if classes == {"cell"}:
+    if not foreign:
         return "cell"
-    foreign = {c for c in classes if c != "cell"}
-    if "cell" in classes:
-        return "tee"          # cell pads on both sides AND a foreign pad
-    if len(foreign) == 1:
-        return next(iter(foreign))
-    return "tee"              # several foreign instances at once
+    if len(cell) >= 2:
+        return "tee"
+    if len(foreign) >= 2:
+        return "multi"
+    return next(iter(foreign))
+
+
+def _cell_pads_text(classes, item) -> str:
+    """The names of the cell pads a component touches, for the tee warning."""
+    labels = sorted(_cell_pads(classes.get(getattr(item, "uuid", None), set())))
+    names = [".".join(label.split(":")[1:]) for label in labels]
+    return " — ".join(names) if names else "?"
 
 
 # ── the plan ────────────────────────────────────────────────────────────────
@@ -370,11 +405,14 @@ def _info(adapter, fp, sheet_names) -> FootprintInfo:
 
 
 def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
-             track_entries, tick_overrides) -> list:
+             track_entries, tick_overrides, cell_address) -> list:
     """The inter-cluster table pieces (a flat tuple of rows), grouped by record.
 
-    A record participates when its anchor footprint is one of the instance's, or
-    a piece of it touches a cell pad. Its pieces come from the product's own
+    Р1а-4: a record is read ONLY when it can touch the cell — its anchor ADDRESS
+    (sheet/cluster) matches the cell instance, or (no address stored) its anchor
+    resolves onto the instance. Everything else (the other channels) is skipped
+    BEFORE find_live_copper, whose plan_net_traces otherwise logs half a dozen
+    INFO lines per record. Its pieces come from the product's own
     ``find_live_copper`` (never a second calculation)."""
 
     class _Reg:
@@ -384,6 +422,21 @@ def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
     vreg, treg = _Reg(via_entries), _Reg(track_entries)
     out = []
     for nt in getattr(cfg, "net_traces", ()) or ():
+        a_sheet = getattr(nt, "anchor_sheet", None)
+        a_cluster = getattr(nt, "anchor_cluster", None)
+        c_cluster, c_sheet = cell_address
+        if a_sheet is not None:
+            # A net_traces anchor is a FOREIGN component (its cluster is the
+            # PIF's, e.g. PIF_CLKVDD), so the SHEET is the discriminator: another
+            # channel's record is skipped WITHOUT resolving its anchor (Р1а-4).
+            if c_sheet is None or a_sheet != c_sheet:
+                continue
+        elif a_cluster is not None:
+            if c_cluster is None or not cluster_prefix_match(
+                    str(c_cluster), str(a_cluster)):
+                continue
+        elif not _anchor_on_instance(adapter, nt, sheet_names, instance_refs):
+            continue
         name = str(net_trace_effective_name(nt))
         try:
             live = find_live_copper(adapter, nt, via_registry=vreg,
@@ -393,12 +446,17 @@ def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
         pieces = [p.live for p in getattr(live, "pieces", ()) if p.live]
         if not pieces:
             continue
-        anchored = _anchor_on_instance(adapter, nt, sheet_names, instance_refs)
-        rows = [(item, _classify(classes.get(getattr(item, "uuid", None), set())))
-                for item in pieces]
-        if not (anchored or any(t in ("cell", "tee") for _i, t in rows)):
-            continue
-        for item, touches in rows:
+        for item in pieces:
+            touches = _classify(
+                classes.get(getattr(item, "uuid", None), set()))
+            if touches == "cell":
+                # A net_traces piece touching ONLY the cell (Р1а-5, live 05.10):
+                # the record's other copper (its via + the tracks beyond) is not
+                # matched live — another layer/zone — so the cell-side stub is
+                # all we see. It IS an inter-cluster piece: say so, and tick it
+                # like one. It touches no foreign pad, so it cannot ride with an
+                # instance and STAYS (never its own ray).
+                touches = "cell (via)"
             uuid = str(getattr(item, "uuid", ""))
             ticked = touches not in _UNTOUCHED
             if uuid in (tick_overrides or {}):
@@ -434,16 +492,29 @@ def _length_mm(item) -> float:
                       item.end.y - item.start.y) / MM
 
 
+def cell_identity(cell_name: str, cell) -> str:
+    """THE cell's registry identity (a registry key's TEMPLATE part) — the SAME
+    value the redraw writes: ``record_key_part(cell_name, cell.uuid)``
+    (clone_position_calculator / manual_position_calculator build every cell key
+    with it). ONE builder, so the plan and the redraw can never disagree."""
+    return record_key_part(cell_name, getattr(cell, "uuid", None))
+
+
 def _cell_pairs_for_instance(cfg, inst_key) -> list:
-    """[(identity, addresses)] for every cell the config places on the foreign
-    instance `inst_key` = (cluster, sheet)."""
+    """[(cell_identity, addresses)] for every CELL the config places on the
+    foreign instance `inst_key` = (cluster, sheet).
+
+    Р1а-3: the first element is the CELL identity (the key's TEMPLATE part), NOT
+    the identity of the record (entity/clone) — ``cell_record_addresses`` VALUES
+    are addresses, and ``is_own_key`` compares the key's template part against
+    the CELL identity. Passing the record identity made ``is_own_key`` always
+    False, so NO foreign-instance copper was ever found. The instance is chosen
+    by ADDRESS (any record of the cell stands on `inst_key`); one pair per cell."""
     out = []
-    for cell_name in (getattr(cfg, "cells", {}) or {}):
+    for cell_name, cell in (getattr(cfg, "cells", {}) or {}).items():
         addresses = cell_record_addresses(cfg, cell_name)
         if any(_address_is(addr, inst_key) for addr in addresses.values()):
-            for identity in addresses:
-                out.append((identity, addresses))
-                break
+            out.append((cell_identity(cell_name, cell), addresses))
     return out
 
 
@@ -469,8 +540,9 @@ def _append_move(moves: list, item, dx: int, dy: int) -> None:
 
 
 def _component_foreign_labels(classes, item, moving_labels) -> list:
-    classes = classes.get(getattr(item, "uuid", None), set())
-    return [c for c in classes if c != "cell" and c in moving_labels]
+    return [c for c in
+            _foreign_labels(classes.get(getattr(item, "uuid", None), set()))
+            if c in moving_labels]
 
 
 def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
@@ -558,10 +630,9 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
     moving_labels = {_cluster_label(*k): k for (k, _f, _b) in moving_groups}
     for item in unregistered:
         cl = classes.get(getattr(item, "uuid", None), set())
-        foreign = {c for c in cl if c != "cell"}
-        if "cell" in cl or len(foreign) != 1:
+        if _cell_pads(cl) or len(_foreign_labels(cl)) != 1:
             continue
-        label = next(iter(foreign))
+        label = next(iter(_foreign_labels(cl)))
         if label in moving_labels:
             moving_copper[moving_labels[label]].append(item)
 
@@ -583,28 +654,35 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
 
     # ── the inter-cluster table + its ticked movers ─────────────────────────
     table = _nt_rows(cfg, adapter, sheet_names, instance_refs, classes,
-                     via_entries, track_entries, tick_overrides or {})
+                     via_entries, track_entries, tick_overrides or {},
+                     (cluster, sheet))
     vector_by_label = {inst.label: inst.vector for inst in instances}
     final_table = []
     for piece in table:
         vector = (0, 0)
+        if piece.touches == "tee":
+            warnings.append(_(
+                "T-branch: the cell's inner part ({pads}) leaves with the "
+                "foreign cluster").format(
+                    pads=_cell_pads_text(classes, piece.item)))
+        elif piece.touches == "multi":
+            warnings.append(_(
+                "piece {uuid} touches several foreign clusters — it moves with "
+                "the first; check by hand").format(uuid=piece.uuid))
         if piece.ticked:
             if piece.touches in vector_by_label:
                 vector = vector_by_label[piece.touches]
-            elif piece.touches == "tee":
+            elif piece.touches in ("tee", "multi"):
                 foreign = _component_foreign_labels(
                     classes, piece.item, moving_labels)
-                if len(foreign) > 1:
-                    warnings.append(_(
-                        "tee piece {uuid} touches several clusters — it moves "
-                        "with the first; check by hand").format(uuid=piece.uuid))
                 vector = (vector_by_label.get(foreign[0], (0, 0))
                           if foreign else (0, 0))
-            else:  # "none": its own ray from its own frame
+            elif piece.touches == "none":  # its own ray from its own frame
                 box = _box_map(adapter, [piece.item]).get(piece.uuid)
                 if box is not None:
                     ux, uy = _ray(area_center, _box_center(box))
                     vector = _offset_to_leave(area, box, ux, uy, gap_nm)
+            # "cell"/"cell (via)": attached to the cell, no foreign pad -> stays
             if vector != (0, 0):
                 _append_move(moves, piece.item, *vector)
         final_table.append(NetTracePiece(
