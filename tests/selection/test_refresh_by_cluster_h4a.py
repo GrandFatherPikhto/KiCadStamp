@@ -481,3 +481,37 @@ def test_r3a3_no_transfer_request_is_a_plain_subtraction(gate, tmp_path,
     assert prelude.transfers == ()
     texts = [text for text, _level in prelude.log_lines]
     assert not any("not the exploded one" in t for t in texts)
+
+
+def test_r3a4_another_cells_copper_is_still_subtracted(gate, tmp_path):
+    """Р3-4/Р3а-4: the transfer widens NOTHING else — copper the registry recorded
+    for ANOTHER cell is still subtracted (Н4), and is not named as a transfer."""
+    from gui.mixed_selection import narrow_mixed_selection
+    from kicadstamp.registry import TrackRegistryEntry, save_track_registry
+    from kicadstamp.registry import make_registry_key
+    from kicadstamp.utils.paths import registry_paths_for_config
+
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c2 = _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c2])
+    foreign = _track("t-foreign")
+    config_path = _config_path(tmp_path)
+    _vias_path, trk_path = registry_paths_for_config(config_path, None, None)
+    save_track_registry(trk_path, {
+        make_registry_key("name:other", "other", None, 0): TrackRegistryEntry(
+            uuid="t-foreign", start_x_mm=0.0, start_y_mm=0.0, end_x_mm=1.0,
+            end_y_mm=0.0, width_mm=0.25, net="NT", layer="F.Cu")})
+
+    prelude = narrow_mixed_selection(
+        config_path=config_path, adapter=adapter, footprints=[fp_c1, fp_c2],
+        vias=[], tracks=[foreign], cfg=_one_cell_cfg(),
+        sheet_names={"ch0": "Channel_0"}, cell_name="dac_buf",
+        cell_roles={"DA", "DB"}, explode_transfer=True,
+        explode_journal=_JOURNAL)
+
+    assert prelude is not None and prelude.refusal is None
+    assert {t.uuid for t in prelude.tracks} == set()     # subtracted, as usual
+    assert prelude.transfers == ()                       # never a transfer
+    texts = [text for text, _level in prelude.log_lines]
+    assert any("subtracted from selection" in t for t in texts)

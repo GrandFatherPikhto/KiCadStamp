@@ -18,7 +18,11 @@ Machinery (rule 38) is the shared one from
         door with file_path=None must not throw the typed edits away)
   * Q27 the map generator stops writing reverse edges (доделка 2 of Р3а-4: the
         EXACT property is pinned on a temp tree, so this reddens there)
-  * K1/K2 cosmetic comments — MUST survive
+  * Q28 the positional pre-check of Phase 3 is gone (Р3а-4: the cell's redraw
+        would then draw a SECOND copy of the piece that just moved in)
+  * Q29 the transfer no longer RELEASES the record's registry keys (Р3а-4: the
+        pieces that stayed lose their keys and the last one is pruned/deleted)
+  * K1/K2/K3 cosmetic comments — MUST survive
 
 PARTIAL BY DESIGN (named for the acceptance): the graph-lookup row for Р3а-2
 (“the record's file is always the root”) has no cell yet — the 0/0 cells of Р3а-4
@@ -32,6 +36,7 @@ GUI_GATE = ["test_explode_page.py"]
 KERNEL_GATE = ["test_refresh_by_cluster_h4a.py"]
 CELL_DOCK = ["test_cell_editor.py"]
 MAP_GUARD = ["test_project_map.py"]
+REDRAW_GUARD = ["test_explode_transfer_redraw.py"]
 CELL_EDITOR = "gui/docks/cell_editor.py"
 TRANSFER = "kicadstamp/explode_transfer.py"
 GLUE = "gui/mixed_selection.py"
@@ -39,6 +44,8 @@ DOCK_HUB = "gui/dock_hub.py"
 GUARD = "gui/explode_guard.py"
 NARROWING = "kicadstamp/selection_narrowing.py"
 PROJECT_MAP = "tools/project_map.py"
+REGISTRY = "kicadstamp/registry.py"
+REDRAW_TEST = "tests/explode/test_explode_transfer_redraw.py"
 
 ROWS = [
     ("Q21 the plan is applied before the transfer checks", CELL_EDITOR,
@@ -92,10 +99,39 @@ ROWS = [
      "def _section_of(kind: str) -> str:",
      "def _section_of(kind: str) -> str:  # control",
      "survive", G, ()),
+    ("Q28 the positional pre-check is gone (a duplicate is drawn)", REGISTRY,
+     "    if not to_create:\n"
+     "        return to_create\n"
+     "    kept: list[TrackCommand] = []",
+     "    if not to_create:\n"
+     "        return to_create\n"
+     "    return list(to_create)  # MUTATION\n"
+     "    kept: list[TrackCommand] = []",
+     "die", REDRAW_GUARD, ()),
+    ("Q30 the geometry adoption is gone", REGISTRY,
+     "    if live_items is None:\n"
+     "        live_items = reg._get_live_items()\n"
+     "    owned = {e.uuid for e in reg.entries.values()}",
+     "    if live_items is None:\n"
+     "        live_items = reg._get_live_items()\n"
+     "    return 0  # MUTATION\n"
+     "    owned = {e.uuid for e in reg.entries.values()}",
+     "die", REDRAW_GUARD, ()),
+    ("Q29 the release of the registry keys is gone", TRANSFER,
+     "        records = _records_of(cfg, identity)\n"
+     "        # Р3-3 п.2: RELEASE every key of the record and of its copies.\n"
+     "        for nt in records:",
+     "        records = _records_of(cfg, identity)\n"
+     "        for nt in []:  # MUTATION",
+     "die", REDRAW_GUARD, ()),
     ("K2 cosmetic comment in the glue (control)", GLUE,
      "def _component_roles(components) -> set:",
      "def _component_roles(components) -> set:  # control",
      "survive", KERNEL_GATE, ()),
+    ("K3 cosmetic comment in the redraw cells (control)", REDRAW_TEST,
+     "MM = 1_000_000",
+     "MM = 1_000_000  # control",
+     "survive", REDRAW_GUARD, ()),
 ]
 
 if __name__ == "__main__":
