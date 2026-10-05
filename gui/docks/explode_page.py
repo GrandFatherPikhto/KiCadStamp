@@ -133,6 +133,7 @@ class ExplodePage(QWidget):
         self._cell_name: Optional[str] = None
         self._cluster: Optional[str] = None
         self._sheet = None
+        self._file_path = None
         self._plan = None
         self._tick_overrides: dict = {}
         self._active_op = None
@@ -214,8 +215,6 @@ class ExplodePage(QWidget):
         buttons = QHBoxLayout()
         self.explode_button = QPushButton(_("Explode"))
         self.reread_button = QPushButton(_("Re-read cell from selection"))
-        self.reread_button.setEnabled(False)          # Р3 wires this
-        self.reread_button.setToolTip(_("R3"))
         self.restore_button = QPushButton(_("Put back"))
         for b in (self.explode_button, self.reread_button, self.restore_button):
             buttons.addWidget(b, 1)
@@ -225,6 +224,7 @@ class ExplodePage(QWidget):
         self.instance_combo.currentIndexChanged.connect(self._on_instance_changed)
         self.recalc_button.clicked.connect(self._recalculate)
         self.explode_button.clicked.connect(self._explode)
+        self.reread_button.clicked.connect(self._reread)
         self.restore_button.clicked.connect(self._restore_clicked)
         self.banner_restore.clicked.connect(self._restore_clicked)
         self.banner_show.clicked.connect(self._show_journal)
@@ -260,14 +260,18 @@ class ExplodePage(QWidget):
         after a crash), not from a plan built here."""
         return self._exploded_from_journal
 
-    def open_instance(self, name: str, cluster=None, sheet=None) -> None:
+    def open_instance(self, name: str, cluster=None, sheet=None,
+                      file_path=None) -> None:
         """The ONE entry point of every door: show this cell's instance here.
 
         The door's explicit (cluster, sheet) is taken AS-IS (Н5); without one the
-        lists fall back to the "Select cell" rule (`resolve_action_instance`)."""
+        lists fall back to the "Select cell" rule (`resolve_action_instance`).
+        `file_path` (Р3) is remembered so the tab's own "Re-read" door can open the
+        SAME cell the door did."""
         if self._cfg is None:
             self._reload_cfg()
         self._cell_name = name
+        self._file_path = file_path
         self._cluster = cluster
         self._sheet = sheet
         self._exploded_from_journal = False
@@ -579,6 +583,17 @@ class ExplodePage(QWidget):
             self._on_op_failed, self._connection(), live,
             allowed_while_exploded=True)
 
+    def _reread(self) -> None:
+        """Р3: the ordinary "Update from selection" read for THIS cell, with the
+        ownership transfer on — the SAME path the cell window's button runs
+        (CellDock.refresh_from_selection_requested), never a second read."""
+        if not self._guard.active or not self._cell_name:
+            return
+        hub = getattr(self._main_window, "_dock_hub", None)
+        if hub is None or not hasattr(hub, "reread_cell_for_explode"):
+            return
+        hub.reread_cell_for_explode(self._cell_name, self._file_path)
+
     # ── explode / restore ───────────────────────────────────────────────────
     def _explode(self) -> None:
         if self._plan is None or self._guard.active:
@@ -683,6 +698,8 @@ class ExplodePage(QWidget):
         self.gap_spin.setEnabled(not active)
         self.cell_combo.setEnabled(not active)
         self.instance_combo.setEnabled(not active)
+        # Р3: the re-read is one of the few board ops allowed while exploded.
+        self.reread_button.setEnabled(active and self._cell_name is not None)
         # Ticks are editable only BEFORE "Разнести": clear the checkable flag on
         # every piece row while the clusters are shifted aside. setFlags emits
         # itemChanged, so this runs under the SAME guard as the rebuild — else

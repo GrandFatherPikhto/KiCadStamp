@@ -2982,8 +2982,17 @@ class DockHub:
                     show_message(choice.message, _ERROR_STYLE, logger)
                 return
         self.explode_page.set_root_path(root)
-        self.explode_page.open_instance(name, cluster, sheet)
+        self.explode_page.open_instance(name, cluster, sheet, file_path)
         self.show_left_page(self.explode_page)
+
+    def reread_cell_for_explode(self, name, file_path=None) -> None:
+        """Р3: the "Explode" tab's "Re-read cell from selection" — the SAME read
+        the cell window's "Update from selection" runs, with the ownership transfer
+        on (one function for every door, never a second read)."""
+        if not name:
+            return
+        self.cells_dock.refresh_from_selection_requested(
+            name, file_path, explode_transfer=True)
 
     @staticmethod
     def _load_cfg(root):

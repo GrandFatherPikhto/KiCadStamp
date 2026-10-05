@@ -90,6 +90,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 from kicadstamp.cell_geometry_refresh import (
     build_import_plan,
     build_refresh_plan,
+    plan_has_work,
 )
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.cell_placement_copy import build_placement_copy_plan, donor_candidates_for
@@ -100,6 +101,7 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 from kicadstamp.selection_narrowing import apply_live_copper_rule
+from kicadstamp.explode_transfer import apply_transfers
 
 from ..board_layers import (
     cell_copper_layer_names,
@@ -152,7 +154,8 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
             sheet_names=sheet_names, cell_name=payload["cell_name"],
             cell_roles=_component_roles(payload.get("components")),
             remembered_cluster=payload.get("remembered_cluster"),
-            remembered_sheet=payload.get("remembered_sheet"))
+            remembered_sheet=payload.get("remembered_sheet"),
+            explode_transfer=bool(payload.get("explode_transfer")))
     except Exception:  # noqa: BLE001 — a prelude failure must not break the read
         logger.exception("mixed-selection prelude failed — using the whole "
                          "selection")
@@ -1835,11 +1838,21 @@ class CellDock(QWidget):
             # Э4/Э5: the layers the dialog left off as EMPTY, for the per-read Log
             # report — decided here too, and empty on the fast path.
             "empty_layers": list(empty_layers),
+            # Р3: the Explode tab's "Re-read cell from selection" asks for the
+            # ownership TRANSFER; the flag rides in the payload so the SAME read
+            # path serves every door (one function, no second read).
+            "explode_transfer": bool(
+                getattr(self, "_pending_explode_transfer", False)),
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
             self._run_refresh_geometry, self._finish_refresh_geometry,
-            self._on_refresh_op_failed, payload)
+            self._on_refresh_op_failed, payload,
+            # The transfer read is EXPLODE-MODE: it is one of the few ops allowed
+            # while the clusters are shifted aside (Р2-4 п.3).
+            allowed_while_exploded=bool(
+                getattr(self, "_pending_explode_transfer", False)))
+        self._pending_explode_transfer = False
 
     def _on_refresh_geometry_with_layers(self) -> None:
         """The DIALOG path of the same read (Э3/Э4): the board's copper layers are
@@ -2016,6 +2029,14 @@ class CellDock(QWidget):
             else:
                 for line in plan.unpaired_reports:
                     selection_lines.append((line, _SELECTION_WARN))
+            # Р3-1: hand the transferred pieces from their net_traces records to
+            # the cell — ONLY when the plan will actually be applied (a no-op plan
+            # must not strip a record of copper the cell never gained).
+            if (prelude is not None and prelude.transfers
+                    and plan_has_work(plan) and payload.get("root_path")):
+                for line in apply_transfers(payload["root_path"], cfg,
+                                            prelude.transfers):
+                    selection_lines.append((line, _SELECTION_WARN))
             # Plan item 3: after the plan is built, select on the board the
             # chosen instance's components AND all the copper that entered the
             # read — the user sees what was read and can fix the selection by
@@ -2062,15 +2083,7 @@ class CellDock(QWidget):
         plan = result["plan"]
         # A no-op plan (the selection already matches) is reported and NOT run
         # through _apply_refresh_plan — no pointless autostage write.
-        has_work = bool(plan.component_updates or plan.via_updates
-                        or plan.track_updates or plan.new_via_records
-                        or plan.new_track_records or plan.removed_via_records
-                        or plan.removed_track_records
-                        or getattr(plan, "new_component_records", None)
-                        or getattr(plan, "removed_component_records", None)
-                        or getattr(plan, "nested_updates", None)
-                        or getattr(plan, "nested_reports", None)
-                        or getattr(plan, "warnings", None))
+        has_work = plan_has_work(plan)
         if not has_work:
             self._show_message(
                 _("Nothing changed — the selection already matches this cell's geometry."),
@@ -2173,7 +2186,8 @@ class CellDock(QWidget):
         return before - len(bucket)
 
     def refresh_from_selection_requested(self, name: str, file_path,
-                                         choose_layers: bool = False) -> None:
+                                         choose_layers: bool = False,
+                                         explode_transfer: bool = False) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
         context menu's "Update from selection...": when the requested cell is
         not the one currently loaded, load it first, then run the same
@@ -2183,6 +2197,9 @@ class CellDock(QWidget):
         entry point of the same read: the context menu's "…(choose layers)…" and
         the Tools → Config leg call the layer dialog first, and that dialog
         continues into the very same read."""
+        # Р3: the Explode tab asks for the ownership transfer; the flag is consumed
+        # by _read_refresh_from_selection and cleared there (never sticky).
+        self._pending_explode_transfer = bool(explode_transfer)
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
         if choose_layers:

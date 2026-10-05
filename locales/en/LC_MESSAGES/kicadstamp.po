@@ -17677,6 +17677,26 @@ msgstr ""
 msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 
+#, python-brace-format
+msgid "transferred from net_traces {name} into the cell: {tracks} track(s), {vias} via(s)"
+msgstr ""
+
+#, python-brace-format
+msgid "net_traces {name}: the record is not in {path} — its pieces were left as they are"
+msgstr ""
+
+#, python-brace-format
+msgid "net_traces {name}: a tree_instances copy is not 1:1 with the template — left as it is, tell the developer"
+msgstr ""
+
+#, python-brace-format
+msgid "net_traces {name} is now empty — delete the record by hand"
+msgstr ""
+
+#, python-brace-format
+msgid "the transfer also applies to its {n} tree_instances cop(y/ies)"
+msgstr ""
+
 #: kicadstamp/placement/services/point_resolver.py:122
 msgid ""
 "set anchor_ref/anchor_role, anchor_point, xy, or anchor_origin — should "

@@ -18560,6 +18560,26 @@ msgstr ""
 msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "    via {ref}: ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
+#, python-brace-format
+msgid "transferred from net_traces {name} into the cell: {tracks} track(s), {vias} via(s)"
+msgstr "перейдёт из net_traces {name} в ячейку: {tracks} дорожек, {vias} переходных"
+
+#, python-brace-format
+msgid "net_traces {name}: the record is not in {path} — its pieces were left as they are"
+msgstr "net_traces {name}: записи нет в {path} — куски оставлены как есть"
+
+#, python-brace-format
+msgid "net_traces {name}: a tree_instances copy is not 1:1 with the template — left as it is, tell the developer"
+msgstr "net_traces {name}: копия tree_instances не 1:1 с шаблоном — оставлено как есть, скажите разработчику"
+
+#, python-brace-format
+msgid "net_traces {name} is now empty — delete the record by hand"
+msgstr "запись net_traces {name} пуста — удалить руками"
+
+#, python-brace-format
+msgid "the transfer also applies to its {n} tree_instances cop(y/ies)"
+msgstr "перейдёт и в копиях tree_instances: {n}"
+
 #: kicadstamp/placement/services/point_resolver.py:122
 msgid ""
 "set anchor_ref/anchor_role, anchor_point, xy, or anchor_origin — should "

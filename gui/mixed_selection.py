@@ -51,6 +51,7 @@ from kicadstamp.selection_narrowing import (
     cell_record_addresses,
     choose_instance,
     group_selection,
+    net_trace_transfers,
     subtract_foreign_copper,
     subtract_net_trace_copper,
 )
@@ -87,6 +88,9 @@ class MixedPrelude:
     copper_ctx: Optional[CopperReadContext] = None
     log_lines: list = field(default_factory=list)
     refusal: Optional[str] = None
+    # Р3: the pieces handed from a net_traces record to the cell (empty unless the
+    # read ran in explode-transfer mode) — plain data for the apply step.
+    transfers: tuple = ()
 
 
 def _component_roles(components) -> set:
@@ -100,6 +104,21 @@ def _instance_line(cluster, sheet, others) -> str:
              "of other clusters: {clusters}").format(
         cluster=cluster, sheet=sheet if sheet is not None else _("(no sheet)"),
         count=skipped, clusters=names)
+
+
+def _transfer_lines(transfers) -> list:
+    """Р3: one yellow line per net_traces record whose copper moves into the cell
+    (`перейдёт из net_traces <имя> в ячейку: N дорожек, M переходных`)."""
+    per: dict[str, list] = {}
+    for tr in transfers or ():
+        counts = per.setdefault(tr.identity, [0, 0])
+        counts[0 if "via" in str(tr.kind).lower() else 1] += 1
+    out = []
+    for identity, (vias, tracks) in sorted(per.items()):
+        out.append(_("transferred from net_traces {name} into the cell: "
+                     "{tracks} track(s), {vias} via(s)").format(
+            name=identity, tracks=tracks, vias=vias))
+    return out
 
 
 def _subtraction_line(parts) -> Optional[str]:
@@ -140,10 +159,15 @@ def _refusal_preamble(text: str, footprints, vias, tracks) -> MixedPrelude:
 def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                            vias: list, tracks: list, cfg, sheet_names,
                            cell_name: str, cell_roles,
-                           remembered_cluster=None, remembered_sheet=None
+                           remembered_cluster=None, remembered_sheet=None,
+                           explode_transfer: bool = False
                            ) -> Optional[MixedPrelude]:
     """Narrow ANY selection (clean or mixed) to ONE cell instance, or return
-    None when the cell's cluster is UNKNOWN (the caller keeps today's path)."""
+    None when the cell's cluster is UNKNOWN (the caller keeps today's path).
+
+    ``explode_transfer`` (Р3): while the clusters are exploded, the selected
+    copper a LIVE ``net_traces:`` record owns is TRANSFERRED to the cell (kept in
+    the read) instead of subtracted; every other rule stays the same."""
     if not cell_name:
         return None
     entities = getattr(cfg, "entities", ()) or ()
@@ -210,17 +234,34 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                                     chosen_address, chosen_refs)
     sub_t = subtract_foreign_copper(tracks, owner, cell_identity, own_addresses,
                                     chosen_address, chosen_refs)
-    # Н4 п.5а: inter-cluster copper recorded in `net_traces:` but NOT yet in the
-    # registry is subtracted too (the hole: extract writes the record, the
-    # registry learns the uuids only at redraw).
-    net_v = subtract_net_trace_copper(
-        list(sub_v.kept), getattr(cfg, "net_traces", None), adapter,
-        via_entries=via_entries, track_entries=track_entries,
-        sheet_names=sheet_names)
-    net_t = subtract_net_trace_copper(
-        list(sub_t.kept), getattr(cfg, "net_traces", None), adapter,
-        via_entries=via_entries, track_entries=track_entries,
-        sheet_names=sheet_names)
+    net_traces = getattr(cfg, "net_traces", None)
+    net_v = net_t = None
+    if explode_transfer:
+        # Р3: the copper a LIVE net_traces record owns STAYS in the read (it
+        # becomes the cell's new copper) and is named for the ownership transfer
+        # (kicadstamp/explode_transfer.py) at apply time. Everything else — other
+        # cells, chains, thermal arrays — is subtracted exactly as usual.
+        kept_v, tr_v, notes_v = net_trace_transfers(
+            list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
+            track_entries=track_entries, sheet_names=sheet_names)
+        kept_t, tr_t, notes_t = net_trace_transfers(
+            list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
+            track_entries=track_entries, sheet_names=sheet_names)
+        transfers = tuple(tr_v) + tuple(tr_t)
+        net_notes = list(notes_v) + list(notes_t)
+    else:
+        # Н4 п.5а: inter-cluster copper recorded in `net_traces:` but NOT yet in
+        # the registry is subtracted too (the hole: extract writes the record, the
+        # registry learns the uuids only at redraw).
+        net_v = subtract_net_trace_copper(
+            list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
+            track_entries=track_entries, sheet_names=sheet_names)
+        net_t = subtract_net_trace_copper(
+            list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
+            track_entries=track_entries, sheet_names=sheet_names)
+        kept_v, kept_t = list(net_v.kept), list(net_t.kept)
+        transfers = ()
+        net_notes = list(net_v.notes) + list(net_t.notes)
 
     # Ф1: a failed board-copper read must NOT look like "the board is empty" —
     # the deletion rule then deletes nothing (board_read_ok=False).
@@ -245,20 +286,25 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, others), SUCCESS)]
     # Ф3: a net_traces record whose anchor could not be resolved says so.
-    for note in list(net_v.notes) + list(net_t.notes):
+    for note in net_notes:
         lines.append((note, WARN))
+    # Р3: one yellow line per record whose copper moves into the cell.
+    for line in _transfer_lines(transfers):
+        lines.append((line, WARN))
     # м1: the "could not read the board copper" line is NOT added here — the
     # worker gets it from ONE place only (apply_live_copper_rule), so refresh and
     # import each print it exactly once.
-    subtraction = _subtraction_line([sub_v, sub_t, net_v, net_t])
+    subtraction = _subtraction_line(
+        [sub_v, sub_t] if explode_transfer else [sub_v, sub_t, net_v, net_t])
     if subtraction:
         lines.append((subtraction, SUCCESS))
 
     return MixedPrelude(
         footprints=list(instance_fps),
-        vias=list(net_v.kept),
-        tracks=list(net_t.kept),
+        vias=list(kept_v),
+        tracks=list(kept_t),
         instance_footprints=list(instance_fps),
-        kept_copper=list(net_v.kept) + list(net_t.kept),
+        kept_copper=list(kept_v) + list(kept_t),
         copper_ctx=ctx,
-        log_lines=lines)
+        log_lines=lines,
+        transfers=transfers)

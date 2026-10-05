@@ -571,6 +571,21 @@ class RefreshPlan:
     removed_component_records: list[dict] = field(default_factory=list)
 
 
+def plan_has_work(plan) -> bool:
+    """True when applying `plan` would change the loaded cell — the ONE predicate
+    the refresh UI (gui/docks/cell_editor.py) and the Р3 ownership transfer
+    (kicadstamp/explode_transfer.py) both use, so "the plan is a no-op" can never
+    be decided two different ways."""
+    return bool(plan.component_updates or plan.via_updates or plan.track_updates
+                or plan.new_via_records or plan.new_track_records
+                or plan.removed_via_records or plan.removed_track_records
+                or getattr(plan, "new_component_records", None)
+                or getattr(plan, "removed_component_records", None)
+                or getattr(plan, "nested_updates", None)
+                or getattr(plan, "nested_reports", None)
+                or getattr(plan, "warnings", None))
+
+
 @dataclass
 class ImportPlan:
     """What build_import_plan computed — brand-NEW via/track records (already

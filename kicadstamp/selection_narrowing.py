@@ -554,15 +554,29 @@ def apply_live_copper_rule(plan, ctx: CopperReadContext) -> list[str]:
         names=", ".join(names))]
 
 
-def subtract_net_trace_copper(items, net_traces, adapter, *,
-                              via_entries, track_entries, sheet_names=None
-                              ) -> CopperSubtraction:
-    """Н4 п.5а: remove the selected copper that matches a LIVE ``net_traces:``
-    record's planned copper — even when the registry does not know it yet.
+@dataclass(frozen=True)
+class NetTraceTransfer:
+    """Р3: ONE selected copper piece handed from a ``net_traces`` record to the
+    cell instead of being subtracted. Plain data, so it crosses the worker/UI
+    boundary: `identity` names the record, `kind` is "via"/"track", `index` is the
+    piece's 0-based position in the record's vias/tracks list — the SAME
+    ``Expectation.index`` ``find_live_copper`` computed (never counted twice)."""
+    identity: str
+    kind: str
+    index: int
 
-    The match reuses ``net_trace_planner.find_live_copper`` (the SAME calculation
-    the redraw uses, via ``plan_net_traces``), never a second copy; the two
-    registry objects are thin ``{key: entry}`` shims, so nothing is written."""
+
+def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
+                     sheet_names=None):
+    """(owned, notes): for each selected copper uuid a LIVE ``net_traces:`` record
+    owns, its ``NetTraceTransfer`` (identity + kind + index); plus the yellow notes
+    about records whose copper could not be matched.
+
+    ONE ``find_live_copper`` call per record, SHARED by the subtraction (Н4 п.5а)
+    and the transfer (Р3) — a piece is never matched twice. The match reuses
+    ``net_trace_planner.find_live_copper`` (the SAME calculation the redraw uses,
+    via ``plan_net_traces``), never a second copy; the two registry objects are
+    thin ``{key: entry}`` shims, so nothing is written."""
     from .net_trace_planner import find_live_copper
 
     class _Entries:
@@ -570,7 +584,7 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
             self.entries = entries
 
     vreg, treg = _Entries(via_entries or {}), _Entries(track_entries or {})
-    foreign: dict[str, str] = {}
+    owned: dict[str, NetTraceTransfer] = {}
     notes: list[str] = []
     for nt in net_traces or ():
         name = str(getattr(nt, "net", "?"))
@@ -592,21 +606,67 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
                              .format(net=getattr(live, "identity", None) or name,
                                      reason=live.reason))
         identity = getattr(live, "identity", None) or name
-        for item in live.found:
-            uuid = getattr(item, "uuid", None)
+        pieces = getattr(live, "pieces", None)
+        if pieces is None:
+            # A test double may expose only `found` (the subtraction needs no
+            # kind/index); the transfer always gets real pieces from
+            # find_live_copper, which is where the piece number comes from.
+            for item in getattr(live, "found", ()) or ():
+                uuid = getattr(item, "uuid", None)
+                if uuid:
+                    owned[uuid] = NetTraceTransfer(identity, "", -1)
+            continue
+        for piece in pieces:
+            uuid = getattr(piece.live, "uuid", None)
             if uuid:
-                foreign[uuid] = identity
+                exp = piece.expectation
+                owned[uuid] = NetTraceTransfer(
+                    identity=identity, kind=str(exp.kind), index=int(exp.index))
+    return owned, notes
+
+
+def subtract_net_trace_copper(items, net_traces, adapter, *,
+                              via_entries, track_entries, sheet_names=None
+                              ) -> CopperSubtraction:
+    """Н4 п.5а: remove the selected copper that matches a LIVE ``net_traces:``
+    record's planned copper — even when the registry does not know it yet."""
+    owned, notes = _net_trace_owned(items, net_traces, adapter,
+                                    via_entries=via_entries,
+                                    track_entries=track_entries,
+                                    sheet_names=sheet_names)
     kept: list = []
     removed: list = []
     report: dict[str, int] = {}
     for item in items or ():
-        label = foreign.get(getattr(item, "uuid", None))
-        if label is None:
+        tr = owned.get(getattr(item, "uuid", None))
+        if tr is None:
             kept.append(item)
         else:
             removed.append(item)
-            report[label] = report.get(label, 0) + 1
+            report[tr.identity] = report.get(tr.identity, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
                              report=tuple(sorted(report.items())),
                              notes=tuple(notes))
+
+
+def net_trace_transfers(items, net_traces, adapter, *,
+                        via_entries, track_entries, sheet_names=None) -> tuple:
+    """Р3: the (kept, transfers, notes) split — the selected copper a LIVE
+    ``net_traces:`` record owns STAYS in the read (it becomes the cell's new
+    copper) and each piece is named for the ownership transfer; everything else is
+    kept exactly as the subtraction would leave it (other cells, chains, thermal
+    arrays and the record's own unselected copper never appear here)."""
+    owned, notes = _net_trace_owned(items, net_traces, adapter,
+                                    via_entries=via_entries,
+                                    track_entries=track_entries,
+                                    sheet_names=sheet_names)
+    kept: list = []
+    transfers: list[NetTraceTransfer] = []
+    for item in items or ():
+        tr = owned.get(getattr(item, "uuid", None))
+        if tr is None:
+            kept.append(item)
+        else:
+            transfers.append(tr)
+    return kept, tuple(transfers), notes
  
