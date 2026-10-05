@@ -95,6 +95,30 @@ def _patch_cfg(monkeypatch, cfg):
                         lambda path: (cfg, SimpleNamespace(sheet_names={})))
 
 
+def test_the_page_hands_its_file_to_the_tab(ex):
+    """Р3а-1 (приёмка): the CELL page hands the tab the cell's OWNING FILE — the
+    door into the tab must not have to ask anyone else for it."""
+    hub = ex._dock_hub
+    view = hub.cell_anchor_view
+    view._file_path = "/tmp/page.sexp"
+    view._sync_explode_context()
+    assert hub.explode_page._file_path == "/tmp/page.sexp"
+
+
+def test_the_door_does_not_reload_the_same_cell(ex, monkeypatch):
+    """Р3а-1 (приёмка): opening the SAME cell by name must NOT reload the cell
+    window (a reload drops unsaved input — the page-merge rule)."""
+    hub = ex._dock_hub
+    view = hub.cell_anchor_view
+    view._cell_name = "dac_buf"
+    view._file_path = "/tmp/own.sexp"
+    loads = []
+    monkeypatch.setattr(view, "load_entry",
+                        lambda name, fp=None: loads.append((name, fp)))
+    hub._open_explode("dac_buf")
+    assert loads == []                       # same cell, file already known
+
+
 # ── doors ───────────────────────────────────────────────────────────────────
 
 def test_entity_door_opens_the_cell_page_on_the_explode_tab(ex, monkeypatch):
@@ -510,6 +534,47 @@ def test_no_ui_thread_board_read_when_quitting_exploded(real_main_window,
     assert not hub.explode_guard.active       # the successful restore cleared the lock
     hub.explode_guard.detach()
     worker_mod.set_long_op_gate(None)
+
+
+def test_the_transfer_runs_on_the_ui_thread_only_when_the_plan_applies(
+        ex, monkeypatch):
+    """Р3а-1: the ownership transfer is applied on the UI THREAD, together with the
+    plan — and NOT AT ALL when the read refuses (a refusal must leave the record
+    and the registries untouched)."""
+    import threading
+    from gui.docks import cell_editor as ce_mod
+    from kicadstamp.explode_transfer import NetTraceTransfer
+
+    dock = ex._dock_hub.cells_dock
+    dock._root_path = ex._dock_hub.root_metadata_dock.root_path
+    # The fixture's config is an empty file; the transfer path re-loads it, so the
+    # loader is stubbed (a file read, not the property under test).
+    monkeypatch.setattr("kicadstamp.config.load_config",
+                        lambda path: (SimpleNamespace(net_traces=[]),
+                                      SimpleNamespace(sheet_names={})))
+    calls = []
+    monkeypatch.setattr(ce_mod, "apply_transfers",
+                        lambda path, cfg, transfers: calls.append(
+                            (threading.current_thread().name, tuple(transfers)))
+                        or [])
+    monkeypatch.setattr(dock, "_apply_refresh_plan", lambda plan: (0, 1, 0))
+    monkeypatch.setattr(dock, "_report_layer_read", lambda report: None)
+    monkeypatch.setattr(dock, "_show_message", lambda *a, **k: None)
+
+    plan = SimpleNamespace(component_updates=[{"x": 1}], via_updates=[],
+                           track_updates=[], new_via_records=[],
+                           new_track_records=[], removed_via_records=[],
+                           removed_track_records=[])
+    tr = NetTraceTransfer("rec", "track", 0)
+    main = threading.current_thread().name
+
+    dock._finish_refresh_geometry({"plan": plan, "transfers": (tr,)})
+    assert calls == [(main, (tr,))]          # applied, on the UI thread
+
+    # A refused read returns BEFORE the apply — nothing may be transferred.
+    dock._finish_refresh_geometry({"plan": plan, "transfers": (tr,),
+                                   "selection_refusal": "boom"})
+    assert len(calls) == 1
 
 
 # ── Р2в: the permanent tab and its two lists ────────────────────────────────

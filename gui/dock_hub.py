@@ -2994,9 +2994,13 @@ class DockHub:
         if anchor_page is not None:
             self._focus_config_tree_dock()
             self.config_tree_dock.show_page(anchor_page)
-            if (getattr(self.cell_anchor_view, "_cell_name", None) != name
-                    or file_path is not None):
-                self.cell_anchor_view.load_entry(name, file_path)
+            view = self.cell_anchor_view
+            # The SAME cell by name is NOT reloaded (that would drop unsaved input;
+            # the page-merge rule, gui/dock_hub.py::_on_cell_picked) — only a
+            # missing file for it is filled in.
+            if (getattr(view, "_cell_name", None) != name
+                    or (file_path is not None and view._file_path is None)):
+                view.load_entry(name, file_path)
         if cluster is not None:
             self.cell_anchor_view.set_working_context(cluster, sheet)
         self.cell_anchor_view.select_explode_tab()

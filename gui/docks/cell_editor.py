@@ -2029,14 +2029,12 @@ class CellDock(QWidget):
             else:
                 for line in plan.unpaired_reports:
                     selection_lines.append((line, _SELECTION_WARN))
-            # Р3-1: hand the transferred pieces from their net_traces records to
-            # the cell — ONLY when the plan will actually be applied (a no-op plan
-            # must not strip a record of copper the cell never gained).
-            if (prelude is not None and prelude.transfers
-                    and plan_has_work(plan) and payload.get("root_path")):
-                for line in apply_transfers(payload["root_path"], cfg,
-                                            prelude.transfers):
-                    selection_lines.append((line, _SELECTION_WARN))
+            # Р3а-1: the transfer is NOT applied here. This is the WORKER thread,
+            # and `apply_transfers` writes the working set (its listener touches a
+            # QTimer and widgets — "Timers cannot be started from another thread"),
+            # and it would run BEFORE the plan is applied on the UI thread: a plan
+            # refusal in between would leave the piece owned by nobody. The worker
+            # only CARRIES the transfers over (plain data).
             # Plan item 3: after the plan is built, select on the board the
             # chosen instance's components AND all the copper that entered the
             # read — the user sees what was read and can fix the selection by
@@ -2054,7 +2052,8 @@ class CellDock(QWidget):
             # failure.
             return {"error": str(e), "selection_lines": selection_lines}
         return {"plan": plan, "layer_report": layer_read,
-                "selection_lines": selection_lines}
+                "selection_lines": selection_lines,
+                "transfers": tuple(prelude.transfers) if prelude is not None else ()}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
@@ -2090,6 +2089,12 @@ class CellDock(QWidget):
                 _SUCCESS_STYLE)
             return
         updated, added, removed = self._apply_refresh_plan(plan)
+        # Р3а-1: the ownership transfer is applied HERE, on the UI thread, TOGETHER
+        # with the plan (one working-set edit) — and only because the plan was
+        # applied: every refusal/no-op path above returned before this line, so a
+        # failed plan leaves the net_traces record and the registries untouched.
+        for line in self._apply_explode_transfers(result.get("transfers")):
+            self._show_message(line, _WARN_STYLE)
         # J.1 (2026-09-10): the frame's honest report lines — the live cluster is
         # not a rigid copy of the cell, and/or the instance is turned (the
         # geometry was expressed in the cell's own frame, anchor_xy untouched).
@@ -2171,6 +2176,20 @@ class CellDock(QWidget):
         self._refresh_all_tables()
         self._autostage()
         return updated, added, removed
+
+    def _apply_explode_transfers(self, transfers) -> list:
+        """Р3а-1: hand the transferred pieces from their net_traces records to the
+        cell — on the UI thread, in the same working-set edit as the plan. Returns
+        the yellow Log lines. Nothing is written when there are no transfers."""
+        if not transfers or self._root_path is None:
+            return []
+        from kicadstamp.config import load_config
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except Exception:  # noqa: BLE001 — a broken config is a hint, not a fatal
+            logger.exception("could not load the config for the explode transfer")
+            return []
+        return apply_transfers(str(self._root_path), cfg, transfers)
 
     @staticmethod
     def _drop_records(removed_records: list, bucket: list) -> int:
