@@ -1053,6 +1053,10 @@ class DockHub:
         # on the board (the SAME function the CellDock button runs).
         self.config_tree_dock.cell_select_requested.connect(
             self._select_cell_from_tree)
+        # СЦ-1 (plan_2026_10_05_select_cell_split): the same menu, the components
+        # item — the instance's components ONLY (no copper).
+        self.config_tree_dock.cell_select_components_requested.connect(
+            self._select_cell_components_from_tree)
         # 2026-10-05 (plan_2026_10_05_select_enclosed_copper): the same menu, the
         # whole enclosed copper (components + the copper between them).
         self.config_tree_dock.cell_select_enclosed_requested.connect(
@@ -3012,6 +3016,13 @@ class DockHub:
         CellDock button runs — one function for every door). An ENTITY leaf
         sends the explicit (cluster, sheet); a CELL leaf sends None/None."""
         self.cells_dock.select_cell_requested(name, file_path, cluster, sheet)
+
+    def _select_cell_components_from_tree(self, name, file_path, cluster=None,
+                                          sheet=None) -> None:
+        """ConfigTreeDock's cell_select_components_requested delegate (СЦ-1) —
+        drive CellDock's components-only entry point (same instance rules)."""
+        self.cells_dock.select_cell_components_requested(
+            name, file_path, cluster, sheet)
 
     def _create_entity_from_tree(self, source_kind: str, source_name: str,
                                  file_path) -> None:

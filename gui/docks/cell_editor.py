@@ -111,6 +111,8 @@ from ..board_layers import (
     remembered_read_layers,
 )
 from ..worker import start_long_op
+from ..connection import worker_timeout_ms
+from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
@@ -345,41 +347,9 @@ def import_preview_rows(plan) -> List[List[str]]:
     return rows
 
 
-def select_identified_refs(adapter, refs: Dict[str, str]) -> Dict[str, Any]:
-    """Select EXACTLY the identified refs of ONE instance on the live board —
-    the pair of a spoke cell, or the full component set of an ordinary cluster
-    (2026-09-17, Р7 of plan_2026_09_17_spoke_s1_identify_by_selection.md).
-
-    The refs are an INTERFACE CACHE (gui_state.json), so they are checked here,
-    on the worker thread, against the board as it is NOW: a ref that is gone, or
-    whose Role is no longer the one the map claims, makes the identification
-    STALE. Then NOTHING is selected and the reasons travel back — never a
-    fallback to the whole cluster, which on the spoke FPGA_PWR_BANK would hand
-    the user 50 components he did not ask for (and would then let "Refresh
-    geometry from selection" rewrite a cell from the wrong pair).
-
-    Pure data in / data out (no widget, no Qt) so the GUI test can drive it
-    against a fake adapter. Returns
-    {"selected": n, "identified": True} or {"stale": [reason, ...]}."""
-    stale: List[str] = []
-    footprints = []
-    for role in sorted(refs):
-        ref = refs[role]
-        fp = adapter.get_footprint(ref)
-        if fp is None:
-            stale.append(_("{ref} is no longer on the board").format(ref=ref))
-            continue
-        live_role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
-        if live_role != role:
-            stale.append(_("{ref} now has Role {role!r}").format(
-                ref=ref, role=live_role))
-            continue
-        footprints.append(fp)
-    if stale:
-        return {"stale": stale}
-    if footprints:
-        adapter.select_items(footprints)
-    return {"selected": len(footprints), "identified": True}
+# select_identified_refs moved to gui/select_cell_copper.py (СЦ-1/СЦ-3,
+# plan_2026_10_05_select_cell_split) and is imported above — this file is a
+# giant (§45): no selection logic lives here any more, only wiring.
 
 
 class _ImportPreviewDialog(QDialog):
@@ -609,13 +579,28 @@ class CellDock(QWidget):
         # need the WHOLE placed cluster instance selected — this button picks it
         # from the remembered (Cluster, Sheet) the cell was last extracted in,
         # removing the manual hunt before every re-read. Same activity gate.
-        self.select_cluster_button = QPushButton(_("Select cell"))
+        # СЦ-1 (plan_2026_10_05_select_cell_split): "Select cell components" —
+        # the instance's components ONLY (the former "Select cell" caption; the
+        # one-click entry to "Refresh geometry").
+        self.select_cluster_button = QPushButton(_("Select cell components"))
+        self.select_cluster_button.setObjectName("select_cell_components_button")
         self.select_cluster_button.setToolTip(
-            _("Select this cell's instance on the board"))
-        self.select_cluster_button.clicked.connect(self._on_select_cell)
+            _("Select this cell's components on the board"))
+        self.select_cluster_button.clicked.connect(
+            lambda checked=False: self._on_select_cell(with_copper=False))
         self.select_cluster_button.setEnabled(False)
         refresh_row.addWidget(self.select_cluster_button)
-        # Р2 "Разнос": the tab's CellDock door, right beside "Select cell".
+        # СЦ-1: "Select cell" — the instance's components PLUS its recorded
+        # copper (registry then geometry), right beside the components button.
+        self.select_cell_button = QPushButton(_("Select cell"))
+        self.select_cell_button.setObjectName("select_cell_button")
+        self.select_cell_button.setToolTip(
+            _("Select this cell's instance with its recorded copper"))
+        self.select_cell_button.clicked.connect(
+            lambda checked=False: self._on_select_cell(with_copper=True))
+        self.select_cell_button.setEnabled(False)
+        refresh_row.addWidget(self.select_cell_button)
+        # Р2 "Разнос": the tab's CellDock door, right beside them.
         self.explode_button = QPushButton(_("Explode…"))
         self.explode_button.setToolTip(
             _("Move foreign clusters aside and re-read this cell"))
@@ -1731,6 +1716,7 @@ class CellDock(QWidget):
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.select_cluster_button.setEnabled(enabled)
+        self.select_cell_button.setEnabled(enabled)
         self.explode_button.setEnabled(enabled)
 
     def _remembered_cluster_value(self) -> Optional[str]:
@@ -2500,7 +2486,24 @@ class CellDock(QWidget):
                     .format(name=name), _ERROR_STYLE)
                 return
             self.load_entry(name, target)
-        self._on_select_cell(cluster=cluster, sheet=sheet)
+        self._on_select_cell(cluster=cluster, sheet=sheet, with_copper=True)
+
+    def select_cell_components_requested(self, name: str, file_path,
+                                         cluster=None, sheet=None) -> None:
+        """СЦ-1: the "Select cell components" entry — the instance's components
+        ONLY. Same reload rule and the SAME instance resolver as "Select cell";
+        only the recorded copper is left out."""
+        if self.name_edit.text().strip() != name:
+            target = file_path
+            if target is None:
+                target = find_dict_entry_file(self._root_path, "cells", name)
+            if target is None:
+                self._show_message(
+                    _("cell {name!r} is not in the config — cannot select it")
+                    .format(name=name), _ERROR_STYLE)
+                return
+            self.load_entry(name, target)
+        self._on_select_cell(cluster=cluster, sheet=sheet, with_copper=False)
 
     def _on_explode(self) -> None:
         """Р2: this dock's door of the "Разнос" tab — sends only the cell NAME
@@ -2510,23 +2513,21 @@ class CellDock(QWidget):
         if name:
             self.explode_requested.emit(name, None, None, None)
 
-    def _on_select_cell(self, cluster=None, sheet=None) -> None:
-        """Highlight the placed instance of this cell (Н5) — "Select cell"
-        (formerly "Select cluster"). It selects the instance's BOARD components
-        plus the copper the registries recorded for THIS cell at THIS instance
-        (its own `anchor:<ref>` copper included), so the user sees exactly what
-        a read would read.
+    def _on_select_cell(self, cluster=None, sheet=None, with_copper=True) -> None:
+        """Highlight the placed instance of this cell — components only
+        (``with_copper=False``, «Select cell components») or components PLUS the
+        recorded copper (``with_copper=True``, «Select cell», СЦ-2).
 
         The explicit (cluster, sheet) comes from the tree's per-instance submenu;
         without it the remembered context is used (Р7 identified refs still win —
         for the spoke FPGA_PWR_BANK the pair, not 50 components). A remembered
         context that no longer resolves selects NOTHING and reports it (§E.5).
-        All board IPC runs on the worker via start_long_op."""
+        All board IPC runs on the WORKER via start_long_op, which builds its own
+        adapter / pipeline — the UI-thread board handle is NEVER carried in the
+        payload (door contract, СЦ-3)."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
-        board = getattr(connection, "board", None) if connection is not None else None
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        if adapter is None:
+        if not getattr(connection, "is_connected", False):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         if self._root_path is None:
@@ -2548,7 +2549,8 @@ class CellDock(QWidget):
         elif choice.kind == "choose":
             pick_instance(
                 self, choice.candidates,
-                lambda c, s: self._on_select_cell(cluster=c, sheet=s))
+                lambda c, s: self._on_select_cell(cluster=c, sheet=s,
+                                                  with_copper=with_copper))
             return
         elif choice.kind == "none":
             pass                       # identified refs: the cluster stays None
@@ -2563,47 +2565,28 @@ class CellDock(QWidget):
                 _ERROR_STYLE)
             return
         payload = {
-            "board": board,
             "root_path": str(self._root_path),
+            "config_path": str(self._root_path),
+            "timeout_ms": worker_timeout_ms(connection),
             "cell_name": cell_name,
             "cluster": cluster,
             "sheet": sheet,
             "refs": refs,
+            "with_copper": with_copper,
         }
         self._active_op = start_long_op(
-            connection, (self.select_cluster_button,),
+            connection, (self.select_cluster_button, self.select_cell_button),
             self._run_select_cluster_on_board,
             self._finish_select_cluster_on_board,
-            self._on_select_cluster_failed, payload)
+            self._on_select_cluster_failed, payload,
+            allowed_while_exploded=True)
 
     def _run_select_cluster_on_board(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Worker thread: set the KiCad GUI selection to the remembered
-        INSTANCE — never touches a widget.
-
-        With identified refs (Р7) that instance is exactly those refs, checked on
-        the live board by select_identified_refs; a stale map selects NOTHING.
-        Without them, the remembered (Cluster, Sheet) footprints, as before.
-        Returns {"selected": n, ...} / {"stale": [...]} / {"error": ...}; a stale
-        context is NOT an error — the finish handler reports it as a hint."""
-        try:
-            adapter = payload["board"].adapter
-            refs = payload.get("refs") or {}
-            if refs:
-                return select_identified_refs(adapter, refs)
-            from kicadstamp.config import load_config
-            from ..select_cell import select_cell_targets
-            cfg, ctx = load_config(payload["root_path"])
-            plan = select_cell_targets(
-                adapter, cfg, payload["root_path"], payload["cell_name"],
-                payload["cluster"], payload["sheet"],
-                dict(ctx.sheet_names or {}))
-            if plan.footprints or plan.copper:
-                adapter.select_items(list(plan.footprints) + list(plan.copper))
-        except Exception as e:  # noqa: BLE001
-            return {"error": str(e)}
-        return {"selected": len(plan.footprints) + len(plan.copper),
-                "cluster": payload["cluster"], "sheet": payload["sheet"],
-                "line": plan.line}
+        """Worker-thread delegate — the body lives in gui/select_cell_copper.py
+        (this file is a giant, §45: wiring only). Runs on the worker, which
+        builds its own adapter / pipeline; a stale identification and a missing
+        context travel back as plain data, never an exception."""
+        return run_select_cell_worker(payload)
 
     def _finish_select_cluster_on_board(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): report what got selected, or — when
@@ -2624,6 +2607,11 @@ class CellDock(QWidget):
                   "selection” on the cell-anchor page")
                 .format(reasons="; ".join(result["stale"])),
                 _WARN_STYLE)
+            return
+        if result.get("line"):
+            # «Select cell» with copper (СЦ-2): the honest counters line, ready
+            # for "Re-read by selection".
+            self._show_message(result["line"], _SUCCESS_STYLE)
             return
         # Р6 of plan_2026_09_17_cell_dialog_min_width: these two lines send the
         # user to a button, so they name it as it is CAPTIONED now — a message

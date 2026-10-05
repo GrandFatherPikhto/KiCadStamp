@@ -19,14 +19,27 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from kicadstamp.cell_instance import resolve_context_footprints
+from kicadstamp.cluster_matching import cluster_prefix_match
+from kicadstamp.config.models import (
+    clone_placement_effective_name,
+    entity_effective_name,
+)
 from kicadstamp.i18n import _
 from kicadstamp.registry import (
+    PlacementRegistry,
+    TrackRegistry,
     load_registry_entries,
     record_key_part,
+    registry_paths_for_config,
+)
+from kicadstamp.registry_match import (
+    TIER_REGISTRY,
+    match_planned_copper,
 )
 from kicadstamp.selection_narrowing import (
     cell_record_addresses,
     is_own_key,
+    record_address_matches,
 )
 
 
@@ -139,16 +152,25 @@ class SelectPlan:
     """What "Select cell" should highlight on the board.
 
     footprints — the instance's board components.
-    copper — the live via/track items the registries recorded for THIS cell at
-        THIS instance (its own `anchor:<ref>` copper included).
+    copper — the live via/track items recorded for THIS cell at THIS instance
+        (its own `anchor:<ref>` copper included), found by registry then by
+        geometry.
     missing_registry — registry uuids of this cell that are NOT on the board
         (reported as a number, never an error).
-    line — the honest Log line with the counts."""
+    line — the honest Log line with the counts.
+
+    СЦ-2 counters (the read path): copper_by_registry ('R'), copper_by_geometry
+    ('G'), copper_missing ('K' — recorded by the planner but not on the board),
+    copper_planned (how many commands the redraw planner produced)."""
 
     footprints: list
     copper: list
     missing_registry: int = 0
     line: str = ""
+    copper_by_registry: int = 0
+    copper_by_geometry: int = 0
+    copper_missing: int = 0
+    copper_planned: int = 0
 
 
 def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
@@ -156,8 +178,18 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
                         own_refs=None) -> SelectPlan:
     """The components + OWN copper of the (cluster, sheet) instance."""
     board_footprints = adapter.get_footprints()
-    footprints = resolve_context_footprints(
-        adapter, board_footprints, cluster, sheet, sheet_names)
+    if cluster:
+        footprints = resolve_context_footprints(
+            adapter, board_footprints, cluster, sheet, sheet_names)
+    elif own_refs:
+        # Identified refs (Р7) make the Cluster optional (resolve_action_instance
+        # returns "none"): the components ARE those refs, checked live. Without a
+        # cluster resolve_context_footprints can only return [] — that would hide
+        # the components of a spoke cell the refs already name.
+        footprints = [fp for ref in own_refs.values()
+                      if (fp := adapter.get_footprint(ref)) is not None]
+    else:
+        footprints = []
     refs = frozenset(
         own_refs if own_refs is not None
         else [getattr(f, "ref", None) for f in footprints if getattr(f, "ref", None)])
@@ -197,10 +229,177 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
         line += _("; the registry remembers {n} more, not on the board").format(
             n=missing)
     return SelectPlan(footprints=footprints, copper=copper,
-                      missing_registry=missing, line=line)
+                      missing_registry=missing,
+                      copper_by_registry=len(copper),
+                      copper_planned=len(copper) + missing, line=line)
 
 
 def _count_kind(items, kind: str) -> int:
     from kicadstamp.domain.board import Track, Via
     cls = Via if kind == "via" else Track
     return sum(1 for i in items if isinstance(i, cls))
+
+
+def instance_recording_name(cfg, cell_name: str, cluster, sheet) -> Optional[str]:
+    """The name of the entity / clone_placement record that PLACES `cell_name`
+    on the (cluster, sheet) instance — the ``--only`` identity the redraw planner
+    needs to plan exactly this record's copper.
+
+    Entities win over clone_placements (an Entity is the tree-materialized
+    owner). The address comparison is the ONE product rule
+    (``record_address_matches``: cluster by prefix, sheet only when both carry
+    one) — no second comparison here. None when NO record places the cell at
+    that instance (e.g. only a chain spoke does): the caller then skips geometry
+    and reports it, it never guesses."""
+    if not cell_name:
+        return None
+    chosen = (cluster, sheet)
+    for e in (getattr(cfg, "entities", ()) or ()):
+        if getattr(e, "cell", None) != cell_name or getattr(e, "retired", False):
+            continue
+        if record_address_matches((getattr(e, "cluster", None),
+                                   getattr(e, "sheet", None)), chosen):
+            return entity_effective_name(e)
+    for c in (getattr(cfg, "clone_placements", ()) or ()):
+        if getattr(c, "cell", None) != cell_name or getattr(c, "retired", False):
+            continue
+        if record_address_matches((getattr(c, "cluster", None),
+                                   getattr(c, "sheet", None)), chosen):
+            return clone_placement_effective_name(c)
+    return None
+
+
+def instance_placed_by_chain(cfg, cell_name: str, cluster) -> bool:
+    """True when a NON-retired chain spoke places `cell_name` at `cluster`.
+
+    Chains are NOT planned per instance by the "Select cell" read (that is a
+    separate task, «Разнос» Р4-2): a cell placed only by a spoke gets
+    registry-only copper and an honest Log line, never a guessed geometry."""
+    if not cell_name:
+        return False
+    for chain in (getattr(cfg, "chains", ()) or ()):
+        for spoke in (getattr(chain, "spokes", ()) or ()):
+            if getattr(spoke, "cell", None) != cell_name:
+                continue
+            if getattr(spoke, "retired", False) or getattr(spoke, "skip", False):
+                continue
+            if cluster and cluster_prefix_match(
+                    str(getattr(spoke, "cluster", None) or ""), cluster):
+                return True
+    return False
+
+
+def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
+                               cluster, sheet, sheet_names,
+                               planned_vias, planned_tracks,
+                               own_refs=None) -> SelectPlan:
+    """The components + the RECORDED copper of the (cluster, sheet) instance.
+
+    The copper is found in two tiers over the commands the REDRAW PLANNER
+    produced for THIS one record (``ApplyPipeline.plan_copper`` — the same
+    planning a real apply / dry run uses, so a preview and a selection can never
+    disagree), matched with ``registry_match.match_planned_copper`` — the SAME
+    routine the adoption path calls:
+
+      * tier 1 — REGISTRY (``is_own_key``, the unchanged ownership rule): 'R';
+      * tier 2 — GEOMETRY, for what the registry did not find: 'G'.
+
+    A live item the registry owns under ANOTHER record is never taken by
+    geometry. A command found by neither tier is recorded-but-absent ('K').
+    Nothing is written anywhere (the registry is read, never saved; the board is
+    selected, never edited)."""
+    board_footprints = adapter.get_footprints()
+    if cluster:
+        footprints = resolve_context_footprints(
+            adapter, board_footprints, cluster, sheet, sheet_names)
+    elif own_refs:
+        footprints = [fp for ref in own_refs.values()
+                      if (fp := adapter.get_footprint(ref)) is not None]
+    else:
+        footprints = []
+    refs = frozenset(
+        own_refs if own_refs is not None
+        else [getattr(f, "ref", None) for f in footprints if getattr(f, "ref", None)])
+
+    cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
+    cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
+    cell_identity = record_key_part(cell_name, cell_uuid)
+    own_addresses = cell_record_addresses(cfg, cell_name)
+    chosen_address = (cluster, sheet)
+
+    _get_vias = getattr(adapter, "get_vias", None)
+    _get_tracks = getattr(adapter, "get_tracks", None)
+    live_vias = list(_get_vias() if _get_vias else [])
+    live_tracks = list(_get_tracks() if _get_tracks else [])
+
+    via_path, trk_path = registry_paths_for_config(
+        str(config_path), getattr(cfg, "registry_path", None),
+        getattr(cfg, "track_registry_path", None))
+    via_reg = PlacementRegistry(adapter, via_path)
+    trk_reg = TrackRegistry(adapter, trk_path)
+
+    matches = list(match_planned_copper(via_reg, planned_vias, live_items=live_vias))
+    matches += list(match_planned_copper(trk_reg, planned_tracks, live_items=live_tracks))
+
+    copper: list = []
+    seen: set = set()
+    by_registry = by_geometry = missing = 0
+    for m in matches:
+        key = getattr(m.command, "registry_key", None)
+        if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
+            continue
+        if m.live is None:
+            missing += 1
+            continue
+        uuid = getattr(m.live, "uuid", None)
+        if uuid is not None and uuid in seen:
+            continue
+        if uuid is not None:
+            seen.add(uuid)
+        if m.tier == TIER_REGISTRY:
+            by_registry += 1
+        else:
+            by_geometry += 1
+        copper.append(m.live)
+
+    line = _("Select cell: {components} component(s); copper — {by_registry} by "
+             "registry, {by_geometry} by geometry; recorded but not on the board "
+             "— {missing}").format(
+        components=len(footprints), by_registry=by_registry,
+        by_geometry=by_geometry, missing=missing)
+    return SelectPlan(footprints=footprints, copper=copper,
+                      copper_by_registry=by_registry,
+                      copper_by_geometry=by_geometry,
+                      copper_missing=missing,
+                      copper_planned=len(planned_vias) + len(planned_tracks),
+                      line=line)
+
+
+def cell_has_recorded_copper(cell) -> bool:
+    """True when the cell's RECORD carries copper (cell-level vias/tracks or any
+    component slot's vias) — used to tell "the planner gave nothing" (СЦ-4-2,
+    worth an honest line) from "the cell never had copper" (components only)."""
+    if cell is None:
+        return False
+    if getattr(cell, "vias", None) or getattr(cell, "tracks", None):
+        return True
+    return any(getattr(s, "vias", None)
+               for s in (getattr(cell, "components", ()) or ()))
+
+
+def no_planned_copper_targets(adapter, cfg, config_path: str, cell_name: str,
+                              cluster, sheet, sheet_names, record_name: str,
+                              own_refs=None) -> SelectPlan:
+    """СЦ-4-2: the record carries copper, but the redraw planner produced NO
+    command for it (a refused tree, an unrealized record). Then the honest
+    answer is REGISTRY-ONLY copper plus a line that says so — never the lying
+    "recorded but not on the board — 0". The registry scan is the SAME
+    ``select_cell_targets`` (no second copy); only its line is replaced."""
+    plan = select_cell_targets(adapter, cfg, config_path, cell_name, cluster,
+                               sheet, sheet_names, own_refs=own_refs)
+    plan.line = _("Select cell: {components} component(s); the redraw planner "
+                  "produced no copper for record {record} (reason — in the Log "
+                  "above); copper — registry only: {r}").format(
+        components=len(plan.footprints), record=record_name,
+        r=plan.copper_by_registry)
+    return plan

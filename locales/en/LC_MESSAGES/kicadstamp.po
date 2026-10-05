@@ -17953,3 +17953,27 @@ msgid ""
 "(one pad); trimmed {pruned} hanging element(s)"
 msgstr ""
 
+msgid "Select cell components"
+msgstr ""
+
+msgid "Select this cell's components on the board"
+msgstr ""
+
+msgid "Select this cell's instance with its recorded copper"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Select cell: {components} component(s); copper — {by_registry} by registry, "
+"{by_geometry} by geometry; recorded but not on the board — {missing}"
+msgstr ""
+
+msgid "the cell is placed by a chain — geometry is not searched (registry only)"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"Select cell: {components} component(s); the redraw planner produced no copper "
+"for record {record} (reason — in the Log above); copper — registry only: {r}"
+msgstr ""
+

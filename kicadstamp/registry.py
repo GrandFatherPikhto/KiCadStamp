@@ -682,49 +682,41 @@ def adopt_matching_unowned(reg: BaseRegistry, planned_cmds: list,
     claim a live item that exactly matches a planned-but-unregistered command
     into the registry, so a later reposition of the anchor deletes that same
     item (by its now-registered UUID) instead of orphaning it at the old place.
+    Generalizes net_trace_planner.adopt_net_trace_copper to the WHOLE plan.
 
-    Generalizes net_trace_planner.adopt_net_trace_copper (which covered only
-    net_trace commands) to the WHOLE plan — the fix for "first reposition in a
-    profile whose registry is empty/lost duplicates copper": on a redraw where
-    the board still matches the plan, existing copper that the positional
-    pre-check used to merely SKIP is now registered as owned.
+    The matching is ``registry_match.match_planned_copper`` — the SAME routine
+    the read-only "Select cell" path calls, so the claiming path and the read
+    path can never disagree (plan_2026_10_05_select_cell_split, СЦ-1).
 
-    SAFE BY CONSTRUCTION (never deletes, never steals foreign copper):
-      * claims only a command whose registry_key is set AND absent from the
-        registry;
-      * the live item must match the planned geometry/net/params exactly
-        (BaseRegistry._live_matches — the same predicate reconcile uses);
-      * the live item's UUID must not already be owned by any entry of THIS
-        registry (copper owned under another key — e.g. a legacy clone_placement
-        while an Entity materializes the same cell — is never taken).
+    SAFE BY CONSTRUCTION (never deletes, never steals foreign copper): claims
+    only a command whose key is set AND absent from the registry (a REGISTRY-tier
+    hit is the record's own entry); the live item must match the plan exactly
+    (``_live_matches`` — the predicate reconcile uses) and its UUID must not be
+    owned by any entry of THIS registry (copper owned under another key — e.g. a
+    legacy clone_placement while an Entity materializes the same cell — is never
+    taken). Runs BEFORE reconcile() so seen_keys / stale-prune see the adopted
+    keys; returns the count claimed (0 -> the file is not rewritten)."""
+    from .registry_match import TIER_GEOMETRY, match_planned_copper
 
-    After adoption the registry owns the copper exactly like any created item:
-    reconcile sees "already correctly placed" and skips it; a later move
-    deletes the claimed UUID and recreates at the new position.
+    # СЦ-4-1: only commands whose key is NOT in the registry may enter the
+    # matcher. A command whose key IS present but whose stored uuid is stale
+    # would otherwise consume the live item by GEOMETRY, and a DIFFERENT
+    # record's keyless-but-same-geometry command (the documented legacy
+    # clone_placement + Entity case) would then go unadopted — the redraw
+    # would draw a DUPLICATE. This is the old behaviour, kept deliberately.
+    candidates = [c for c in planned_cmds
+                  if getattr(c, "registry_key", None) is not None
+                  and c.registry_key not in reg.entries]
 
-    Runs BEFORE reconcile() so seen_keys / stale-prune see the adopted keys.
-    Returns the number of items claimed. When none are claimed the registry
-    file is not rewritten (a no-op on every steady-state run, cheap because
-    keys already present are skipped immediately).
-    """
-    if live_items is None:
-        live_items = reg._get_live_items()
-    owned = {e.uuid for e in reg.entries.values()}
     adopted = 0
-    for cmd in planned_cmds:
-        key = cmd.registry_key
-        if key is None or key in reg.entries:
+    for m in match_planned_copper(reg, candidates, live_items=live_items):
+        if m.tier != TIER_GEOMETRY or m.live is None:
             continue
-        for item in live_items:
-            if item.uuid in owned:
-                continue
-            if reg._live_matches(item, cmd):
-                reg.entries[key] = reg._build_entry(cmd, item.uuid)
-                owned.add(item.uuid)
-                adopted += 1
-                logger.info("  adopted existing copper (%s) into the registry under %s",
-                            type(cmd).__name__, key)
-                break
+        key = m.command.registry_key
+        reg.entries[key] = reg._build_entry(m.command, m.live.uuid)
+        adopted += 1
+        logger.info("  adopted existing copper (%s) into the registry under %s",
+                    type(m.command).__name__, key)
     if adopted:
         reg._save_entries(reg.entries)
     return adopted

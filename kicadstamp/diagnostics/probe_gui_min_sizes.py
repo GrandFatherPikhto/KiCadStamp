@@ -60,9 +60,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # project must live on and 1000 leaves room for the window frame and the taskbar.
 LIMIT_PX = 1000
 
-# The three buttons the whole task is about (gui/docks/cell_editor.py:501-527).
+# The buttons the whole task is about (gui/docks/cell_editor.py). СЦ-1 of
+# plan_2026_10_05_select_cell_split added the second "Select cell" button (with
+# the recorded copper); the probe measures BOTH it and the renamed one.
 BUTTON_ATTRS = ("refresh_geometry_button", "import_vias_tracks_button",
-                "select_cluster_button")
+                "select_cluster_button", "select_cell_button")
 
 # How many of the widest descendants to name per offender. Six is enough to show
 # a three-button row plus its neighbours.

@@ -576,6 +576,9 @@ class ApplyPipeline:
         self.adapter: KiCadBoardAdapter | None = None
         self.planner: PlacementPlanner | None = None
         self.items = None
+        # The moves plan_copper() produced (self.planner.plan_items) — the dry
+        # run's report reads them here; "Select cell" ignores them.
+        self.planned_moves: list = []
         self.all_anchor_ids: set[str] = set()
         # {transient record name (== the tree node's ref): footprint refdes} for
         # the records materialized from kind "component" tree nodes in
@@ -724,6 +727,15 @@ class ApplyPipeline:
                                         position_overrides=self.position_overrides,
                                         isolate_spokes=self.isolate_spokes)
 
+    def plan_copper(self) -> tuple[list, list]:
+        """Plan the run's copper — ``(vias, tracks)``, board untouched.
+
+        THE ONE copper-planning entry (the dry run and the read-only "Select
+        cell" both call it); also runs ``plan_items`` and keeps the moves on
+        ``self.planned_moves`` for the report. Requires the prepared pipeline."""
+        self.planned_moves = self.planner.plan_items(self.items)
+        return self.planner.plan_vias(), self.planner.plan_tracks()
+
     # ── Dry‑run ─────────────────────────────────────────────────────────────
 
     def _dry_run(self) -> list[str]:
@@ -753,9 +765,8 @@ class ApplyPipeline:
         # apply would use (refresh_board() here would be a pure no-op, the board
         # is unchanged). The divergence is honest and documented in the report
         # below, same as the existing "planned from the CURRENT board" note.
-        moves = self.planner.plan_items(self.items)
-        vias = self.planner.plan_vias()
-        tracks = self.planner.plan_tracks()
+        vias, tracks = self.plan_copper()
+        moves = self.planned_moves
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
         lines.append(_("Order: {order}").format(order=" -> ".join(it.label for it in self.items)))

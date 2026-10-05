@@ -53,15 +53,23 @@ MAX_DIALOG_WIDTH_PX = 1000
 SHORT_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry", "Перечитать геометрию"),
     "import_vias_tracks_button": ("Import copper", "Импорт меди"),
-    "select_cluster_button": ("Select cell", "Выделить ячейку"),
+    # СЦ-1 (plan_2026_10_05_select_cell_split): the former "Select cell" button
+    # is now the components-only one; a second button carries the copper. The
+    # Russian caption of the first stays SHORT («Выделить компоненты», no
+    # «ячейки») — short Russian captions are this guard's own requirement (Р7),
+    # and the dock is about a cell anyway.
+    "select_cluster_button": ("Select cell components", "Выделить компоненты"),
+    "select_cell_button": ("Select cell", "Выделить ячейку"),
 }
 FULL_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry from selection",
                                 "Обновить геометрию по выделению"),
     "import_vias_tracks_button": ("Import vias/tracks from selection",
                                   "Импорт via/track из выделения"),
-    "select_cluster_button": ("Select this cell's instance on the board",
-                              "Выделить экземпляр этой ячейки на плате"),
+    "select_cluster_button": ("Select this cell's components on the board",
+                              "Выделить компоненты этой ячейки на плате"),
+    "select_cell_button": ("Select this cell's instance with its recorded copper",
+                           "Выделить экземпляр ячейки вместе с записанной медью"),
 }
 
 _RU_REPORT: dict | None = None

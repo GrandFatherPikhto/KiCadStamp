@@ -95,9 +95,18 @@ class _FakeAdapter:
         self.footprints = footprints or []
         self.field_values = {}
         self.selected = []
+        # The worker builds its OWN adapter now (СЦ-3) and closes it; the fake
+        # records that so the guards can assert the lifetime.
+        self.closed = False
 
     def set_field(self, fp, name, value):
         self.field_values[(getattr(fp, "uuid", None), name)] = value
+
+    def refresh_board(self):
+        pass
+
+    def close(self):
+        self.closed = True
 
     def get_footprints(self):
         return list(self.footprints)
@@ -386,17 +395,20 @@ def _make_cell_dock(main_window, tmp_path, data=None):
 
 
 def test_select_cluster_worker_selects_exactly_the_cluster(main_window,
-                                                           tmp_path):
+                                                           tmp_path,
+                                                           monkeypatch):
     """The worker resolves the remembered (Cluster, Sheet) footprints and hands
     them to adapter.select_items — the whole cluster instance, nothing else."""
     adapter = _cluster_adapter("PIF_3V3_VDD")
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     dock, root = _make_cell_dock(main_window, tmp_path)
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", None)
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: adapter)
 
     result = dock._run_select_cluster_on_board({
-        "board": main_window.connection.board,
         "root_path": str(root),
+        "timeout_ms": 5000,
         "cell_name": "cell1",
         "cluster": "PIF_3V3_VDD",
         "sheet": None,
@@ -405,20 +417,24 @@ def test_select_cluster_worker_selects_exactly_the_cluster(main_window,
     assert result["selected"] == 2
     assert len(adapter.selected) == 1
     assert {fp.uuid for fp in adapter.selected[0]} == {"fp1", "fp2"}
+    assert adapter.closed is True          # СЦ-3: the worker's own adapter
 
 
 def test_select_cluster_worker_stale_context_selects_nothing(main_window,
-                                                             tmp_path):
+                                                             tmp_path,
+                                                             monkeypatch):
     """A remembered cluster absent from the current board: the worker selects
     NOTHING and reports selected == 0 — no exception, no hard dependency."""
     adapter = _cluster_adapter("AD_DAC/IC2")   # the remembered cluster is gone
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     dock, root = _make_cell_dock(main_window, tmp_path)
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "FPGA")
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: adapter)
 
     result = dock._run_select_cluster_on_board({
-        "board": main_window.connection.board,
         "root_path": str(root),
+        "timeout_ms": 5000,
         "cell_name": "cell1",
         "cluster": "PIF_3V3_VDD",
         "sheet": "FPGA",
@@ -426,6 +442,7 @@ def test_select_cluster_worker_stale_context_selects_nothing(main_window,
 
     assert result["selected"] == 0
     assert adapter.selected == []
+    assert adapter.closed is True          # СЦ-3: the worker's own adapter
 
 
 # ── G.3: the working context is remembered on a MANUAL pick ───────────────
@@ -601,10 +618,12 @@ def _spoke_adapter():
     return adapter
 
 
-def _spoke_payload(board, root):
+def _spoke_payload(root):
+    # СЦ-3: the payload carries NO board handle (the UI-thread read the door
+    # forbids) — the worker builds its own adapter; only its timeout travels.
     return {
-        "board": board,
         "root_path": str(root),
+        "timeout_ms": 5000,
         "cell_name": "cell1",
         "cluster": "FPGA_PWR_BANK",
         "sheet": None,
@@ -612,23 +631,27 @@ def _spoke_payload(board, root):
     }
 
 
-def test_c10_identified_refs_win_over_the_whole_cluster(main_window, tmp_path):
+def test_c10_identified_refs_win_over_the_whole_cluster(main_window, tmp_path,
+                                                        monkeypatch):
     """С10/М10: the button selects EXACTLY the identified pair — not the three
     components of the cluster, not the 50 of the live spoke bank."""
     adapter = _spoke_adapter()
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     dock, root = _make_cell_dock(main_window, tmp_path)
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: adapter)
 
-    result = dock._run_select_cluster_on_board(_spoke_payload(
-        main_window.connection.board, root))
+    result = dock._run_select_cluster_on_board(_spoke_payload(root))
 
     assert result["selected"] == 2
     assert result.get("identified") is True
     assert len(adapter.selected) == 1
     assert {fp.uuid for fp in adapter.selected[0]} == {"fp1", "fp2"}
+    assert adapter.closed is True          # СЦ-3: the worker's own adapter
 
 
-def test_c16_stale_refs_select_nothing_and_say_so(main_window, tmp_path):
+def test_c16_stale_refs_select_nothing_and_say_so(main_window, tmp_path,
+                                                  monkeypatch):
     """С16/М15: a ref whose Role changed makes the map stale — NOTHING is
     selected (never a fallback to the whole cluster) and the reason travels back
     to the finish handler."""
@@ -636,28 +659,33 @@ def test_c16_stale_refs_select_nothing_and_say_so(main_window, tmp_path):
     adapter.set_field(adapter.footprints[0], ROLE_FIELD_NAME, "C_SHUNT")
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     dock, root = _make_cell_dock(main_window, tmp_path)
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: adapter)
 
-    result = dock._run_select_cluster_on_board(_spoke_payload(
-        main_window.connection.board, root))
+    result = dock._run_select_cluster_on_board(_spoke_payload(root))
 
     assert result["stale"]
     assert "C68" in result["stale"][0]
     assert adapter.selected == []
+    assert adapter.closed is True          # СЦ-3: the worker's own adapter
 
 
-def test_c16_a_ref_that_left_the_board_is_stale_too(main_window, tmp_path):
+def test_c16_a_ref_that_left_the_board_is_stale_too(main_window, tmp_path,
+                                                    monkeypatch):
     """С16: the same verdict when the refdes is gone (renamed/deleted)."""
     adapter = _spoke_adapter()
     adapter.footprints = [fp for fp in adapter.footprints if fp.ref != "C52"]
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     dock, root = _make_cell_dock(main_window, tmp_path)
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: adapter)
 
-    result = dock._run_select_cluster_on_board(_spoke_payload(
-        main_window.connection.board, root))
+    result = dock._run_select_cluster_on_board(_spoke_payload(root))
 
     assert result["stale"]
     assert "C52" in result["stale"][0]
     assert adapter.selected == []
+    assert adapter.closed is True          # СЦ-3: the worker's own adapter
 
 
 def test_c16_finish_reports_a_stale_identification_as_a_hint(main_window,

@@ -237,6 +237,10 @@ class ConfigTreeDock(QWidget):
     # components PLUS the copper the registries recorded for this cell at that
     # instance; the SAME function the CellDock button runs (one for every door).
     cell_select_requested = pyqtSignal(str, object, object, object)
+    # СЦ-1 (plan_2026_10_05_select_cell_split): the context menu's "Select cell
+    # components" — the instance's board components ONLY. Same four-arg shape and
+    # the SAME instance resolver; only the recorded copper is left out.
+    cell_select_components_requested = pyqtSignal(str, object, object, object)
     # 2026-10-05 (plan_2026_10_05_select_enclosed_copper): the context menu's
     # "Select enclosed copper" — the WHOLE instance: its components PLUS the
     # copper enclosed by them (a connected piece touching an instance pad and NO
@@ -1464,12 +1468,21 @@ class ConfigTreeDock(QWidget):
                 leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
                 entity = leaf_data[2] if leaf_data is not None else None
                 if isinstance(entity, dict) and entity.get("cell"):
-                    menu.addAction(_("Select cell")).triggered.connect(
+                    # СЦ-1: three items in order — components, cell, enclosed.
+                    components_action = menu.addAction(_("Select cell components"))
+                    components_action.setObjectName("select_cell_components_action")
+                    components_action.triggered.connect(
                         lambda checked=False, n=entity.get("cell"),
                         c=entity.get("cluster"), s=entity.get("sheet"):
                         # Н5б: file_path=None — the ENTITY's file must never
                         # become the cell's save target; CellDock resolves the
                         # cell's OWN file from the config.
+                        self.cell_select_components_requested.emit(n, None, c, s))
+                    select_action = menu.addAction(_("Select cell"))
+                    select_action.setObjectName("select_cell_action")
+                    select_action.triggered.connect(
+                        lambda checked=False, n=entity.get("cell"),
+                        c=entity.get("cluster"), s=entity.get("sheet"):
                         self.cell_select_requested.emit(n, None, c, s))
                     # 2026-10-05: the SAME explicit instance, selecting the whole
                     # enclosed copper too. The objectName is for the guard (the
@@ -1519,8 +1532,16 @@ class ConfigTreeDock(QWidget):
                 # cannot MODIFY one — they complement, never overlap).
                 menu.addAction(_("Import from selection...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
+                # СЦ-1: three items in order — components, cell, enclosed.
+                components_action = menu.addAction(_("Select cell components"))
+                components_action.setObjectName("select_cell_components_action")
+                components_action.triggered.connect(
+                    lambda: self.cell_select_components_requested.emit(
+                        old_name, file_path, None, None))
                 # Н5: highlight what a read would read (instance + own copper).
-                menu.addAction(_("Select cell")).triggered.connect(
+                select_action = menu.addAction(_("Select cell"))
+                select_action.setObjectName("select_cell_action")
+                select_action.triggered.connect(
                     lambda: self.cell_select_requested.emit(
                         old_name, file_path, None, None))
                 # 2026-10-05: the whole enclosed copper of this cell's instance

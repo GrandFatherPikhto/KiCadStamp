@@ -324,6 +324,18 @@ def _match_own_identity(value: str, own_addresses: dict) -> str | None:
     return best
 
 
+def record_address_matches(record_address: tuple, chosen_address: tuple) -> bool:
+    """Public name of the ONE "(cluster, sheet) names this instance" rule.
+
+    Thin delegate to ``_address_matches`` (kept private for the ownership rule
+    that already calls it): cluster by ``cluster_prefix_match``, sheet only when
+    BOTH sides carry one — the same best-effort cascade the rest of the project
+    follows. The read-only "Select cell" uses it to find the entity /
+    clone_placement record that places a cell at a given instance; no second
+    address rule is written."""
+    return _address_matches(record_address, chosen_address)
+
+
 def _address_matches(record_address: tuple, chosen_address: tuple) -> bool:
     """Does a record's (cluster, sheet) address name the chosen instance?
 

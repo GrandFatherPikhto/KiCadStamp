@@ -18851,3 +18851,31 @@ msgstr ""
 "не взято: к чужим падам {foreign}, тупики (один пад) {dangling}; отрезано "
 "висячих элементов {pruned}"
 
+msgid "Select cell components"
+msgstr "Выделить компоненты"
+
+msgid "Select this cell's components on the board"
+msgstr "Выделить компоненты этой ячейки на плате"
+
+msgid "Select this cell's instance with its recorded copper"
+msgstr "Выделить экземпляр ячейки вместе с записанной медью"
+
+#, python-brace-format
+msgid ""
+"Select cell: {components} component(s); copper — {by_registry} by registry, "
+"{by_geometry} by geometry; recorded but not on the board — {missing}"
+msgstr ""
+"Выделить ячейку: {components} компонент(ов); медь — {by_registry} по реестру, "
+"{by_geometry} по геометрии; записано, но на плате нет — {missing}"
+
+msgid "the cell is placed by a chain — geometry is not searched (registry only)"
+msgstr "ячейку ставит цепочка — по геометрии не ищется (только реестр)"
+
+#, python-brace-format
+msgid ""
+"Select cell: {components} component(s); the redraw planner produced no copper "
+"for record {record} (reason — in the Log above); copper — registry only: {r}"
+msgstr ""
+"Выделить ячейку: {components} компонент(ов); планировщик перерисовки не дал "
+"меди для записи {record} (причина — в Логе выше); медь — только по реестру: {r}"
+

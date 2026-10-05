@@ -371,13 +371,25 @@ the cell instead of being subtracted.
 
 ### Selecting a cell's instance and its enclosed copper (Config tree)
 
-The same Config-tree context menu that holds "Explode…" carries two selection
+The same Config-tree context menu that holds "Explode…" carries three selection
 items — on a CELLS leaf and on an ENTITIES leaf (an entity names its own
-cluster/sheet):
+cluster/sheet) — in this order:
 
-* **Select cell** — highlights the instance on the board: its components PLUS the
-  copper the registries recorded for this cell at this instance (exactly what a
-  read WOULD read);
+* **Select cell components** — highlights ONLY the instance's board components
+  (the CellDock button of the same name; the one-click entry to "Refresh
+  geometry");
+* **Select cell** — highlights the components PLUS the copper the config
+  RECORDED for this cell at this instance (exactly what a read WOULD read). The
+  copper is found in two tiers: first by the registries (their stored uuid, the
+  unchanged `is_own_key` rule), then — for whatever the registries no longer know
+  (a hand re-route after the last redraw) — by exact geometry, planning this one
+  record through the SAME planner a dry run uses (`ApplyPipeline.plan_copper`,
+  commands carrying their `registry_key`) and matching with the SAME routine
+  adoption uses. A live item the registry owns under ANOTHER record is never
+  taken; an element recorded but not on the board is reported as a number, never
+  an error. The Log line reads "copper — R by registry, G by geometry; recorded
+  but not on the board — K". A cell placed only by a chain spoke gets
+  registry-only copper (per-instance chain planning is a later task) and says so;
 * **Select enclosed copper** — highlights the instance WHOLE: its components AND
   the copper BETWEEN them — every connected piece of copper that touches TWO
   different instance pads and NO pad of any other component on the board. A piece
@@ -389,9 +401,15 @@ cluster/sheet):
   vias) is left out. The one knob, `MIN_INSTANCE_PADS`, is 2 (set it to 1 to also
   take single-pad dead-ends).
 
-Both run on a worker (the board is never read from the UI thread) and report one
-Log line — a red line, never a dialog, when nothing resolves. The result is ready
-for "Re-read by selection".
+When the record carries copper but the redraw planner produced no command for it
+(a refused tree, an unrealized record), the line says so honestly and the copper
+is taken from the registries only — never a lying "recorded but not on the
+board — 0".
+
+All three run on a worker (the board is never read from the UI thread; the copper
+path drives the pipeline and uses ITS own adapter) and report one Log line — a
+red line, never a dialog, when nothing resolves. The result is ready for
+"Re-read by selection".
 
 
 ## `extract` – extract a template from the current selection
