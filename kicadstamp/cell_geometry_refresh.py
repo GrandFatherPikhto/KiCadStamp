@@ -549,9 +549,25 @@ class RefreshPlan:
     # deleted, nothing changed). Empty unless keep_unpaired and at least one
     # record had no live counterpart.
     unpaired_reports: list[str] = field(default_factory=list)
+    # Н4 п.5: the unpaired records THEMSELVES (the SAME dicts), so the caller can
+    # apply the live-UUID rule — delete only when the registry's uuid for the
+    # record is ABSENT from the board, keep (and name) otherwise. Empty unless
+    # keep_unpaired and at least one record had no live pair.
+    unpaired_via_records: list[dict] = field(default_factory=list)
+    unpaired_track_records: list[dict] = field(default_factory=list)
     # J.1: honest report lines the GUI prints in the Log (non-rigid cluster /
     # turned instance). Empty for an ordinary unrotated rigid selection.
     warnings: list[str] = field(default_factory=list)
+    # Н4.2 (reconcile_components): the instance's roles the CELL does not have —
+    # brand-NEW component records to APPEND (role + geometry in the cell's own
+    # axes; `layer` only when the side differs from the cell's). Never
+    # `net_template`. Empty unless requested.
+    new_component_records: list[dict] = field(default_factory=list)
+    # Н4.2 (reconcile_components): the CELL's component records the instance does
+    # NOT have — the SAME dict objects the caller passed in, to DELETE. Their
+    # `net_from_role` copper is already listed in removed_via_records /
+    # removed_track_records. Empty unless requested.
+    removed_component_records: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -568,6 +584,7 @@ class ImportPlan:
 def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                             adapter: Any, action_label: str,
                             origin_role: str | None = None,
+                            reconcile: bool = False,
                             ) -> tuple[dict[str, str], list[dict], Vector2 | None,
                                        tuple[float, float], list[str]]:
     """Shared origin/role prelude for BOTH refresh and import (plan §B.2:
@@ -603,14 +620,19 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
         role_to_ref[role] = fp.ref
 
     matched, missing, extra = match_components(components, role_to_ref)
-    for role in missing:
-        problems.append(_("role {role!r} is in the cell but not in the "
-                          "selection — {action} needs the whole cluster")
-                        .format(role=role, action=action_label))
-    for role in extra:
-        problems.append(_("role {role!r} is in the selection but not in the "
-                          "cell — {action} cannot add components")
-                        .format(role=role, action=action_label))
+    # reconcile (Н4.2, Denis 2026-10-05): the instance may legally carry roles
+    # the cell does not have yet and miss roles the cell still has — those are
+    # ADDED/REMOVED component records downstream, not a fatal. The role-only
+    # problems above (no Role field, a role twice) stay fatal in both modes.
+    if not reconcile:
+        for role in missing:
+            problems.append(_("role {role!r} is in the cell but not in the "
+                              "selection — {action} needs the whole cluster")
+                            .format(role=role, action=action_label))
+        for role in extra:
+            problems.append(_("role {role!r} is in the selection but not in the "
+                              "cell — {action} cannot add components")
+                            .format(role=role, action=action_label))
 
     # Origin surrogate — the live reference the whole refresh is measured from.
     #   - origin_role set (v2: the cell's anchor_role, the MOUNT component): the
@@ -901,6 +923,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        add_new_copper: bool = False,
                        remove_missing: bool = False,
                        keep_unpaired: bool = False,
+                       reconcile_components: bool = False,
                        cell_layer: str | None = None,
                        nested_placements: list[dict] | None = None,
                        cells: dict | None = None,
@@ -968,7 +991,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     """
     role_to_ref, matched, origin, mount, problems = _cell_selection_context(
         components, footprints, adapter,
-        _("refresh"), origin_role)
+        _("refresh"), origin_role, reconcile=reconcile_components)
 
     # J.1: the ONE cell<->world frame (kicadstamp/cell_frame.py) — rotation and
     # mirror are FITTED from the stored offsets against the live deltas of every
@@ -1033,6 +1056,38 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             fp = ref_to_fp[role_to_ref[rec["role"]]]
             component_updates.append((rec, _component_new_geo(fp, frame)))
 
+    # Н4.2 (reconcile): the instance's role set is authoritative — a role the
+    # cell lacks becomes a NEW component record, a cell role the instance lacks
+    # is DELETED (together with the copper that stood on it).
+    new_component_records: list[dict] = []
+    removed_component_records: list[dict] = []
+    missing_roles: set = set()
+    if reconcile_components and frame is not None:
+        cell_roles = {c.get("role") for c in components}
+        ref_to_fp = {fp.ref: fp for fp in footprints}
+        for role in sorted(set(role_to_ref) - cell_roles):
+            fp = ref_to_fp.get(role_to_ref[role])
+            if fp is None:
+                continue
+            record: dict = {"role": role}
+            record.update(_component_new_geo(fp, frame))
+            # `layer` only when the side differs from the cell's own — the
+            # extractor's rule (extract_template_from_selection).
+            if cell_layer is not None and layer_to_str(fp.layer) != cell_layer:
+                record["layer"] = layer_to_str(fp.layer)
+            new_component_records.append(record)
+        missing_roles = {r for r in cell_roles if r and r not in role_to_ref}
+        if missing_roles:
+            removed_component_records = [c for c in components
+                                         if c.get("role") in missing_roles]
+
+    # A missing role's copper has nothing to stand on: it is REMOVED (above), so
+    # it must not reach the matcher — resolving its `net_from_role` would fatal.
+    match_vias = ([r for r in vias if r.get("net_from_role") not in missing_roles]
+                  if missing_roles else vias)
+    match_tracks = ([r for r in tracks if r.get("net_from_role") not in missing_roles]
+                    if missing_roles else tracks)
+
     # Vias / tracks — independent sections. Run only when the origin resolved
     # (the nearest-match it feeds needs a reference point); an unresolvable
     # origin is already reported loudly above as the wrong-cluster problem.
@@ -1054,12 +1109,12 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     missing_is_fatal = not remove_missing and not keep_unpaired
     if frame is not None:
         via_updates, via_problems, via_leftover, via_removed = _match_copper(
-            vias, raw_via_items, frame, role_to_ref, adapter, "via",
+            match_vias, raw_via_items, frame, role_to_ref, adapter, "via",
             leftover_is_fatal=not add_new_copper,
             missing_is_fatal=missing_is_fatal,
             cell_layer=cell_layer)
         track_updates, track_problems, track_leftover, track_removed = _match_copper(
-            tracks, raw_track_items, frame, role_to_ref, adapter, "track",
+            match_tracks, raw_track_items, frame, role_to_ref, adapter, "track",
             leftover_is_fatal=not add_new_copper,
             missing_is_fatal=missing_is_fatal,
             cell_layer=cell_layer)
@@ -1094,10 +1149,28 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # the deletion lists — the record must survive UNTOUCHED (nothing in the
     # plan references it, so the caller has nothing to delete or rewrite).
     unpaired_reports: list[str] = []
+    unpaired_via_records: list[dict] = []
+    unpaired_track_records: list[dict] = []
     if keep_unpaired:
+        unpaired_via_records = list(via_removed)
+        unpaired_track_records = list(track_removed)
         unpaired_reports = _unpaired_kept_report(via_removed, track_removed)
         via_removed = []
         track_removed = []
+    # Н4.2: copper whose component role left the board goes regardless of
+    # pairing — it has nothing to stand on. Added AFTER the keep_unpaired
+    # clearing, so a soft read never resurrects it.
+    if reconcile_components and missing_roles:
+        seen_v = {id(r) for r in via_removed}
+        for r in vias:
+            if r.get("net_from_role") in missing_roles and id(r) not in seen_v:
+                via_removed.append(r)
+                seen_v.add(id(r))
+        seen_t = {id(r) for r in track_removed}
+        for r in tracks:
+            if r.get("net_from_role") in missing_roles and id(r) not in seen_t:
+                track_removed.append(r)
+                seen_t.add(id(r))
 
     return RefreshPlan(
         component_updates=component_updates,
@@ -1110,7 +1183,11 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         removed_via_records=via_removed,
         removed_track_records=track_removed,
         unpaired_reports=unpaired_reports,
+        unpaired_via_records=unpaired_via_records,
+        unpaired_track_records=unpaired_track_records,
         warnings=warnings,
+        new_component_records=new_component_records,
+        removed_component_records=removed_component_records,
     )
 
 
@@ -1201,7 +1278,8 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
                       footprints: list[Footprint], raw_via_items: list[Via],
                       raw_track_items: list[Track], adapter: Any,
                       origin_role: str | None = None,
-                      cell_layer: str | None = None) -> ImportPlan:
+                      cell_layer: str | None = None,
+                      reconcile_components: bool = False) -> ImportPlan:
     """Build the plan for "Import vias/tracks from selection": append NEW via/
     track records to an EXISTING cell for live copper its current records do
     not describe — the additive counterpart of build_refresh_plan (Refresh
@@ -1227,13 +1305,21 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     """
     role_to_ref, matched, origin, mount, problems = _cell_selection_context(
         components, footprints, adapter,
-        _("import"), origin_role)
+        _("import"), origin_role, reconcile=reconcile_components)
 
     # J.1: the very SAME cell frame as Refresh (cell_frame.py) — importing from
     # a rotated instance must append offsets in the cell's own frame too.
     frame = _cell_frame_for(components, matched, footprints, role_to_ref,
                             origin, mount) if origin is not None else None
 
+    # Import does not change components: a copper record whose `net_from_role`
+    # is a role the board does not have cannot resolve — drop it from the match
+    # (neither imported nor a fatal), like the refresh reconcile path.
+    if reconcile_components:
+        vias = [r for r in vias if not r.get("net_from_role")
+                or r.get("net_from_role") in role_to_ref]
+        tracks = [r for r in tracks if not r.get("net_from_role")
+                  or r.get("net_from_role") in role_to_ref]
     via_leftover: list[Any] = []
     track_leftover: list[Any] = []
     via_problems: list[str] = []

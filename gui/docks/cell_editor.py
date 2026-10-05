@@ -98,6 +98,7 @@ from kicadstamp.config import (load_cell, load_cell_placement, load_template_com
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
+from kicadstamp.selection_narrowing import apply_live_copper_rule
 
 from ..board_layers import (
     cell_copper_layer_names,
@@ -149,7 +150,8 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
             footprints=footprints, vias=vias, tracks=tracks, cfg=cfg,
             sheet_names=sheet_names, cell_name=payload["cell_name"],
             cell_roles=_component_roles(payload.get("components")),
-            remembered_cluster=payload.get("remembered_cluster"))
+            remembered_cluster=payload.get("remembered_cluster"),
+            remembered_sheet=payload.get("remembered_sheet"))
     except Exception:  # noqa: BLE001 — a prelude failure must not break the read
         logger.exception("mixed-selection prelude failed — using the whole "
                          "selection")
@@ -159,6 +161,25 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
     if prelude.refusal:
         return footprints, vias, tracks, None, prelude.refusal
     return (prelude.footprints, prelude.vias, prelude.tracks, prelude, None)
+
+
+def _problem_lines(text: str) -> list[str]:
+    """Split a collected fatal (format_fatal_error text) into one line per
+    problem, for the Н4.7 rule: refusals are red Log lines, never a dialog."""
+    return [line.strip() for line in str(text or "").splitlines() if line.strip()]
+
+
+def component_report_line(sign: str, record: dict) -> str:
+    """One '+ '/'- ' Log line naming ONE added/removed COMPONENT record (Н4.2):
+    `+ component R70 R_SD_PROT (12.3, -4.5) angle 90°`."""
+    role = record.get("role", "?")
+    if sign == "-":
+        return _("{sign} component {role}").format(sign=sign, role=role)
+    return _("{sign} component {role} ({along}, {across}) angle {angle}°").format(
+        sign=sign, role=role,
+        along=record.get("offset_along_mm", 0.0),
+        across=record.get("offset_across_mm", 0.0),
+        angle=record.get("angle_deg", 0.0))
 
 
 def record_report_line(sign: str, record: dict, kind: str) -> str:
@@ -1703,6 +1724,16 @@ class CellDock(QWidget):
             self._root_path, self.name_edit.text().strip())
         return cluster
 
+    def _remembered_sheet_value(self) -> Optional[str]:
+        """The remembered Sheet of the loaded cell, or None — the fallback the
+        prelude uses when the selection holds no component of the cell's cluster
+        (Н4.1). Read on the UI thread from gui_state, best-effort."""
+        if self._root_path is None:
+            return None
+        _cluster, sheet = remembered_cell_edit_context(
+            self._root_path, self.name_edit.text().strip())
+        return sheet
+
     def _refresh_origin_role(self) -> str | None:
         """The cell's anchor_role to refresh/import geometry against (the
         MOUNT role, frame-preserving). Only in the form's "Role" mode; None
@@ -1776,6 +1807,7 @@ class CellDock(QWidget):
             # Cluster fallback for when the config names no cluster.
             "cell_name": self.name_edit.text().strip(),
             "remembered_cluster": self._remembered_cluster_value(),
+            "remembered_sheet": self._remembered_sheet_value(),
             # H.1.1: the cell's own copper layer, so the engine never pairs a
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
@@ -1946,13 +1978,24 @@ class CellDock(QWidget):
                 # selection after the read (Denis 2026-10-04: "а после — перечитать").
                 remove_missing=prelude is None,
                 keep_unpaired=prelude is not None,
+                # Н4.2: a by-cluster read reconciles the component set — the
+                # instance's extra roles become NEW records, the cell's missing
+                # roles are DELETED (with their copper), never a role fatal.
+                reconcile_components=prelude is not None,
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
-            # keep_unpaired: the Log line(s) naming the records left as they are.
-            for line in plan.unpaired_reports:
-                selection_lines.append((line, _SELECTION_WARN))
+            # Н4 п.5: split the unpaired records by the registry's live uuid —
+            # delete only the ones whose copper is GONE from the board, keep
+            # (and NAME) the rest. In the ordinary (non-cluster) path the old
+            # keep_unpaired report stands untouched.
+            if prelude is not None and prelude.copper_ctx is not None:
+                for line in apply_live_copper_rule(plan, prelude.copper_ctx):
+                    selection_lines.append((line, _SELECTION_WARN))
+            else:
+                for line in plan.unpaired_reports:
+                    selection_lines.append((line, _SELECTION_WARN))
             # Plan item 3: after the plan is built, select on the board the
             # chosen instance's components AND all the copper that entered the
             # read — the user sees what was read and can fix the selection by
@@ -1988,8 +2031,10 @@ class CellDock(QWidget):
             self._show_message(result["selection_refusal"], _ERROR_STYLE)
             return
         if result.get("error"):
-            QMessageBox.warning(
-                self, _("Refresh geometry from selection"), result["error"])
+            # Н4.7 (Denis 2026-10-05): no dialogs — every problem is a red Log
+            # line, the working dialog is never covered by an "OK" window.
+            for line in _problem_lines(result["error"]):
+                self._show_message(line, _ERROR_STYLE)
             return
         # Э4/Э5: the layer report goes FIRST and unconditionally — a read without
         # a dialog has no other place to say which layers it looked at.
@@ -2001,6 +2046,8 @@ class CellDock(QWidget):
                         or plan.track_updates or plan.new_via_records
                         or plan.new_track_records or plan.removed_via_records
                         or plan.removed_track_records
+                        or getattr(plan, "new_component_records", None)
+                        or getattr(plan, "removed_component_records", None)
                         or getattr(plan, "nested_updates", None)
                         or getattr(plan, "nested_reports", None)
                         or getattr(plan, "warnings", None))
@@ -2024,6 +2071,10 @@ class CellDock(QWidget):
         # говорим: добавили то-то, удалили то-то" (Denis). Added = the live
         # copper the cell did not describe, removed = the records with no live
         # counterpart.
+        for record in getattr(plan, "new_component_records", None) or []:
+            self._show_message(component_report_line("+", record), _SUCCESS_STYLE)
+        for record in getattr(plan, "removed_component_records", None) or []:
+            self._show_message(component_report_line("-", record), _WARN_STYLE)
         for record in plan.new_via_records:
             self._show_message(record_report_line("+", record, "via"), _SUCCESS_STYLE)
         for record in plan.new_track_records:
@@ -2074,8 +2125,16 @@ class CellDock(QWidget):
         added = len(plan.new_via_records) + len(plan.new_track_records)
         self._vias.extend(plan.new_via_records)
         self._tracks.extend(plan.new_track_records)
+        # Н4.2: brand-new COMPONENT records (roles the cell lacked) and removed
+        # ones (cell roles the instance lacked; their copper is in removed_*).
+        new_components = list(getattr(plan, "new_component_records", None) or [])
+        self._components.extend(new_components)
+        added += len(new_components)
         removed = self._drop_records(plan.removed_via_records, self._vias)
         removed += self._drop_records(plan.removed_track_records, self._tracks)
+        removed += self._drop_records(
+            getattr(plan, "removed_component_records", None) or [],
+            self._components)
         self._refresh_all_tables()
         self._autostage()
         return updated, added, removed
@@ -2167,6 +2226,7 @@ class CellDock(QWidget):
             "root_path": str(self._root_path) if self._root_path else None,
             "cell_name": self.name_edit.text().strip(),
             "remembered_cluster": self._remembered_cluster_value(),
+            "remembered_sheet": self._remembered_sheet_value(),
             # H.1.2: Import stays purely ADDITIVE (no remove_missing here) but
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
@@ -2234,7 +2294,8 @@ class CellDock(QWidget):
                 payload["components"], payload["vias"], payload["tracks"],
                 plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
-                cell_layer=payload.get("cell_layer"))
+                cell_layer=payload.get("cell_layer"),
+                reconcile_components=prelude is not None)
             if prelude is not None:
                 try:
                     adapter.select_items(list(prelude.instance_footprints)
@@ -2258,8 +2319,9 @@ class CellDock(QWidget):
             self._show_message(result["selection_refusal"], _ERROR_STYLE)
             return
         if result.get("error"):
-            QMessageBox.warning(
-                self, _("Import vias/tracks from selection"), result["error"])
+            # Н4.7: the same red-Log refusals as the refresh path.
+            for line in _problem_lines(result["error"]):
+                self._show_message(line, _ERROR_STYLE)
             return
         # Э4/Э5: the same layer report as the refresh path — and BEFORE the
         # "Nothing to import" branch, so a read that found nothing still says
@@ -2500,8 +2562,10 @@ class CellDock(QWidget):
                 target_vias=self._vias,
                 target_tracks=self._tracks)
         except ValidationError as e:
-            QMessageBox.warning(
-                self, _("Copy placement from cell"), str(e))
+            # Н4.7: the third and last QMessageBox.warning of this dock becomes
+            # red Log lines too — the confirmation question below stays.
+            for line in _problem_lines(str(e)):
+                self._show_message(line, _ERROR_STYLE)
             return
         # Replacement is destructive: the target's own cell copper is dropped.
         # Ask first whenever there is anything to lose; a copperless target

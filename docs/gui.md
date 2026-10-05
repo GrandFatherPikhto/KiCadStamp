@@ -2448,7 +2448,27 @@ selection...** narrow the selection to ONE instance of the edited cell:
   BEFORE its own refusals, so a mixed selection no longer trips the false "the same Role is selected
   twice" fatal.
 
-A CLEAN selection (one cluster instance) behaves exactly as before, byte for byte.
+**Н4 (2026-10-05): the instance is `(cell cluster, sheet)`, and components come from the board.** Denis,
+after the live DAC_BUF read: the instance gained two roles the cell did not have yet (D23/R70), and the
+exact-role candidate rule then found ZERO candidates and refused the whole selection. The rule now:
+
+* when the cell's cluster is KNOWN, roles do NOT choose — the instance is the `(cluster, sheet)` group
+  of the selection; the exact role set decides only when several labels of the cell's cluster stand on
+  ONE sheet (the hierarchical `cluster_prefix_match` case). The cluster comes from the records that
+  place this cell, else the remembered context; an unknown cluster keeps the whole-selection path;
+* the instance's COMPONENTS come FROM THE BOARD, not the selection (a component outside the frame is
+  still read). A role the instance has and the cell lacks becomes a NEW component record (geometry in
+  the cell's own axes, `layer` only when the side differs, no `net_template`); a cell role the instance
+  lacks is DELETED together with the copper whose `net_from_role` is that role; a role twice in the
+  instance, or the origin role absent, stays a fatal (a red Log line);
+* copper is the SELECTED copper minus everything the registries recorded for other records AND minus
+  every live `net_traces:` record's planned copper even when the registry does not know it yet;
+* a cell record with no live pair is DELETED only when the registry's uuid for it is ABSENT from the
+  board; if the copper is still there (simply not selected) or the registry does not know the record,
+  it is KEPT and named in the Log ("not in the selection, left as they are: …"). Removing a track from
+  the selection no longer deletes it — take it off the board for that;
+* the rule runs on ANY selection, clean included; only an unknown cell cluster keeps today's path. All
+  refusals are red Log lines — no dialog.
 
 Since 2026-09-11 (plan plan_2026_09_11_nested_cell_placement_live_read.md) **Update from selection...**
 also re-reads the cell's **NESTED clone_placements** (the "Nested cells" tab) — the one part of a cell

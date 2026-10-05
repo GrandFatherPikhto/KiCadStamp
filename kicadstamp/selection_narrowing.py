@@ -43,17 +43,24 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .cluster_matching import cluster_prefix_match
+from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .i18n import _
 from .registry import record_key_part
 
 __all__ = [
+    "CopperReadContext",
     "CopperSubtraction",
     "FootprintInfo",
     "InstanceChoice",
+    "apply_live_copper_rule",
     "cell_clusters",
     "cell_record_addresses",
     "choose_instance",
+    "divide_unpaired_records",
     "group_selection",
+    "own_record_registry_key",
     "subtract_foreign_copper",
+    "subtract_net_trace_copper",
 ]
 
 # NOTE (N1, acceptance of b209c58, 2026-10-05). The first version treated every
@@ -94,6 +101,10 @@ class InstanceChoice:
     members: tuple = ()
     candidate_groups: tuple = ()
     others: tuple = ()
+    # True when the cell's cluster is KNOWN but the selection holds NONE of its
+    # components — the caller then falls back to the remembered sheet (or
+    # refuses), instead of running the role-only rule on foreign groups (Н4.1).
+    no_own_cluster: bool = False
 
     @property
     def candidate_keys(self) -> tuple:
@@ -205,37 +216,20 @@ def group_selection(infos: Iterable[FootprintInfo], entities=()
     return groups
 
 
-def _qualifies(key: tuple, members: list[FootprintInfo], cell_roles: set,
-               cell_clusters_set: set) -> bool:
-    """A candidate group: its Cluster is the cell's cluster (when the cell's
-    cluster is known) AND its role set is EXACTLY the cell's role set."""
-    cluster, _sheet = key
-    if cell_clusters_set and not any(
-            cluster_prefix_match(str(cluster), cc) for cc in cell_clusters_set):
-        return False
+def _qualifies(key: tuple, members: list[FootprintInfo], cell_roles: set) -> bool:
+    """A role-only candidate group: its role set is EXACTLY the cell's role set.
+    Used only when the cell's cluster is UNKNOWN (today's rule), or when several
+    labels of the cell's cluster stand on ONE sheet (Н4.1, the plan's "old rule
+    stays alive")."""
     roles = {m.role for m in members if m.role}
     return roles == set(cell_roles)
 
 
-def choose_instance(groups: dict, cell_roles: Iterable[str],
-                    cell_clusters_set: Iterable[str] = ()) -> InstanceChoice:
-    """The instance of the cell the (mixed) selection pins down.
+def _matches_cell_cluster(cluster: str, cell_clusters_set: Iterable[str]) -> bool:
+    return any(cluster_prefix_match(cluster, str(cc)) for cc in cell_clusters_set)
 
-    cell_clusters_set — the cell's clusters from the config; when EMPTY (no
-    record places this cell, no remembered context) the cluster step is dropped
-    and the choice is by roles only — the plan's "selection by roles alone".
 
-    Never raises: zero/one/many candidates are all returned; the CALLER owns the
-    reaction (today's refusal / take it / the ambiguity Log line)."""
-    roles = {r for r in (cell_roles or ()) if r}
-    clusters = {str(c) for c in (cell_clusters_set or ()) if c}
-    candidates: list[tuple] = []
-    others: list[tuple] = []
-    for key, members in groups.items():
-        if _qualifies(key, members, roles, clusters):
-            candidates.append((key, members))
-        else:
-            others.append((key, len(members)))
+def _pick(candidates: list, others: list) -> InstanceChoice:
     if len(candidates) == 1:
         key, members = candidates[0]
         return InstanceChoice(chosen_key=key, members=tuple(members),
@@ -243,6 +237,66 @@ def choose_instance(groups: dict, cell_roles: Iterable[str],
                               others=tuple(others))
     return InstanceChoice(chosen_key=None, candidate_groups=tuple(candidates),
                           others=tuple(others))
+
+
+def choose_instance(groups: dict, cell_roles: Iterable[str],
+                    cell_clusters_set: Iterable[str] = ()) -> InstanceChoice:
+    """The instance of the cell the (mixed) selection pins down.
+
+    Н4.1 (Denis 2026-10-05, live board): when the cell's cluster is KNOWN the
+    instance is ``(cluster, sheet)`` and ROLES DO NOT PARTICIPATE in the choice.
+    The exact-role candidate rule from 04.10 refused the whole selection as soon
+    as the instance gained a role the cell did not have yet (D23/R70 on
+    DAC_BUF), which is exactly the read that must happen. Roles decide only:
+
+      * when the cell's cluster is UNKNOWN (no record places this cell, no
+        remembered context) — today's role-only rule;
+      * when several labels of the cell's cluster stand on ONE sheet — then the
+        exact role set picks among them (the plan's "old rule stays alive").
+
+    cell_clusters_set — the cell's clusters from the config (or the remembered
+    one). Never raises: zero/one/many candidates are all returned; the CALLER
+    owns the reaction (take it / remembered sheet / the ambiguity Log line)."""
+    roles = {r for r in (cell_roles or ()) if r}
+    clusters = {str(c) for c in (cell_clusters_set or ()) if c}
+
+    # ── cluster unknown: the historical role-only rule ──────────────────────
+    if not clusters:
+        candidates = [(key, members) for key, members in groups.items()
+                      if _qualifies(key, members, roles)]
+        chosen_keys = {key for key, _members in candidates}
+        others = [(key, len(members)) for key, members in groups.items()
+                  if key not in chosen_keys]
+        return _pick(candidates, others)
+
+    # ── cluster known: (cluster, sheet), roles out of the choice ─────────────
+    own = [(key, members) for key, members in groups.items()
+           if _matches_cell_cluster(str(key[0] or ""), clusters)]
+    own_keys = {key for key, _members in own}
+    others = [(key, len(members)) for key, members in groups.items()
+              if key not in own_keys]
+    if not own:
+        # None of the cell's cluster is selected — the caller uses the
+        # remembered sheet (when it resolves) or refuses.
+        return InstanceChoice(chosen_key=None, candidate_groups=(),
+                              others=tuple(others), no_own_cluster=True)
+    sheets = {key[1] for key, _members in own}
+    if len(sheets) > 1:
+        # Several channels of the cell selected at once -> ambiguity, list them.
+        return InstanceChoice(chosen_key=None, candidate_groups=tuple(own),
+                              others=tuple(others))
+    if len(own) == 1:
+        key, members = own[0]
+        return InstanceChoice(chosen_key=key, members=tuple(members),
+                              candidate_groups=tuple(own), others=tuple(others))
+    # Several labels of the cell's cluster on ONE sheet -> exact role set; not
+    # exactly one -> refuse WITH the list (the plan's "не один — отказ со списком").
+    role_matches = [(key, members) for key, members in own
+                    if _qualifies(key, members, roles)]
+    return _pick(role_matches, others) if len(role_matches) == 1 else \
+        InstanceChoice(chosen_key=None,
+                       candidate_groups=tuple(role_matches or own),
+                       others=tuple(others))
 
 
 # ── copper subtraction (registry, both files) ───────────────────────────────
@@ -369,5 +423,160 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
         removed.append(item)
         label = _anchor_label(key)
         report[label] = report.get(label, 0) + 1
+    return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
+                             report=tuple(sorted(report.items())))
+
+
+# ── Н4 п.5: the live-UUID rule for copper with no live pair ─────────────────
+
+@dataclass
+class CopperReadContext:
+    """Everything the live-UUID deletion rule needs, gathered by the worker
+    (Н4 п.5, Denis 2026-10-05): the cell's registry identity/addresses, the two
+    registry ENTRY maps, the live board uuids, and the cell's own record lists
+    (needed to find a record's index — the registry key's index part)."""
+
+    cell_identity: str | None
+    own_addresses: dict
+    chosen_address: tuple
+    chosen_refs: frozenset
+    via_entries: dict
+    track_entries: dict
+    board_via_uuids: frozenset
+    board_track_uuids: frozenset
+    vias: list
+    tracks: list
+
+
+def own_record_registry_key(entries, cell_identity: str | None,
+                            role: str | None, index: int | None,
+                            own_addresses: dict, chosen_address: tuple,
+                            chosen_refs: Iterable[str] = ()) -> str | None:
+    """The registry key naming THIS cell record at the CHOSEN instance, or None.
+
+    Matched through the product's own key grammar (``anchor|template|role|
+    index``) and :func:`_is_own_key` — never by parsing an anchor out of a
+    record name. ``index`` is the record's 0-based position in the cell's
+    vias/tracks list (exactly what ``make_registry_key`` wrote)."""
+    if cell_identity is None or index is None or not entries:
+        return None
+    refs = frozenset(chosen_refs or ())
+    role_part = role if role is not None else SPOKE_LEVEL_ROLE_PLACEHOLDER
+    for key in entries:
+        parts = key.split("|")
+        if len(parts) != 4:
+            continue
+        _anchor, template_name, key_role, key_index = parts
+        if template_name != cell_identity or key_role != role_part:
+            continue
+        if str(key_index) != str(index):
+            continue
+        if _is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
+            return key
+    return None
+
+
+def _record_label(record: dict, kind: str) -> str:
+    """A short human name for one copper record (kind + net), for the yellow
+    "left as they are" line."""
+    if record.get("net_from_role"):
+        pad = record.get("net_from_role_pad")
+        net = (f"net_from_role {record['net_from_role']}/{pad}"
+               if pad else f"net_from_role {record['net_from_role']}")
+    elif record.get("net"):
+        net = str(record["net"])
+    else:
+        net = _("(no net)")
+    return _("{kind} on {net}").format(kind=kind, net=net)
+
+
+def divide_unpaired_records(unpaired, records, kind, entries, board_uuids,
+                            ctx: CopperReadContext):
+    """Н4 п.5: split the records with NO live pair into DELETE and KEEP.
+
+    A record is DELETED only when the registry knows the copper it placed and
+    that copper is GONE from the board. When the registry knows it and the
+    copper is still there (it was simply not selected), or the registry does not
+    know the record at all, it is KEPT and named for the yellow Log line.
+    Returns (to_delete, kept, kept_names)."""
+    index_by_id = {id(r): i for i, r in enumerate(records or ())}
+    live = set(board_uuids or ())
+    to_delete: list = []
+    kept: list = []
+    names: list[str] = []
+    for rec in unpaired or ():
+        key = own_record_registry_key(
+            entries, ctx.cell_identity, rec.get("role"), index_by_id.get(id(rec)),
+            ctx.own_addresses, ctx.chosen_address, ctx.chosen_refs)
+        entry = (entries or {}).get(key) if key else None
+        uuid = getattr(entry, "uuid", None)
+        if uuid and uuid not in live:
+            to_delete.append(rec)  # the copper was erased on the board
+        else:
+            kept.append(rec)
+            names.append(_record_label(rec, kind))
+    return to_delete, kept, names
+
+
+def apply_live_copper_rule(plan, ctx: CopperReadContext) -> list[str]:
+    """Move the records whose registry uuid is ABSENT from the board into the
+    plan's removed_* lists; keep and NAME the rest. Returns the yellow Log lines
+    for the kept records. Mutates the plan's removal lists only."""
+    to_del_v, _keep_v, names_v = divide_unpaired_records(
+        getattr(plan, "unpaired_via_records", None), ctx.vias, "via",
+        ctx.via_entries, ctx.board_via_uuids, ctx)
+    to_del_t, _keep_t, names_t = divide_unpaired_records(
+        getattr(plan, "unpaired_track_records", None), ctx.tracks, "track",
+        ctx.track_entries, ctx.board_track_uuids, ctx)
+    if to_del_v:
+        plan.removed_via_records = list(plan.removed_via_records) + to_del_v
+    if to_del_t:
+        plan.removed_track_records = list(plan.removed_track_records) + to_del_t
+    names = names_v + names_t
+    if not names:
+        return []
+    return [_("not in the selection, left as they are: {names}").format(
+        names=", ".join(names))]
+
+
+def subtract_net_trace_copper(items, net_traces, adapter, *,
+                              via_entries, track_entries, sheet_names=None
+                              ) -> CopperSubtraction:
+    """Н4 п.5а: remove the selected copper that matches a LIVE ``net_traces:``
+    record's planned copper — even when the registry does not know it yet.
+
+    The match reuses ``net_trace_planner.find_live_copper`` (the SAME calculation
+    the redraw uses, via ``plan_net_traces``), never a second copy; the two
+    registry objects are thin ``{key: entry}`` shims, so nothing is written."""
+    from .net_trace_planner import find_live_copper
+
+    class _Entries:
+        def __init__(self, entries):
+            self.entries = entries
+
+    vreg, treg = _Entries(via_entries or {}), _Entries(track_entries or {})
+    foreign: dict[str, str] = {}
+    for nt in net_traces or ():
+        try:
+            live = find_live_copper(adapter, nt, via_registry=vreg,
+                                    track_registry=treg,
+                                    sheet_names=sheet_names or {})
+        except Exception:  # noqa: BLE001 — a read must never crash the narrow
+            continue
+        identity = getattr(live, "identity", None) or str(getattr(nt, "net", ""))
+        for item in live.found:
+            uuid = getattr(item, "uuid", None)
+            if uuid:
+                foreign[uuid] = identity
+    kept: list = []
+    removed: list = []
+    report: dict[str, int] = {}
+    for item in items or ():
+        label = foreign.get(getattr(item, "uuid", None))
+        if label is None:
+            kept.append(item)
+        else:
+            removed.append(item)
+            report[label] = report.get(label, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
                              report=tuple(sorted(report.items())))

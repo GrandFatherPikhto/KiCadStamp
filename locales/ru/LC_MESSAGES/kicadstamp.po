@@ -17947,3 +17947,21 @@ msgstr "{count} записей без пары оставлены как ест�
 #: gui/cell_identification.py
 msgid "filtered out {count} component(s) of other clusters"
 msgstr "отсеяно {count} компонент(ов) других кластеров"
+
+msgid "no component of cluster {cluster!r} is in the selection — select the instance of cell {cell!r}, or remember one from the cell-anchor page"
+msgstr "в выделении нет ни одного компонента кластера {cluster!r} — выделите экземпляр ячейки {cell!r} или запомните его на странице якоря ячейки"
+
+msgid "cluster {cluster!r} on {sheet} is not on the current board — select the instance by hand"
+msgstr "кластер {cluster!r} на {sheet} отсутствует на текущей плате — выделите экземпляр вручную"
+
+msgid "not in the selection, left as they are: {names}"
+msgstr "не в выделении, оставлены как есть: {names}"
+
+msgid "subtracted from selection: {count} item(s) — {records}"
+msgstr "вычтено из выделения: {count} элемент(ов) — {records}"
+
+msgid "{sign} component {role}"
+msgstr "{sign} компонент {role}"
+
+msgid "{sign} component {role} ({along}, {across}) angle {angle}°"
+msgstr "{sign} компонент {role} ({along}, {across}) угол {angle}°"

@@ -19244,3 +19244,21 @@ msgstr ""
 #: gui/cell_identification.py
 msgid "filtered out {count} component(s) of other clusters"
 msgstr ""
+
+msgid "no component of cluster {cluster!r} is in the selection — select the instance of cell {cell!r}, or remember one from the cell-anchor page"
+msgstr ""
+
+msgid "cluster {cluster!r} on {sheet} is not on the current board — select the instance by hand"
+msgstr ""
+
+msgid "not in the selection, left as they are: {names}"
+msgstr ""
+
+msgid "subtracted from selection: {count} item(s) — {records}"
+msgstr ""
+
+msgid "{sign} component {role}"
+msgstr ""
+
+msgid "{sign} component {role} ({along}, {across}) angle {angle}°"
+msgstr ""

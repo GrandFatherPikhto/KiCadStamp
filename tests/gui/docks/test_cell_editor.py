@@ -1135,10 +1135,11 @@ def test_refresh_nothing_changed_shows_message_applies_nothing(main_window,
     assert dock._tracks == []
 
 
-def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
+def test_refresh_geometry_validation_error_logs_red_tables_untouched(
         main_window, tmp_path, monkeypatch):
-    """A structural mismatch (selection is the wrong cluster) -> the full error
-    text goes to QMessageBox.warning and the dock's lists/tables do not change."""
+    """Н4.7 (Denis 2026-10-05): a structural mismatch (selection is the wrong
+    cluster) is a RED LOG LINE, never a dialog, and the dock's lists/tables do
+    not change."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     before_components = [dict(c) for c in dock._components]
@@ -1146,9 +1147,9 @@ def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
     # Live board is a DIFFERENT cluster: only the CAP role, no ORIG (origin).
     board = _RefreshBoard([_refresh_dto_fp("R-CAP", "CAP", 5.0, 0.0)],
                           roles={"R-CAP": "CAP"})
-    warnings = []
-    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a))
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append((text, style)))
 
     result = dock._run_refresh_geometry(
         {"board": board, "components": list(dock._components),
@@ -1156,8 +1157,7 @@ def test_refresh_geometry_validation_error_shows_warning_tables_untouched(
     assert "error" in result
     dock._finish_refresh_geometry(result)
 
-    assert len(warnings) == 1
-    assert "zero-offset origin" in warnings[0][2]
+    assert any("zero-offset origin" in text for text, _style in messages)
     assert dock._components == before_components
     assert dock._vias == [{"offset_along_mm": 0.5, "offset_across_mm": 1.5,
                            "net": "GND"}]
@@ -1393,20 +1393,20 @@ def test_import_preview_rows_lists_only_new_records(main_window, tmp_path):
     assert rows[1] == ["Track", "(0.0000, 0.0000) → (4.0000, 0.0000)", "role:CAP"]
 
 
-def test_import_validation_error_shows_warning_tables_untouched(
+def test_import_validation_error_logs_red_tables_untouched(
         main_window, tmp_path, monkeypatch):
-    """A structural mismatch is NOT softened by Import — a wrong cluster
-    (missing the zero-offset origin role) goes to QMessageBox.warning and the
-    dock's lists/tables do not change."""
+    """Н4.7: a structural mismatch is NOT softened by Import — a wrong cluster
+    (missing the zero-offset origin role) is a RED LOG LINE and the dock's
+    lists/tables do not change."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     before_vias = [dict(v) for v in dock._vias]
 
     board = _ImportBoard([_refresh_dto_fp("R-CAP", "CAP", 5.0, 0.0)],
                          roles={"R-CAP": "CAP"})
-    warnings = []
-    monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a))
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append((text, style)))
 
     result = dock._run_import_vias_tracks(
         {"board": board, "components": list(dock._components),
@@ -1414,8 +1414,7 @@ def test_import_validation_error_shows_warning_tables_untouched(
     assert "error" in result
     dock._finish_import_vias_tracks(result)
 
-    assert len(warnings) == 1
-    assert "zero-offset origin" in warnings[0][2]
+    assert any("zero-offset origin" in text for text, _style in messages)
     assert dock._vias == before_vias
     assert dock._tracks == []
     assert dock.vias_table.rowCount() == 1
@@ -1622,29 +1621,22 @@ def test_copy_placement_from_cell_applies_selected_donor(main_window, tmp_path,
     assert len(dock._tracks) == 1
 
 
-def test_copy_placement_from_cell_fatal_warns_without_applying(main_window,
-                                                               tmp_path,
-                                                               monkeypatch):
-    """A donor whose copper references a role the target lacks is rejected with
-    a warning BEFORE anything changes — no silent copy of garbage."""
+def test_copy_placement_from_cell_fatal_logs_without_applying(main_window,
+                                                              tmp_path,
+                                                              monkeypatch):
+    """Н4.7: a donor whose copper references a role the target lacks is rejected
+    with a RED LOG LINE before anything changes — no dialog, no silent copy."""
     dock, target_file = _make_dock(main_window, tmp_path, _copy_cells_data())
     dock.load_entry("tgt", target_file)
     _FakeCopyPicker.source_choice = "ghost"
     monkeypatch.setattr(cell_editor_mod, "_CopyPlacementDialog", _FakeCopyPicker)
-
-    class _FakeMsgBox:
-        warnings = []
-
-        @classmethod
-        def warning(cls, parent, title, text):
-            cls.warnings.append((title, text))
-
-    monkeypatch.setattr(cell_editor_mod, "QMessageBox", _FakeMsgBox)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append((text, style)))
 
     dock.copy_placement_from_cell()
 
-    assert len(_FakeMsgBox.warnings) == 1
-    assert "GHOST" in _FakeMsgBox.warnings[0][1]
+    assert any("GHOST" in text for text, _style in messages)
     assert dock._vias == [] and dock._tracks == []
     bulk = next(c for c in dock._components if c["role"] == "C_OUT_BULK")
     assert bulk["offset_along_mm"] == 99.0

@@ -1,14 +1,14 @@
 # tests/gui/docks/test_cell_editor_mixed_selection.py
-"""Worker-level cells for the MIXED-selection prelude of Update from selection
-and Import vias/tracks from selection
-(plan_2026_10_04_refresh_mixed_cluster_selection, plan item 3).
+"""Worker-level cells for the BY-CLUSTER prelude of Update from selection and
+Import vias/tracks from selection
+(plan_2026_10_04_refresh_mixed_cluster_selection, Н4, Denis 2026-10-05).
 
 These drive the real ``CellDock._run_refresh_geometry`` /
 ``_run_import_vias_tracks`` with a real config on disk and a fake board whose
 selection MIXES the edited cell's cluster with a foreign one. They prove the
 selection-after-read contract: ``adapter.select_items`` receives the chosen
 instance's components AND all the copper that entered the read — never the
-foreign components/copper.
+foreign components/copper — and that Н4 reads the instance from the BOARD.
 
 Headless: the workers are driven directly (no threads), the copper-layer warning
 is stubbed. The config is a format-2 s-expr the reader lifts (CURRENT_FORMAT=3).
@@ -64,6 +64,23 @@ def _via(uuid, x_mm, y_mm):
                net_name=None, drill_mm=0.3, diameter_mm=0.6)
 
 
+def _adapter(owner):
+    """The fake adapter both boards share — Н4 needs ``get_footprints`` (the
+    instance is read FROM THE BOARD) in addition to the selection read."""
+    return SimpleNamespace(
+        refresh_board=lambda: None,
+        get_selected_items=lambda: list(owner.selected_all),
+        get_field_value=lambda fp, name: (
+            getattr(fp, "_role", None)
+            if name == "Role" else getattr(fp, "_cluster", None)),
+        get_footprints=lambda: list(owner.selected),
+        get_vias=lambda: [],
+        get_tracks=lambda: [],
+        get_footprint_pads=lambda fp: [],
+        select_items=lambda items: owner.selected_calls.append(list(items)),
+    )
+
+
 class _MixedBoard:
     """A board whose selection is DAC_BUF (the edited cell) + a foreign PIF
     cluster, plus one UNREGISTERED via (kept and read the ordinary way)."""
@@ -78,15 +95,7 @@ class _MixedBoard:
         self.via = _via("v-unreg", 10.0, 11.0)
         self.selected_all = list(self.selected) + [self.via]
         self.selected_calls = []
-        self.adapter = SimpleNamespace(
-            refresh_board=lambda: None,
-            get_selected_items=lambda: list(self.selected_all),
-            get_field_value=lambda fp, name: (
-                getattr(fp, "_role", None)
-                if name == "Role" else getattr(fp, "_cluster", None)),
-            get_footprint_pads=lambda fp: [],
-            select_items=lambda items: self.selected_calls.append(list(items)),
-        )
+        self.adapter = _adapter(self)
 
 
 class _MixedTrackBoard:
@@ -112,15 +121,7 @@ class _MixedTrackBoard:
                                  width_mm=0.25, layer=BoardLayer.BL_F_Cu)
         self.selected_all = list(self.selected) + [self.track, self.track_extra]
         self.selected_calls = []
-        self.adapter = SimpleNamespace(
-            refresh_board=lambda: None,
-            get_selected_items=lambda: list(self.selected_all),
-            get_field_value=lambda fp, name: (
-                getattr(fp, "_role", None)
-                if name == "Role" else getattr(fp, "_cluster", None)),
-            get_footprint_pads=lambda fp: [],
-            select_items=lambda items: self.selected_calls.append(list(items)),
-        )
+        self.adapter = _adapter(self)
 
 
 @pytest.fixture(autouse=True)
@@ -150,7 +151,13 @@ def _payload(dock, board):
         "root_path": str(dock._root_path),
         "cell_name": "dac_buf",
         "remembered_cluster": None,
+        "remembered_sheet": None,
     }
+
+
+def _refs(items):
+    return [getattr(i, "ref", None) if isinstance(i, Footprint) else i.uuid
+            for i in items]
 
 
 def test_refresh_selects_the_instance_and_the_read_copper(main_window, tmp_path):
@@ -161,9 +168,7 @@ def test_refresh_selects_the_instance_and_the_read_copper(main_window, tmp_path)
 
     assert "plan" in result, result
     assert len(board.selected_calls) == 1
-    refs = [getattr(i, "ref", None) if isinstance(i, Footprint) else i.uuid
-            for i in board.selected_calls[0]]
-    assert refs == ["C1", "C2", "v-unreg"]
+    assert _refs(board.selected_calls[0]) == ["C1", "C2", "v-unreg"]
     # The prelude's Log lines reach the finish handler.
     assert result["selection_lines"]
     texts = [text for text, _level in result["selection_lines"]]
@@ -178,15 +183,15 @@ def test_import_selects_the_instance_and_the_read_copper(main_window, tmp_path):
 
     assert "plan" in result, result
     assert len(board.selected_calls) == 1
-    refs = [getattr(i, "ref", None) if isinstance(i, Footprint) else i.uuid
-            for i in board.selected_calls[0]]
-    assert refs == ["C1", "C2", "v-unreg"]
+    assert _refs(board.selected_calls[0]) == ["C1", "C2", "v-unreg"]
     assert result["selection_lines"]
 
 
-def test_clean_selection_does_not_select_or_keep_context(main_window, tmp_path):
-    """A CLEAN selection (one cluster instance) is not touched by the prelude —
-    no select_items, no mixed-selection Log line (today's behaviour)."""
+def test_clean_selection_is_also_narrowed_by_cluster(main_window, tmp_path):
+    """Н4 (Denis 2026-10-05): the rule runs on ANY selection, clean included — a
+    clean DAC_BUF selection is still narrowed to its instance, its components are
+    taken FROM THE BOARD and the selection-after-read is made. (Supersedes the
+    04.10 "a clean selection is untouched" cell.)"""
     dock, _ = _make_dock(main_window, tmp_path)
     clean = _MixedBoard()
     clean.selected_all = list(clean.selected[:2]) + [clean.via]
@@ -194,17 +199,16 @@ def test_clean_selection_does_not_select_or_keep_context(main_window, tmp_path):
     result = dock._run_refresh_geometry(_payload(dock, clean))
 
     assert "plan" in result, result
-    assert clean.selected_calls == []
-    assert not result.get("selection_lines")
+    assert len(clean.selected_calls) == 1
+    assert _refs(clean.selected_calls[0]) == ["C1", "C2", "v-unreg"]
+    assert result["selection_lines"]
 
 
 def test_mixed_refresh_keeps_the_unpaired_track(main_window, tmp_path):
-    """Denis 2026-10-05, the SOFT keep_unpaired mode: a MIXED read with ONE
-    track the cell's records do not pair leaves that record COMPLETELY as it is
-    (not deleted, not a fatal), refreshes the paired record, still adds the live
-    copper no record describes, NAMES the kept record in the Log and makes the
-    selection-after-read. (Supersedes the strict refusal this cell asserted
-    before the decision.)"""
+    """Denis 2026-10-05, Н4 п.5: a MIXED read with ONE track the cell's records do
+    not pair leaves that record as it is (the registry does not know it), names
+    it, refreshes the paired record, still adds the live copper no record
+    describes, and makes the selection-after-read."""
     paired = {"net": None, "layer": "F.Cu", "width_mm": 0.25,
               "start_along_mm": 0.0, "start_across_mm": 0.0,
               "end_along_mm": 1.0, "end_across_mm": 0.0}
@@ -219,30 +223,26 @@ def test_mixed_refresh_keeps_the_unpaired_track(main_window, tmp_path):
 
     assert "plan" in result, result
     plan = result["plan"]
-    # nothing doomed; the unpaired record is intact and NOT among the updates.
     assert plan.removed_via_records == [] and plan.removed_track_records == []
     kept = dock._tracks[1]
     assert kept["net"] == "GND" and kept["start_across_mm"] == 2.0
     assert all(rec is not kept for rec, _geo in plan.track_updates)
-    # the paired record WAS refreshed, and the new copper is still added.
     assert len(plan.track_updates) == 1
     assert len(plan.new_track_records) == 1
-    # the Log line names the kept record.
     texts = [text for text, _level in result["selection_lines"]]
     assert any("left as they are" in text for text in texts)
     assert any("GND" in text for text in texts)
-    # the selection-after-read was made (instance components + read copper).
     assert len(board.selected_calls) == 1
-    refs = [getattr(i, "ref", None) if isinstance(i, Footprint) else i.uuid
-            for i in board.selected_calls[0]]
-    assert refs == ["C1", "C2", "t-unreg", "t-extra"]
+    assert _refs(board.selected_calls[0]) == ["C1", "C2", "t-unreg", "t-extra"]
 
 
-def test_clean_refresh_still_deletes_the_unpaired_track(main_window, tmp_path):
-    """The CLEAN path is untouched (Denis 2026-10-05): a clean selection still
-    DELETES a record with no live pair (remove_missing=True), produces no
-    keep-unpaired Log line, and never re-selects. The read-back after a mixed
-    read relies on exactly this."""
+def test_clean_refresh_keeps_the_unregistered_unpaired_track(main_window, tmp_path):
+    """Н4 п.5 (Denis 2026-10-05): a record with no live pair whose copper the
+    registry does NOT know is LEFT as is (yellow line), on a clean selection as
+    on a mixed one — the deletion is the registry's live-UUID branch, owned by
+    the prelude. The selection-after-read is made. (Supersedes the Н2 "a clean
+    read deletes the unpaired record" cell: a behaviour change by word of Denis,
+    not a weakened guard.)"""
     unpaired = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
                 "start_along_mm": 0.0, "start_across_mm": 2.0,
                 "end_along_mm": 1.0, "end_across_mm": 2.0}
@@ -254,7 +254,7 @@ def test_clean_refresh_still_deletes_the_unpaired_track(main_window, tmp_path):
 
     assert "plan" in result, result
     plan = result["plan"]
-    assert plan.removed_track_records == list(dock._tracks)
-    assert plan.unpaired_reports == []
-    assert clean.selected_calls == []
-    assert not result["selection_lines"]
+    assert plan.removed_track_records == []
+    texts = [text for text, _level in result["selection_lines"]]
+    assert any("left as they are" in text for text in texts)
+    assert len(clean.selected_calls) == 1

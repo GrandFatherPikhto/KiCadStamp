@@ -10,6 +10,7 @@ drives ``gui.mixed_selection.narrow_mixed_selection`` against a real config path
 and real registry files, and one covers the "Fill from selection" filtering.
 """
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -112,11 +113,61 @@ def test_two_instances_of_the_cell_are_ambiguous(gate):
 # ── С3: no candidate — today's refusal path (nothing is chosen) ─────────────
 
 def test_no_candidate_leaves_todays_refusal(gate):
-    """The selection is one group, but the cell has a role the group lacks — no
-    candidate, so the caller keeps its (role) refusal."""
+    """Cell #7 of the 04.10 plan, unchanged for an UNKNOWN cell cluster: the one
+    group lacks role DC, so there is no candidate and the caller keeps its
+    (role) refusal. (When the cluster IS known, Н4.1 makes roles irrelevant —
+    see the next cell.)"""
     infos = [_fi("C1", "DA", "DAC_BUF"), _fi("C2", "DB", "DAC_BUF")]
     groups = group_selection(infos)
+    choice = choose_instance(groups, {"DA", "DB", "DC"}, ())
+    assert choice.chosen_key is None
+    assert choice.candidate_groups == ()
+
+
+# ── С3б: the cell's cluster is KNOWN — roles do NOT select (Н4.1) ───────────
+
+def test_known_cell_cluster_ignores_the_role_set(gate):
+    """Denis 2026-10-05 (Н4.1): the instance gained roles the cell did not have
+    yet (D23/R70 on DAC_BUF), and the read must still happen. With the cell's
+    cluster known, the (cluster, sheet) group is chosen even though its role set
+    differs from the cell's — the difference is reconciled as add/remove records
+    downstream, never as "no candidate"."""
+    infos = [_fi("C1", "DA", "DAC_BUF"), _fi("C2", "DB", "DAC_BUF"),
+             _fi("P1", "PX", "PIF_AVDD")]
+    groups = group_selection(infos)
     choice = choose_instance(groups, {"DA", "DB", "DC"}, {"DAC_BUF"})
+    assert choice.chosen_key == ("DAC_BUF", None)
+    assert [m.item.ref for m in choice.members] == ["C1", "C2"]
+    assert {key for key, _count in choice.others} == {("PIF_AVDD", None)}
+    assert not choice.no_own_cluster
+
+
+# ── С3в: one sheet, several labels of the cell's cluster -> role set decides ─
+
+def test_several_cell_labels_on_one_sheet_use_the_role_set(gate):
+    """The cell's cluster is a hierarchical PREFIX of several board labels
+    (CL/AVDD and CL/OA — the project's `cluster_prefix_match` matches
+    `wanted + '/'`), so several own groups stand on ONE sheet; then, and only
+    then, the exact role set picks the instance (Н4.1: "старое правило живо").
+    CL/OA's roles differ, so CL/AVDD is the single candidate."""
+    roles = {"A", "B"}
+    infos = [_fi("C1", "A", "CL/AVDD"), _fi("C2", "B", "CL/AVDD"),
+             _fi("D1", "A", "CL/OA"), _fi("D2", "C", "CL/OA")]
+    groups = group_selection(infos)
+    # cell cluster "CL" prefix-matches BOTH labels -> two own groups, one sheet.
+    choice = choose_instance(groups, roles, {"CL"})
+    assert choice.chosen_key == ("CL/AVDD", None)
+    assert [m.item.ref for m in choice.members] == ["C1", "C2"]
+
+
+def test_own_cluster_absent_reports_no_own_cluster(gate):
+    """The cell's cluster is known but NONE of its components is selected — the
+    caller must fall back to the remembered sheet (or refuse), not run the
+    role-only rule on foreign groups."""
+    infos = [_fi("P1", "C_IN_BULK", "PIF_AVDD")]
+    groups = group_selection(infos)
+    choice = choose_instance(groups, {"DA", "DB"}, {"DAC_BUF"})
+    assert choice.no_own_cluster
     assert choice.chosen_key is None
     assert choice.candidate_groups == ()
 
@@ -207,12 +258,23 @@ def test_subtract_foreign_copper(gate):
 # ── integration: gui.mixed_selection.narrow_mixed_selection ─────────────────
 
 class _Adapter:
-    def __init__(self, fields):
+    def __init__(self, fields, footprints=()):
         self._fields = fields
+        self._footprints = list(footprints)
 
     def get_field_value(self, fp, name):
         role, cluster = self._fields[fp.ref]
         return role if name == ROLE_FIELD_NAME else cluster
+
+    # Н4.2: the prelude reads the instance's components FROM THE BOARD.
+    def get_footprints(self):
+        return list(self._footprints)
+
+    def get_vias(self):
+        return []
+
+    def get_tracks(self):
+        return []
 
     # build_refresh_plan's net_from_role resolution: no pads here, so every net
     # a NEW record gets stays a literal — enough for the fixpoint cells below.
@@ -277,7 +339,8 @@ def test_narrow_mixed_selection_keeps_own_copper_and_reads_clean(gate, tmp_path)
     fp_p2 = _FpRef("P2", ("ch1", "s4"))
     adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF"),
                         "P1": ("C_IN_BULK", "PIF_AVDD"),
-                        "P2": ("C_IN_BYPASS", "PIF_AVDD")})
+                        "P2": ("C_IN_BYPASS", "PIF_AVDD")},
+                       footprints=[fp_c1, fp_c2, fp_p1, fp_p2])
     sheet_names = {"ch0": "Channel_0", "ch1": "Channel_1"}
     v_own, v_other, v_unreg = _Copper("v_own"), _Copper("v_other"), _Copper("v_unreg")
     t_own, t_other = _Copper("t_own"), _Copper("t_other")
@@ -297,15 +360,16 @@ def test_narrow_mixed_selection_keeps_own_copper_and_reads_clean(gate, tmp_path)
     assert any("read instance" in text for text in texts)
     assert any("subtracted" in text for text in texts)
 
-    # "Read again": the selection the prelude made is CLEAN — one instance and
-    # its copper -> the prelude has nothing to narrow (today's ordinary path).
+    # "Read again": Н4 runs on ANY selection — the selection the prelude made
+    # (the instance + its copper) narrows to the SAME instance, nothing refused.
     again = narrow_mixed_selection(
         config_path=str(config_path), adapter=adapter,
         footprints=list(prelude.instance_footprints),
         vias=list(prelude.vias), tracks=list(prelude.tracks),
         cfg=cfg, sheet_names=sheet_names, cell_name="dac_buf",
         cell_roles={"DA", "DB"})
-    assert again is None
+    assert again is not None and again.refusal is None
+    assert [f.ref for f in again.footprints] == ["C1", "C2"]
 
 
 def test_two_candidates_produce_a_refusal_not_a_plan(gate, tmp_path):
@@ -527,7 +591,8 @@ def _roundtrip_scenario(gate):
     fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2"))
     fp_p1 = _live_fp("P1", "C_IN_BULK", "PIF_AVDD", 20.0, 10.0, ("ch1", "s3"))
     adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF"),
-                        "P1": ("C_IN_BULK", "PIF_AVDD")})
+                        "P1": ("C_IN_BULK", "PIF_AVDD")},
+                       footprints=[fp_c1, fp_c2, fp_p1])
     sheet_names = {"ch0": "Channel_0", "ch1": "Channel_1"}
     track = Track(uuid="t_unreg", net_name="GND",
                   start=Vector2.from_xy_mm(10.0, 10.0),
@@ -580,10 +645,11 @@ def test_read_back_is_a_fixpoint(gate, tmp_path):
         footprints=list(prelude.instance_footprints), vias=list(prelude.vias),
         tracks=list(prelude.tracks), cfg=cfg, sheet_names=sheet_names,
         cell_name="dac_buf", cell_roles={"DA", "DB"})
-    assert after is None
+    assert after is not None and after.refusal is None
     plan2 = build_refresh_plan(
-        components, vias, tracks, [fp_c1, fp_c2], [], [track], adapter,
-        add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
+        components, vias, tracks, list(after.footprints), list(after.vias),
+        list(after.tracks), adapter, add_new_copper=True, remove_missing=False,
+        keep_unpaired=True, reconcile_components=True, cell_layer="F.Cu")
     assert _plan_decomposition(plan2) == ([], [], [], [], [])
     assert (config_path.read_bytes(),
             (tmp_path / "registry" / "config.registry.json").read_bytes(),
@@ -591,28 +657,63 @@ def test_read_back_is_a_fixpoint(gate, tmp_path):
             ) == before
 
 
-def test_read_back_after_manual_track_removal_deletes_its_record(gate, tmp_path):
-    """N2, cell 10: from the selection-after-read one instance track is removed
-    by hand — its record is DELETED by the ordinary (clean) read, everything else
-    is untouched."""
-    (cfg, _cell_uuid, components, fp_c1, fp_c2, fp_p1, adapter, sheet_names,
-     track) = _roundtrip_scenario(gate)
-    vias, tracks = [], []
+def _h4_ctx(record, entries, board_uuids):
+    """A minimal CopperReadContext that makes `record` an OWN record of cell
+    'cell' at (DAC_BUF, Channel_0) — the Н4 п.5 decision needs only these."""
+    from kicadstamp.selection_narrowing import CopperReadContext
+    return CopperReadContext(
+        cell_identity="cell",
+        own_addresses={"ent": ("DAC_BUF", "Channel_0")},
+        chosen_address=("DAC_BUF", "Channel_0"), chosen_refs=frozenset(),
+        via_entries={}, track_entries=entries,
+        board_via_uuids=frozenset(), board_track_uuids=frozenset(board_uuids),
+        vias=[], tracks=[record])
 
-    # Bring the record list to the post-mixed-read state (its record exists).
-    plan1 = build_refresh_plan(
-        components, vias, tracks, [fp_c1, fp_c2], [], [track], adapter,
-        add_new_copper=True, remove_missing=False, cell_layer="F.Cu")
-    _apply_refresh_plan(plan1, components, vias, tracks)
-    assert len(tracks) == 1
 
-    # The user removes the track from the selection and reads again (clean path:
-    # the mixed narrowing is not in play, remove_missing=True as everywhere).
-    plan2 = build_refresh_plan(
-        components, vias, tracks, [fp_c1, fp_c2], [], [], adapter,
-        add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
-    changed, new_v, new_t, rem_v, rem_t = _plan_decomposition(plan2)
-    assert (changed, new_v, new_t, rem_v, rem_t) == ([], [], [], [], [tracks[0]])
+def test_h4_p5_track_removed_from_selection_is_kept(gate):
+    """Н4 п.5 (Denis 2026-10-05): the track is taken OUT of the selection but is
+    STILL on the board, and the registry knows its uuid -> the record is KEPT and
+    the yellow "left as they are" line is produced. (Rewritten from the Н2 cell
+    that asserted deletion — a behaviour change by word of Denis, not a weakened
+    guard.)"""
+    from kicadstamp.selection_narrowing import (apply_live_copper_rule,
+                                                divide_unpaired_records)
+    record = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
+              "start_along_mm": 0.0, "start_across_mm": 2.0,
+              "end_along_mm": 1.0, "end_across_mm": 2.0}
+    key = make_registry_key("name:ent", "cell", None, 0)
+    entries = {key: SimpleNamespace(uuid="u-alive")}
+    ctx = _h4_ctx(record, entries, {"u-alive"})
+    to_delete, kept, names = divide_unpaired_records(
+        [record], [record], "track", entries, {"u-alive"}, ctx)
+    assert to_delete == [] and kept == [record] and names
+    plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
+                           removed_via_records=[], removed_track_records=[])
+    lines = apply_live_copper_rule(plan, ctx)
+    assert plan.removed_track_records == []
+    assert any("left as they are" in ln for ln in lines)
+
+
+def test_h4_p5_track_erased_from_board_is_deleted(gate):
+    """Н4 п.5: the same record, but the uuid the registry stored is GONE from the
+    live board -> the record is DELETED (returned for removal) and NOT named in
+    the kept line."""
+    from kicadstamp.selection_narrowing import (apply_live_copper_rule,
+                                                divide_unpaired_records)
+    record = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
+              "start_along_mm": 0.0, "start_across_mm": 2.0,
+              "end_along_mm": 1.0, "end_across_mm": 2.0}
+    key = make_registry_key("name:ent", "cell", None, 0)
+    entries = {key: SimpleNamespace(uuid="u-gone")}
+    ctx = _h4_ctx(record, entries, set())
+    to_delete, kept, names = divide_unpaired_records(
+        [record], [record], "track", entries, set(), ctx)
+    assert to_delete == [record] and kept == [] and names == []
+    plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
+                           removed_via_records=[], removed_track_records=[])
+    lines = apply_live_copper_rule(plan, ctx)
+    assert plan.removed_track_records == [record]
+    assert lines == []
 
 
 # ── keep_unpaired: the SOFT mode of a MIXED read (Denis 2026-10-05) ─────────
@@ -739,3 +840,87 @@ def test_strict_default_still_fatals_on_the_unpaired_record(gate, kind):
         build_refresh_plan(
             components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks,
             adapter, add_new_copper=True, cell_layer="F.Cu")
+
+
+# ── Н4.2: reconcile_components — add / remove component records ────────────
+
+_RECON_DA = {"role": "DA", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0}
+_RECON_DB = {"role": "DB", "offset_along_mm": 5.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0}
+
+
+def test_reconcile_adds_a_new_role_the_cell_lacks(gate):
+    """Н4.2: a role the INSTANCE has and the cell does not becomes a NEW component
+    record with geometry in the cell's own axes, and NO `net_template`."""
+    components = [dict(_RECON_DA), dict(_RECON_DB)]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    fp_new = _live_fp("R70", "R_SD_PROT", "DAC_BUF", 20.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF"),
+                        "R70": ("R_SD_PROT", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c2, fp_new])
+    plan = build_refresh_plan(
+        components, [], [], [fp_c1, fp_c2, fp_new], [], [], adapter,
+        reconcile_components=True, cell_layer="F.Cu")
+    assert plan.removed_component_records == []
+    assert [r["role"] for r in plan.new_component_records] == ["R_SD_PROT"]
+    record = plan.new_component_records[0]
+    assert record["offset_along_mm"] == pytest.approx(10.0)
+    assert record["offset_across_mm"] == pytest.approx(0.0)
+    assert "net_template" not in record
+
+
+def test_reconcile_deletes_a_role_absent_from_the_board_and_its_copper(gate):
+    """Н4.2: a cell role the instance lacks is DELETED; the copper whose
+    `net_from_role` is that role goes with it, the other role's copper does not."""
+    components = [dict(_RECON_DA), dict(_RECON_DB),
+                  {"role": "GONE", "offset_along_mm": 2.0,
+                   "offset_across_mm": 0.0, "angle_deg": 0.0}]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c2])
+    gone_via = {"net_from_role": "GONE", "offset_along_mm": 0.0,
+                "offset_across_mm": 0.0, "drill_mm": 0.3, "diameter_mm": 0.6}
+    other_via = {"net": "GND", "offset_along_mm": 1.0,
+                 "offset_across_mm": 1.0, "drill_mm": 0.3, "diameter_mm": 0.6}
+    plan = build_refresh_plan(
+        components, [gone_via, other_via], [], [fp_c1, fp_c2], [], [], adapter,
+        keep_unpaired=True, reconcile_components=True, cell_layer="F.Cu")
+    assert [c["role"] for c in plan.removed_component_records] == ["GONE"]
+    assert gone_via in plan.removed_via_records
+    assert other_via not in plan.removed_via_records
+
+
+def test_reconcile_duplicate_role_on_the_board_is_fatal(gate):
+    """Н4.2: a role that occurs TWICE in the instance on the board is a schema
+    error — a fatal downstream, never a silent pick."""
+    from kicadstamp.exceptions import ValidationError
+
+    components = [dict(_RECON_DA), dict(_RECON_DB)]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c1b = _live_fp("C1b", "DA", "DAC_BUF", 11.0, 10.0, ("ch0",))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C1b": ("DA", "DAC_BUF"),
+                        "C2": ("DB", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c1b, fp_c2])
+    with pytest.raises(ValidationError):
+        build_refresh_plan(components, [], [], [fp_c1, fp_c1b, fp_c2], [], [],
+                           adapter, reconcile_components=True, cell_layer="F.Cu")
+
+
+def test_reconcile_missing_origin_role_is_fatal(gate):
+    """Н4.2: the cell's origin role (the mount) absent from the instance has no
+    axes to measure from — a fatal, nothing is planned."""
+    from kicadstamp.exceptions import ValidationError
+
+    components = [dict(_RECON_DA), dict(_RECON_DB)]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c2])
+    with pytest.raises(ValidationError):
+        build_refresh_plan(components, [], [], [fp_c1, fp_c2], [], [], adapter,
+                           origin_role="MOUNT", reconcile_components=True,
+                           cell_layer="F.Cu")
