@@ -109,8 +109,8 @@ change**, and the previous bytes are in the `.bak`.
 ### A file newer than the program
 
 If a file's number is greater than the running KiCadStamp understands, it **refuses** to read it: the
-profile will not open, and the Log gets a fatal naming both numbers. That is on purpose — three machines
-share profiles over Syncthing, a newer file arrives before the `git pull` does, and an older build would
+profile will not open, and the Log gets a fatal naming both numbers. That is on purpose — several machines
+(and the OS installs of a dual-boot one) share profiles over Syncthing, a newer file arrives before the `git pull` does, and an older build would
 silently drop everything it does not know. The fix is updating KiCadStamp, not editing the file.
 
 ### There is no rollback
@@ -120,7 +120,7 @@ KiCadStamp, rename `config.sexp.bak.<...>` into place as `config.sexp`. The prof
 format again — but do not open it with the new build until you have decided what to do: the next open
 lifts it again.
 
-### Three machines and Syncthing — read this before updating
+### Several machines and Syncthing — read this before updating
 
 **Update every machine before opening profiles on it.** While any machine still runs the old code the
 behaviour diverges: a number in the **root** file it silently swallows, but a number in an **included**
