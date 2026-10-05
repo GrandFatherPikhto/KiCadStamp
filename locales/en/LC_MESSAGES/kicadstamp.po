@@ -17697,6 +17697,22 @@ msgstr ""
 msgid "the transfer also applies to its {n} tree_instances cop(y/ies)"
 msgstr ""
 
+#, python-brace-format
+msgid "net_traces {name}: the record's file was not found in the project graph — the read is refused, nothing was changed"
+msgstr ""
+
+#, python-brace-format
+msgid "net_traces {name}: the record is not in {path} — the read is refused, nothing was changed"
+msgstr ""
+
+#, python-brace-format
+msgid "net_traces {name}: a tree_instances copy is not 1:1 with the template — the read is refused, nothing was changed"
+msgstr ""
+
+#, python-brace-format
+msgid "could not read the project config for the transfer: {error}"
+msgstr ""
+
 #: kicadstamp/placement/services/point_resolver.py:122
 msgid ""
 "set anchor_ref/anchor_role, anchor_point, xy, or anchor_origin — should "

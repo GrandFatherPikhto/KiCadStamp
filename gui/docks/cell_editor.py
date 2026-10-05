@@ -2088,13 +2088,23 @@ class CellDock(QWidget):
                 _("Nothing changed — the selection already matches this cell's geometry."),
                 _SUCCESS_STYLE)
             return
+        # Р3а-2: EVERY transfer check runs BEFORE the plan is applied — a transfer
+        # that cannot be performed REFUSES the whole read, and then nothing is
+        # written at all (not the cell, not the record, not a registry key).
+        transfers = tuple(result.get("transfers") or ())
+        cfg, entry_files, refusals = self._explode_transfer_context(transfers)
+        if refusals:
+            for line in refusals:
+                self._show_message(line, _ERROR_STYLE)
+            return
         updated, added, removed = self._apply_refresh_plan(plan)
-        # Р3а-1: the ownership transfer is applied HERE, on the UI thread, TOGETHER
-        # with the plan (one working-set edit) — and only because the plan was
-        # applied: every refusal/no-op path above returned before this line, so a
-        # failed plan leaves the net_traces record and the registries untouched.
-        for line in self._apply_explode_transfers(result.get("transfers")):
-            self._show_message(line, _WARN_STYLE)
+        # Р3а-1: the ownership transfer is applied on the UI thread, TOGETHER with
+        # the plan (one working-set edit), and only because the plan went through —
+        # every refusal / no-op path above returned before this line.
+        if transfers:
+            for line in apply_transfers(str(self._root_path), cfg, transfers,
+                                        entry_files=entry_files):
+                self._show_message(line, _WARN_STYLE)
         # J.1 (2026-09-10): the frame's honest report lines — the live cluster is
         # not a rigid copy of the cell, and/or the instance is turned (the
         # geometry was expressed in the cell's own frame, anchor_xy untouched).
@@ -2177,19 +2187,44 @@ class CellDock(QWidget):
         self._autostage()
         return updated, added, removed
 
-    def _apply_explode_transfers(self, transfers) -> list:
-        """Р3а-1: hand the transferred pieces from their net_traces records to the
-        cell — on the UI thread, in the same working-set edit as the plan. Returns
-        the yellow Log lines. Nothing is written when there are no transfers."""
+    def _explode_transfer_context(self, transfers):
+        """Р3а-2: (cfg, {identity: file}, refusal_lines) for a set of transfers.
+
+        The config and EVERY record's OWN file are resolved ACROSS THE INCLUDE
+        GRAPH before anything is written — `gui/docks/rename.find_list_entry_file`
+        is the ONE host of that rule (a record that lives in an included file is
+        edited there, never in the root by mistake). Every problem is a REFUSAL
+        line: never a silent log, and never a half-applied transfer."""
+        from pathlib import Path
+        from kicadstamp.explode_transfer import precheck_transfers
+        from .rename import find_list_entry_file
         if not transfers or self._root_path is None:
-            return []
+            return None, {}, []
         from kicadstamp.config import load_config
         try:
             cfg, _ctx = load_config(str(self._root_path))
-        except Exception:  # noqa: BLE001 — a broken config is a hint, not a fatal
-            logger.exception("could not load the config for the explode transfer")
-            return []
-        return apply_transfers(str(self._root_path), cfg, transfers)
+        except Exception as e:  # noqa: BLE001 — a refusal line, not a silent log
+            return None, {}, [_(
+                "could not read the project config for the transfer: {error}"
+            ).format(error=e)]
+        root = Path(self._root_path)
+        entry_files: dict = {}
+        refusals: list = []
+        for tr in transfers:
+            if tr.identity in entry_files:
+                continue
+            path = find_list_entry_file(
+                root, "net_traces", {"name": tr.identity, "net": tr.identity})
+            if path is None:
+                refusals.append(_(
+                    "net_traces {name}: the record's file was not found in the "
+                    "project graph — the read is refused, nothing was changed"
+                ).format(name=tr.identity))
+            else:
+                entry_files[tr.identity] = str(path)
+        if not refusals:
+            refusals += precheck_transfers(cfg, transfers, entry_files)
+        return cfg, entry_files, refusals
 
     @staticmethod
     def _drop_records(removed_records: list, bucket: list) -> int:

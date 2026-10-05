@@ -58,29 +58,88 @@ def _raw_identity(entry: dict) -> str:
     return str(entry.get("name") or entry.get("net") or "")
 
 
+def _raw_entry(path, identity: str):
+    """The RAW ``net_traces`` entry with this identity in `path`, or None."""
+    for item in (_read_data(Path(path)).get("net_traces") or []):
+        if isinstance(item, dict) and _raw_identity(item) == identity:
+            return item
+    return None
+
+
+def _records_of(cfg, identity: str) -> list:
+    """Every loaded record with this identity — the template AND its
+    materialized ``tree_instances`` copies."""
+    return [nt for nt in (getattr(cfg, "net_traces", None) or ())
+            if net_trace_effective_name(nt) == identity]
+
+
+def precheck_transfers(cfg, transfers, entry_files) -> list[str]:
+    """EVERY check that can refuse a transfer, BEFORE anything is written.
+
+    Returns the refusal lines when the WHOLE read must be refused (an empty list
+    means "all performable"). A read that cannot hand a piece over must not give it
+    to the cell either: the piece would end up owned by two records and the redraw
+    would draw a copy of it (Р3а-2).
+
+    ``entry_files`` is {identity: physical file} — the caller finds each record's
+    file across the include graph (``gui/docks/rename.find_list_entry_file``, the
+    ONE host of that rule); the kernel never walks the GUI graph itself."""
+    transfers = list(transfers or ())
+    if not transfers:
+        return []
+    files = dict(entry_files or {})
+    refusals: list[str] = []
+    for identity in sorted({tr.identity for tr in transfers}):
+        path = files.get(identity)
+        if not path:
+            refusals.append(_(
+                "net_traces {name}: the record's file was not found in the "
+                "project graph — the read is refused, nothing was changed").format(
+                name=identity))
+            continue
+        entry = _raw_entry(path, identity)
+        if entry is None:
+            refusals.append(_(
+                "net_traces {name}: the record is not in {path} — the read is "
+                "refused, nothing was changed").format(
+                name=identity, path=str(path)))
+            continue
+        if not _copies_are_one_to_one(_records_of(cfg, identity), entry):
+            refusals.append(_(
+                "net_traces {name}: a tree_instances copy is not 1:1 with the "
+                "template — the read is refused, nothing was changed").format(
+                name=identity))
+    return refusals
+
+
 def _section_of(kind: str) -> str:
     """The ``net_traces`` list a piece of this kind lives in."""
     return "vias" if "via" in str(kind).lower() else "tracks"
 
 
-def apply_transfers(config_path, cfg, transfers) -> list[str]:
+def apply_transfers(config_path, cfg, transfers, *, entry_files=None) -> list[str]:
     """Let the ``net_traces`` records of ``transfers`` give their pieces away.
 
-    Returns the yellow Log lines (an emptied record, the affected copies). Nothing
-    is touched when there are no transfers. Only the records named by ``transfers``
-    are edited — never another record's copper."""
+    ``entry_files`` is {identity: physical file} (Р3а-2) — each record is edited in
+    ITS OWN file, so a record living in an include is handled like one in the root.
+
+    EVERY check runs first (`precheck_transfers`): when any transfer cannot be
+    performed, its refusal lines are returned and NOTHING is written — not one
+    record, not one registry key. A half-applied transfer would leave two owners.
+
+    Returns the yellow Log lines (an emptied record, the affected copies)."""
     transfers = list(transfers or ())
     if not transfers:
         return []
+    refusals = precheck_transfers(cfg, transfers, entry_files)
+    if refusals:
+        return refusals
+    files = dict(entry_files or {})
 
     by_identity: dict[str, dict[str, set]] = defaultdict(
         lambda: {"vias": set(), "tracks": set()})
     for tr in transfers:
         by_identity[tr.identity][_section_of(tr.kind)].add(tr.index)
-
-    raw = _read_data(Path(config_path))
-    raw_entries = raw.get("net_traces") or []
-    records_all = list(getattr(cfg, "net_traces", None) or ())
 
     via_path, trk_path = registry_paths_for_config(
         str(config_path), getattr(cfg, "registry_path", None),
@@ -91,25 +150,9 @@ def apply_transfers(config_path, cfg, transfers) -> list[str]:
     lines: list[str] = []
     release: list[str] = []
     for identity, sections in sorted(by_identity.items()):
-        entry = next((e for e in raw_entries
-                      if isinstance(e, dict) and _raw_identity(e) == identity), None)
-        if entry is None:
-            lines.append(_("net_traces {name}: the record is not in {path} — its "
-                           "pieces were left as they are").format(
-                name=identity, path=str(config_path)))
-            continue
-        records = [nt for nt in records_all
-                   if net_trace_effective_name(nt) == identity]
-        # The plan's guard (Р3-3 п.3): the FILE record is edited by INDEX, which is
-        # only correct while every materialized copy has the SAME list lengths as
-        # the template. A copy that is not 1:1 means the index means something else
-        # — refuse this record instead of editing the wrong piece.
-        if not _copies_are_one_to_one(records, entry):
-            lines.append(_("net_traces {name}: a tree_instances copy is not 1:1 "
-                           "with the template — left as it is, tell the developer").format(
-                name=identity))
-            continue
-
+        # Prechecked: the file exists and holds the record, and every copy is 1:1.
+        path = files[identity]
+        entry = _raw_entry(path, identity)
         new_entry = copy.deepcopy(entry)
         for section, indices in sections.items():
             items = new_entry.get(section)
@@ -117,9 +160,10 @@ def apply_transfers(config_path, cfg, transfers) -> list[str]:
                 continue
             new_entry[section] = [item for i, item in enumerate(items)
                                   if i not in indices]
-        upsert_list_entry(Path(config_path), "net_traces", new_entry,
+        upsert_list_entry(Path(path), "net_traces", new_entry,
                           key_fn=_raw_identity)
 
+        records = _records_of(cfg, identity)
         # Р3-3 п.2: RELEASE every key of the record and of its copies.
         for nt in records:
             for i in range(len(getattr(nt, "vias", ()) or ())

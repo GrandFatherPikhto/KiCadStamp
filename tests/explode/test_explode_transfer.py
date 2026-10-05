@@ -88,7 +88,8 @@ def test_the_piece_leaves_the_file_record_and_the_uuid_survives(tmp_path):
     """Р3-4: a middle piece goes from the record's ``tracks``; the record's uuid —
     the format-3 identity a name-based replace would lose — is untouched."""
     cfg_path, cfg, _ = _setup(tmp_path)
-    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)])
+    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)],
+                            entry_files={"rec": str(cfg_path)})
     entry = _entry(cfg_path)
     assert entry["uuid"] == "uuid-t"
     assert len(entry["tracks"]) == 2
@@ -107,7 +108,8 @@ def test_every_key_of_the_record_and_its_copies_is_released(tmp_path):
     assert len(load_registry(via_path)) == 4        # 2 vias x 2 records
     assert len(load_track_registry(trk_path)) == 6  # 3 tracks x 2 records
 
-    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "via", 0)])
+    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "via", 0)],
+                            entry_files={"rec": str(cfg_path)})
 
     assert load_registry(via_path) == {}
     assert load_track_registry(trk_path) == {}
@@ -120,7 +122,8 @@ def test_an_emptied_record_is_kept_and_named(tmp_path):
     cfg_path, cfg, records = _setup(tmp_path, vias=1, tracks=1)
     lines = apply_transfers(cfg_path, cfg, [
         NetTraceTransfer("rec", "via", 0),
-        NetTraceTransfer("rec", "track", 0)])
+        NetTraceTransfer("rec", "track", 0)],
+        entry_files={"rec": str(cfg_path)})
     entry = _entry(cfg_path)
     assert not entry.get("vias") and not entry.get("tracks")
     assert any("empty" in line for line in lines)
@@ -131,6 +134,41 @@ def test_a_copy_not_one_to_one_refuses_the_edit(tmp_path):
     is 1:1 — a copy that is not refuses the record (nothing is written)."""
     cfg_path, cfg, records = _setup(tmp_path, copies=2, copy_tracks=2)
     before = _entry(cfg_path)
-    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)])
+    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)],
+                            entry_files={"rec": str(cfg_path)})
     assert _entry(cfg_path) == before                 # nothing written
     assert any("1:1" in line for line in lines)
+
+
+def test_a_record_in_an_included_file_is_edited_there(tmp_path):
+    """Р3а-2: the record's OWN file is edited — an INCLUDED file, not the root."""
+    root = tmp_path / "config.sexp"
+    inc = tmp_path / "extra.sexp"
+    write_config_file(inc, {"net_traces": [
+        {"name": "rec", "uuid": "uuid-i", "net": "N",
+         "vias": _vias(1), "tracks": _tracks(2)}]}, stamp=False)
+    write_config_file(root, {}, stamp=False)
+    cfg = SimpleNamespace(net_traces=[SimpleNamespace(
+        name="rec", net="N", uuid="uuid-i", vias=_vias(1), tracks=_tracks(2))],
+        registry_path=None, track_registry_path=None)
+
+    lines = apply_transfers(root, cfg, [NetTraceTransfer("rec", "track", 0)],
+                            entry_files={"rec": str(inc)})
+
+    assert lines == []
+    assert len(_read_data(inc)["net_traces"][0]["tracks"]) == 1   # edited THERE
+    assert _read_data(inc)["net_traces"][0]["uuid"] == "uuid-i"
+    assert _read_data(root).get("net_traces") is None             # root untouched
+
+
+def test_one_impossible_transfer_refuses_them_all(tmp_path):
+    """Р3а-2: a refusal refuses the WHOLE read — the other, performable record is
+    NOT edited either (a half-applied transfer would leave two owners)."""
+    cfg_path, cfg, records = _setup(tmp_path, vias=1, tracks=1)
+    before = _entry(cfg_path)
+    lines = apply_transfers(cfg_path, cfg, [
+        NetTraceTransfer("rec", "via", 0),
+        NetTraceTransfer("other", "via", 0)],       # no file given for "other"
+        entry_files={"rec": str(cfg_path)})
+    assert _entry(cfg_path) == before               # NOTHING was written
+    assert any("other" in line for line in lines)

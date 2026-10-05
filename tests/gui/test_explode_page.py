@@ -552,9 +552,15 @@ def test_the_transfer_runs_on_the_ui_thread_only_when_the_plan_applies(
     monkeypatch.setattr("kicadstamp.config.load_config",
                         lambda path: (SimpleNamespace(net_traces=[]),
                                       SimpleNamespace(sheet_names={})))
+    # Р3а-2: the record's file is found across the include graph and prechecked;
+    # both are stubbed here (the property is the ORDER and the THREAD).
+    monkeypatch.setattr("gui.docks.rename.find_list_entry_file",
+                        lambda root, section, entry: dock._root_path)
+    monkeypatch.setattr("kicadstamp.explode_transfer.precheck_transfers",
+                        lambda cfg, transfers, files: [])
     calls = []
     monkeypatch.setattr(ce_mod, "apply_transfers",
-                        lambda path, cfg, transfers: calls.append(
+                        lambda path, cfg, transfers, entry_files=None: calls.append(
                             (threading.current_thread().name, tuple(transfers)))
                         or [])
     monkeypatch.setattr(dock, "_apply_refresh_plan", lambda plan: (0, 1, 0))
@@ -575,6 +581,37 @@ def test_the_transfer_runs_on_the_ui_thread_only_when_the_plan_applies(
     dock._finish_refresh_geometry({"plan": plan, "transfers": (tr,),
                                    "selection_refusal": "boom"})
     assert len(calls) == 1
+
+
+def test_a_refused_transfer_refuses_the_whole_read(ex, monkeypatch):
+    """Р3а-2: when a transferred record's file cannot be found in the graph, the
+    WHOLE read is refused — the plan is NOT applied and nothing is written."""
+    from kicadstamp.explode_transfer import NetTraceTransfer
+
+    dock = ex._dock_hub.cells_dock
+    dock._root_path = ex._dock_hub.root_metadata_dock.root_path
+    monkeypatch.setattr("kicadstamp.config.load_config",
+                        lambda path: (SimpleNamespace(net_traces=[]),
+                                      SimpleNamespace(sheet_names={})))
+    monkeypatch.setattr("gui.docks.rename.find_list_entry_file",
+                        lambda root, section, entry: None)     # nowhere in graph
+    applied = []
+    monkeypatch.setattr(dock, "_apply_refresh_plan",
+                        lambda plan: applied.append(plan) or (0, 0, 0))
+    monkeypatch.setattr(dock, "_report_layer_read", lambda report: None)
+    errors = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style=None: errors.append(text))
+
+    plan = SimpleNamespace(component_updates=[{"x": 1}], via_updates=[],
+                           track_updates=[], new_via_records=[],
+                           new_track_records=[], removed_via_records=[],
+                           removed_track_records=[])
+    dock._finish_refresh_geometry(
+        {"plan": plan, "transfers": (NetTraceTransfer("rec", "track", 0),)})
+
+    assert applied == []                       # the plan was NOT applied
+    assert any("nothing was changed" in line for line in errors)
 
 
 # ── Р2в: the permanent tab and its two lists ────────────────────────────────
