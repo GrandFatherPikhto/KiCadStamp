@@ -4555,6 +4555,10 @@ msgstr "Длина"
 msgid "Touches"
 msgstr "Касается"
 
+#: gui/docks/explode_page.py
+msgid "Instance:"
+msgstr "Экземпляр:"
+
 #: gui/docks/explode_page.py:150 gui/docks/explode_page.py:344
 msgid "Explode"
 msgstr "Разнести"

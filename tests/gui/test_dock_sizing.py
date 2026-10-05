@@ -69,20 +69,23 @@ def test_central_widget_is_the_elastic_tab_group(real_main_window):
     assert central.minimumHeight() == 1
 
 
-def test_the_three_left_widgets_are_central_tabs(real_main_window):
+def test_the_left_widgets_are_central_tabs(real_main_window):
     """They are pages of the central QTabWidget now, not docks (task T).
 
     The claim is their ABSENCE from DockHub.docks, not the exact dock list: the
     bottom area also carries the "Дубли меди" panel (plan_2026_10_01_dedupe_
     into_kicadstamp §2.3), so `docks == [log_dock]` would make this cell about
-    the bottom area instead of about these three."""
+    the bottom area instead of about these. Р2в added the fourth page, "Explode".
+    """
     hub = real_main_window._dock_hub
-    assert hub.left_tabs.count() == 3
+    assert hub.left_tabs.count() == 4
     assert hub.left_tabs.widget(0) is hub.tree_dock
     assert hub.left_tabs.widget(1) is hub.config_tree_dock
     assert hub.left_tabs.widget(2) is hub.trees_dock
+    assert hub.left_tabs.widget(3) is hub.explode_page
     assert hub.left_tabs.tabPosition() == hub.left_tabs.TabPosition.South
-    for widget in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock):
+    for widget in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock,
+                   hub.explode_page):
         assert widget not in hub.docks
 
 

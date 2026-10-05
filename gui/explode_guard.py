@@ -15,8 +15,9 @@ While active it does two things:
   re-read) is refused with a red line — menu sweeps, redraws, Apply and reads by
   other docks all pass through ``gui/worker.py:start_long_op``, so one hook
   closes them all;
-* tells the window (a ``changed`` signal) to pin the Config right view to the
-  "Разнос" page and to disable the Config tree / left tabs.
+* tells the window (a ``changed`` signal) to disable the left TAB STRIP and to
+  show the permanent "Explode" tab (Р2в — the tab lives in the central group, so
+  a disabled strip is what keeps the user out of Config and the other tabs).
 
 Р3: it also answers ``transfer_enabled(cell_name, cluster, sheet)`` — whether the
 cell re-read should TRANSFER (not subtract) the selected ``net_traces`` copper —

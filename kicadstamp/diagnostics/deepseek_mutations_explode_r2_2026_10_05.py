@@ -11,7 +11,7 @@ tests/, ``_drop_pyc`` for the mutated file, the ``count != 1`` refusal, a
 The guards are tests/gui/test_explode_page.py (the tab, the lock, the exit window,
 the post-crash state) and tests/gui/test_explode_worker_gate.py (the worker gate).
 
-  * Q1  leaving the "Разнос" page is allowed while exploded
+  * Q1  the lock does not pin the current tab to "Explode" while exploded
   * Q2  the start_long_op gate does not check `active`
   * Q3  "exploded" is a flag in memory, not the journal (a restart loses the lock)
   * Q4  a real quit while exploded asks nothing
@@ -37,9 +37,13 @@ PAGE = "gui/docks/explode_page.py"
 JOURNAL = "kicadstamp/explode_journal.py"
 
 ROWS = [
-    ("Q1 leaving the explode page is allowed", DOCK_HUB,
-     "        if self.explode_guard.active and index != self._explode_page:",
-     "        if False:  # MUTATION",
+    ("Q1 the lock does not pin the explode tab", DOCK_HUB,
+     "        self.left_tabs.tabBar().setEnabled(not active)\n"
+     "        if active:\n"
+     "            self.left_tabs.setCurrentWidget(self.explode_page)",
+     "        self.left_tabs.tabBar().setEnabled(not active)\n"
+     "        if False:  # MUTATION\n"
+     "            self.left_tabs.setCurrentWidget(self.explode_page)",
      "die", G, ()),
     ("Q2 the gate does not check active", WORKER,
      "    if not allowed_while_exploded:",
@@ -71,12 +75,8 @@ ROWS = [
      "                    if False:  # MUTATION",
      "die", G, ()),
     ("Q8 the lock disables the whole container", DOCK_HUB,
-     "        unlocked = not active\n"
-     "        self.left_tabs.tabBar().setEnabled(unlocked)\n"
-     "        self.config_tree_dock.tree.setEnabled(unlocked)",
-     "        unlocked = not active\n"
-     "        self.left_tabs.setEnabled(unlocked)  # MUTATION\n"
-     "        self.config_tree_dock.tree.setEnabled(unlocked)",
+     "        self.left_tabs.tabBar().setEnabled(not active)",
+     "        self.left_tabs.setEnabled(not active)  # MUTATION",
      "die", G, ()),
     ("Q9 unknown identity read as no-journal", PAGE,
      "        if kind == \"unknown\":\n"
@@ -102,15 +102,9 @@ ROWS = [
      "die", G, ()),
     ("Q12 explode door takes the first record", DOCK_HUB,
      "            elif choice.kind == \"choose\":\n"
-     "                pick_instance(\n"
-     "                    self.main_window, choice.candidates,\n"
-     "                    lambda c, s: self._open_explode(name, file_path, c, s))\n"
-     "                return",
-     "            elif False:  # MUTATION\n"
-     "                pick_instance(\n"
-     "                    self.main_window, choice.candidates,\n"
-     "                    lambda c, s: self._open_explode(name, file_path, c, s))\n"
-     "                return",
+     "                cluster, sheet = None, None      # the tab's list IS the choice",
+     "            elif choice.kind == \"choose\":  # MUTATION\n"
+     "                cluster, sheet = choice.candidates[0]",
      "die", G, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "class ExplodePage(QWidget):",

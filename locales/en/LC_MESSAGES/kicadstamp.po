@@ -2395,9 +2395,8 @@ msgstr ""
 
 #: gui/docks/cell_editor.py:613 gui/docks/config_tree.py:1470
 #: gui/docks/config_tree.py:1513
-#, fuzzy
 msgid "Explode…"
-msgstr "Exported"
+msgstr ""
 
 #: gui/docks/cell_editor.py:615
 msgid "Move foreign clusters aside and re-read this cell"
@@ -4231,9 +4230,8 @@ msgid "Wrote entity {name!r} in {path}"
 msgstr "Wrote entity {name!r} in {path}"
 
 #: gui/docks/explode_page.py:67 kicadstamp/explode_cli.py:128
-#, fuzzy
 msgid "no explode journal for this board — nothing to restore"
-msgstr "no footprints on the board — nothing to write"
+msgstr ""
 
 #: gui/docks/explode_page.py:101 gui/docks/explode_page.py:228
 msgid "Explode: no cell selected"
@@ -4277,9 +4275,12 @@ msgid "Length"
 msgstr ""
 
 #: gui/docks/explode_page.py:145
-#, fuzzy
 msgid "Touches"
-msgstr "Source"
+msgstr ""
+
+#: gui/docks/explode_page.py
+msgid "Instance:"
+msgstr ""
 
 #: gui/docks/explode_page.py:150 gui/docks/explode_page.py:344
 msgid "Explode"
@@ -4307,14 +4308,12 @@ msgid "Explode: {cell} — {where}   [{state}]"
 msgstr ""
 
 #: gui/docks/explode_page.py:239
-#, fuzzy
 msgid "Set the project root and connect to the board first."
-msgstr "Set the project root first."
+msgstr ""
 
 #: gui/docks/explode_page.py:250
-#, fuzzy
 msgid "planning"
-msgstr "placing"
+msgstr ""
 
 #: gui/docks/explode_page.py:267
 #, python-brace-format
@@ -4331,14 +4330,13 @@ msgid "(nobody)"
 msgstr ""
 
 #: gui/docks/explode_page.py:278
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "net_traces {name}   ({n})"
-msgstr "net_traces entry (net {net!r})"
+msgstr ""
 
 #: gui/docks/explode_page.py:339 gui/docks/explode_page.py:361
-#, fuzzy
 msgid "Connect to the board first."
-msgstr "Connect to KiCad first."
+msgstr ""
 
 #: gui/docks/explode_page.py:396
 #, python-brace-format
@@ -4358,9 +4356,8 @@ msgid ""
 msgstr ""
 
 #: gui/docks/explode_page.py:416
-#, fuzzy
 msgid "explode journal deleted"
-msgstr "File {name} deleted."
+msgstr ""
 
 #: gui/docks/explode_page.py:451
 #, python-brace-format
@@ -9486,9 +9483,8 @@ msgid "Clearance left after the shift, mm (default 5)."
 msgstr ""
 
 #: kicadstamp/cli_main.py:521
-#, fuzzy
 msgid "Print the plan — writes NOTHING"
-msgstr "Only print the plan, do not write to the board"
+msgstr ""
 
 #: kicadstamp/cli_main.py:524
 msgid "Journal first, then shift the clusters in one transaction"
@@ -9613,14 +9609,12 @@ msgstr ""
 "bugs{extra}: {problems}"
 
 #: kicadstamp/explode.py:331
-#, fuzzy
 msgid "(via)"
-msgstr "Via"
+msgstr ""
 
 #: kicadstamp/explode.py:345
-#, fuzzy
 msgid "net_traces anchor"
-msgstr "Set anchor"
+msgstr ""
 
 #: kicadstamp/explode.py:465
 #, python-brace-format
@@ -9669,9 +9663,8 @@ msgid ""
 msgstr ""
 
 #: kicadstamp/explode_format.py:32
-#, fuzzy
 msgid "  inter-cluster copper:"
-msgstr "Reread inter-node copper"
+msgstr ""
 
 #: kicadstamp/explode_format.py:49
 msgid "no explode journal for this board"
