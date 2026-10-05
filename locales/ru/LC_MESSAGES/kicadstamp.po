@@ -17992,3 +17992,6 @@ msgstr "; реестр помнит ещё {n}, на плате их нет"
 
 msgid "{cluster} on {sheet}"
 msgstr "{cluster} на {sheet}"
+
+msgid "cell {name!r} is not in the config — cannot select it"
+msgstr "ячейка {name!r} не найдена в конфиге — выделить её нельзя"

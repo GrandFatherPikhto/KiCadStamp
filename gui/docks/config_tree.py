@@ -1454,9 +1454,12 @@ class ConfigTreeDock(QWidget):
                 entity = leaf_data[2] if leaf_data is not None else None
                 if isinstance(entity, dict) and entity.get("cell"):
                     menu.addAction(_("Select cell")).triggered.connect(
-                        lambda checked=False, n=entity.get("cell"), f=file_path,
+                        lambda checked=False, n=entity.get("cell"),
                         c=entity.get("cluster"), s=entity.get("sheet"):
-                        self.cell_select_requested.emit(n, f, c, s))
+                        # Н5б: file_path=None — the ENTITY's file must never
+                        # become the cell's save target; CellDock resolves the
+                        # cell's OWN file from the config.
+                        self.cell_select_requested.emit(n, None, c, s))
             if section == "cells":
                 # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
                 # menu.md Т1): the ONE item that gives an EXISTING cell an

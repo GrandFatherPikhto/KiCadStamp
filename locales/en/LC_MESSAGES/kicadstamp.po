@@ -19289,3 +19289,6 @@ msgstr ""
 
 msgid "{cluster} on {sheet}"
 msgstr ""
+
+msgid "cell {name!r} is not in the config — cannot select it"
+msgstr ""

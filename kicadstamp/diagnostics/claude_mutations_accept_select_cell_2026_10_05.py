@@ -14,6 +14,7 @@ G = rig.GUARDS + ["test_select_cell.py", "test_dialog_min_width.py",
                   "test_refresh_by_cluster_h4a.py", "test_cell_editor.py",
                   "test_config_tree.py", "test_phase3_wiring.py"]
 SELECT = "gui/select_cell.py"
+EDITOR = rig.EDITOR
 REFRESH = rig.REFRESH
 NARROWING = rig.NARROWING
 
@@ -51,6 +52,15 @@ ROWS = [
     ("C9 one-record fallback off", "gui/docks/cell_editor.py",
      "        if len(instances) == 1:\n            cluster, sheet = instances[0]",
      "        if False:  # MUTATION\n            cluster, sheet = instances[0]",
+     "die", G, ()),
+    # ── Н5б (acceptance of 4e21c2a) ─────────────────────────────────────────
+    ("C10 cell file not resolved", EDITOR,
+     "                target = find_dict_entry_file(self._root_path, \"cells\", name)",
+     "                target = None  # MUTATION",
+     "die", G, ()),
+    ("C11 same cell reloaded (edits lost)", EDITOR,
+     "        if self.name_edit.text().strip() != name:",
+     "        if True:  # MUTATION",
      "die", G, ()),
     ("K6 cosmetic comment (control)", SELECT,
      "    missing = 0\n",

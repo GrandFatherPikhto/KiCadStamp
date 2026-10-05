@@ -2431,10 +2431,21 @@ class CellDock(QWidget):
     def select_cell_requested(self, name: str, file_path,
                               cluster=None, sheet=None) -> None:
         """The ONE entry point of "Select cell" for the config tree menu and any
-        other door (Н5). It loads the requested cell if needed and runs the SAME
-        worker the CellDock button runs — never a second implementation."""
-        if self.name_edit.text().strip() != name or self._path != file_path:
-            self.load_entry(name, file_path)
+        other door (Н5/Н5б). It reloads the form ONLY when a DIFFERENT cell is
+        open (compare by NAME — a same-cell call never discards unsaved edits),
+        and it loads the cell from its OWN file: an entity door sends
+        file_path=None, so the file is resolved from the config and the entity's
+        file can never become the cell's save target (a second copy)."""
+        if self.name_edit.text().strip() != name:
+            target = file_path
+            if target is None:
+                target = find_dict_entry_file(self._root_path, "cells", name)
+            if target is None:
+                self._show_message(
+                    _("cell {name!r} is not in the config — cannot select it")
+                    .format(name=name), _ERROR_STYLE)
+                return
+            self.load_entry(name, target)
         self._on_select_cell(cluster=cluster, sheet=sheet)
 
     def _on_select_cell(self, cluster=None, sheet=None) -> None:

@@ -302,3 +302,64 @@ def test_m3_foreign_tree_node_is_not_named():
     refs = referencing_records_for_roles(cfg, {"GONE"}, "DAC_BUF", None)
     assert any("t:n1" in r for r in refs.get("GONE", []))
     assert all("t:n2" not in r for r in refs.get("GONE", []))
+
+
+# ── Н5б: the entity door must not misuse the entity's file ──────────────────
+
+def test_entity_item_sends_its_own_instance():
+    """C7: the entities: menu item sends the ENTITY's (cluster, sheet), and no
+    file_path (the entity's file must never become the cell's save target)."""
+    import inspect
+    import gui.docks.config_tree as ct
+    src = inspect.getsource(ct)
+    assert 'c=entity.get("cluster"), s=entity.get("sheet"):' in src
+    assert "self.cell_select_requested.emit(n, None, c, s)" in src
+
+
+def _write_include_config(tmp_path):
+    from kicadstamp.config.sexp_format import dict_to_sexp
+    inc = tmp_path / "cells_inc.sexp"
+    inc.write_text(dict_to_sexp({
+        "cells": {"dac_buf": {
+            "layer": "F.Cu",
+            "components": [{"role": "DA", "offset_along_mm": 0.0,
+                            "offset_across_mm": 0.0, "angle_deg": 0.0}],
+            "vias": [], "tracks": [], "clone_placements": []}}},
+        format_number=2), encoding="utf-8")
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({
+        "include": ["cells_inc.sexp"],
+        "entities": [{"name": "dac0", "cell": "dac_buf",
+                      "cluster": "DAC_BUF", "sheet": "Channel_0"}]},
+        format_number=2), encoding="utf-8")
+    return root, inc
+
+
+def test_entity_door_uses_the_cells_own_file(main_window, tmp_path):
+    """Н5б(2): an entity in the ROOT, its cell in an INCLUDE — after "Select cell"
+    from the entity (file_path=None), CellDock._path is the CELL's file, not the
+    entity's."""
+    from pathlib import Path
+    from gui.docks.cell_editor import CellDock
+    root, inc = _write_include_config(tmp_path)
+    dock = CellDock(main_window)
+    dock.set_root_path(root)
+    dock.select_cell_requested("dac_buf", None, "DAC_BUF", "Channel_0")
+    assert Path(dock._path) == inc
+
+
+def test_select_cell_same_cell_keeps_unsaved_edits(main_window, tmp_path):
+    """Н5б(3): the cell is ALREADY open — "Select cell" must not reload the form
+    (a reload would discard unsaved edits silently)."""
+    from pathlib import Path
+    from gui.docks.cell_editor import CellDock
+    root, inc = _write_include_config(tmp_path)
+    dock = CellDock(main_window)
+    dock.set_root_path(root)
+    dock.load_entry("dac_buf", inc)
+    dock._components.append({"role": "UNSAVED", "offset_along_mm": 1.0,
+                             "offset_across_mm": 1.0, "angle_deg": 0.0})
+    before = [dict(c) for c in dock._components]
+    dock.select_cell_requested("dac_buf", None, "DAC_BUF", "Channel_0")
+    assert [dict(c) for c in dock._components] == before
+    assert Path(dock._path) == inc
