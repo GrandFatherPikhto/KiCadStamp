@@ -17977,3 +17977,15 @@ msgstr "net_traces {net!r}: не удалось сопоставить медь 
 
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr "записи вне этой ячейки ссылаются на удаляемую роль {role!r}: {refs}"
+
+msgid "Select cell"
+msgstr "Выделить ячейку"
+
+msgid "Select this cell's instance on the board"
+msgstr "Выделить экземпляр этой ячейки на плате"
+
+msgid "selected: {components} component(s), {vias} via(s), {tracks} track(s) — {cell} on {sheet}"
+msgstr "выделено: {components} компонент(ов), {vias} переходных, {tracks} дорожек — {cell} на {sheet}"
+
+msgid "; the registry remembers {n} more, not on the board"
+msgstr "; реестр помнит ещё {n}, на плате их нет"

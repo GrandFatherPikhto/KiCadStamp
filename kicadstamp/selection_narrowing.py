@@ -582,11 +582,14 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
                          .format(net=name, error=" ".join(str(e).split())))
             continue
         if getattr(live, "reason", None):
-            # Ф3: the anchor did not resolve — the record takes no part in the
-            # subtraction and SAYS so (never a silent skip).
-            notes.append(_("net_traces {net!r}: {reason} — it was not subtracted")
-                         .format(net=getattr(live, "identity", None) or name,
-                                 reason=live.reason))
+            # Ф3 + м2: only an UNRESOLVED anchor is worth a line. A retired/skip
+            # record legitimately plans nothing (retired: not placed at all;
+            # skip: its registry-known copper is still subtracted below) and
+            # must NOT add a line per read.
+            if not (getattr(nt, "retired", False) or getattr(nt, "skip", False)):
+                notes.append(_("net_traces {net!r}: {reason} — it was not subtracted")
+                             .format(net=getattr(live, "identity", None) or name,
+                                     reason=live.reason))
         identity = getattr(live, "identity", None) or name
         for item in live.found:
             uuid = getattr(item, "uuid", None)
@@ -605,3 +608,4 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
                              report=tuple(sorted(report.items())),
                              notes=tuple(notes))
+ 

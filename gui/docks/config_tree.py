@@ -232,6 +232,11 @@ class ConfigTreeDock(QWidget):
     # copper the cell doesn't describe yet -> NEW records; existing ones are
     # never touched). Same (name, file_path) shape.
     cell_import_requested = pyqtSignal(str, object)
+    # Н5 (2026-10-05, plan_2026_10_04_refresh_mixed_cluster_selection): the
+    # context menu's "Select cell" — highlight the placed instance's board
+    # components PLUS the copper the registries recorded for this cell at that
+    # instance; the SAME function the CellDock button runs (one for every door).
+    cell_select_requested = pyqtSignal(str, object)
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
@@ -1474,6 +1479,9 @@ class ConfigTreeDock(QWidget):
                 # cannot MODIFY one — they complement, never overlap).
                 menu.addAction(_("Import from selection...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
+                # Н5: highlight what a read would read (instance + own copper).
+                menu.addAction(_("Select cell")).triggered.connect(
+                    lambda: self.cell_select_requested.emit(old_name, file_path))
                 # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
                 # reads with the layer dialog in front. The FAST items above stay
                 # one-click (no window, no board read for the layer set); these

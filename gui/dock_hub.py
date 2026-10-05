@@ -1026,6 +1026,11 @@ class DockHub:
             partial(self._refresh_cell_from_selection, choose_layers=True))
         self.config_tree_dock.cell_import_layers_requested.connect(
             partial(self._import_cell_from_selection, choose_layers=True))
+        # Н5 (2026-10-05, plan_2026_10_04_refresh_mixed_cluster_selection): the
+        # context menu's "Select cell" — highlight the instance + its own copper
+        # on the board (the SAME function the CellDock button runs).
+        self.config_tree_dock.cell_select_requested.connect(
+            self._select_cell_from_tree)
         # 2026-09-06 (plan copy_placement_from_cell): the context menu's "Copy
         # placement from cell..." — the OFFLINE cell-to-cell placement copy
         # onto the requested cell (donor picked from a minimal role-set-fitted
@@ -2922,6 +2927,13 @@ class DockHub:
         and staged by _autostage()."""
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
+
+    def _select_cell_from_tree(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_select_requested delegate (Н5) — the context
+        menu's "Select cell": drive CellDock's own entry point (it loads the
+        cell when it is not the currently open one and runs the SAME worker the
+        CellDock button runs — one function for every door)."""
+        self.cells_dock.select_cell_requested(name, file_path)
 
     def _create_entity_from_tree(self, source_kind: str, source_name: str,
                                  file_path) -> None:

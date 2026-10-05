@@ -70,7 +70,8 @@ ROWS = [
      "    if False:  # MUTATION",
      "die", G, ()),
     ("Ф2 removed role references not reported", REFRESH,
-     "            refs = referencing_records_for_roles(config, missing_roles)",
+     "            refs = referencing_records_for_roles(\n"
+     "                config, missing_roles, chosen_cluster, chosen_sheet)",
      "            refs = {}  # MUTATION",
      "die", G, ()),
     ("Ф3 reason never reaches the notes", NARROWING,

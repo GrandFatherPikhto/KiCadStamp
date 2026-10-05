@@ -596,10 +596,10 @@ class CellDock(QWidget):
         # need the WHOLE placed cluster instance selected — this button picks it
         # from the remembered (Cluster, Sheet) the cell was last extracted in,
         # removing the manual hunt before every re-read. Same activity gate.
-        self.select_cluster_button = QPushButton(_("Select cluster"))
+        self.select_cluster_button = QPushButton(_("Select cell"))
         self.select_cluster_button.setToolTip(
-            _("Select cluster of this cell on the board"))
-        self.select_cluster_button.clicked.connect(self._on_select_cluster_on_board)
+            _("Select this cell's instance on the board"))
+        self.select_cluster_button.clicked.connect(self._on_select_cell)
         self.select_cluster_button.setEnabled(False)
         refresh_row.addWidget(self.select_cluster_button)
         layout.addLayout(refresh_row)
@@ -1983,6 +1983,10 @@ class CellDock(QWidget):
                 # roles are DELETED (with their copper), never a role fatal.
                 reconcile_components=prelude is not None,
                 config=cfg,
+                chosen_cluster=(prelude.copper_ctx.chosen_address[0]
+                                if prelude and prelude.copper_ctx else None),
+                chosen_sheet=(prelude.copper_ctx.chosen_address[1]
+                              if prelude and prelude.copper_ctx else None),
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,
@@ -2297,6 +2301,12 @@ class CellDock(QWidget):
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"),
                 reconcile_components=prelude is not None)
+            # м1: the "could not read the board copper" line comes from ONE place
+            # (apply_live_copper_rule) on BOTH doors — import never deletes, so
+            # only a failed board read can produce a line here.
+            if prelude is not None and prelude.copper_ctx is not None:
+                for line in apply_live_copper_rule(plan, prelude.copper_ctx):
+                    selection_lines.append((line, _SELECTION_WARN))
             if prelude is not None:
                 try:
                     adapter.select_items(list(prelude.instance_footprints)
@@ -2381,23 +2391,32 @@ class CellDock(QWidget):
 
     # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
 
-    def _on_select_cluster_on_board(self) -> None:
-        """Button action: highlight the placed instance this cell was last
-        created/edited in — the remembered (Cluster, Sheet) context — so
-        "Refresh geometry from selection" / "Import vias/tracks from
-        selection" (which fatal on any role missing from the selection) have
-        the fully-selected cluster without the user hunting for it by hand.
+    def _on_select_cluster_on_board(self, *args, **kwargs) -> None:
+        """Backward-compatible alias: the button/entry was renamed to
+        `_on_select_cell` in Н5; existing callers/tests keep this name."""
+        return self._on_select_cell(*args, **kwargs)
 
-        2026-09-17 (Р7 of plan_2026_09_17_spoke_s1_identify_by_selection.md):
-        when the cell also has IDENTIFIED refs, those win — the button selects
-        exactly that pair instead of the whole cluster, which for the spoke
-        FPGA_PWR_BANK used to mean 50 components the user did not ask for.
+    def select_cell_requested(self, name: str, file_path,
+                              cluster=None, sheet=None) -> None:
+        """The ONE entry point of "Select cell" for the config tree menu and any
+        other door (Н5). It loads the requested cell if needed and runs the SAME
+        worker the CellDock button runs — never a second implementation."""
+        if self.name_edit.text().strip() != name or self._path != file_path:
+            self.load_entry(name, file_path)
+        self._on_select_cell(cluster=cluster, sheet=sheet)
 
-        The remembered context is a HINT (§E.5): when it no longer resolves on
-        the current board the button reports it and selects NOTHING (never a
-        fatal, and never a fallback to the whole cluster). Board IPC (footprint
-        reads + select_items) runs on the worker thread via start_long_op — no
-        synchronous adapter call on the UI thread."""
+    def _on_select_cell(self, cluster=None, sheet=None) -> None:
+        """Highlight the placed instance of this cell (Н5) — "Select cell"
+        (formerly "Select cluster"). It selects the instance's BOARD components
+        plus the copper the registries recorded for THIS cell at THIS instance
+        (its own `anchor:<ref>` copper included), so the user sees exactly what
+        a read would read.
+
+        The explicit (cluster, sheet) comes from the tree's per-instance submenu;
+        without it the remembered context is used (Р7 identified refs still win —
+        for the spoke FPGA_PWR_BANK the pair, not 50 components). A remembered
+        context that no longer resolves selects NOTHING and reports it (§E.5).
+        All board IPC runs on the worker via start_long_op."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
         board = getattr(connection, "board", None) if connection is not None else None
@@ -2415,7 +2434,10 @@ class CellDock(QWidget):
             return
         cell_name = self.name_edit.text().strip()
         refs = remembered_cell_refs(self._root_path, cell_name) or {}
-        cluster, sheet = remembered_cell_edit_context(self._root_path, cell_name)
+        remembered_cluster, remembered_sheet = remembered_cell_edit_context(
+            self._root_path, cell_name)
+        cluster = cluster or remembered_cluster
+        sheet = sheet if cluster != remembered_cluster else remembered_sheet
         if not cluster and not refs:
             self._show_message(
                 _("No remembered cluster for cell {name!r} — extract it from a "
@@ -2452,16 +2474,19 @@ class CellDock(QWidget):
             if refs:
                 return select_identified_refs(adapter, refs)
             from kicadstamp.config import load_config
-            _cfg, ctx = load_config(payload["root_path"])
-            footprints = resolve_context_footprints(
-                adapter, adapter.get_footprints(), payload["cluster"],
-                payload["sheet"], dict(ctx.sheet_names or {}))
-            if footprints:
-                adapter.select_items(footprints)
+            from ..select_cell import select_cell_targets
+            cfg, ctx = load_config(payload["root_path"])
+            plan = select_cell_targets(
+                adapter, cfg, payload["root_path"], payload["cell_name"],
+                payload["cluster"], payload["sheet"],
+                dict(ctx.sheet_names or {}))
+            if plan.footprints or plan.copper:
+                adapter.select_items(list(plan.footprints) + list(plan.copper))
         except Exception as e:  # noqa: BLE001
             return {"error": str(e)}
-        return {"selected": len(footprints), "cluster": payload["cluster"],
-                "sheet": payload["sheet"]}
+        return {"selected": len(plan.footprints) + len(plan.copper),
+                "cluster": payload["cluster"], "sheet": payload["sheet"],
+                "line": plan.line}
 
     def _finish_select_cluster_on_board(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): report what got selected, or — when

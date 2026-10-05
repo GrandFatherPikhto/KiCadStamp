@@ -271,9 +271,9 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Ф3: a net_traces record whose anchor could not be resolved says so.
     for note in list(net_v.notes) + list(net_t.notes):
         lines.append((note, WARN))
-    if not board_read_ok:
-        lines.append((_("could not read the board copper — records without a "
-                        "live pair were left as they are"), WARN))
+    # м1: the "could not read the board copper" line is NOT added here — the
+    # worker gets it from ONE place only (apply_live_copper_rule), so refresh and
+    # import each print it exactly once.
     subtraction = _subtraction_line([sub_v, sub_t, net_v, net_t])
     if subtraction:
         lines.append((subtraction, SUCCESS))

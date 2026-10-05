@@ -53,15 +53,15 @@ MAX_DIALOG_WIDTH_PX = 1000
 SHORT_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry", "Перечитать геометрию"),
     "import_vias_tracks_button": ("Import copper", "Импорт меди"),
-    "select_cluster_button": ("Select cluster", "Выделить кластер"),
+    "select_cluster_button": ("Select cell", "Выделить ячейку"),
 }
 FULL_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry from selection",
                                 "Обновить геометрию по выделению"),
     "import_vias_tracks_button": ("Import vias/tracks from selection",
                                   "Импорт via/track из выделения"),
-    "select_cluster_button": ("Select cluster of this cell on the board",
-                              "Выделить на плате кластер этой ячейки"),
+    "select_cluster_button": ("Select this cell's instance on the board",
+                              "Выделить экземпляр этой ячейки на плате"),
 }
 
 _RU_REPORT: dict | None = None

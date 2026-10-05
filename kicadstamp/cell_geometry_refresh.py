@@ -63,6 +63,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .cell_frame import CellFrame, fit_cell_frame, reference_relative_pairs
+from .cluster_matching import cluster_prefix_match
 from .config import Cell, TemplateComponentSlot, load_cell_placement
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
@@ -915,28 +916,51 @@ def _unpaired_kept_report(via_records: list[dict],
               "{names}").format(count=len(entries), names=", ".join(entries))]
 
 
-def referencing_records_for_roles(cfg, roles: set) -> dict:
+def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
+                                  chosen_sheet=None) -> dict:
     """Ф2 (acceptance of cbc8bdc, Н4 п.4): which records OUTSIDE the cell
     reference a role the reconcile is about to DELETE — entity / tree / spokes /
     nested placements by their ``role`` / ``anchor_role``. Best-effort over the
-    LOADED config; the caller turns each role into ONE yellow Log line."""
+    LOADED config; the caller turns each role into ONE yellow Log line.
+
+    м3 (acceptance of fb7b9c4): only records of the CHOSEN instance are counted.
+    The roles of PIF cells repeat across eleven cells, so an unfiltered scan
+    named OTHER cells' entities. An entity/clone is taken when its
+    (cluster, sheet) address is the chosen instance (``cluster_prefix_match`` +
+    sheet equality); a tree when its cluster is; ``chosen_cluster=None`` keeps
+    the historical unfiltered behaviour."""
     refs: dict[str, list[str]] = {}
     if cfg is None or not roles:
         return refs
+
+    def _addr_ok(cluster, sheet) -> bool:
+        if chosen_cluster is None:
+            return True
+        if cluster and not cluster_prefix_match(str(cluster), str(chosen_cluster)):
+            return False
+        if chosen_sheet and sheet and str(sheet) != str(chosen_sheet):
+            return False
+        return True
 
     def _add(role, label: str) -> None:
         if role and str(role) in roles:
             refs.setdefault(str(role), []).append(label)
 
     for e in getattr(cfg, "entities", ()) or ():
+        if not _addr_ok(getattr(e, "cluster", None), getattr(e, "sheet", None)):
+            continue
         name = getattr(e, "name", "?")
         _add(getattr(e, "anchor_role", None), f"entity {name}")
         _add(getattr(e, "role", None), f"entity {name}")
     for c in getattr(cfg, "clone_placements", ()) or ():
+        if not _addr_ok(getattr(c, "cluster", None), getattr(c, "sheet", None)):
+            continue
         name = getattr(c, "name", None) or getattr(c, "cluster", None) or "?"
         _add(getattr(c, "anchor_role", None), f"clone {name}")
         _add(getattr(c, "role", None), f"clone {name}")
     for t in getattr(cfg, "trees", ()) or ():
+        if not _addr_ok(getattr(t, "cluster", None), None):
+            continue
         tname = getattr(t, "name", "?")
         for n in getattr(t, "nodes", ()) or ():
             ref = getattr(n, "ref", "?")
@@ -961,6 +985,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        keep_unpaired: bool = False,
                        reconcile_components: bool = False,
                        config: Any = None,
+                       chosen_cluster: str | None = None,
+                       chosen_sheet: str | None = None,
                        cell_layer: str | None = None,
                        nested_placements: list[dict] | None = None,
                        cells: dict | None = None,
@@ -1122,7 +1148,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             # Ф2: ONE yellow line per removed role that records OUTSIDE this
             # cell still reference — the deletion is real, but the user must
             # see which entity/tree/spoke anchor now points at a gone role.
-            refs = referencing_records_for_roles(config, missing_roles)
+            refs = referencing_records_for_roles(
+                config, missing_roles, chosen_cluster, chosen_sheet)
             for role in sorted(refs):
                 warnings.append(
                     _("records outside this cell reference the removed role "
