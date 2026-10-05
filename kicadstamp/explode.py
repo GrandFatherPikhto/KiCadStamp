@@ -38,10 +38,12 @@ from .config import net_trace_effective_name
 from .constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from .domain.board import Footprint, Via
 from .domain.geometry import Box2, Vector2
+from .geometry.copper_connect import (capsules_touch, disc_touches_capsule,
+                                      discs_touch)
 from .geometry.pad_area import pad_area_of
 from .geometry.union_find import UnionFind
 from .i18n import _
-from .net_trace_planner import find_live_copper
+from .net_trace_planner import find_live_copper, net_trace_registry_key
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .registry import load_registry_entries, record_key_part
 from .selection_narrowing import (
@@ -61,13 +63,8 @@ __all__ = [
     "MovedInstance",
     "NetTracePiece",
     "Pose",
-    "JOINT_EPS_NM",
     "plan_explode",
 ]
-
-# The joint epsilon of cell_copper_connectivity.cell_copper_components (1e-3 mm)
-# expressed in the board's nanometres. One number, two units of the same rule.
-JOINT_EPS_NM = int(1e-3 * MM)
 
 # Touches values that do NOT tick a table piece by default.
 _UNTOUCHED = frozenset({"cell", "none"})
@@ -291,61 +288,94 @@ def _pad_areas(adapter, class_fps: dict) -> list:
     return out
 
 
-def _pad_touch(pad_area, pad_layers, point, item_layer, through: bool) -> bool:
-    if not pad_area.contains(point):
+# The broad-phase grid for the connectivity (Р1б-1): 1 mm buckets on the items'
+# bounding boxes, so a board is never scanned pairwise in full.
+_GRID_NM = 1_000_000
+
+
+def _copper_extent(item) -> tuple:
+    """(bbox, half_extent_nm) of a copper item: a track's segment grown by
+    width/2, a via's centre grown by diameter/2. bbox = (x1, y1, x2, y2) in nm."""
+    if isinstance(item, Via):
+        r = getattr(item, "diameter_mm", 0.0) / 2.0 * MM
+        p = item.position
+        return (p.x - r, p.y - r, p.x + r, p.y + r), r
+    half = getattr(item, "width_mm", 0.0) * MM / 2.0
+    x1, x2 = sorted((item.start.x, item.end.x))
+    y1, y2 = sorted((item.start.y, item.end.y))
+    return (x1 - half, y1 - half, x2 + half, y2 + half), half
+
+
+def _copper_touch(a, b, ha: float, hb: float) -> bool:
+    """Do two copper items overlap, KiCad-style? A track is a capsule (half
+    width ``ha``/``hb``), a via a disc (radius ``ha``/``hb``, through — no layer
+    check). Two tracks connect only on the SAME layer. This sees ends AND a
+    T-junction, and does not need two points to coincide (Р1б-1)."""
+    a_via, b_via = isinstance(a, Via), isinstance(b, Via)
+    if a_via and b_via:
+        return discs_touch(a.position.x, a.position.y, ha,
+                           b.position.x, b.position.y, hb)
+    if a_via:
+        return disc_touches_capsule(a.position.x, a.position.y, ha,
+                                    b.start.x, b.start.y, b.end.x, b.end.y, hb * 2)
+    if b_via:
+        return disc_touches_capsule(b.position.x, b.position.y, hb,
+                                    a.start.x, a.start.y, a.end.x, a.end.y, ha * 2)
+    if a.layer != b.layer:
         return False
-    if through or pad_layers is None:
-        return True
-    return item_layer in pad_layers
+    return capsules_touch(a.start.x, a.start.y, a.end.x, a.end.y, ha * 2,
+                          b.start.x, b.start.y, b.end.x, b.end.y, hb * 2)
 
 
 def _copper_classes(tracks, vias, pads) -> dict:
     """{uuid: set(pad classes)} for every copper item (tracks + vias).
 
-    Connectivity: track↔track only on the SAME layer; track↔via at a shared
-    point (a via is through); via↔via at a shared point. Pads are CLASSIFIERS,
-    never unioners — the graph is cut in the cell's pads. Keyed by UUID because
-    the adapter hands out COPIES: two reads of the same item are equal by uuid,
-    not by identity."""
+    Connectivity is by SHAPE, the way KiCad sees it (Р1б-1): a track is a capsule
+    (width), a via a disc (diameter, through). Broad phase over 1 mm buckets, then
+    exact distance per candidate pair. Pads are CLASSIFIERS, never unioners — the
+    graph is cut in the cell's pads. Keyed by UUID because the adapter hands out
+    COPIES: two reads of the same item are equal by uuid, not by identity."""
     items = list(tracks) + list(vias)
     n = len(items)
     out: dict = {getattr(it, "uuid", None): set() for it in items}
     if n == 0:
         return out
     uf = UnionFind(n)
-    eps = JOINT_EPS_NM
+    extents = [_copper_extent(it) for it in items]
 
-    def gkey(point) -> tuple:
-        return round(point.x / eps), round(point.y / eps)
-
-    track_same: dict = {}
-    track_any: dict = {}
-    via_pts: dict = {}
-    for i, it in enumerate(items):
-        if isinstance(it, Via):
-            via_pts.setdefault(gkey(it.position), []).append(i)
-        else:
-            for point in (it.start, it.end):
-                track_same.setdefault((it.layer, *gkey(point)), []).append(i)
-                track_any.setdefault(gkey(point), []).append(i)
-    for bucket in list(track_same.values()) + list(via_pts.values()):
-        for other in bucket[1:]:
-            uf.union(bucket[0], other)
-    for key, via_idxs in via_pts.items():
-        for trk in set(track_any.get(key, [])):
-            uf.union(via_idxs[0], trk)
+    grid: dict = {}
+    for i, (box, _h) in enumerate(extents):
+        for cx in range(int(math.floor(box[0] / _GRID_NM)),
+                        int(math.floor(box[2] / _GRID_NM)) + 1):
+            for cy in range(int(math.floor(box[1] / _GRID_NM)),
+                            int(math.floor(box[3] / _GRID_NM)) + 1):
+                grid.setdefault((cx, cy), []).append(i)
+    seen: set = set()
+    for bucket in grid.values():
+        for ii in range(len(bucket)):
+            for jj in range(ii + 1, len(bucket)):
+                i, j = bucket[ii], bucket[jj]
+                key = (i, j) if i < j else (j, i)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if _copper_touch(items[i], items[j],
+                                 extents[i][1], extents[j][1]):
+                    uf.union(i, j)
 
     own: list = [set() for _ in range(n)]
     for i, it in enumerate(items):
+        half = extents[i][1]
         if isinstance(it, Via):
-            for pad_area, label, layers in pads:
-                if _pad_touch(pad_area, layers, it.position, None, True):
+            for pad_area, label, _layers in pads:
+                if pad_area.contains(it.position, margin=half):
                     own[i].add(label)
         else:
-            for point in (it.start, it.end):
-                for pad_area, label, layers in pads:
-                    if _pad_touch(pad_area, layers, point, it.layer, False):
-                        own[i].add(label)
+            for pad_area, label, layers in pads:
+                if layers is not None and it.layer not in layers:
+                    continue
+                if pad_area.segment_touches(it.start, it.end, margin=half):
+                    own[i].add(label)
     by_root: dict = {}
     for i in range(n):
         by_root.setdefault(uf.find(i), set()).update(own[i])
@@ -422,20 +452,9 @@ def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
     vreg, treg = _Reg(via_entries), _Reg(track_entries)
     out = []
     for nt in getattr(cfg, "net_traces", ()) or ():
-        a_sheet = getattr(nt, "anchor_sheet", None)
-        a_cluster = getattr(nt, "anchor_cluster", None)
-        c_cluster, c_sheet = cell_address
-        if a_sheet is not None:
-            # A net_traces anchor is a FOREIGN component (its cluster is the
-            # PIF's, e.g. PIF_CLKVDD), so the SHEET is the discriminator: another
-            # channel's record is skipped WITHOUT resolving its anchor (Р1а-4).
-            if c_sheet is None or a_sheet != c_sheet:
-                continue
-        elif a_cluster is not None:
-            if c_cluster is None or not cluster_prefix_match(
-                    str(c_cluster), str(a_cluster)):
-                continue
-        elif not _anchor_on_instance(adapter, nt, sheet_names, instance_refs):
+        if not _record_touches_cell(adapter, nt, sheet_names, instance_refs,
+                                    cell_address, via_entries, track_entries,
+                                    classes):
             continue
         name = str(net_trace_effective_name(nt))
         try:
@@ -449,14 +468,6 @@ def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
         for item in pieces:
             touches = _classify(
                 classes.get(getattr(item, "uuid", None), set()))
-            if touches == "cell":
-                # A net_traces piece touching ONLY the cell (Р1а-5, live 05.10):
-                # the record's other copper (its via + the tracks beyond) is not
-                # matched live — another layer/zone — so the cell-side stub is
-                # all we see. It IS an inter-cluster piece: say so, and tick it
-                # like one. It touches no foreign pad, so it cannot ride with an
-                # instance and STAYS (never its own ray).
-                touches = "cell (via)"
             uuid = str(getattr(item, "uuid", ""))
             ticked = touches not in _UNTOUCHED
             if uuid in (tick_overrides or {}):
@@ -483,6 +494,40 @@ def _anchor_on_instance(adapter, nt, sheet_names, instance_refs) -> bool:
     except Exception:  # noqa: BLE001 — an unresolvable anchor is a normal answer
         return False
     return getattr(anchor, "uuid", None) in instance_refs
+
+
+def _record_touches_cell(adapter, nt, sheet_names, instance_refs, cell_address,
+                         via_entries, track_entries, classes) -> bool:
+    """Р1б-3: read a net_traces record when it CAN touch the cell — its anchor
+    SHEET equals the cell sheet, or its anchor CLUSTER matches (a cross-sheet
+    record the FPGA case needs), or (no address stored) its anchor resolves onto
+    the instance, OR one of its REGISTRY pieces sits in a component touching a
+    cell pad. Only the last needs no anchor resolve at all (the registry + the
+    already-computed classes)."""
+    a_sheet = getattr(nt, "anchor_sheet", None)
+    a_cluster = getattr(nt, "anchor_cluster", None)
+    c_cluster, c_sheet = cell_address
+    if a_sheet is not None and c_sheet is not None and a_sheet == c_sheet:
+        return True
+    if a_cluster is not None and c_cluster is not None and cluster_prefix_match(
+            str(c_cluster), str(a_cluster)):
+        return True
+    if a_sheet is None and a_cluster is None and _anchor_on_instance(
+            adapter, nt, sheet_names, instance_refs):
+        return True
+    return _record_has_cell_piece(nt, via_entries, track_entries, classes)
+
+
+def _record_has_cell_piece(nt, via_entries, track_entries, classes) -> bool:
+    """True when a uuid the REGISTRY wrote for this record (no anchor resolve)
+    belongs to a component that touches a cell pad."""
+    for kind, entries in (("vias", via_entries), ("tracks", track_entries)):
+        for i in range(len(getattr(nt, kind, ()) or ())):
+            entry = (entries or {}).get(net_trace_registry_key(nt, i))
+            uuid = getattr(entry, "uuid", None)
+            if uuid is not None and _cell_pads(classes.get(uuid, set())):
+                return True
+    return False
 
 
 def _length_mm(item) -> float:
@@ -677,12 +722,11 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
                     classes, piece.item, moving_labels)
                 vector = (vector_by_label.get(foreign[0], (0, 0))
                           if foreign else (0, 0))
-            elif piece.touches == "none":  # its own ray from its own frame
+            else:  # "cell"/"none": its own ray from its own frame (tick = leaves)
                 box = _box_map(adapter, [piece.item]).get(piece.uuid)
                 if box is not None:
                     ux, uy = _ray(area_center, _box_center(box))
                     vector = _offset_to_leave(area, box, ux, uy, gap_nm)
-            # "cell"/"cell (via)": attached to the cell, no foreign pad -> stays
             if vector != (0, 0):
                 _append_move(moves, piece.item, *vector)
         final_table.append(NetTracePiece(

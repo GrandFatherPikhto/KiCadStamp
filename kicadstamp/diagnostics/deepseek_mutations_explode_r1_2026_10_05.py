@@ -35,9 +35,11 @@ takes the rest of argv.
 """
 from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
 
-G = ["test_explode_plan.py", "test_explode_journal.py"]
+G = ["test_explode_plan.py", "test_explode_journal.py",
+     "test_copper_connect.py", "test_pad_area.py"]
 EXPLODE = "kicadstamp/explode.py"
 JOURNAL = "kicadstamp/explode_journal.py"
+GEOM = "kicadstamp/geometry/copper_connect.py"
 
 ROWS = [
     ("X1 restore leaves the items in place", JOURNAL,
@@ -107,14 +109,13 @@ ROWS = [
      "                    return inst_key",
      "die", G, ()),
     ("X10 the pad's layers are ignored", EXPLODE,
-     "    if through or pad_layers is None:\n"
-     "        return True\n"
-     "    return item_layer in pad_layers",
-     "    return True  # MUTATION",
+     "                if layers is not None and it.layer not in layers:\n"
+     "                    continue",
+     "                if False:  # MUTATION\n                    continue",
      "die", G, ()),
     ("X11 tracks of different layers are connected", EXPLODE,
-     "                track_same.setdefault((it.layer, *gkey(point)), []).append(i)",
-     "                track_same.setdefault(gkey(point), []).append(i)  # MUTATION",
+     "    if a.layer != b.layer:\n        return False",
+     "    if False:  # MUTATION\n        return False",
      "die", G, ()),
     ("X12 a T-piece is classified as cell", EXPLODE,
      "    if len(cell) >= 2:\n        return \"tee\"",
@@ -128,9 +129,32 @@ ROWS = [
      "        t = max(0.0, min(ts)) if ts else 0.0",
      "        t = 0.0  # MUTATION",
      "die", G, ()),
-    ("X15 a net_traces cell piece is not marked inter-cluster", EXPLODE,
-     "            if touches == \"cell\":",
-     "            if False:  # MUTATION",
+    ("X15 a ticked cell piece does not leave", EXPLODE,
+     "            else:  # \"cell\"/\"none\": its own ray from its own frame (tick = leaves)\n"
+     "                box = _box_map(adapter, [piece.item]).get(piece.uuid)\n"
+     "                if box is not None:\n"
+     "                    ux, uy = _ray(area_center, _box_center(box))\n"
+     "                    vector = _offset_to_leave(area, box, ux, uy, gap_nm)",
+     "            else:  # MUTATION\n                pass",
+     "die", G, ()),
+    ("X20 a via as an exact point (5 um missed)", GEOM,
+     "    return point_segment_distance(px, py, ax, ay, bx, by) <= r + w / 2.0",
+     "    return point_segment_distance(px, py, ax, ay, bx, by) <= 0.0  # MUTATION",
+     "die", G, ()),
+    ("X21 T-junction not caught (starts only)", GEOM,
+     "    return segment_segment_distance(ax, ay, bx, by, cx, cy, dx, dy) \\\n"
+     "        <= (w_ab + w_cd) / 2.0",
+     "    return math.hypot(ax - cx, ay - cy) <= (w_ab + w_cd) / 2.0  # MUTATION",
+     "die", G, ()),
+    ("X22 width ignored (parallel gap merged)", GEOM,
+     "    return segment_segment_distance(ax, ay, bx, by, cx, cy, dx, dy) \\\n"
+     "        <= (w_ab + w_cd) / 2.0",
+     "    return segment_segment_distance(ax, ay, bx, by, cx, cy, dx, dy) <= 1_000_000_000  # MUTATION",
+     "die", G, ()),
+    ("X23 net_traces filter by sheet only", EXPLODE,
+     "    for kind, entries in ((\"vias\", via_entries), (\"tracks\", track_entries)):",
+     "    return False  # MUTATION\n"
+     "    for kind, entries in ((\"vias\", via_entries), (\"tracks\", track_entries)):",
      "die", G, ()),
     ("X16 tee at ONE cell pad", EXPLODE,
      "    if len(cell) >= 2:\n        return \"tee\"",

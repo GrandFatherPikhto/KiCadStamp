@@ -12,6 +12,7 @@ import pytest
 from types import SimpleNamespace
 
 from kicadstamp.domain.geometry import Box2, Vector2
+from kicadstamp.net_trace_planner import net_trace_registry_key
 from kicadstamp.registry import make_registry_key
 from kicadstamp import explode as explode_mod
 
@@ -141,7 +142,7 @@ def test_table_classifies_cell_and_foreign_and_ticks(monkeypatch):
     board, cfg = _scenario(monkeypatch)
     plan = _plan(board, cfg)
     rows = {r.uuid: r for r in plan.table}
-    assert rows["nt1"].touches == "cell (via)" and rows["nt1"].ticked is True
+    assert rows["nt1"].touches == "cell" and rows["nt1"].ticked is False
     assert rows["nt2"].touches == "PIF" and rows["nt2"].ticked is True
     moved = {mv.uuid for mv in plan.moves}
     assert "nt2" in moved                        # a ticked piece travels
@@ -207,6 +208,83 @@ def test_multi_is_several_foreign_clusters(monkeypatch):
     row = next(r for r in plan.table if r.uuid == "nt6")
     assert row.touches == "multi" and row.ticked is True
     assert any("several foreign" in w for w in plan.warnings)
+
+
+# ── Р1б: copper connectivity by SHAPE ───────────────────────────────────────
+
+def test_ticked_cell_piece_leaves_on_its_own_ray(monkeypatch):
+    """Р1б-2: a tick means the piece LEAVES. A hand-ticked cell piece gets its
+    own ray — there is no "ticked but stays"."""
+    board, cfg = _scenario(monkeypatch)
+    plan = _plan(board, cfg, tick_overrides={"nt1": True})
+    assert "nt1" in {mv.uuid for mv in plan.moves}
+
+
+def test_cell_stub_to_pif_via_is_foreign(monkeypatch):
+    """Р1б-1(д): a DAC_BUF pad -> track (stopping 5 um short) -> the PIF's via ->
+    the PIF's B.Cu run -> PIF pad is ONE component, so the piece is `<PIF>` and
+    travels with the PIF. Point-exact matching would miss the 5 um gap."""
+    u1 = fp("c1", "U1", "CELL", 0.0, 0.0, role="IC")
+    p1 = fp("p1", "C1", "PIF", 3.0, 0.0, role="A")
+    ct = track("ct", F_CU, 0.0, 0.0, 0.995, 0.0)     # 5 um short of the via
+    v1 = via("v1", 1.0, 0.0)                         # the PIF's via
+    pt = track("pt", B_CU, 1.0, 0.0, 3.0, 0.0)       # the PIF's B.Cu run
+    board = ExplodeBoard(footprints=[u1, p1], tracks=[ct, pt], vias=[v1],
+                         pads={"c1": [pad("1", 0.0, 0.0)],
+                               "p1": [pad("1", 3.0, 0.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=ct)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "ct")
+    assert row.touches == "PIF" and row.ticked is True
+    assert "ct" in {mv.uuid for mv in plan.moves}
+
+
+def test_t_junction_connects_tracks(monkeypatch):
+    """Р1б-1(б): a track ending on the MIDDLE of another is connected."""
+    u1 = fp("c1", "U1", "CELL", 0.0, 0.0, role="IC")
+    cross = track("a", F_CU, 0.0, 0.0, 4.0, 0.0)
+    stem = track("b", F_CU, 2.0, 0.0, 2.0, 3.0)      # a T on the crossbar
+    board = ExplodeBoard(footprints=[u1], tracks=[cross, stem],
+                         pads={"c1": [pad("1", 0.0, 0.0)]})
+    classes = explode_mod._copper_classes(
+        board.get_tracks(), [], explode_mod._pad_areas(board, {"cell": [u1]}))
+    assert classes["a"] == classes["b"]              # one component
+
+
+def test_parallel_thin_tracks_with_a_gap_are_not_connected():
+    """Р1б-1(в): the graph predicate says two thin tracks 0.1 mm apart are NOT
+    connected (the pure capsule test is in test_copper_connect.py)."""
+    a = track("a", F_CU, 0.0, 0.0, 4.0, 0.0, width_mm=0.05)
+    b = track("b", F_CU, 0.0, 0.1, 4.0, 0.1, width_mm=0.05)
+    ea = explode_mod._copper_extent(a)
+    eb = explode_mod._copper_extent(b)
+    assert not explode_mod._copper_touch(a, b, ea[1], eb[1])
+
+
+def test_cross_sheet_record_with_a_cell_piece_is_read(monkeypatch):
+    """Р1б-3: an anchor on ANOTHER sheet (FPGA) is still read when a piece the
+    REGISTRY wrote for it touches a cell pad."""
+    board, cfg = _scenario(monkeypatch)
+    rec = _nt("fpga_rec", anchor_sheet="FPGA", tracks=[object()], uuid="ru")
+    cfg.net_traces = [rec]
+    key = net_trace_registry_key(rec, 0)
+    entry = SimpleNamespace(uuid="nt1")              # nt1 touches the cell pad
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {key: entry}, {}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=
+                                next(t for t in board.get_tracks()
+                                     if t.uuid == "nt1"))], reason=None))
+    plan = _plan(board, cfg)
+    assert "nt1" in {r.uuid for r in plan.table}
 
 
 # ── pad layers (Ответ Демону) ───────────────────────────────────────────────

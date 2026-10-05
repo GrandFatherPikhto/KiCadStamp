@@ -313,6 +313,17 @@ class TestPadFromKipyCarriesCopperLayers:
         assert pad.copper_layers == (BoardLayer.BL_F_Cu,)
 
 
+def test_a_segment_body_crossing_a_pad_counts():
+    """Р1б-1: the pad test is a segment-vs-area test (in the pad's axes), not an
+    endpoint test — a track whose BODY crosses the pad counts."""
+    area = pad_area_of(_pad(x_mm=0.0, y_mm=0.0, w_mm=1.0, h_mm=1.0,
+                            angle_deg=45.0))
+    assert area.segment_touches(Vector2.from_xy_mm(-2.0, 0.0),
+                                Vector2.from_xy_mm(2.0, 0.0))
+    assert not area.segment_touches(Vector2.from_xy_mm(-2.0, 5.0),
+                                    Vector2.from_xy_mm(2.0, 5.0))
+
+
 def _kipy_pad(shape=None, size_nm=(300_000, 850_000), offset_nm=(0, 0),
               delta_nm=(0, 0), angle_deg=None, layers=None):
     """A kipy-shaped double for pad_from_kipy — no real kipy objects, so the

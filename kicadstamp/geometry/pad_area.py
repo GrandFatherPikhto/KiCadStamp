@@ -58,6 +58,33 @@ __all__ = [
     "warn_bbox_fallback",
 ]
 
+
+def _segment_box_overlap(ax: float, ay: float, bx: float, by: float,
+                         hw: float, hh: float) -> bool:
+    """True when segment [a, b] meets the axis-aligned box [-hw,hw]x[-hh,hh]
+    (Liang-Barsky) — both in the SAME units (the pad's own axes, nm). Used by
+    PadArea.segment_touches to test a track's BODY against the pad, not just its
+    endpoints (Р1б-1)."""
+    dx, dy = bx - ax, by - ay
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, ax + hw), (dx, hw - ax), (-dy, ay + hh), (dy, hh - ay)):
+        if p == 0.0:
+            if q < 0.0:
+                return False
+        else:
+            r = q / p
+            if p < 0.0:
+                if r > t1:
+                    return False
+                if r > t0:
+                    t0 = r
+            else:
+                if r < t0:
+                    return False
+                if r < t1:
+                    t1 = r
+    return True
+
 # The shape vocabulary itself lives in kicadstamp/constants.py (PAD_SHAPE_*):
 # it is a field value of the domain DTO, and domain/board.py must not import
 # this package (geometry/__init__ -> thermal_grid -> domain.board is a cycle).
@@ -113,6 +140,19 @@ class PadArea:
         ``Rect`` did, but in the pad's axes, so it does not change with the
         footprint's rotation (Д2)."""
         return self.contains(point, margin=via_radius)
+
+    def segment_touches(self, a: Vector2, b: Vector2, margin: float = 0.0) -> bool:
+        """True when the segment [a, b] overlaps the area grown by `margin` on
+        every side (2026-10-05, Р1б-1).
+
+        EXACT in the pad's own axes: the two endpoints are moved into them and
+        the segment is clipped against the rectangle, so a track whose BODY
+        crosses the pad counts — not only a track END inside it. That is what
+        the live board needs (a track end a few micrometres off the pad centre)."""
+        ax, ay = self._local(a)
+        bx, by = self._local(b)
+        return _segment_box_overlap(ax, ay, bx, by,
+                                    self.half_w + margin, self.half_h + margin)
 
     def inflated(self, margin: float) -> "PadArea":
         """A copy grown by `margin` on every side (immutable — the caller keeps
