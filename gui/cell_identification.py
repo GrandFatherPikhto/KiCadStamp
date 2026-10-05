@@ -29,6 +29,7 @@ construction. It is: nothing selected -> a component without a Role -> a Role
 selected twice -> more than one Cluster -> a Role that is not the cell's ->
 spoke / ordinary cluster.
 """
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
@@ -38,6 +39,8 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 from .docks.reead import group_selected
+
+logger = logging.getLogger(__name__)
 
 # The two kinds of instance the selection can resolve to (design §1: a spoke is
 # "a cluster where some role of the cell occurs more than once").
@@ -130,8 +133,8 @@ def _member_on_sheet(member, sheet: Optional[str]) -> bool:
 
 
 def identify_cell_instance(cell, selected, cluster_members, entities=(),
-                           sheet_names: Optional[Mapping] = None
-                           ) -> Identification:
+                           sheet_names: Optional[Mapping] = None,
+                           cell_clusters=None) -> Identification:
     """The instance of `cell` that `selected` pins down, or a fatal explaining
     why it pins down nothing.
 
@@ -146,6 +149,13 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
     entities / sheet_names — the config's Entity rows and sheet map, used only
         for the sheet rule, through the project's ONE grouping of a selection
         (gui/docks/reead.group_selected) — no second sheet rule is invented here.
+    cell_clusters — the cell's own Cluster tags (from the LOADED config, the
+        product's one function kicadstamp.selection_narrowing.cell_clusters).
+        On a MIXED selection the components of OTHER clusters are dropped
+        BEFORE every refusal below (plan item 5): the duplicate-Role check used
+        to fire first on a selection spanning several clusters — all PIFs carry
+        the same Roles — which is the false "Role ... selected twice" fatal.
+        The order of the refusals BELOW is unchanged (the probe's own order).
 
     Refusals, in the probe's order: nothing selected; a component without a Role;
     a Role selected twice; more than one Cluster; one Cluster on more than one
@@ -159,6 +169,25 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
               "instance of cell {cell!r}").format(cell=_cell_name(cell)),
             [_("a spoke cell is identified by exactly ONE pair; an ordinary "
                "cluster can be identified from any part of it")]))
+
+    # Mixed-selection prelude (plan item 5): drop the components of OTHER
+    # clusters BEFORE the refusals below. Only when the cell's cluster is known
+    # and the selection really spans several clusters; an all-foreign selection
+    # is left alone and still meets today's refusal.
+    cell_clusters_set = {str(c) for c in (cell_clusters or ()) if c}
+    if cell_clusters_set:
+        distinct = {str(s.cluster) for s in selected
+                    if getattr(s, "cluster", None)}
+        if len(distinct) > 1:
+            kept = [s for s in selected
+                    if getattr(s, "cluster", None)
+                    and any(cluster_prefix_match(str(s.cluster), cc)
+                            for cc in cell_clusters_set)]
+            if kept and len(kept) < len(selected):
+                logger.info(_("filtered out {count} component(s) of other "
+                              "clusters").format(
+                    count=len(selected) - len(kept)))
+                selected = kept
 
     untagged = [s for s in selected if not getattr(s, "role", None)]
     if untagged:

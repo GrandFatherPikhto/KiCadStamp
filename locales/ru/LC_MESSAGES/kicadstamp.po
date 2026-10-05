@@ -17919,3 +17919,27 @@ msgstr "формат 3: нельзя записать фрагмент — ко�
 #: kicadstamp/author.py
 msgid "in {path}: pass graph_root — the root config the fragment will be included into; a fragment cannot resolve its own references"
 msgstr "в {path}: передай graph_root — корневой конфиг, в который фрагмент будет включён; фрагмент не может разрешить собственные ссылки"
+
+#: gui/mixed_selection.py
+msgid "read instance {cluster} on {sheet}; skipped {count} component(s) of other clusters: {clusters}"
+msgstr "прочитан экземпляр {cluster} на {sheet}; пропущено {count} компонент(ов) других кластеров: {clusters}"
+
+#: gui/mixed_selection.py
+msgid "(no sheet)"
+msgstr "(без листа)"
+
+#: gui/mixed_selection.py
+msgid "subtracted from selection: {vias} via(s), {tracks} track(s) — {records}"
+msgstr "вычтено из выделения: {vias} переходных, {tracks} дорожек — {records}"
+
+#: gui/mixed_selection.py
+msgid "{cluster} on {sheet} ({refs})"
+msgstr "{cluster} на {sheet} ({refs})"
+
+#: gui/mixed_selection.py
+msgid "the selection mixes {count} instances of cell {cell!r}: {candidates} — select ONE instance and read again"
+msgstr "выделение смешивает {count} экземпляр(ов) ячейки {cell!r}: {candidates} — выдели ОДИН экземпляр и прочитай снова"
+
+#: gui/cell_identification.py
+msgid "filtered out {count} component(s) of other clusters"
+msgstr "отсеяно {count} компонент(ов) других кластеров"

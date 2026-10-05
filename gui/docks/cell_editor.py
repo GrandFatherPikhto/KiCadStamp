@@ -112,11 +112,52 @@ from ..cell_edit_context import (
     remembered_cell_refs,
     resolve_context_footprints,
 )
+from ..mixed_selection import narrow_mixed_selection
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
 from .cell_layers import open_cell_layers_dialog
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
+
+# Map the level names the mixed-selection prelude returns onto the dock's
+# message styles — the prelude is Qt-free and must not import them.
+_SELECTION_STYLE = {"success": _SUCCESS_STYLE, "warn": _WARN_STYLE,
+                    "error": _ERROR_STYLE}
+
+
+def _component_roles(components) -> set:
+    """The Role set of the loaded cell's components — the plan's "role set of
+    the cell", taken from the IN-MEMORY cell being edited, not from the config."""
+    return {c.get("role") for c in (components or ()) if c.get("role")}
+
+
+def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_names):
+    """Shared mixed-selection prelude for BOTH reads (refresh and import).
+
+    Returns (footprints, vias, tracks, prelude_or_None, refusal_or_None): the
+    lists to plan on, the prelude (for the selection-after-read), and a refusal
+    text when the selection pins down MORE than one instance — in which case
+    nothing may be planned. A None prelude with a None refusal means "not mixed":
+    today's behaviour, byte for byte. This is the ONE function on all doors
+    (plan item 4) — never a copy."""
+    if cfg is None or not payload.get("cell_name"):
+        return footprints, vias, tracks, None, None
+    try:
+        prelude = narrow_mixed_selection(
+            config_path=payload["root_path"], adapter=adapter,
+            footprints=footprints, vias=vias, tracks=tracks, cfg=cfg,
+            sheet_names=sheet_names, cell_name=payload["cell_name"],
+            cell_roles=_component_roles(payload.get("components")),
+            remembered_cluster=payload.get("remembered_cluster"))
+    except Exception:  # noqa: BLE001 — a prelude failure must not break the read
+        logger.exception("mixed-selection prelude failed — using the whole "
+                         "selection")
+        return footprints, vias, tracks, None, None
+    if prelude is None:
+        return footprints, vias, tracks, None, None
+    if prelude.refusal:
+        return footprints, vias, tracks, None, prelude.refusal
+    return (prelude.footprints, prelude.vias, prelude.tracks, prelude, None)
 
 
 def record_report_line(sign: str, record: dict, kind: str) -> str:
@@ -1649,6 +1690,18 @@ class CellDock(QWidget):
         self.import_vias_tracks_button.setEnabled(enabled)
         self.select_cluster_button.setEnabled(enabled)
 
+    def _remembered_cluster_value(self) -> Optional[str]:
+        """The remembered Cluster of the loaded cell, or None — the fallback the
+        mixed-selection prelude uses when no config record places this cell.
+
+        Read on the UI thread from gui_state (best-effort, never a board read),
+        exactly like CellDock's own "Select cluster" button."""
+        if self._root_path is None:
+            return None
+        cluster, _sheet = remembered_cell_edit_context(
+            self._root_path, self.name_edit.text().strip())
+        return cluster
+
     def _refresh_origin_role(self) -> str | None:
         """The cell's anchor_role to refresh/import geometry against (the
         MOUNT role, frame-preserving). Only in the form's "Role" mode; None
@@ -1717,6 +1770,11 @@ class CellDock(QWidget):
             "clone_placements": list(self._nested),
             "root_path": str(self._root_path) if self._root_path else None,
             "origin_role": self._refresh_origin_role(),
+            # The mixed-selection prelude needs the cell's own name (the config
+            # cell whose uuid is the registry template part) and the remembered
+            # Cluster fallback for when the config names no cluster.
+            "cell_name": self.name_edit.text().strip(),
+            "remembered_cluster": self._remembered_cluster_value(),
             # H.1.1: the cell's own copper layer, so the engine never pairs a
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
@@ -1845,17 +1903,35 @@ class CellDock(QWidget):
             # (and the project's sheet map, used by the role-narrowing cascade)
             # come from the root config. Loaded ONLY when there is something to
             # read — an ordinary cell keeps the previous cost exactly.
+            # N: the nested placements name OTHER cells, so their definitions
+            # (and the project's sheet map, used by the role-narrowing cascade)
+            # come from the root config. The mixed-selection prelude needs the
+            # SAME config (its cells/entities), so it is loaded whenever the root
+            # path is known; a config that fails to load falls back to today's
+            # whole-selection path rather than breaking the read.
             nested = payload.get("clone_placements") or []
             cells: Dict[str, Any] = {}
             sheet_names: Dict[str, Any] = {}
-            if nested and payload.get("root_path"):
+            cfg = None
+            if payload.get("root_path"):
                 from kicadstamp.config import load_config
-                _cfg, ctx = load_config(payload["root_path"])
-                cells = dict(getattr(_cfg, "cells", {}) or {})
-                sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+                try:
+                    cfg, ctx = load_config(payload["root_path"])
+                    cells = dict(getattr(cfg, "cells", {}) or {})
+                    sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+                except Exception:  # noqa: BLE001
+                    logger.exception("could not load the config for the mixed "
+                                     "selection prelude")
+                    cfg = None
+            plan_footprints, plan_vias, plan_tracks, prelude, refusal = (
+                _narrow_for_read(payload, adapter, footprints, vias, tracks,
+                                 cfg, sheet_names))
+            if refusal:
+                return {"selection_refusal": refusal}
+            selection_lines = list(prelude.log_lines) if prelude else []
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
-                footprints, vias, tracks, adapter,
+                plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
                 add_new_copper=True,
                 # H.2: Refresh is symmetric — an unpaired record is DELETED
@@ -1866,9 +1942,20 @@ class CellDock(QWidget):
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
+            # Plan item 3: after the plan is built, select on the board the
+            # chosen instance's components AND all the copper that entered the
+            # read — the user sees what was read and can fix the selection by
+            # hand, then read again (a clean selection follows the ordinary path).
+            if prelude is not None:
+                try:
+                    adapter.select_items(list(prelude.instance_footprints)
+                                         + list(prelude.kept_copper))
+                except Exception:  # noqa: BLE001 — a selection write is best-effort
+                    logger.exception("select-after-read failed")
         except ValidationError as e:
             return {"error": str(e)}
-        return {"plan": plan, "layer_report": layer_read}
+        return {"plan": plan, "layer_report": layer_read,
+                "selection_lines": selection_lines}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
@@ -1878,6 +1965,13 @@ class CellDock(QWidget):
         the report is a text line in the Log dock, exactly like Copy placement
         from cell). Mutation/autostage run through the dock's normal path."""
         self._active_op = None
+        for text, level in result.get("selection_lines") or []:
+            self._show_message(text, _SELECTION_STYLE.get(level, _SUCCESS_STYLE))
+        if result.get("selection_refusal"):
+            # Plan item 33: the mixed selection pins down several instances — a
+            # red Log line listing the candidates, never a dialog.
+            self._show_message(result["selection_refusal"], _ERROR_STYLE)
+            return
         if result.get("error"):
             QMessageBox.warning(
                 self, _("Refresh geometry from selection"), result["error"])
@@ -2053,6 +2147,11 @@ class CellDock(QWidget):
             "vias": list(self._vias),
             "tracks": list(self._tracks),
             "origin_role": self._refresh_origin_role(),
+            # The same mixed-selection prelude as the refresh read (plan item 4):
+            # one narrowing for every door, so Import needs the same context.
+            "root_path": str(self._root_path) if self._root_path else None,
+            "cell_name": self.name_edit.text().strip(),
+            "remembered_cluster": self._remembered_cluster_value(),
             # H.1.2: Import stays purely ADDITIVE (no remove_missing here) but
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
@@ -2097,20 +2196,52 @@ class CellDock(QWidget):
             tracks = filter_tracks_by_layers(raw_tracks, payload.get("layers"))
             layer_read = layer_report(raw_tracks, tracks,
                                       payload.get("empty_layers"))
+            # The SAME mixed-selection prelude as the refresh read (plan item 4)
+            # — one narrowing for every door, never a copy.
+            cfg = None
+            sheet_names: Dict[str, Any] = {}
+            if payload.get("root_path"):
+                from kicadstamp.config import load_config
+                try:
+                    cfg, ctx = load_config(payload["root_path"])
+                    sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+                except Exception:  # noqa: BLE001
+                    logger.exception("could not load the config for the mixed "
+                                     "selection prelude")
+                    cfg = None
+            plan_footprints, plan_vias, plan_tracks, prelude, refusal = (
+                _narrow_for_read(payload, adapter, footprints, vias, tracks,
+                                 cfg, sheet_names))
+            if refusal:
+                return {"selection_refusal": refusal}
+            selection_lines = list(prelude.log_lines) if prelude else []
             plan = build_import_plan(
                 payload["components"], payload["vias"], payload["tracks"],
-                footprints, vias, tracks, adapter,
+                plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"))
+            if prelude is not None:
+                try:
+                    adapter.select_items(list(prelude.instance_footprints)
+                                         + list(prelude.kept_copper))
+                except Exception:  # noqa: BLE001 — a selection write is best-effort
+                    logger.exception("select-after-read failed")
         except ValidationError as e:
             return {"error": str(e)}
-        return {"plan": plan, "layer_report": layer_read}
+        return {"plan": plan, "layer_report": layer_read,
+                "selection_lines": selection_lines}
 
     def _finish_import_vias_tracks(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
         the FULL collected text; a clean plan is previewed (one row per NEW
         record); on Apply the dock's normal append/autostage path runs."""
         self._active_op = None
+        for text, level in result.get("selection_lines") or []:
+            self._show_message(text, _SELECTION_STYLE.get(level, _SUCCESS_STYLE))
+        if result.get("selection_refusal"):
+            # The same red Log line as the refresh path (plan item 33).
+            self._show_message(result["selection_refusal"], _ERROR_STYLE)
+            return
         if result.get("error"):
             QMessageBox.warning(
                 self, _("Import vias/tracks from selection"), result["error"])

@@ -79,6 +79,7 @@ from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
 from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
+from kicadstamp.selection_narrowing import cell_clusters as cell_clusters_for
 from kicadstamp.sheet_names import resolve_sheet_path_names
 from kicadstamp.utils.units import MM
 
@@ -1658,7 +1659,8 @@ class CellAnchorView(QWidget):
             ident = identify_cell_instance(
                 cell, result.get("selected") or (), result.get("members") or (),
                 entities=getattr(cfg, "entities", ()) or (),
-                sheet_names=result.get("sheet_names") or {})
+                sheet_names=result.get("sheet_names") or {},
+                cell_clusters=cell_clusters_for(cfg, self._cell_name))
         except ValidationError as e:
             show_message(str(e), _ERROR_STYLE, logger)
             return
@@ -1710,7 +1712,8 @@ class CellAnchorView(QWidget):
             ident = identify_cell_instance(
                 cell, selected, records,
                 entities=getattr(cfg, "entities", ()) or (),
-                sheet_names=sheet_names)
+                sheet_names=sheet_names,
+                cell_clusters=cell_clusters_for(cfg, self._cell_name))
         except ValidationError as e:
             show_message(str(e), _ERROR_STYLE, logger)
             return

@@ -2422,6 +2422,30 @@ the extractor's own heuristic (a net a selected role's pad carries -> `net_from_
 plain literal net — Import never writes `net: null`, 2026-09-04), and its geometry is relative to the
 same zero-offset origin.
 
+**Behaviour change (2026-10-04/05): a MIXED selection is no longer a refusal.** Selecting the edited
+cluster together with the clusters standing next to it (on the live board DAC_BUF sits flush against
+the PIFs) used to fail on the first foreign Role. Now **Update from selection...** / **Import from
+selection...** narrow the selection to ONE instance of the edited cell:
+
+* the selected components are grouped by (Cluster, instance sheet); the group whose Cluster is THIS
+  cell's cluster AND whose role set is EXACTLY the cell's role set is taken. The CLUSTER, not the
+  roles, tells PIF instances apart — every PIF carries the same roles, so roles alone cannot choose.
+* the copper of OTHER records is SUBTRACTED from the selection: other cells, inter-cluster `net_traces`,
+  chains, thermal via arrays, and this same cell on ANOTHER instance. The two registries decide which
+  record owns each via/track. Copper the registries do NOT know stays and goes the ordinary way (so
+  hand-drawn copper still lands in the cell).
+* after the read the board selection is set to the chosen instance's components AND all the copper that
+  entered the read, so the result is visible and can be corrected by hand and read again. Reading it
+  back without a hand edit changes nothing — the run is a no-op and no file is written.
+* zero candidates (a wrong/incomplete cluster) — today's refusal (the role message); several candidates
+  (e.g. two channels of the same cell selected) — a red Log line listing them, nothing read or written,
+  no dialog.
+* **Fill from selection** on the cell-anchor page filters the components of other clusters the same way
+  BEFORE its own refusals, so a mixed selection no longer trips the false "the same Role is selected
+  twice" fatal.
+
+A CLEAN selection (one cluster instance) behaves exactly as before, byte for byte.
+
 Since 2026-09-11 (plan plan_2026_09_11_nested_cell_placement_live_read.md) **Update from selection...**
 also re-reads the cell's **NESTED clone_placements** (the "Nested cells" tab) — the one part of a cell
 that used to have to be typed by hand, in the cell's CANONICAL frame while looking at a ROTATED instance
