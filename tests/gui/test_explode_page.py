@@ -97,18 +97,18 @@ def _patch_cfg(monkeypatch, cfg):
 
 # ── doors ───────────────────────────────────────────────────────────────────
 
-def test_entity_door_opens_the_explode_tab_with_the_explicit_instance(ex, monkeypatch):
-    """Р2в: the door switches to the PERMANENT "Explode" tab (not a Config right
-    page) and shows the cell and the explicit instance in the two lists."""
+def test_entity_door_opens_the_cell_page_on_the_explode_tab(ex, monkeypatch):
+    """Р3а-0: the door opens the CELL page on the requested cell, puts the
+    entity's address into the page's working context and selects the Explode tab."""
     _stub_plan(monkeypatch)
     hub = ex._dock_hub
     hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")
+    view = hub.cell_anchor_view
     page = hub.explode_page
+    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
+    assert view._tabs.currentWidget() is page
     assert (page._cell_name, page._cluster, page._sheet) == (
         "dac_buf", "DAC_BUF", "Channel_0")
-    assert hub.left_tabs.currentWidget() is page
-    assert page.cell_combo.currentText() == "dac_buf"
-    assert page.instance_combo.currentData() == ("DAC_BUF", "Channel_0")
 
 
 def test_cell_dock_button_emits_the_door_signal(ex):
@@ -157,19 +157,23 @@ def test_a_tee_row_is_highlighted_yellow(ex, monkeypatch):
 
 # ── lock (Р2а-1: the page must stay USABLE) ─────────────────────────────────
 
-def test_exploded_disables_the_tab_strip_and_shows_the_explode_tab(ex):
-    """Р2в: while exploded the TAB STRIP is disabled and the current tab is
-    pinned to "Explode"; the page and its buttons stay usable (disabling the
-    CONTAINER would disable the page too — Р2а-1, measured offscreen). The Config
-    tree is NO LONGER disabled: Config is unreachable through a disabled strip."""
+def test_exploded_locks_the_page_context_and_the_strips(ex):
+    """Р3а-0: while exploded the CELL page's tab strip (the other four tabs), its
+    (Cluster, Sheet) context, the Config tree and the window's tab strip are
+    disabled; the right view is pinned to the cell page, whose Explode tab is
+    current and usable (isEnabled accounts for ancestors — Р2а-1)."""
     hub = ex._dock_hub
+    view = hub.cell_anchor_view
     hub.explode_guard.set_from_journal(_JOURNAL)
     assert not hub.left_tabs.tabBar().isEnabled()
-    assert hub.left_tabs.currentWidget() is hub.explode_page
+    assert not view._tabs.tabBar().isEnabled()
+    assert not view._cluster_combo.isEnabled()
+    assert not view._sheet_combo.isEnabled()
+    assert not hub.config_tree_dock.tree.isEnabled()
+    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
+    assert view._tabs.currentWidget() is hub.explode_page
     assert hub.explode_page.isEnabled()
     assert hub.explode_page.restore_button.isEnabled()
-    assert not hub.explode_page.cell_combo.isEnabled()      # lists frozen
-    assert hub.config_tree_dock.tree.isEnabled()            # not disabled any more
 
 
 def test_gate_refuses_board_ops_unless_allowed(ex, monkeypatch):
@@ -191,16 +195,19 @@ def test_gate_refuses_board_ops_unless_allowed(ex, monkeypatch):
 # ── state (Р2а-2: no board read on the UI thread) ───────────────────────────
 
 def test_restart_with_a_journal_opens_exploded(ex, monkeypatch):
-    """Р2в: a restart with a live journal shows the "Explode" tab (its lists hold
-    the journal's own cell/instance) and the lock is up."""
+    """Р3а-0: a restart with a live journal shows the CELL page (with the
+    journal's cell and instance in its context) on the Explode tab, and the lock
+    is up."""
     hub = ex._dock_hub
+    view = hub.cell_anchor_view
     _stub_state(monkeypatch, ("has", _JOURNAL))
     hub.refresh_explode_state()
     assert hub.explode_guard.active
     assert hub.explode_page.exploded_from_journal
-    assert hub.left_tabs.currentWidget() is hub.explode_page
-    assert hub.explode_page.cell_combo.currentText() == "dac_buf"
-    assert hub.explode_page.instance_combo.currentData() == ("DAC_BUF", "Channel_0")
+    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
+    assert view._tabs.currentWidget() is hub.explode_page
+    assert view._cluster_combo.currentText() == "DAC_BUF"
+    assert view._sheet_combo.currentText() == "Channel_0"
 
 
 def test_no_journal_for_a_known_board_clears_the_lock(ex, monkeypatch):
@@ -263,6 +270,10 @@ def test_a_failed_automatic_state_read_is_quiet(ex, monkeypatch, caplog):
     (and never a dropped lock) every connect on a busy socket would otherwise
     print."""
     hub = ex._dock_hub
+    # Р3а-0: the lock now OPENS the journal's cell page, and the fixture's config
+    # is empty — that (legitimate) "cell not found" ERROR line is not what this
+    # cell is about, so the page load is stubbed out BEFORE the lock goes up.
+    monkeypatch.setattr(hub.cell_anchor_view, "load_entry", lambda *a, **k: None)
     hub.explode_guard.set_from_journal(_JOURNAL)
     assert hub.explode_guard.active
 
@@ -383,9 +394,10 @@ def test_both_doors_use_the_same_resolver(ex, monkeypatch, tmp_path):
     assert (hub.explode_page._cluster, hub.explode_page._sheet) == ("B", "S")
 
 
-def test_multiple_records_without_memory_open_with_the_list(ex, monkeypatch):
-    """Р2в: a cell placed by SEVERAL records opens the tab with NO instance
-    picked — the INSTANCE list IS the choice (the submenu is gone)."""
+def test_multiple_records_without_memory_show_the_pick_submenu(ex, monkeypatch):
+    """Р3а-0: a cell placed by SEVERAL records with no remembered context — the
+    door asks ONCE (the shared submenu); its answer becomes the page's context."""
+    from gui import select_cell as select_cell_mod
     _stub_plan(monkeypatch)
     hub = ex._dock_hub
     cfg = SimpleNamespace(cells={}, entities=[
@@ -393,15 +405,12 @@ def test_multiple_records_without_memory_open_with_the_list(ex, monkeypatch):
         SimpleNamespace(cell="dac_buf", cluster="B", sheet="S")],
         clone_placements=[])
     _patch_cfg(monkeypatch, cfg)
+    picked = []
+    monkeypatch.setattr(select_cell_mod, "pick_instance",
+                        lambda parent, candidates, on_pick: picked.append(
+                            tuple(candidates)))
     hub._open_explode("dac_buf")
-    page = hub.explode_page
-    assert hub.left_tabs.currentWidget() is page
-    items = [page.instance_combo.itemData(i)
-             for i in range(page.instance_combo.count())]
-    assert set(items) == {("A", None), ("B", "S")}
-    assert page.instance_combo.currentIndex() == -1        # no default
-    assert (page._cluster, page._sheet) == (None, None)
-    assert page._plan is None                              # nothing to plan yet
+    assert picked and {c for c, _s in picked[0]} == {"A", "B"}
 
 
 # ── Р2а-2 DOOR: no UI-thread board read on any path ─────────────────────────
@@ -506,47 +515,56 @@ def test_no_ui_thread_board_read_when_quitting_exploded(real_main_window,
 # ── Р2в: the permanent tab and its two lists ────────────────────────────────
 
 def test_the_explode_tab_is_permanent(ex):
-    """Р2в: "Explode" is a tab of the central group from construction — it exists
-    without any menu door."""
+    """Р3а-0: "Explode" is a tab of the CELL page (next to Source / Refs / Role
+    anchor / Marker anchor) — it exists without any menu door, and the window's
+    tab strip is back to its three tabs."""
     hub = ex._dock_hub
-    assert hub.left_tabs.indexOf(hub.explode_page) != -1
+    view = hub.cell_anchor_view
+    assert view._tabs.indexOf(hub.explode_page) != -1
+    assert view._tabs.tabText(view._tabs.indexOf(hub.explode_page)) == "Explode"
+    assert hub.left_tabs.count() == 3
 
 
-def test_a_root_change_fills_the_cell_list(ex, monkeypatch):
-    """Р2в: the CELL list is the file's own cells, filled from the same
-    root_changed source every dock follows (no door needed)."""
-    cfg = SimpleNamespace(cells={"dac_buf": object(), "pif": object()},
-                          entities=[], clone_placements=[])
-    _patch_cfg(monkeypatch, cfg)
-    hub = ex._dock_hub
-    hub._sync_root_to_docks(hub.root_metadata_dock.root_path)
-    page = hub.explode_page
-    assert [page.cell_combo.itemText(i)
-            for i in range(page.cell_combo.count())] == ["dac_buf", "pif"]
-
-
-def test_picking_an_instance_in_the_list_replans(ex, monkeypatch):
-    """Р2в: picking an instance in the tab's own list runs the SAME plan worker
-    as the door / "Recalculate"."""
+def test_the_tab_takes_its_cell_from_the_page(ex, monkeypatch):
+    """Р3а-0: the tab has NO cell list — the CELL page tells it which cell is open
+    (`_on_cell_picked` -> `load_entry` -> `_sync_explode_context`)."""
     _stub_plan(monkeypatch, plan=_plan((_piece("u1"),)))
     hub = ex._dock_hub
-    cfg = SimpleNamespace(cells={"dac_buf": object()}, entities=[
-        SimpleNamespace(cell="dac_buf", cluster="A", sheet=None),
-        SimpleNamespace(cell="dac_buf", cluster="B", sheet="S")],
-        clone_placements=[])
-    _patch_cfg(monkeypatch, cfg)
+    hub._on_cell_picked("dac_buf")
+    assert hub.explode_page._cell_name == "dac_buf"
+
+
+def test_setting_the_context_replans(ex, monkeypatch):
+    """Р3а-0: the page hands the cell and the instance over (`set_context`); the
+    tab re-plans on the SAME worker path as "Recalculate"."""
+    _stub_plan(monkeypatch, plan=_plan((_piece("u1"),)))
+    hub = ex._dock_hub
     page = hub.explode_page
     page.set_root_path(hub.root_metadata_dock.root_path)
-    page.cell_combo.setCurrentText("dac_buf")
-    assert page._plan is None                       # several: no default
-    page.instance_combo.setCurrentIndex(1)          # pick "B on S"
-    assert (page._cluster, page._sheet) == ("B", "S")
+    page.set_context("dac_buf", "DAC_BUF", "Channel_0")
+    assert (page._cell_name, page._cluster, page._sheet) == (
+        "dac_buf", "DAC_BUF", "Channel_0")
     assert page._plan is not None
 
 
-def test_no_ui_thread_board_read_when_changing_the_lists(real_main_window,
-                                                         monkeypatch, tmp_path):
-    """Р2в DOOR: picking a CELL / INSTANCE in the two lists reads
+def test_reread_uses_the_page_cell_and_file(ex, monkeypatch):
+    """Р3а-0a: the tab's "Re-read" door hands over the PAGE's cell and the cell's
+    OWNING FILE — the live AttributeError came from the tab keeping `_file_path`
+    itself (it must come from the page)."""
+    hub = ex._dock_hub
+    page = hub.explode_page
+    got = {}
+    monkeypatch.setattr(hub, "reread_cell_for_explode",
+                        lambda name, fp=None: got.update(name=name, file=fp))
+    hub.explode_guard.set_from_journal(_JOURNAL)
+    page.set_context("dac_buf", "DAC_BUF", "Channel_0", "/tmp/x.sexp")
+    page._reread()
+    assert got == {"name": "dac_buf", "file": "/tmp/x.sexp"}
+
+
+def test_no_ui_thread_board_read_when_the_page_context_changes(
+        real_main_window, monkeypatch, tmp_path):
+    """Р3а-0 DOOR: the PAGE handing the cell / instance over (`set_context`) reads
     `connection.board` on NO UI-thread path (only `load_config`, a FILE read)."""
     import threading
     from gui import connection as conn_mod
@@ -578,7 +596,7 @@ def test_no_ui_thread_board_read_when_changing_the_lists(real_main_window,
     hub = w._dock_hub
     page = hub.explode_page
     page.set_root_path(root)
-    page.cell_combo.setCurrentText("dac_buf")
-    page.instance_combo.setCurrentIndex(1)
+    hub.cell_anchor_view.set_working_context("DAC_BUF", "Channel_0")
+    page.set_context("dac_buf", "DAC_BUF", "Channel_0")
     hub.explode_guard.detach()
     worker_mod.set_long_op_gate(None)

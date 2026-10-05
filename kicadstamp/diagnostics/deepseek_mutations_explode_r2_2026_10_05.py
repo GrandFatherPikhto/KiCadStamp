@@ -37,13 +37,9 @@ PAGE = "gui/docks/explode_page.py"
 JOURNAL = "kicadstamp/explode_journal.py"
 
 ROWS = [
-    ("Q1 the lock does not pin the explode tab", DOCK_HUB,
-     "        self.left_tabs.tabBar().setEnabled(not active)\n"
-     "        if active:\n"
-     "            self.left_tabs.setCurrentWidget(self.explode_page)",
-     "        self.left_tabs.tabBar().setEnabled(not active)\n"
-     "        if False:  # MUTATION\n"
-     "            self.left_tabs.setCurrentWidget(self.explode_page)",
+    ("Q1 the lock does not show the explode tab", DOCK_HUB,
+     "            view.select_explode_tab()",
+     "            pass  # MUTATION",
      "die", G, ()),
     ("Q2 the gate does not check active", WORKER,
      "    if not allowed_while_exploded:",
@@ -75,8 +71,8 @@ ROWS = [
      "                    if False:  # MUTATION",
      "die", G, ()),
     ("Q8 the lock disables the whole container", DOCK_HUB,
-     "        self.left_tabs.tabBar().setEnabled(not active)",
-     "        self.left_tabs.setEnabled(not active)  # MUTATION",
+     "        self.left_tabs.tabBar().setEnabled(unlocked)",
+     "        self.left_tabs.setEnabled(unlocked)  # MUTATION",
      "die", G, ()),
     ("Q9 unknown identity read as no-journal", PAGE,
      "        if kind == \"unknown\":\n"
@@ -101,10 +97,12 @@ ROWS = [
      "        raise ExplodeError(\"never\")",
      "die", G, ()),
     ("Q12 explode door takes the first record", DOCK_HUB,
-     "            elif choice.kind == \"choose\":\n"
-     "                cluster, sheet = None, None      # the tab's list IS the choice",
-     "            elif choice.kind == \"choose\":  # MUTATION\n"
-     "                cluster, sheet = choice.candidates[0]",
+     "                pick_instance(\n"
+     "                    self.main_window, choice.candidates,\n"
+     "                    lambda c, s: self._open_explode(name, file_path, c, s))\n"
+     "                return",
+     "                pass  # MUTATION: the door does not ask\n"
+     "                return",
      "die", G, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "class ExplodePage(QWidget):",

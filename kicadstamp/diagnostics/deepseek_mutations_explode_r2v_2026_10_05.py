@@ -11,10 +11,10 @@ tests/, ``_drop_pyc`` for the mutated file, the ``count != 1`` refusal, a
 
 The guard is tests/gui/test_explode_page.py.
 
-  * Q17 the "Explode" tab is not a tab of the central group
-  * Q18 the INSTANCE list auto-picks the first candidate (own rule, no default)
+  * Q17 the "Explode" tab is not a tab of the CELL page (Р3а-0)
+  * Q18 a door does NOT put the entity's address into the page's context
   * Q19 the lock disables the Config tree again (Р2 kept it, Р2в removed it)
-  * Q20 the permanent tab's root is never set (CELL list stays empty)
+  * Q20 the tab's config path is never set
   * K1  a cosmetic comment — MUST survive
 """
 from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
@@ -24,27 +24,25 @@ DOCK_HUB = "gui/dock_hub.py"
 PAGE = "gui/docks/explode_page.py"
 
 ROWS = [
-    ("Q17 the Explode tab is not permanent", DOCK_HUB,
-     "        self.left_tabs.addTab(self.explode_page, _(\"Explode\"))",
-     "        pass  # MUTATION: the tab is not in the central group",
+    ("Q17 the Explode tab is not on the cell page", DOCK_HUB,
+     "        self.cell_anchor_view.add_explode_tab(self.explode_page)",
+     "        pass  # MUTATION: the tab is not added to the cell page",
      "die", G, ()),
-    ("Q18 the INSTANCE list auto-picks the first", PAGE,
-     "                self.instance_combo.setCurrentIndex(-1)   # several: NO default",
-     "                self.instance_combo.setCurrentIndex(0)  # MUTATION",
+    ("Q18 the door skips the page context", DOCK_HUB,
+     "        if cluster is not None:\n"
+     "            self.cell_anchor_view.set_working_context(cluster, sheet)",
+     "        if False:  # MUTATION\n"
+     "            self.cell_anchor_view.set_working_context(cluster, sheet)",
      "die", G, ()),
     ("Q19 the lock disables the Config tree again", DOCK_HUB,
-     "        self.left_tabs.tabBar().setEnabled(not active)\n"
-     "        if active:\n"
-     "            self.left_tabs.setCurrentWidget(self.explode_page)",
-     "        self.left_tabs.tabBar().setEnabled(not active)\n"
-     "        self.config_tree_dock.tree.setEnabled(not active)  # MUTATION\n"
-     "        if active:\n"
-     "            self.left_tabs.setCurrentWidget(self.explode_page)",
+     "        self.left_tabs.tabBar().setEnabled(unlocked)\n"
+     "        self.config_tree_dock.tree.setEnabled(unlocked)",
+     "        self.left_tabs.tabBar().setEnabled(unlocked)\n"
+     "        pass  # MUTATION",
      "die", G, ()),
-    ("Q20 the permanent tab's root is never set", DOCK_HUB,
-     "        self._safe_call(\"explode_page.set_root_path\",\n"
-     "                        self.explode_page.set_root_path, path)",
-     "        pass  # MUTATION: the CELL list is never filled",
+    ("Q20 the lock leaves the page's tabs open", DOCK_HUB,
+     "        view._tabs.tabBar().setEnabled(unlocked)",
+     "        pass  # MUTATION",
      "die", G, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "class ExplodePage(QWidget):",

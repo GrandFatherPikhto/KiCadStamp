@@ -1784,14 +1784,14 @@ def test_central_tab_bar_is_on_the_south(main_window):
     """Plan §4 (trees master-detail) + task T: the Components/Config/Trees group
     is the window's CENTRAL QTabWidget, and its tab bar sits at the BOTTOM of
     the group (confirmed with Denis: the full triple moves, not just the
-    Config/Trees pair). Р2в added the fourth page, the permanent "Explode" tab."""
+    Config/Trees pair). Р3а-0 moved the "Explode" tab onto the CELL page, so the
+    window's strip is the original three."""
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         assert main_window.centralWidget() is hub.left_tabs
         assert (hub.left_tabs.tabPosition()
                 == QTabWidget.TabPosition.South)
-        assert hub.left_tabs.count() == 4
-        assert hub.left_tabs.widget(3) is hub.explode_page
+        assert hub.left_tabs.count() == 3
     finally:
         _teardown_hub(hub)
 

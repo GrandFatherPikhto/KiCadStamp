@@ -1,8 +1,10 @@
 # gui/docks/explode_page.py
-"""The "Разнос" tab (Р2, plan ``plan_2026_10_05_explode_r2_r3_tab_and_reread.md``;
-design §2). A Config right-QView page: the read-only plan (plan_explode), the
-area/gap fields, the "Уедут" line, the inter-cluster table with its ticks, and
-the Разнести / Перечитать / Вернуть buttons.
+"""The "Разнос" tab (Р2/Р3а-0, plan ``plan_2026_10_05_explode_r2_r3_tab_and_reread.md``;
+design §2). The FIFTH tab of the CELL page (gui/docks/cell_anchor_view.py, next to
+Source / Refs / Role anchor / Marker anchor): the read-only plan (plan_explode),
+the area/gap fields, the "Уедут" line, the inter-cluster table with its ticks, and
+the Разнести / Перечитать / Вернуть buttons. The CELL and its INSTANCE come from
+the page (Р3а-0) — the tab keeps no lists of its own.
 
 Every board op here runs on the worker through gui/worker.py:start_long_op with
 ``allowed_while_exploded=True`` — this tab is exactly the one place allowed to
@@ -19,8 +21,8 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QHeaderView,
-                             QLabel, QMessageBox, QPushButton, QTreeWidget,
+from PyQt6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QHeaderView, QLabel,
+                             QMessageBox, QPushButton, QTreeWidget,
                              QTreeWidgetItem, QTreeWidgetItemIterator,
                              QVBoxLayout, QWidget)
 
@@ -36,14 +38,6 @@ _TEE_BG = QColor(255, 250, 205)      # yellow — tee / multi rows
 _MARGIN_KEY = "explode_margin_mm"
 _GAP_KEY = "explode_gap_mm"
 _COLUMNS = 5
-
-
-def _instance_label(cluster, sheet) -> str:
-    """The ONE label of an instance row — the same wording "Select cell" uses
-    (gui/select_cell.pick_instance). The RULE is not copied, the word is."""
-    return _("{cluster} on {sheet}").format(
-        cluster=cluster,
-        sheet=sheet if sheet is not None else _("(no sheet)"))
 
 
 # ── worker functions (pure: connection + plain args, no widgets) ─────────────
@@ -128,11 +122,14 @@ class ExplodePage(QWidget):
         self._main_window = main_window
         self._guard = guard
         self._root_path = None
-        self._cfg = None
-        self._filling = False
+        # The cell page TELLS the tab who it works on (Р3а-0) — the tab keeps no
+        # lists of its own.
         self._cell_name: Optional[str] = None
         self._cluster: Optional[str] = None
         self._sheet = None
+        # The owning FILE of the open cell — handed over by the page (Р3а-0a): the
+        # "Re-read" door needs it to open the SAME cell, and the tab cannot know it
+        # on its own (it has no cell list).
         self._file_path = None
         self._plan = None
         self._tick_overrides: dict = {}
@@ -146,23 +143,6 @@ class ExplodePage(QWidget):
     # ── construction ────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-
-        # Р2в: the tab is PERMANENT — the cell and its instance are picked HERE,
-        # by the same rule "Select cell" uses (gui/select_cell), not only through
-        # a menu door.
-        pick = QHBoxLayout()
-        pick.addWidget(QLabel(_("Cell:")))
-        self.cell_combo = QComboBox()
-        self.cell_combo.setMinimumWidth(120)
-        pick.addWidget(self.cell_combo, 1)
-        pick.addWidget(QLabel(_("Instance:")))
-        self.instance_combo = QComboBox()
-        self.instance_combo.setMinimumWidth(140)
-        pick.addWidget(self.instance_combo, 1)
-        layout.addLayout(pick)
-        self.pick_error = QLabel("")
-        self.pick_error.setWordWrap(True)
-        layout.addWidget(self.pick_error)
 
         self.header_label = QLabel(_("Explode: no cell selected"))
         self.header_label.setObjectName("explode_header")
@@ -220,8 +200,6 @@ class ExplodePage(QWidget):
             buttons.addWidget(b, 1)
         layout.addLayout(buttons)
 
-        self.cell_combo.currentIndexChanged.connect(self._on_cell_changed)
-        self.instance_combo.currentIndexChanged.connect(self._on_instance_changed)
         self.recalc_button.clicked.connect(self._recalculate)
         self.explode_button.clicked.connect(self._explode)
         self.reread_button.clicked.connect(self._reread)
@@ -236,23 +214,9 @@ class ExplodePage(QWidget):
 
     # ── doors ───────────────────────────────────────────────────────────────
     def set_root_path(self, path) -> None:
-        """The project root (File > Project and the doors). Reloads the config so
-        the CELL list holds the file's own cells; a broken config empties it (a
-        hint, not a fatal — `load_config` is a FILE read, never a board read)."""
+        """The project root — the CONFIG PATH the plan worker reads. The cell and
+        its instance are NOT taken from here: the cell page owns them (Р3а-0)."""
         self._root_path = path
-        self._reload_cfg()
-        self._fill_cells()
-        self._recalculate()
-
-    def _reload_cfg(self) -> None:
-        if self._root_path is None:
-            self._cfg = None
-            return
-        from kicadstamp.config.loader import load_config
-        try:
-            self._cfg, _ctx = load_config(str(self._root_path))
-        except Exception:  # noqa: BLE001 — a broken config is a hint, not a fatal
-            self._cfg = None
 
     @property
     def exploded_from_journal(self) -> bool:
@@ -260,32 +224,28 @@ class ExplodePage(QWidget):
         after a crash), not from a plan built here."""
         return self._exploded_from_journal
 
-    def open_instance(self, name: str, cluster=None, sheet=None,
-                      file_path=None) -> None:
-        """The ONE entry point of every door: show this cell's instance here.
+    def set_context(self, name, cluster=None, sheet=None, file_path=None) -> None:
+        """Р3а-0: the cell page TELLS the tab which cell and which (cluster, sheet)
+        instance it works on — the tab has no lists of its own, so it can never
+        show a different instance than the page. A change re-plans on a worker
+        (the same "Recalculate" path).
 
-        The door's explicit (cluster, sheet) is taken AS-IS (Н5); without one the
-        lists fall back to the "Select cell" rule (`resolve_action_instance`).
-        `file_path` (Р3) is remembered so the tab's own "Re-read" door can open the
-        SAME cell the door did."""
-        if self._cfg is None:
-            self._reload_cfg()
-        self._cell_name = name
+        `file_path` (Р3а-0a) is the OPEN cell's owning file, from the page — the
+        "Re-read" door passes it on, so the read opens the cell the page shows."""
+        # Remembered BEFORE the identity check: only the file may have changed
+        # (the page re-opens the same cell from another file), and a stale path
+        # would make "Re-read" read the wrong file.
         self._file_path = file_path
+        if (name, cluster, sheet) == (self._cell_name, self._cluster, self._sheet):
+            return
+        self._cell_name = name
         self._cluster = cluster
         self._sheet = sheet
+        self._tick_overrides = {}
+        self._plan = None
         self._exploded_from_journal = False
-        self._fill_cells()
-        if cluster is not None:
-            self._filling = True
-            try:
-                self._show_instance(cluster, sheet)
-                self.pick_error.setText("")
-            finally:
-                self._filling = False
-        else:
-            self._fill_instances()
         self._update_header()
+        self._rebuild()
         self._recalculate()
 
     def open_from_journal(self, journal) -> None:
@@ -298,120 +258,9 @@ class ExplodePage(QWidget):
         self._cluster = (journal or {}).get("cluster")
         self._sheet = (journal or {}).get("sheet")
         self._plan = None
-        # The lists show the JOURNAL's own cell/instance (read-only).
-        self._filling = True
-        try:
-            self.cell_combo.clear()
-            if self._cell_name:
-                self.cell_combo.addItem(self._cell_name)
-                self.cell_combo.setCurrentIndex(0)
-            if self._cluster is not None:
-                self._show_instance(self._cluster, self._sheet)
-            else:
-                self.instance_combo.clear()
-            self.pick_error.setText("")
-        finally:
-            self._filling = False
         self._rebuild()
         self._update_header()
         self._set_exploded_ui(True)
-
-    # ── pickers ─────────────────────────────────────────────────────────────
-    def _fill_cells(self) -> None:
-        """The CELL combo = the config's own cells (file order); the door's cell
-        stays chosen when it is one of them."""
-        cells = list(getattr(self._cfg, "cells", {}) or ()) if self._cfg else []
-        self._filling = True
-        try:
-            self.cell_combo.clear()
-            self.cell_combo.addItems(cells)
-            if self._cell_name and self._cell_name not in cells:
-                # The door named a cell the config does not hold (a stale leaf):
-                # show it rather than silently dropping the request.
-                self.cell_combo.addItem(self._cell_name)
-                cells.append(self._cell_name)
-            if self._cell_name in cells:
-                self.cell_combo.setCurrentText(self._cell_name)
-            else:
-                self._cell_name = None
-                self.cell_combo.setCurrentIndex(-1)
-        finally:
-            self._filling = False
-        self._fill_instances()
-
-    def _fill_instances(self) -> None:
-        """The INSTANCE combo for the chosen cell, by the SAME rule "Select cell"
-        uses (gui/select_cell.resolve_action_instance): remembered -> chosen, one
-        record -> it, several -> listed WITHOUT a default, none -> refusal text.
-        No second copy of the rule (Р2а-3)."""
-        from ..select_cell import resolve_action_instance
-        self._filling = True
-        try:
-            self.instance_combo.clear()
-            self.pick_error.setText("")
-            if not self._cell_name or self._cfg is None or self._root_path is None:
-                self._cluster = None
-                self._sheet = None
-                return
-            choice = resolve_action_instance(
-                self._cfg, self._root_path, self._cell_name)
-            if choice.kind in ("explicit", "remembered", "single"):
-                self._show_instance(choice.cluster, choice.sheet)
-            elif choice.kind == "choose":
-                for cluster, sheet in choice.candidates:
-                    self.instance_combo.addItem(
-                        _instance_label(cluster, sheet), (cluster, sheet))
-                self.instance_combo.setCurrentIndex(-1)   # several: NO default
-                self._cluster = None
-                self._sheet = None
-            else:                                          # "none" / "no-record"
-                self._cluster = None
-                self._sheet = None
-                if choice.message:
-                    self.pick_error.setText(choice.message)
-        finally:
-            self._filling = False
-
-    def _show_instance(self, cluster, sheet) -> None:
-        """Put ONE instance in the combo and select it (the caller holds
-        `_filling`, so no recalculation fires from the change)."""
-        self.instance_combo.clear()
-        self.instance_combo.addItem(_instance_label(cluster, sheet), (cluster, sheet))
-        self.instance_combo.setCurrentIndex(0)
-        self._cluster = cluster
-        self._sheet = sheet
-
-    def _on_cell_changed(self, _index) -> None:
-        if self._filling:
-            return
-        name = self.cell_combo.currentText() or None
-        if name == self._cell_name:
-            return
-        self._cell_name = name
-        self._tick_overrides = {}
-        self._plan = None
-        self._exploded_from_journal = False
-        self._fill_instances()
-        self._update_header()
-        self._rebuild()
-        self._recalculate()
-
-    def _on_instance_changed(self, _index) -> None:
-        if self._filling:
-            return
-        data = self.instance_combo.currentData()
-        self._tick_overrides = {}
-        self._exploded_from_journal = False
-        if data is None:
-            self._cluster = None
-            self._sheet = None
-            self._plan = None
-            self._update_header()
-            self._rebuild()
-            return
-        self._cluster, self._sheet = data
-        self._update_header()
-        self._recalculate()
 
     # ── helpers ─────────────────────────────────────────────────────────────
     def _connection(self):
@@ -461,9 +310,8 @@ class ExplodePage(QWidget):
         self._set_exploded_ui(self._guard.active)
 
     def _guard_widgets(self):
-        return (self.cell_combo, self.instance_combo, self.margin_spin,
-                self.gap_spin, self.recalc_button, self.explode_button,
-                self.restore_button)
+        return (self.margin_spin, self.gap_spin, self.recalc_button,
+                self.explode_button, self.restore_button)
 
     def _where(self) -> str:
         if self._sheet:
@@ -696,8 +544,6 @@ class ExplodePage(QWidget):
         self.recalc_button.setEnabled(not active)
         self.margin_spin.setEnabled(not active)
         self.gap_spin.setEnabled(not active)
-        self.cell_combo.setEnabled(not active)
-        self.instance_combo.setEnabled(not active)
         # Р3: the re-read is one of the few board ops allowed while exploded.
         self.reread_button.setEnabled(active and self._cell_name is not None)
         # Ticks are editable only BEFORE "Разнести": clear the checkable flag on

@@ -324,15 +324,15 @@ class DockHub:
         self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
         self._cell_anchor_page = self.config_tree_dock.add_right_page(
             self.cell_anchor_view)
-        # "Разнос" (Р2/Р2в, plan_2026_10_05_explode_r2_r3_tab_and_reread): the
+        # "Разнос" (Р2/Р3а-0, plan_2026_10_05_explode_r2_r3_tab_and_reread): the
         # ExplodeGuard holds the "clusters are exploded" state — read from the
-        # JOURNAL on disk — and installs the worker gate; since Р2в ExplodePage
-        # is a PERMANENT tab of the central group (Components / Config / Trees /
-        # Explode), not a Config right page. Both are one-per-window (the guard
-        # is the ONE owner of the lock).
+        # JOURNAL on disk — and installs the worker gate. Since Р3а-0 ExplodePage
+        # is the FIFTH tab of the CELL page (CellAnchorView), so it is told the
+        # cell and its instance BY THE PAGE and keeps no lists of its own. Both
+        # are one-per-window (the guard is the ONE owner of the lock).
         self.explode_guard = ExplodeGuard(main_window)
         self.explode_page = ExplodePage(main_window, self.explode_guard)
-        self.left_tabs.addTab(self.explode_page, _("Explode"))
+        self.cell_anchor_view.add_explode_tab(self.explode_page)
         self.explode_guard.changed.connect(self._apply_explode_lock)
         # The cell editor's "Refs" tab RECORDS Role/Cluster into the project's
         # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
@@ -2970,20 +2970,36 @@ class DockHub:
             show_message(_("Set the project root first."), _ERROR_STYLE, logger)
             return
         if cluster is None:
-            from .select_cell import resolve_action_instance
+            from .select_cell import pick_instance, resolve_action_instance
             choice = resolve_action_instance(
                 self._load_cfg(root), root, name, None, None, None)
             if choice.kind in ("explicit", "remembered", "single"):
                 cluster, sheet = choice.cluster, choice.sheet
             elif choice.kind == "choose":
-                cluster, sheet = None, None      # the tab's list IS the choice
+                # Р3а-0: the tab has no list of its own, so the door asks ONCE
+                # (the SHARED submenu) and the answer becomes the page's context.
+                pick_instance(
+                    self.main_window, choice.candidates,
+                    lambda c, s: self._open_explode(name, file_path, c, s))
+                return
             else:                                # "none" / "no-record"
                 if choice.message:
                     show_message(choice.message, _ERROR_STYLE, logger)
                 return
+        # Р3а-0: the tab lives on the CELL page — open the page on the requested
+        # cell (exactly like a single click in the Config tree) and only then tell
+        # it which instance to work in.
         self.explode_page.set_root_path(root)
-        self.explode_page.open_instance(name, cluster, sheet, file_path)
-        self.show_left_page(self.explode_page)
+        anchor_page = getattr(self, "_cell_anchor_page", None)
+        if anchor_page is not None:
+            self._focus_config_tree_dock()
+            self.config_tree_dock.show_page(anchor_page)
+            if (getattr(self.cell_anchor_view, "_cell_name", None) != name
+                    or file_path is not None):
+                self.cell_anchor_view.load_entry(name, file_path)
+        if cluster is not None:
+            self.cell_anchor_view.set_working_context(cluster, sheet)
+        self.cell_anchor_view.select_explode_tab()
 
     def reread_cell_for_explode(self, name, file_path=None) -> None:
         """Р3: the "Explode" tab's "Re-read cell from selection" — the SAME read
@@ -3006,18 +3022,33 @@ class DockHub:
             return None
 
     def _apply_explode_lock(self, active: bool) -> None:
-        """Р2в: while exploded the left TAB STRIP is disabled and the current tab
-        is pinned to "Разнос"; the page and its "Put back" stay usable, and the
-        Config view no longer needs pinning — Config is unreachable through a
-        disabled strip.
-
-        Deliberately NOT `self.left_tabs.setEnabled(False)`: the "Разнос" page is
-        a page OF that container, so disabling it would disable the page too —
-        the "Restore" button would be dead and the only way out would be the CLI
-        (Р2а-1, measured offscreen)."""
-        self.left_tabs.tabBar().setEnabled(not active)
+        """Р3а-0 (РЗ7): while the clusters are exploded the user must not leave
+        the Explode tab nor change WHO is exploded — the CELL page's own tab strip
+        (the other four tabs), its (Cluster, Sheet) working context, the Config
+        tree (a different cell) and the window's tab strip are disabled, and the
+        Config right view is pinned to the cell page (a switch away is rolled back
+        in _on_config_right_page_changed). The Explode tab and its buttons stay
+        usable: `isEnabled` accounts for ancestors (Р2а-1, measured offscreen)."""
+        unlocked = not active
+        self.left_tabs.tabBar().setEnabled(unlocked)
+        self.config_tree_dock.tree.setEnabled(unlocked)
+        view = self.cell_anchor_view
+        view._tabs.tabBar().setEnabled(unlocked)
+        view._cluster_combo.setEnabled(unlocked)
+        view._sheet_combo.setEnabled(unlocked)
         if active:
-            self.left_tabs.setCurrentWidget(self.explode_page)
+            self.config_tree_dock.set_current_page(self._cell_anchor_page)
+            # Post-crash / restart (Р3а-0 п.5): open the JOURNAL's cell and put its
+            # (cluster, sheet) into the page's context, so the user sees exactly who
+            # is exploded.
+            journal = self.explode_guard.journal or {}
+            cell = journal.get("cell")
+            if cell:
+                if getattr(view, "_cell_name", None) != cell:
+                    view.load_entry(cell, None)
+                view.set_working_context(journal.get("cluster"),
+                                         journal.get("sheet"))
+            view.select_explode_tab()
 
     def refresh_explode_state(self) -> None:
         """Kick the tab's WORKER state read (door §31: no board read here).
@@ -3217,6 +3248,13 @@ class DockHub:
         them" moment — so it is the freshness trigger for those lists (a
         worker-thread rebuild + push_known_lists; the row views are left alone,
         see push_known_lists)."""
+        # Р3а-0: while exploded the Config right view is PINNED to the cell page
+        # (the "Explode" tab lives there) — any switch away is rolled back.
+        if self.explode_guard.active and index != self._cell_anchor_page:
+            show_message(_("Clusters are exploded — press \"Put back\" first "
+                           "(the \"Explode\" tab)."), _WARN_STYLE, logger)
+            self.config_tree_dock.set_current_page(self._cell_anchor_page)
+            return
         prev = getattr(self, "_config_right_page_index", 0)
         self._config_right_page_index = index
         if index != prev:
