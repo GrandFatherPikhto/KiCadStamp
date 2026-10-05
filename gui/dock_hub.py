@@ -67,6 +67,7 @@ from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
 from .docks.explode_page import ExplodePage
 from .explode_guard import ExplodeGuard
+from .explode_wiring import ExplodeWiring
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.placer import PlacerDock
@@ -334,6 +335,10 @@ class DockHub:
         self.explode_page = ExplodePage(main_window, self.explode_guard)
         self.cell_anchor_view.add_explode_tab(self.explode_page)
         self.explode_guard.changed.connect(self._apply_explode_lock)
+        # Д8 (Р3а-6): the FLOW of «Разнос» lives in ONE place —
+        # gui/explode_wiring.py. Below, the hub keeps one-line delegates (the
+        # menus, the guard's signal and the cells call those names).
+        self.explode_wiring = ExplodeWiring(self)
         # The cell editor's "Refs" tab RECORDS Role/Cluster into the project's
         # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
         # before that it wrote them onto the board, which is why the hook below
@@ -2956,142 +2961,37 @@ class DockHub:
 
     def _open_explode(self, name, file_path=None, cluster=None,
                       sheet=None) -> None:
-        """The ONE opener of the "Explode" tab, for every door.
-
-        The instance is chosen by the SAME resolver "Select cell" uses
-        (gui/select_cell.resolve_action_instance). Since Р2в the tab is
-        PERMANENT and carries its own CELL / INSTANCE lists, so a cell placed by
-        SEVERAL records opens with NO instance picked — the list IS the choice (no
-        submenu here). No second copy of the rule (Р2а-3)."""
-        if not name:
-            return
-        root = self.root_metadata_dock.root_path
-        if root is None:
-            show_message(_("Set the project root first."), _ERROR_STYLE, logger)
-            return
-        if cluster is None:
-            from .select_cell import pick_instance, resolve_action_instance
-            choice = resolve_action_instance(
-                self._load_cfg(root), root, name, None, None, None)
-            if choice.kind in ("explicit", "remembered", "single"):
-                cluster, sheet = choice.cluster, choice.sheet
-            elif choice.kind == "choose":
-                # Р3а-0: the tab has no list of its own, so the door asks ONCE
-                # (the SHARED submenu) and the answer becomes the page's context.
-                pick_instance(
-                    self.main_window, choice.candidates,
-                    lambda c, s: self._open_explode(name, file_path, c, s))
-                return
-            else:                                # "none" / "no-record"
-                if choice.message:
-                    show_message(choice.message, _ERROR_STYLE, logger)
-                return
-        # Р3а-0: the tab lives on the CELL page — open the page on the requested
-        # cell (exactly like a single click in the Config tree) and only then tell
-        # it which instance to work in.
-        self.explode_page.set_root_path(root)
-        anchor_page = getattr(self, "_cell_anchor_page", None)
-        if anchor_page is not None:
-            self._focus_config_tree_dock()
-            self.config_tree_dock.show_page(anchor_page)
-            view = self.cell_anchor_view
-            # The SAME cell by name is NOT reloaded (that would drop unsaved input;
-            # the page-merge rule, gui/dock_hub.py::_on_cell_picked) — only a
-            # missing file for it is filled in.
-            if (getattr(view, "_cell_name", None) != name
-                    or (file_path is not None and view._file_path is None)):
-                view.load_entry(name, file_path)
-        if cluster is not None:
-            self.cell_anchor_view.set_working_context(cluster, sheet)
-        self.cell_anchor_view.select_explode_tab()
+        """Д8 (Р3а-6): the flow lives in gui/explode_wiring.py — this is the
+        delegate the menus and the cells call."""
+        self.explode_wiring.open_tab(name, file_path, cluster, sheet)
 
     def reread_cell_for_explode(self, name, file_path=None) -> None:
-        """Р3: the "Explode" tab's "Re-read cell from selection" — the SAME read
-        the cell window's "Update from selection" runs, with the ownership transfer
-        allowed (one function for every door, never a second read).
-
-        Р3а-3: the transfer is allowed ONLY for the instance the JOURNAL was made
-        for. `ExplodeGuard.transfer_enabled` is the ONE rule (it shares its address
-        comparison with the worker); when the tab's nominal instance is not the
-        journal's, no address is carried and the read subtracts the inter-cluster
-        copper as usual (Н4), with a yellow line. The worker re-checks the address
-        it actually RESOLVED, so a selection naming another instance is refused
-        there too."""
-        if not name:
-            return
-        guard = getattr(self, "explode_guard", None)
-        journal = guard.journal if guard is not None else None
-        page = getattr(self, "explode_page", None)
-        cluster = getattr(page, "_cluster", None)
-        sheet = getattr(page, "_sheet", None)
-        enabled = bool(guard is not None
-                       and guard.transfer_enabled(name, cluster, sheet))
-        self.cells_dock.refresh_from_selection_requested(
-            name, file_path, explode_transfer=True,
-            explode_journal=journal if enabled else None)
+        """Д8 (Р3а-6): the flow lives in gui/explode_wiring.py — this is the
+        delegate the Explode tab calls."""
+        self.explode_wiring.reread(name, file_path)
 
     @staticmethod
     def _load_cfg(root):
-        """The loaded config for the instance lookup, or None (a config that will
-        not load is a hint, not a fatal). Not a board read."""
-        from kicadstamp.config.loader import load_config
-        try:
-            cfg, _ctx = load_config(str(root))
-            return cfg
-        except Exception:  # noqa: BLE001 — a broken config is not our task
-            return None
+        """Д8 (Р3а-6): kept as a delegate — the loader lives in
+        gui/explode_wiring.py with the flow that uses it."""
+        from .explode_wiring import load_cfg
+        return load_cfg(root)
 
     def _apply_explode_lock(self, active: bool) -> None:
-        """Р3а-0 (РЗ7): while the clusters are exploded the user must not leave
-        the Explode tab nor change WHO is exploded — the CELL page's own tab strip
-        (the other four tabs), its (Cluster, Sheet) working context, the Config
-        tree (a different cell) and the window's tab strip are disabled, and the
-        Config right view is pinned to the cell page (a switch away is rolled back
-        in _on_config_right_page_changed). The Explode tab and its buttons stay
-        usable: `isEnabled` accounts for ancestors (Р2а-1, measured offscreen)."""
-        unlocked = not active
-        self.left_tabs.tabBar().setEnabled(unlocked)
-        self.config_tree_dock.tree.setEnabled(unlocked)
-        view = self.cell_anchor_view
-        view._tabs.tabBar().setEnabled(unlocked)
-        view._cluster_combo.setEnabled(unlocked)
-        view._sheet_combo.setEnabled(unlocked)
-        if active:
-            self.config_tree_dock.set_current_page(self._cell_anchor_page)
-            # Post-crash / restart (Р3а-0 п.5): open the JOURNAL's cell and put its
-            # (cluster, sheet) into the page's context, so the user sees exactly who
-            # is exploded.
-            journal = self.explode_guard.journal or {}
-            cell = journal.get("cell")
-            if cell:
-                if getattr(view, "_cell_name", None) != cell:
-                    view.load_entry(cell, None)
-                view.set_working_context(journal.get("cluster"),
-                                         journal.get("sheet"))
-            view.select_explode_tab()
+        """Д8 (Р3а-6): the lock lives in gui/explode_wiring.py — this is the
+        delegate the guard's `changed` signal calls."""
+        self.explode_wiring.apply_lock(active)
 
     def refresh_explode_state(self) -> None:
-        """Kick the tab's WORKER state read (door §31: no board read here).
+        """Д8 (Р3а-6): the state read lives in gui/explode_wiring.py — this is the
+        delegate `reconcile_overlay` calls.
 
-        The journal path depends on the board IDENTITY — an IPC read — so it is
-        read on a worker (`explode_page.explode_state_worker`), and the UI thread
-        only applies a ready answer: has / none / unknown. `active` always comes
-        from the journal, never memory.
-
-        This is the AUTOMATIC path (connect / manual refresh), so the read is
-        QUIET (Р2б-2): a failure leaves the lock alone and is a DEBUG line, never
-        the red line every connect on a busy socket would otherwise print.
-
-        A DockHub built WITHOUT __init__ (some tests wire one method's body)
-        simply has no guard — nothing to refresh."""
-        guard = getattr(self, "explode_guard", None)
-        if guard is None:
+        A DockHub built WITHOUT __init__ (some tests wire one method's body) simply
+        has no wiring — nothing to refresh."""
+        wiring = getattr(self, "explode_wiring", None)
+        if wiring is None:
             return
-        page = getattr(self, "explode_page", None)
-        if page is None:
-            self._apply_explode_lock(guard.active)
-            return
-        page.refresh_state(quiet=True)
+        wiring.refresh_state()
 
     def _select_cell_from_tree(self, name, file_path, cluster=None,
                                sheet=None) -> None:
@@ -3270,10 +3170,8 @@ class DockHub:
         see push_known_lists)."""
         # Р3а-0: while exploded the Config right view is PINNED to the cell page
         # (the "Explode" tab lives there) — any switch away is rolled back.
-        if self.explode_guard.active and index != self._cell_anchor_page:
-            show_message(_("Clusters are exploded — press \"Put back\" first "
-                           "(the \"Explode\" tab)."), _WARN_STYLE, logger)
-            self.config_tree_dock.set_current_page(self._cell_anchor_page)
+        # Д8 (Р3а-6): the pin and its line live in gui/explode_wiring.py.
+        if self.explode_wiring.pin_right_page(index):
             return
         prev = getattr(self, "_config_right_page_index", 0)
         self._config_right_page_index = index

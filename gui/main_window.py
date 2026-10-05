@@ -792,26 +792,9 @@ class MainWindow(QMainWindow):
     def _return_clusters_before_quit(self, proceed) -> bool:
         """Р2-5: with the clusters exploded, ask "Вернуть и выйти / Отмена".
 
-        True = go ahead now (nothing exploded, or already returned). False =
-        STAY: "Отмена", or a restore is in flight — the real quit then runs from
-        its success callback (``proceed``), never before the board is back."""
-        guard = self._dock_hub.explode_guard
-        if not guard.active or self._explode_exit_ok:
-            return True
-        if QMessageBox.question(
-                self, _("Clusters are exploded"),
-                _("Clusters are exploded. Put back and quit?"),
-                QMessageBox.StandardButton.Yes
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
-            return False
-
-        def _ok() -> None:
-            self._explode_exit_ok = True
-            proceed()
-
-        self._dock_hub.explode_page.request_restore(on_success=_ok)
-        return False
+        Д8 (Р3а-6): the flow lives in gui/explode_wiring.py — this is the delegate
+        ``closeEvent`` calls."""
+        return self._dock_hub.explode_wiring.return_clusters_before_quit(proceed)
 
     def _set_always_on_top(self, checked: bool) -> None:
         """setWindowFlag() only takes effect on the next show() — the window

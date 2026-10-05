@@ -2195,43 +2195,11 @@ class CellDock(QWidget):
         return updated, added, removed
 
     def _explode_transfer_context(self, transfers):
-        """Р3а-2: (cfg, {identity: file}, refusal_lines) for a set of transfers.
-
-        The config and EVERY record's OWN file are resolved ACROSS THE INCLUDE
-        GRAPH before anything is written — `gui/docks/rename.find_list_entry_file`
-        is the ONE host of that rule (a record that lives in an included file is
-        edited there, never in the root by mistake). Every problem is a REFUSAL
-        line: never a silent log, and never a half-applied transfer."""
-        from pathlib import Path
-        from kicadstamp.explode_transfer import precheck_transfers
-        from .rename import find_list_entry_file
-        if not transfers or self._root_path is None:
-            return None, {}, []
-        from kicadstamp.config import load_config
-        try:
-            cfg, _ctx = load_config(str(self._root_path))
-        except Exception as e:  # noqa: BLE001 — a refusal line, not a silent log
-            return None, {}, [_(
-                "could not read the project config for the transfer: {error}"
-            ).format(error=e)]
-        root = Path(self._root_path)
-        entry_files: dict = {}
-        refusals: list = []
-        for tr in transfers:
-            if tr.identity in entry_files:
-                continue
-            path = find_list_entry_file(
-                root, "net_traces", {"name": tr.identity, "net": tr.identity})
-            if path is None:
-                refusals.append(_(
-                    "net_traces {name}: the record's file was not found in the "
-                    "project graph — the read is refused, nothing was changed"
-                ).format(name=tr.identity))
-            else:
-                entry_files[tr.identity] = str(path)
-        if not refusals:
-            refusals += precheck_transfers(cfg, transfers, entry_files)
-        return cfg, entry_files, refusals
+        """Д8 (Р3а-6): the flow lives in gui/explode_wiring.py — this is the
+        delegate the read's apply step calls (graph-wide record lookup + precheck,
+        every problem as a refusal line)."""
+        from ..explode_wiring import resolve_transfer_context
+        return resolve_transfer_context(self._root_path, transfers)
 
     @staticmethod
     def _drop_records(removed_records: list, bucket: list) -> int:
