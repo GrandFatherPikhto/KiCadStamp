@@ -39,13 +39,16 @@ from .constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from .domain.board import Footprint, Via
 from .domain.geometry import Box2, Vector2
 from .explode_connectivity import (
+    build_cell_islands,
+    cell_pad_areas,
     cell_pads as _cell_pads,
-    cell_pads_text as _cell_pads_text,
     classify as _classify,
+    classify_copper,
     copper_classes as _copper_classes,
     copper_extent as _copper_extent,
     copper_touch as _copper_touch,
     foreign_labels as _foreign_labels,
+    islands_text as _islands_text,
     pad_areas as _pad_areas,
 )
 from .i18n import _
@@ -356,13 +359,17 @@ def _record_touches_cell(adapter, nt, sheet_names, instance_refs, cell_address,
     a_sheet = getattr(nt, "anchor_sheet", None)
     a_cluster = getattr(nt, "anchor_cluster", None)
     c_cluster, c_sheet = cell_address
-    if a_sheet is not None and c_sheet is not None and a_sheet == c_sheet:
-        return True
-    if a_cluster is not None and c_cluster is not None and cluster_prefix_match(
-            str(c_cluster), str(a_cluster)):
-        return True
-    if a_sheet is None and a_cluster is None and _anchor_on_instance(
-            adapter, nt, sheet_names, instance_refs):
+    if a_sheet is not None:
+        # A stored SHEET is decisive; the CLUSTER rule is for records WITHOUT a
+        # sheet only (Р1в-3) — otherwise every other channel whose anchor sits
+        # on the same PIF cluster (PIF_AVDD in Channel_1/2) would be read too.
+        if c_sheet is not None and a_sheet == c_sheet:
+            return True
+    elif a_cluster is not None:
+        if c_cluster is not None and cluster_prefix_match(
+                str(c_cluster), str(a_cluster)):
+            return True
+    elif _anchor_on_instance(adapter, nt, sheet_names, instance_refs):
         return True
     return _record_has_cell_piece(nt, via_entries, track_entries, classes)
 
@@ -512,16 +519,27 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
         if inst_key is not None:
             moving_copper[inst_key].append(item)
 
-    # ── pad classifiers (cell + every foreign instance) ─────────────────────
-    class_fps: dict = {"cell": list(instance)}
-    for key, fps, _box in moving_groups:
-        class_fps[_cluster_label(*key)] = fps
-    pads = _pad_areas(adapter, class_fps)
+    # ── classifiers: the cell's ISLANDS + the foreign instances' pads (Р1в-1) ─
+    # The cell's OWN copper (is_own_key at this instance) is NOT a graph node —
+    # it always stays put — but it and the cell's pads form ISLANDS, so a foreign
+    # piece touching cell copper (a T-junction onto a cell track) counts as
+    # touching the cell, exactly like a pad.
+    cell_obj = (getattr(cfg, "cells", {}) or {}).get(cell_name)
+    cell_ident = cell_identity(cell_name, cell_obj)
+    cell_addr = cell_record_addresses(cfg, cell_name)
+    cell_own = [it for it in list(tracks) + list(vias)
+                if is_own_key(owner.get(getattr(it, "uuid", None)) or "",
+                              cell_ident, cell_addr, (cluster, sheet),
+                              instance_refs)]
+    cell_own_uuids = frozenset(getattr(it, "uuid", None) for it in cell_own)
+    islands = build_cell_islands(cell_pad_areas(adapter, instance), cell_own)
+    foreign_pads = _pad_areas(
+        adapter, {_cluster_label(*k): fps for (k, fps, _b) in moving_groups})
+    classes = classify_copper(tracks, vias, islands, foreign_pads, cell_own_uuids)
 
-    classes = _copper_classes(tracks, vias, pads)
+    moving_labels = {_cluster_label(*k): k for (k, _f, _b) in moving_groups}
 
     # ── unregistered copper whose whole component touches ONE moving instance
-    moving_labels = {_cluster_label(*k): k for (k, _f, _b) in moving_groups}
     for item in unregistered:
         cl = classes.get(getattr(item, "uuid", None), set())
         if _cell_pads(cl) or len(_foreign_labels(cl)) != 1:
@@ -529,6 +547,27 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
         label = next(iter(_foreign_labels(cl)))
         if label in moving_labels:
             moving_copper[moving_labels[label]].append(item)
+
+    # ── the inter-cluster table is ONLY about the cell (Р1в-2): a piece shows
+    #    when its component touches a cell ISLAND, or ("none") lies in the area.
+    #    Everything else read (another cluster/cell) leaves SILENTLY with the
+    #    first foreign instance it touches — counted, no warning.
+    row_pieces = []
+    for piece in _nt_rows(cfg, adapter, sheet_names, instance_refs, classes,
+                          via_entries, track_entries, tick_overrides or {},
+                          (cluster, sheet)):
+        cl = classes.get(piece.uuid, set())
+        if _cell_pads(cl):
+            row_pieces.append(piece)
+            continue
+        foreign = [c for c in _foreign_labels(cl) if c in moving_labels]
+        if foreign:
+            moving_copper[moving_labels[foreign[0]]].append(piece.item)
+            continue
+        box = _box_map(adapter, [piece.item]).get(piece.uuid)
+        if piece.touches == "none" and box is not None and \
+                _boxes_overlap(box, area):
+            row_pieces.append(piece)
 
     # ── positions: vectors, moved instances, moves ──────────────────────────
     instances = []
@@ -546,19 +585,15 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
         for item in list(fps) + list(copper):
             _append_move(moves, item, dx, dy)
 
-    # ── the inter-cluster table + its ticked movers ─────────────────────────
-    table = _nt_rows(cfg, adapter, sheet_names, instance_refs, classes,
-                     via_entries, track_entries, tick_overrides or {},
-                     (cluster, sheet))
     vector_by_label = {inst.label: inst.vector for inst in instances}
     final_table = []
-    for piece in table:
+    for piece in row_pieces:
         vector = (0, 0)
         if piece.touches == "tee":
             warnings.append(_(
                 "T-branch: the cell's inner part ({pads}) leaves with the "
                 "foreign cluster").format(
-                    pads=_cell_pads_text(classes, piece.item)))
+                    pads=_islands_text(classes, piece.item, islands)))
         elif piece.touches == "multi":
             warnings.append(_(
                 "piece {uuid} touches several foreign clusters — it moves with "

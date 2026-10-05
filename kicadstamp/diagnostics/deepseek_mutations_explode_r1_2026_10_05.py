@@ -28,6 +28,18 @@ positions). Every row maps to a line of the plan's own mutation list.
   * X13 an UNticked table piece travels anyway
   * X14 the vector does not take the frame out of the area
   * X15 a "cell" table piece is ticked by default
+  * X16 tee at ONE cell pad
+  * X17 tee without a warning
+  * X18 multi merged into tee
+  * X19 record identity instead of cell identity
+  * X20 a via as an exact point (5 um missed)
+  * X21 a T-junction not caught (ends only)
+  * X22 track width ignored (a parallel gap merged)
+  * X23 net_traces read by sheet only (the registry piece path dropped)
+  * X24 the cell's own copper is a graph node (the reverse-case false multi)
+  * X25 cell islands built by pads, not copper (a T-junction missed)
+  * X26 the net_traces table without the "touches the cell" filter (Р1в-2)
+  * X27 the anchor CLUSTER read even when the record has a sheet (Р1в-3)
   * K1  a cosmetic comment — MUST survive
 
 Run with the main checkout's interpreter; an optional row-name prefix filter
@@ -166,7 +178,7 @@ ROWS = [
      "            warnings.append(_(\n"
      "                \"T-branch: the cell's inner part ({pads}) leaves with the \"\n"
      "                \"foreign cluster\").format(\n"
-     "                    pads=_cell_pads_text(classes, piece.item)))",
+     "                    pads=_islands_text(classes, piece.item, islands)))",
      "        if piece.touches == \"tee\":\n"
      "            pass  # MUTATION",
      "die", G, ()),
@@ -179,6 +191,46 @@ ROWS = [
      "            out.append((cell_identity(cell_name, cell), addresses))",
      "        if any(_address_is(addr, inst_key) for addr in addresses.values()):\n"
      "            out.append((next(iter(addresses)), addresses))  # MUTATION",
+     "die", G, ()),
+    ("X24 the cell's own copper is a graph node", CONN,
+     "if getattr(it, \"uuid\", None) not in skip_uuids]",
+     "if True]  # MUTATION",
+     "die", G, ()),
+    ("X25 cell islands by pads, not copper", CONN,
+     "    for pi, (area, layers, _name) in enumerate(cell_pads):\n"
+     "        node = n + pi\n"
+     "        for i, it in enumerate(items):\n"
+     "            if _touches_pad(it, ext[i][1], area, layers):\n"
+     "                uf.union(node, i)\n"
+     "\n"
+     "    groups: dict = {}\n"
+     "    for pi, pad in enumerate(cell_pads):\n"
+     "        groups.setdefault(uf.find(n + pi), CellIsland(\"\")).pads.append(pad)\n"
+     "    for i, it in enumerate(items):\n"
+     "        groups.setdefault(uf.find(i), CellIsland(\"\")).copper.append(it)",
+     "    groups: dict = {}  # MUTATION: islands by pads, the cell's copper dropped\n"
+     "    for pi, pad in enumerate(cell_pads):\n"
+     "        groups.setdefault(pi, CellIsland(\"\")).pads.append(pad)",
+     "die", G, ()),
+    ("X26 the table without the cell filter", EXPLODE,
+     "        cl = classes.get(piece.uuid, set())\n"
+     "        if _cell_pads(cl):\n"
+     "            row_pieces.append(piece)\n"
+     "            continue",
+     "        cl = classes.get(piece.uuid, set())\n"
+     "        if True:  # MUTATION\n"
+     "            row_pieces.append(piece)\n"
+     "            continue",
+     "die", G, ()),
+    ("X27 the anchor cluster read with a known sheet", EXPLODE,
+     "        if c_sheet is not None and a_sheet == c_sheet:\n"
+     "            return True\n"
+     "    elif a_cluster is not None:",
+     "        if (c_sheet is not None and a_sheet == c_sheet) or \\\n"
+     "                (c_cluster and a_cluster and cluster_prefix_match(\n"
+     "                    str(c_cluster), str(a_cluster))):  # MUTATION\n"
+     "            return True\n"
+     "    elif a_cluster is not None:",
      "die", G, ()),
     ("K1 cosmetic comment (control)", EXPLODE,
      "def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,",

@@ -118,7 +118,10 @@ def test_instance_copper_via_registry_and_unregistered(monkeypatch):
     moved = {it.uuid for it in pif.copper}
     assert "t1" in moved                         # registry: is_own_key -> PIF
     assert "t2" in moved                         # unregistered, only PIF pads
-    assert "nt1" not in moved and "nt2" not in moved  # net_traces copper stays
+    # Р1в-2: a net_traces piece touching ONLY a moving foreign instance leaves
+    # with it SILENTLY (counted), while a cell-island piece stays in the table.
+    assert "nt2" in moved                        # touches only the PIF -> leaves
+    assert "nt1" not in moved                    # touches only the CELL island
     assert "ot" not in moved                     # another instance's copper stays
     assert "ot" not in {mv.uuid for mv in plan.moves}
 
@@ -143,19 +146,34 @@ def test_table_classifies_cell_and_foreign_and_ticks(monkeypatch):
     plan = _plan(board, cfg)
     rows = {r.uuid: r for r in plan.table}
     assert rows["nt1"].touches == "cell" and rows["nt1"].ticked is False
-    assert rows["nt2"].touches == "PIF" and rows["nt2"].ticked is True
+    # Р1в-2: the table is ONLY about the cell — a piece touching just the PIF is
+    # not a row; it leaves silently with the PIF instance.
+    assert "nt2" not in rows
     moved = {mv.uuid for mv in plan.moves}
-    assert "nt2" in moved                        # a ticked piece travels
-    assert "nt1" not in moved                    # an unticked piece stays
+    assert "nt2" in moved                        # the silent mover travels
+    assert "nt1" not in moved                    # an unticked cell piece stays
 
 
 def test_tick_overrides_change_the_default(monkeypatch):
     board, cfg = _scenario(monkeypatch)
-    plan = _plan(board, cfg, tick_overrides={"nt2": False, "nt1": True})
+    from tests.explode.board import fp as _fp, pad as _pad, track as _t
+    c9 = _fp("p9", "C9", "PIF", 0.0, 4.0, role="K")
+    board._fps.append(c9)
+    board._pads["p9"] = [_pad("1", 0.0, 4.0)]
+    nt7 = _t("nt7", F_CU, 0.0, 0.0, 0.0, 4.0)     # U1 island -> PIF pad (a row)
+    board._tracks.append(nt7)
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt7),
+                                    SimpleNamespace(live=
+                                        next(t for t in board.get_tracks()
+                                             if t.uuid == "nt1"))], reason=None))
+    plan = _plan(board, cfg, tick_overrides={"nt7": False, "nt1": True})
     rows = {r.uuid: r for r in plan.table}
-    assert rows["nt2"].ticked is False
-    assert "nt2" not in {mv.uuid for mv in plan.moves}
-    assert rows["nt1"].ticked is True
+    assert rows["nt7"].ticked is False           # a ticked default row is held
+    assert "nt7" not in {mv.uuid for mv in plan.moves}
+    assert rows["nt1"].ticked is True            # an unticked cell row travels
+    assert "nt1" in {mv.uuid for mv in plan.moves}
 
 
 def test_ordinary_intercluster_piece_is_foreign_not_tee(monkeypatch):
@@ -193,13 +211,15 @@ def test_tee_is_two_cell_pads_plus_foreign(monkeypatch):
 
 
 def test_multi_is_several_foreign_clusters(monkeypatch):
-    """Р1а-1/2: two foreign instances at once — `multi`, with its own warning."""
+    """Р1а-1/2 + Р1в-2: a piece touching ONE cell island AND two foreign
+    instances at once is `multi`, with its own warning. A piece touching ONLY
+    foreign instances is not a row at all (see the silent-mover cell)."""
     board, cfg = _scenario(monkeypatch)
     from tests.explode.board import fp as _fp, pad as _pad, track as _t
     far = _fp("p3", "C3", "PIF2", 4.0, 0.0, role="C")
     board._fps.append(far)
     board._pads["p3"] = [_pad("1", 4.0, 0.0)]
-    nt6 = _t("nt6", F_CU, 3.0, 0.0, 4.0, 0.0)   # PIF pad -> PIF2 pad
+    nt6 = _t("nt6", F_CU, 0.0, 0.0, 4.0, 0.0)   # CELL pad -> PIF -> PIF2
     board._tracks.append(nt6)
     monkeypatch.setattr(explode_mod, "find_live_copper",
                         lambda *a, **k: SimpleNamespace(
@@ -285,6 +305,180 @@ def test_cross_sheet_record_with_a_cell_piece_is_read(monkeypatch):
                                      if t.uuid == "nt1"))], reason=None))
     plan = _plan(board, cfg)
     assert "nt1" in {r.uuid for r in plan.table}
+
+
+# ── Р1в-1: the CELL's islands (its own copper + its pads) ────────────────────
+
+def _owned(cell_uuid="cu", ref="U1"):
+    """A registry key naming THIS cell (dac_buf) at the instance anchored on
+    ``ref`` — the SAME builder the plan uses (Р1а-3)."""
+    return make_registry_key(
+        "anchor:" + ref,
+        explode_mod.cell_identity(
+            "dac_buf", SimpleNamespace(uuid=cell_uuid)), None, 0)
+
+
+def _one_cell(uuid="c1", ref="U1", cluster="CELL"):
+    return fp(uuid, ref, cluster, 0.0, 0.0, role="IC")
+
+
+def test_cell_pads_joined_by_the_cells_own_copper_are_one_island(monkeypatch):
+    """Р1в-1(а) — the live pif_avdd false tee: three cell pads joined by the
+    CELL's own copper are ONE island, so an inter-cluster piece from one of them
+    to the PIF is the PIF label, NOT tee, and no T-branch warning."""
+    u1 = _one_cell()
+    p1 = fp("p1", "C1", "PIF", 3.0, 0.0, role="A")
+    ccu = track("ccu", F_CU, 0.0, 0.0, 0.0, 2.0)     # joins U1.1/U1.2/U1.3
+    nt = track("nt", F_CU, 0.0, 0.0, 3.0, 0.0)       # U1 pad -> PIF pad
+    board = ExplodeBoard(
+        footprints=[u1, p1], tracks=[ccu, nt],
+        pads={"c1": [pad("1", 0.0, 0.0), pad("2", 0.0, 1.0), pad("3", 0.0, 2.0)],
+              "p1": [pad("1", 3.0, 0.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {"ccu": _owned()}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt")
+    assert row.touches == "PIF"
+    assert not any("T-branch" in w for w in plan.warnings)
+
+
+def test_piece_joining_two_unconnected_cell_pads_and_foreign_is_tee(monkeypatch):
+    """Р1в-1(б): a single piece joining two NOT-connected cell pads (two separate
+    islands) plus a foreign pad is the dangerous tee."""
+    u1 = _one_cell()
+    p1 = fp("p1", "C1", "PIF", 3.0, 0.0, role="A")
+    nt = track("nt", F_CU, 0.0, 0.0, 3.0, 0.0)       # U1.1 -> U1.2 -> PIF
+    board = ExplodeBoard(
+        footprints=[u1, p1], tracks=[nt],
+        pads={"c1": [pad("1", 0.0, 0.0), pad("2", 1.0, 0.0)],
+              "p1": [pad("1", 3.0, 0.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt")
+    assert row.touches == "tee" and row.ticked is True
+    assert any("T-branch" in w for w in plan.warnings)
+
+
+def test_piece_t_junction_onto_cell_copper_touches_the_island(monkeypatch):
+    """Р1в-1(в): a piece whose end T-junctions the CELL's own TRACK (not a pad)
+    touches the cell island, exactly like a pad — so it is `cell`, not `none`."""
+    u1 = _one_cell()
+    ccu = track("ccu", F_CU, 0.0, 0.0, 0.0, 3.0)     # cell own copper
+    nt = track("nt", F_CU, 0.0, 1.5, -1.0, 1.5)      # T onto ccu, touches no pad
+    board = ExplodeBoard(footprints=[u1], tracks=[ccu, nt],
+                         pads={"c1": [pad("1", 0.0, 0.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {"ccu": _owned()}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt")
+    assert row.touches == "cell"
+
+
+def test_two_cell_tracks_meeting_at_a_pad_centre_is_one_island(monkeypatch):
+    """Р1в-1(г): two cell tracks meeting at the centre of one cell pad are ONE
+    island, so a foreign piece to that pad is the PIF label, not tee."""
+    u1 = _one_cell()
+    p1 = fp("p1", "C1", "PIF", 3.0, 0.0, role="A")
+    ca = track("ca", F_CU, -2.0, 0.0, 2.0, 0.0)
+    cb = track("cb", F_CU, 0.0, -2.0, 0.0, 2.0)
+    nt = track("nt", F_CU, 0.0, 0.0, 3.0, 0.0)
+    board = ExplodeBoard(
+        footprints=[u1, p1], tracks=[ca, cb, nt],
+        pads={"c1": [pad("1", 0.0, 0.0)], "p1": [pad("1", 3.0, 0.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    key = _owned()
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {"ca": key, "cb": key}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=nt)], reason=None))
+    plan = _plan(board, cfg)
+    row = next(r for r in plan.table if r.uuid == "nt")
+    assert row.touches == "PIF"
+    assert not any("T-branch" in w for w in plan.warnings)
+
+
+def test_the_cells_own_copper_is_not_a_graph_node(monkeypatch):
+    """Р1в-1: the cell's own copper always stays put, so it MUST NOT join two
+    foreign pieces into one component (the reverse-case false multi/tee). Two
+    pieces, each touching the cell's copper at a DIFFERENT point and a different
+    foreign instance, stay SEPARATE — each its own <cluster> label, no warning."""
+    u1 = _one_cell()
+    pa = fp("pa", "A1", "PIFA", -3.0, 1.0, role="A")
+    pb = fp("pb", "B1", "PIFB", 3.0, 3.0, role="B")
+    ccu = track("ccu", F_CU, 0.0, 0.0, 0.0, 4.0)     # cell own copper
+    fa = track("fa", F_CU, -3.0, 1.0, 0.0, 1.0)      # PIFA pad -> ccu at (0,1)
+    fb = track("fb", F_CU, 3.0, 3.0, 0.0, 3.0)       # PIFB pad -> ccu at (0,3)
+    board = ExplodeBoard(
+        footprints=[u1, pa, pb], tracks=[ccu, fa, fb],
+        pads={"c1": [pad("1", 0.0, 0.0)],
+              "pa": [pad("1", -3.0, 1.0)], "pb": [pad("1", 3.0, 3.0)]})
+    cfg = SimpleNamespace(cells={"dac_buf": SimpleNamespace(uuid="cu")},
+                          entities=[], clone_placements=[],
+                          net_traces=[_nt("rec", anchor_cluster="CELL")])
+    monkeypatch.setattr(explode_mod, "load_registry_entries",
+                        lambda *a, **k: ({}, {}, {"ccu": _owned()}))
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda *a, **k: SimpleNamespace(
+                            pieces=[SimpleNamespace(live=fa),
+                                    SimpleNamespace(live=fb)], reason=None))
+    plan = _plan(board, cfg)
+    rows = {r.uuid: r for r in plan.table}
+    assert rows["fa"].touches == "PIFA"
+    assert rows["fb"].touches == "PIFB"
+    assert list(plan.warnings) == []
+
+
+# ── Р1в-2 / Р1в-3: the table is only about the cell; the read filter ─────────
+
+def test_piece_touching_only_a_foreign_instance_leaves_silently(monkeypatch):
+    """Р1в-2 (live pif_avdd, DAC_BUF <-> PIF_CLKVDD): a read piece that does NOT
+    touch a cell island is not a table row — it leaves with the first foreign
+    instance, counted, with no warning."""
+    board, cfg = _scenario(monkeypatch)
+    plan = _plan(board, cfg)
+    assert "nt2" not in {r.uuid for r in plan.table}
+    assert "nt2" in {mv.uuid for mv in plan.moves}
+    assert list(plan.warnings) == []
+
+
+def test_a_record_with_a_foreign_sheet_is_not_read_via_the_cluster(monkeypatch):
+    """Р1в-3 (live: Channel_1/2 anchors on the cell's PIF cluster): a record with
+    a KNOWN sheet is read only when that sheet is the cell's; a matching CLUSTER
+    no longer pulls it in. A fake find_live_copper counts the reads."""
+    board, cfg = _scenario(monkeypatch)
+    read = []
+    same = _nt("same", anchor_sheet="Channel_0", anchor_cluster="CELL")
+    other = _nt("other", anchor_sheet="Channel_1", anchor_cluster="CELL")
+    cfg.net_traces = [same, other]
+    monkeypatch.setattr(explode_mod, "find_live_copper",
+                        lambda adapter, nt, **k: (
+                            read.append(nt.name)
+                            or SimpleNamespace(pieces=[], reason=None)))
+    explode_mod.plan_explode(board, cfg, "/tmp/config.sexp", "dac_buf",
+                             "CELL", "Channel_0", {}, margin_mm=1.0, gap_mm=1.0)
+    assert read == ["same"]
 
 
 # ── pad layers (Ответ Демону) ───────────────────────────────────────────────
