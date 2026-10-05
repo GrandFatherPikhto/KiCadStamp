@@ -915,6 +915,42 @@ def _unpaired_kept_report(via_records: list[dict],
               "{names}").format(count=len(entries), names=", ".join(entries))]
 
 
+def referencing_records_for_roles(cfg, roles: set) -> dict:
+    """Ф2 (acceptance of cbc8bdc, Н4 п.4): which records OUTSIDE the cell
+    reference a role the reconcile is about to DELETE — entity / tree / spokes /
+    nested placements by their ``role`` / ``anchor_role``. Best-effort over the
+    LOADED config; the caller turns each role into ONE yellow Log line."""
+    refs: dict[str, list[str]] = {}
+    if cfg is None or not roles:
+        return refs
+
+    def _add(role, label: str) -> None:
+        if role and str(role) in roles:
+            refs.setdefault(str(role), []).append(label)
+
+    for e in getattr(cfg, "entities", ()) or ():
+        name = getattr(e, "name", "?")
+        _add(getattr(e, "anchor_role", None), f"entity {name}")
+        _add(getattr(e, "role", None), f"entity {name}")
+    for c in getattr(cfg, "clone_placements", ()) or ():
+        name = getattr(c, "name", None) or getattr(c, "cluster", None) or "?"
+        _add(getattr(c, "anchor_role", None), f"clone {name}")
+        _add(getattr(c, "role", None), f"clone {name}")
+    for t in getattr(cfg, "trees", ()) or ():
+        tname = getattr(t, "name", "?")
+        for n in getattr(t, "nodes", ()) or ():
+            ref = getattr(n, "ref", "?")
+            _add(getattr(n, "role", None), f"tree {tname}:{ref}")
+            anchor = getattr(n, "anchor", None)
+            if anchor is not None:
+                _add(getattr(anchor, "role", None), f"tree {tname}:{ref}")
+    for ch in getattr(cfg, "chains", ()) or ():
+        cname = getattr(ch, "name", "?")
+        for sp in getattr(ch, "spokes", ()) or ():
+            _add(getattr(sp, "role", None), f"chain {cname}")
+    return refs
+
+
 def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[dict],
                        footprints: list[Footprint], raw_via_items: list[Via],
                        raw_track_items: list[Track], adapter: Any,
@@ -924,6 +960,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        remove_missing: bool = False,
                        keep_unpaired: bool = False,
                        reconcile_components: bool = False,
+                       config: Any = None,
                        cell_layer: str | None = None,
                        nested_placements: list[dict] | None = None,
                        cells: dict | None = None,
@@ -1072,7 +1109,9 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             record: dict = {"role": role}
             record.update(_component_new_geo(fp, frame))
             # `layer` only when the side differs from the cell's own — the
-            # extractor's rule (extract_template_from_selection).
+            # extractor's rule (extract_template_from_selection). Ф4: checked —
+            # CellDock always sends a value (its combo defaults to "F.Cu"), so
+            # this path never sees None and needs no fallback.
             if cell_layer is not None and layer_to_str(fp.layer) != cell_layer:
                 record["layer"] = layer_to_str(fp.layer)
             new_component_records.append(record)
@@ -1080,6 +1119,15 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         if missing_roles:
             removed_component_records = [c for c in components
                                          if c.get("role") in missing_roles]
+            # Ф2: ONE yellow line per removed role that records OUTSIDE this
+            # cell still reference — the deletion is real, but the user must
+            # see which entity/tree/spoke anchor now points at a gone role.
+            refs = referencing_records_for_roles(config, missing_roles)
+            for role in sorted(refs):
+                warnings.append(
+                    _("records outside this cell reference the removed role "
+                      "{role!r}: {refs}").format(
+                          role=role, refs=", ".join(sorted(refs[role]))))
 
     # A missing role's copper has nothing to stand on: it is REMOVED (above), so
     # it must not reach the matcher — resolving its `net_from_role` would fatal.

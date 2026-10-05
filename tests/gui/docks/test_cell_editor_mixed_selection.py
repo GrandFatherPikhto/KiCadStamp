@@ -258,3 +258,31 @@ def test_clean_refresh_keeps_the_unregistered_unpaired_track(main_window, tmp_pa
     texts = [text for text, _level in result["selection_lines"]]
     assert any("left as they are" in text for text in texts)
     assert len(clean.selected_calls) == 1
+
+
+class _NewRoleBoard:
+    """DAC_BUF + an extra role the cell dac_buf does not have yet (the D23/R70
+    live case): the instance is WIDER than the cell."""
+
+    def __init__(self):
+        self.selected = [
+            _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1")),
+            _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2")),
+            _fp("R70", "R_SD_PROT", "DAC_BUF", 20.0, 10.0, ("ch0", "s3")),
+        ]
+        self.selected_all = list(self.selected)
+        self.selected_calls = []
+        self.adapter = _adapter(self)
+
+
+def test_import_reconciles_a_new_role(main_window, tmp_path):
+    """Н4а / N24: Import on an instance whose role set is WIDER than the cell
+    (a new role) no longer fatals — the same reconcile prelude as Refresh, for
+    the import door."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    board = _NewRoleBoard()
+
+    result = dock._run_import_vias_tracks(_payload(dock, board))
+
+    assert "plan" in result, result
+    assert len(board.selected_calls) == 1

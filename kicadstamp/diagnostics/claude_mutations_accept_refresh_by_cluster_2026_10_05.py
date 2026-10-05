@@ -12,7 +12,7 @@ machinery (count == 1 or НЕДЕЙСТВИТЕЛЬНА, _drop_pyc, PYTHONDONTWR
 """
 from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
 
-G = rig.GUARDS + ["test_cell_editor.py"]
+G = rig.GUARDS + ["test_cell_editor.py", "test_refresh_by_cluster_h4a.py"]
 REFRESH = rig.REFRESH
 EDITOR = rig.EDITOR
 NARROWING = rig.NARROWING
@@ -135,6 +135,15 @@ ROWS = [
      "                reconcile_components=prelude is not None)",
      "                cell_layer=payload.get(\"cell_layer\"),\n"
      "                reconcile_components=False)  # MUTATION",
+     "die", G, ()),
+    # ── Н4а findings Ф1/Ф3 ──────────────────────────────────────────────────
+    ("Ф1 failed board read deletes", NARROWING,
+     "    if not getattr(ctx, \"board_read_ok\", True):",
+     "    if False:  # MUTATION",
+     "die", G, ()),
+    ("Ф3 reason never reaches the notes", NARROWING,
+     "        if getattr(live, \"reason\", None):",
+     "        if False:  # MUTATION",
      "die", G, ()),
     ("K3 cosmetic comment (control)", NARROWING,
      "    index_by_id = {id(r): i for i, r in enumerate(records or ())}",

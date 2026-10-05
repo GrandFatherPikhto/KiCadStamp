@@ -1982,6 +1982,7 @@ class CellDock(QWidget):
                 # instance's extra roles become NEW records, the cell's missing
                 # roles are DELETED (with their copper), never a role fatal.
                 reconcile_components=prelude is not None,
+                config=cfg,
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,

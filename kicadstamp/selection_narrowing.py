@@ -125,6 +125,10 @@ class CopperSubtraction:
     kept: tuple
     removed: tuple
     report: tuple = ()
+    # Ф3 (acceptance of cbc8bdc): honest notes about a `net_traces:` record whose
+    # anchor could not be resolved (or whose match raised) — a read must SAY it
+    # skipped the record, never fail its subtraction silently.
+    notes: tuple = ()
 
 
 # ── the cell's cluster and record addresses (from the LOADED config) ────────
@@ -446,6 +450,11 @@ class CopperReadContext:
     board_track_uuids: frozenset
     vias: list
     tracks: list
+    # Ф1 (acceptance of cbc8bdc): False when the board copper could NOT be read.
+    # The deletion rule must then delete NOTHING — an empty uuid set is NOT "the
+    # board is empty", it is "we do not know" (a read error must never erase
+    # every unpaired record).
+    board_read_ok: bool = True
 
 
 def own_record_registry_key(entries, cell_identity: str | None,
@@ -522,6 +531,11 @@ def apply_live_copper_rule(plan, ctx: CopperReadContext) -> list[str]:
     """Move the records whose registry uuid is ABSENT from the board into the
     plan's removed_* lists; keep and NAME the rest. Returns the yellow Log lines
     for the kept records. Mutates the plan's removal lists only."""
+    # Ф1: a failed board-copper read means "we do not know", NOT "the board is
+    # empty" — delete nothing and say so.
+    if not getattr(ctx, "board_read_ok", True):
+        return [_("could not read the board copper — records without a live "
+                  "pair were left as they are")]
     to_del_v, _keep_v, names_v = divide_unpaired_records(
         getattr(plan, "unpaired_via_records", None), ctx.vias, "via",
         ctx.via_entries, ctx.board_via_uuids, ctx)
@@ -556,14 +570,24 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
 
     vreg, treg = _Entries(via_entries or {}), _Entries(track_entries or {})
     foreign: dict[str, str] = {}
+    notes: list[str] = []
     for nt in net_traces or ():
+        name = str(getattr(nt, "net", "?"))
         try:
             live = find_live_copper(adapter, nt, via_registry=vreg,
                                     track_registry=treg,
                                     sheet_names=sheet_names or {})
-        except Exception:  # noqa: BLE001 — a read must never crash the narrow
+        except Exception as e:  # noqa: BLE001 — a read must never crash the narrow
+            notes.append(_("net_traces {net!r}: cannot match its copper ({error})")
+                         .format(net=name, error=" ".join(str(e).split())))
             continue
-        identity = getattr(live, "identity", None) or str(getattr(nt, "net", ""))
+        if getattr(live, "reason", None):
+            # Ф3: the anchor did not resolve — the record takes no part in the
+            # subtraction and SAYS so (never a silent skip).
+            notes.append(_("net_traces {net!r}: {reason} — it was not subtracted")
+                         .format(net=getattr(live, "identity", None) or name,
+                                 reason=live.reason))
+        identity = getattr(live, "identity", None) or name
         for item in live.found:
             uuid = getattr(item, "uuid", None)
             if uuid:
@@ -579,4 +603,5 @@ def subtract_net_trace_copper(items, net_traces, adapter, *,
             removed.append(item)
             report[label] = report.get(label, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
-                             report=tuple(sorted(report.items())))
+                             report=tuple(sorted(report.items())),
+                             notes=tuple(notes))

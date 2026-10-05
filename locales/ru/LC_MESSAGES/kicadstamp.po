@@ -17965,3 +17965,15 @@ msgstr "{sign} компонент {role}"
 
 msgid "{sign} component {role} ({along}, {across}) angle {angle}°"
 msgstr "{sign} компонент {role} ({along}, {across}) угол {angle}°"
+
+msgid "could not read the board copper — records without a live pair were left as they are"
+msgstr "не удалось прочитать медь платы — записи без живой пары оставлены как есть"
+
+msgid "net_traces {net!r}: {reason} — it was not subtracted"
+msgstr "net_traces {net!r}: {reason} — запись не вычиталась"
+
+msgid "net_traces {net!r}: cannot match its copper ({error})"
+msgstr "net_traces {net!r}: не удалось сопоставить медь ({error})"
+
+msgid "records outside this cell reference the removed role {role!r}: {refs}"
+msgstr "записи вне этой ячейки ссылаются на удаляемую роль {role!r}: {refs}"

@@ -19262,3 +19262,15 @@ msgstr ""
 
 msgid "{sign} component {role} ({along}, {across}) angle {angle}°"
 msgstr ""
+
+msgid "could not read the board copper — records without a live pair were left as they are"
+msgstr ""
+
+msgid "net_traces {net!r}: {reason} — it was not subtracted"
+msgstr ""
+
+msgid "net_traces {net!r}: cannot match its copper ({error})"
+msgstr ""
+
+msgid "records outside this cell reference the removed role {role!r}: {refs}"
+msgstr ""

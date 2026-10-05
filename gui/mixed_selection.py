@@ -246,12 +246,17 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         via_entries=via_entries, track_entries=track_entries,
         sheet_names=sheet_names)
 
+    # Ф1: a failed board-copper read must NOT look like "the board is empty" —
+    # the deletion rule then deletes nothing (board_read_ok=False).
+    board_read_ok = True
     try:
         board_via_uuids = frozenset(getattr(v, "uuid", None)
                                     for v in adapter.get_vias())
         board_track_uuids = frozenset(getattr(t, "uuid", None)
                                       for t in adapter.get_tracks())
     except Exception:  # noqa: BLE001 — a read must not crash the narrow
+        logger.exception("could not read the board copper for the live-UUID rule")
+        board_read_ok = False
         board_via_uuids = frozenset()
         board_track_uuids = frozenset()
 
@@ -260,9 +265,15 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         chosen_address=chosen_address, chosen_refs=frozenset(chosen_refs),
         via_entries=via_entries, track_entries=track_entries,
         board_via_uuids=board_via_uuids, board_track_uuids=board_track_uuids,
-        vias=list(vias), tracks=list(tracks))
+        vias=list(vias), tracks=list(tracks), board_read_ok=board_read_ok)
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, others), SUCCESS)]
+    # Ф3: a net_traces record whose anchor could not be resolved says so.
+    for note in list(net_v.notes) + list(net_t.notes):
+        lines.append((note, WARN))
+    if not board_read_ok:
+        lines.append((_("could not read the board copper — records without a "
+                        "live pair were left as they are"), WARN))
     subtraction = _subtraction_line([sub_v, sub_t, net_v, net_t])
     if subtraction:
         lines.append((subtraction, SUCCESS))
