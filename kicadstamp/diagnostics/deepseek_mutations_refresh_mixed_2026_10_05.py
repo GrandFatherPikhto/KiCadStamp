@@ -25,9 +25,12 @@ selection-after-read). Every row maps to a line of the plan's own mutation list.
   * M9  Import does not narrow                          -> import keeps the mix
   * M10 the cell-cluster step dropped (roles only)      -> PIF cell goes red
   * M11 "Fill from selection" without the filtering     -> duplicate-role fatal
-  * M12 remove_missing True again in mixed mode         -> unpaired record lost
+  * M12 the mixed path loses keep_unpaired             -> unpaired record fatal
   * M13 anchor: key of THIS cell foreign again          -> own anchored copper gone
   * M14 role: key without the address check             -> foreign role copper kept
+  * M15 keep_unpaired treated as fatal                  -> unpaired record fatal
+  * M16 keep_unpaired deletes the record                -> unpaired record lost
+  * M17 the clean path got keep_unpaired                -> clean deletion lost
   * K1  a cosmetic comment                              -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -59,6 +62,7 @@ NARROWING = "kicadstamp/selection_narrowing.py"
 GLUE = "gui/mixed_selection.py"
 EDITOR = "gui/docks/cell_editor.py"
 IDENT = "gui/cell_identification.py"
+REFRESH = "kicadstamp/cell_geometry_refresh.py"
 
 MUTATIONS = [
     ("M1 foreign registered copper not subtracted", NARROWING,
@@ -125,9 +129,27 @@ MUTATIONS = [
      "    cell_clusters_set = {str(c) for c in (cell_clusters or ()) if c}\n"
      "    if False:  # MUTATION",
      "die", GUARDS, ()),
-    ("M12 remove_missing True again in mixed mode", EDITOR,
-     "                remove_missing=prelude is None,",
-     "                remove_missing=True,  # MUTATION",
+    ("M12 the mixed path loses keep_unpaired", EDITOR,
+     "                keep_unpaired=prelude is not None,",
+     "                keep_unpaired=False,  # MUTATION",
+     "die", GUARDS, ()),
+    ("M17 the clean path got keep_unpaired", EDITOR,
+     "                keep_unpaired=prelude is not None,",
+     "                keep_unpaired=True,  # MUTATION",
+     "die", GUARDS, ()),
+    ("M15 keep_unpaired treated as fatal", REFRESH,
+     "    missing_is_fatal = not remove_missing and not keep_unpaired",
+     "    missing_is_fatal = not remove_missing  # MUTATION",
+     "die", GUARDS, ()),
+    ("M16 keep_unpaired deletes the record", REFRESH,
+     "    if keep_unpaired:\n"
+     "        unpaired_reports = _unpaired_kept_report(via_removed, track_removed)\n"
+     "        via_removed = []\n"
+     "        track_removed = []",
+     "    if False:  # MUTATION\n"
+     "        unpaired_reports = _unpaired_kept_report(via_removed, track_removed)\n"
+     "        via_removed = []\n"
+     "        track_removed = []",
      "die", GUARDS, ()),
     ("M13 anchor: key of this cell foreign again", NARROWING,
      "        return ref in chosen_refs",

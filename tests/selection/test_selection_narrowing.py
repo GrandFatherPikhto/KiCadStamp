@@ -613,3 +613,129 @@ def test_read_back_after_manual_track_removal_deletes_its_record(gate, tmp_path)
         add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
     changed, new_v, new_t, rem_v, rem_t = _plan_decomposition(plan2)
     assert (changed, new_v, new_t, rem_v, rem_t) == ([], [], [], [], [tracks[0]])
+
+
+# ── keep_unpaired: the SOFT mode of a MIXED read (Denis 2026-10-05) ─────────
+
+def _soft_scenario(kind):
+    """One cell dac_buf (components DA/DB) and, for `kind` ('via'|'track'):
+    ONE record that pairs a live item, ONE record with NO live pair at all, and
+    a LIVE item no record describes (the new copper). Returns
+    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
+     paired, unpaired)."""
+    components = [
+        {"role": "DA", "offset_along_mm": 0.0, "offset_across_mm": 0.0, "angle_deg": 0.0},
+        {"role": "DB", "offset_along_mm": 5.0, "offset_across_mm": 0.0, "angle_deg": 0.0},
+    ]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1"))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2"))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")})
+    if kind == "via":
+        paired = {"net": None, "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                  "drill_mm": 0.3, "diameter_mm": 0.6}
+        unpaired = {"net": "GND", "offset_along_mm": 0.0, "offset_across_mm": 2.0,
+                    "drill_mm": 0.3, "diameter_mm": 0.6}
+        live = Via(uuid="live-paired", position=Vector2.from_xy_mm(10.0, 11.0),
+                   net_name=None, drill_mm=0.3, diameter_mm=0.6)
+        live_extra = Via(uuid="live-extra", position=Vector2.from_xy_mm(30.0, 30.0),
+                         net_name="GND2", drill_mm=0.3, diameter_mm=0.6)
+        return (components, fp_c1, fp_c2, adapter, [paired, unpaired], [],
+                [live, live_extra], [], paired, unpaired)
+    paired = {"net": None, "layer": "F.Cu", "width_mm": 0.25,
+              "start_along_mm": 0.0, "start_across_mm": 0.0,
+              "end_along_mm": 1.0, "end_across_mm": 0.0}
+    unpaired = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
+                "start_along_mm": 0.0, "start_across_mm": 2.0,
+                "end_along_mm": 1.0, "end_across_mm": 2.0}
+    live = Track(uuid="live-paired", net_name=None,
+                 start=Vector2.from_xy_mm(10.0, 11.0),
+                 end=Vector2.from_xy_mm(11.0, 11.0),
+                 width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+    live_extra = Track(uuid="live-extra", net_name="GND2",
+                       start=Vector2.from_xy_mm(30.0, 30.0),
+                       end=Vector2.from_xy_mm(31.0, 30.0),
+                       width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+    return (components, fp_c1, fp_c2, adapter, [], [paired, unpaired],
+            [], [live, live_extra], paired, unpaired)
+
+
+@pytest.mark.parametrize("kind", ["via", "track"])
+def test_keep_unpaired_leaves_the_record_and_names_it(gate, kind):
+    """Denis 2026-10-05, the SOFT mode: with keep_unpaired=True a record that
+    has no live pair is NOT a fatal and NOT deleted — it is left completely as
+    it is and NAMED in the Log; the paired record is refreshed as usual and the
+    live copper no record describes is still ADDED. Both kinds (the matcher is
+    per-kind, and so is the report)."""
+    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
+     paired, unpaired) = _soft_scenario(kind)
+    before = dict(unpaired)
+    plan = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
+        add_new_copper=True, keep_unpaired=True, cell_layer="F.Cu")
+    # NOTHING is doomed (neither kind), the unpaired record is byte-for-byte
+    # untouched and is not among the refreshed pairs.
+    assert plan.removed_via_records == [] and plan.removed_track_records == []
+    assert unpaired == before
+    updates = plan.via_updates if kind == "via" else plan.track_updates
+    news = plan.new_via_records if kind == "via" else plan.new_track_records
+    assert all(rec is not unpaired for rec, _geo in updates)
+    # the paired record WAS refreshed (the update genuinely changes it)...
+    assert [rec for rec, _geo in updates] == [paired]
+    _rec, geo = updates[0]
+    assert any(_rec.get(k) != v for k, v in geo.items())
+    # ...and the live copper no record describes is still added as a NEW record.
+    assert len(news) == 1
+    # the Log NAMES the kept record (count + name, never a bare counter).
+    assert len(plan.unpaired_reports) == 1
+    assert "1 record(s) without a live pair" in plan.unpaired_reports[0]
+    assert "GND" in plan.unpaired_reports[0]
+
+
+@pytest.mark.parametrize("kind", ["via", "track"])
+def test_keep_unpaired_wins_over_remove_missing(gate, kind):
+    """The mixed path passes remove_missing=True AND keep_unpaired=True together
+    (CellDock). With both set, keep_unpaired WINS: the record is left as it is,
+    not returned for deletion — the deletion belongs to the read-back by the
+    clean selection after a mixed read."""
+    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
+     _paired, unpaired) = _soft_scenario(kind)
+    plan = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
+        add_new_copper=True, remove_missing=True, keep_unpaired=True,
+        cell_layer="F.Cu")
+    assert plan.removed_via_records == [] and plan.removed_track_records == []
+    assert plan.unpaired_reports and "GND" in plan.unpaired_reports[0]
+
+
+@pytest.mark.parametrize("kind", ["via", "track"])
+def test_remove_missing_still_deletes_the_unpaired_record(gate, kind):
+    """The CLEAN-path mode is untouched: remove_missing=True (and no
+    keep_unpaired) still returns the unpaired record for DELETION, and no
+    keep-unpaired Log line is produced — for BOTH kinds."""
+    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
+     _paired, unpaired) = _soft_scenario(kind)
+    plan = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
+        add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
+    if kind == "via":
+        assert plan.removed_via_records == [unpaired]
+        assert plan.removed_track_records == []
+    else:
+        assert plan.removed_track_records == [unpaired]
+        assert plan.removed_via_records == []
+    assert plan.unpaired_reports == []
+
+
+@pytest.mark.parametrize("kind", ["via", "track"])
+def test_strict_default_still_fatals_on_the_unpaired_record(gate, kind):
+    """With NEITHER soft switch the default is unchanged: a record with no live
+    pair is still today's collected fatal (nothing is written) — for BOTH
+    kinds."""
+    from kicadstamp.exceptions import ValidationError
+
+    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
+     _paired, _unpaired) = _soft_scenario(kind)
+    with pytest.raises(ValidationError):
+        build_refresh_plan(
+            components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks,
+            adapter, add_new_copper=True, cell_layer="F.Cu")

@@ -21,11 +21,11 @@ import gui.docks.cell_editor as cell_editor_mod
 from gui.board_layers import ALL_COPPER_LAYERS
 from gui.docks.cell_editor import CellDock
 from kicadstamp.config.sexp_format import dict_to_sexp
-from kicadstamp.domain.board import Footprint, Via
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 
 
-def _config_data(vias=None):
+def _config_data(vias=None, tracks=None):
     return {
         "cells": {"dac_buf": {
             "layer": "F.Cu",
@@ -35,7 +35,8 @@ def _config_data(vias=None):
                 {"role": "DB", "offset_along_mm": 5.0, "offset_across_mm": 0.0,
                  "angle_deg": 0.0},
             ],
-            "vias": list(vias or []), "tracks": [], "clone_placements": [],
+            "vias": list(vias or []), "tracks": list(tracks or []),
+            "clone_placements": [],
         }},
         "entities": [{"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF"}],
     }
@@ -76,6 +77,40 @@ class _MixedBoard:
         ]
         self.via = _via("v-unreg", 10.0, 11.0)
         self.selected_all = list(self.selected) + [self.via]
+        self.selected_calls = []
+        self.adapter = SimpleNamespace(
+            refresh_board=lambda: None,
+            get_selected_items=lambda: list(self.selected_all),
+            get_field_value=lambda fp, name: (
+                getattr(fp, "_role", None)
+                if name == "Role" else getattr(fp, "_cluster", None)),
+            get_footprint_pads=lambda fp: [],
+            select_items=lambda items: self.selected_calls.append(list(items)),
+        )
+
+
+class _MixedTrackBoard:
+    """The same DAC_BUF + foreign PIF selection, but the read copper is TRACKS:
+    one live track the cell's own record pairs, one live track no record
+    describes (the new copper). Tracks have no ``ref``, so the selection-after-
+    read is read back by uuid."""
+
+    def __init__(self):
+        self.selected = [
+            _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1")),
+            _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2")),
+            _fp("P1", "PA", "PIF_AVDD", 20.0, 10.0, ("ch1", "s3")),
+            _fp("P2", "PB", "PIF_AVDD", 25.0, 10.0, ("ch1", "s4")),
+        ]
+        self.track = Track(uuid="t-unreg", net_name=None,
+                           start=Vector2.from_xy_mm(10.0, 11.0),
+                           end=Vector2.from_xy_mm(11.0, 11.0),
+                           width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+        self.track_extra = Track(uuid="t-extra", net_name="GND2",
+                                 start=Vector2.from_xy_mm(30.0, 30.0),
+                                 end=Vector2.from_xy_mm(31.0, 30.0),
+                                 width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+        self.selected_all = list(self.selected) + [self.track, self.track_extra]
         self.selected_calls = []
         self.adapter = SimpleNamespace(
             refresh_board=lambda: None,
@@ -163,20 +198,63 @@ def test_clean_selection_does_not_select_or_keep_context(main_window, tmp_path):
     assert not result.get("selection_lines")
 
 
-def test_mixed_refresh_does_not_delete_unpaired_records(main_window, tmp_path):
-    """N1(a): in a MIXED selection a record with no live pair is NOT deleted —
-    the plan refuses (remove_missing=False keeps today's count fatal, never the
-    old silent deletion) and the record is intact; the Log says why."""
-    unpaired = {"offset_along_mm": 1.0, "offset_across_mm": 2.0, "net": "GND",
-                "drill_mm": 0.3, "diameter_mm": 0.6}
-    dock, _ = _make_dock(main_window, tmp_path, _config_data(vias=[unpaired]))
-    board = _MixedBoard()
+def test_mixed_refresh_keeps_the_unpaired_track(main_window, tmp_path):
+    """Denis 2026-10-05, the SOFT keep_unpaired mode: a MIXED read with ONE
+    track the cell's records do not pair leaves that record COMPLETELY as it is
+    (not deleted, not a fatal), refreshes the paired record, still adds the live
+    copper no record describes, NAMES the kept record in the Log and makes the
+    selection-after-read. (Supersedes the strict refusal this cell asserted
+    before the decision.)"""
+    paired = {"net": None, "layer": "F.Cu", "width_mm": 0.25,
+              "start_along_mm": 0.0, "start_across_mm": 0.0,
+              "end_along_mm": 1.0, "end_across_mm": 0.0}
+    unpaired = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
+                "start_along_mm": 0.0, "start_across_mm": 2.0,
+                "end_along_mm": 1.0, "end_across_mm": 2.0}
+    dock, _ = _make_dock(main_window, tmp_path,
+                         _config_data(tracks=[paired, unpaired]))
+    board = _MixedTrackBoard()
 
     result = dock._run_refresh_geometry(_payload(dock, board))
 
-    # No plan and no deletion: the cell's own record is untouched.
-    assert "plan" not in result, result
-    assert "error" in result, result
-    assert len(dock._vias) == 1 and dock._vias[0]["net"] == "GND"
-    texts = [text for text, _level in result.get("selection_lines") or []]
-    assert any("not deleted" in text for text in texts)
+    assert "plan" in result, result
+    plan = result["plan"]
+    # nothing doomed; the unpaired record is intact and NOT among the updates.
+    assert plan.removed_via_records == [] and plan.removed_track_records == []
+    kept = dock._tracks[1]
+    assert kept["net"] == "GND" and kept["start_across_mm"] == 2.0
+    assert all(rec is not kept for rec, _geo in plan.track_updates)
+    # the paired record WAS refreshed, and the new copper is still added.
+    assert len(plan.track_updates) == 1
+    assert len(plan.new_track_records) == 1
+    # the Log line names the kept record.
+    texts = [text for text, _level in result["selection_lines"]]
+    assert any("left as they are" in text for text in texts)
+    assert any("GND" in text for text in texts)
+    # the selection-after-read was made (instance components + read copper).
+    assert len(board.selected_calls) == 1
+    refs = [getattr(i, "ref", None) if isinstance(i, Footprint) else i.uuid
+            for i in board.selected_calls[0]]
+    assert refs == ["C1", "C2", "t-unreg", "t-extra"]
+
+
+def test_clean_refresh_still_deletes_the_unpaired_track(main_window, tmp_path):
+    """The CLEAN path is untouched (Denis 2026-10-05): a clean selection still
+    DELETES a record with no live pair (remove_missing=True), produces no
+    keep-unpaired Log line, and never re-selects. The read-back after a mixed
+    read relies on exactly this."""
+    unpaired = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
+                "start_along_mm": 0.0, "start_across_mm": 2.0,
+                "end_along_mm": 1.0, "end_across_mm": 2.0}
+    dock, _ = _make_dock(main_window, tmp_path, _config_data(tracks=[unpaired]))
+    clean = _MixedTrackBoard()
+    clean.selected_all = list(clean.selected[:2]) + [clean.track]
+
+    result = dock._run_refresh_geometry(_payload(dock, clean))
+
+    assert "plan" in result, result
+    plan = result["plan"]
+    assert plan.removed_track_records == list(dock._tracks)
+    assert plan.unpaired_reports == []
+    assert clean.selected_calls == []
+    assert not result["selection_lines"]

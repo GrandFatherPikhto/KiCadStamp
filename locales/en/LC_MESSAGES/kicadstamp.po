@@ -19237,8 +19237,8 @@ msgstr ""
 msgid "the selection mixes {count} instances of cell {cell!r}: {candidates} — select ONE instance and read again"
 msgstr ""
 
-#: gui/docks/cell_editor.py
-msgid "in a mixed selection, records without a live pair are not deleted — read again by the selection after the read to delete them"
+#: kicadstamp/cell_geometry_refresh.py
+msgid "{count} record(s) without a live pair were left as they are: {names}"
 msgstr ""
 
 #: gui/cell_identification.py

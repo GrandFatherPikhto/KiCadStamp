@@ -2437,6 +2437,10 @@ selection...** narrow the selection to ONE instance of the edited cell:
 * after the read the board selection is set to the chosen instance's components AND all the copper that
   entered the read, so the result is visible and can be corrected by hand and read again. Reading it
   back without a hand edit changes nothing — the run is a no-op and no file is written.
+* a record whose live pair is absent from the narrowed read is NOT deleted and does NOT refuse the
+  read — it is left exactly as it is and named in the Log ("N record(s) without a live pair were left
+  as they are: ..."). Deleting a record that was genuinely removed is the job of the read-back by the
+  CLEAN selection after the read.
 * zero candidates (a wrong/incomplete cluster) — today's refusal (the role message); several candidates
   (e.g. two channels of the same cell selected) — a red Log line listing them, nothing read or written,
   no dialog.

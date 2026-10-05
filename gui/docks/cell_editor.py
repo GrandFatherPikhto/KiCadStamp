@@ -1931,31 +1931,28 @@ class CellDock(QWidget):
             if refusal:
                 return {"selection_refusal": refusal}
             selection_lines = list(prelude.log_lines) if prelude else []
-            if prelude is not None:
-                # N1(a): in a MIXED selection an unpaired record is NOT deleted
-                # (its copper may legally be absent from the narrowed read) —
-                # the deletion belongs to the read-back by the clean selection
-                # after the read. Denis (2026-10-04): "а после — перечитать".
-                selection_lines.append((
-                    _("in a mixed selection, records without a live pair are "
-                      "not deleted — read again by the selection after the "
-                      "read to delete them"),
-                    _SELECTION_WARN))
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
                 add_new_copper=True,
-                # H.2: Refresh is symmetric — an unpaired record is DELETED
-                # (the user's explicit call: the selection is the truth for the
-                # cell's copper, the report goes to the Log). N1(a): NOT in a
-                # MIXED selection — see the Log line above; the deletion is the
-                # read-back's job (a clean selection follows the ordinary path).
+                # H.2: the CLEAN path keeps today's symmetry expression byte for
+                # byte — an unpaired record is DELETED (remove_missing=True when
+                # the prelude is None). A MIXED selection switches to the SOFT
+                # keep_unpaired (Denis 2026-10-05), which WINS over remove_missing:
+                # its records may legally have no live pair in the narrowed read,
+                # so they are left as they are and NAMED in the Log below (never
+                # deleted); the deletion belongs to the read-back by the clean
+                # selection after the read (Denis 2026-10-04: "а после — перечитать").
                 remove_missing=prelude is None,
+                keep_unpaired=prelude is not None,
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
+            # keep_unpaired: the Log line(s) naming the records left as they are.
+            for line in plan.unpaired_reports:
+                selection_lines.append((line, _SELECTION_WARN))
             # Plan item 3: after the plan is built, select on the board the
             # chosen instance's components AND all the copper that entered the
             # read — the user sees what was read and can fix the selection by
