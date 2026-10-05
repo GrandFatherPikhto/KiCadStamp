@@ -63,24 +63,15 @@ carry stale paths from before project renames), so every reader degrades
 SILENTLY — a remembered Cluster/Sheet that no longer resolves on the current
 live board leaves the UI fields empty / does nothing, never a fatal.
 
-Live-resolution helpers live here too:
-  - resolve_context_footprints(...) — the actual board footprints of the
-    remembered (Cluster, Sheet) instance, gathered through the SAME
-    role_narrowing cascade the whole project uses for (Sheet, Cluster)
-    addressing (no second terminology), used by CellDock's "Select cluster on
-    the board" button.
-    NOT by the cell-anchor page's prefill any more: that one now judges the
-    remembered cluster against the snapshot the page has already been fed, never
-    against the adapter (2026-09-17, stage 1а of the spoke work — a board read on
-    the UI thread that failed used to empty the Sheet/Cluster fields on reopen,
-    and cluster_present_on_board, which swallowed every exception, was that read).
+Live-board resolution of the remembered (Cluster, Sheet) pair does NOT live here
+any more: it MOVED to ``kicadstamp/cell_instance.py`` (2026-10-05, plan
+plan_2026_10_05_explode_r1_core.md §1) so the core package owns the rule without
+importing from gui/ (the gui -> kicadstamp boundary is one-way). This module is
+now ONLY the gui_state.json store: the "last used" context, the identified refs
+and the role table.
 """
 import logging
 from typing import Optional
-
-from kicadstamp.cluster_matching import cluster_prefix_match
-from kicadstamp.constants import CLUSTER_FIELD_NAME
-from kicadstamp.placement.services.role_narrowing import narrow_candidates_by_sheet
 
 from . import settings
 
@@ -302,32 +293,3 @@ def remembered_cell_edit_context(root_path, cell_name: str) -> tuple[
                 str(sheet) if sheet else None)
     except Exception:  # noqa: BLE001 — best-effort read, never fatal
         return (None, None)
-
-
-def resolve_context_footprints(adapter, footprints, cluster: str, sheet,
-                               sheet_names: Optional[dict]) -> list:
-    """The live footprints of the remembered (Cluster, Sheet) instance.
-
-    The CLUSTER step is the hard gate: only footprints whose Cluster field
-    cluster_prefix_matches `cluster`. An empty result means the remembered
-    context no longer exists on this board — the caller then leaves the
-    UI/selection alone (a message, never a fatal). The SHEET step narrows that
-    set through role_narrowing.narrow_candidates_by_sheet — the project's ONE
-    (Sheet, Cluster) addressing cascade — and, exactly like that cascade
-    everywhere, only when it genuinely reduces the set (a stale Sheet never
-    hides the cluster's footprints; when the cluster sits on one instance only,
-    Sheet is moot)."""
-    if not cluster:
-        return []
-    try:
-        members = [fp for fp in (footprints or [])
-                   if cluster_prefix_match(
-                       adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or "",
-                       cluster)]
-        if members and sheet:
-            by_sheet = narrow_candidates_by_sheet(members, sheet, sheet_names or {})
-            if by_sheet and len(by_sheet) < len(members):
-                members = by_sheet
-        return members
-    except Exception:  # noqa: BLE001 — best-effort; a stale context is the norm
-        return []

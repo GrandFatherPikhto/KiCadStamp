@@ -138,6 +138,12 @@ class Pad:
     reads as "a plain rectangle with no offset" — a test double that predates
     these fields (tests/test_via_planner.py sets only
     number/position/size/angle_rad) keeps working with no edits.
+
+    ``copper_layers`` (2026-10-05) is the set of copper layers the pad actually
+    has, from kipy ``padstack.layers`` (copper-only). None = UNKNOWN = every
+    copper layer — the historical reading, so doubles that predate the field
+    keep behaving as "through". The explode connectivity joins a track to a pad
+    ONLY on a layer the pad has.
     """
 
     number: Any  # kipy reports str/int/float depending on the pad — kept as-is
@@ -150,6 +156,14 @@ class Pad:
     shape: str | None = None
     offset: Vector2 | None = None            # nm, in the PAD's own axes; None = (0, 0)
     trapezoid_delta: Vector2 | None = None   # nm, trapezoid only
+    # The pad's COPPER layers (2026-10-05, plan_2026_10_05_explode_r1_core.md §2,
+    # "Ответ Демону"): from kipy padstack.layers, copper-only. None = UNKNOWN =
+    # every copper layer (the historical reading, so old doubles and mappers that
+    # predate this field keep behaving as "through"). Used by the explode
+    # connectivity graph, where a track joins a pad ONLY on a layer the pad
+    # actually has — an SMD F.Cu pad must not read as connected to a B.Cu track
+    # that merely overlaps it in XY.
+    copper_layers: tuple[BoardLayer, ...] | None = None
     _kipy: Any = field(default=None, repr=False, compare=False)
 
 
@@ -304,6 +318,25 @@ def pad_shape_from_kipy(shape: Any) -> str:
         return PAD_SHAPE_UNKNOWN
 
 
+def _pad_copper_layers(padstack) -> tuple[BoardLayer, ...] | None:
+    """The pad's COPPER layers from ``padstack.layers`` (copper-only, deduped,
+    in the reported order), or None when the padstack reports none.
+
+    None means "unknown" = every copper layer — the historical reading, so a
+    hand-made double that only carries ``copper_layers`` (no ``layers``) keeps
+    behaving as "through". Non-copper layers (mask/paste/silk) are dropped:
+    ``_KIPY_CU_TO_DOMAIN`` holds the copper members only."""
+    raw = getattr(padstack, "layers", None)
+    if not raw:
+        return None
+    out: list[BoardLayer] = []
+    for layer in raw:
+        domain = _KIPY_CU_TO_DOMAIN.get(layer)
+        if domain is not None and domain not in out:
+            out.append(domain)
+    return tuple(out) if out else None
+
+
 def pad_from_kipy(pad: KipyPad) -> Pad:
     padstack = getattr(pad, "padstack", None)
     size = None
@@ -311,6 +344,7 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
     offset = None
     trapezoid_delta = None
     angle_rad = 0.0
+    copper_layers = None
     if padstack is not None:
         copper = getattr(padstack, "copper_layers", None)
         if copper:
@@ -328,6 +362,7 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
             raw_delta = getattr(layer, "trapezoid_delta", None)
             if raw_delta is not None:
                 trapezoid_delta = _point_from_kipy(raw_delta)
+        copper_layers = _pad_copper_layers(padstack)
         angle = getattr(padstack, "angle", None)
         if angle is not None:
             angle_rad = angle.to_radians()
@@ -340,6 +375,7 @@ def pad_from_kipy(pad: KipyPad) -> Pad:
         shape=shape,
         offset=offset,
         trapezoid_delta=trapezoid_delta,
+        copper_layers=copper_layers,
         _kipy=pad,
     )
 

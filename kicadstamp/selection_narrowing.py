@@ -58,6 +58,7 @@ __all__ = [
     "choose_instance",
     "divide_unpaired_records",
     "group_selection",
+    "is_own_key",
     "own_record_registry_key",
     "subtract_foreign_copper",
     "subtract_net_trace_copper",
@@ -68,7 +69,7 @@ __all__ = [
 # a cell placed by a ClonePlacement anchored on a component/role records its OWN
 # copper under `anchor:`/`role:` (see clone_position_calculator.clone_anchor_id).
 # Counting those foreign subtracted the cell's own copper and — with the mixed
-# path's old remove_missing=True — DELETED its records. See `_is_own_key`.
+# path's old remove_missing=True — DELETED its records. See `is_own_key`.
 
 
 @dataclass(frozen=True)
@@ -346,9 +347,9 @@ def _anchor_label(key: str) -> str:
     return parts[0] if parts else key
 
 
-def _is_own_key(key: str, cell_identity: str | None,
-                own_addresses: dict, chosen_address: tuple,
-                chosen_refs: frozenset = frozenset()) -> bool:
+def is_own_key(key: str, cell_identity: str | None,
+               own_addresses: dict, chosen_address: tuple,
+               chosen_refs: frozenset = frozenset()) -> bool:
     """The plan's "own record": the key's TEMPLATE part is THIS cell, and its
     ANCHOR part points at the CHOSEN instance. Everything else is foreign.
 
@@ -420,8 +421,8 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
         if key is None:
             kept.append(item)
             continue
-        if _is_own_key(key, cell_identity, own_addresses, chosen_address,
-                       chosen_ref_set):
+        if is_own_key(key, cell_identity, own_addresses, chosen_address,
+                      chosen_ref_set):
             kept.append(item)
             continue
         removed.append(item)
@@ -464,7 +465,7 @@ def own_record_registry_key(entries, cell_identity: str | None,
     """The registry key naming THIS cell record at the CHOSEN instance, or None.
 
     Matched through the product's own key grammar (``anchor|template|role|
-    index``) and :func:`_is_own_key` — never by parsing an anchor out of a
+    index``) and :func:`is_own_key` — never by parsing an anchor out of a
     record name. ``index`` is the record's 0-based position in the cell's
     vias/tracks list (exactly what ``make_registry_key`` wrote)."""
     if cell_identity is None or index is None or not entries:
@@ -480,7 +481,7 @@ def own_record_registry_key(entries, cell_identity: str | None,
             continue
         if str(key_index) != str(index):
             continue
-        if _is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
+        if is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
             return key
     return None
 

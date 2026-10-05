@@ -6,7 +6,7 @@
 chosen instance's components (from the BOARD, `resolve_context_footprints`) PLUS
 the copper the registries recorded for THIS cell at THIS instance — an
 `anchor:<ref>` piece of its own instance, never copper of another record. The
-"which copper is mine" rule is the SAME `_is_own_key` the mixed-read subtraction
+"which copper is mine" rule is the SAME `is_own_key` the mixed-read subtraction
 uses, not a copy.
 
 The pure half (instance resolution + the ownership filter) lives here so the
@@ -17,17 +17,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.i18n import _
 from kicadstamp.registry import (
     load_registry_entries,
     record_key_part,
 )
 from kicadstamp.selection_narrowing import (
-    _is_own_key,
     cell_record_addresses,
+    is_own_key,
 )
-
-from .cell_edit_context import resolve_context_footprints
 
 
 def cell_instances(cfg, cell_name: str, remembered_cluster=None,
@@ -117,7 +116,7 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
     copper: list = []
     missing = 0
     for uuid, key in owner.items():
-        if not _is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
+        if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
             continue
         item = live_vias.get(uuid) or live_tracks.get(uuid)
         if item is None:

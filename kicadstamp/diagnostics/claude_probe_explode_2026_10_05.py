@@ -40,12 +40,12 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via, unwrap
 from kicadstamp.registry import load_registry_entries, record_key_part
+from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.selection_narrowing import (
-    FootprintInfo, _is_own_key, apply_live_copper_rule, cell_clusters,
-    cell_record_addresses, choose_instance, group_selection)
+    FootprintInfo, apply_live_copper_rule, cell_clusters, cell_record_addresses,
+    choose_instance, group_selection, is_own_key)
 from kicadstamp.sheet_names import resolve_sheet_path_names
 
-from gui.cell_edit_context import resolve_context_footprints
 from gui.mixed_selection import narrow_mixed_selection
 
 from kipy.geometry import Vector2 as KV
@@ -162,7 +162,7 @@ def cmd_explode(config_path, cell, dx_mm):
                 stay["unregistered"] += 1
             elif key.startswith("net:"):
                 stay["net_traces"] += 1
-            elif _is_own_key(key, identity, own_addr, (cluster, sheet), inst_refs):
+            elif is_own_key(key, identity, own_addr, (cluster, sheet), inst_refs):
                 stay["own"] += 1
             else:
                 move_cu.append(it)

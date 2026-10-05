@@ -66,8 +66,8 @@ REFRESH = "kicadstamp/cell_geometry_refresh.py"
 
 MUTATIONS = [
     ("M1 foreign registered copper not subtracted", NARROWING,
-     "        if _is_own_key(key, cell_identity, own_addresses, chosen_address,\n"
-     "                       chosen_ref_set):\n"
+     "        if is_own_key(key, cell_identity, own_addresses, chosen_address,\n"
+     "                      chosen_ref_set):\n"
      "            kept.append(item)\n"
      "            continue",
      "        if True:  # MUTATION\n            kept.append(item)\n            continue",

@@ -5,8 +5,10 @@ note_2026_09_08_cell_anchor_selection_and_coordinate_converter.md).
 
 Covers:
   * gui/cell_edit_context.py — the gui_state.json round-trip (per-root scoping,
-    "last used" overwrite, silent degradation on missing/malformed state) and
-    the live-board resolution helper (resolve_context_footprints);
+    "last used" overwrite, silent degradation on missing/malformed state). The
+    live-board resolution helper (resolve_context_footprints) MOVED to
+    kicadstamp/cell_instance.py (2026-10-05) and is tested in
+    tests/test_cell_instance.py;
   * the IDENTIFIED refs of that instance (2026-09-17, stage 1 of the spoke work):
     remember_cell_instance / remembered_cell_refs, and the rule that ANY context
     write without refs erases them (plan_2026_09_17_spoke_s1_identify_by_selection
@@ -47,7 +49,6 @@ from gui.cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
     remembered_role_table,
-    resolve_context_footprints,
 )
 from gui.cell_identification import Identification
 from gui.docks.cell_anchor_view import CellAnchorView
@@ -187,41 +188,6 @@ def test_remember_noop_cases_write_nothing(tmp_path):
     assert settings.state.get(CELL_EDIT_CONTEXT_KEY) in (None, {})
 
 
-# ── Live-board resolution helpers ─────────────────────────────────────────
-#
-# cluster_present_on_board was the prefill gate until 2026-09-17 (stage 1а): a
-# board read on the UI thread, swallowing every exception, which reported a busy
-# socket as "the cluster is gone". It is gone itself now — the prefill judges the
-# snapshot the page already holds (guards С1а/С4а at the end of this file).
-
-def test_resolve_context_footprints_cluster_gate():
-    """Without a Sheet the context resolves to every footprint of the cluster
-    tag (cluster_prefix_match); a cluster absent from the board -> [] (stale),
-    never an exception."""
-    adapter = _cluster_adapter("PIF_3V3_VDD")
-    got = resolve_context_footprints(
-        adapter, adapter.get_footprints(), "PIF_3V3_VDD", None, {})
-    assert {fp.uuid for fp in got} == {"fp1", "fp2"}
-    assert resolve_context_footprints(
-        adapter, adapter.get_footprints(), "GHOST", None, {}) == []
-
-
-def test_resolve_context_footprints_sheet_narrowing_delegates(monkeypatch):
-    """The Sheet step delegates to role_narrowing.narrow_candidates_by_sheet
-    (the project's ONE (Sheet, Cluster) addressing cascade — no second
-    terminology) and applies its result only when it reduces the set."""
-    adapter = _cluster_adapter("PIF_3V3_VDD")
-    called = []
-
-    def _fake_narrow(candidates, sheet, sheet_names):
-        called.append(sheet)
-        return [candidates[0]]          # "narrowed" to R1's footprint
-
-    monkeypatch.setattr(ctx_mod, "narrow_candidates_by_sheet", _fake_narrow)
-    got = resolve_context_footprints(
-        adapter, adapter.get_footprints(), "PIF_3V3_VDD", "FPGA", {"x": "y"})
-    assert called == ["FPGA"]
-    assert [fp.uuid for fp in got] == ["fp1"]
 
 
 # ── cell_anchor_view: prefill + read-from-selection ──────────────────────

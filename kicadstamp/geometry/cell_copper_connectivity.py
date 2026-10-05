@@ -24,6 +24,8 @@ from dataclasses import dataclass
 
 from ..config import Cell
 
+from .union_find import UnionFind
+
 
 @dataclass(frozen=True)
 class CopperSegment:
@@ -34,30 +36,6 @@ class CopperSegment:
     role: str | None  # net_from_role
     pad: str | None  # net_from_role_pad
     points: tuple[tuple[float, float], ...]
-
-
-class _UnionFind:
-    """Minimal union-find used by cell_copper_components."""
-
-    def __init__(self, n: int):
-        self._parent = list(range(n))
-        self._rank = [0] * n
-
-    def find(self, x: int) -> int:
-        while self._parent[x] != x:
-            self._parent[x] = self._parent[self._parent[x]]
-            x = self._parent[x]
-        return x
-
-    def union(self, a: int, b: int) -> None:
-        ra, rb = self.find(a), self.find(b)
-        if ra == rb:
-            return
-        if self._rank[ra] < self._rank[rb]:
-            ra, rb = rb, ra
-        self._parent[rb] = ra
-        if self._rank[ra] == self._rank[rb]:
-            self._rank[ra] += 1
 
 
 def _segments_from_cell(cell: Cell) -> list[CopperSegment]:
@@ -93,7 +71,7 @@ def cell_copper_components(cell: Cell, eps: float = 1e-3) -> list[list[CopperSeg
     bridging-pad checks build on."""
     segments = _segments_from_cell(cell)
 
-    uf = _UnionFind(len(segments))
+    uf = UnionFind(len(segments))
     # Bucket every endpoint coordinate onto the eps grid, then union all
     # segments whose endpoints land in the same bucket (exact joints merge).
     buckets: dict[tuple[int, int], list[int]] = {}

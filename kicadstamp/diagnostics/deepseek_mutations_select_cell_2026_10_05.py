@@ -18,7 +18,7 @@ REFRESH = rig.REFRESH
 
 ROWS = [
     ("S1 copper of another instance selected", SELECT,
-     "        if not _is_own_key(key, cell_identity, own_addresses, chosen_address, refs):\n"
+     "        if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):\n"
      "            continue",
      "        if False:  # MUTATION\n            continue",
      "die", G, ()),

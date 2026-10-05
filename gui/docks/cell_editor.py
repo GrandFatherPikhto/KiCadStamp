@@ -91,6 +91,7 @@ from kicadstamp.cell_geometry_refresh import (
     build_import_plan,
     build_refresh_plan,
 )
+from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.cell_placement_copy import build_placement_copy_plan, donor_candidates_for
 from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.config import (load_cell, load_cell_placement, load_template_component_slot,
@@ -111,7 +112,6 @@ from ..worker import start_long_op
 from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
-    resolve_context_footprints,
 )
 from ..mixed_selection import WARN as _SELECTION_WARN
 from ..mixed_selection import narrow_mixed_selection

@@ -305,6 +305,42 @@ that created it.
 
 ---
 
+## `explode` – move foreign clusters aside to read a cell cleanly
+
+The "Разнос" tool. Foreign cluster instances that touch the cell's area are
+shifted rigidly aside so the cell instance can be read cleanly by the ordinary
+"Update from selection"; then everything is put back from a journal.
+
+- `plan` PRINTS the plan and writes NOTHING: which instances leave and how far,
+  and the inter-cluster `net_traces` copper table with the default "take" ticks.
+- `run` writes the journal (to a LOCAL state directory, never `profiles/`),
+  shifts the items in ONE KiCad transaction and verifies 0 nm — every non-moved
+  copper item must have stayed put.
+- `restore` puts every item back on its RECORDED absolute position (never an
+  inverse shift) and removes the journal only when everything is back.
+- `status` says whether this board currently has a journal.
+
+Without `--cluster` the instance comes from the config: exactly one record
+places the cell -> it; none or several -> a refusal with the list. `--tick` /
+`--untick` (repeatable) override the default take ticks of the table. Nothing is
+written when a command refuses.
+
+### Syntax
+
+```bash
+python kicadstamp_cli.py explode plan    --config C --cell X [--cluster K] [--sheet S] [--margin MM] [--gap MM]
+python kicadstamp_cli.py explode run     --config C --cell X [...] [--tick UUID]... [--untick UUID]...
+python kicadstamp_cli.py explode restore --config C
+python kicadstamp_cli.py explode status  --config C
+```
+
+### Notes
+
+While the board is exploded the journal holds the original positions — do not
+save the board until you `restore`. Core: `kicadstamp/explode.py` (the read-only
+plan) and `kicadstamp/explode_journal.py` (the journal and the execution).
+
+
 ## `extract` – extract a template from the current selection
 
 **GUI path (2026-09-17, stage 5):** a selected spoke pair can be extracted from

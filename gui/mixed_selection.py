@@ -37,6 +37,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.i18n import _
 from kicadstamp.registry import (
@@ -54,8 +55,6 @@ from kicadstamp.selection_narrowing import (
     subtract_net_trace_copper,
 )
 from kicadstamp.sheet_names import resolve_sheet_path_names
-
-from .cell_edit_context import resolve_context_footprints
 
 logger = logging.getLogger(__name__)
 

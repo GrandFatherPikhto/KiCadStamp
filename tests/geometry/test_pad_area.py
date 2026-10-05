@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kipy.board_types import Pad as KipyPad, PadStackShape
+from kipy.board_types import BoardLayer as KipyBoardLayer, Pad as KipyPad, PadStackShape
 
 from kicadstamp.constants import (
     PAD_SHAPE_CHAMFERED,
@@ -29,7 +29,7 @@ from kicadstamp.constants import (
     PAD_SHAPE_UNKNOWN,
 )
 from kicadstamp.domain.board import Pad, pad_from_kipy
-from kicadstamp.domain.geometry import Vector2
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.geometry.pad_area import pad_area_of, pad_angle_deg, warn_bbox_fallback
 
 MM = 1_000_000
@@ -275,16 +275,58 @@ class TestPadFromKipyCarriesTheShape:
         assert pad_area_of(pad_from_kipy(_kipy_pad(shape=PadStackShape.PSS_UNKNOWN))) is None
 
 
+class TestPadFromKipyCarriesCopperLayers:
+    """pad_from_kipy fills ``copper_layers`` from padstack.layers (2026-10-05,
+    plan_2026_10_05_explode_r1_core.md §2, "Ответ Демону"). None = "unknown" =
+    every copper layer — the reading that keeps an old double behaving as
+    "through"."""
+
+    def test_a_padstack_without_layers_reads_as_unknown(self):
+        """The conformance half of the Ответ: a padstack that reports no
+        ``layers`` (every hand-made double in tests/fakes) maps to None, so the
+        connectivity treats it as a through pad and NOTHING has to be edited in
+        tests/fakes."""
+        pad = pad_from_kipy(_kipy_pad(shape=PadStackShape.PSS_RECTANGLE))
+        assert pad.copper_layers is None
+
+    def test_smd_pad_carries_its_one_copper_layer(self):
+        pad = pad_from_kipy(_kipy_pad(
+            shape=PadStackShape.PSS_RECTANGLE,
+            layers=[KipyBoardLayer.Value("BL_F_Cu")]))
+        assert pad.copper_layers == (BoardLayer.BL_F_Cu,)
+
+    def test_through_pad_carries_every_copper_layer(self):
+        pad = pad_from_kipy(_kipy_pad(shape=PadStackShape.PSS_CIRCLE, layers=[
+            KipyBoardLayer.Value("BL_F_Cu"),
+            KipyBoardLayer.Value("BL_In1_Cu"),
+            KipyBoardLayer.Value("BL_B_Cu"),
+        ]))
+        assert pad.copper_layers == (BoardLayer.BL_F_Cu, BoardLayer.BL_In1_Cu,
+                                     BoardLayer.BL_B_Cu)
+
+    def test_non_copper_values_are_dropped_and_deduped(self):
+        """Only copper members survive (an unknown value maps to nothing), and
+        a repeated layer is listed once."""
+        pad = pad_from_kipy(_kipy_pad(shape=PadStackShape.PSS_RECTANGLE, layers=[
+            KipyBoardLayer.Value("BL_F_Cu"), 999, KipyBoardLayer.Value("BL_F_Cu"),
+        ]))
+        assert pad.copper_layers == (BoardLayer.BL_F_Cu,)
+
+
 def _kipy_pad(shape=None, size_nm=(300_000, 850_000), offset_nm=(0, 0),
-              delta_nm=(0, 0), angle_deg=None):
+              delta_nm=(0, 0), angle_deg=None, layers=None):
     """A kipy-shaped double for pad_from_kipy — no real kipy objects, so the
-    mapping is tested for what it maps, not for what kipy happens to fill in."""
+    mapping is tested for what it maps, not for what kipy happens to fill in.
+    ``layers`` is the padstack's own layer list (kipy ``padstack.layers``); left
+    out it stays absent, exactly like the doubles that predate the field."""
     layer = SimpleNamespace(size=Vector2(*size_nm),
                             offset=Vector2(*offset_nm),
                             trapezoid_delta=Vector2(*delta_nm))
     if shape is not None:
         layer.shape = shape
     padstack = SimpleNamespace(copper_layers=[layer])
+    if layers is not None:
+        padstack.layers = layers
     if angle_deg is not None:
         padstack.angle = SimpleNamespace(to_radians=lambda: math.radians(angle_deg))
     return SimpleNamespace(number="33", net=None, padstack=padstack,

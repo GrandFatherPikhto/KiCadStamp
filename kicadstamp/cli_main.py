@@ -42,6 +42,17 @@ def cmd_apply(*args, **kwargs):
     from kicadstamp.apply_pipeline import cmd_apply as _real_cmd_apply
     return _real_cmd_apply(*args, **kwargs)
 
+
+def cmd_explode(*args, **kwargs):
+    """Lazy import wrapper for :func:`kicadstamp.explode_cli.cmd_explode`.
+
+    The "Разнос" command's import chain pulls ``kicadstamp.kicad.adapter``
+    (kipy + protobuf + pynng), so — exactly like ``apply`` — it is deferred to
+    call time to keep the CLI entry point free of kipy at import.
+    """
+    from kicadstamp.explode_cli import cmd_explode as _real_cmd_explode
+    return _real_cmd_explode(*args, **kwargs)
+
 # Translated/typographic text (em dashes, non-breaking hyphens, degree signs, ...)
 # can't be encoded by legacy console codepages (e.g. Windows cp1251/cp866), which
 # crashes the logging StreamHandler mid-run with UnicodeEncodeError.  UTF-8 can
@@ -58,7 +69,7 @@ if hasattr(sys.stderr, "reconfigure"):
 # _rewrite_bare_config_to_apply().
 _SUBCOMMANDS = ("apply", "undo", "extract", "extract-net", "clone-extract",
                 "clone-plan", "channel-copy", "flatten", "convert-trees",
-                "dedupe",
+                "dedupe", "explode",
                 # Т5а/Т6 (plan_2026_09_18_field_overrides_store): the override
                 # store, written OUT and forgotten. They belong in this tuple for
                 # the same reason as any other name — without it the bare-config
@@ -476,6 +487,55 @@ def main() -> int:
                                          "NOTHING."))
     overrides_forget.add_argument("--verbose", action="store_true", help=_("Verbose output"))
 
+    # "Разнос" (Р1, plan_2026_10_05_explode_r1_core.md §4): plan prints and
+    # writes nothing; run journals first, then shifts in one transaction and
+    # verifies; restore undoes from the journal; status asks if there is one.
+    explode_parser = subparsers.add_parser(
+        "explode",
+        help=_("Move foreign clusters aside to read a cell cleanly "
+               "(plan / run / restore / status)"))
+    explode_sub = explode_parser.add_subparsers(dest="explode_command",
+                                                required=True)
+
+    def _explode_common(p, *, need_cell: bool) -> None:
+        p.add_argument("--config", required=True, metavar="FILE",
+                       help=_("Profile config file whose cells and registries "
+                              "are read."))
+        if need_cell:
+            p.add_argument("--cell", required=True, metavar="NAME",
+                           help=_("Cell (key in cells:) whose instance is read."))
+            p.add_argument("--cluster", metavar="TAG",
+                           help=_("Instance cluster; without it the ONE config "
+                                  "record placing the cell is used (several or "
+                                  "none is a refusal)."))
+            p.add_argument("--sheet", metavar="SHEET",
+                           help=_("Instance sheet (used with --cluster)."))
+            p.add_argument("--margin", type=float, default=5.0, metavar="MM",
+                           help=_("Margin around the instance's frame, mm "
+                                  "(default 5)."))
+            p.add_argument("--gap", type=float, default=5.0, metavar="MM",
+                           help=_("Clearance left after the shift, mm "
+                                  "(default 5)."))
+
+    _explode_plan = explode_sub.add_parser(
+        "plan", help=_("Print the plan — writes NOTHING"))
+    _explode_common(_explode_plan, need_cell=True)
+    _explode_run = explode_sub.add_parser(
+        "run", help=_("Journal first, then shift the clusters in one transaction"))
+    _explode_common(_explode_run, need_cell=True)
+    _explode_run.add_argument("--tick", action="append", metavar="UUID",
+                              help=_("Take this inter-cluster piece along "
+                                     "(repeatable)."))
+    _explode_run.add_argument("--untick", action="append", metavar="UUID",
+                              help=_("Leave this inter-cluster piece behind "
+                                     "(repeatable)."))
+    _explode_restore = explode_sub.add_parser(
+        "restore", help=_("Undo the explode from this board's journal"))
+    _explode_common(_explode_restore, need_cell=False)
+    _explode_status = explode_sub.add_parser(
+        "status", help=_("Is there a journal for this board?"))
+    _explode_common(_explode_status, need_cell=False)
+
     try:
         args = parser.parse_args()
     except SystemExit as e:
@@ -554,6 +614,10 @@ def main() -> int:
                 print("\n".join(report))
         elif args.command == "dedupe":
             report = cmd_dedupe(args)
+            if report:
+                print("\n".join(report))
+        elif args.command == "explode":
+            report = cmd_explode(args)
             if report:
                 print("\n".join(report))
         else:
