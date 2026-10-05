@@ -40,7 +40,11 @@ REDRAW_GUARD = ["test_explode_transfer_redraw.py"]
 CELL_EDITOR = "gui/docks/cell_editor.py"
 TRANSFER = "kicadstamp/explode_transfer.py"
 GLUE = "gui/mixed_selection.py"
-DOCK_HUB = "gui/dock_hub.py"
+# Р3а-6 moved the «Разнос» flow (and the `enabled = bool(guard is not None ...)`
+# line Q23 mutates) out of gui/dock_hub.py into gui/explode_wiring.py — the row
+# was still aimed at the old home and reported "шаблон встречается 0 раз"
+# (found 2026-10-05 while the «Select enclosed copper» plan re-ran this rig).
+EXPLODE_WIRING = "gui/explode_wiring.py"
 GUARD = "gui/explode_guard.py"
 NARROWING = "kicadstamp/selection_narrowing.py"
 PROJECT_MAP = "tools/project_map.py"
@@ -65,7 +69,7 @@ ROWS = [
      "                                         chosen_cluster, chosen_sheet))",
      "    transfer_ok = bool(explode_transfer)  # MUTATION",
      "die", KERNEL_GATE, ()),
-    ("Q23 the journal rides along for any instance", DOCK_HUB,
+    ("Q23 the journal rides along for any instance", EXPLODE_WIRING,
      "        enabled = bool(guard is not None\n"
      "                       and guard.transfer_enabled(name, cluster, sheet))",
      "        enabled = bool(guard is not None)  # MUTATION",

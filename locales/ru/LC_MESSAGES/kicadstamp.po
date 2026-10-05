@@ -18823,3 +18823,31 @@ msgstr ""
 "не удаётся прочитать личность платы — отказ от разноса: журнал был бы "
 "общим для всех плат"
 
+msgid "Select enclosed copper"
+msgstr "Выделить замкнутую медь"
+
+msgid "selecting enclosed copper"
+msgstr "выделение замкнутой меди"
+
+#, python-brace-format
+msgid "Select enclosed copper failed: {error}"
+msgstr "Не удалось выделить замкнутую медь: {error}"
+
+#, python-brace-format
+msgid ""
+"No component of cell {cell!r} is on the board for {where} — nothing was "
+"selected."
+msgstr ""
+"Ни одного компонента ячейки {cell!r} нет на плате для {where} — ничего не "
+"выделено."
+
+#, python-brace-format
+msgid ""
+"Selected {cell} on {where}: {components} component(s), {pieces} copper "
+"piece(s); not taken: {foreign} reaching a foreign pad, {dangling} dangling "
+"(one pad); trimmed {pruned} hanging element(s)"
+msgstr ""
+"Выделено {cell} на {where}: {components} компонентов, {pieces} кусков меди; "
+"не взято: к чужим падам {foreign}, тупики (один пад) {dangling}; отрезано "
+"висячих элементов {pruned}"
+

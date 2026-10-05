@@ -369,6 +369,30 @@ tab, exploded, with a banner offering "Restore" / "Show journal" / "Forget journ
 one difference while exploded: the selected inter-cluster copper is TRANSFERRED to
 the cell instead of being subtracted.
 
+### Selecting a cell's instance and its enclosed copper (Config tree)
+
+The same Config-tree context menu that holds "Explode…" carries two selection
+items — on a CELLS leaf and on an ENTITIES leaf (an entity names its own
+cluster/sheet):
+
+* **Select cell** — highlights the instance on the board: its components PLUS the
+  copper the registries recorded for this cell at this instance (exactly what a
+  read WOULD read);
+* **Select enclosed copper** — highlights the instance WHOLE: its components AND
+  the copper BETWEEN them — every connected piece of copper that touches TWO
+  different instance pads and NO pad of any other component on the board. A piece
+  reaching only ONE instance pad (a dangling track) is left out, and inside a
+  taken piece the branches that hang off it are trimmed off (a stub ending
+  nowhere, or in a via; a bare via). A track end 5 µm off a pad is NOT hanging —
+  connectivity is by shape, never by point coincidence. Inter-cluster copper is
+  never taken, not even in part; a piece with no pad at all (a chain of stitching
+  vias) is left out. The one knob, `MIN_INSTANCE_PADS`, is 2 (set it to 1 to also
+  take single-pad dead-ends).
+
+Both run on a worker (the board is never read from the UI thread) and report one
+Log line — a red line, never a dialog, when nothing resolves. The result is ready
+for "Re-read by selection".
+
 
 ## `extract` – extract a template from the current selection
 

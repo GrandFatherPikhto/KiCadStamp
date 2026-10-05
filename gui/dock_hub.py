@@ -1053,6 +1053,10 @@ class DockHub:
         # on the board (the SAME function the CellDock button runs).
         self.config_tree_dock.cell_select_requested.connect(
             self._select_cell_from_tree)
+        # 2026-10-05 (plan_2026_10_05_select_enclosed_copper): the same menu, the
+        # whole enclosed copper (components + the copper between them).
+        self.config_tree_dock.cell_select_enclosed_requested.connect(
+            self._select_enclosed_copper_from_tree)
         # Р2: the two Config-tree doors and the CellDock button of the "Разнос"
         # tab all land in the ONE opener (instance resolved like "Select cell").
         self.config_tree_dock.cell_explode_requested.connect(self._open_explode)
@@ -2992,6 +2996,13 @@ class DockHub:
         if wiring is None:
             return
         wiring.refresh_state()
+
+    def _select_enclosed_copper_from_tree(self, name, file_path=None,
+                                          cluster=None, sheet=None) -> None:
+        """ConfigTreeDock's cell_select_enclosed_requested delegate — the ONE
+        door of the context-menu item (gui/select_enclosed_copper.py)."""
+        from .select_enclosed_copper import select_enclosed_copper
+        select_enclosed_copper(self, name, file_path, cluster, sheet)
 
     def _select_cell_from_tree(self, name, file_path, cluster=None,
                                sheet=None) -> None:

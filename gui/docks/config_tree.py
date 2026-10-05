@@ -237,6 +237,12 @@ class ConfigTreeDock(QWidget):
     # components PLUS the copper the registries recorded for this cell at that
     # instance; the SAME function the CellDock button runs (one for every door).
     cell_select_requested = pyqtSignal(str, object, object, object)
+    # 2026-10-05 (plan_2026_10_05_select_enclosed_copper): the context menu's
+    # "Select enclosed copper" — the WHOLE instance: its components PLUS the
+    # copper enclosed by them (a connected piece touching an instance pad and NO
+    # foreign pad). Same four-arg shape (name, file_path, cluster, sheet); the
+    # instance is resolved by DockHub with the "Select cell" rules.
+    cell_select_enclosed_requested = pyqtSignal(str, object, object, object)
     # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread): the "Разнос"
     # tab's two TREE doors — the SAME four-arg shape as cell_select_requested
     # (name, file_path, cluster, sheet). The instance is resolved by DockHub with
@@ -1465,6 +1471,15 @@ class ConfigTreeDock(QWidget):
                         # become the cell's save target; CellDock resolves the
                         # cell's OWN file from the config.
                         self.cell_select_requested.emit(n, None, c, s))
+                    # 2026-10-05: the SAME explicit instance, selecting the whole
+                    # enclosed copper too. The objectName is for the guard (the
+                    # label is translated, so the guard reads the name).
+                    enclosed_action = menu.addAction(_("Select enclosed copper"))
+                    enclosed_action.setObjectName("select_enclosed_copper_action")
+                    enclosed_action.triggered.connect(
+                        lambda checked=False, n=entity.get("cell"),
+                        c=entity.get("cluster"), s=entity.get("sheet"):
+                        self.cell_select_enclosed_requested.emit(n, None, c, s))
                     # Р2: the entity door of the "Разнос" tab — same explicit
                     # (cluster, sheet), so no guessing.
                     menu.addAction(_("Explode…")).triggered.connect(
@@ -1507,6 +1522,13 @@ class ConfigTreeDock(QWidget):
                 # Н5: highlight what a read would read (instance + own copper).
                 menu.addAction(_("Select cell")).triggered.connect(
                     lambda: self.cell_select_requested.emit(
+                        old_name, file_path, None, None))
+                # 2026-10-05: the whole enclosed copper of this cell's instance
+                # (components + the copper between them, no foreign pad).
+                enclosed_action = menu.addAction(_("Select enclosed copper"))
+                enclosed_action.setObjectName("select_enclosed_copper_action")
+                enclosed_action.triggered.connect(
+                    lambda: self.cell_select_enclosed_requested.emit(
                         old_name, file_path, None, None))
                 # Р2: the cell door of the "Разнос" tab — the instance is
                 # resolved by DockHub with the "Select cell" rules.
