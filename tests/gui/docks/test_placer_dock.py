@@ -31,6 +31,17 @@ from tests.fakes.pipeline import PipelineStubLifetime as _PipelineStubLifetime  
 from tests.fakes.planner import FakePlanner  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _qt_app(qapp):
+    """Р3а-5: some cells here build a REAL widget (`_KeyValueTableEditor`) and take
+    no other fixture, so a QApplication must exist even when one of them runs FIRST
+    in a pytest-xdist worker — the session `qapp` otherwise arrives only because
+    some sibling cell ran earlier in the process. (A widget with no QApplication
+    aborts the whole worker — the 2026-10-05 `test_key_value_table_editor_load_
+    dict_round_trips` core dump; the same fix as test_extract_spoke_dialog.py.)"""
+    return qapp
+
+
 def _write(path, data) -> None:
     path.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
 
