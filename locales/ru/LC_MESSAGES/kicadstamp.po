@@ -10667,6 +10667,16 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: якорный пад {pad} не принадлежит"
 " ни одному узлу этого дерева, поэтому записи нечем сузить роль якоря"
 
+#: kicadstamp/internode_capture.py:357
+#, python-brace-format
+msgid ""
+"skipped a piece of copper between pads {pads}: no pad of the piece "
+"anchors the record — the role(s) {roles} do not narrow to the piece "
+"under the node's sheet and cluster"
+msgstr ""
+"пропущен кусок меди между падами {pads}: ни один пад куска не якорит"
+" запись — роль(и) {roles} не сужаются до куска при листе и кластере узла"
+
 #: kicadstamp/internode_capture.py:455
 #, python-brace-format
 msgid ""

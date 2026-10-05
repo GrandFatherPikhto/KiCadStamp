@@ -1279,6 +1279,19 @@ Extraction is a CLI command, not the mouse-selection `extract`:
   own net** (see the Reread section in `gui.md`), and a NEW record's
   `anchor_sheet` is its TREE NODE's sheet, not the component's leaf. The Log
   ends with the units the classification did not take, by verdict;
+* **The re-read follows `kind "module"` nodes, and anchors NEW records on the
+  side they redraw from** (2026-10-05, plan `plan_2026_10_05_tree_reread_modules`):
+  a tree's nodes are its own placement nodes PLUS the nodes of every tree
+  embedded through a module node, recursively, so the copper to a reused
+  channel's DAC parts is seen at all; a node is identified by `(Cluster, sheet)`,
+  not by its label, so two channels reusing one Cluster tag are two nodes. A NEW
+  record is anchored on the pad whose sheet/cluster narrows BOTH its own role and
+  every item's role to the exact footprint the piece touches (checked with the
+  same cascade apply uses, without the selection step), so the FPGA end of a
+  bridge resolves by its own unique role while the channel end carries the
+  anchor; an existing record keeps its anchor. A NEW piece with a pad that has no
+  `Role`, or with no pad belonging to a node, is skipped with a Log warning, not
+  a fatal;
 * **ZONES ARE NOT READ.** Only tracks and vias count as copper: a zone connects
   by overlap, so a GND pour would fuse every cluster into one "unit" and the
   classification above would fall apart. A pour never appears in a capture.

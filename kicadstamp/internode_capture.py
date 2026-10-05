@@ -62,6 +62,13 @@ from .internode_copper import (
     find_copper_units,
     generate_trace_name,
 )
+from .internode_nodes import (
+    AnchorSkip,
+    RoleResolver,
+    _item_reference,
+    choose_anchor_pad,
+    tree_node_keys,
+)
 from .net_trace_planner import resolve_live_anchor
 from .sheet_names import resolve_sheet_path_names, sheet_in_path
 from .trees import Tree
@@ -153,24 +160,6 @@ def tree_net_trace_identities(tree: Tree) -> list[str]:
         if node.kind == "net_trace" and node.ref and node.ref not in out:
             out.append(node.ref)
     return out
-
-
-def _tree_node_keys(tree: Tree, cfg: Config) -> dict[tuple[str | None, str | None], str]:
-    """{(cluster, sheet): node label} for the tree's placement nodes — the
-    components the tree owns, i.e. the "nodes" of the design's classification
-    table. The label is the Cluster tag (the design's `ch0_dac`), falling back
-    to the Entity name for a cluster-less Entity."""
-    entities = {e.name: e for e in cfg.entities}
-    keys: dict[tuple[str | None, str | None], str] = {}
-    for node in _walk_nodes(tree.nodes):
-        if node.kind not in (None, "placement"):
-            continue
-        entity = entities.get(node.ref)
-        if entity is None:
-            continue
-        label = entity.cluster or entity.name
-        keys.setdefault((entity.cluster, entity.sheet), label)
-    return keys
 
 
 # ── the area's components ─────────────────────────────────────────────────
@@ -273,26 +262,8 @@ def _layer_str(layer) -> str:
     return layer_to_str(layer)
 
 
-def _item_reference(unit: CopperUnit, item_pads: tuple[PadRef, ...],
-                    components: dict[str, _Component],
-                    anchor_pad: PadRef) -> tuple[str, str] | None:
-    """The (role, pad) reference of ONE item: the pad it touches itself, or —
-    when it touches none (a mid-chain via) — the unit's anchor pad. The whole
-    unit is ONE net, so ANY of its pads resolves to the same net at apply time;
-    that is why a pad-less item needs no literal net either (design §15: the
-    capture already knows the pads, it must not re-derive them)."""
-    for pad in item_pads:
-        comp = components.get(pad.ref)
-        if comp is not None and comp.role:
-            return (comp.role, pad.pad)
-    comp = components.get(anchor_pad.ref)
-    if comp is not None and comp.role:
-        return (comp.role, anchor_pad.pad)
-    return None
-
-
 def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component],
-                     anchor_point, net: str, *, named: bool):
+                     anchor_point, anchor_pad: PadRef, net: str, *, named: bool):
     """The unit's tracks/vias as stored items: local (along/across) offsets from
     the anchor point — a RAW board-frame difference, exactly like
     net_trace_extract — plus the net reference of each item."""
@@ -307,7 +278,7 @@ def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component
             "layer": _layer_str(t.layer),
         }
         pads = unit.track_pads[i] if i < len(unit.track_pads) else ()
-        ref = _item_reference(unit, pads, components, unit.pads[0]) if named else None
+        ref = _item_reference(pads, components, anchor_pad) if named else None
         if ref is not None:
             entry["net_from_role"], entry["net_from_role_pad"] = ref
         else:
@@ -323,7 +294,7 @@ def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component
             "diameter_mm": round(v.diameter_mm, 4),
         }
         pads = unit.via_pads[j] if j < len(unit.via_pads) else ()
-        ref = _item_reference(unit, pads, components, unit.pads[0]) if named else None
+        ref = _item_reference(pads, components, anchor_pad) if named else None
         if ref is not None:
             entry["net_from_role"], entry["net_from_role_pad"] = ref
         else:
@@ -354,35 +325,39 @@ def _same_geometry(old: NetTrace, new: NetTrace) -> bool:
     return True
 
 
-def _anchor_context(adapter, unit: CopperUnit, components: dict[str, _Component],
-                    node_sheet_by_ref: Mapping[str, str | None]
-                    ) -> tuple[tuple | None, str | None]:
-    """((role, sheet, cluster, pad, point, rotation), skip reason) for a NEW
-    record: the unit's first pad.
+def _anchor_skip_message(unit: CopperUnit, skip: AnchorSkip | None,
+                         allow_legacy: bool) -> str | None:
+    """The Log warning for a NEW unit that got no anchor (Т2 of
+    plan_2026_10_05_tree_reread_modules). The three kinds are named, never
+    guessed around; `no_role` is the only one `allow_legacy` suppresses (a
+    caller that cannot reference a pad at all gets silence, as before).
 
-    `sheet` is the sheet of the TREE NODE the anchor component belongs to — NOT
-    the leaf segment of the component's own path (Э3 of
-    plan_2026_09_15_internode_copper_sheets_and_nets). The record's anchor must
-    narrow the role to THIS node's instance of the reused sheet, and a leaf like
-    'DAC' exists in every channel: it narrows nothing, so the resolver stops on
-    an ambiguous role and the whole record is never applied. The caller owns
-    that mapping — the re-read knows it from the node match (Э1), the Extract
-    dialog from its own cluster's sheet.
-
-    The anchor role is REQUIRED by the grammar, so the two things that can be
-    missing are named, never guessed around: "no_role" (a component without a
-    Role field cannot be referenced) and "no_node" (the caller cannot say which
-    node the pad belongs to, so there is no honest anchor_sheet)."""
-    pad = unit.pads[0]
-    comp = components.get(pad.ref)
-    if comp is None or not comp.role:
-        return None, "no_role"
-    if pad.ref not in node_sheet_by_ref:
-        return None, "no_node"
-    pad_obj = adapter.get_pad_by_number(comp.fp, pad.pad)
-    point = pad_obj.position if pad_obj is not None else comp.fp.position
-    return (comp.role, node_sheet_by_ref[pad.ref], comp.cluster, pad.pad, point,
-            round(comp.fp.angle_deg, 4)), None
+    `no_role` names the pad that has no Role (not necessarily `pads[0]`): such a
+    pad enters the record's `pads:` signature as a bare ref, and a ref does not
+    survive cloning, so the record cannot be written honestly."""
+    pads = ", ".join(f"{p.ref}.{p.pad}" for p in unit.pads)
+    if skip is None:
+        return None
+    if skip.kind == "no_role":
+        if not allow_legacy:
+            return None
+        pad = skip.pad or unit.pads[0]
+        return _(
+            "skipped a piece of copper between pads {pads}: the pad {pad} "
+            "has no Role field on the board, so the record could not be "
+            "anchored").format(pads=pads, pad=f"{pad.ref}.{pad.pad}")
+    if skip.kind == "no_node":
+        pad = skip.pad or unit.pads[0]
+        return _(
+            "skipped a piece of copper between pads {pads}: the anchor pad "
+            "{pad} belongs to no node of this tree, so the record has no "
+            "anchor sheet to narrow its role").format(
+                pads=pads, pad=f"{pad.ref}.{pad.pad}")
+    roles = ", ".join(skip.roles) or "-"
+    return _(
+        "skipped a piece of copper between pads {pads}: no pad of the piece "
+        "anchors the record — the role(s) {roles} do not narrow to the piece "
+        "under the node's sheet and cluster").format(pads=pads, roles=roles)
 
 
 def capture_unit(adapter, unit: CopperUnit, *,
@@ -393,6 +368,7 @@ def capture_unit(adapter, unit: CopperUnit, *,
                  existing: NetTrace | None = None,
                  existing_names: Iterable[str] = (),
                  allow_legacy: bool = True,
+                 resolver: RoleResolver | None = None,
                  ) -> tuple[NetTrace | None, str | None]:
     """(record, skip_reason) for ONE inter-node unit — THE single place a unit
     becomes a `net_traces:` record, shared by the dialog's capture (plan §Э5)
@@ -425,25 +401,20 @@ def capture_unit(adapter, unit: CopperUnit, *,
     named = existing is None or bool(existing.name)
 
     if existing is None:
-        context, reason = _anchor_context(adapter, unit, components,
-                                          node_sheet_by_ref)
-        if context is None:
-            if reason == "no_role":
-                if not allow_legacy:
-                    return None, None
-                return None, _(
-                    "skipped a piece of copper between pads {pads}: the pad {pad} "
-                    "has no Role field on the board, so the record could not be "
-                    "anchored").format(
-                        pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
-                        pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}")
-            return None, _(
-                "skipped a piece of copper between pads {pads}: the anchor pad "
-                "{pad} belongs to no node of this tree, so the record has no "
-                "anchor sheet to narrow its role").format(
-                    pads=", ".join(f"{p.ref}.{p.pad}" for p in unit.pads),
-                    pad=f"{unit.pads[0].ref}.{unit.pads[0].pad}")
-        role, sheet, cluster, pad, point, rotation = context
+        if resolver is None:
+            resolver = RoleResolver(adapter, sheet_names)
+        anchor_pad, skip = choose_anchor_pad(
+            unit, components, node_sheet_by_ref, resolver=resolver)
+        if anchor_pad is None:
+            return None, _anchor_skip_message(unit, skip, allow_legacy)
+        comp = components[anchor_pad.ref]
+        pad_obj = adapter.get_pad_by_number(comp.fp, anchor_pad.pad)
+        point = pad_obj.position if pad_obj is not None else comp.fp.position
+        role = comp.role
+        sheet = node_sheet_by_ref[anchor_pad.ref]
+        cluster = comp.cluster
+        pad = anchor_pad.pad
+        rotation = round(comp.fp.angle_deg, 4)
         labels = [node_by_ref.get(p.ref) or _pad_label(p, components)
                   for p in unit.pads]
         name = generate_trace_name(net, labels, existing_names)
@@ -460,9 +431,12 @@ def capture_unit(adapter, unit: CopperUnit, *,
         pad = existing.anchor_pad
         rotation = round(anchor_fp.angle_deg, 4)
         name = existing.name
+        # An EXISTING record keeps its anchor (Т2-3): the item fall-back stays
+        # the unit's first pad, byte-for-byte what capture_unit always wrote.
+        anchor_pad = unit.pads[0]
 
-    tracks, vias = _items_from_unit(adapter, unit, components, point, net,
-                                    named=named)
+    tracks, vias = _items_from_unit(adapter, unit, components, point, anchor_pad,
+                                    net, named=named)
     record = NetTrace(net=net, anchor_role=role, name=name,
                       anchor_sheet=sheet, anchor_cluster=cluster,
                       anchor_pad=pad, anchor_rotation_deg=rotation,
@@ -490,6 +464,9 @@ def capture_units(adapter, units: Iterable[CopperUnit], *,
     in capture_unit: it is the anchor_sheet a NEW record gets."""
     _sn = dict(sheet_names or {})
     components = _area_components(adapter, area_footprints, _sn)
+    # ONE resolver per batch: its per-run candidate cache is what keeps the
+    # anchor check from re-sweeping the board for every unit (Т2-5).
+    resolver = RoleResolver(adapter, _sn)
     names = list(existing_names)
     out: list[CapturedTrace] = []
     warnings: list[str] = []
@@ -498,7 +475,8 @@ def capture_units(adapter, units: Iterable[CopperUnit], *,
                                        node_by_ref=node_by_ref,
                                        node_sheet_by_ref=node_sheet_by_ref,
                                        sheet_names=_sn,
-                                       existing_names=names)
+                                       existing_names=names,
+                                       resolver=resolver)
         if warning:
             warnings.append(warning)
         if record is None:
@@ -543,14 +521,20 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             "zones are not read (see the Z1 work): only tracks and vias count "
             "as copper, so a pour never appears in the capture"))
 
-    node_keys = _tree_node_keys(tree, cfg)
+    node_keys = tree_node_keys(tree, cfg)
     components = _area_components(adapter, area_footprints, _sn)
     # Э1: a component belongs to a node when ANY segment of its sheet path names
     # that node's sheet (the SAME seam the role resolver uses — sheet_in_path),
     # so a tree's anchor and its copper can no longer disagree. The node's OWN
     # sheet — never the component's leaf — is what a NEW record stores as its
     # anchor_sheet (Э3), so the anchor narrows the role to THIS instance.
-    node_by_ref: dict[str, str] = {}
+    #
+    # Т1: a node's IDENTITY is `(cluster, sheet)`, not its label — three channels
+    # reuse the SAME Cluster tag (`DAC_BUF`) on different sheets, so a label that
+    # names one node cannot tell two apart. classify_unit gets the KEY; the
+    # LABEL keeps naming the record and the report.
+    node_key_by_ref: dict[str, tuple[str | None, str | None]] = {}
+    node_label_by_ref: dict[str, str] = {}
     anchor_sheet_by_ref: dict[str, str | None] = {}
     for comp in components.values():
         match, conflicts = _match_node(comp, node_keys)
@@ -568,11 +552,15 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
                 plan.unmatched_components += 1
             continue
         label, sheet = match
-        node_by_ref[comp.ref] = label
+        node_key_by_ref[comp.ref] = (comp.cluster, sheet)
+        node_label_by_ref[comp.ref] = label
         anchor_sheet_by_ref[comp.ref] = sheet
         plan.matched_components += 1
     plan.node_keys = [_node_key_label(label, sheet)
                       for (_cluster, sheet), label in node_keys.items()]
+    # ONE resolver for the whole run — its per-run candidate cache keeps the
+    # anchor check (Т2) from re-sweeping the board for every unit.
+    resolver = RoleResolver(adapter, _sn)
 
     identities = tree_net_trace_identities(tree)
     tree_records = [nt for nt in cfg.net_traces
@@ -604,7 +592,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     existing_names = [net_trace_effective_name(nt) for nt in cfg.net_traces]
 
     for unit in units:
-        verdict = classify_unit(unit, node_by_ref)
+        verdict = classify_unit(unit, node_key_by_ref)
         if verdict is not CopperVerdict.INTERNODE:
             # Э4: the copper the classification did NOT take is COUNTED, not
             # silently dropped — the report names it by verdict (the live
@@ -619,9 +607,10 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         # ONE builder, shared with the dialog's capture (capture_unit) — the
         # re-read and the "Extract tree" dialog must produce the SAME copper.
         record, warning = capture_unit(
-            adapter, unit, components=components, node_by_ref=node_by_ref,
+            adapter, unit, components=components, node_by_ref=node_label_by_ref,
             node_sheet_by_ref=anchor_sheet_by_ref,
-            sheet_names=_sn, existing=old, existing_names=existing_names)
+            sheet_names=_sn, existing=old, existing_names=existing_names,
+            resolver=resolver)
         if warning:
             plan.warnings.append(warning)
         if record is None:

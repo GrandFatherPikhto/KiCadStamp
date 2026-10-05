@@ -217,6 +217,22 @@ def test_unit_without_a_role_on_its_pad_is_skipped_with_a_warning():
     assert any("no Role field" in w for w in plan.warnings)
 
 
+def test_a_role_less_pad_not_first_still_skips_and_names_that_pad():
+    """Т2, уточнение по вопросу Демона — the stricter rule checks EVERY pad, not
+    just `pads[0]`: a pad without a Role is a bare ref in the record's `pads:`
+    signature, and a ref does not survive cloning/per-numbering, so the unit is
+    skipped whichever pad it is, and the warning names THAT pad (here R2.1, which
+    sorts AFTER the role-bearing R1.1). Mutation 'role checked only on pads[0]'
+    turns this red. See plan_2026_10_05_tree_reread_modules, Т2 clarification."""
+    fps = [_fp("R1", role="A", cluster="A"), _fp("R2", role=None, cluster="B")]
+    pads = {"R1": [_pad("1", "N", 10, 10)], "R2": [_pad("1", "N", 20, 10)]}
+    plan = plan_internode_reread(_Board(fps, pads), _cfg(), _tree(net_trace_refs=()),
+                                 area_items=[_track(10, 10, 20, 10, "N")],
+                                 area_footprints=fps)
+    assert plan.added == []
+    assert any("R2.1" in w and "no Role field" in w for w in plan.warnings)
+
+
 # ── matching: pad set first, net as the legacy bridge ─────────────────────
 
 def test_unchanged_when_the_stored_geometry_already_matches():
@@ -622,9 +638,15 @@ def test_c9_the_dialog_path_stores_the_cluster_sheet_too():
     assert captures[0].record.anchor_sheet == "Channel_0"   # NOT the leaf 'DAC'
 
 
-def test_an_anchor_whose_node_is_unknown_is_skipped_with_a_warning():
-    """Э3 — a caller that cannot name the anchor's node gets a SKIP, never a
-    silent record anchored on a sheet that does not narrow."""
+def test_a_pad_whose_node_is_unknown_is_never_the_anchor_and_does_not_block():
+    """Уточнение Т2 (а) — a pad whose tree node is unknown is simply NOT an
+    anchor candidate; it does NOT block the unit. The record anchors on the
+    OTHER pad (R43: role AD_OUT, sheet Channel_0), NEVER on IC2 — a record
+    anchored on IC2 would carry a cluster/sheet that narrows nothing, which is
+    exactly what Э3 forbids. This REPLACES the single 'unknown anchor node' cell
+    of the Э3 plan (author's edit, not a §33 workaround); the meaning is
+    preserved, stricter. See plan_2026_10_05_tree_reread_modules, «Т2 — уточнение
+    по вопросу Демона»."""
     board, fps = _nested_board()
     clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
                               entity_name=None, cell="dac_buf",
@@ -637,7 +659,33 @@ def test_an_anchor_whose_node_is_unknown_is_skipped_with_a_warning():
     captures, warnings = capture_units(
         board, [rows[0].unit], area_footprints=fps,
         node_by_ref={"IC2": "DAC_BUF", "R43": "DAC_OUT"},
-        node_sheet_by_ref={"R43": "Channel_0"},      # the anchor pad's node missing
+        node_sheet_by_ref={"R43": "Channel_0"},      # IC2's node is unknown
+        sheet_names=_sheet_map(), existing_names=[])
+    assert warnings == [] and len(captures) == 1
+    record = captures[0].record
+    assert record.anchor_role == "AD_OUT" and record.anchor_role != "AD_DAC"
+    assert record.anchor_sheet == "Channel_0"
+
+
+def test_a_unit_whose_every_pad_has_no_node_is_skipped_with_a_warning():
+    """Уточнение Т2 (б) — when NO pad of the unit belongs to a node, there is no
+    honest `anchor_sheet` anywhere and the unit is skipped with the historical
+    'belongs to no node' warning. The pair of cells (а)/(б) replaces the single
+    'unknown anchor node' cell of the Э3 plan. See
+    plan_2026_10_05_tree_reread_modules, «Т2 — уточнение по вопросу Демона»."""
+    board, fps = _nested_board()
+    clusters = [ReReadCluster(cluster="DAC_BUF", sheet="Channel_0",
+                              entity_name=None, cell="dac_buf",
+                              profile_key=None, refs=["IC2"]),
+                ReReadCluster(cluster="DAC_OUT", sheet="Channel_0",
+                              entity_name=None, cell="dac_out",
+                              profile_key=None, refs=["R43"])]
+    rows = detect_inter_cluster_nets([_bridge_dac_to_out(0)] + fps, clusters,
+                                     adapter=board)
+    captures, warnings = capture_units(
+        board, [rows[0].unit], area_footprints=fps,
+        node_by_ref={"IC2": "DAC_BUF", "R43": "DAC_OUT"},
+        node_sheet_by_ref={},                        # neither pad's node is known
         sheet_names=_sheet_map(), existing_names=[])
     assert captures == []
     assert any("belongs to no node" in w for w in warnings)

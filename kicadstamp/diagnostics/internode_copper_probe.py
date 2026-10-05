@@ -62,10 +62,10 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.internode_capture import (
     _area_components,
     _pad_label,
-    _tree_node_keys,
     plan_internode_reread,
     reread_report_lines,
 )
+from kicadstamp.internode_nodes import tree_node_keys
 from kicadstamp.internode_copper import (
     CopperUnit,
     CopperVerdict,
@@ -225,7 +225,7 @@ def main() -> int:
           f"{len(set(sheet_names.values()))} names")
 
     # ── A: node keys vs board components ──────────────────────────────────
-    keys = _tree_node_keys(tree, cfg)
+    keys = tree_node_keys(tree, cfg)
     comps = _area_components(adapter, fps, sheet_names)
     paths = {ref: list(resolve_sheet_path_names(c.fp, sheet_names))
              for ref, c in comps.items()}

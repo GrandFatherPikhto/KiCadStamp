@@ -1282,6 +1282,13 @@ the area matched a node of the tree, with a line naming the tree and the `(Clust
 wait for; two nodes of one Cluster matching one component are reported by name and left unmatched rather
 than guessed.
 
+**The re-read also follows `kind "module"` nodes, and a NEW record is anchored on the side it redraws
+from** (2026-10-05, plan `plan_2026_10_05_tree_reread_modules`): the tree's nodes include the nodes of
+every embedded module tree, a node is `(Cluster, sheet)` rather than a label (two channels reusing one
+Cluster tag are two nodes), and a bridge's record anchors on the channel end — whose sheet and cluster
+narrow the DAC role to one footprint — while the FPGA end resolves by its own unique role. A NEW piece
+with a Role-less pad or no node-bearing pad is skipped with a Log warning, never a fatal.
+
 **Tools → Trees → Whose copper is this?** (2026-09-12, plan
 `plan_2026_09_12_select_copper_by_record`) answers the reverse question: which `net_traces:` records own
 the copper you have SELECTED on the live board. It is READ-ONLY — it reads your selection and never
