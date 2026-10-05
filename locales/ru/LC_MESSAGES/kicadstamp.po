@@ -17940,6 +17940,10 @@ msgstr "{cluster} на {sheet} ({refs})"
 msgid "the selection mixes {count} instances of cell {cell!r}: {candidates} — select ONE instance and read again"
 msgstr "выделение смешивает {count} экземпляр(ов) ячейки {cell!r}: {candidates} — выдели ОДИН экземпляр и прочитай снова"
 
+#: gui/docks/cell_editor.py
+msgid "in a mixed selection, records without a live pair are not deleted — read again by the selection after the read to delete them"
+msgstr "в смешанном выделении записи без пары не удаляются — перечитай по выделению после чтения, чтобы их удалить"
+
 #: gui/cell_identification.py
 msgid "filtered out {count} component(s) of other clusters"
 msgstr "отсеяно {count} компонент(ов) других кластеров"

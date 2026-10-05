@@ -15,7 +15,7 @@ tests/gui/docks/test_cell_editor_mixed_selection.py (the two workers and the
 selection-after-read). Every row maps to a line of the plan's own mutation list.
 
   * M1  foreign registered copper not subtracted       -> kept set grows
-  * M2  net_traces treated as own                       -> subtracted net stays
+  * M2  net_traces/point:/pad: treated as own           -> subtracted ones stay
   * M3  this cell on ANOTHER instance seen as own       -> sheet step dropped
   * M4  own copper subtracted                           -> kept set shrinks
   * M5  narrowing also on a CLEAN selection             -> "read again" no-op lost
@@ -25,6 +25,9 @@ selection-after-read). Every row maps to a line of the plan's own mutation list.
   * M9  Import does not narrow                          -> import keeps the mix
   * M10 the cell-cluster step dropped (roles only)      -> PIF cell goes red
   * M11 "Fill from selection" without the filtering     -> duplicate-role fatal
+  * M12 remove_missing True again in mixed mode         -> unpaired record lost
+  * M13 anchor: key of THIS cell foreign again          -> own anchored copper gone
+  * M14 role: key without the address check             -> foreign role copper kept
   * K1  a cosmetic comment                              -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -59,14 +62,17 @@ IDENT = "gui/cell_identification.py"
 
 MUTATIONS = [
     ("M1 foreign registered copper not subtracted", NARROWING,
-     "        if _is_own_key(key, cell_identity, own_addresses, chosen_address):\n"
+     "        if _is_own_key(key, cell_identity, own_addresses, chosen_address,\n"
+     "                       chosen_ref_set):\n"
      "            kept.append(item)\n"
      "            continue",
      "        if True:  # MUTATION\n            kept.append(item)\n            continue",
      "die", GUARDS, ()),
-    ("M2 net_traces treated as own", NARROWING,
-     "        return False\n    identity = _match_own_identity(value, own_addresses)",
-     "        return True  # MUTATION\n    identity = _match_own_identity(value, own_addresses)",
+    ("M2 net_traces/point:/pad: treated as own", NARROWING,
+     "    # physics pads, inter-cluster net_traces, thermal via arrays, chains).\n"
+     "    return False",
+     "    # physics pads, inter-cluster net_traces, thermal via arrays, chains).\n"
+     "    return True  # MUTATION",
      "die", GUARDS, ()),
     ("M3 other instance seen as own", NARROWING,
      "    if r_sheet and c_sheet and r_sheet != c_sheet:\n        return False",
@@ -119,6 +125,18 @@ MUTATIONS = [
      "    cell_clusters_set = {str(c) for c in (cell_clusters or ()) if c}\n"
      "    if False:  # MUTATION",
      "die", GUARDS, ()),
+    ("M12 remove_missing True again in mixed mode", EDITOR,
+     "                remove_missing=prelude is None,",
+     "                remove_missing=True,  # MUTATION",
+     "die", GUARDS, ()),
+    ("M13 anchor: key of this cell foreign again", NARROWING,
+     "        return ref in chosen_refs",
+     "        return False  # MUTATION",
+     "die", GUARDS, ()),
+    ("M14 role: key without the address check", NARROWING,
+     "        return _address_matches((cluster, sheet), chosen_address)",
+     "        return True  # MUTATION",
+     "die", GUARDS, ()),
     ("K1 cosmetic comment (control)", NARROWING,
      "    kept: list[Any] = []",
      "    kept: list[Any] = []  # control",
@@ -157,7 +175,7 @@ def run(paths, extra=()):
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     try:
         r = subprocess.run([PY_BIN, "-m", "pytest", *paths, *extra, "-q",
-                            "--no-header", "-p", "no:cacheprovider"],
+                            "--no-header", "-p", "no:cacheprovider", "-n", "auto"],
                            cwd=ROOT, capture_output=True, text=True, timeout=300,
                            env=env)
     except subprocess.TimeoutExpired:

@@ -13,9 +13,12 @@ import json
 
 import pytest
 
+from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import format_version
 from kicadstamp.config.format_version import current_format
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key, record_key_part
 from kicadstamp.selection_narrowing import (
     FootprintInfo,
@@ -211,6 +214,17 @@ class _Adapter:
         role, cluster = self._fields[fp.ref]
         return role if name == ROLE_FIELD_NAME else cluster
 
+    # build_refresh_plan's net_from_role resolution: no pads here, so every net
+    # a NEW record gets stays a literal — enough for the fixpoint cells below.
+    def get_footprint(self, ref):
+        return None
+
+    def get_pad_by_number(self, fp, pad):
+        return None
+
+    def get_footprint_pads(self, fp):
+        return []
+
 
 def _write_registries(tmp_path, via_entries, track_entries):
     schema = 2 if current_format() >= 3 else 1
@@ -404,3 +418,198 @@ def test_identify_spoke_cluster_is_not_filtered_out():
                                    cell_clusters={"FPGA_PWR_BANK"})
     assert ident.kind == KIND_SPOKE
     assert ident.role_to_ref == {"C_FPGA_BULK": "C74", "C_FPGA_BYPASS": "C53"}
+
+
+# ── N1: a cell's OWN anchor:/role: copper is not subtracted ─────────────────
+
+def test_subtract_foreign_copper_keeps_own_anchor_and_role(gate):
+    """N1 (acceptance of b209c58): a cell placed by a ClonePlacement anchored on
+    a component/role records its OWN copper under `anchor:`/`role:`. The first
+    version called that foreign and — with the mixed path's old
+    remove_missing=True — DELETED the cell's records. Own `anchor:<ref>` is kept
+    when <ref> is among the chosen instance's components; own
+    `role:<role>:<sheet>:<cluster>` when its address matches the instance;
+    `point:`/`pad:` stay foreign."""
+    cfg, cell_uuid, _chosen, _other, _pif, _pif_uuid = _cfg_two_instances()
+    cell_identity = record_key_part("dac_buf", cell_uuid)
+    own_addresses = cell_record_addresses(cfg, "dac_buf")
+    chosen_address = ("DAC_BUF", "Channel_0")
+    chosen_refs = ["C1", "C2"]  # the chosen instance's own components
+
+    own_anchor = _Copper("own_anchor")
+    foreign_anchor = _Copper("foreign_anchor")
+    own_role = _Copper("own_role")
+    foreign_role = _Copper("foreign_role")
+    point = _Copper("point")
+    owner = {
+        "own_anchor": make_registry_key("anchor:C1:1:0.0000:0.0000",
+                                        cell_identity, "r", 0),
+        "foreign_anchor": make_registry_key("anchor:X9:1:0.0000:0.0000",
+                                            cell_identity, "r", 0),
+        "own_role": make_registry_key("role:DA:Channel_0:DAC_BUF:1:0.0000:0.0000",
+                                      cell_identity, "r", 0),
+        "foreign_role": make_registry_key("role:DA:Channel_1:DAC_BUF:1:0.0000:0.0000",
+                                          cell_identity, "r", 0),
+        "point": make_registry_key("point:pt-uuid:0.0000:0.0000",
+                                   cell_identity, "r", 0),
+    }
+    sub = subtract_foreign_copper(
+        [own_anchor, foreign_anchor, own_role, foreign_role, point],
+        owner, cell_identity, own_addresses, chosen_address, chosen_refs)
+    assert {i.uuid for i in sub.kept} == {"own_anchor", "own_role"}
+    assert {i.uuid for i in sub.removed} == {"foreign_anchor", "foreign_role",
+                                             "point"}
+
+
+# ── N2: the read-back is a fixpoint, and a manual removal deletes its record ─
+
+def _live_fp(ref, role, cluster, x_mm, y_mm, chain):
+    """A live Footprint DTO — as adapter.get_selected_items() hands it to both
+    the narrowing (sheet chain + Role/Cluster) and build_refresh_plan (position,
+    angle)."""
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}",
+                   position=Vector2.from_xy_mm(x_mm, y_mm), angle_deg=0.0,
+                   layer=BoardLayer.BL_F_Cu)
+    fp.sheet_path_uuids = tuple(chain)
+    return fp
+
+
+def _apply_refresh_plan(plan, components, vias, tracks):
+    """The CellDock apply convention (_apply_refresh_plan): write the geometry
+    onto the SAME dicts, append the brand-new records, drop the removed ones —
+    and NOTHING is written to disk anywhere in the round trip."""
+    for rec, new_geo in (plan.component_updates + plan.via_updates
+                         + plan.track_updates):
+        rec.update(new_geo)
+    vias.extend(plan.new_via_records)
+    tracks.extend(plan.new_track_records)
+    doomed = {id(r) for r in plan.removed_via_records
+              + plan.removed_track_records}
+    if doomed:
+        vias[:] = [r for r in vias if id(r) not in doomed]
+        tracks[:] = [r for r in tracks if id(r) not in doomed]
+
+
+def _plan_decomposition(plan):
+    """(changed_pairs, new_vias, new_tracks, removed_vias, removed_tracks).
+
+    build_refresh_plan ALWAYS lists a recomputed (record, new_geo) pair for every
+    match — even when the geometry did not move — so the read-back's "plan is
+    empty" is: every pair is a NO-OP (new_geo equals the record's own values) and
+    nothing was added or removed."""
+    changed = [(rec, new_geo)
+               for rec, new_geo in (plan.component_updates + plan.via_updates
+                                    + plan.track_updates)
+               if any(rec.get(k) != v for k, v in new_geo.items())]
+    return (changed, plan.new_via_records, plan.new_track_records,
+            plan.removed_via_records, plan.removed_track_records)
+
+
+def _config_mixed_roundtrip():
+    """A config with ONE cell dac_buf and ONE entity dac0 placing it on
+    Channel_0 — the chosen instance the mixed selection narrows to."""
+    cell_uuid = det_uuid("cells:dac_buf")
+    ent = _Rec(name="dac0", uuid=det_uuid("entities:dac0"), cell="dac_buf",
+               cluster="DAC_BUF", sheet="Channel_0")
+    return (_Cfg(entities=[ent], cells={"dac_buf": _Rec(uuid=cell_uuid)}),
+            cell_uuid, ent)
+
+
+def _roundtrip_scenario(gate):
+    cfg, cell_uuid, _ent = _config_mixed_roundtrip()
+    components = [
+        {"role": "DA", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0},
+        {"role": "DB", "offset_along_mm": 5.0, "offset_across_mm": 0.0,
+         "angle_deg": 0.0},
+    ]
+    fp_c1 = _live_fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1"))
+    fp_c2 = _live_fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2"))
+    fp_p1 = _live_fp("P1", "C_IN_BULK", "PIF_AVDD", 20.0, 10.0, ("ch1", "s3"))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF"),
+                        "P1": ("C_IN_BULK", "PIF_AVDD")})
+    sheet_names = {"ch0": "Channel_0", "ch1": "Channel_1"}
+    track = Track(uuid="t_unreg", net_name="GND",
+                  start=Vector2.from_xy_mm(10.0, 10.0),
+                  end=Vector2.from_xy_mm(15.0, 10.0),
+                  width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+    return (cfg, cell_uuid, components, fp_c1, fp_c2, fp_p1, adapter,
+            sheet_names, track)
+
+
+def test_read_back_is_a_fixpoint(gate, tmp_path):
+    """N2, cell 9: a MIXED read (narrow → plan → apply it to the record lists)
+    then a read AGAIN on exactly the selection-after-read (the instance's
+    components + the copper that entered the read) yields an EMPTY plan — 0
+    changed updates, 0 new, 0 removed — and writes NO file. This is the whole
+    scheme's spine (Denis 2026-10-04: "а после — перечитать")."""
+    from gui.mixed_selection import narrow_mixed_selection
+
+    config_path = tmp_path / "config.sexp"
+    config_path.write_text("original", encoding="utf-8")
+    _write_registries(tmp_path, {}, {})  # nothing registered — the copper stays
+    (cfg, _cell_uuid, components, fp_c1, fp_c2, fp_p1, adapter, sheet_names,
+     track) = _roundtrip_scenario(gate)
+    vias, tracks = [], []
+
+    # 1) the MIXED read.
+    prelude = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter,
+        footprints=[fp_c1, fp_c2, fp_p1], vias=[], tracks=[track],
+        cfg=cfg, sheet_names=sheet_names, cell_name="dac_buf",
+        cell_roles={"DA", "DB"})
+    assert prelude is not None and prelude.refusal is None
+    assert [f.ref for f in prelude.footprints] == ["C1", "C2"]
+    assert {t.uuid for t in prelude.tracks} == {"t_unreg"}
+    plan1 = build_refresh_plan(
+        components, vias, tracks, list(prelude.footprints), list(prelude.vias),
+        list(prelude.tracks), adapter, add_new_copper=True, remove_missing=False,
+        cell_layer="F.Cu")
+    assert len(plan1.new_track_records) == 1
+    assert plan1.removed_via_records == [] and plan1.removed_track_records == []
+    _apply_refresh_plan(plan1, components, vias, tracks)
+    assert len(tracks) == 1
+
+    before = (config_path.read_bytes(),
+              (tmp_path / "registry" / "config.registry.json").read_bytes(),
+              (tmp_path / "tracks" / "config.tracks.registry.json").read_bytes())
+
+    # 2) read AGAIN on the selection-after-read (clean → the prelude is None).
+    after = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter,
+        footprints=list(prelude.instance_footprints), vias=list(prelude.vias),
+        tracks=list(prelude.tracks), cfg=cfg, sheet_names=sheet_names,
+        cell_name="dac_buf", cell_roles={"DA", "DB"})
+    assert after is None
+    plan2 = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], [], [track], adapter,
+        add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
+    assert _plan_decomposition(plan2) == ([], [], [], [], [])
+    assert (config_path.read_bytes(),
+            (tmp_path / "registry" / "config.registry.json").read_bytes(),
+            (tmp_path / "tracks" / "config.tracks.registry.json").read_bytes()
+            ) == before
+
+
+def test_read_back_after_manual_track_removal_deletes_its_record(gate, tmp_path):
+    """N2, cell 10: from the selection-after-read one instance track is removed
+    by hand — its record is DELETED by the ordinary (clean) read, everything else
+    is untouched."""
+    (cfg, _cell_uuid, components, fp_c1, fp_c2, fp_p1, adapter, sheet_names,
+     track) = _roundtrip_scenario(gate)
+    vias, tracks = [], []
+
+    # Bring the record list to the post-mixed-read state (its record exists).
+    plan1 = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], [], [track], adapter,
+        add_new_copper=True, remove_missing=False, cell_layer="F.Cu")
+    _apply_refresh_plan(plan1, components, vias, tracks)
+    assert len(tracks) == 1
+
+    # The user removes the track from the selection and reads again (clean path:
+    # the mixed narrowing is not in play, remove_missing=True as everywhere).
+    plan2 = build_refresh_plan(
+        components, vias, tracks, [fp_c1, fp_c2], [], [], adapter,
+        add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
+    changed, new_v, new_t, rem_v, rem_t = _plan_decomposition(plan2)
+    assert (changed, new_v, new_t, rem_v, rem_t) == ([], [], [], [], [tracks[0]])

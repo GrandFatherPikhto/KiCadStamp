@@ -19237,6 +19237,10 @@ msgstr ""
 msgid "the selection mixes {count} instances of cell {cell!r}: {candidates} — select ONE instance and read again"
 msgstr ""
 
+#: gui/docks/cell_editor.py
+msgid "in a mixed selection, records without a live pair are not deleted — read again by the selection after the read to delete them"
+msgstr ""
+
 #: gui/cell_identification.py
 msgid "filtered out {count} component(s) of other clusters"
 msgstr ""

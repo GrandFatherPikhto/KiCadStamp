@@ -56,10 +56,12 @@ __all__ = [
     "subtract_foreign_copper",
 ]
 
-# The anchor_id prefixes that name PHYSICS, not a record — a key carrying one
-# can never be "this cell's copper at the chosen instance" (the plan: a key with
-# a physical prefix pad:/anchor:/role: is foreign).
-_PHYSICAL_PREFIXES = ("pad:", "anchor:", "role:")
+# NOTE (N1, acceptance of b209c58, 2026-10-05). The first version treated every
+# key carrying a physical prefix (pad:/anchor:/role:) as foreign. That is WRONG:
+# a cell placed by a ClonePlacement anchored on a component/role records its OWN
+# copper under `anchor:`/`role:` (see clone_position_calculator.clone_anchor_id).
+# Counting those foreign subtracted the cell's own copper and — with the mixed
+# path's old remove_missing=True — DELETED its records. See `_is_own_key`.
 
 
 @dataclass(frozen=True)
@@ -287,10 +289,27 @@ def _anchor_label(key: str) -> str:
 
 
 def _is_own_key(key: str, cell_identity: str | None,
-                own_addresses: dict, chosen_address: tuple) -> bool:
-    """The plan's "own record": the key's template part is THIS cell AND its
-    anchor part points at a record of this cell whose address IS the chosen
-    instance. Everything else is foreign."""
+                own_addresses: dict, chosen_address: tuple,
+                chosen_refs: frozenset = frozenset()) -> bool:
+    """The plan's "own record": the key's TEMPLATE part is THIS cell, and its
+    ANCHOR part points at the CHOSEN instance. Everything else is foreign.
+
+    N1 (acceptance of b209c58, 2026-10-05): a cell placed by a ClonePlacement
+    anchored on a component/role records its OWN copper under the physical
+    prefixes ``anchor:``/``role:`` (``clone_anchor_id``). The first version
+    called those foreign, subtracted the cell's own copper, and — because the
+    mixed path then ran with ``remove_missing=True`` — DELETED its records.
+    The rule, per the acceptance:
+
+      * ``anchor:<ref>:...``   — own when ``<ref>`` is one of the chosen
+        instance's components (``chosen_refs``);
+      * ``role:<role>:<sheet>:<cluster>:...`` — own when its (cluster, sheet)
+        ADDRESS matches the chosen instance (the same ``_address_matches``);
+      * ``point:`` / ``pad:``  — FOREIGN (a point names a Point record, a pad
+        names physics — neither is this cell's record at this instance);
+      * ``name:<identity>...`` — own when the named record is one of this cell's
+        and its stored address is the chosen instance.
+    """
     if cell_identity is None:
         return False
     parts = key.split("|")
@@ -299,33 +318,42 @@ def _is_own_key(key: str, cell_identity: str | None,
     anchor_id, template_name, _role, _index = parts
     if template_name != cell_identity:
         return False
-    if anchor_id.startswith(_PHYSICAL_PREFIXES):
-        return False
+    if anchor_id.startswith("anchor:"):
+        ref = anchor_id[len("anchor:"):].split(":", 1)[0]
+        return ref in chosen_refs
+    if anchor_id.startswith("role:"):
+        fields = anchor_id[len("role:"):].split(":")
+        if len(fields) < 3:
+            return False
+        sheet = fields[1] or None
+        cluster = fields[2] or None
+        return _address_matches((cluster, sheet), chosen_address)
     if anchor_id.startswith("name:"):
-        value = anchor_id[len("name:"):]
-    elif anchor_id.startswith("point:"):
-        value = anchor_id[len("point:"):]
-    else:
-        # thermal: / net: / anything we do not own -> foreign (inter-cluster
-        # net_traces, thermal via arrays, chains).
-        return False
-    identity = _match_own_identity(value, own_addresses)
-    if identity is None:
-        return False
-    return _address_matches(own_addresses[identity], chosen_address)
+        identity = _match_own_identity(anchor_id[len("name:"):], own_addresses)
+        if identity is None:
+            return False
+        return _address_matches(own_addresses[identity], chosen_address)
+    # point: / pad: / thermal: / net: / anything else -> foreign (points,
+    # physics pads, inter-cluster net_traces, thermal via arrays, chains).
+    return False
 
 
 def subtract_foreign_copper(items: Iterable[Any], owner: dict,
                             cell_identity: str | None,
                             own_addresses: dict,
-                            chosen_address: tuple) -> CopperSubtraction:
+                            chosen_address: tuple,
+                            chosen_refs: Iterable[str] = ()) -> CopperSubtraction:
     """Split selected copper into KEPT (own / unregistered) and REMOVED
     (recorded for some other record).
 
     owner — {copper uuid -> registry key} over BOTH registry files (the worker
     builds it with the product's ``load_registry`` / ``load_track_registry``).
     An item whose uuid is not in ``owner`` is NOT registered and is KEPT — a
-    hand-drawn track then goes the ordinary way, exactly as today."""
+    hand-drawn track then goes the ordinary way, exactly as today.
+
+    chosen_refs — the chosen instance's component refs, used to recognise an
+    ``anchor:<ref>`` key as this cell's own (N1)."""
+    chosen_ref_set = frozenset(chosen_refs or ())
     kept: list[Any] = []
     removed: list[Any] = []
     report: dict[str, int] = {}
@@ -334,7 +362,8 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
         if key is None:
             kept.append(item)
             continue
-        if _is_own_key(key, cell_identity, own_addresses, chosen_address):
+        if _is_own_key(key, cell_identity, own_addresses, chosen_address,
+                       chosen_ref_set):
             kept.append(item)
             continue
         removed.append(item)

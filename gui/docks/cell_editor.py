@@ -112,6 +112,7 @@ from ..cell_edit_context import (
     remembered_cell_refs,
     resolve_context_footprints,
 )
+from ..mixed_selection import WARN as _SELECTION_WARN
 from ..mixed_selection import narrow_mixed_selection
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
@@ -1867,6 +1868,7 @@ class CellDock(QWidget):
         """Worker thread: selection read + plan build — never touches a widget.
         Returns {"plan": RefreshPlan} or {"error": ...} (a ValidationError's
         format_fatal_error text shown verbatim in a QMessageBox)."""
+        selection_lines: list = []
         try:
             adapter = payload["board"].adapter
             # K.1 (2026-09-10, plan stale_board_snapshot): a LIVE read must see
@@ -1929,6 +1931,16 @@ class CellDock(QWidget):
             if refusal:
                 return {"selection_refusal": refusal}
             selection_lines = list(prelude.log_lines) if prelude else []
+            if prelude is not None:
+                # N1(a): in a MIXED selection an unpaired record is NOT deleted
+                # (its copper may legally be absent from the narrowed read) —
+                # the deletion belongs to the read-back by the clean selection
+                # after the read. Denis (2026-10-04): "а после — перечитать".
+                selection_lines.append((
+                    _("in a mixed selection, records without a live pair are "
+                      "not deleted — read again by the selection after the "
+                      "read to delete them"),
+                    _SELECTION_WARN))
             plan = build_refresh_plan(
                 payload["components"], payload["vias"], payload["tracks"],
                 plan_footprints, plan_vias, plan_tracks, adapter,
@@ -1936,8 +1948,10 @@ class CellDock(QWidget):
                 add_new_copper=True,
                 # H.2: Refresh is symmetric — an unpaired record is DELETED
                 # (the user's explicit call: the selection is the truth for the
-                # cell's copper, the report goes to the Log).
-                remove_missing=True,
+                # cell's copper, the report goes to the Log). N1(a): NOT in a
+                # MIXED selection — see the Log line above; the deletion is the
+                # read-back's job (a clean selection follows the ordinary path).
+                remove_missing=prelude is None,
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,
@@ -1953,7 +1967,11 @@ class CellDock(QWidget):
                 except Exception:  # noqa: BLE001 — a selection write is best-effort
                     logger.exception("select-after-read failed")
         except ValidationError as e:
-            return {"error": str(e)}
+            # N1(a): the mixed-selection Log lines (e.g. "records without a live
+            # pair are not deleted") must reach the user even when the plan
+            # refuses — a refusal with no explanation reads as an unexplained
+            # failure.
+            return {"error": str(e), "selection_lines": selection_lines}
         return {"plan": plan, "layer_report": layer_read,
                 "selection_lines": selection_lines}
 

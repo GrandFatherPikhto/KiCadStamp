@@ -161,6 +161,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
 
     chosen_cluster, chosen_sheet = choice.chosen_key
     instance_fps = [m.item for m in choice.members]
+    # N1: the chosen instance's component refs — an `anchor:<ref>` key of THIS
+    # cell is its own when <ref> is one of them (the mixed path no longer
+    # subtracts the cell's own anchored copper).
+    chosen_refs = [r for r in (getattr(m.item, "ref", None)
+                               for m in choice.members) if r]
 
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
     cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
@@ -169,9 +174,9 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     owner = _registry_owner(config_path, cfg)
     chosen_address = (chosen_cluster, chosen_sheet)
     sub_v = subtract_foreign_copper(vias, owner, cell_identity, own_addresses,
-                                    chosen_address)
+                                    chosen_address, chosen_refs)
     sub_t = subtract_foreign_copper(tracks, owner, cell_identity, own_addresses,
-                                    chosen_address)
+                                    chosen_address, chosen_refs)
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, choice.others),
               SUCCESS)]

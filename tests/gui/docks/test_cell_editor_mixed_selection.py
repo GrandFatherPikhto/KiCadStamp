@@ -25,7 +25,7 @@ from kicadstamp.domain.board import Footprint, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 
 
-def _config_data():
+def _config_data(vias=None):
     return {
         "cells": {"dac_buf": {
             "layer": "F.Cu",
@@ -35,16 +35,16 @@ def _config_data():
                 {"role": "DB", "offset_along_mm": 5.0, "offset_across_mm": 0.0,
                  "angle_deg": 0.0},
             ],
-            "vias": [], "tracks": [], "clone_placements": [],
+            "vias": list(vias or []), "tracks": [], "clone_placements": [],
         }},
         "entities": [{"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF"}],
     }
 
 
-def _write_config(tmp_path):
+def _write_config(tmp_path, data=None):
     target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp(_config_data(), format_number=2),
-                      encoding="utf-8")
+    target.write_text(dict_to_sexp(data if data is not None else _config_data(),
+                                   format_number=2), encoding="utf-8")
     return target
 
 
@@ -94,8 +94,8 @@ def _no_layer_warning(monkeypatch):
                         lambda adapter: None)
 
 
-def _make_dock(main_window, tmp_path):
-    target = _write_config(tmp_path)
+def _make_dock(main_window, tmp_path, data=None):
+    target = _write_config(tmp_path, data)
     dock = CellDock(main_window)
     dock.set_root_path(target)
     dock.load_entry("dac_buf")
@@ -161,3 +161,22 @@ def test_clean_selection_does_not_select_or_keep_context(main_window, tmp_path):
     assert "plan" in result, result
     assert clean.selected_calls == []
     assert not result.get("selection_lines")
+
+
+def test_mixed_refresh_does_not_delete_unpaired_records(main_window, tmp_path):
+    """N1(a): in a MIXED selection a record with no live pair is NOT deleted —
+    the plan refuses (remove_missing=False keeps today's count fatal, never the
+    old silent deletion) and the record is intact; the Log says why."""
+    unpaired = {"offset_along_mm": 1.0, "offset_across_mm": 2.0, "net": "GND",
+                "drill_mm": 0.3, "diameter_mm": 0.6}
+    dock, _ = _make_dock(main_window, tmp_path, _config_data(vias=[unpaired]))
+    board = _MixedBoard()
+
+    result = dock._run_refresh_geometry(_payload(dock, board))
+
+    # No plan and no deletion: the cell's own record is untouched.
+    assert "plan" not in result, result
+    assert "error" in result, result
+    assert len(dock._vias) == 1 and dock._vias[0]["net"] == "GND"
+    texts = [text for text, _level in result.get("selection_lines") or []]
+    assert any("not deleted" in text for text in texts)
