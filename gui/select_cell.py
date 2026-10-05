@@ -16,6 +16,7 @@ like gui/mixed_selection.py)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.i18n import _
@@ -68,6 +69,69 @@ def effective_instance(cluster, sheet, remembered_cluster,
     if cluster is not None:
         return cluster, sheet
     return remembered_cluster, remembered_sheet
+
+
+@dataclass(frozen=True)
+class InstanceChoice:
+    """The ONE decision "which instance of this cell does an action target"
+    (Р2а-3), shared by "Select cell" and "Explode…".
+
+    kind: "explicit"  — an explicit (cluster, sheet) was given, used as-is;
+          "remembered" — the cell's remembered (cluster, sheet);
+          "single"      — the ONE config record that places the cell;
+          "choose"      — several records: `candidates` to pick from (submenu);
+          "none"        — nothing to choose (identified refs win; no cluster);
+          "no-record"   — no record places the cell: `message` says so."""
+
+    kind: str
+    cluster: Optional[str] = None
+    sheet: object = None
+    candidates: tuple = ()
+    message: str = ""
+
+
+def resolve_action_instance(cfg, root_path, cell_name, cluster=None, sheet=None,
+                            refs=None) -> InstanceChoice:
+    """The ONE instance-resolution rule for BOTH doors (Р2а-3): an explicit
+    address is taken as-is; else the remembered context; else (identified `refs`
+    make the cluster optional) "none"; else the config's own records — one is
+    "single", several are "choose", none is "no-record". Qt-free: the caller
+    decides what each kind means (a submenu is `pick_instance`)."""
+    from .cell_edit_context import remembered_cell_edit_context
+    if cluster is not None:
+        chosen_cluster, chosen_sheet = effective_instance(cluster, sheet, None, None)
+        return InstanceChoice("explicit", chosen_cluster, chosen_sheet)
+    remembered_cluster, remembered_sheet = remembered_cell_edit_context(
+        root_path, cell_name)
+    if remembered_cluster:
+        return InstanceChoice("remembered", str(remembered_cluster), remembered_sheet)
+    if refs:
+        # Identified refs (Н5б) make the Cluster optional — nothing to choose.
+        return InstanceChoice("none")
+    instances = cell_instances(cfg, cell_name)
+    if not instances:
+        return InstanceChoice("no-record", message=_(
+            "No remembered cluster for cell {name!r} — extract it from a board "
+            "cluster, or remember one via the cell-anchor page’s “Fill from "
+            "selection”.").format(name=cell_name))
+    if len(instances) == 1:
+        return InstanceChoice("single", instances[0][0], instances[0][1])
+    return InstanceChoice("choose", candidates=tuple(instances))
+
+
+def pick_instance(parent, candidates, on_pick) -> None:
+    """The ONE per-instance submenu ("<cluster> on <sheet>"), shared by both
+    doors. Qt stays here (lazy import) so the resolver above is import-clean."""
+    from PyQt6.QtGui import QCursor
+    from PyQt6.QtWidgets import QMenu
+    menu = QMenu(parent)
+    for cluster, sheet in candidates:
+        action = menu.addAction(_("{cluster} on {sheet}").format(
+            cluster=cluster,
+            sheet=sheet if sheet is not None else _("(no sheet)")))
+        action.triggered.connect(
+            lambda checked=False, c=cluster, s=sheet: on_pick(c, s))
+    menu.exec(QCursor.pos())
 
 
 @dataclass

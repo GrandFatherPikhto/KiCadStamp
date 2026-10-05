@@ -285,8 +285,14 @@ def test_select_cell_uses_config_instances_when_nothing_remembered(
     dock = CellDock(main_window)
     dock.set_root_path(target)
     dock.load_entry("dac_buf")
-    assert dock._resolve_cell_instance("dac_buf") == ("DAC_BUF", "Channel_0",
-                                                      False)
+    # The instance rule moved to gui/select_cell.py (Р2а-3): one resolver for
+    # "Select cell" and "Explode…".
+    from gui.select_cell import resolve_action_instance
+    from kicadstamp.config.loader import load_config
+    cfg_loaded, _ctx = load_config(str(target))
+    choice = resolve_action_instance(cfg_loaded, target, "dac_buf")
+    assert (choice.kind, choice.cluster, choice.sheet) == (
+        "single", "DAC_BUF", "Channel_0")
 
 
 # ── H5-4: tree nodes of OTHER clusters are not named ────────────────────────

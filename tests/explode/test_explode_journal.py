@@ -42,6 +42,19 @@ def test_explode_then_restore_is_the_board_as_before(tmp_path, monkeypatch):
     assert not path.is_file()                     # journal removed on success
 
 
+def test_explode_refuses_when_the_board_identity_is_unknown(tmp_path, monkeypatch):
+    """Р2а-2: an unknown board identity must REFUSE the explode — a journal under
+    the "(unknown board)" sentinel would be shared by EVERY board."""
+    from types import SimpleNamespace
+    board, cfg = _scenario(monkeypatch)
+    plan = _plan(board, cfg)
+    fake = SimpleNamespace()                      # no identity seam at all
+    with pytest.raises(ExplodeError) as exc:
+        journal_mod.explode(fake, plan, journal_dir_override=tmp_path)
+    assert "identity" in str(exc.value)
+    assert not list(tmp_path.glob("*.json"))      # nothing written
+
+
 def test_failed_transaction_leaves_no_journal_and_the_board_untouched(
         tmp_path, monkeypatch):
     board, cfg = _scenario(monkeypatch)

@@ -18,16 +18,23 @@ the post-crash state) and tests/gui/test_explode_worker_gate.py (the worker gate
   * Q5  "Restore and quit" closes even when the restore FAILED
   * Q6  ticks stay editable after "Explode"
   * Q7  a tee / multi row is not highlighted
+  * Q8  the lock disables the WHOLE left-tabs container (Р2а-1 blocker)
+  * Q9  an unknown board identity is read as "no journal" (Р2а-2 blocker)
+  * Q10 board is read on the UI thread again (_adapter) (Р2а-2 door)
+  * Q11 explode writes a journal under "(unknown board)" (Р2а-2)
+  * Q12 "Explode…" takes the first record instead of the submenu (Р2а-3)
   * K1  a cosmetic comment — MUST survive
 """
 from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
 
-G = ["test_explode_page.py", "test_explode_worker_gate.py"]
+G = ["test_explode_page.py", "test_explode_worker_gate.py",
+     "test_explode_journal.py"]
 DOCK_HUB = "gui/dock_hub.py"
 WORKER = "gui/worker.py"
 GUARD = "gui/explode_guard.py"
 MAIN = "gui/main_window.py"
 PAGE = "gui/docks/explode_page.py"
+JOURNAL = "kicadstamp/explode_journal.py"
 
 ROWS = [
     ("Q1 leaving the explode page is allowed", DOCK_HUB,
@@ -39,7 +46,9 @@ ROWS = [
      "    if False:  # MUTATION",
      "die", G, ()),
     ("Q3 exploded is memory, not the journal", GUARD,
-     "        new = journal is not None",
+     "        self._journal = journal or None\n"
+     "        new = self._journal is not None",
+     "        self._journal = journal or None\n"
      "        new = False  # MUTATION",
      "die", G, ()),
     ("Q4 a real quit while exploded asks nothing", MAIN,
@@ -60,6 +69,48 @@ ROWS = [
     ("Q7 a tee row is not highlighted", PAGE,
      "                    if piece.touches in (\"tee\", \"multi\"):",
      "                    if False:  # MUTATION",
+     "die", G, ()),
+    ("Q8 the lock disables the whole container", DOCK_HUB,
+     "        unlocked = not active\n"
+     "        self.left_tabs.tabBar().setEnabled(unlocked)\n"
+     "        self.config_tree_dock.tree.setEnabled(unlocked)",
+     "        unlocked = not active\n"
+     "        self.left_tabs.setEnabled(unlocked)  # MUTATION\n"
+     "        self.config_tree_dock.tree.setEnabled(unlocked)",
+     "die", G, ()),
+    ("Q9 unknown identity read as no-journal", PAGE,
+     "        if kind == \"unknown\":\n"
+     "            self._guard.apply_unknown()          # LEAVE the lock as it is\n"
+     "            return",
+     "        if False:  # MUTATION\n"
+     "            self._guard.apply_unknown()\n"
+     "            return",
+     "die", G, ()),
+    ("Q10 board read on the UI thread again", PAGE,
+     "        if not self._connected() or self._root_path is None:",
+     "        adapter = getattr(getattr(self._connection(), \"board\", None),\n"
+     "                          \"adapter\", None)  # MUTATION\n"
+     "        if adapter is None or self._root_path is None:",
+     "die", G, ()),
+    ("Q11 explode writes under (unknown board)", JOURNAL,
+     "    if board_identity(adapter) == UNKNOWN_BOARD:\n"
+     "        raise ExplodeError(_(\n"
+     "            \"cannot read the board identity — refusing to explode: the journal \"\n"
+     "            \"would be shared by every board\"))",
+     "    if False:  # MUTATION\n"
+     "        raise ExplodeError(\"never\")",
+     "die", G, ()),
+    ("Q12 explode door takes the first record", DOCK_HUB,
+     "            elif choice.kind == \"choose\":\n"
+     "                pick_instance(\n"
+     "                    self.main_window, choice.candidates,\n"
+     "                    lambda c, s: self._open_explode(name, file_path, c, s))\n"
+     "                return",
+     "            elif False:  # MUTATION\n"
+     "                pick_instance(\n"
+     "                    self.main_window, choice.candidates,\n"
+     "                    lambda c, s: self._open_explode(name, file_path, c, s))\n"
+     "                return",
      "die", G, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "class ExplodePage(QWidget):",

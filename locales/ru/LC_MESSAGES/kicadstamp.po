@@ -527,7 +527,7 @@ msgid "Entity {name!r} saved to {path}."
 msgstr "Сущность {name!r} сохранена в {path}."
 
 #: gui/dock_hub.py:3209
-msgid "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)."
+msgid "Clusters are exploded — press \"Put back\" first (the \"Explode\" tab)."
 msgstr "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)."
 
 #: gui/dock_hub.py:3499
@@ -541,7 +541,7 @@ msgstr ""
 "anchor_sheet) отключено."
 
 #: gui/explode_guard.py:77
-msgid "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)"
+msgid "Clusters are exploded — press \"Put back\" first (the \"Explode\" tab)"
 msgstr "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)"
 
 #: gui/fieldstool_window.py:119
@@ -1173,11 +1173,11 @@ msgid "No recent projects"
 msgstr "Нет недавних проектов"
 
 #: gui/main_window.py:802
-msgid "Кластеры разнесены"
+msgid "Clusters are exploded"
 msgstr "Кластеры разнесены"
 
 #: gui/main_window.py:803
-msgid "Кластеры разнесены. Вернуть и выйти?"
+msgid "Clusters are exploded. Put back and quit?"
 msgstr "Кластеры разнесены. Вернуть и выйти?"
 
 #: gui/main_window.py:830
@@ -4511,40 +4511,40 @@ msgid "no explode journal for this board — nothing to restore"
 msgstr "журнала разноса для этой платы нет — возвращать нечего"
 
 #: gui/docks/explode_page.py:101 gui/docks/explode_page.py:228
-msgid "Разнос: ячейка не выбрана"
+msgid "Explode: no cell selected"
 msgstr "Разнос: ячейка не выбрана"
 
 #: gui/docks/explode_page.py:111 gui/docks/explode_page.py:154
 #: gui/docks/explode_page.py:383
-msgid "Вернуть"
+msgid "Put back"
 msgstr "Вернуть"
 
 #: gui/docks/explode_page.py:112
-msgid "Показать журнал"
+msgid "Show journal"
 msgstr "Показать журнал"
 
 #: gui/docks/explode_page.py:113
-msgid "Забыть журнал"
+msgid "Forget journal"
 msgstr "Забыть журнал"
 
 #: gui/docks/explode_page.py:120
-msgid "Поле области:"
+msgid "Area margin around the cell:"
 msgstr "Поле области:"
 
 #: gui/docks/explode_page.py:123 gui/docks/explode_page.py:129
-msgid " мм"
+msgid " mm"
 msgstr " мм"
 
 #: gui/docks/explode_page.py:126
-msgid "Зазор:"
+msgid "Gap:"
 msgstr "Зазор:"
 
 #: gui/docks/explode_page.py:132
-msgid "Пересчитать"
+msgid "Recalculate"
 msgstr "Пересчитать"
 
 #: gui/docks/explode_page.py:141
-msgid "Межкластерная медь у ячейки:"
+msgid "Inter-cluster copper at the cell:"
 msgstr "Межкластерная медь у ячейки:"
 
 #: gui/docks/explode_page.py:145
@@ -4556,28 +4556,28 @@ msgid "Touches"
 msgstr "Касается"
 
 #: gui/docks/explode_page.py:150 gui/docks/explode_page.py:344
-msgid "Разнести"
+msgid "Explode"
 msgstr "Разнести"
 
 #: gui/docks/explode_page.py:151
-msgid "Перечитать ячейку по выделению"
+msgid "Re-read cell from selection"
 msgstr "Перечитать ячейку по выделению"
 
 #: gui/docks/explode_page.py:153
-msgid "Р3"
+msgid "R3"
 msgstr "Р3"
 
 #: gui/docks/explode_page.py:222
-msgid "разнесено"
+msgid "clusters are exploded"
 msgstr "разнесено"
 
 #: gui/docks/explode_page.py:222
-msgid "собрано"
+msgid "clusters are collapsed"
 msgstr "собрано"
 
 #: gui/docks/explode_page.py:225
 #, python-brace-format
-msgid "Разнос: {cell} — {where}   [состояние: {state}]"
+msgid "Explode: {cell} — {where}   [{state}]"
 msgstr "Разнос: {cell} — {where}   [состояние: {state}]"
 
 #: gui/docks/explode_page.py:239
@@ -4590,16 +4590,16 @@ msgstr "планирование"
 
 #: gui/docks/explode_page.py:267
 #, python-brace-format
-msgid "{where} ({fps} деталей, {cu} кусков меди)"
+msgid "{where} ({fps} parts, {cu} copper pieces)"
 msgstr "{where} ({fps} деталей, {cu} кусков меди)"
 
 #: gui/docks/explode_page.py:271
 #, python-brace-format
-msgid "Уедут: {leaves}"
+msgid "Will leave: {leaves}"
 msgstr "Уедут: {leaves}"
 
 #: gui/docks/explode_page.py:272
-msgid "(никто)"
+msgid "(nobody)"
 msgstr "(никто)"
 
 #: gui/docks/explode_page.py:278
@@ -4621,7 +4621,7 @@ msgstr ""
 "{when}, предметов: {n}"
 
 #: gui/docks/explode_page.py:405
-msgid "Забыть журнал?"
+msgid "Forget journal?"
 msgstr "Забыть журнал?"
 
 #: gui/docks/explode_page.py:406
@@ -4638,7 +4638,9 @@ msgstr "журнал разноса удалён"
 
 #: gui/docks/explode_page.py:451
 #, python-brace-format
-msgid "Кластеры разнесены {when} — не сохраняй плату KiCad; сначала «Вернуть»"
+msgid ""
+"Clusters are exploded {when} — do not save the KiCad board; press \"Put "
+"back\" first"
 msgstr "Кластеры разнесены {when} — не сохраняй плату KiCad; сначала «Вернуть»"
 
 #: gui/docks/extract_cluster_dialog.py:73
@@ -18754,4 +18756,17 @@ msgstr "Сгенерировано: {path}"
 #, python-brace-format
 msgid "Total spokes: {count}"
 msgstr "Всего спиц: {count}"
+
+msgid "exploding clusters"
+msgstr "разношу кластеры"
+
+msgid "putting back"
+msgstr "возвращаю"
+
+msgid ""
+"cannot read the board identity — refusing to explode: the journal would "
+"be shared by every board"
+msgstr ""
+"не удаётся прочитать личность платы — отказ от разноса: журнал был бы "
+"общим для всех плат"
 

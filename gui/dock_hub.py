@@ -2946,16 +2946,13 @@ class DockHub:
 
     # ── "Разнос" (Р2) ───────────────────────────────────────────────────────
 
-    def _board_adapter(self):
-        board = getattr(self.main_window.connection, "board", None)
-        return getattr(board, "adapter", None)
-
     def _open_explode(self, name, file_path=None, cluster=None,
                       sheet=None) -> None:
-        """The ONE opener of the "Разнос" tab, for every door. The instance is
-        chosen with the "Select cell" rules: an explicit (cluster, sheet) is
-        taken as-is; else the cell's REMEMBERED context; else its one config
-        record; several with nothing remembered -> a pick submenu."""
+        """The ONE opener of the "Разнос" tab, for every door.
+
+        The instance is chosen by the SAME resolver "Select cell" uses
+        (gui/select_cell.resolve_action_instance): explicit / remembered / one
+        record / several (submenu) / none. No second copy of the rule (Р2а-3)."""
         if not name:
             return
         root = self.root_metadata_dock.root_path
@@ -2963,70 +2960,68 @@ class DockHub:
             show_message(_("Set the project root first."), _ERROR_STYLE, logger)
             return
         if cluster is None:
-            from .cell_edit_context import remembered_cell_edit_context
-            remembered = remembered_cell_edit_context(root, name)
-            if remembered and remembered[0]:
-                cluster, sheet = remembered
-            else:
-                candidates = self._explode_candidates(root, name)
-                if not candidates:
-                    show_message(_(
-                        "no config record places {cell} — nothing to explode")
-                        .format(cell=name), _ERROR_STYLE, logger)
-                    return
-                if len(candidates) > 1:
-                    self._explode_pick_menu(name, file_path, candidates)
-                    return
-                cluster, sheet = candidates[0]
+            from .select_cell import pick_instance, resolve_action_instance
+            choice = resolve_action_instance(
+                self._load_cfg(root), root, name, None, None, None)
+            if choice.kind in ("explicit", "remembered", "single"):
+                cluster, sheet = choice.cluster, choice.sheet
+            elif choice.kind == "choose":
+                pick_instance(
+                    self.main_window, choice.candidates,
+                    lambda c, s: self._open_explode(name, file_path, c, s))
+                return
+            else:                        # "none" / "no-record"
+                if choice.message:
+                    show_message(choice.message, _ERROR_STYLE, logger)
+                return
         self.explode_page.set_root_path(root)
         self.explode_page.open_instance(name, cluster, sheet)
         self.config_tree_dock.set_current_page(self._explode_page)
 
-    def _explode_candidates(self, root, name) -> list:
+    @staticmethod
+    def _load_cfg(root):
+        """The loaded config for the instance lookup, or None (a config that will
+        not load is a hint, not a fatal). Not a board read."""
         from kicadstamp.config.loader import load_config
-        from .select_cell import cell_instances
         try:
             cfg, _ctx = load_config(str(root))
-        except Exception:  # noqa: BLE001 — a broken config is not an explosion task
-            return []
-        return cell_instances(cfg, name)
-
-    def _explode_pick_menu(self, name, file_path, candidates) -> None:
-        from PyQt6.QtGui import QCursor
-        from PyQt6.QtWidgets import QMenu
-        menu = QMenu(self.main_window)
-        for cluster, sheet in candidates:
-            label = f"{cluster}/{sheet}" if sheet else str(cluster)
-            menu.addAction(label).triggered.connect(
-                partial(self._open_explode, name, file_path, cluster, sheet))
-        menu.exec(QCursor.pos())
+            return cfg
+        except Exception:  # noqa: BLE001 — a broken config is not our task
+            return None
 
     def _apply_explode_lock(self, active: bool) -> None:
-        """Р2-4: while exploded the left tabs are disabled and the Config right
-        view is pinned to the "Разнос" page (the pin itself is enforced in
-        _on_config_right_page_changed)."""
-        self.left_tabs.setEnabled(not active)
+        """Р2-4/Р2а-1: while exploded, the LEFT TAB STRIP and the Config TREE are
+        disabled, and the Config right view is pinned to the "Разнос" page (the
+        pin itself is enforced in _on_config_right_page_changed).
+
+        Deliberately NOT `self.left_tabs.setEnabled(False)`: the "Разнос" page is
+        a right page INSIDE the Config tab, so disabling the container disables
+        the page too — the "Restore" button would be dead and the only way out
+        would be the CLI (Р2а-1, measured offscreen)."""
+        unlocked = not active
+        self.left_tabs.tabBar().setEnabled(unlocked)
+        self.config_tree_dock.tree.setEnabled(unlocked)
         if active:
             self.config_tree_dock.set_current_page(self._explode_page)
 
     def refresh_explode_state(self) -> None:
-        """Read the journal for the connected board (once per connect/refresh):
-        the guard sets `active`; if exploded (e.g. after a crash) the tab opens
-        in the exploded state and the lock applies. `active` always comes from
-        the journal, never memory — deleting the file clears the lock here.
+        """Kick the tab's WORKER state read (door §31: no board read here).
+
+        The journal path depends on the board IDENTITY — an IPC read — so it is
+        read on a worker (`explode_page.explode_state_worker`), and the UI thread
+        only applies a ready answer: has / none / unknown. `active` always comes
+        from the journal, never memory.
 
         A DockHub built WITHOUT __init__ (some tests wire one method's body)
         simply has no guard — nothing to refresh."""
         guard = getattr(self, "explode_guard", None)
         if guard is None:
             return
-        guard.refresh(self._board_adapter())
         page = getattr(self, "explode_page", None)
-        if guard.active and page is not None and not page.exploded_from_journal:
-            page.open_from_journal(guard.journal)
-        if guard.active:
-            self.config_tree_dock.set_current_page(self._explode_page)
-        self._apply_explode_lock(guard.active)
+        if page is None:
+            self._apply_explode_lock(guard.active)
+            return
+        page.refresh_state()
 
     def _select_cell_from_tree(self, name, file_path, cluster=None,
                                sheet=None) -> None:
@@ -3206,8 +3201,8 @@ class DockHub:
         # Р2-4: while exploded the Config right view is PINNED to the "Разнос"
         # page — any switch away is rolled back with a yellow line.
         if self.explode_guard.active and index != self._explode_page:
-            show_message(_("Кластеры разнесены — сначала «Вернуть» "
-                           "(вкладка «Разнос»)."), _WARN_STYLE, logger)
+            show_message(_("Clusters are exploded — press \"Put back\" first "
+                           "(the \"Explode\" tab)."), _WARN_STYLE, logger)
             self.config_tree_dock.set_current_page(self._explode_page)
             return
         prev = getattr(self, "_config_right_page_index", 0)

@@ -52,7 +52,6 @@ class ExplodeGuard(QObject):
         super().__init__(parent)
         self._journal = None
         self._active = False
-        self._adapter = None
         # Install the gate for the WHOLE app. `_gate` is a bound method, so
         # detach() clears THIS guard's gate only (two guards in one process —
         # the GUI test suite builds many windows).
@@ -74,38 +73,38 @@ class ExplodeGuard(QObject):
     def refusal_line(self) -> str:
         """The red line the worker gate returns while exploded — the ONE
         wording for the lock (the worker logs it and calls on_error with it)."""
-        return _("Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)")
+        return _("Clusters are exploded — press \"Put back\" first "
+                 "(the \"Explode\" tab)")
 
     def _gate(self):
         return self.refusal_line() if self._active else None
 
-    # ── reading the journal ─────────────────────────────────────────────────
-    def refresh(self, adapter=None) -> bool:
-        """Re-read the journal for the connected board and set ``active``.
+    # ── state from the journal ──────────────────────────────────────────────
+    #
+    # The guard NEVER reads the board itself: the door forbids a UI-thread board
+    # read, and the journal path depends on the board IDENTITY (an IPC read). The
+    # journal is read on a WORKER (gui/docks/explode_page.explode_state_worker)
+    # and handed here as a ready answer.
+    def apply_journal(self, journal) -> bool:
+        """A KNOWN board's journal: present -> exploded, absent -> not exploded.
+        This is the ONLY way the lock is CLEARED.
 
-        Emits ``changed`` ONLY when the state flips, and returns the new
-        ``active``. A read failure reads as "no journal" — a missing journal is
-        the normal answer, never a fatal."""
-        from kicadstamp.explode_journal import journal_status
-        if adapter is not None:
-            self._adapter = adapter
-        journal = None
-        if self._adapter is not None:
-            try:
-                journal = journal_status(self._adapter)
-            except Exception:  # noqa: BLE001 — a missing journal means "not exploded"
-                logger.exception("explode journal read failed")
-                journal = None
-        self._journal = journal
-        new = journal is not None
-        if new != self._active:
-            self._active = new
-            self.changed.emit(new)
+        Emits ``changed`` ONLY when the state flips; returns the new ``active``."""
+        return self.set_from_journal(journal)
+
+    def apply_unknown(self) -> bool:
+        """The board IDENTITY could not be read (a busy socket, a stand-in): the
+        state is LEFT EXACTLY AS IT IS.
+
+        A missing journal must never be read as "not exploded": an unreadable
+        identity would then DROP the lock while the clusters are still shifted
+        aside, and the whole board would be wide open. Returns the unchanged
+        ``active``."""
         return self._active
 
     def set_from_journal(self, journal) -> bool:
-        """Set the state from a journal dict ALREADY read (the tab reads it to
-        open in the exploded state). Same flip signal as :meth:`refresh`."""
+        """Set the state from a journal dict ALREADY known (a worker read, or a
+        successful explode/restore). Same flip signal as :meth:`apply_journal`."""
         self._journal = journal or None
         new = self._journal is not None
         if new != self._active:

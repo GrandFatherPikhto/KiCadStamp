@@ -38,13 +38,24 @@ _GAP_KEY = "explode_gap_mm"
 _COLUMNS = 5
 
 
-# ── worker functions (pure: adapter + plain args, no widgets) ────────────────
+# ── worker functions (pure: connection + plain args, no widgets) ─────────────
+#
+# The ADAPTER is taken INSIDE each worker, never on the UI thread (door §31):
+# `start_long_op` hands the CONNECTION over, and `connection.board` is read on
+# the worker thread.
 
-def plan_worker(adapter, config_path, cell, cluster, sheet, margin, gap,
+def adapter_of(connection):
+    """The live adapter, read on the CALLING (worker) thread."""
+    board = getattr(connection, "board", None)
+    return getattr(board, "adapter", None)
+
+
+def plan_worker(connection, config_path, cell, cluster, sheet, margin, gap,
                 overrides) -> Any:
     """Worker: load the config and build the plan. Read-only."""
     from kicadstamp.config.loader import load_config
     from kicadstamp.explode import plan_explode
+    adapter = adapter_of(connection)
     cfg, ctx = load_config(config_path)
     return plan_explode(
         adapter, cfg, str(config_path), cell, cluster, sheet,
@@ -52,25 +63,53 @@ def plan_worker(adapter, config_path, cell, cluster, sheet, margin, gap,
         margin_mm=margin, gap_mm=gap, tick_overrides=dict(overrides or {}))
 
 
-def explode_worker(adapter, plan) -> list:
+def explode_worker(connection, plan) -> list:
     """Worker: journal first, then shift in one transaction (core)."""
     from kicadstamp.explode_journal import explode
-    return explode(adapter, plan)
+    return explode(adapter_of(connection), plan)
 
 
-def restore_worker(adapter) -> list:
+def restore_worker(connection) -> list:
     """Worker: put everything back by the recorded absolute positions."""
     from kicadstamp.explode import ExplodeError
     from kicadstamp.explode_journal import journal_path, restore
+    adapter = adapter_of(connection)
     path = journal_path(adapter)
     if not path.is_file():
         raise ExplodeError(_("no explode journal for this board — nothing to restore"))
     return restore(adapter, path)
 
 
-def select_worker(adapter, item) -> None:
+def forget_journal_worker(connection) -> None:
+    """Worker: delete this board's journal file (the "Forget journal" button)."""
+    from kicadstamp.explode_journal import journal_path
+    try:
+        journal_path(adapter_of(connection)).unlink()
+    except OSError:
+        pass
+
+
+def select_worker(connection, item) -> None:
     """Worker: highlight ONE piece on the board (like "Select cell")."""
-    adapter.select_items([item])
+    adapter_of(connection).select_items([item])
+
+
+def explode_state_worker(connection) -> tuple:
+    """Worker: read the board IDENTITY and this board's journal — the only board
+    touch this tab makes for its state, and it runs on the worker.
+
+    Returns ``("has", journal)`` / ``("none", None)`` / ``("unknown", None)``.
+    "unknown" means the identity could not be read (a busy socket, a stand-in):
+    the caller must LEAVE the lock alone, never read a missing journal as "not
+    exploded" (that would drop the lock with the clusters still shifted)."""
+    from kicadstamp.explode_journal import (UNKNOWN_BOARD, board_identity,
+                                            journal_path, load_journal)
+    adapter = adapter_of(connection)
+    identity = board_identity(adapter)
+    if not identity or identity == UNKNOWN_BOARD:
+        return "unknown", None
+    journal = load_journal(journal_path(adapter))
+    return ("has", journal) if journal is not None else ("none", None)
 
 
 class ExplodePage(QWidget):
@@ -98,7 +137,7 @@ class ExplodePage(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        self.header_label = QLabel(_("Разнос: ячейка не выбрана"))
+        self.header_label = QLabel(_("Explode: no cell selected"))
         self.header_label.setObjectName("explode_header")
         layout.addWidget(self.header_label)
 
@@ -108,28 +147,28 @@ class ExplodePage(QWidget):
         banner_row.setContentsMargins(0, 0, 0, 0)
         self.banner_label = QLabel("")
         banner_row.addWidget(self.banner_label, 1)
-        self.banner_restore = QPushButton(_("Вернуть"))
-        self.banner_show = QPushButton(_("Показать журнал"))
-        self.banner_forget = QPushButton(_("Забыть журнал"))
+        self.banner_restore = QPushButton(_("Put back"))
+        self.banner_show = QPushButton(_("Show journal"))
+        self.banner_forget = QPushButton(_("Forget journal"))
         for b in (self.banner_restore, self.banner_show, self.banner_forget):
             banner_row.addWidget(b)
         layout.addWidget(self.banner)
         self.banner.setVisible(False)
 
         fields = QHBoxLayout()
-        fields.addWidget(QLabel(_("Поле области:")))
+        fields.addWidget(QLabel(_("Area margin around the cell:")))
         self.margin_spin = QDoubleSpinBox()
         self.margin_spin.setRange(0.0, 100.0)
-        self.margin_spin.setSuffix(_(" мм"))
+        self.margin_spin.setSuffix(_(" mm"))
         self.margin_spin.setValue(float(settings.state.get(_MARGIN_KEY, 5.0) or 5.0))
         fields.addWidget(self.margin_spin)
-        fields.addWidget(QLabel(_("Зазор:")))
+        fields.addWidget(QLabel(_("Gap:")))
         self.gap_spin = QDoubleSpinBox()
         self.gap_spin.setRange(0.0, 100.0)
-        self.gap_spin.setSuffix(_(" мм"))
+        self.gap_spin.setSuffix(_(" mm"))
         self.gap_spin.setValue(float(settings.state.get(_GAP_KEY, 5.0) or 5.0))
         fields.addWidget(self.gap_spin)
-        self.recalc_button = QPushButton(_("Пересчитать"))
+        self.recalc_button = QPushButton(_("Recalculate"))
         fields.addWidget(self.recalc_button)
         fields.addStretch(1)
         layout.addLayout(fields)
@@ -138,7 +177,7 @@ class ExplodePage(QWidget):
         self.leaves_label.setWordWrap(True)
         layout.addWidget(self.leaves_label)
 
-        layout.addWidget(QLabel(_("Межкластерная медь у ячейки:")))
+        layout.addWidget(QLabel(_("Inter-cluster copper at the cell:")))
         self.tree = QTreeWidget()
         self.tree.setColumnCount(_COLUMNS)
         self.tree.setHeaderLabels([
@@ -147,11 +186,11 @@ class ExplodePage(QWidget):
         layout.addWidget(self.tree, 1)
 
         buttons = QHBoxLayout()
-        self.explode_button = QPushButton(_("Разнести"))
-        self.reread_button = QPushButton(_("Перечитать ячейку по выделению"))
+        self.explode_button = QPushButton(_("Explode"))
+        self.reread_button = QPushButton(_("Re-read cell from selection"))
         self.reread_button.setEnabled(False)          # Р3 wires this
-        self.reread_button.setToolTip(_("Р3"))
-        self.restore_button = QPushButton(_("Вернуть"))
+        self.reread_button.setToolTip(_("R3"))
+        self.restore_button = QPushButton(_("Put back"))
         for b in (self.explode_button, self.reread_button, self.restore_button):
             buttons.addWidget(b, 1)
         layout.addLayout(buttons)
@@ -183,7 +222,6 @@ class ExplodePage(QWidget):
         self._cluster = cluster
         self._sheet = sheet
         self._exploded_from_journal = False
-        self._guard.refresh(self._adapter())
         self._update_header()
         self._recalculate()
 
@@ -205,9 +243,35 @@ class ExplodePage(QWidget):
     def _connection(self):
         return getattr(self._main_window, "connection", None)
 
-    def _adapter(self):
-        board = getattr(self._connection(), "board", None)
-        return getattr(board, "adapter", None)
+    def _connected(self) -> bool:
+        """Presence ONLY — `connection.is_connected`, never `connection.board`
+        (the door: a UI-thread board read is a violation, §31 п.1)."""
+        connection = self._connection()
+        return bool(connection is not None
+                    and getattr(connection, "is_connected", False))
+
+    def refresh_state(self) -> None:
+        """Re-read the exploded state ON A WORKER and apply it. Called on
+        connect/refresh (DockHub) and after explode / restore / forget."""
+        if not self._connected():
+            return
+        self._active_op = start_long_op(
+            self._connection(), (), explode_state_worker, self._finish_state,
+            self._on_op_failed, self._connection(),
+            allowed_while_exploded=True)
+
+    def _finish_state(self, result) -> None:
+        kind, journal = result
+        if kind == "unknown":
+            self._guard.apply_unknown()          # LEAVE the lock as it is
+            return
+        self._guard.apply_journal(journal)       # "has" or "none"
+        # Open from the journal ONLY on a genuine restart (no live plan here):
+        # after a successful explode the table we built stays (read-only).
+        if kind == "has" and self._plan is None and not self._exploded_from_journal:
+            self.open_from_journal(journal)
+        self._update_header()
+        self._set_exploded_ui(self._guard.active)
 
     def _guard_widgets(self):
         return (self.margin_spin, self.gap_spin, self.recalc_button,
@@ -219,13 +283,14 @@ class ExplodePage(QWidget):
         return str(self._cluster or "?")
 
     def _update_header(self) -> None:
-        state = _("разнесено") if self._guard.active else _("собрано")
+        state = (_("clusters are exploded") if self._guard.active
+                 else _("clusters are collapsed"))
         if self._cell_name:
             self.header_label.setText(_(
-                "Разнос: {cell} — {where}   [состояние: {state}]").format(
+                "Explode: {cell} — {where}   [{state}]").format(
                     cell=self._cell_name, where=self._where(), state=state))
         else:
-            self.header_label.setText(_("Разнос: ячейка не выбрана"))
+            self.header_label.setText(_("Explode: no cell selected"))
 
     # ── plan ────────────────────────────────────────────────────────────────
     def _on_field_changed(self, _value) -> None:
@@ -234,8 +299,7 @@ class ExplodePage(QWidget):
     def _recalculate(self) -> None:
         if self._guard.active or self._cell_name is None:
             return
-        adapter = self._adapter()
-        if adapter is None or self._root_path is None:
+        if not self._connected() or self._root_path is None:
             show_message(_("Set the project root and connect to the board first."),
                          ERROR_STYLE, logger)
             return
@@ -244,8 +308,8 @@ class ExplodePage(QWidget):
         self._active_op = start_long_op(
             self._connection(), self._guard_widgets(), plan_worker,
             self._finish_plan, self._on_op_failed,
-            adapter, str(self._root_path), self._cell_name, self._cluster,
-            self._sheet, float(self.margin_spin.value()),
+            self._connection(), str(self._root_path), self._cell_name,
+            self._cluster, self._sheet, float(self.margin_spin.value()),
             float(self.gap_spin.value()), dict(self._tick_overrides),
             busy_text=_("planning"), allowed_while_exploded=True)
 
@@ -264,12 +328,12 @@ class ExplodePage(QWidget):
                 self.leaves_label.setText("")
                 return
             leaves = ", ".join(
-                _("{where} ({fps} деталей, {cu} кусков меди)").format(
+                _("{where} ({fps} parts, {cu} copper pieces)").format(
                     where=inst.label, fps=len(inst.footprints),
                     cu=len(inst.copper))
                 for inst in plan.instances)
-            self.leaves_label.setText(_("Уедут: {leaves}").format(
-                leaves=leaves or _("(никто)")))
+            self.leaves_label.setText(_("Will leave: {leaves}").format(
+                leaves=leaves or _("(nobody)")))
             groups: dict = {}
             for piece in plan.table:
                 groups.setdefault(piece.record, []).append(piece)
@@ -322,33 +386,30 @@ class ExplodePage(QWidget):
 
     def _on_row_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         live = item.data(0, Qt.ItemDataRole.UserRole + 1)
-        adapter = self._adapter()
-        if live is None or adapter is None:
+        if live is None or not self._connected():
             return
         self._active_op = start_long_op(
             self._connection(), (), select_worker, lambda _r: None,
-            self._on_op_failed, adapter, live,
+            self._on_op_failed, self._connection(), live,
             allowed_while_exploded=True)
 
     # ── explode / restore ───────────────────────────────────────────────────
     def _explode(self) -> None:
         if self._plan is None or self._guard.active:
             return
-        adapter = self._adapter()
-        if adapter is None:
+        if not self._connected():
             show_message(_("Connect to the board first."), ERROR_STYLE, logger)
             return
         self._active_op = start_long_op(
             self._connection(), self._guard_widgets(), explode_worker,
-            self._finish_explode, self._on_op_failed, adapter, self._plan,
-            busy_text=_("Разнести"), allowed_while_exploded=True)
+            self._finish_explode, self._on_op_failed, self._connection(),
+            self._plan, busy_text=_("exploding clusters"),
+            allowed_while_exploded=True)
 
     def _finish_explode(self, lines) -> None:
         for line in lines:
             show_message(line, SUCCESS_STYLE, logger)
-        self._guard.refresh(self._adapter())
-        self._update_header()
-        self._set_exploded_ui(self._guard.active)
+        self.refresh_state()      # the journal now exists -> the lock goes up
 
     def _restore_clicked(self) -> None:
         self.request_restore()
@@ -356,8 +417,7 @@ class ExplodePage(QWidget):
     def request_restore(self, on_success=None, on_error=None) -> None:
         """Run the restore on the worker; call on_success() on success (used by
         the exit path to close AFTER the board is back)."""
-        adapter = self._adapter()
-        if adapter is None:
+        if not self._connected():
             message = _("Connect to the board first.")
             show_message(message, ERROR_STYLE, logger)
             if on_error is not None:
@@ -367,7 +427,10 @@ class ExplodePage(QWidget):
         def _ok(lines):
             for line in lines:
                 show_message(line, SUCCESS_STYLE, logger)
-            self._guard.refresh(self._adapter())
+            # The journal is gone — a KNOWN fact, not a board read: clear the lock
+            # directly (re-reading could hit an unknown identity and wrongly keep
+            # the lock on a board that is already back).
+            self._guard.apply_journal(None)
             self._finish_restore_ui()
             if on_success is not None:
                 on_success()
@@ -379,8 +442,8 @@ class ExplodePage(QWidget):
 
         self._active_op = start_long_op(
             self._connection(), self._guard_widgets(), restore_worker,
-            _ok, _err, adapter,
-            busy_text=_("Вернуть"), allowed_while_exploded=True)
+            _ok, _err, self._connection(),
+            busy_text=_("putting back"), allowed_while_exploded=True)
 
     def _finish_restore_ui(self) -> None:
         self._exploded_from_journal = False
@@ -402,19 +465,22 @@ class ExplodePage(QWidget):
 
     def _forget_journal(self) -> None:
         if QMessageBox.question(
-                self, _("Забыть журнал?"),
+                self, _("Forget journal?"),
                 _("The board stays shifted aside — the recorded positions will "
                   "be LOST. Continue?"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
             return
-        from kicadstamp.explode_journal import journal_path
-        try:
-            journal_path(self._adapter()).unlink()
-        except OSError:
-            pass
+        if not self._connected():
+            return
+        self._active_op = start_long_op(
+            self._connection(), (), forget_journal_worker,
+            self._finish_forget, self._on_op_failed, self._connection(),
+            allowed_while_exploded=True)
+
+    def _finish_forget(self, _result=None) -> None:
         show_message(_("explode journal deleted"), WARN_STYLE, logger)
-        self._guard.refresh(self._adapter())
+        self._guard.apply_journal(None)   # forgotten by hand -> unlocked
         self._exploded_from_journal = False
         self._update_header()
         self._set_exploded_ui(self._guard.active)
@@ -448,6 +514,6 @@ class ExplodePage(QWidget):
         if active:
             journal = self._guard.journal or {}
             self.banner_label.setText(_(
-                "Кластеры разнесены {when} — не сохраняй плату KiCad; "
-                "сначала «Вернуть»").format(when=journal.get("time", "?")))
+                "Clusters are exploded {when} — do not save the KiCad board; "
+                "press \"Put back\" first").format(when=journal.get("time", "?")))
         self._update_header()

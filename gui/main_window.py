@@ -799,8 +799,8 @@ class MainWindow(QMainWindow):
         if not guard.active or self._explode_exit_ok:
             return True
         if QMessageBox.question(
-                self, _("Кластеры разнесены"),
-                _("Кластеры разнесены. Вернуть и выйти?"),
+                self, _("Clusters are exploded"),
+                _("Clusters are exploded. Put back and quit?"),
                 QMessageBox.StandardButton.Yes
                 | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:

@@ -62,13 +62,19 @@ def journal_dir() -> Path:
     return Path(base) / "kicadstamp" / "explode"
 
 
+#: board_identity's sentinel when the board cannot be named. A journal under it
+#: would be shared by EVERY board, so `explode` refuses on it (Р2а-2), and the
+#: tab's state read reports "unknown" instead of "no journal".
+UNKNOWN_BOARD = "(unknown board)"
+
+
 def board_identity(adapter) -> str:
     """The live board's absolute path (project dir + board filename), or its
-    bare filename, or ``"(unknown board)"``. Reads only the identity seam and
+    bare filename, or ``UNKNOWN_BOARD``. Reads only the identity seam and
     never raises on a fake that omits it."""
     fname = _safe(adapter, "get_board_filename")
     if not fname:
-        return "(unknown board)"
+        return UNKNOWN_BOARD
     proj = _safe(adapter, "get_board_project")
     if proj and len(proj) == 2 and proj[1]:
         return str(Path(proj[1]) / str(fname))
@@ -190,6 +196,10 @@ def explode(adapter, plan: ExplodePlan, journal_dir_override=None) -> list:
     Refuses while a journal already exists for this board ("restore first").
     Raises ExplodeError after the fact if the verification finds anything off —
     the journal is then KEPT."""
+    if board_identity(adapter) == UNKNOWN_BOARD:
+        raise ExplodeError(_(
+            "cannot read the board identity — refusing to explode: the journal "
+            "would be shared by every board"))
     path = journal_path(adapter, journal_dir_override)
     existing = load_journal(path)
     if existing is not None:
