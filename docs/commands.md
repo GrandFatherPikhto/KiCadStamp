@@ -340,6 +340,30 @@ While the board is exploded the journal holds the original positions — do not
 save the board until you `restore`. Core: `kicadstamp/explode.py` (the read-only
 plan) and `kicadstamp/explode_journal.py` (the journal and the execution).
 
+### GUI tab "Разнос" (Explode)
+
+The same tool as a Config right-hand page (Р2). Open it from the cell window's
+"Explode…" button or the cell / entity context menu in the Config tree; the
+instance follows the "Select cell" rules (an entity names its own cluster/sheet,
+a cell uses its remembered context, a single record places it — several give a
+picker). The tab shows the area-margin and gap fields, the "Will leave" line, and
+the inter-cluster `net_traces` table with its take ticks (a `tee` / `multi` row is
+yellow); a row click highlights the piece on the board. "Explode" runs the plan on
+a worker and writes the journal first; "Restore" puts everything back by the
+recorded positions. Both are on the CLI too (above).
+
+While the clusters are exploded the tab holds the board: the Config right view is
+PINNED to it, the Config tree and the left tabs are disabled, and every other
+board operation — redraws, Apply, reads — is refused with a red Log line (they all
+pass through the one worker gate). A real quit asks "Restore and quit?" and closes
+only after the restore succeeds; hiding to the tray does not. After a crash the
+journal is still on disk, so the tab opens exploded with a banner offering
+"Restore" / "Show journal" / "Forget journal".
+
+"Re-read cell from selection" (Р3) is the ordinary "Update from selection" — with
+one difference while exploded: the selected inter-cluster copper is TRANSFERRED to
+the cell instead of being subtracted.
+
 
 ## `extract` – extract a template from the current selection
 

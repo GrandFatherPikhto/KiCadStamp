@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 
 from .exceptions import PlacerError
+from .explode_format import format_plan as _format_plan
+from .explode_format import format_status as _format_status
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -74,28 +76,9 @@ def _resolve_instance(cfg, cell_name, cluster, sheet) -> tuple:
     return pairs[0]
 
 
-def _format_plan(plan) -> list:
-    area = plan.area
-    lines = [_("explode: {cell} on {where}; area {w:.1f} x {h:.1f} mm").format(
-        cell=plan.cell_name, where=plan.label,
-        w=area.size.x / 1_000_000.0, h=area.size.y / 1_000_000.0)]
-    for inst in plan.instances:
-        lines.append(_("  leaves {where}: {fps} component(s), {cu} copper "
-                       "item(s); by {dx:.1f}, {dy:.1f} mm").format(
-            where=inst.label, fps=len(inst.footprints), cu=len(inst.copper),
-            dx=inst.vector[0] / 1_000_000.0, dy=inst.vector[1] / 1_000_000.0))
-    if plan.table:
-        lines.append(_("  inter-cluster copper:"))
-        for piece in plan.table:
-            tick = "x" if piece.ticked else " "
-            lines.append("    [{tick}] {kind:5} {net:<10} {layer:<6} "
-                         "{length:5.1f}mm  touches: {touches}  {uuid}".format(
-                             tick=tick, kind=piece.kind, net=piece.net,
-                             layer=piece.layer, length=piece.length_mm,
-                             touches=piece.touches, uuid=piece.uuid))
-    for warning in plan.warnings:
-        lines.append("  ! " + warning)
-    return lines
+# The plan's text lines live in kicadstamp/explode_format.py (Р2-1): ONE
+# formatter for the CLI and the GUI "Разнос" page — `_format_plan` above IS that
+# function (a thin alias), never a second copy.
 
 
 def _plan_or_run(args, run: bool) -> list:
@@ -156,15 +139,6 @@ def _status(args) -> list:
 
     adapter = _adapter(args.config)
     try:
-        journal = journal_status(adapter)
-        if journal is None:
-            return [_("no explode journal for this board")]
-        return [_(
-            "clusters exploded {when}: cell {cell} on {cluster}/{sheet}, "
-            "{n} item(s); journal kept — run 'explode restore' to undo").format(
-                when=journal.get("time", "?"), cell=journal.get("cell", "?"),
-                cluster=journal.get("cluster", "?"),
-                sheet=journal.get("sheet") or "-",
-                n=len(journal.get("items", {})) or 0)]
+        return _format_status(journal_status(adapter))
     finally:
         adapter.close()

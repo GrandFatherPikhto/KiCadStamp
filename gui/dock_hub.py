@@ -65,6 +65,8 @@ from .docks.chain import ChainDock
 from .docks.chains_nav import ChainsNavDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
+from .docks.explode_page import ExplodePage
+from .explode_guard import ExplodeGuard
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.placer import PlacerDock
@@ -322,6 +324,16 @@ class DockHub:
         self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
         self._cell_anchor_page = self.config_tree_dock.add_right_page(
             self.cell_anchor_view)
+        # "Разнос" (Р2, plan_2026_10_05_explode_r2_r3_tab_and_reread): the
+        # ExplodeGuard holds the "clusters are exploded" state — read from the
+        # JOURNAL on disk — and installs the worker gate; ExplodePage is its
+        # Config right-QView page. Both are one-per-window (the guard is the ONE
+        # owner of the lock).
+        self.explode_guard = ExplodeGuard(main_window)
+        self.explode_page = ExplodePage(
+            main_window, self.config_tree_dock, self.explode_guard)
+        self._explode_page = self.config_tree_dock.add_right_page(self.explode_page)
+        self.explode_guard.changed.connect(self._apply_explode_lock)
         # The cell editor's "Refs" tab RECORDS Role/Cluster into the project's
         # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
         # before that it wrote them onto the board, which is why the hook below
@@ -1031,6 +1043,10 @@ class DockHub:
         # on the board (the SAME function the CellDock button runs).
         self.config_tree_dock.cell_select_requested.connect(
             self._select_cell_from_tree)
+        # Р2: the two Config-tree doors and the CellDock button of the "Разнос"
+        # tab all land in the ONE opener (instance resolved like "Select cell").
+        self.config_tree_dock.cell_explode_requested.connect(self._open_explode)
+        self.cells_dock.explode_requested.connect(self._open_explode)
         # 2026-09-06 (plan copy_placement_from_cell): the context menu's "Copy
         # placement from cell..." — the OFFLINE cell-to-cell placement copy
         # onto the requested cell (donor picked from a minimal role-set-fitted
@@ -2928,6 +2944,90 @@ class DockHub:
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
 
+    # ── "Разнос" (Р2) ───────────────────────────────────────────────────────
+
+    def _board_adapter(self):
+        board = getattr(self.main_window.connection, "board", None)
+        return getattr(board, "adapter", None)
+
+    def _open_explode(self, name, file_path=None, cluster=None,
+                      sheet=None) -> None:
+        """The ONE opener of the "Разнос" tab, for every door. The instance is
+        chosen with the "Select cell" rules: an explicit (cluster, sheet) is
+        taken as-is; else the cell's REMEMBERED context; else its one config
+        record; several with nothing remembered -> a pick submenu."""
+        if not name:
+            return
+        root = self.root_metadata_dock.root_path
+        if root is None:
+            show_message(_("Set the project root first."), _ERROR_STYLE, logger)
+            return
+        if cluster is None:
+            from .cell_edit_context import remembered_cell_edit_context
+            remembered = remembered_cell_edit_context(root, name)
+            if remembered and remembered[0]:
+                cluster, sheet = remembered
+            else:
+                candidates = self._explode_candidates(root, name)
+                if not candidates:
+                    show_message(_(
+                        "no config record places {cell} — nothing to explode")
+                        .format(cell=name), _ERROR_STYLE, logger)
+                    return
+                if len(candidates) > 1:
+                    self._explode_pick_menu(name, file_path, candidates)
+                    return
+                cluster, sheet = candidates[0]
+        self.explode_page.set_root_path(root)
+        self.explode_page.open_instance(name, cluster, sheet)
+        self.config_tree_dock.set_current_page(self._explode_page)
+
+    def _explode_candidates(self, root, name) -> list:
+        from kicadstamp.config.loader import load_config
+        from .select_cell import cell_instances
+        try:
+            cfg, _ctx = load_config(str(root))
+        except Exception:  # noqa: BLE001 — a broken config is not an explosion task
+            return []
+        return cell_instances(cfg, name)
+
+    def _explode_pick_menu(self, name, file_path, candidates) -> None:
+        from PyQt6.QtGui import QCursor
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self.main_window)
+        for cluster, sheet in candidates:
+            label = f"{cluster}/{sheet}" if sheet else str(cluster)
+            menu.addAction(label).triggered.connect(
+                partial(self._open_explode, name, file_path, cluster, sheet))
+        menu.exec(QCursor.pos())
+
+    def _apply_explode_lock(self, active: bool) -> None:
+        """Р2-4: while exploded the left tabs are disabled and the Config right
+        view is pinned to the "Разнос" page (the pin itself is enforced in
+        _on_config_right_page_changed)."""
+        self.left_tabs.setEnabled(not active)
+        if active:
+            self.config_tree_dock.set_current_page(self._explode_page)
+
+    def refresh_explode_state(self) -> None:
+        """Read the journal for the connected board (once per connect/refresh):
+        the guard sets `active`; if exploded (e.g. after a crash) the tab opens
+        in the exploded state and the lock applies. `active` always comes from
+        the journal, never memory — deleting the file clears the lock here.
+
+        A DockHub built WITHOUT __init__ (some tests wire one method's body)
+        simply has no guard — nothing to refresh."""
+        guard = getattr(self, "explode_guard", None)
+        if guard is None:
+            return
+        guard.refresh(self._board_adapter())
+        page = getattr(self, "explode_page", None)
+        if guard.active and page is not None and not page.exploded_from_journal:
+            page.open_from_journal(guard.journal)
+        if guard.active:
+            self.config_tree_dock.set_current_page(self._explode_page)
+        self._apply_explode_lock(guard.active)
+
     def _select_cell_from_tree(self, name, file_path, cluster=None,
                                sheet=None) -> None:
         """ConfigTreeDock's cell_select_requested delegate (Н5) — the context
@@ -3103,6 +3203,13 @@ class DockHub:
         them" moment — so it is the freshness trigger for those lists (a
         worker-thread rebuild + push_known_lists; the row views are left alone,
         see push_known_lists)."""
+        # Р2-4: while exploded the Config right view is PINNED to the "Разнос"
+        # page — any switch away is rolled back with a yellow line.
+        if self.explode_guard.active and index != self._explode_page:
+            show_message(_("Кластеры разнесены — сначала «Вернуть» "
+                           "(вкладка «Разнос»)."), _WARN_STYLE, logger)
+            self.config_tree_dock.set_current_page(self._explode_page)
+            return
         prev = getattr(self, "_config_right_page_index", 0)
         self._config_right_page_index = index
         if index != prev:
@@ -3140,6 +3247,10 @@ class DockHub:
         this is AUTOMATIC housekeeping fired by MainWindow._finish_poll on
         connect/refresh, not something the user started — the disabled-layer
         rule above plus the long_op_active check below are its only guards."""
+        # Р2: this is the connect/refresh hook MainWindow._finish_poll drives —
+        # read the explode journal HERE, so a crashed-then-restarted session
+        # opens the "Разнос" tab exploded and locks the board ops.
+        self.refresh_explode_state()
         from .worker import start_long_op
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None

@@ -1,0 +1,72 @@
+# kicadstamp/diagnostics/deepseek_mutations_explode_r2_2026_10_05.py
+"""Acceptance mutations for Р2 of plan
+``plan_2026_10_05_explode_r2_r3_tab_and_reread.md`` — the "Разнос" tab, the lock
+and the exit window. DeepSeek, 2026-10-05.
+
+Machinery (rule 38) is the shared one from
+``deepseek_mutations_refresh_mixed_2026_10_05.py``: basename-resolved guards under
+tests/, ``_drop_pyc`` for the mutated file, the ``count != 1`` refusal, a
+``ПРОМАХ`` when nothing red came back, and a control that MUST survive.
+
+The guards are tests/gui/test_explode_page.py (the tab, the lock, the exit window,
+the post-crash state) and tests/gui/test_explode_worker_gate.py (the worker gate).
+
+  * Q1  leaving the "Разнос" page is allowed while exploded
+  * Q2  the start_long_op gate does not check `active`
+  * Q3  "exploded" is a flag in memory, not the journal (a restart loses the lock)
+  * Q4  a real quit while exploded asks nothing
+  * Q5  "Restore and quit" closes even when the restore FAILED
+  * Q6  ticks stay editable after "Explode"
+  * Q7  a tee / multi row is not highlighted
+  * K1  a cosmetic comment — MUST survive
+"""
+from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
+
+G = ["test_explode_page.py", "test_explode_worker_gate.py"]
+DOCK_HUB = "gui/dock_hub.py"
+WORKER = "gui/worker.py"
+GUARD = "gui/explode_guard.py"
+MAIN = "gui/main_window.py"
+PAGE = "gui/docks/explode_page.py"
+
+ROWS = [
+    ("Q1 leaving the explode page is allowed", DOCK_HUB,
+     "        if self.explode_guard.active and index != self._explode_page:",
+     "        if False:  # MUTATION",
+     "die", G, ()),
+    ("Q2 the gate does not check active", WORKER,
+     "    if not allowed_while_exploded:",
+     "    if False:  # MUTATION",
+     "die", G, ()),
+    ("Q3 exploded is memory, not the journal", GUARD,
+     "        new = journal is not None",
+     "        new = False  # MUTATION",
+     "die", G, ()),
+    ("Q4 a real quit while exploded asks nothing", MAIN,
+     "        if not self._return_clusters_before_quit(self.close):\n"
+     "            event.ignore()\n"
+     "            return",
+     "        # MUTATION: quit without the return window",
+     "die", G, ()),
+    ("Q5 restore-and-quit closes on a FAILED restore", MAIN,
+     "        self._dock_hub.explode_page.request_restore(on_success=_ok)",
+     "        self._dock_hub.explode_page.request_restore("
+     "on_success=_ok, on_error=_ok)  # MUTATION",
+     "die", G, ()),
+    ("Q6 ticks stay editable after Explode", PAGE,
+     "                self._make_checkable(item, not active)",
+     "                self._make_checkable(item, True)  # MUTATION",
+     "die", G, ()),
+    ("Q7 a tee row is not highlighted", PAGE,
+     "                    if piece.touches in (\"tee\", \"multi\"):",
+     "                    if False:  # MUTATION",
+     "die", G, ()),
+    ("K1 cosmetic comment (control)", PAGE,
+     "class ExplodePage(QWidget):",
+     "class ExplodePage(QWidget):  # control",
+     "survive", G, ()),
+]
+
+if __name__ == "__main__":
+    rig.MUTATIONS = ROWS
+    rig.main()

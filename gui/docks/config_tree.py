@@ -237,6 +237,11 @@ class ConfigTreeDock(QWidget):
     # components PLUS the copper the registries recorded for this cell at that
     # instance; the SAME function the CellDock button runs (one for every door).
     cell_select_requested = pyqtSignal(str, object, object, object)
+    # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread): the "Разнос"
+    # tab's two TREE doors — the SAME four-arg shape as cell_select_requested
+    # (name, file_path, cluster, sheet). The instance is resolved by DockHub with
+    # the "Select cell" rules, never a second scheme.
+    cell_explode_requested = pyqtSignal(str, object, object, object)
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
@@ -1460,6 +1465,12 @@ class ConfigTreeDock(QWidget):
                         # become the cell's save target; CellDock resolves the
                         # cell's OWN file from the config.
                         self.cell_select_requested.emit(n, None, c, s))
+                    # Р2: the entity door of the "Разнос" tab — same explicit
+                    # (cluster, sheet), so no guessing.
+                    menu.addAction(_("Explode…")).triggered.connect(
+                        lambda checked=False, n=entity.get("cell"),
+                        c=entity.get("cluster"), s=entity.get("sheet"):
+                        self.cell_explode_requested.emit(n, None, c, s))
             if section == "cells":
                 # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
                 # menu.md Т1): the ONE item that gives an EXISTING cell an
@@ -1496,6 +1507,11 @@ class ConfigTreeDock(QWidget):
                 # Н5: highlight what a read would read (instance + own copper).
                 menu.addAction(_("Select cell")).triggered.connect(
                     lambda: self.cell_select_requested.emit(
+                        old_name, file_path, None, None))
+                # Р2: the cell door of the "Разнос" tab — the instance is
+                # resolved by DockHub with the "Select cell" rules.
+                menu.addAction(_("Explode…")).triggered.connect(
+                    lambda: self.cell_explode_requested.emit(
                         old_name, file_path, None, None))
                 # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
                 # reads with the layer dialog in front. The FAST items above stay

@@ -574,6 +574,10 @@ class MainWindow(QMainWindow):
         # connected this tick is the ONLY thing that tries connect(), so the
         # value is "how often we knock on KiCad's door". Read once here;
         # set_reconnect_interval() updates it live from Settings > KiCad.
+        # Р2-5: set once the "return clusters" restore before a real quit has
+        # finished, so the re-entrant close()/quit() below proceeds instead of
+        # asking the same question again.
+        self._explode_exit_ok = False
         self._reconnect_interval_ms = self._read_reconnect_interval()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
@@ -771,13 +775,43 @@ class MainWindow(QMainWindow):
         quitting — reachable again via the tray (see _set_tray_enabled/
         _toggle_visibility). Real quit only happens here when tray is off
         (today's original behavior, unchanged) or via the tray menu's Quit
-        action, which bypasses this entirely (see _quit)."""
+        action, which bypasses this entirely (see _quit).
+
+        Р2-5: a REAL quit while the clusters are exploded asks "Вернуть и выйти"
+        first, and closes only after the restore succeeds."""
         if settings.state.get("tray_enabled", False):
             event.ignore()
             self.hide()
             return
+        if not self._return_clusters_before_quit(self.close):
+            event.ignore()
+            return
         self._persist_settings()
         super().closeEvent(event)
+
+    def _return_clusters_before_quit(self, proceed) -> bool:
+        """Р2-5: with the clusters exploded, ask "Вернуть и выйти / Отмена".
+
+        True = go ahead now (nothing exploded, or already returned). False =
+        STAY: "Отмена", or a restore is in flight — the real quit then runs from
+        its success callback (``proceed``), never before the board is back."""
+        guard = self._dock_hub.explode_guard
+        if not guard.active or self._explode_exit_ok:
+            return True
+        if QMessageBox.question(
+                self, _("Кластеры разнесены"),
+                _("Кластеры разнесены. Вернуть и выйти?"),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
+            return False
+
+        def _ok() -> None:
+            self._explode_exit_ok = True
+            proceed()
+
+        self._dock_hub.explode_page.request_restore(on_success=_ok)
+        return False
 
     def _set_always_on_top(self, checked: bool) -> None:
         """setWindowFlag() only takes effect on the next show() — the window
@@ -986,7 +1020,14 @@ class MainWindow(QMainWindow):
         """Tray menu's Quit — a real quit regardless of the tray checkbox.
         QApplication.quit() doesn't invoke closeEvent on any window (it just
         stops the event loop), so this deliberately bypasses self.close()/
-        closeEvent entirely rather than needing a "really quit" flag."""
+        closeEvent entirely rather than needing a "really quit" flag.
+
+        Р2-5: still asks "Вернуть и выйти" while the clusters are exploded."""
+        if not self._return_clusters_before_quit(self._do_quit):
+            return
+        self._do_quit()
+
+    def _do_quit(self) -> None:
         self._persist_settings()
         QApplication.instance().quit()
 

@@ -458,6 +458,12 @@ class CellDock(QWidget):
     # Cells category (see gui/dock_hub.py), same as every other dock here.
     saved = pyqtSignal()
 
+    # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread): the "Разнос"
+    # tab's CellDock door — (name, file_path, cluster, sheet), same shape as
+    # ConfigTreeDock.cell_explode_requested. DockHub resolves the instance; this
+    # dock only names the cell.
+    explode_requested = pyqtSignal(str, object, object, object)
+
     def __init__(self, main_window):
         super().__init__(main_window)
         self._main_window = main_window
@@ -603,6 +609,13 @@ class CellDock(QWidget):
         self.select_cluster_button.clicked.connect(self._on_select_cell)
         self.select_cluster_button.setEnabled(False)
         refresh_row.addWidget(self.select_cluster_button)
+        # Р2 "Разнос": the tab's CellDock door, right beside "Select cell".
+        self.explode_button = QPushButton(_("Explode…"))
+        self.explode_button.setToolTip(
+            _("Move foreign clusters aside and re-read this cell"))
+        self.explode_button.clicked.connect(self._on_explode)
+        self.explode_button.setEnabled(False)
+        refresh_row.addWidget(self.explode_button)
         layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
@@ -1712,6 +1725,7 @@ class CellDock(QWidget):
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.select_cluster_button.setEnabled(enabled)
+        self.explode_button.setEnabled(enabled)
 
     def _remembered_cluster_value(self) -> Optional[str]:
         """The remembered Cluster of the loaded cell, or None — the fallback the
@@ -2447,6 +2461,14 @@ class CellDock(QWidget):
                 return
             self.load_entry(name, target)
         self._on_select_cell(cluster=cluster, sheet=sheet)
+
+    def _on_explode(self) -> None:
+        """Р2: this dock's door of the "Разнос" tab — sends only the cell NAME
+        (file_path None, cluster/sheet None); DockHub resolves the instance with
+        the same "Select cell" rules."""
+        name = self.name_edit.text().strip()
+        if name:
+            self.explode_requested.emit(name, None, None, None)
 
     def _on_select_cell(self, cluster=None, sheet=None) -> None:
         """Highlight the placed instance of this cell (Н5) — "Select cell"

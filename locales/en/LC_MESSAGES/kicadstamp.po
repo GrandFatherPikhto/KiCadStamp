@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-05 14:22+0300\n"
+"POT-Creation-Date: 2026-10-05 15:48+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -155,51 +155,51 @@ msgstr ""
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr ""
 
-#: gui/dock_hub.py:177 gui/docks/cell_editor.py:689 gui/docks/imprint.py:1336
+#: gui/dock_hub.py:179 gui/docks/cell_editor.py:702 gui/docks/imprint.py:1336
 #: gui/docks/role_cluster_tree.py:339
 msgid "Components"
 msgstr "Components"
 
-#: gui/dock_hub.py:178 gui/main_window.py:416
+#: gui/dock_hub.py:180 gui/main_window.py:416
 msgid "Config"
 msgstr "Config"
 
-#: gui/dock_hub.py:179 gui/docks/config_tree.py:162 gui/main_window.py:310
+#: gui/dock_hub.py:181 gui/docks/config_tree.py:162 gui/main_window.py:310
 msgid "Trees"
 msgstr "Trees"
 
-#: gui/dock_hub.py:549 gui/dock_hub.py:578
+#: gui/dock_hub.py:561 gui/dock_hub.py:590
 msgid "Select an Imprint record first."
 msgstr ""
 
-#: gui/dock_hub.py:572 gui/dock_hub.py:577 gui/dock_hub.py:1595
-#: gui/dock_hub.py:1659 gui/dock_hub.py:1665 gui/dock_hub.py:1671
+#: gui/dock_hub.py:584 gui/dock_hub.py:589 gui/dock_hub.py:1611
+#: gui/dock_hub.py:1675 gui/dock_hub.py:1681 gui/dock_hub.py:1687
 #: gui/docks/config_tree.py:153 gui/docks/imprint.py:873
 #: gui/docks/imprint.py:901 gui/main_window.py:460
 msgid "Imprints"
 msgstr ""
 
-#: gui/dock_hub.py:573 gui/dock_hub.py:1596 gui/dock_hub.py:1982
-#: gui/dock_hub.py:2037 gui/dock_hub.py:2203 gui/dock_hub.py:2511
-#: gui/dock_hub.py:2654 gui/dock_hub.py:2968 gui/docks/cell_editor.py:1683
-#: gui/docks/cell_editor.py:1779 gui/docks/cell_editor.py:2207
-#: gui/docks/cell_editor.py:2471 gui/docks/cell_editor.py:2620
-#: gui/docks/chain.py:588 gui/docks/chain.py:627 gui/docks/chain.py:703
-#: gui/docks/chain.py:779 gui/docks/chain.py:875 gui/docks/chain.py:897
-#: gui/docks/imprint_place.py:731 gui/docks/net_trace.py:295
-#: gui/docks/net_trace.py:404 gui/docks/net_trace.py:470
-#: gui/docks/net_trace.py:547 gui/docks/placer.py:1741 gui/docks/placer.py:1751
-#: gui/docks/placer.py:1963 gui/docks/placer.py:2138 gui/docks/placer.py:2256
-#: gui/docks/placer.py:2418 gui/docks/points.py:432 gui/docks/points.py:538
-#: gui/docks/points.py:715 gui/docks/points.py:882
-#: gui/docks/profile_import.py:222 gui/docks/thermal_via.py:348
-#: gui/docks/thermal_via.py:448
+#: gui/dock_hub.py:585 gui/dock_hub.py:1612 gui/dock_hub.py:1998
+#: gui/dock_hub.py:2053 gui/dock_hub.py:2219 gui/dock_hub.py:2527
+#: gui/dock_hub.py:2670 gui/dock_hub.py:2963 gui/dock_hub.py:3068
+#: gui/docks/cell_editor.py:1696 gui/docks/cell_editor.py:1793
+#: gui/docks/cell_editor.py:2221 gui/docks/cell_editor.py:2493
+#: gui/docks/cell_editor.py:2642 gui/docks/chain.py:588 gui/docks/chain.py:627
+#: gui/docks/chain.py:703 gui/docks/chain.py:779 gui/docks/chain.py:875
+#: gui/docks/chain.py:897 gui/docks/imprint_place.py:731
+#: gui/docks/net_trace.py:295 gui/docks/net_trace.py:404
+#: gui/docks/net_trace.py:470 gui/docks/net_trace.py:547
+#: gui/docks/placer.py:1741 gui/docks/placer.py:1751 gui/docks/placer.py:1963
+#: gui/docks/placer.py:2138 gui/docks/placer.py:2256 gui/docks/placer.py:2418
+#: gui/docks/points.py:432 gui/docks/points.py:538 gui/docks/points.py:715
+#: gui/docks/points.py:882 gui/docks/profile_import.py:222
+#: gui/docks/thermal_via.py:348 gui/docks/thermal_via.py:448
 msgid "Set the project root first."
 msgstr "Set the project root first."
 
-#: gui/dock_hub.py:587 gui/dock_hub.py:1604 gui/docks/cell_editor.py:1773
-#: gui/docks/cell_editor.py:1845 gui/docks/cell_editor.py:2201
-#: gui/docks/cell_editor.py:2468 gui/docks/dedupe.py:136
+#: gui/dock_hub.py:599 gui/dock_hub.py:1620 gui/docks/cell_editor.py:1787
+#: gui/docks/cell_editor.py:1859 gui/docks/cell_editor.py:2215
+#: gui/docks/cell_editor.py:2490 gui/docks/dedupe.py:136
 #: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
 #: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
 #: gui/docks/net_trace.py:292 gui/docks/net_trace.py:407
@@ -207,11 +207,11 @@ msgstr "Set the project root first."
 msgid "Connect to KiCad first."
 msgstr "Connect to KiCad first."
 
-#: gui/dock_hub.py:639 gui/dock_hub.py:646 gui/dock_hub.py:659
+#: gui/dock_hub.py:651 gui/dock_hub.py:658 gui/dock_hub.py:671
 msgid "Cannot re-source Imprint"
 msgstr ""
 
-#: gui/dock_hub.py:647 gui/dock_hub.py:1672 gui/docks/imprint.py:874
+#: gui/dock_hub.py:659 gui/dock_hub.py:1688 gui/docks/imprint.py:874
 msgid ""
 "No footprints to record — pick a sheet that has footprints on the 'By "
 "sheet' tab, or select footprints on the board for 'By selection'."
@@ -223,8 +223,8 @@ msgstr ""
 # says
 # WHICH board operation is running ("Working with the board: placing"). An
 # operation that passes nothing gets the generic wording above instead.
-#: gui/dock_hub.py:698 gui/dock_hub.py:1712 gui/dock_hub.py:1786
-#: gui/dock_hub.py:1900 gui/dock_hub.py:2127 gui/dock_hub.py:2697
+#: gui/dock_hub.py:710 gui/dock_hub.py:1728 gui/dock_hub.py:1802
+#: gui/dock_hub.py:1916 gui/dock_hub.py:2143 gui/dock_hub.py:2713
 #: gui/docks/dedupe.py:143 gui/docks/imprint.py:882 gui/docks/imprint.py:1582
 #: gui/docks/net_trace.py:314 gui/docks/trees_dock.py:3316
 #: gui/docks/trees_dock.py:3495 gui/docks/trees_dock.py:3544
@@ -233,76 +233,76 @@ msgstr ""
 msgid "reading the board"
 msgstr "reading the board"
 
-#: gui/dock_hub.py:1336
+#: gui/dock_hub.py:1352
 msgid ""
 "The board is busy — using the previously read board snapshot; the "
 "Role/Cluster suggestions may be slightly out of date."
 msgstr ""
 
-#: gui/dock_hub.py:1482 gui/dock_hub.py:1493
+#: gui/dock_hub.py:1498 gui/dock_hub.py:1509
 msgid "Pick a chain in the Config tree first."
 msgstr "Pick a chain in the Config tree first."
 
-#: gui/dock_hub.py:1502
+#: gui/dock_hub.py:1518
 #, python-brace-format
 msgid "Deleted net {name!r}. Backed up: {backups}."
 msgstr "Deleted net {name!r}. Backed up: {backups}."
 
-#: gui/dock_hub.py:1660 gui/docks/cell_editor.py:1615
+#: gui/dock_hub.py:1676 gui/docks/cell_editor.py:1628
 #: gui/docks/create_entity.py:161 gui/docks/points.py:366
 #: gui/docks/points.py:535 gui/docks/thermal_via.py:266
 msgid "Name is required."
 msgstr "Name is required."
 
-#: gui/dock_hub.py:1681
+#: gui/dock_hub.py:1697
 msgid "Cannot record Imprint"
 msgstr ""
 
-#: gui/dock_hub.py:1760 gui/dock_hub.py:1795 gui/dock_hub.py:1809
-#: gui/dock_hub.py:1823
+#: gui/dock_hub.py:1776 gui/dock_hub.py:1811 gui/dock_hub.py:1825
+#: gui/dock_hub.py:1839
 msgid "Record failed"
 msgstr ""
 
-#: gui/dock_hub.py:1814
+#: gui/dock_hub.py:1830
 #, python-brace-format
 msgid ""
 "Recorded Imprint {name!r} — {components} components, {vias} vias, "
 "{tracks} tracks -> {path}"
 msgstr ""
 
-#: gui/dock_hub.py:1824 gui/dock_hub.py:1943 gui/docks/dedupe.py:203
+#: gui/dock_hub.py:1840 gui/dock_hub.py:1959 gui/docks/dedupe.py:203
 #: gui/docks/net_trace.py:392
 #, python-brace-format
 msgid "Operation failed: {error}"
 msgstr "Operation failed: {error}"
 
-#: gui/dock_hub.py:1876 gui/dock_hub.py:1909 gui/dock_hub.py:1928
-#: gui/dock_hub.py:1942
+#: gui/dock_hub.py:1892 gui/dock_hub.py:1925 gui/dock_hub.py:1944
+#: gui/dock_hub.py:1958
 msgid "Re-source failed"
 msgstr ""
 
-#: gui/dock_hub.py:1933
+#: gui/dock_hub.py:1949
 #, python-brace-format
 msgid ""
 "Re-sourced Imprint {name!r} — {components} components, {vias} vias, "
 "{tracks} tracks -> {path}"
 msgstr ""
 
-#: gui/dock_hub.py:1951
+#: gui/dock_hub.py:1967
 msgid "Pick an Imprint in the Config tree first."
 msgstr ""
 
-#: gui/dock_hub.py:1981 gui/dock_hub.py:1988 gui/docks/instances_dialog.py:129
+#: gui/dock_hub.py:1997 gui/dock_hub.py:2004 gui/docks/instances_dialog.py:129
 msgid "Tree instances"
 msgstr ""
 
-#: gui/dock_hub.py:1989 gui/dock_hub.py:2210 gui/dock_hub.py:2518
-#: gui/dock_hub.py:2689 gui/dock_hub.py:2997
+#: gui/dock_hub.py:2005 gui/dock_hub.py:2226 gui/dock_hub.py:2534
+#: gui/dock_hub.py:2705 gui/dock_hub.py:3097
 #, python-brace-format
 msgid "Failed to load config: {error}"
 msgstr "Failed to load config: {error}"
 
-#: gui/dock_hub.py:2036 gui/docks/instantiate_cell_dialog.py:89
+#: gui/dock_hub.py:2052 gui/docks/instantiate_cell_dialog.py:89
 #: gui/docks/trees_dock.py:4246 gui/docks/trees_dock.py:4295
 #: gui/docks/trees_dock.py:4301 gui/docks/trees_dock.py:4311
 #: gui/docks/trees_dock.py:4386 gui/docks/trees_dock.py:4392
@@ -311,7 +311,7 @@ msgstr "Failed to load config: {error}"
 msgid "Instantiate from Cell"
 msgstr ""
 
-#: gui/dock_hub.py:2135
+#: gui/dock_hub.py:2151
 msgid ""
 "The board is busy — the cluster list comes from the previously read board"
 " snapshot: a component added to a cluster since then may be missing, so a"
@@ -319,15 +319,15 @@ msgid ""
 " tree for a missing component."
 msgstr ""
 
-#: gui/dock_hub.py:2147 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
+#: gui/dock_hub.py:2163 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
 #, python-brace-format
 msgid "Could not refresh the board snapshot: {error}"
 msgstr ""
 
-#: gui/dock_hub.py:2159 gui/dock_hub.py:2189 gui/dock_hub.py:2197
-#: gui/dock_hub.py:2202 gui/dock_hub.py:2209 gui/dock_hub.py:2237
-#: gui/dock_hub.py:2318 gui/dock_hub.py:2324 gui/dock_hub.py:2384
-#: gui/dock_hub.py:2459 gui/dock_hub.py:2469
+#: gui/dock_hub.py:2175 gui/dock_hub.py:2205 gui/dock_hub.py:2213
+#: gui/dock_hub.py:2218 gui/dock_hub.py:2225 gui/dock_hub.py:2253
+#: gui/dock_hub.py:2334 gui/dock_hub.py:2340 gui/dock_hub.py:2400
+#: gui/dock_hub.py:2475 gui/dock_hub.py:2485
 #: gui/docks/tree_from_selection_dialog.py:88
 #: gui/docks/tree_from_selection_dialog.py:415
 #: gui/docks/tree_from_selection_dialog.py:423
@@ -336,8 +336,8 @@ msgstr ""
 msgid "Extract tree"
 msgstr "Extract tree"
 
-#: gui/dock_hub.py:2190 gui/dock_hub.py:2198 gui/dock_hub.py:2506
-#: gui/dock_hub.py:2651 gui/dock_hub.py:2709 gui/docks/placer.py:1957
+#: gui/dock_hub.py:2206 gui/dock_hub.py:2214 gui/dock_hub.py:2522
+#: gui/dock_hub.py:2667 gui/dock_hub.py:2725 gui/docks/placer.py:1957
 #: gui/docks/points.py:437 gui/docks/points.py:542 gui/docks/points.py:719
 #: gui/docks/points.py:770 gui/docks/role_cluster_tree.py:905
 #: gui/docks/role_cluster_tree.py:917 gui/docks/trees_dock.py:4387
@@ -345,7 +345,7 @@ msgstr "Extract tree"
 msgid "Not connected."
 msgstr "Not connected."
 
-#: gui/dock_hub.py:2238 gui/dock_hub.py:2543
+#: gui/dock_hub.py:2254 gui/dock_hub.py:2559
 msgid ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
@@ -353,15 +353,15 @@ msgstr ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
 
-#: gui/dock_hub.py:2319
+#: gui/dock_hub.py:2335
 msgid "No clusters selected."
 msgstr "No clusters selected."
 
-#: gui/dock_hub.py:2325 gui/docks/tree_from_selection_dialog.py:432
+#: gui/dock_hub.py:2341 gui/docks/tree_from_selection_dialog.py:432
 msgid "Role is required for the tree anchor."
 msgstr "Role is required for the tree anchor."
 
-#: gui/dock_hub.py:2385
+#: gui/dock_hub.py:2401
 #, python-brace-format
 msgid ""
 "Cannot build the tree:\n"
@@ -370,89 +370,94 @@ msgstr ""
 "Cannot build the tree:\n"
 "{errors}"
 
-#: gui/dock_hub.py:2460
+#: gui/dock_hub.py:2476
 #, python-brace-format
 msgid "Saved, but the round-trip check failed: {error}"
 msgstr "Saved, but the round-trip check failed: {error}"
 
-#: gui/dock_hub.py:2470
+#: gui/dock_hub.py:2486
 #, python-brace-format
 msgid "Tree {name!r} saved to {path}."
 msgstr "Tree {name!r} saved to {path}."
 
-#: gui/dock_hub.py:2481 gui/dock_hub.py:2505 gui/dock_hub.py:2510
-#: gui/dock_hub.py:2517 gui/dock_hub.py:2542 gui/dock_hub.py:2564
-#: gui/dock_hub.py:2592 gui/dock_hub.py:2601 gui/dock_hub.py:2617
-#: gui/dock_hub.py:2622 gui/docks/extract_cluster_dialog.py:54
+#: gui/dock_hub.py:2497 gui/dock_hub.py:2521 gui/dock_hub.py:2526
+#: gui/dock_hub.py:2533 gui/dock_hub.py:2558 gui/dock_hub.py:2580
+#: gui/dock_hub.py:2608 gui/dock_hub.py:2617 gui/dock_hub.py:2633
+#: gui/dock_hub.py:2638 gui/docks/extract_cluster_dialog.py:54
 msgid "Extract cluster"
 msgstr ""
 
-#: gui/dock_hub.py:2565 gui/dock_hub.py:2593
+#: gui/dock_hub.py:2581 gui/dock_hub.py:2609
 #, python-brace-format
 msgid ""
 "Entity {name!r} already exists for this Cluster + sheet — reused, nothing"
 " new was created."
 msgstr ""
 
-#: gui/dock_hub.py:2602
+#: gui/dock_hub.py:2618
 #, python-brace-format
 msgid "Failed to save the Entity: {error}"
 msgstr ""
 
-#: gui/dock_hub.py:2618
+#: gui/dock_hub.py:2634
 #, python-brace-format
 msgid "Entity {name!r} with its new cell {cell!r} saved to {path}."
 msgstr ""
 
-#: gui/dock_hub.py:2623
+#: gui/dock_hub.py:2639
 #, python-brace-format
 msgid "Entity {name!r} saved to {path} (cell {cell!r} already existed)."
 msgstr ""
 
-#: gui/dock_hub.py:2682
+#: gui/dock_hub.py:2698
 msgid "the board is busy — press “Refresh” in a moment"
 msgstr ""
 
-#: gui/dock_hub.py:2713 gui/worker.py:463 tests/gui/test_worker.py:871
+#: gui/dock_hub.py:2729 gui/worker.py:517 tests/gui/test_worker.py:871
 msgid "the board is busy — try again in a moment"
 msgstr ""
 
-#: gui/dock_hub.py:2722
+#: gui/dock_hub.py:2738
 msgid "extracting the spoke"
 msgstr ""
 
-#: gui/dock_hub.py:2728 kicadstamp/config/profile_copy.py:381
+#: gui/dock_hub.py:2744 kicadstamp/config/profile_copy.py:381
 msgid "nothing was written"
 msgstr "nothing was written"
 
-#: gui/dock_hub.py:2743
+#: gui/dock_hub.py:2759
 #, python-brace-format
 msgid "Spoke on pad {pad} written to chain {chain} (cell {cell})"
 msgstr ""
 
-#: gui/dock_hub.py:2746
+#: gui/dock_hub.py:2762
 #, python-brace-format
 msgid "{summary} — the spoke that was there was replaced"
 msgstr ""
 
-#: gui/dock_hub.py:2868
+#: gui/dock_hub.py:2884
 msgid "Pick a cell in the Config tree first."
 msgstr ""
 
-#: gui/dock_hub.py:3008
+#: gui/dock_hub.py:2974
+#, python-brace-format
+msgid "no config record places {cell} — nothing to explode"
+msgstr ""
+
+#: gui/dock_hub.py:3108
 #, python-brace-format
 msgid ""
 "Entity {name!r} already exists for this source — reused, nothing new was "
 "created."
 msgstr ""
 
-#: gui/dock_hub.py:3018 gui/docks/create_entity.py:166
+#: gui/dock_hub.py:3118 gui/docks/create_entity.py:166
 #: gui/docks/imprint_place.py:715 gui/docks/instantiate_cell_dialog.py:528
 #, python-brace-format
 msgid "An entity named {name!r} already exists."
 msgstr ""
 
-#: gui/dock_hub.py:3035 gui/docks/cell_editor.py:1689
+#: gui/dock_hub.py:3135 gui/docks/cell_editor.py:1702
 #: gui/docks/cell_refs_tab.py:1143 gui/docks/chain.py:601
 #: gui/docks/chain.py:649 gui/docks/create_project_dialog.py:168
 #: gui/docks/entity_page.py:250 gui/docks/net_trace.py:512
@@ -465,16 +470,24 @@ msgstr ""
 msgid "Write failed: {error}"
 msgstr "Write failed: {error}"
 
-#: gui/dock_hub.py:3042
+#: gui/dock_hub.py:3142
 #, python-brace-format
 msgid "Entity {name!r} saved to {path}."
 msgstr ""
 
-#: gui/dock_hub.py:3388
+#: gui/dock_hub.py:3209
+msgid "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)."
+msgstr ""
+
+#: gui/dock_hub.py:3499
 msgid ""
 "This config has no schematic_dir/schematic_files — sheet names cannot be "
 "resolved, so sheet-based narrowing (Extract cluster/tree, anchor_sheet) "
 "is disabled."
+msgstr ""
+
+#: gui/explode_guard.py:77
+msgid "Кластеры разнесены — сначала «Вернуть» (вкладка «Разнос»)"
 msgstr ""
 
 #: gui/fieldstool_window.py:119
@@ -502,9 +515,9 @@ msgid "Nothing selected"
 msgstr "Nothing selected"
 
 #: gui/docks/_anchor_origin.py:92 gui/docks/cell_anchor_view.py:827
-#: gui/docks/cell_editor.py:551 gui/docks/cell_editor.py:649
-#: gui/docks/cell_editor.py:732 gui/docks/cell_editor.py:808
-#: gui/docks/cell_editor.py:870 gui/docks/placer.py:856
+#: gui/docks/cell_editor.py:557 gui/docks/cell_editor.py:662
+#: gui/docks/cell_editor.py:745 gui/docks/cell_editor.py:821
+#: gui/docks/cell_editor.py:883 gui/docks/placer.py:856
 #: gui/docks/tree_from_selection_dialog.py:216 gui/fieldstool_window.py:223
 msgid "Role:"
 msgstr "Role:"
@@ -654,8 +667,8 @@ msgid ""
 "gave way to the schematic."
 msgstr ""
 
-#: gui/fieldstool_window.py:1014 gui/main_window.py:1098
-#: gui/main_window.py:1186
+#: gui/fieldstool_window.py:1014 gui/main_window.py:1139
+#: gui/main_window.py:1227
 #, python-brace-format
 msgid "Not connected: {error}"
 msgstr "Not connected: {error}"
@@ -861,7 +874,7 @@ msgstr ""
 "session that's still blocking a fresh KiCad's connection."
 
 #: gui/docks/extract_spoke_dialog.py:132 gui/kicad_processes_dialog.py:53
-#: gui/main_window.py:1136
+#: gui/main_window.py:1177
 msgid "Refresh"
 msgstr "Refresh"
 
@@ -915,15 +928,15 @@ msgstr "Closing PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} did not confirm closing within a reasonable time."
 
-#: gui/main_window.py:145 gui/main_window.py:798
+#: gui/main_window.py:145 gui/main_window.py:832
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:152 gui/main_window.py:1136 gui/main_window.py:1187
+#: gui/main_window.py:152 gui/main_window.py:1177 gui/main_window.py:1228
 msgid "Reconnect"
 msgstr "Reconnect"
 
-#: gui/main_window.py:191 gui/main_window.py:801
+#: gui/main_window.py:191 gui/main_window.py:835
 msgid "Open fieldstool"
 msgstr "Open fieldstool"
 
@@ -943,7 +956,7 @@ msgstr "&Project..."
 msgid "Recent project"
 msgstr "Recent project"
 
-#: gui/main_window.py:255 gui/main_window.py:983
+#: gui/main_window.py:255 gui/main_window.py:1017
 msgid "&Save"
 msgstr "&Save"
 
@@ -1047,15 +1060,15 @@ msgstr ""
 msgid "Record..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1432 gui/main_window.py:465
+#: gui/docks/config_tree.py:1437 gui/main_window.py:465
 msgid "Reread..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1439 gui/main_window.py:474
+#: gui/docks/config_tree.py:1444 gui/main_window.py:474
 msgid "Place..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1446 gui/main_window.py:483
+#: gui/docks/config_tree.py:1451 gui/main_window.py:483
 msgid "Re-source..."
 msgstr ""
 
@@ -1071,11 +1084,11 @@ msgstr "Add point..."
 msgid "Add net..."
 msgstr "Add net..."
 
-#: gui/docks/config_tree.py:1369 gui/main_window.py:515
+#: gui/docks/config_tree.py:1374 gui/main_window.py:515
 msgid "Add spoke..."
 msgstr "Add spoke..."
 
-#: gui/docks/config_tree.py:1382 gui/docks/config_tree.py:1399
+#: gui/docks/config_tree.py:1387 gui/docks/config_tree.py:1404
 #: gui/main_window.py:525
 msgid "Extract spoke..."
 msgstr ""
@@ -1096,35 +1109,43 @@ msgstr "Settings..."
 msgid "View"
 msgstr "View"
 
-#: gui/main_window.py:669
+#: gui/main_window.py:673
 msgid "No recent projects"
 msgstr "No recent projects"
 
-#: gui/main_window.py:796
+#: gui/main_window.py:802
+msgid "Кластеры разнесены"
+msgstr ""
+
+#: gui/main_window.py:803
+msgid "Кластеры разнесены. Вернуть и выйти?"
+msgstr ""
+
+#: gui/main_window.py:830
 msgid "Tray icon requested but no system tray is available here."
 msgstr "Tray icon requested but no system tray is available here."
 
-#: gui/main_window.py:800
+#: gui/main_window.py:834
 msgid "Show/Hide"
 msgstr "Show/Hide"
 
-#: gui/main_window.py:803
+#: gui/main_window.py:837
 msgid "Quit"
 msgstr "Quit"
 
-#: gui/main_window.py:856
+#: gui/main_window.py:890
 msgid "No project open — nothing to save"
 msgstr "No project open — nothing to save"
 
-#: gui/main_window.py:859
+#: gui/main_window.py:893
 msgid "Nothing to save"
 msgstr "Nothing to save"
 
-#: gui/docks/trees_dock.py:2516 gui/main_window.py:864
+#: gui/docks/trees_dock.py:2516 gui/main_window.py:898
 msgid "Save"
 msgstr "Save"
 
-#: gui/main_window.py:865
+#: gui/main_window.py:899
 #, python-brace-format
 msgid ""
 "Save failed — nothing was written:\n"
@@ -1133,15 +1154,15 @@ msgstr ""
 "Save failed — nothing was written:\n"
 "{errors}"
 
-#: gui/main_window.py:868
+#: gui/main_window.py:902
 msgid "Project saved"
 msgstr "Project saved"
 
-#: gui/main_window.py:877
+#: gui/main_window.py:911
 msgid "Discard unsaved changes"
 msgstr "Discard unsaved changes"
 
-#: gui/main_window.py:878
+#: gui/main_window.py:912
 msgid ""
 "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
 "applied to the board. Continue?"
@@ -1149,16 +1170,16 @@ msgstr ""
 "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
 "applied to the board. Continue?"
 
-#: gui/main_window.py:891
+#: gui/main_window.py:925
 msgid "Unsaved config changes discarded"
 msgstr "Unsaved config changes discarded"
 
-#: gui/main_window.py:949
+#: gui/main_window.py:983
 #, python-brace-format
 msgid "KiCad: {ms} ms"
 msgstr ""
 
-#: gui/main_window.py:951
+#: gui/main_window.py:985
 #, python-brace-format
 msgid "KiCad response time — median {median} ms, max {maximum} ms"
 msgstr ""
@@ -1167,29 +1188,29 @@ msgstr ""
 # Unlike the ● dirty label next to it, this one NAMES the running operation:
 # the word is passed at the start_long_op call site (busy_text=...), and an
 # operation that does not name itself gets the generic wording below.
-#: gui/main_window.py:967
+#: gui/main_window.py:1001
 msgid "Working with the board…"
 msgstr "Working with the board…"
 
-#: gui/main_window.py:970
+#: gui/main_window.py:1004
 #, python-brace-format
 msgid "Working with the board: {what}"
 msgstr "Working with the board: {what}"
 
-#: gui/main_window.py:979
+#: gui/main_window.py:1013
 msgid "Project has unsaved config changes — press Ctrl+S to save"
 msgstr "Project has unsaved config changes — press Ctrl+S to save"
 
-#: gui/main_window.py:983
+#: gui/main_window.py:1017
 msgid "● &Save"
 msgstr "● &Save"
 
-#: gui/main_window.py:1114
+#: gui/main_window.py:1155
 #, python-brace-format
 msgid "Connected — {count} components (as of the last board read)"
 msgstr ""
 
-#: gui/main_window.py:1222
+#: gui/main_window.py:1263
 #, python-brace-format
 msgid ""
 "Board snapshot is stale: {count} selected component(s) are not in it yet "
@@ -1204,7 +1225,7 @@ msgid ""
 " clusters: {clusters}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2424 gui/mixed_selection.py:101
+#: gui/docks/cell_editor.py:2438 gui/mixed_selection.py:101
 #: gui/mixed_selection.py:128 gui/mixed_selection.py:197 gui/select_cell.py:131
 msgid "(no sheet)"
 msgstr ""
@@ -1421,15 +1442,15 @@ msgstr "sheet name (narrows an ambiguous Role, optional)"
 msgid "Sheet:"
 msgstr "Sheet:"
 
-#: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:553
-#: gui/docks/cell_editor.py:665 gui/docks/tree_from_selection_dialog.py:219
+#: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:559
+#: gui/docks/cell_editor.py:678 gui/docks/tree_from_selection_dialog.py:219
 #: gui/docks/trees_dock.py:6799
 msgid "pad (optional)"
 msgstr "pad (optional)"
 
 #: gui/docks/_anchor_origin.py:109 gui/docks/cell_anchor_view.py:830
-#: gui/docks/cell_editor.py:554 gui/docks/cell_editor.py:736
-#: gui/docks/cell_editor.py:812 gui/docks/chain.py:250 gui/docks/placer.py:260
+#: gui/docks/cell_editor.py:560 gui/docks/cell_editor.py:749
+#: gui/docks/cell_editor.py:825 gui/docks/chain.py:250 gui/docks/placer.py:260
 #: gui/docks/thermal_via.py:125 gui/docks/tree_from_selection_dialog.py:221
 #: gui/docks/trees_dock.py:6800
 msgid "Pad:"
@@ -1453,11 +1474,11 @@ msgstr "X mm"
 msgid "Y mm"
 msgstr "Y mm"
 
-#: gui/docks/_anchor_origin.py:184 gui/docks/cell_editor.py:878
+#: gui/docks/_anchor_origin.py:184 gui/docks/cell_editor.py:891
 msgid "X:"
 msgstr "X:"
 
-#: gui/docks/_anchor_origin.py:186 gui/docks/cell_editor.py:880
+#: gui/docks/_anchor_origin.py:186 gui/docks/cell_editor.py:893
 msgid "Y:"
 msgstr "Y:"
 
@@ -1485,7 +1506,7 @@ msgstr "Radius:"
 msgid "radius mm"
 msgstr "radius mm"
 
-#: gui/docks/_anchor_origin.py:214 gui/docks/cell_editor.py:658
+#: gui/docks/_anchor_origin.py:214 gui/docks/cell_editor.py:671
 #: gui/docks/chain.py:282
 msgid "Angle:"
 msgstr "Angle:"
@@ -1525,7 +1546,7 @@ msgid "Shift Y:"
 msgstr "Shift Y:"
 
 #: gui/docks/_anchor_origin.py:409 gui/docks/_anchor_origin.py:418
-#: gui/docks/cell_editor.py:1001 gui/docks/placer.py:381
+#: gui/docks/cell_editor.py:1014 gui/docks/placer.py:381
 #: gui/docks/placer.py:1476 gui/docks/thermal_via.py:250
 #, python-brace-format
 msgid "{label}: {text!r} is not a number."
@@ -1542,16 +1563,16 @@ msgid "Radius"
 msgstr "Radius"
 
 #: gui/docks/_anchor_origin.py:466 gui/docks/_anchor_origin.py:527
-#: gui/docks/cell_editor.py:1163 gui/docks/placer.py:443
+#: gui/docks/cell_editor.py:1176 gui/docks/placer.py:443
 #: gui/docks/placer.py:479
 msgid "Angle"
 msgstr "Angle"
 
-#: gui/docks/_anchor_origin.py:472 gui/docks/cell_editor.py:1535
+#: gui/docks/_anchor_origin.py:472 gui/docks/cell_editor.py:1548
 msgid "X"
 msgstr "X"
 
-#: gui/docks/_anchor_origin.py:475 gui/docks/cell_editor.py:1538
+#: gui/docks/_anchor_origin.py:475 gui/docks/cell_editor.py:1551
 msgid "Y"
 msgstr "Y"
 
@@ -1595,22 +1616,22 @@ msgstr "cluster tag (written onto the board's components)"
 msgid "same as Cluster unless changed (identity for Save/--only)"
 msgstr "same as Cluster unless changed (identity for Save/--only)"
 
-#: gui/docks/_cell_identity.py:67 gui/docks/cell_editor.py:498
-#: gui/docks/cell_editor.py:850 gui/docks/chain.py:209
+#: gui/docks/_cell_identity.py:67 gui/docks/cell_editor.py:504
+#: gui/docks/cell_editor.py:863 gui/docks/chain.py:209
 #: gui/docks/create_entity.py:79 gui/docks/imprint.py:669
 #: gui/docks/imprint.py:684 gui/docks/placer.py:857 gui/docks/points.py:235
 #: gui/docks/thermal_via.py:104
 msgid "Name:"
 msgstr "Name:"
 
-#: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:511
+#: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:517
 #: gui/docks/chain.py:211 gui/docks/entity_page.py:78
 #: gui/docks/net_trace.py:104 gui/docks/placer.py:205 gui/docks/points.py:240
 #: gui/docks/thermal_via.py:106
 msgid "optional free-form note"
 msgstr "optional free-form note"
 
-#: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:512
+#: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:518
 #: gui/docks/chain.py:212 gui/docks/entity_page.py:80
 #: gui/docks/net_trace.py:105 gui/docks/placer.py:858 gui/docks/points.py:241
 #: gui/docks/thermal_via.py:107
@@ -1640,9 +1661,9 @@ msgstr ""
 msgid "Add / update"
 msgstr "Add / update"
 
-#: gui/docks/_common.py:611 gui/docks/cell_editor.py:684
-#: gui/docks/cell_editor.py:754 gui/docks/cell_editor.py:826
-#: gui/docks/cell_editor.py:901
+#: gui/docks/_common.py:611 gui/docks/cell_editor.py:697
+#: gui/docks/cell_editor.py:767 gui/docks/cell_editor.py:839
+#: gui/docks/cell_editor.py:914
 msgid "Remove selected"
 msgstr "Remove selected"
 
@@ -2276,11 +2297,11 @@ msgstr ""
 msgid "{ref} now has Role {role!r}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:388 gui/docks/cell_editor.py:591
+#: gui/docks/cell_editor.py:388 gui/docks/cell_editor.py:597
 msgid "Import vias/tracks from selection"
 msgstr "Import vias/tracks from selection"
 
-#: gui/docks/cell_editor.py:392
+#: gui/docks/cell_editor.py:392 gui/docks/explode_page.py:145
 msgid "Kind"
 msgstr "Kind"
 
@@ -2290,8 +2311,9 @@ msgstr "Kind"
 msgid "Position"
 msgstr "Position"
 
-#: gui/docks/cell_editor.py:392 gui/docks/dedupe.py:63 gui/docks/tools.py:74
-#: gui/docks/tools.py:80 gui/docks/tree_from_selection_dialog.py:318
+#: gui/docks/cell_editor.py:392 gui/docks/dedupe.py:63
+#: gui/docks/explode_page.py:145 gui/docks/tools.py:74 gui/docks/tools.py:80
+#: gui/docks/tree_from_selection_dialog.py:318
 msgid "Net"
 msgstr "Net"
 
@@ -2301,7 +2323,7 @@ msgstr "Net"
 msgid "Apply"
 msgstr "Apply"
 
-#: gui/docks/cell_editor.py:421 gui/docks/cell_editor.py:2655
+#: gui/docks/cell_editor.py:421 gui/docks/cell_editor.py:2677
 msgid "Copy placement from cell"
 msgstr ""
 
@@ -2315,21 +2337,21 @@ msgstr ""
 msgid "Copy"
 msgstr ""
 
-#: gui/docks/cell_editor.py:497
+#: gui/docks/cell_editor.py:503
 msgid "name (referenced by cell: elsewhere)"
 msgstr "name (referenced by cell: elsewhere)"
 
-#: gui/docks/cell_editor.py:501 gui/docks/cell_editor.py:660
-#: gui/docks/cell_editor.py:816 gui/docks/cell_editor.py:889
+#: gui/docks/cell_editor.py:507 gui/docks/cell_editor.py:673
+#: gui/docks/cell_editor.py:829 gui/docks/cell_editor.py:902
 #: gui/docks/placer.py:920 gui/docks/root_metadata.py:321
 msgid "Layer:"
 msgstr "Layer:"
 
-#: gui/docks/cell_editor.py:509
+#: gui/docks/cell_editor.py:515
 msgid "Content layers:"
 msgstr ""
 
-#: gui/docks/cell_editor.py:523 gui/docks/profile_import.py:81
+#: gui/docks/cell_editor.py:529 gui/docks/profile_import.py:81
 #: gui/docks/role_cluster_tree.py:791 gui/docks/role_cluster_tree.py:813
 #: kicadstamp/config/profile_copy.py:94 kicadstamp/config/profile_copy.py:138
 #: kicadstamp/config/profile_copy.py:333 kicadstamp/config/profile_copy.py:347
@@ -2338,363 +2360,373 @@ msgstr ""
 msgid "(none)"
 msgstr "(none)"
 
-#: gui/docks/cell_editor.py:524 gui/docks/cell_editor.py:852
+#: gui/docks/cell_editor.py:530 gui/docks/cell_editor.py:865
 #: gui/docks/cell_refs_tab.py:379 gui/docks/imprint_refs_tab.py:133
 #: gui/docks/role_cluster_tree.py:240 gui/docks/tools.py:74
 #: gui/docks/tools.py:86 gui/docks/trees_dock.py:6631
 msgid "Role"
 msgstr "Role"
 
-#: gui/docks/cell_editor.py:526 gui/docks/placer.py:257
+#: gui/docks/cell_editor.py:532 gui/docks/placer.py:257
 #: gui/docks/trees_dock.py:6731
 msgid "Anchor:"
 msgstr "Anchor:"
 
-#: gui/docks/cell_editor.py:577
+#: gui/docks/cell_editor.py:583
 msgid "Refresh geometry"
 msgstr ""
 
-#: gui/docks/cell_editor.py:579
+#: gui/docks/cell_editor.py:585
 msgid "Refresh geometry from selection"
 msgstr "Refresh geometry from selection"
 
-#: gui/docks/cell_editor.py:589
+#: gui/docks/cell_editor.py:595
 msgid "Import copper"
 msgstr ""
 
-#: gui/docks/cell_editor.py:600 gui/docks/config_tree.py:1456
-#: gui/docks/config_tree.py:1497 tests/gui/test_select_cell.py:191
+#: gui/docks/cell_editor.py:606 gui/docks/config_tree.py:1461
+#: gui/docks/config_tree.py:1508 tests/gui/test_select_cell.py:191
 msgid "Select cell"
 msgstr ""
 
-#: gui/docks/cell_editor.py:602
+#: gui/docks/cell_editor.py:608
 msgid "Select this cell's instance on the board"
 msgstr ""
 
-#: gui/docks/cell_editor.py:651 gui/docks/cell_editor.py:706
+#: gui/docks/cell_editor.py:613 gui/docks/config_tree.py:1470
+#: gui/docks/config_tree.py:1513
+#, fuzzy
+msgid "Explode…"
+msgstr "Exported"
+
+#: gui/docks/cell_editor.py:615
+msgid "Move foreign clusters aside and re-read this cell"
+msgstr ""
+
+#: gui/docks/cell_editor.py:664 gui/docks/cell_editor.py:719
 msgid "offset along mm (0)"
 msgstr "offset along mm (0)"
 
-#: gui/docks/cell_editor.py:652 gui/docks/cell_editor.py:707
+#: gui/docks/cell_editor.py:665 gui/docks/cell_editor.py:720
 msgid "Offset along:"
 msgstr "Offset along:"
 
-#: gui/docks/cell_editor.py:654 gui/docks/cell_editor.py:709
+#: gui/docks/cell_editor.py:667 gui/docks/cell_editor.py:722
 msgid "offset across mm (0)"
 msgstr "offset across mm (0)"
 
-#: gui/docks/cell_editor.py:655 gui/docks/cell_editor.py:710
+#: gui/docks/cell_editor.py:668 gui/docks/cell_editor.py:723
 msgid "Offset across:"
 msgstr "Offset across:"
 
-#: gui/docks/cell_editor.py:657
+#: gui/docks/cell_editor.py:670
 msgid "angle deg (0)"
 msgstr "angle deg (0)"
 
-#: gui/docks/cell_editor.py:662
+#: gui/docks/cell_editor.py:675
 msgid "optional — TemplatePlacer role matching"
 msgstr "optional — TemplatePlacer role matching"
 
-#: gui/docks/cell_editor.py:663
+#: gui/docks/cell_editor.py:676
 msgid "Net template:"
 msgstr "Net template:"
 
-#: gui/docks/cell_editor.py:666
+#: gui/docks/cell_editor.py:679
 msgid "Net template pad:"
 msgstr "Net template pad:"
 
-#: gui/docks/cell_editor.py:674
+#: gui/docks/cell_editor.py:687
 msgid "Same net as role:"
 msgstr "Same net as role:"
 
-#: gui/docks/cell_editor.py:678 gui/docks/cell_editor.py:748
-#: gui/docks/cell_editor.py:820 gui/docks/cell_editor.py:895
+#: gui/docks/cell_editor.py:691 gui/docks/cell_editor.py:761
+#: gui/docks/cell_editor.py:833 gui/docks/cell_editor.py:908
 msgid "Add"
 msgstr "Add"
 
-#: gui/docks/cell_editor.py:681 gui/docks/cell_editor.py:751
-#: gui/docks/cell_editor.py:823 gui/docks/cell_editor.py:898
+#: gui/docks/cell_editor.py:694 gui/docks/cell_editor.py:764
+#: gui/docks/cell_editor.py:836 gui/docks/cell_editor.py:911
 msgid "Update selected"
 msgstr "Update selected"
 
-#: gui/docks/cell_editor.py:712 gui/docks/cell_editor.py:792
+#: gui/docks/cell_editor.py:725 gui/docks/cell_editor.py:805
 msgid "Literal"
 msgstr "Literal"
 
-#: gui/docks/cell_editor.py:712 gui/docks/cell_editor.py:792
+#: gui/docks/cell_editor.py:725 gui/docks/cell_editor.py:805
 msgid "From role"
 msgstr "From role"
 
-#: gui/docks/cell_editor.py:714 gui/docks/cell_editor.py:794
+#: gui/docks/cell_editor.py:727 gui/docks/cell_editor.py:807
 msgid "Net source:"
 msgstr "Net source:"
 
-#: gui/docks/cell_editor.py:720 gui/docks/cell_editor.py:800
+#: gui/docks/cell_editor.py:733 gui/docks/cell_editor.py:813
 msgid "optional — blank means the rule's own net"
 msgstr "optional — blank means the rule's own net"
 
-#: gui/docks/cell_editor.py:721 gui/docks/cell_editor.py:801
+#: gui/docks/cell_editor.py:734 gui/docks/cell_editor.py:814
 #: gui/docks/chain.py:123 gui/docks/chain.py:206 gui/docks/net_trace.py:102
 #: gui/docks/thermal_via.py:129
 msgid "Net:"
 msgstr "Net:"
 
-#: gui/docks/cell_editor.py:735 gui/docks/cell_editor.py:811
+#: gui/docks/cell_editor.py:748 gui/docks/cell_editor.py:824
 msgid "optional pad — blank means the role's single non-rule net"
 msgstr "optional pad — blank means the role's single non-rule net"
 
-#: gui/docks/cell_editor.py:740
+#: gui/docks/cell_editor.py:753
 msgid "drill mm (0.3)"
 msgstr "drill mm (0.3)"
 
-#: gui/docks/cell_editor.py:741
+#: gui/docks/cell_editor.py:754
 msgid "Drill:"
 msgstr "Drill:"
 
-#: gui/docks/cell_editor.py:743
+#: gui/docks/cell_editor.py:756
 msgid "diameter mm (0.6)"
 msgstr "diameter mm (0.6)"
 
-#: gui/docks/cell_editor.py:744
+#: gui/docks/cell_editor.py:757
 msgid "Diameter:"
 msgstr "Diameter:"
 
-#: gui/docks/cell_editor.py:760
+#: gui/docks/cell_editor.py:773
 msgid "Vias"
 msgstr "Vias"
 
-#: gui/docks/cell_editor.py:778
+#: gui/docks/cell_editor.py:791
 msgid "Start along:"
 msgstr "Start along:"
 
-#: gui/docks/cell_editor.py:781
+#: gui/docks/cell_editor.py:794
 msgid "Start across:"
 msgstr "Start across:"
 
-#: gui/docks/cell_editor.py:784
+#: gui/docks/cell_editor.py:797
 msgid "End along:"
 msgstr "End along:"
 
-#: gui/docks/cell_editor.py:787
+#: gui/docks/cell_editor.py:800
 msgid "End across:"
 msgstr "End across:"
 
-#: gui/docks/cell_editor.py:789
+#: gui/docks/cell_editor.py:802
 msgid "width mm (0.25)"
 msgstr "width mm (0.25)"
 
-#: gui/docks/cell_editor.py:790
+#: gui/docks/cell_editor.py:803
 msgid "Width:"
 msgstr "Width:"
 
-#: gui/docks/cell_editor.py:832
+#: gui/docks/cell_editor.py:845
 msgid "Tracks"
 msgstr "Tracks"
 
-#: gui/docks/cell_editor.py:849
+#: gui/docks/cell_editor.py:862
 msgid "name (registry key, must be unique in this cell)"
 msgstr "name (registry key, must be unique in this cell)"
 
-#: gui/docks/cell_editor.py:852 gui/docks/placer.py:767
+#: gui/docks/cell_editor.py:865 gui/docks/placer.py:767
 #: gui/docks/profile_import.py:35 gui/docks/profile_import.py:38
 #: gui/docks/tree_from_selection_dialog.py:145
 msgid "Cell"
 msgstr "Cell"
 
-#: gui/docks/cell_editor.py:854
+#: gui/docks/cell_editor.py:867
 msgid "Content:"
 msgstr "Content:"
 
-#: gui/docks/cell_editor.py:862 gui/docks/chain.py:253
+#: gui/docks/cell_editor.py:875 gui/docks/chain.py:253
 #: gui/docks/entity_page.py:82 gui/docks/extract_spoke_dialog.py:95
 #: gui/docks/instantiate_cell_dialog.py:128 gui/docks/placer.py:789
 msgid "Cell:"
 msgstr "Cell:"
 
-#: gui/docks/cell_editor.py:887 gui/docks/chain.py:290
+#: gui/docks/cell_editor.py:900 gui/docks/chain.py:290
 #: gui/docks/imprint_place.py:253 gui/docks/placer.py:917
 #: gui/docks/trees_dock.py:5041
 msgid "Rotation (deg):"
 msgstr "Rotation (deg):"
 
-#: gui/docks/cell_editor.py:891 gui/docks/placer.py:928
+#: gui/docks/cell_editor.py:904 gui/docks/placer.py:928
 msgid "Mirror"
 msgstr "Mirror"
 
-#: gui/docks/cell_editor.py:907
+#: gui/docks/cell_editor.py:920
 msgid "Nested cells"
 msgstr "Nested cells"
 
-#: gui/docks/cell_editor.py:1048
+#: gui/docks/cell_editor.py:1061
 msgid "(no copper records)"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1057
+#: gui/docks/cell_editor.py:1070
 msgid "Read-only indicator: this cell has copper records on this layer"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1118
+#: gui/docks/cell_editor.py:1131
 msgid "yes"
 msgstr "yes"
 
-#: gui/docks/cell_editor.py:1155 gui/docks/trees_dock.py:7628
+#: gui/docks/cell_editor.py:1168 gui/docks/trees_dock.py:7628
 msgid "Role is required."
 msgstr "Role is required."
 
-#: gui/docks/cell_editor.py:1157 gui/docks/cell_editor.py:1285
+#: gui/docks/cell_editor.py:1170 gui/docks/cell_editor.py:1298
 msgid "Offset along"
 msgstr "Offset along"
 
-#: gui/docks/cell_editor.py:1160 gui/docks/cell_editor.py:1288
+#: gui/docks/cell_editor.py:1173 gui/docks/cell_editor.py:1301
 msgid "Offset across"
 msgstr "Offset across"
 
-#: gui/docks/cell_editor.py:1187
+#: gui/docks/cell_editor.py:1200
 msgid "Net template pad requires a net template."
 msgstr "Net template pad requires a net template."
 
-#: gui/docks/cell_editor.py:1197
+#: gui/docks/cell_editor.py:1210
 msgid "Same net as role requires a net template."
 msgstr "Same net as role requires a net template."
 
-#: gui/docks/cell_editor.py:1200
+#: gui/docks/cell_editor.py:1213
 msgid "Pick one: a fixed pad number or a same-net role reference, not both."
 msgstr "Pick one: a fixed pad number or a same-net role reference, not both."
 
-#: gui/docks/cell_editor.py:1228 gui/docks/cell_editor.py:1240
+#: gui/docks/cell_editor.py:1241 gui/docks/cell_editor.py:1253
 msgid "Pick a component row first."
 msgstr "Pick a component row first."
 
-#: gui/docks/cell_editor.py:1291 gui/docks/thermal_via.py:314
+#: gui/docks/cell_editor.py:1304 gui/docks/thermal_via.py:314
 msgid "Drill"
 msgstr "Drill"
 
-#: gui/docks/cell_editor.py:1294 gui/docks/thermal_via.py:318
+#: gui/docks/cell_editor.py:1307 gui/docks/thermal_via.py:318
 msgid "Diameter"
 msgstr "Diameter"
 
-#: gui/docks/cell_editor.py:1305 gui/docks/cell_editor.py:1428
+#: gui/docks/cell_editor.py:1318 gui/docks/cell_editor.py:1441
 msgid "Net source: From role — pick a Role first."
 msgstr "Net source: From role — pick a Role first."
 
-#: gui/docks/cell_editor.py:1338 gui/docks/cell_editor.py:1350
+#: gui/docks/cell_editor.py:1351 gui/docks/cell_editor.py:1363
 msgid "Pick a via row first."
 msgstr "Pick a via row first."
 
-#: gui/docks/cell_editor.py:1399
+#: gui/docks/cell_editor.py:1412
 msgid "Start along"
 msgstr "Start along"
 
-#: gui/docks/cell_editor.py:1402
+#: gui/docks/cell_editor.py:1415
 msgid "Start across"
 msgstr "Start across"
 
-#: gui/docks/cell_editor.py:1405
+#: gui/docks/cell_editor.py:1418
 msgid "End along"
 msgstr "End along"
 
-#: gui/docks/cell_editor.py:1408
+#: gui/docks/cell_editor.py:1421
 msgid "End across"
 msgstr "End across"
 
-#: gui/docks/cell_editor.py:1411
+#: gui/docks/cell_editor.py:1424
 msgid "Width"
 msgstr "Width"
 
-#: gui/docks/cell_editor.py:1460 gui/docks/cell_editor.py:1472
+#: gui/docks/cell_editor.py:1473 gui/docks/cell_editor.py:1485
 msgid "Pick a track row first."
 msgstr "Pick a track row first."
 
-#: gui/docks/cell_editor.py:1519
+#: gui/docks/cell_editor.py:1532
 msgid "Nested cell: name is required."
 msgstr "Nested cell: name is required."
 
-#: gui/docks/cell_editor.py:1525 gui/docks/placer.py:1512
+#: gui/docks/cell_editor.py:1538 gui/docks/placer.py:1512
 msgid "Pick a Cell first."
 msgstr "Pick a Cell first."
 
-#: gui/docks/cell_editor.py:1531
+#: gui/docks/cell_editor.py:1544
 msgid "Pick a Role first."
 msgstr "Pick a Role first."
 
-#: gui/docks/cell_editor.py:1543 gui/docks/instances_dialog.py:153
+#: gui/docks/cell_editor.py:1556 gui/docks/instances_dialog.py:153
 #: gui/docks/placer.py:425 gui/docks/placer.py:1589 gui/docks/placer.py:2522
 msgid "Rotation"
 msgstr "Rotation"
 
-#: gui/docks/cell_editor.py:1579 gui/docks/cell_editor.py:1591
+#: gui/docks/cell_editor.py:1592 gui/docks/cell_editor.py:1604
 msgid "Pick a nested-cell row first."
 msgstr "Pick a nested-cell row first."
 
-#: gui/docks/cell_editor.py:1633
+#: gui/docks/cell_editor.py:1646
 msgid "Anchor: pick a Role first."
 msgstr "Anchor: pick a Role first."
 
-#: gui/docks/cell_editor.py:1693 gui/docks/chain.py:603
+#: gui/docks/cell_editor.py:1706 gui/docks/chain.py:603
 #: gui/docks/placer.py:2454 gui/docks/placer.py:2566 gui/docks/points.py:898
 #: gui/docks/thermal_via.py:463 kicadstamp/extract_writer.py:136
 #, python-brace-format
 msgid "{action} {name!r} in {path}"
 msgstr "{action} {name!r} in {path}"
 
-#: gui/docks/cell_editor.py:1694 gui/docks/chain.py:604
+#: gui/docks/cell_editor.py:1707 gui/docks/chain.py:604
 #: gui/docks/net_trace.py:516 gui/docks/placer.py:2455 gui/docks/placer.py:2534
 #: gui/docks/placer.py:2567 gui/docks/points.py:899
 #: gui/docks/thermal_via.py:464 kicadstamp/extract_writer.py:137
 msgid "Overwrote"
 msgstr "Overwrote"
 
-#: gui/docks/cell_editor.py:1694 gui/docks/chain.py:604
+#: gui/docks/cell_editor.py:1707 gui/docks/chain.py:604
 #: gui/docks/net_trace.py:516 gui/docks/placer.py:2455 gui/docks/placer.py:2534
 #: gui/docks/placer.py:2567 gui/docks/points.py:899
 #: gui/docks/thermal_via.py:464 kicadstamp/extract_writer.py:137
 msgid "Wrote"
 msgstr "Wrote"
 
-#: gui/docks/cell_editor.py:1776 gui/docks/cell_editor.py:2204
-#: gui/docks/cell_editor.py:2474 gui/docks/cell_editor.py:2623
+#: gui/docks/cell_editor.py:1790 gui/docks/cell_editor.py:2218
+#: gui/docks/cell_editor.py:2496 gui/docks/cell_editor.py:2645
 msgid "Load a cell with components first."
 msgstr "Load a cell with components first."
 
-#: gui/docks/cell_editor.py:1858
+#: gui/docks/cell_editor.py:1872
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1867 gui/docks/cell_layers.py:75
+#: gui/docks/cell_editor.py:1881 gui/docks/cell_layers.py:75
 msgid "Layers to read"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1868
+#: gui/docks/cell_editor.py:1882
 msgid ""
 "No layer is selected. Refresh deletes every track record of this cell. "
 "Continue?"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1886
+#: gui/docks/cell_editor.py:1900
 #, python-brace-format
 msgid "read layers: {layers}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1889
+#: gui/docks/cell_editor.py:1903
 msgid "no layer of the selection was read"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1893
+#: gui/docks/cell_editor.py:1907
 #, python-brace-format
 msgid "skipped {layer}: unchecked by hand"
 msgstr ""
 
-#: gui/docks/cell_editor.py:1897
+#: gui/docks/cell_editor.py:1911
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2062
+#: gui/docks/cell_editor.py:2076
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Nothing changed — the selection already matches this cell's geometry."
 
-#: gui/docks/cell_editor.py:2093
+#: gui/docks/cell_editor.py:2107
 #, python-brace-format
 msgid ""
 "Updated cell {name!r} from selection — {updated} record(s) updated, "
@@ -2705,18 +2737,18 @@ msgstr ""
 "{added} via/track record(s) added, {removed} record(s) removed. Save to "
 "write the change."
 
-#: gui/docks/cell_editor.py:2103
+#: gui/docks/cell_editor.py:2117
 #, python-brace-format
 msgid "Refresh failed: {error}"
 msgstr "Refresh failed: {error}"
 
-#: gui/docks/cell_editor.py:2217
+#: gui/docks/cell_editor.py:2231
 msgid ""
 "No layer is selected — no track will be read (vias and components are "
 "read as usual)."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2346
+#: gui/docks/cell_editor.py:2360
 msgid ""
 "Nothing to import — every selected via/track is already described by this"
 " cell."
@@ -2724,7 +2756,7 @@ msgstr ""
 "Nothing to import — every selected via/track is already described by this"
 " cell."
 
-#: gui/docks/cell_editor.py:2355
+#: gui/docks/cell_editor.py:2369
 #, python-brace-format
 msgid ""
 "Imported {count} new record(s) from selection into {name!r}. Save to "
@@ -2733,12 +2765,12 @@ msgstr ""
 "Imported {count} new record(s) from selection into {name!r}. Save to "
 "write the change."
 
-#: gui/docks/cell_editor.py:2363
+#: gui/docks/cell_editor.py:2377
 #, python-brace-format
 msgid "Import failed: {error}"
 msgstr "Import failed: {error}"
 
-#: gui/docks/cell_editor.py:2412 gui/docks/cell_editor.py:2497
+#: gui/docks/cell_editor.py:2426 gui/docks/cell_editor.py:2519
 #, python-brace-format
 msgid ""
 "No remembered cluster for cell {name!r} — extract it from a board "
@@ -2746,22 +2778,22 @@ msgid ""
 "selection”."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2422
+#: gui/docks/cell_editor.py:2436
 #, python-brace-format
 msgid "{cluster} on {sheet}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2445
+#: gui/docks/cell_editor.py:2459
 #, python-brace-format
 msgid "cell {name!r} is not in the config — cannot select it"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2554 gui/docks/cell_editor.py:2592
+#: gui/docks/cell_editor.py:2576 gui/docks/cell_editor.py:2614
 #, python-brace-format
 msgid "Select cluster failed: {error}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2559
+#: gui/docks/cell_editor.py:2581
 #, python-brace-format
 msgid ""
 "the remembered refs are stale ({reasons}) — nothing was selected; "
@@ -2769,33 +2801,33 @@ msgid ""
 " page"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2572
+#: gui/docks/cell_editor.py:2594
 #, python-brace-format
 msgid ""
 "Selected the {count} identified footprint(s) of this cell on the board — "
 "ready for “Refresh geometry”."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2578
+#: gui/docks/cell_editor.py:2600
 #, python-brace-format
 msgid ""
 "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready"
 " for “Refresh geometry”."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2584
+#: gui/docks/cell_editor.py:2606
 #, python-brace-format
 msgid ""
 "No footprint of cluster {cluster!r} is on the current board — the "
 "remembered context no longer resolves; select the cluster by hand."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2617
+#: gui/docks/cell_editor.py:2639
 msgid "Pick a cell to copy into first."
 msgstr ""
 
 # ===== Copy placement from cell, context-menu flow (2026-09-06) =====
-#: gui/docks/cell_editor.py:2629
+#: gui/docks/cell_editor.py:2651
 msgid "No other cell fits this one's roles to copy from."
 msgstr ""
 
@@ -2805,7 +2837,7 @@ msgstr ""
 # plan_2026_09_23_cell_placement_copy_replaces_copper): the confirmation + the
 # reworded success line; the old additive "...{copper} via/track record(s)
 # added..." entry below is retired.
-#: gui/docks/cell_editor.py:2656
+#: gui/docks/cell_editor.py:2678
 #, python-brace-format
 msgid ""
 "Cell {name!r} already has copper: {target_vias} via(s) and "
@@ -2813,7 +2845,7 @@ msgid ""
 "{source_tracks} track(s) from {source!r}."
 msgstr ""
 
-#: gui/docks/cell_editor.py:2671
+#: gui/docks/cell_editor.py:2693
 #, python-brace-format
 msgid ""
 "Copied placement from {source!r} into {name!r} — {components} "
@@ -3342,112 +3374,112 @@ msgstr "Add placer..."
 msgid "Add chain..."
 msgstr "Add chain..."
 
-#: gui/docks/config_tree.py:1038 gui/docks/instances_dialog.py:154
+#: gui/docks/config_tree.py:1043 gui/docks/instances_dialog.py:154
 #: gui/docks/placer.py:217 gui/docks/tree_from_selection_dialog.py:123
 msgid "Anchor"
 msgstr "Anchor"
 
-#: gui/docks/config_tree.py:1084 kicadstamp/config/profile_copy.py:264
+#: gui/docks/config_tree.py:1089 kicadstamp/config/profile_copy.py:264
 #, python-brace-format
 msgid "cell {cell}"
 msgstr "cell {cell}"
 
-#: gui/docks/config_tree.py:1363
+#: gui/docks/config_tree.py:1368
 msgid "Redraw chains..."
 msgstr "Redraw chains..."
 
-#: gui/docks/config_tree.py:1371
+#: gui/docks/config_tree.py:1376
 msgid "Redraw chain"
 msgstr "Redraw chain"
 
-#: gui/docks/config_tree.py:1374
+#: gui/docks/config_tree.py:1379
 msgid "Bulk set Cell for net..."
 msgstr "Bulk set Cell for net..."
 
-#: gui/docks/config_tree.py:1387
+#: gui/docks/config_tree.py:1392
 msgid "Redraw spoke"
 msgstr "Redraw spoke"
 
-#: gui/docks/config_tree.py:1389
+#: gui/docks/config_tree.py:1394
 msgid "Delete pad..."
 msgstr "Delete pad..."
 
-#: gui/docks/config_tree.py:1422 gui/docks/config_tree.py:1468
+#: gui/docks/config_tree.py:1427 gui/docks/config_tree.py:1479
 #: gui/docks/create_entity.py:61
 msgid "Create entity"
 msgstr ""
 
-#: gui/docks/config_tree.py:1475
+#: gui/docks/config_tree.py:1486
 msgid "Edit cell..."
 msgstr "Edit cell..."
 
-#: gui/docks/config_tree.py:1480
+#: gui/docks/config_tree.py:1491
 msgid "Cell anchor..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1487
+#: gui/docks/config_tree.py:1498
 msgid "Update from selection..."
 msgstr "Update from selection..."
 
-#: gui/docks/config_tree.py:1494
+#: gui/docks/config_tree.py:1505
 msgid "Import from selection..."
 msgstr "Import from selection..."
 
-#: gui/docks/config_tree.py:1505
+#: gui/docks/config_tree.py:1521
 msgid "Update from selection (choose layers)..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1509
+#: gui/docks/config_tree.py:1525
 msgid "Import from selection (choose layers)..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1516
+#: gui/docks/config_tree.py:1532
 msgid "Copy placement from cell..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1518
+#: gui/docks/config_tree.py:1534
 msgid "Rename..."
 msgstr "Rename..."
 
-#: gui/docks/config_tree.py:1520
+#: gui/docks/config_tree.py:1536
 msgid "Delete..."
 msgstr "Delete..."
 
-#: gui/docks/config_tree.py:1526
+#: gui/docks/config_tree.py:1542
 msgid "Export selected..."
 msgstr "Export selected..."
 
-#: gui/docks/config_tree.py:1526
+#: gui/docks/config_tree.py:1542
 msgid "Export..."
 msgstr "Export..."
 
-#: gui/docks/config_tree.py:1557
+#: gui/docks/config_tree.py:1573
 msgid "Add included file..."
 msgstr "Add included file..."
 
-#: gui/docks/config_tree.py:1561
+#: gui/docks/config_tree.py:1577
 msgid "Remove this file"
 msgstr "Remove this file"
 
-#: gui/docks/config_tree.py:1574
+#: gui/docks/config_tree.py:1590
 msgid "Rename"
 msgstr "Rename"
 
-#: gui/docks/config_tree.py:1574
+#: gui/docks/config_tree.py:1590
 #, python-brace-format
 msgid "New name for {old!r}:"
 msgstr "New name for {old!r}:"
 
-#: gui/docks/config_tree.py:1581
+#: gui/docks/config_tree.py:1597
 msgid "Rename failed"
 msgstr "Rename failed"
 
-#: gui/docks/config_tree.py:1586
+#: gui/docks/config_tree.py:1602
 #, python-brace-format
 msgid "Renamed {old!r} to {new!r} — {count} file(s) updated: {files}"
 msgstr "Renamed {old!r} to {new!r} — {count} file(s) updated: {files}"
 
-#: gui/docks/config_tree.py:1591
+#: gui/docks/config_tree.py:1607
 #, python-brace-format
 msgid ""
 "If any CLI command uses --only/--profile {old!r}, update that separately "
@@ -3456,21 +3488,21 @@ msgstr ""
 "If any CLI command uses --only/--profile {old!r}, update that separately "
 "— this only rewrites YAML files, it can't see command-line usage."
 
-#: gui/docks/config_tree.py:1594
+#: gui/docks/config_tree.py:1610
 msgid "Renamed"
 msgstr "Renamed"
 
-#: gui/docks/config_tree.py:1635
+#: gui/docks/config_tree.py:1651
 #, python-brace-format
 msgid "{file}: {entries}"
 msgstr "{file}: {entries}"
 
-#: gui/docks/config_tree.py:1638 gui/docks/config_tree.py:1648
+#: gui/docks/config_tree.py:1654 gui/docks/config_tree.py:1664
 #, python-brace-format
 msgid "Delete {name!r}"
 msgstr "Delete {name!r}"
 
-#: gui/docks/config_tree.py:1639
+#: gui/docks/config_tree.py:1655
 #, python-brace-format
 msgid ""
 "{name!r} is still referenced by:\n"
@@ -3483,53 +3515,53 @@ msgstr ""
 "\n"
 "Also delete these referencing entries? Cancel leaves everything untouched."
 
-#: gui/docks/config_tree.py:1649
+#: gui/docks/config_tree.py:1665
 #, python-brace-format
 msgid "Delete {name!r} from {section}: in {file}?"
 msgstr "Delete {name!r} from {section}: in {file}?"
 
-#: gui/docks/config_tree.py:1662
+#: gui/docks/config_tree.py:1678
 msgid "Delete failed"
 msgstr "Delete failed"
 
-#: gui/docks/config_tree.py:1667
+#: gui/docks/config_tree.py:1683
 #, python-brace-format
 msgid "Deleted {name!r}. Backed up: {backups}."
 msgstr "Deleted {name!r}. Backed up: {backups}."
 
-#: gui/docks/config_tree.py:1670
+#: gui/docks/config_tree.py:1686
 #, python-brace-format
 msgid "Also removed references from: {files}."
 msgstr "Also removed references from: {files}."
 
-#: gui/docks/config_tree.py:1672 gui/docks/config_tree.py:1700
+#: gui/docks/config_tree.py:1688 gui/docks/config_tree.py:1716
 msgid "Deleted"
 msgstr "Deleted"
 
-#: gui/docks/config_tree.py:1687
+#: gui/docks/config_tree.py:1703
 #, python-brace-format
 msgid "Delete pad {pad!r}"
 msgstr "Delete pad {pad!r}"
 
-#: gui/docks/config_tree.py:1688
+#: gui/docks/config_tree.py:1704
 #, python-brace-format
 msgid "Delete pad {pad!r} from chain {name!r} in {file}?"
 msgstr "Delete pad {pad!r} from chain {name!r} in {file}?"
 
-#: gui/docks/config_tree.py:1701
+#: gui/docks/config_tree.py:1717
 #, python-brace-format
 msgid "Deleted pad {pad!r} from chain {name!r}."
 msgstr "Deleted pad {pad!r} from chain {name!r}."
 
-#: gui/docks/config_tree.py:1817
+#: gui/docks/config_tree.py:1833
 msgid "Export to..."
 msgstr "Export to..."
 
-#: gui/docks/config_tree.py:1834
+#: gui/docks/config_tree.py:1850
 msgid "Export"
 msgstr "Export"
 
-#: gui/docks/config_tree.py:1835
+#: gui/docks/config_tree.py:1851
 #, python-brace-format
 msgid ""
 "{name} already has content — merge the exported entries into it, or "
@@ -3538,44 +3570,44 @@ msgstr ""
 "{name} already has content — merge the exported entries into it, or "
 "overwrite the whole file?"
 
-#: gui/docks/config_tree.py:1837
+#: gui/docks/config_tree.py:1853
 msgid "Merge"
 msgstr "Merge"
 
-#: gui/docks/config_tree.py:1838 gui/docks/profile_import.py:176
+#: gui/docks/config_tree.py:1854 gui/docks/profile_import.py:176
 msgid "Overwrite"
 msgstr "Overwrite"
 
-#: gui/docks/config_tree.py:1853
+#: gui/docks/config_tree.py:1869
 msgid "Export failed"
 msgstr "Export failed"
 
-#: gui/docks/config_tree.py:1856
+#: gui/docks/config_tree.py:1872
 msgid "Exported"
 msgstr "Exported"
 
-#: gui/docks/config_tree.py:1857
+#: gui/docks/config_tree.py:1873
 #, python-brace-format
 msgid "Exported {count} entr{suffix} to {name}"
 msgstr "Exported {count} entr{suffix} to {name}"
 
-#: gui/docks/config_tree.py:1858
+#: gui/docks/config_tree.py:1874
 msgid "y"
 msgstr "y"
 
-#: gui/docks/config_tree.py:1858
+#: gui/docks/config_tree.py:1874
 msgid "ies"
 msgstr "ies"
 
-#: gui/docks/config_tree.py:1868
+#: gui/docks/config_tree.py:1884
 msgid "Add included file"
 msgstr "Add included file"
 
-#: gui/docks/config_tree.py:1883
+#: gui/docks/config_tree.py:1899
 msgid "Cannot include"
 msgstr "Cannot include"
 
-#: gui/docks/config_tree.py:1884
+#: gui/docks/config_tree.py:1900
 #, python-brace-format
 msgid ""
 "{name} has root-config-only key(s) {keys} that include: can't merge — "
@@ -3584,11 +3616,11 @@ msgstr ""
 "{name} has root-config-only key(s) {keys} that include: can't merge — "
 "move them out, or point Root at this file directly instead."
 
-#: gui/docks/config_tree.py:1896
+#: gui/docks/config_tree.py:1912
 msgid "Remove file"
 msgstr "Remove file"
 
-#: gui/docks/config_tree.py:1897
+#: gui/docks/config_tree.py:1913
 #, python-brace-format
 msgid ""
 "Remove {name!r} from {parent!r}'s include:? The file itself is not "
@@ -4116,7 +4148,7 @@ msgstr ""
 msgid "Type"
 msgstr "Type"
 
-#: gui/docks/dedupe.py:63
+#: gui/docks/dedupe.py:63 gui/docks/explode_page.py:145
 msgid "Layer"
 msgstr ""
 
@@ -4197,6 +4229,143 @@ msgstr ""
 #, python-brace-format
 msgid "Wrote entity {name!r} in {path}"
 msgstr "Wrote entity {name!r} in {path}"
+
+#: gui/docks/explode_page.py:67 kicadstamp/explode_cli.py:128
+#, fuzzy
+msgid "no explode journal for this board — nothing to restore"
+msgstr "no footprints on the board — nothing to write"
+
+#: gui/docks/explode_page.py:101 gui/docks/explode_page.py:228
+msgid "Разнос: ячейка не выбрана"
+msgstr ""
+
+#: gui/docks/explode_page.py:111 gui/docks/explode_page.py:154
+#: gui/docks/explode_page.py:383
+msgid "Вернуть"
+msgstr ""
+
+#: gui/docks/explode_page.py:112
+msgid "Показать журнал"
+msgstr ""
+
+#: gui/docks/explode_page.py:113
+msgid "Забыть журнал"
+msgstr ""
+
+#: gui/docks/explode_page.py:120
+msgid "Поле области:"
+msgstr ""
+
+#: gui/docks/explode_page.py:123 gui/docks/explode_page.py:129
+msgid " мм"
+msgstr ""
+
+#: gui/docks/explode_page.py:126
+msgid "Зазор:"
+msgstr ""
+
+#: gui/docks/explode_page.py:132
+msgid "Пересчитать"
+msgstr ""
+
+#: gui/docks/explode_page.py:141
+msgid "Межкластерная медь у ячейки:"
+msgstr ""
+
+#: gui/docks/explode_page.py:145
+msgid "Length"
+msgstr ""
+
+#: gui/docks/explode_page.py:145
+#, fuzzy
+msgid "Touches"
+msgstr "Source"
+
+#: gui/docks/explode_page.py:150 gui/docks/explode_page.py:344
+msgid "Разнести"
+msgstr ""
+
+#: gui/docks/explode_page.py:151
+msgid "Перечитать ячейку по выделению"
+msgstr ""
+
+#: gui/docks/explode_page.py:153
+msgid "Р3"
+msgstr ""
+
+#: gui/docks/explode_page.py:222
+msgid "разнесено"
+msgstr ""
+
+#: gui/docks/explode_page.py:222
+msgid "собрано"
+msgstr ""
+
+#: gui/docks/explode_page.py:225
+#, python-brace-format
+msgid "Разнос: {cell} — {where}   [состояние: {state}]"
+msgstr ""
+
+#: gui/docks/explode_page.py:239
+#, fuzzy
+msgid "Set the project root and connect to the board first."
+msgstr "Set the project root first."
+
+#: gui/docks/explode_page.py:250
+#, fuzzy
+msgid "planning"
+msgstr "placing"
+
+#: gui/docks/explode_page.py:267
+#, python-brace-format
+msgid "{where} ({fps} деталей, {cu} кусков меди)"
+msgstr ""
+
+#: gui/docks/explode_page.py:271
+#, python-brace-format
+msgid "Уедут: {leaves}"
+msgstr ""
+
+#: gui/docks/explode_page.py:272
+msgid "(никто)"
+msgstr ""
+
+#: gui/docks/explode_page.py:278
+#, fuzzy, python-brace-format
+msgid "net_traces {name}   ({n})"
+msgstr "net_traces entry (net {net!r})"
+
+#: gui/docks/explode_page.py:339 gui/docks/explode_page.py:361
+#, fuzzy
+msgid "Connect to the board first."
+msgstr "Connect to KiCad first."
+
+#: gui/docks/explode_page.py:396
+#, python-brace-format
+msgid ""
+"explode journal: board {board}, cell {cell} on {cluster}/{sheet}, {when},"
+" {n} item(s)"
+msgstr ""
+
+#: gui/docks/explode_page.py:405
+msgid "Забыть журнал?"
+msgstr ""
+
+#: gui/docks/explode_page.py:406
+msgid ""
+"The board stays shifted aside — the recorded positions will be LOST. "
+"Continue?"
+msgstr ""
+
+#: gui/docks/explode_page.py:416
+#, fuzzy, python-brace-format
+msgid "explode journal deleted"
+msgstr "File {name} deleted."
+
+#: gui/docks/explode_page.py:451
+#, python-brace-format
+msgid "Кластеры разнесены {when} — не сохраняй плату KiCad; сначала «Вернуть»"
+msgstr ""
 
 #: gui/docks/extract_cluster_dialog.py:73
 msgid "Fully selected Cluster:"
@@ -9441,77 +9610,72 @@ msgstr ""
 "unrecognised keys are silently ignored – common source of quiet "
 "bugs{extra}: {problems}"
 
-#: kicadstamp/explode.py:468
+#: kicadstamp/explode.py:331
 #, fuzzy
 msgid "(via)"
 msgstr "Via"
 
-#: kicadstamp/explode.py:482
+#: kicadstamp/explode.py:345
 #, fuzzy
 msgid "net_traces anchor"
 msgstr "Set anchor"
 
-#: kicadstamp/explode.py:564
+#: kicadstamp/explode.py:465
 #, python-brace-format
 msgid "no instance of {cell} on the board for {where}"
 msgstr ""
 
-#: kicadstamp/explode.py:580
+#: kicadstamp/explode.py:481
 #, python-brace-format
 msgid "the instance of {cell} has no measurable frame"
 msgstr ""
 
-#: kicadstamp/explode.py:665
+#: kicadstamp/explode.py:594
 #, python-brace-format
 msgid "T-branch: the cell's inner part ({pads}) leaves with the foreign cluster"
 msgstr ""
 
-#: kicadstamp/explode.py:670
+#: kicadstamp/explode.py:599
 #, python-brace-format
 msgid ""
 "piece {uuid} touches several foreign clusters — it moves with the first; "
 "check by hand"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:67
+#: kicadstamp/explode_cli.py:69
 #, python-brace-format
 msgid "no config record places {cell} — pass --cluster (and --sheet?)"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:71
+#: kicadstamp/explode_cli.py:73
 #, python-brace-format
 msgid ""
 "{cell} is placed by several records: {names} — pass --cluster/--sheet to "
 "choose one"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:79
+#: kicadstamp/explode_format.py:23
 #, python-brace-format
 msgid "explode: {cell} on {where}; area {w:.1f} x {h:.1f} mm"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:83
+#: kicadstamp/explode_format.py:27
 #, python-brace-format
 msgid ""
 "  leaves {where}: {fps} component(s), {cu} copper item(s); by {dx:.1f}, "
 "{dy:.1f} mm"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:88
+#: kicadstamp/explode_format.py:32
 #, fuzzy
 msgid "  inter-cluster copper:"
 msgstr "Reread inter-node copper"
 
-#: kicadstamp/explode_cli.py:145
-#, fuzzy
-msgid "no explode journal for this board — nothing to restore"
-msgstr "no footprints on the board — nothing to write"
-
-#: kicadstamp/explode_cli.py:161
+#: kicadstamp/explode_format.py:49
 msgid "no explode journal for this board"
 msgstr ""
 
-#: kicadstamp/explode_cli.py:163
+#: kicadstamp/explode_format.py:51
 #, python-brace-format
 msgid ""
 "clusters exploded {when}: cell {cell} on {cluster}/{sheet}, {n} item(s); "
@@ -16392,7 +16556,7 @@ msgstr ""
 "track (along={s_along},{s_across} -> {e_along},{e_across}) has no net — "
 "every track in a cloned cell must have a net, just like vias"
 
-#: kicadstamp/geometry/pad_area.py:244
+#: kicadstamp/geometry/pad_area.py:284
 #, python-brace-format
 msgid ""
 "Pad {ref}.{pad}: no own pad area (shape {shape}) — falling back to "

@@ -187,6 +187,51 @@ def _notify_busy(text: Optional[str]) -> None:
         logger.exception("Busy reporter failed")
 
 
+# ── the "clusters are exploded" gate (Р2, plan_2026_10_05_explode_r2_r3) ─────
+#
+# While the "Разнос" tab holds a live journal, every board operation that is NOT
+# part of that tab must refuse — redraws, Apply, reads by other docks — so
+# nothing is written or re-read against a board that is deliberately shifted
+# aside. Rather than teach this low layer about the tab, ONE callable is
+# installed HERE by gui/explode_guard.py (the SAME shape as set_busy_reporter):
+# it returns the refusal MESSAGE when board ops are blocked, or None when they
+# are allowed. worker.py never imports explode_guard — the dependency flows only
+# downward.
+_long_op_gate: Optional[Callable[[], Optional[str]]] = None
+
+
+def current_long_op_gate() -> Optional[Callable[[], Optional[str]]]:
+    """The installed gate callable, or None. Lets the installer take its gate
+    back down only if it is still ITS gate (two guard objects in one process)."""
+    return _long_op_gate
+
+
+def set_long_op_gate(gate: Optional[Callable[[], Optional[str]]]) -> None:
+    """Install (or, with None, remove) THE exploded-state gate.
+
+    ``gate()`` returns a short, ALREADY TRANSLATED refusal line when a board
+    operation must be refused (the clusters are exploded), or None when it may
+    run. Module-level and therefore GLOBAL: a test suite must reset it between
+    cells (a pytest fixture), or it leaks across the run — and across xdist
+    workers, which share one process per worker."""
+    global _long_op_gate
+    _long_op_gate = gate
+
+
+def _gate_message() -> Optional[str]:
+    """The refusal message from the installed gate, or None (no gate, or the
+    gate allows). A gate that RAISES is treated as "allowed" and logged — a
+    broken guard must never wedge every board operation."""
+    gate = _long_op_gate
+    if gate is None:
+        return None
+    try:
+        return gate()
+    except Exception:  # noqa: BLE001 — the guard must never break an operation
+        logger.exception("long-op gate failed")
+        return None
+
+
 def socket_busy(connection: Any) -> bool:
     """True while another owner holds the shared kipy REQ socket.
 
@@ -450,6 +495,15 @@ class LongOpController(QObject):
         _notify_busy(GENERIC_BUSY_TEXT if self._busy_text is None
                      else self._busy_text)
 
+    def refuse(self, message: str) -> None:
+        """Refuse the operation BEFORE any worker exists — the "clusters are
+        exploded" gate (Р2). `failed.emit` is the ONE signal every
+        start_long_op caller already wires to its on_error, so the refusal
+        reaches all of them without touching a call site. No visuals were shown
+        (nothing started), so none come down; the keep-alive entry goes."""
+        self.failed.emit(message)
+        self._retire()
+
     def _refuse_busy(self) -> None:
         """The retry met a still-busy socket: undo the visuals, tell the caller
         in words, and leave the keep-alive registry.
@@ -576,7 +630,8 @@ _ACTIVE_CONTROLLERS: set = set()
 
 
 def start_long_op(connection, widgets, fn, on_success, on_error, *args,
-                  busy_text: Optional[str] = None):
+                  busy_text: Optional[str] = None,
+                  allowed_while_exploded: bool = False):
     """Convenience factory: builds a LongOpController, wires its finished/
     failed signals to on_success/on_error (both called on the UI thread),
     starts the op, and returns the controller (callers may keep their own
@@ -586,12 +641,25 @@ def start_long_op(connection, widgets, fn, on_success, on_error, *args,
     ``busy_text`` (keyword-only, so the optional parameter breaks no existing
     call and cannot collide with ``*args``) is the short, already-translated
     word the status-bar indicator shows while this op runs — e.g.
-    ``_("placing")``. Omit it for the generic wording."""
+    ``_("placing")``. Omit it for the generic wording.
+
+    ``allowed_while_exploded`` (keyword-only) OPENS THE GATE for this one op:
+    while the "Разнос" tab holds a live journal the installed gate refuses every
+    board operation, and only the tab's own ops (plan/explode/restore/select),
+    "Select cell" and (Р3) the cell re-read pass ``True``. Every other caller
+    keeps the default False and is refused with the gate's red line BEFORE any
+    worker starts (nothing is touched)."""
     controller = LongOpController(connection, widgets, busy_text=busy_text)
     controller.finished.connect(on_success)
     controller.failed.connect(on_error)
     _ACTIVE_CONTROLLERS.add(controller)
     controller.thread_stopped.connect(lambda: _ACTIVE_CONTROLLERS.discard(controller))
+    if not allowed_while_exploded:
+        message = _gate_message()
+        if message:
+            logger.error(message)
+            controller.refuse(message)
+            return controller
     controller.start(fn, *args)
     return controller
 

@@ -37,6 +37,16 @@ from gui.docks.extract_spoke import (                                      # noq
 from gui.docks.extract_spoke_dialog import ExtractSpokeDialog              # noqa: E402
 from kicadstamp.spoke_extraction import PadPoint, SpokeSelection           # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _qt_app(qapp):
+    """This file builds REAL QDialogs, so a QApplication must exist even when one
+    of these cells runs FIRST in a pytest-xdist worker — the session `qapp`
+    otherwise arrives only because some sibling cell ran earlier in the process.
+    (A parentless QDialog with no QApplication aborts the whole worker.)"""
+    return qapp
+
+
 NET = "+3V3_VDD"
 CLUSTER = "MCU_PWR_BANK"
 BULK = "C_OUT_BULK"
