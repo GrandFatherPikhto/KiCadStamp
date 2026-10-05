@@ -40,6 +40,7 @@ G = ["test_explode_plan.py", "test_explode_journal.py",
 EXPLODE = "kicadstamp/explode.py"
 JOURNAL = "kicadstamp/explode_journal.py"
 GEOM = "kicadstamp/geometry/copper_connect.py"
+CONN = "kicadstamp/explode_connectivity.py"
 
 ROWS = [
     ("X1 restore leaves the items in place", JOURNAL,
@@ -108,16 +109,16 @@ ROWS = [
      "                if identity and identity in key_str:  # MUTATION\n"
      "                    return inst_key",
      "die", G, ()),
-    ("X10 the pad's layers are ignored", EXPLODE,
+    ("X10 the pad's layers are ignored", CONN,
      "                if layers is not None and it.layer not in layers:\n"
      "                    continue",
      "                if False:  # MUTATION\n                    continue",
      "die", G, ()),
-    ("X11 tracks of different layers are connected", EXPLODE,
+    ("X11 tracks of different layers are connected", CONN,
      "    if a.layer != b.layer:\n        return False",
      "    if False:  # MUTATION\n        return False",
      "die", G, ()),
-    ("X12 a T-piece is classified as cell", EXPLODE,
+    ("X12 a T-piece is classified as cell", CONN,
      "    if len(cell) >= 2:\n        return \"tee\"",
      "    if len(cell) >= 2:\n        return \"cell\"  # MUTATION",
      "die", G, ()),
@@ -156,7 +157,7 @@ ROWS = [
      "    return False  # MUTATION\n"
      "    for kind, entries in ((\"vias\", via_entries), (\"tracks\", track_entries)):",
      "die", G, ()),
-    ("X16 tee at ONE cell pad", EXPLODE,
+    ("X16 tee at ONE cell pad", CONN,
      "    if len(cell) >= 2:\n        return \"tee\"",
      "    if len(cell) >= 1:  # MUTATION\n        return \"tee\"",
      "die", G, ()),
@@ -169,7 +170,7 @@ ROWS = [
      "        if piece.touches == \"tee\":\n"
      "            pass  # MUTATION",
      "die", G, ()),
-    ("X18 multi merged into tee", EXPLODE,
+    ("X18 multi merged into tee", CONN,
      "    if len(foreign) >= 2:\n        return \"multi\"",
      "    if len(foreign) >= 2:  # MUTATION\n        return \"tee\"",
      "die", G, ()),

@@ -38,10 +38,16 @@ from .config import net_trace_effective_name
 from .constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from .domain.board import Footprint, Via
 from .domain.geometry import Box2, Vector2
-from .geometry.copper_connect import (capsules_touch, disc_touches_capsule,
-                                      discs_touch)
-from .geometry.pad_area import pad_area_of
-from .geometry.union_find import UnionFind
+from .explode_connectivity import (
+    cell_pads as _cell_pads,
+    cell_pads_text as _cell_pads_text,
+    classify as _classify,
+    copper_classes as _copper_classes,
+    copper_extent as _copper_extent,
+    copper_touch as _copper_touch,
+    foreign_labels as _foreign_labels,
+    pad_areas as _pad_areas,
+)
 from .i18n import _
 from .net_trace_planner import find_live_copper, net_trace_registry_key
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
@@ -264,165 +270,8 @@ def _ray(origin: tuple, target: tuple) -> tuple:
     return dx / norm, dy / norm
 
 
-# ── copper connectivity ─────────────────────────────────────────────────────
-
-def _pad_areas(adapter, class_fps: dict) -> list:
-    """[(PadArea, label, copper_layers)] over every pad of every class.
-
-    A CELL pad gets its OWN label ``cell:<ref>:<pad>`` (Р1а-1), so a component
-    that touches TWO different cell pads is distinguishable from one that
-    touches a single pad — the basis of the ``tee`` rule. A foreign pad keeps its
-    ``<cluster>/<sheet>`` instance label."""
-    out = []
-    for label, fps in class_fps.items():
-        for fp in fps:
-            ref = getattr(fp, "ref", None) or getattr(fp, "uuid", "?")
-            for pad in adapter.get_footprint_pads(fp):
-                area = pad_area_of(pad)
-                if area is None:
-                    continue
-                pad_label = (f"cell:{ref}:{getattr(pad, 'number', '?')}"
-                             if label == "cell" else label)
-                out.append((area, pad_label,
-                            getattr(pad, "copper_layers", None)))
-    return out
-
-
-# The broad-phase grid for the connectivity (Р1б-1): 1 mm buckets on the items'
-# bounding boxes, so a board is never scanned pairwise in full.
-_GRID_NM = 1_000_000
-
-
-def _copper_extent(item) -> tuple:
-    """(bbox, half_extent_nm) of a copper item: a track's segment grown by
-    width/2, a via's centre grown by diameter/2. bbox = (x1, y1, x2, y2) in nm."""
-    if isinstance(item, Via):
-        r = getattr(item, "diameter_mm", 0.0) / 2.0 * MM
-        p = item.position
-        return (p.x - r, p.y - r, p.x + r, p.y + r), r
-    half = getattr(item, "width_mm", 0.0) * MM / 2.0
-    x1, x2 = sorted((item.start.x, item.end.x))
-    y1, y2 = sorted((item.start.y, item.end.y))
-    return (x1 - half, y1 - half, x2 + half, y2 + half), half
-
-
-def _copper_touch(a, b, ha: float, hb: float) -> bool:
-    """Do two copper items overlap, KiCad-style? A track is a capsule (half
-    width ``ha``/``hb``), a via a disc (radius ``ha``/``hb``, through — no layer
-    check). Two tracks connect only on the SAME layer. This sees ends AND a
-    T-junction, and does not need two points to coincide (Р1б-1)."""
-    a_via, b_via = isinstance(a, Via), isinstance(b, Via)
-    if a_via and b_via:
-        return discs_touch(a.position.x, a.position.y, ha,
-                           b.position.x, b.position.y, hb)
-    if a_via:
-        return disc_touches_capsule(a.position.x, a.position.y, ha,
-                                    b.start.x, b.start.y, b.end.x, b.end.y, hb * 2)
-    if b_via:
-        return disc_touches_capsule(b.position.x, b.position.y, hb,
-                                    a.start.x, a.start.y, a.end.x, a.end.y, ha * 2)
-    if a.layer != b.layer:
-        return False
-    return capsules_touch(a.start.x, a.start.y, a.end.x, a.end.y, ha * 2,
-                          b.start.x, b.start.y, b.end.x, b.end.y, hb * 2)
-
-
-def _copper_classes(tracks, vias, pads) -> dict:
-    """{uuid: set(pad classes)} for every copper item (tracks + vias).
-
-    Connectivity is by SHAPE, the way KiCad sees it (Р1б-1): a track is a capsule
-    (width), a via a disc (diameter, through). Broad phase over 1 mm buckets, then
-    exact distance per candidate pair. Pads are CLASSIFIERS, never unioners — the
-    graph is cut in the cell's pads. Keyed by UUID because the adapter hands out
-    COPIES: two reads of the same item are equal by uuid, not by identity."""
-    items = list(tracks) + list(vias)
-    n = len(items)
-    out: dict = {getattr(it, "uuid", None): set() for it in items}
-    if n == 0:
-        return out
-    uf = UnionFind(n)
-    extents = [_copper_extent(it) for it in items]
-
-    grid: dict = {}
-    for i, (box, _h) in enumerate(extents):
-        for cx in range(int(math.floor(box[0] / _GRID_NM)),
-                        int(math.floor(box[2] / _GRID_NM)) + 1):
-            for cy in range(int(math.floor(box[1] / _GRID_NM)),
-                            int(math.floor(box[3] / _GRID_NM)) + 1):
-                grid.setdefault((cx, cy), []).append(i)
-    seen: set = set()
-    for bucket in grid.values():
-        for ii in range(len(bucket)):
-            for jj in range(ii + 1, len(bucket)):
-                i, j = bucket[ii], bucket[jj]
-                key = (i, j) if i < j else (j, i)
-                if key in seen:
-                    continue
-                seen.add(key)
-                if _copper_touch(items[i], items[j],
-                                 extents[i][1], extents[j][1]):
-                    uf.union(i, j)
-
-    own: list = [set() for _ in range(n)]
-    for i, it in enumerate(items):
-        half = extents[i][1]
-        if isinstance(it, Via):
-            for pad_area, label, _layers in pads:
-                if pad_area.contains(it.position, margin=half):
-                    own[i].add(label)
-        else:
-            for pad_area, label, layers in pads:
-                if layers is not None and it.layer not in layers:
-                    continue
-                if pad_area.segment_touches(it.start, it.end, margin=half):
-                    own[i].add(label)
-    by_root: dict = {}
-    for i in range(n):
-        by_root.setdefault(uf.find(i), set()).update(own[i])
-    for i, it in enumerate(items):
-        out[getattr(it, "uuid", None)] = set(by_root[uf.find(i)])
-    return out
-
-
-def _cell_pads(classes: set) -> set:
-    """The CELL-pad labels of a component (``cell`` or ``cell:<ref>:<pad>``)."""
-    return {c for c in classes if c == "cell" or c.startswith("cell:")}
-
-
-def _foreign_labels(classes: set) -> set:
-    """The foreign-instance labels (``<cluster>/<sheet>``) of a component."""
-    return {c for c in classes
-            if not (c == "cell" or c.startswith("cell:"))}
-
-
-def _classify(classes: set) -> str:
-    """cell / <cluster>/<sheet> / tee / multi / none (Р1а-1).
-
-    An ordinary inter-cluster track runs from ONE cell pad to ONE foreign pad
-    (D23 -> PIF): that is the FOREIGN label, NOT ``tee``. ``tee`` is the DANGEROUS
-    case the plan names: a component joining TWO DIFFERENT cell pads (the cell's
-    inner piece) AND a foreign pad — the inner piece would leave with the foreign
-    cluster. ``multi`` — several foreign instances without the tee condition —
-    is its own label so ``tee`` means one thing."""
-    cell = _cell_pads(classes)
-    foreign = _foreign_labels(classes)
-    if not cell and not foreign:
-        return "none"
-    if not foreign:
-        return "cell"
-    if len(cell) >= 2:
-        return "tee"
-    if len(foreign) >= 2:
-        return "multi"
-    return next(iter(foreign))
-
-
-def _cell_pads_text(classes, item) -> str:
-    """The names of the cell pads a component touches, for the tee warning."""
-    labels = sorted(_cell_pads(classes.get(getattr(item, "uuid", None), set())))
-    names = [".".join(label.split(":")[1:]) for label in labels]
-    return " — ".join(names) if names else "?"
-
+# Copper connectivity + pad classification live in
+# kicadstamp/explode_connectivity.py (Р1в-0, rule Д8) — imported above.
 
 # ── the plan ────────────────────────────────────────────────────────────────
 
