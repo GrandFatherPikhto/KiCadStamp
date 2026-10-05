@@ -51,6 +51,7 @@ from kicadstamp.selection_narrowing import (
     cell_record_addresses,
     choose_instance,
     group_selection,
+    journal_is_the_read_instance,
     net_trace_transfers,
     subtract_foreign_copper,
     subtract_net_trace_copper,
@@ -160,14 +161,20 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                            vias: list, tracks: list, cfg, sheet_names,
                            cell_name: str, cell_roles,
                            remembered_cluster=None, remembered_sheet=None,
-                           explode_transfer: bool = False
+                           explode_transfer: bool = False, explode_journal=None
                            ) -> Optional[MixedPrelude]:
     """Narrow ANY selection (clean or mixed) to ONE cell instance, or return
     None when the cell's cluster is UNKNOWN (the caller keeps today's path).
 
     ``explode_transfer`` (Р3): while the clusters are exploded, the selected
     copper a LIVE ``net_traces:`` record owns is TRANSFERRED to the cell (kept in
-    the read) instead of subtracted; every other rule stays the same."""
+    the read) instead of subtracted; every other rule stays the same.
+
+    ``explode_journal`` (Р3а-3): the exploded instance's (cell, cluster, sheet)
+    from ``ExplodeGuard``. The transfer runs ONLY for THAT instance — the READ's
+    own resolved address (``chosen_address``) must name it. Reading any other
+    instance subtracts the inter-cluster copper as usual (Н4) and appends a
+    yellow line saying so (never a silent skip)."""
     if not cell_name:
         return None
     entities = getattr(cfg, "entities", ()) or ()
@@ -229,6 +236,14 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     own_addresses = cell_record_addresses(cfg, cell_name)
     via_entries, track_entries, owner = load_registry_entries(config_path, cfg)
     chosen_address = (chosen_cluster, chosen_sheet)
+    # Р3а-3: the transfer is allowed ONLY when the read's OWN resolved address is
+    # the instance the journal was made for. The UI gate (ExplodeGuard) can only
+    # see the page's NOMINAL address; the selection may name another instance, so
+    # the authoritative check is HERE, on the resolved address.
+    transfer_ok = bool(
+        explode_transfer
+        and journal_is_the_read_instance(explode_journal, cell_name,
+                                         chosen_cluster, chosen_sheet))
 
     sub_v = subtract_foreign_copper(vias, owner, cell_identity, own_addresses,
                                     chosen_address, chosen_refs)
@@ -236,7 +251,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                                     chosen_address, chosen_refs)
     net_traces = getattr(cfg, "net_traces", None)
     net_v = net_t = None
-    if explode_transfer:
+    if transfer_ok:
         # Р3: the copper a LIVE net_traces record owns STAYS in the read (it
         # becomes the cell's new copper) and is named for the ownership transfer
         # (kicadstamp/explode_transfer.py) at apply time. Everything else — other
@@ -291,11 +306,17 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Р3: one yellow line per record whose copper moves into the cell.
     for line in _transfer_lines(transfers):
         lines.append((line, WARN))
+    if explode_transfer and not transfer_ok:
+        # Р3а-3: the "Re-read" door asked for the transfer, but this read resolved
+        # to ANOTHER instance — the inter-cluster copper is SUBTRACTED as usual
+        # (Н4), never handed over. Say it, never skip it silently.
+        lines.append((_("the instance being read is not the exploded one — "
+                        "the inter-cluster copper was subtracted"), WARN))
     # м1: the "could not read the board copper" line is NOT added here — the
     # worker gets it from ONE place only (apply_live_copper_rule), so refresh and
     # import each print it exactly once.
     subtraction = _subtraction_line(
-        [sub_v, sub_t] if explode_transfer else [sub_v, sub_t, net_v, net_t])
+        [sub_v, sub_t] if transfer_ok else [sub_v, sub_t, net_v, net_t])
     if subtraction:
         lines.append((subtraction, SUCCESS))
 

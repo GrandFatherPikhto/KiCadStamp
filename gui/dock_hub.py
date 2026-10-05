@@ -3008,11 +3008,27 @@ class DockHub:
     def reread_cell_for_explode(self, name, file_path=None) -> None:
         """Р3: the "Explode" tab's "Re-read cell from selection" — the SAME read
         the cell window's "Update from selection" runs, with the ownership transfer
-        on (one function for every door, never a second read)."""
+        allowed (one function for every door, never a second read).
+
+        Р3а-3: the transfer is allowed ONLY for the instance the JOURNAL was made
+        for. `ExplodeGuard.transfer_enabled` is the ONE rule (it shares its address
+        comparison with the worker); when the tab's nominal instance is not the
+        journal's, no address is carried and the read subtracts the inter-cluster
+        copper as usual (Н4), with a yellow line. The worker re-checks the address
+        it actually RESOLVED, so a selection naming another instance is refused
+        there too."""
         if not name:
             return
+        guard = getattr(self, "explode_guard", None)
+        journal = guard.journal if guard is not None else None
+        page = getattr(self, "explode_page", None)
+        cluster = getattr(page, "_cluster", None)
+        sheet = getattr(page, "_sheet", None)
+        enabled = bool(guard is not None
+                       and guard.transfer_enabled(name, cluster, sheet))
         self.cells_dock.refresh_from_selection_requested(
-            name, file_path, explode_transfer=True)
+            name, file_path, explode_transfer=True,
+            explode_journal=journal if enabled else None)
 
     @staticmethod
     def _load_cfg(root):

@@ -21,7 +21,10 @@ While active it does two things:
 
 Р3: it also answers ``transfer_enabled(cell_name, cluster, sheet)`` — whether the
 cell re-read should TRANSFER (not subtract) the selected ``net_traces`` copper —
-from the same journal.
+from the same journal. Р3а-3: the address rule itself is the SAME function the
+worker uses (``journal_is_the_read_instance``, one host: the read's own module),
+reached through ``gui.mixed_selection`` — the GUI wrapper of that read, so the
+kernel's importer set does not grow for a thin guard.
 
 Qt-thin by design: this module holds state and one signal; it imports no widgets
 and no dock. ``gui/worker.py`` never imports it — the gate is installed as a
@@ -37,6 +40,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from kicadstamp.i18n import _
 
 from . import worker
+from .mixed_selection import journal_is_the_read_instance
 
 logger = logging.getLogger(__name__)
 
@@ -116,15 +120,18 @@ class ExplodeGuard(QObject):
     # ── Р3: does a re-read TRANSFER the net_traces copper? ───────────────────
     def transfer_enabled(self, cell_name, cluster, sheet) -> bool:
         """True ⇔ a live journal for this board AND its (cell, cluster, sheet)
-        is the one being re-read (design РЗ8/РЗ9). Called on the UI thread; the
-        boolean goes into the read payload so any read door answers alike."""
-        if not self._active or not self._journal:
+        is the one being re-read (design РЗ8/РЗ9). Called on the UI thread, and
+        the journal's own address rides into the read payload so the worker can
+        re-check the address it RESOLVED (Р3а-3: the selection may name another
+        instance — then the copper is subtracted, not transferred).
+
+        The comparison itself is the product's ONE rule
+        (``kicadstamp.selection_narrowing.journal_is_the_read_instance``) — the
+        worker calls the very same function, so the two gates can never drift."""
+        if not self._active:
             return False
-        if str(self._journal.get("cell") or "") != str(cell_name or ""):
-            return False
-        if str(self._journal.get("cluster") or "") != str(cluster or ""):
-            return False
-        return (self._journal.get("sheet") or None) == (sheet or None)
+        return journal_is_the_read_instance(self._journal, cell_name, cluster,
+                                            sheet)
 
     def take_journal(self) -> Optional[dict]:
         """The current journal dict (for "Показать журнал"), and forget it."""

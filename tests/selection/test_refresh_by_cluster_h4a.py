@@ -419,3 +419,65 @@ def test_h4a_subtract_net_trace_copper_reports_the_reason(gate, monkeypatch):
     sub = subtract_net_trace_copper([], [nt], None, via_entries={},
                                     track_entries={})
     assert sub.notes and "anchor 'X' not found" in sub.notes[0]
+
+
+# ── Р3а-3: the transfer runs ONLY for the journal's instance ─────────────────
+
+_JOURNAL = {"cell": "dac_buf", "cluster": "DAC_BUF", "sheet": "Channel_0"}
+
+
+def _one_track_read(tmp_path, monkeypatch, *, journal, explode_transfer=True):
+    """The DAC_BUF instance's read with one net_traces-owned track selected."""
+    from gui.mixed_selection import narrow_mixed_selection
+
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
+    fp_c2 = _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
+                       footprints=[fp_c1, fp_c2])
+    t_nt = _track("t-nt")
+    _patch_live_copper(monkeypatch, [t_nt])
+    return narrow_mixed_selection(
+        config_path=_config_path(tmp_path), adapter=adapter,
+        footprints=[fp_c1, fp_c2], vias=[], tracks=[t_nt],
+        cfg=_net_trace_cfg(), sheet_names={"ch0": "Channel_0"},
+        cell_name="dac_buf", cell_roles={"DA", "DB"},
+        explode_transfer=explode_transfer, explode_journal=journal)
+
+
+def test_r3a3_the_transfer_runs_for_the_journals_instance(gate, tmp_path,
+                                                         monkeypatch):
+    """Р3а-3: the journal's own instance is being read -> the piece stays in the
+    read and is NAMED for the ownership transfer."""
+    prelude = _one_track_read(tmp_path, monkeypatch, journal=_JOURNAL)
+    assert prelude is not None and prelude.refusal is None
+    assert {t.uuid for t in prelude.tracks} == {"t-nt"}      # kept, not subtracted
+    assert prelude.transfers                                 # named for the apply
+    assert any("transferred from net_traces" in text
+               for text, _level in prelude.log_lines)
+
+
+def test_r3a3_a_different_instance_is_subtracted_with_a_line(
+        gate, tmp_path, monkeypatch):
+    """Р3а-3: the read resolved to ANOTHER instance of the same cell while the tab
+    asked for the transfer — the inter-cluster copper is SUBTRACTED as usual (Н4)
+    and the Log says so; nothing is transferred."""
+    other = {"cell": "dac_buf", "cluster": "PIF_AVDD", "sheet": "Channel_0"}
+    prelude = _one_track_read(tmp_path, monkeypatch, journal=other)
+    assert prelude is not None and prelude.refusal is None
+    assert {t.uuid for t in prelude.tracks} == set()         # subtracted
+    assert prelude.transfers == ()                           # nothing handed over
+    texts = [text for text, _level in prelude.log_lines]
+    assert any("not the exploded one" in t for t in texts)
+    assert not any("transferred from net_traces" in t for t in texts)
+
+
+def test_r3a3_no_transfer_request_is_a_plain_subtraction(gate, tmp_path,
+                                                         monkeypatch):
+    """Р3а-3: without the request (the cell window's own button) the journal is
+    irrelevant — the copper is subtracted and nothing is said about instances."""
+    prelude = _one_track_read(tmp_path, monkeypatch, journal=_JOURNAL,
+                              explode_transfer=False)
+    assert {t.uuid for t in prelude.tracks} == set()
+    assert prelude.transfers == ()
+    texts = [text for text, _level in prelude.log_lines]
+    assert not any("not the exploded one" in t for t in texts)

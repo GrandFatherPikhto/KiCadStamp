@@ -10234,6 +10234,9 @@ msgid "no instance of {cell} on the board for {where}"
 msgstr "на плате нет экземпляра {cell} для {where}"
 
 #: kicadstamp/explode.py:481
+msgid "the instance being read is not the exploded one — the inter-cluster copper was subtracted"
+msgstr "читается не разнесённый экземпляр — межкластерная медь вычтена"
+
 #, python-brace-format
 msgid "the instance of {cell} has no measurable frame"
 msgstr "у экземпляра {cell} нет измеримой рамки"

@@ -155,7 +155,10 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
             cell_roles=_component_roles(payload.get("components")),
             remembered_cluster=payload.get("remembered_cluster"),
             remembered_sheet=payload.get("remembered_sheet"),
-            explode_transfer=bool(payload.get("explode_transfer")))
+            explode_transfer=bool(payload.get("explode_transfer")),
+            # Р3а-3: the exploded instance's address (from ExplodeGuard) rides
+            # along so the narrow can re-check the address it RESOLVED.
+            explode_journal=payload.get("explode_journal"))
     except Exception:  # noqa: BLE001 — a prelude failure must not break the read
         logger.exception("mixed-selection prelude failed — using the whole "
                          "selection")
@@ -1843,6 +1846,9 @@ class CellDock(QWidget):
             # path serves every door (one function, no second read).
             "explode_transfer": bool(
                 getattr(self, "_pending_explode_transfer", False)),
+            # Р3а-3: the exploded instance's (cell, cluster, sheet) — the transfer
+            # is allowed only when the READ's own resolved address names it.
+            "explode_journal": getattr(self, "_pending_explode_journal", None),
         }
         self._active_op = start_long_op(
             connection, (self.refresh_geometry_button,),
@@ -1853,6 +1859,7 @@ class CellDock(QWidget):
             allowed_while_exploded=bool(
                 getattr(self, "_pending_explode_transfer", False)))
         self._pending_explode_transfer = False
+        self._pending_explode_journal = None
 
     def _on_refresh_geometry_with_layers(self) -> None:
         """The DIALOG path of the same read (Э3/Э4): the board's copper layers are
@@ -2241,7 +2248,8 @@ class CellDock(QWidget):
 
     def refresh_from_selection_requested(self, name: str, file_path,
                                          choose_layers: bool = False,
-                                         explode_transfer: bool = False) -> None:
+                                         explode_transfer: bool = False,
+                                         explode_journal=None) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
         context menu's "Update from selection...": when the requested cell is
         not the one currently loaded, load it first, then run the same
@@ -2250,10 +2258,17 @@ class CellDock(QWidget):
         `choose_layers` (Э4 of plan_2026_09_12_cell_layer_dialog) picks the OTHER
         entry point of the same read: the context menu's "…(choose layers)…" and
         the Tools → Config leg call the layer dialog first, and that dialog
-        continues into the very same read."""
+        continues into the very same read.
+
+        `explode_transfer`/`explode_journal` (Р3/Р3а-3): the Explode tab asks for
+        the ownership transfer AND hands the exploded instance's address over;
+        both are consumed by _read_refresh_from_selection and cleared there
+        (never sticky)."""
         # Р3: the Explode tab asks for the ownership transfer; the flag is consumed
         # by _read_refresh_from_selection and cleared there (never sticky).
         self._pending_explode_transfer = bool(explode_transfer)
+        # Р3а-3: the exploded instance's address — the read transfers ONLY for it.
+        self._pending_explode_journal = explode_journal
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
         if choose_layers:

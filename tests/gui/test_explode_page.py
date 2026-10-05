@@ -614,6 +614,48 @@ def test_a_refused_transfer_refuses_the_whole_read(ex, monkeypatch):
     assert any("nothing was changed" in line for line in errors)
 
 
+# ── Р3а-3: the transfer runs ONLY for the journal's instance ────────────────
+
+def test_the_reread_gate_carries_the_journal_only_for_its_instance(
+        ex, monkeypatch):
+    """Р3а-3: the door asks `ExplodeGuard.transfer_enabled` — the journal's own
+    instance carries its address into the read; any OTHER instance carries NONE,
+    so the read subtracts the inter-cluster copper with a yellow line."""
+    _stub_plan(monkeypatch)
+    hub = ex._dock_hub
+    page = hub.explode_page
+    monkeypatch.setattr(page, "_rebuild", lambda: None)
+    monkeypatch.setattr(page, "_recalculate", lambda: None)
+    got = {}
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda *a, **kw: got.update(args=a, kwargs=kw))
+    hub.explode_guard.set_from_journal(_JOURNAL)
+
+    page.set_context("dac_buf", "DAC_BUF", "Channel_0", "/tmp/x.sexp")
+    hub.reread_cell_for_explode("dac_buf", "/tmp/x.sexp")
+    assert got["args"] == ("dac_buf", "/tmp/x.sexp")
+    assert got["kwargs"] == {"explode_transfer": True,
+                             "explode_journal": _JOURNAL}
+
+    page.set_context("dac_buf", "PIF_AVDD", "Channel_0", "/tmp/x.sexp")
+    hub.reread_cell_for_explode("dac_buf", "/tmp/x.sexp")
+    assert got["kwargs"] == {"explode_transfer": True, "explode_journal": None}
+
+
+def test_transfer_enabled_is_the_shared_address_rule(ex):
+    """Р3а-3: `transfer_enabled` is the ONE rule (shared with the worker): the
+    journal's cell AND its (cluster, sheet), else False; no journal -> False."""
+    guard = ex._dock_hub.explode_guard
+    assert not guard.transfer_enabled("dac_buf", "DAC_BUF", "Channel_0")
+    guard.set_from_journal(_JOURNAL)
+    assert guard.transfer_enabled("dac_buf", "DAC_BUF", "Channel_0")
+    assert not guard.transfer_enabled("dac_buf", "PIF_AVDD", "Channel_0")
+    assert not guard.transfer_enabled("other", "DAC_BUF", "Channel_0")
+    assert not guard.transfer_enabled("dac_buf", "DAC_BUF", "Channel_1")
+    guard.set_from_journal(None)
+    assert not guard.transfer_enabled("dac_buf", "DAC_BUF", "Channel_0")
+
+
 # ── Р2в: the permanent tab and its two lists ────────────────────────────────
 
 def test_the_explode_tab_is_permanent(ex):

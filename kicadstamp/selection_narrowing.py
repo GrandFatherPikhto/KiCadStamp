@@ -59,6 +59,7 @@ __all__ = [
     "divide_unpaired_records",
     "group_selection",
     "is_own_key",
+    "journal_is_the_read_instance",
     "own_record_registry_key",
     "subtract_foreign_copper",
     "subtract_net_trace_copper",
@@ -338,6 +339,31 @@ def _address_matches(record_address: tuple, chosen_address: tuple) -> bool:
     if r_sheet and c_sheet and r_sheet != c_sheet:
         return False
     return True
+
+
+def journal_is_the_read_instance(journal, cell_name: str | None,
+                                 cluster, sheet) -> bool:
+    """True ⇔ a live explode JOURNAL describes exactly the instance being read.
+
+    Р3а-3 (plan_2026_10_05_explode_r2_r3_tab_and_reread): while the clusters are
+    exploded the ownership TRANSFER may move inter-cluster copper into the cell
+    ONLY for the instance the journal was made for. Reading ANY other instance of
+    the same cell must subtract that copper as usual (Н4) and say so — handing it
+    to a different instance would give it a piece it does not own.
+
+    The journal carries the exploded instance's ``(cell, cluster, sheet)``; the
+    READ's address is resolved on the worker (``narrow_mixed_selection``), so this
+    comparison is the ONE host of the rule — ``gui.ExplodeGuard.transfer_enabled``
+    (the UI-thread gate) and the worker's re-check of the RESOLVED address both
+    call it, and the address comparison is the product's own (``_address_matches``:
+    cluster by prefix, sheet only when both carry one), so a board cluster tag
+    refining the config's still matches."""
+    if not journal:
+        return False
+    if str(journal.get("cell") or "") != str(cell_name or ""):
+        return False
+    return _address_matches((journal.get("cluster"), journal.get("sheet")),
+                            (cluster, sheet))
 
 
 def _anchor_label(key: str) -> str:
@@ -655,7 +681,14 @@ def net_trace_transfers(items, net_traces, adapter, *,
     ``net_traces:`` record owns STAYS in the read (it becomes the cell's new
     copper) and each piece is named for the ownership transfer; everything else is
     kept exactly as the subtraction would leave it (other cells, chains, thermal
-    arrays and the record's own unselected copper never appear here)."""
+    arrays and the record's own unselected copper never appear here).
+
+    NOTE (Р3а-3, found while writing the address-gate cells): the owned piece is
+    BOTH kept AND named. Kept is what reaches ``build_refresh_plan`` — without it
+    the cell gains NO record for the piece, ``apply_transfers`` still takes it away
+    from the ``net_traces`` record, and the redraw then owns nothing: exactly the
+    "two owners / no owner" damage the transfer exists to avoid. The first version
+    put the piece ONLY into ``transfers``, so the transfer silently dropped it."""
     owned, notes = _net_trace_owned(items, net_traces, adapter,
                                     via_entries=via_entries,
                                     track_entries=track_entries,
@@ -664,9 +697,8 @@ def net_trace_transfers(items, net_traces, adapter, *,
     transfers: list[NetTraceTransfer] = []
     for item in items or ():
         tr = owned.get(getattr(item, "uuid", None))
-        if tr is None:
-            kept.append(item)
-        else:
-            transfers.append(tr)
+        kept.append(item)                      # the piece STAYS in the read...
+        if tr is not None:
+            transfers.append(tr)               # ...and is named for the transfer
     return kept, tuple(transfers), notes
  
