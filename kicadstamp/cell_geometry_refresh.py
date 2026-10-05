@@ -958,19 +958,29 @@ def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
         name = getattr(c, "name", None) or getattr(c, "cluster", None) or "?"
         _add(getattr(c, "anchor_role", None), f"clone {name}")
         _add(getattr(c, "role", None), f"clone {name}")
+    # Н5-4: a Tree has no `cluster` of its own — narrow per NODE, through the
+    # node's (or its anchor's) cluster/sheet; and narrow a SPOKE by its own
+    # cluster. An unfiltered scan named other PIF cells' nodes/spokes.
     for t in getattr(cfg, "trees", ()) or ():
-        if not _addr_ok(getattr(t, "cluster", None), None):
-            continue
         tname = getattr(t, "name", "?")
         for n in getattr(t, "nodes", ()) or ():
+            anchor = getattr(n, "anchor", None)
+            a_cluster = (getattr(n, "cluster", None)
+                         or getattr(anchor, "cluster", None))
+            a_sheet = (getattr(n, "sheet", None)
+                       or getattr(anchor, "sheet", None))
+            if not _addr_ok(a_cluster, a_sheet):
+                continue
             ref = getattr(n, "ref", "?")
             _add(getattr(n, "role", None), f"tree {tname}:{ref}")
-            anchor = getattr(n, "anchor", None)
             if anchor is not None:
                 _add(getattr(anchor, "role", None), f"tree {tname}:{ref}")
     for ch in getattr(cfg, "chains", ()) or ():
         cname = getattr(ch, "name", "?")
         for sp in getattr(ch, "spokes", ()) or ():
+            if not _addr_ok(getattr(sp, "cluster", None),
+                            getattr(sp, "sheet", None)):
+                continue
             _add(getattr(sp, "role", None), f"chain {cname}")
     return refs
 

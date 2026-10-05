@@ -4,6 +4,7 @@ Denis 2026-10-05). The pure resolution/ownership lives in gui/select_cell.py; th
 button/tree menu route to the SAME one function.
 """
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,12 +24,15 @@ def gate(request, monkeypatch):
 
 
 class _Rec:
-    def __init__(self, name=None, uuid=None, cell=None, cluster=None, sheet=None):
+    def __init__(self, name=None, uuid=None, cell=None, cluster=None, sheet=None,
+                 anchor_role=None, role=None):
         self.name = name
         self.uuid = uuid
         self.cell = cell
         self.cluster = cluster
         self.sheet = sheet
+        self.anchor_role = anchor_role
+        self.role = role
 
 
 class _Cfg:
@@ -191,3 +195,110 @@ def test_button_caption_and_shared_entry_point():
     assert hasattr(ce.CellDock, "select_cell_requested")
     assert hasattr(ce.CellDock, "_run_select_cluster_on_board")
     assert QPushButton is not None
+
+
+# ── C2: the DockHub delegate calls the shared entry ─────────────────────────
+
+def test_hub_delegate_calls_the_shared_entry():
+    """C2: DockHub._select_cell_from_tree drives CellDock.select_cell_requested
+    with the explicit (cluster, sheet) — the tree menu's door into the SAME
+    function the button uses."""
+    from gui.dock_hub import DockHub
+    calls = []
+
+    class _Cells:
+        def select_cell_requested(self, name, fp, cluster, sheet):
+            calls.append((name, fp, cluster, sheet))
+
+    hub = SimpleNamespace(cells_dock=_Cells())
+    DockHub._select_cell_from_tree(hub, "dac_buf", "f.sexp",
+                                   "DAC_BUF", "Channel_1")
+    assert calls == [("dac_buf", "f.sexp", "DAC_BUF", "Channel_1")]
+
+
+# ── C3: the tree's cells: item emits the signal ─────────────────────────────
+
+def test_tree_item_emits_the_signal():
+    """C3 (structural): the cells: context-menu item emits cell_select_requested
+    (the label is translated, so the guard reads the EMIT, not the caption)."""
+    import inspect
+    import gui.docks.config_tree as ct
+    src = inspect.getsource(ct)
+    assert "self.cell_select_requested.emit(" in src
+    assert "old_name, file_path, None, None))" in src
+
+
+# ── Н5-2: an explicit instance is never overridden by the remembered sheet ──
+
+def test_explicit_instance_wins_over_remembered():
+    from gui.select_cell import effective_instance
+    assert effective_instance("DAC_BUF", "Channel_1",
+                              "DAC_BUF", "Channel_0") == ("DAC_BUF", "Channel_1")
+    assert effective_instance(None, None,
+                              "DAC_BUF", "Channel_0") == ("DAC_BUF", "Channel_0")
+
+
+# ── C4: м3 narrows to the chosen address (foreign entity NOT named) ─────────
+
+def test_m3_foreign_entity_is_not_named():
+    from kicadstamp.cell_geometry_refresh import referencing_records_for_roles
+    cfg = _Cfg(entities=[_Rec(cell="dac_buf", cluster="DAC_BUF",
+                              anchor_role="GONE"),
+                         _Rec(cell="pif", cluster="PIF_AVDD",
+                              anchor_role="GONE")])
+    refs = referencing_records_for_roles(cfg, {"GONE"}, "DAC_BUF", None)
+    assert "GONE" in refs
+    assert all("pif" not in label for label in refs["GONE"])
+
+
+# ── C5: м2 retired/skip net_traces stay silent ──────────────────────────────
+
+def test_m2_retired_net_trace_is_silent(gate, monkeypatch):
+    import kicadstamp.net_trace_planner as planner
+    from kicadstamp.selection_narrowing import subtract_net_trace_copper
+    stub = SimpleNamespace(found=[], reason="retired/skip", identity="NT")
+    monkeypatch.setattr(planner, "find_live_copper",
+                        lambda adapter, nt, **kw: stub)
+    nt = SimpleNamespace(net="NT", retired=True, skip=False)
+    sub = subtract_net_trace_copper([], [nt], None, via_entries={},
+                                    track_entries={})
+    assert sub.notes == ()
+
+
+# ── Н5-1: a cell with no remembered context uses its config instances ───────
+
+def test_select_cell_uses_config_instances_when_nothing_remembered(
+        main_window, tmp_path):
+    """Н5-1(в): no remembered context, exactly ONE config record places the cell
+    -> that address is used (cell_instances is IN USE, not dead code)."""
+    from gui.docks.cell_editor import CellDock
+    from kicadstamp.config.sexp_format import dict_to_sexp
+    cfg = {"cells": {"dac_buf": {
+               "layer": "F.Cu",
+               "components": [{"role": "DA", "offset_along_mm": 0.0,
+                               "offset_across_mm": 0.0, "angle_deg": 0.0}],
+               "vias": [], "tracks": [], "clone_placements": []}},
+           "entities": [{"name": "dac0", "cell": "dac_buf",
+                         "cluster": "DAC_BUF", "sheet": "Channel_0"}]}
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp(cfg, format_number=2), encoding="utf-8")
+    dock = CellDock(main_window)
+    dock.set_root_path(target)
+    dock.load_entry("dac_buf")
+    assert dock._resolve_cell_instance("dac_buf") == ("DAC_BUF", "Channel_0",
+                                                      False)
+
+
+# ── H5-4: tree nodes of OTHER clusters are not named ────────────────────────
+
+def test_m3_foreign_tree_node_is_not_named():
+    from kicadstamp.cell_geometry_refresh import referencing_records_for_roles
+    node_match = SimpleNamespace(ref="n1", role="GONE", cluster="DAC_BUF",
+                                 sheet=None, anchor=None)
+    node_foreign = SimpleNamespace(ref="n2", role="GONE", cluster="PIF_AVDD",
+                                   sheet=None, anchor=None)
+    cfg = _Cfg()
+    cfg.trees = [SimpleNamespace(name="t", nodes=[node_match, node_foreign])]
+    refs = referencing_records_for_roles(cfg, {"GONE"}, "DAC_BUF", None)
+    assert any("t:n1" in r for r in refs.get("GONE", []))
+    assert all("t:n2" not in r for r in refs.get("GONE", []))

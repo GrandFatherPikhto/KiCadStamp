@@ -2928,12 +2928,14 @@ class DockHub:
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
 
-    def _select_cell_from_tree(self, name, file_path) -> None:
+    def _select_cell_from_tree(self, name, file_path, cluster=None,
+                               sheet=None) -> None:
         """ConfigTreeDock's cell_select_requested delegate (Н5) — the context
         menu's "Select cell": drive CellDock's own entry point (it loads the
         cell when it is not the currently open one and runs the SAME worker the
-        CellDock button runs — one function for every door)."""
-        self.cells_dock.select_cell_requested(name, file_path)
+        CellDock button runs — one function for every door). An ENTITY leaf
+        sends the explicit (cluster, sheet); a CELL leaf sends None/None."""
+        self.cells_dock.select_cell_requested(name, file_path, cluster, sheet)
 
     def _create_entity_from_tree(self, source_kind: str, source_name: str,
                                  file_path) -> None:

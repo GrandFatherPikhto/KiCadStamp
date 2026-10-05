@@ -307,6 +307,32 @@ def load_track_registry(path: str) -> dict[str, TrackRegistryEntry]:
         return {}
 
 
+def load_registry_entries(config_path, cfg=None) -> tuple[dict, dict, dict]:
+    """(via_entries, track_entries, owner) for a config's TWO registry files.
+
+    ``owner`` is {copper uuid -> registry key} over both files. This is the ONE
+    reader the mixed-read bridge (gui/mixed_selection.py) and "Select cell"
+    (gui/select_cell.py) both call — Н5-3, "one function on every door", so the
+    two can never disagree about which copper belongs to which record. The two
+    paths come from the product's ONE decision (registry_paths_for_config) with
+    the config's explicit registry_path:/track_registry_path: values."""
+    via_path, trk_path = registry_paths_for_config(
+        str(config_path), getattr(cfg, "registry_path", None),
+        getattr(cfg, "track_registry_path", None))
+    via_entries = load_registry(via_path)
+    track_entries = load_track_registry(trk_path)
+    owner: dict[str, str] = {}
+    for key, entry in via_entries.items():
+        uuid = getattr(entry, "uuid", None)
+        if uuid:
+            owner[uuid] = key
+    for key, entry in track_entries.items():
+        uuid = getattr(entry, "uuid", None)
+        if uuid:
+            owner[uuid] = key
+    return via_entries, track_entries, owner
+
+
 def save_track_registry(path: str, entries: dict[str, TrackRegistryEntry]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

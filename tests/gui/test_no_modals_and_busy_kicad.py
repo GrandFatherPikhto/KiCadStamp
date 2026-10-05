@@ -166,7 +166,7 @@ def test_cell_editor_live_flows_without_connection_log_one_error_each(
     monkeypatch.setattr(cell_editor_mod.QMessageBox, "warning", _no_boxes)
 
     for handler in (dock._on_refresh_geometry, dock._on_import_vias_tracks,
-                    dock._on_select_cluster_on_board):
+                    dock._on_select_cell):
         caplog.clear()
         handler()
         errors = _errors(records_from, "gui.docks.cell_editor")

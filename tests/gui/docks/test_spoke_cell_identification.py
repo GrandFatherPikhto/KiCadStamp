@@ -897,7 +897,7 @@ def test_c7a_the_select_cluster_button_payload_carries_the_remembered_refs(
     monkeypatch.setattr(cell_editor_mod, "start_long_op",
                         lambda *args, **kwargs: started.append(args) or object())
 
-    dock._on_select_cluster_on_board()
+    dock._on_select_cell()
 
     assert started, "the selection worker must be dispatched"
     payload = started[0][-1]

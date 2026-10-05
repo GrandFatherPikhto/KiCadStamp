@@ -236,7 +236,7 @@ class ConfigTreeDock(QWidget):
     # context menu's "Select cell" — highlight the placed instance's board
     # components PLUS the copper the registries recorded for this cell at that
     # instance; the SAME function the CellDock button runs (one for every door).
-    cell_select_requested = pyqtSignal(str, object)
+    cell_select_requested = pyqtSignal(str, object, object, object)
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
@@ -1446,6 +1446,17 @@ class ConfigTreeDock(QWidget):
                     menu.addAction(_("Re-source...")).triggered.connect(
                         lambda checked=False, p=payload, f=file_path:
                         self.imprint_resource_requested.emit(p, f))
+            if section == "entities":
+                # Н5-1(а): the SAME "Select cell" item on an Entities leaf — the
+                # entity names its own (cluster, sheet), so the tree sends the
+                # EXPLICIT instance (no menu, no guessing).
+                leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
+                entity = leaf_data[2] if leaf_data is not None else None
+                if isinstance(entity, dict) and entity.get("cell"):
+                    menu.addAction(_("Select cell")).triggered.connect(
+                        lambda checked=False, n=entity.get("cell"), f=file_path,
+                        c=entity.get("cluster"), s=entity.get("sheet"):
+                        self.cell_select_requested.emit(n, f, c, s))
             if section == "cells":
                 # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
                 # menu.md Т1): the ONE item that gives an EXISTING cell an
@@ -1481,7 +1492,8 @@ class ConfigTreeDock(QWidget):
                     lambda: self.cell_import_requested.emit(old_name, file_path))
                 # Н5: highlight what a read would read (instance + own copper).
                 menu.addAction(_("Select cell")).triggered.connect(
-                    lambda: self.cell_select_requested.emit(old_name, file_path))
+                    lambda: self.cell_select_requested.emit(
+                        old_name, file_path, None, None))
                 # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
                 # reads with the layer dialog in front. The FAST items above stay
                 # one-click (no window, no board read for the layer set); these

@@ -19,10 +19,8 @@ from dataclasses import dataclass, field
 
 from kicadstamp.i18n import _
 from kicadstamp.registry import (
-    load_registry,
-    load_track_registry,
+    load_registry_entries,
     record_key_part,
-    registry_paths_for_config,
 )
 from kicadstamp.selection_narrowing import (
     _is_own_key,
@@ -60,23 +58,17 @@ def cell_instances(cfg, cell_name: str, remembered_cluster=None,
     return out
 
 
-def _registry_entries(config_path: str, cfg) -> tuple[dict, dict, dict]:
-    """(via_entries, track_entries, owner{copper uuid -> registry key})."""
-    via_path, trk_path = registry_paths_for_config(
-        str(config_path), getattr(cfg, "registry_path", None),
-        getattr(cfg, "track_registry_path", None))
-    via_entries = load_registry(via_path)
-    track_entries = load_track_registry(trk_path)
-    owner: dict[str, str] = {}
-    for key, entry in via_entries.items():
-        uuid = getattr(entry, "uuid", None)
-        if uuid:
-            owner[uuid] = key
-    for key, entry in track_entries.items():
-        uuid = getattr(entry, "uuid", None)
-        if uuid:
-            owner[uuid] = key
-    return via_entries, track_entries, owner
+def effective_instance(cluster, sheet, remembered_cluster,
+                       remembered_sheet) -> tuple:
+    """Н5-2: the instance a "Select cell" action runs on.
+
+    An EXPLICIT cluster is taken AS-IS — its own sheet, even None — never
+    overridden by the remembered one (else picking "DAC_BUF on Channel_1" while
+    Channel_0 is remembered would select Channel_0). Without an explicit cluster
+    the REMEMBERED PAIR is used."""
+    if cluster is not None:
+        return cluster, sheet
+    return remembered_cluster, remembered_sheet
 
 
 @dataclass
@@ -112,7 +104,7 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
     cell_identity = record_key_part(cell_name, cell_uuid)
     own_addresses = cell_record_addresses(cfg, cell_name)
     chosen_address = (cluster, sheet)
-    _via_e, _trk_e, owner = _registry_entries(config_path, cfg)
+    _via_e, _trk_e, owner = load_registry_entries(config_path, cfg)
 
     # A fake/older adapter may not expose the copper reads; "no copper" is then
     # the honest answer (the components are still selected).

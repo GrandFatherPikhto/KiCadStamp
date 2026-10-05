@@ -17989,3 +17989,6 @@ msgstr "выделено: {components} компонент(ов), {vias} пере
 
 msgid "; the registry remembers {n} more, not on the board"
 msgstr "; реестр помнит ещё {n}, на плате их нет"
+
+msgid "{cluster} on {sheet}"
+msgstr "{cluster} на {sheet}"

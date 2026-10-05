@@ -115,6 +115,7 @@ from ..cell_edit_context import (
 )
 from ..mixed_selection import WARN as _SELECTION_WARN
 from ..mixed_selection import narrow_mixed_selection
+from ..select_cell import effective_instance
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
@@ -2391,10 +2392,41 @@ class CellDock(QWidget):
 
     # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
 
-    def _on_select_cluster_on_board(self, *args, **kwargs) -> None:
-        """Backward-compatible alias: the button/entry was renamed to
-        `_on_select_cell` in Н5; existing callers/tests keep this name."""
-        return self._on_select_cell(*args, **kwargs)
+    def _resolve_cell_instance(self, cell_name):
+        """Н5-1: the cell's instance from the CONFIG when nothing is remembered.
+        Exactly one record places it -> that address; several -> a SUBMENU of
+        "<cluster> on <sheet>" (nothing is guessed); none -> today's hint.
+        Returns (cluster, sheet, handled) — `handled` True when the action is
+        already finished on this (UI) thread and the caller must return."""
+        from PyQt6.QtGui import QCursor
+        from PyQt6.QtWidgets import QMenu
+        from kicadstamp.config import load_config
+        from ..select_cell import cell_instances
+        try:
+            cfg, _ctx = load_config(self._root_path)
+        except Exception:  # noqa: BLE001 — a config that will not load: hint
+            cfg = None
+        instances = cell_instances(cfg, cell_name) if cfg is not None else []
+        if not instances:
+            self._show_message(
+                _("No remembered cluster for cell {name!r} — extract it from a "
+                  "board cluster, or remember one via the cell-anchor page’s "
+                  "“Fill from selection”.").format(name=cell_name),
+                _ERROR_STYLE)
+            return None, None, True
+        if len(instances) == 1:
+            cluster, sheet = instances[0]
+            return cluster, sheet, False
+        menu = QMenu(self)
+        for cluster, sheet in instances:
+            action = menu.addAction(_("{cluster} on {sheet}").format(
+                cluster=cluster,
+                sheet=sheet if sheet is not None else _("(no sheet)")))
+            action.triggered.connect(
+                lambda checked=False, c=cluster, s=sheet:
+                self._on_select_cell(cluster=c, sheet=s))
+        menu.exec(QCursor.pos())
+        return None, None, True
 
     def select_cell_requested(self, name: str, file_path,
                               cluster=None, sheet=None) -> None:
@@ -2434,10 +2466,21 @@ class CellDock(QWidget):
             return
         cell_name = self.name_edit.text().strip()
         refs = remembered_cell_refs(self._root_path, cell_name) or {}
-        remembered_cluster, remembered_sheet = remembered_cell_edit_context(
-            self._root_path, cell_name)
-        cluster = cluster or remembered_cluster
-        sheet = sheet if cluster != remembered_cluster else remembered_sheet
+        if cluster is not None:
+            # Н5-2: an EXPLICIT instance is taken AS-IS — its own sheet, never
+            # overridden by the remembered one.
+            cluster, sheet = effective_instance(cluster, sheet, None, None)
+        else:
+            remembered_cluster, remembered_sheet = remembered_cell_edit_context(
+                self._root_path, cell_name)
+            if remembered_cluster:
+                cluster, sheet = effective_instance(
+                    None, None, remembered_cluster, remembered_sheet)
+            elif not refs:
+                # Н5-1: no remembered context — use the CONFIG's own instances.
+                cluster, sheet, handled = self._resolve_cell_instance(cell_name)
+                if handled:
+                    return
         if not cluster and not refs:
             self._show_message(
                 _("No remembered cluster for cell {name!r} — extract it from a "

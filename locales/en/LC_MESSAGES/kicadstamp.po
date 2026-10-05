@@ -19286,3 +19286,6 @@ msgstr ""
 
 msgid "; the registry remembers {n} more, not on the board"
 msgstr ""
+
+msgid "{cluster} on {sheet}"
+msgstr ""

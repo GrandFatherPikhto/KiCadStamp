@@ -40,10 +40,8 @@ from typing import Any, Optional
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.i18n import _
 from kicadstamp.registry import (
-    load_registry,
-    load_track_registry,
+    load_registry_entries,
     record_key_part,
-    registry_paths_for_config,
 )
 from kicadstamp.selection_narrowing import (
     CopperReadContext,
@@ -94,27 +92,6 @@ class MixedPrelude:
 
 def _component_roles(components) -> set:
     return {c.get("role") for c in (components or ()) if c.get("role")}
-
-
-def _registry_maps(config_path: str, cfg) -> tuple[dict, dict, dict]:
-    """(via_entries, track_entries, owner). ``owner`` is {copper uuid ->
-    registry key} over BOTH files; the entry maps themselves feed the Н4 п.5
-    live-UUID rule. Read with the product's own loaders (schema checks)."""
-    via_path, trk_path = registry_paths_for_config(
-        str(config_path), getattr(cfg, "registry_path", None),
-        getattr(cfg, "track_registry_path", None))
-    via_entries = load_registry(via_path)
-    track_entries = load_track_registry(trk_path)
-    owner: dict[str, str] = {}
-    for key, entry in via_entries.items():
-        uuid = getattr(entry, "uuid", None)
-        if uuid:
-            owner[uuid] = key
-    for key, entry in track_entries.items():
-        uuid = getattr(entry, "uuid", None)
-        if uuid:
-            owner[uuid] = key
-    return via_entries, track_entries, owner
 
 
 def _instance_line(cluster, sheet, others) -> str:
@@ -227,7 +204,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
     cell_identity = record_key_part(cell_name, cell_uuid)
     own_addresses = cell_record_addresses(cfg, cell_name)
-    via_entries, track_entries, owner = _registry_maps(config_path, cfg)
+    via_entries, track_entries, owner = load_registry_entries(config_path, cfg)
     chosen_address = (chosen_cluster, chosen_sheet)
 
     sub_v = subtract_foreign_copper(vias, owner, cell_identity, own_addresses,
