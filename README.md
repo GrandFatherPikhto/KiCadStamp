@@ -378,6 +378,7 @@ Every page is bilingual: `docs/<topic>.md` is English, `docs/<topic>_ru.md` is R
 - [Geometry utilities](./docs/geometry.md)
 - [Rotating and transforming cells](./docs/rotate_template.md)
 - [KiCad adapter](./docs/kicad.md)
+- [The board door: how GUI code may touch the board](./docs/board_door.md)
 - [Using kipy](./docs/kipy.md)
 - [Coding placement in Python: explore/author](./docs/python.md)
 - [fieldstool: Role/Cluster in `.kicad_sch`](./docs/fieldstool.md)

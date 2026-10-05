@@ -373,6 +373,7 @@ KiCad молча закрывается, приходит `ConnectionError: Erro
 - [Геометрические утилиты](./docs/geometry_ru.md)
 - [Поворот и трансформация ячеек](./docs/rotate_template_ru.md)
 - [Адаптер KiCad](./docs/kicad_ru.md)
+- [Дверь к плате: как коду GUI можно трогать плату](./docs/board_door_ru.md)
 - [Использование kipy](./docs/kipy_ru.md)
 - [Кодинг расстановки на Python: explore/author](./docs/python_ru.md)
 - [fieldstool: Role/Cluster в `.kicad_sch`](./docs/fieldstool_ru.md)
