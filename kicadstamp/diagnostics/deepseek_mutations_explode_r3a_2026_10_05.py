@@ -14,6 +14,10 @@ Machinery (rule 38) is the shared one from
   * Q25 the transferred piece is DROPPED from the read (Р3а-3: the piece must
         stay in the plan AND be named — else the record gives it away and the
         cell never receives it)
+  * Q26 the cell window reloads by PATH again (доделка 1 of Р3а-4: a same-cell
+        door with file_path=None must not throw the typed edits away)
+  * Q27 the map generator stops writing reverse edges (доделка 2 of Р3а-4: the
+        EXACT property is pinned on a temp tree, so this reddens there)
   * K1/K2 cosmetic comments — MUST survive
 
 PARTIAL BY DESIGN (named for the acceptance): the graph-lookup row for Р3а-2
@@ -26,12 +30,15 @@ from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 a
 G = ["test_explode_page.py", "test_explode_transfer.py"]
 GUI_GATE = ["test_explode_page.py"]
 KERNEL_GATE = ["test_refresh_by_cluster_h4a.py"]
+CELL_DOCK = ["test_cell_editor.py"]
+MAP_GUARD = ["test_project_map.py"]
 CELL_EDITOR = "gui/docks/cell_editor.py"
 TRANSFER = "kicadstamp/explode_transfer.py"
 GLUE = "gui/mixed_selection.py"
 DOCK_HUB = "gui/dock_hub.py"
 GUARD = "gui/explode_guard.py"
 NARROWING = "kicadstamp/selection_narrowing.py"
+PROJECT_MAP = "tools/project_map.py"
 
 ROWS = [
     ("Q21 the plan is applied before the transfer checks", CELL_EDITOR,
@@ -70,6 +77,17 @@ ROWS = [
      "        else:\n"
      "            transfers.append(tr)",
      "die", KERNEL_GATE, ()),
+    ("Q26 the cell window reloads by path again", CELL_EDITOR,
+     "        if self.name_edit.text().strip() != name:\n"
+     "            self.load_entry(name, file_path)",
+     "        if (self.name_edit.text().strip() != name\n"
+     "                or self._path != file_path):  # MUTATION\n"
+     "            self.load_entry(name, file_path)",
+     "die", CELL_DOCK, ()),
+    ("Q27 the map generator drops the reverse edges", PROJECT_MAP,
+     '        out.append("- imported by: " + (", ".join(incoming) or "—"))',
+     '        out.append("- imported by: —")  # MUTATION',
+     "die", MAP_GUARD, ()),
     ("K1 cosmetic comment (control)", TRANSFER,
      "def _section_of(kind: str) -> str:",
      "def _section_of(kind: str) -> str:  # control",

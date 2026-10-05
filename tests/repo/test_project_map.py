@@ -35,6 +35,20 @@ def _module_line(text: str, name: str) -> str:
     raise AssertionError(f"module row not found: {name}")
 
 
+def _reverse_line(text: str, module: str) -> str:
+    """The `- imported by:` line of `module` in the map's Imports section.
+
+    The module's heading appears twice (Public API and Imports), so the search is
+    scoped to the Imports section — the same section the live and the temp-tree
+    cells below read."""
+    body = text.split("## Imports (internal)\n", 1)[1].split("\n## ", 1)[0]
+    block = body.split(f"### {module}\n", 1)[1].split("\n### ", 1)[0]
+    for line in block.splitlines():
+        if line.startswith("- imported by:"):
+            return line
+    raise AssertionError(f"no reverse-edge line for {module}")
+
+
 # ── the real repo ───────────────────────────────────────────────────────────
 
 def test_known_module_has_docstring_and_api():
@@ -50,10 +64,33 @@ def test_private_outside_all_is_not_in_api():
     assert "- `_is_own_key` — " not in text
 
 
-def test_reverse_edge_lists_the_importer():
+def test_reverse_edge_names_every_known_importer():
+    """The live map NAMES its importers: the `- imported by:` line of the kernel's
+    read rule contains each KNOWN importer.
+
+    Deliberately a SUBSET — the subject is "the map shows the reverse edge", not
+    "the module has exactly these importers": pinning the full set made this guard
+    redden on every legitimate new import (доделка 2 of Р3а-4). The EXACT property
+    is pinned on a TEMP tree below, where the importer set is the test's own."""
     text = pm.build_map(ROOT)
-    assert ("- imported by: gui.docks.cell_anchor_view, gui.docks.cell_editor, "
-            "gui.mixed_selection, gui.select_cell") in text
+    line = _reverse_line(text, "kicadstamp/selection_narrowing.py")
+    for importer in ("gui.docks.cell_anchor_view", "gui.docks.cell_editor",
+                     "gui.explode_guard", "gui.mixed_selection",
+                     "gui.select_cell"):
+        assert importer in line, f"{importer} missing from: {line}"
+
+
+def test_reverse_edge_is_exact_on_a_temp_tree(tmp_path):
+    """The EXACT property, on a tree the test owns: `a` imports `b` -> b's own
+    line is exactly "imported by: a" while `a` (imported by nobody) says "—".
+
+    This is what keeps the SUBSET cell above honest: drop the reverse edges from
+    the generator and THIS cell goes red (a mutation row of Р3а-4)."""
+    _write(tmp_path, "kicadstamp/b.py", '"""b."""\n')
+    _write(tmp_path, "kicadstamp/a.py", '"""a."""\n\nfrom . import b\n')
+    text = pm.build_map(tmp_path)
+    assert _reverse_line(text, "kicadstamp/b.py") == "- imported by: kicadstamp.a"
+    assert _reverse_line(text, "kicadstamp/a.py") == "- imported by: —"
 
 
 def test_big_file_is_flagged_and_small_is_not():

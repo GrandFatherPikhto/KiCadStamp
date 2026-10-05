@@ -2277,6 +2277,34 @@ def test_the_requested_entry_points_can_choose_layers(main_window, tmp_path,
                       "import-dialog", "import-fast"]
 
 
+def test_a_same_cell_call_never_discards_the_typed_edits(main_window, tmp_path,
+                                                         monkeypatch):
+    """Н5б (доделка Р3а-4, перенос из приёмки Р3а-1): the reload test is by NAME.
+
+    The Explode tab's "Re-read" arrives with `file_path=None` (the cell page was
+    opened by a single click and does not know the cell's file). The old
+    `self._path != file_path` comparison reloaded the SAME cell and threw the
+    typed edits away; by name, they survive."""
+    dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
+    dock.load_entry("t")
+    monkeypatch.setattr(dock, "_on_refresh_geometry", lambda: None)
+    # An unsaved edit living ONLY in the form (nothing was written to disk).
+    dock._components.append({"role": "TYPED", "offset_along_mm": 9.0,
+                             "offset_across_mm": 0.0, "angle_deg": 0.0})
+
+    dock.refresh_from_selection_requested("t", None)     # the tab's file is None
+
+    assert [c["role"] for c in dock._components][-1] == "TYPED"
+    assert dock.name_edit.text().strip() == "t"
+
+    # A DIFFERENT cell still reloads (the point is the NAME, not "never reload").
+    reloaded = []
+    monkeypatch.setattr(dock, "load_entry",
+                        lambda n, fp=None: reloaded.append((n, fp)))
+    dock.refresh_from_selection_requested("other", None)
+    assert reloaded == [("other", None)]
+
+
 # ── Э2: the hidden-copper-layer warning ─────────────────────────────────────
 # Read INSIDE the worker (it already holds the socket and is already reading the
 # whole selection), so it is as fresh as the read itself and appears on the fast

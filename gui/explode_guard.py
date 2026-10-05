@@ -22,9 +22,10 @@ While active it does two things:
 Р3: it also answers ``transfer_enabled(cell_name, cluster, sheet)`` — whether the
 cell re-read should TRANSFER (not subtract) the selected ``net_traces`` copper —
 from the same journal. Р3а-3: the address rule itself is the SAME function the
-worker uses (``journal_is_the_read_instance``, one host: the read's own module),
-reached through ``gui.mixed_selection`` — the GUI wrapper of that read, so the
-kernel's importer set does not grow for a thin guard.
+worker uses (``kicadstamp.selection_narrowing.journal_is_the_read_instance`` — ONE
+host, the read's own module), imported directly: ``gui -> kicadstamp`` is the
+allowed direction, and the guard must not bend around a repo-map guard's
+importer list.
 
 Qt-thin by design: this module holds state and one signal; it imports no widgets
 and no dock. ``gui/worker.py`` never imports it — the gate is installed as a
@@ -38,9 +39,9 @@ from typing import Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from kicadstamp.i18n import _
+from kicadstamp.selection_narrowing import journal_is_the_read_instance
 
 from . import worker
-from .mixed_selection import journal_is_the_read_instance
 
 logger = logging.getLogger(__name__)
 

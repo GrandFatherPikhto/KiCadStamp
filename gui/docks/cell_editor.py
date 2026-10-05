@@ -2251,9 +2251,16 @@ class CellDock(QWidget):
                                          explode_transfer: bool = False,
                                          explode_journal=None) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
-        context menu's "Update from selection...": when the requested cell is
-        not the one currently loaded, load it first, then run the same
-        _on_refresh_geometry path as the dock's own button.
+        context menu's "Update from selection...": when a DIFFERENT cell is
+        requested, load it first, then run the same _on_refresh_geometry path as
+        the dock's own button.
+
+        Н5б (доделка Р3а-4, перенос из приёмки Р3а-1): the reload test is by NAME,
+        exactly like `select_cell_requested` — NOT `self._path != file_path`. A
+        door opened by a single click in the config tree passes `file_path=None`
+        (the page does not know the cell's file), and the old path comparison then
+        reloaded the SAME cell and threw away the unsaved edits in the cell window.
+        The cell's own file is resolved by `load_entry` itself when it is None.
 
         `choose_layers` (Э4 of plan_2026_09_12_cell_layer_dialog) picks the OTHER
         entry point of the same read: the context menu's "…(choose layers)…" and
@@ -2269,7 +2276,9 @@ class CellDock(QWidget):
         self._pending_explode_transfer = bool(explode_transfer)
         # Р3а-3: the exploded instance's address — the read transfers ONLY for it.
         self._pending_explode_journal = explode_journal
-        if self.name_edit.text().strip() != name or self._path != file_path:
+        # Н5б: by NAME — a same-cell call never discards the form's unsaved edits,
+        # and file_path=None (a click-opened page) is not a reason to reload.
+        if self.name_edit.text().strip() != name:
             self.load_entry(name, file_path)
         if choose_layers:
             self._on_refresh_geometry_with_layers()
