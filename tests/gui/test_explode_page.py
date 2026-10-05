@@ -7,6 +7,7 @@ at the module and the page's ``start_long_op`` is made SYNCHRONOUS (the real
 worker thread + the gate are covered by tests/gui/test_explode_worker_gate.py) —
 so these cells measure the tab's logic, the LOCK and the DOOR on the UI thread.
 """
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,7 @@ from PyQt6.QtWidgets import QMessageBox
 from kicadstamp.domain.geometry import Box2, Vector2
 from kicadstamp.explode import ExplodePlan, NetTracePiece
 
+from gui import overlay_markers
 from gui import worker as worker_mod
 from gui.docks import explode_page as page_mod
 
@@ -207,6 +209,61 @@ def test_unknown_board_identity_leaves_the_lock(ex, monkeypatch):
     assert hub.explode_guard.active          # LEFT as it was
 
 
+def test_the_overlay_reconcile_runs_before_the_state_read(ex, monkeypatch):
+    """Р2б-1: the explode-state read must NOT run before the overlay reconcile.
+    `refresh_explode_state()` starts a long op, so with the old order
+    `long_op_active` was already True when the reconcile was about to start and
+    EVERY connect/refresh skipped the overlay reconcile. Both must run, the
+    reconcile FIRST."""
+    hub = ex._dock_hub
+    order = []
+
+    def _sync(connection, widgets, fn, on_success, on_error, *args, **kwargs):
+        order.append(fn)
+        try:
+            result = fn(*args)
+        except Exception as e:  # noqa: BLE001 — mirror the worker's routing
+            on_error(str(e))
+            return None
+        on_success(result)
+        return None
+
+    # reconcile_overlay imports start_long_op from gui.worker at CALL time.
+    monkeypatch.setattr(worker_mod, "start_long_op", _sync)
+    monkeypatch.setattr(page_mod, "start_long_op", _sync)
+    monkeypatch.setattr(page_mod, "explode_state_worker",
+                        lambda connection: ("none", None))
+
+    hub.reconcile_overlay(ex.connection)
+
+    assert overlay_markers.owner.reconcile in order         # the reconcile RAN
+    assert page_mod.explode_state_worker in order           # and the state READ ran
+    assert order.index(overlay_markers.owner.reconcile) < order.index(
+        page_mod.explode_state_worker)                      # reconcile FIRST
+
+
+def test_a_failed_automatic_state_read_is_quiet(ex, monkeypatch, caplog):
+    """Р2б-2: the connect/refresh state read is housekeeping — a failure leaves
+    the lock ALONE (`apply_unknown`) and is a DEBUG line, never the red line
+    (and never a dropped lock) every connect on a busy socket would otherwise
+    print."""
+    hub = ex._dock_hub
+    hub.explode_guard.set_from_journal(_JOURNAL)
+    assert hub.explode_guard.active
+
+    def _boom(connection):
+        raise RuntimeError("busy socket")
+
+    monkeypatch.setattr(page_mod, "explode_state_worker", _boom)
+    with caplog.at_level(logging.DEBUG):
+        hub.refresh_explode_state()
+
+    assert hub.explode_guard.active                         # the lock was LEFT alone
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any("explode state read failed" in r.getMessage()
+               for r in caplog.records)
+
+
 # ── restore / forget ────────────────────────────────────────────────────────
 
 def test_successful_restore_clears_everything(ex, monkeypatch):
@@ -378,5 +435,50 @@ def test_no_ui_thread_board_read_on_any_path(real_main_window, monkeypatch,
     monkeypatch.setattr(QMessageBox, "question",
                         staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
     w.closeEvent(QCloseEvent())               # quit -> request_restore (inactive)
+    hub.explode_guard.detach()
+    worker_mod.set_long_op_gate(None)
+
+
+def test_no_ui_thread_board_read_when_quitting_exploded(real_main_window,
+                                                        monkeypatch, tmp_path):
+    """Р2б-3: the exit window ITSELF — `closeEvent` while exploded, then "Put
+    back and quit" — must read `connection.board` on NO UI-thread path. The
+    door cell above quits only AFTER the lock is cleared, so this is the branch
+    it did not cover (Р2б-3)."""
+    import threading
+    from gui import connection as conn_mod
+    from gui.connection import BoardConnection
+
+    w = real_main_window
+    conn = BoardConnection()
+    conn.board = SimpleNamespace(adapter=object())   # setter; getter is guarded
+    w.connection = conn
+    root = tmp_path / "config.sexp"
+    root.write_text("", encoding="utf-8")
+    w._dock_hub.root_metadata_dock._path = root
+    monkeypatch.setattr(w._dock_hub, "refresh_snapshot_and_push",
+                        lambda *a, **k: None)
+
+    _sync_start_long_op(monkeypatch)
+    monkeypatch.setattr(page_mod, "restore_worker", lambda connection: ["ok"])
+    monkeypatch.setattr(page_mod, "explode_state_worker",
+                        lambda *a, **k: ("has", _JOURNAL))
+
+    main = threading.current_thread()
+    monkeypatch.setattr(conn_mod, "ui_thread_predicate",
+                        lambda: threading.current_thread() is main)
+    monkeypatch.setattr(conn_mod, "ui_thread_read_refusal", conn_mod.UI_READ_RAISE)
+
+    hub = w._dock_hub
+    hub.explode_guard.set_from_journal(_JOURNAL)
+    assert hub.explode_guard.active
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    closed = []
+    monkeypatch.setattr(w, "close", lambda: closed.append(True))
+
+    w.closeEvent(QCloseEvent())               # exploded -> question -> restore -> close
+    assert closed == [True]
+    assert not hub.explode_guard.active       # the successful restore cleared the lock
     hub.explode_guard.detach()
     worker_mod.set_long_op_gate(None)

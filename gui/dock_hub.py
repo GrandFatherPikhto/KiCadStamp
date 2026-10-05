@@ -3012,6 +3012,10 @@ class DockHub:
         only applies a ready answer: has / none / unknown. `active` always comes
         from the journal, never memory.
 
+        This is the AUTOMATIC path (connect / manual refresh), so the read is
+        QUIET (Р2б-2): a failure leaves the lock alone and is a DEBUG line, never
+        the red line every connect on a busy socket would otherwise print.
+
         A DockHub built WITHOUT __init__ (some tests wire one method's body)
         simply has no guard — nothing to refresh."""
         guard = getattr(self, "explode_guard", None)
@@ -3021,7 +3025,7 @@ class DockHub:
         if page is None:
             self._apply_explode_lock(guard.active)
             return
-        page.refresh_state()
+        page.refresh_state(quiet=True)
 
     def _select_cell_from_tree(self, name, file_path, cluster=None,
                                sheet=None) -> None:
@@ -3242,20 +3246,25 @@ class DockHub:
         this is AUTOMATIC housekeeping fired by MainWindow._finish_poll on
         connect/refresh, not something the user started — the disabled-layer
         rule above plus the long_op_active check below are its only guards."""
-        # Р2: this is the connect/refresh hook MainWindow._finish_poll drives —
-        # read the explode journal HERE, so a crashed-then-restarted session
-        # opens the "Разнос" tab exploded and locks the board ops.
-        self.refresh_explode_state()
+        # Р2/Р2б-1: this is the connect/refresh hook MainWindow._finish_poll
+        # drives — the overlay reconcile runs FIRST and the explode-journal read
+        # runs AFTER it (in its own on_success/on_error, or right away when the
+        # reconcile does not start). Reading the journal first STARTED a long op,
+        # so `long_op_active` was already True a few lines below and the overlay
+        # reconcile was skipped on EVERY connect/refresh (Р2б-1 regression).
         from .worker import start_long_op
         board = getattr(connection, "board", None)
         adapter = getattr(board, "adapter", None) if board is not None else None
-        if adapter is None:
+        if adapter is None or getattr(connection, "long_op_active", False):
+            # Nothing to reconcile (no board / the shared socket is busy): the
+            # explode-state read still runs — its own LongOpController defers
+            # once on a busy socket.
+            self.refresh_explode_state()
             return
-        if getattr(connection, "long_op_active", False):
-            return  # never interleave on the shared kipy REQ socket
         self._overlay_reconcile_op = start_long_op(
             connection, [], overlay_markers.owner.reconcile,
-            lambda _report: None, lambda _message: None, adapter)
+            lambda _report: self.refresh_explode_state(),
+            lambda _message: self.refresh_explode_state(), adapter)
 
     def _attach_log_file_handler(self, handler) -> None:
         """Attach the root-config log_file: FileHandler either to the live

@@ -250,15 +250,28 @@ class ExplodePage(QWidget):
         return bool(connection is not None
                     and getattr(connection, "is_connected", False))
 
-    def refresh_state(self) -> None:
+    def refresh_state(self, *, quiet: bool = False) -> None:
         """Re-read the exploded state ON A WORKER and apply it. Called on
-        connect/refresh (DockHub) and after explode / restore / forget."""
+        connect/refresh (DockHub, ``quiet=True``: housekeeping) and after
+        explode / restore / forget (``quiet=False``).
+
+        Р2б-2: on the QUIET path a failure leaves the lock exactly as it is and
+        is a DEBUG line — it must not turn every connect on a busy socket into a
+        red line."""
         if not self._connected():
             return
         self._active_op = start_long_op(
             self._connection(), (), explode_state_worker, self._finish_state,
-            self._on_op_failed, self._connection(),
-            allowed_while_exploded=True)
+            self._on_state_read_failed if quiet else self._on_op_failed,
+            self._connection(), allowed_while_exploded=True)
+
+    def _on_state_read_failed(self, message: str) -> None:
+        """Р2б-2: the connect/refresh state read is housekeeping — a failure
+        leaves the lock ALONE (`apply_unknown`: a missing journal must never be
+        read as "not exploded") and goes to DEBUG, not the red line a
+        user-started operation gets."""
+        logger.debug("explode state read failed: %s", message)
+        self._guard.apply_unknown()
 
     def _finish_state(self, result) -> None:
         kind, journal = result
