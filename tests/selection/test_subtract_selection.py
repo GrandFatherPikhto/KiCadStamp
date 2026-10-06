@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 
 from kicadstamp.absent_copper_prune import (RecordCopperMap, record_copper_map_for)
+from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
@@ -48,7 +49,10 @@ def test_the_exact_pair_is_the_one_removed():
     """The record whose LIVE COPPER is selected goes — by its own index, and by
     identity (the SAME dict the cell holds)."""
     rec0, rec1 = _track(None, 0.0), _track("GND", 2.0)
-    record_map = RecordCopperMap(by_record={("track", "rp", 0): "u0"}, planned=2)
+    # Cell-LEVEL copper: the key's role part is the spoke placeholder, the index
+    # is a position in the cell's OWN tracks list.
+    record_map = RecordCopperMap(
+        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=2)
 
     outcome = plan_subtraction(record_map, [], [rec0, rec1], set(), {"u0"})
 
@@ -63,7 +67,8 @@ def test_selected_copper_that_is_not_a_record_is_ignored_not_removed():
     holds an item this cell's map never claimed — nothing is removed and the
     caller can SAY it (the counter), instead of silently dropping it."""
     rec0 = _track(None, 0.0)
-    record_map = RecordCopperMap(by_record={("track", "rp", 0): "u0"}, planned=1)
+    record_map = RecordCopperMap(
+        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=1)
 
     outcome = plan_subtraction(record_map, [], [rec0], set(), {"foreign"})
 
@@ -97,25 +102,28 @@ def test_via_and_track_records_use_their_own_lists():
     via0 = {"net": "N", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
             "drill_mm": 0.3, "diameter_mm": 0.6}
     track0 = _track("N", 5.0)
-    record_map = RecordCopperMap(by_record={("via", "rp", 0): "uv",
-                                            ("track", "rp", 0): "ut"},
-                                 planned=2)
+    record_map = RecordCopperMap(
+        by_record={("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv",
+                   ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "ut"},
+        planned=2)
 
     outcome = plan_subtraction(record_map, [via0], [track0], {"uv"}, {"ut"})
 
     assert outcome.removed == (("via", via0), ("track", track0))
 
 
-def test_an_index_outside_the_record_list_is_ignored():
-    """Defensive: a map entry pointing past the cell's list can never crash the
-    action (it removes nothing)."""
+def test_an_index_outside_the_record_list_is_not_a_record_of_the_cell():
+    """A map entry pointing past the cell's list resolves to NO record: nothing is
+    removed (no crash, no wrong neighbour) and the selected item is reported as
+    "not a record of the cell" — the same wording an unknown role gets."""
     rec0 = _track("GND", 2.0)
-    record_map = RecordCopperMap(by_record={("track", "rp", 7): "u0"}, planned=8)
+    record_map = RecordCopperMap(
+        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 7): "u0"}, planned=8)
 
     outcome = plan_subtraction(record_map, [], [rec0], set(), {"u0"})
 
     assert outcome.removed == ()
-    assert outcome.not_ours == 0
+    assert outcome.not_ours == 1
 
 
 def test_matched_instance_labels_names_the_instances_whose_copper_is_selected():
@@ -284,3 +292,69 @@ def test_a_track_record_pairs_by_exact_geometry(tmp_path):
     assert list(record_map.by_record.values()) == ["u_track"]
     assert [k[0] for k in record_map.by_record] == ["track"]
     assert [k[2] for k in record_map.by_record] == [0]
+
+
+# ── the TWO LEVELS of a cell's copper (the key's role part) ─────────────────
+
+def _via_record(across):
+    return {"net": "N", "offset_along_mm": 0.0, "offset_across_mm": across,
+            "drill_mm": 0.3, "diameter_mm": 0.6}
+
+
+def test_a_component_via_is_removed_from_its_component_not_from_the_cell():
+    """The map key is THREE parts. The dry run plans the cell's own copper under
+    the spoke placeholder (index into the cell's list) and each component's copper
+    under THAT COMPONENT's role (index into the component's list). Selecting a
+    component's via 0 must remove the component's via — the first version dropped
+    the role part and took ``cell_vias[0]``, a silent wrong record."""
+    cell_via = _via_record(0.0)
+    comp_via = _via_record(5.0)
+    components = [{"role": "R3", "vias": [comp_via]},
+                  {"role": "C9", "vias": []}]
+    record_map = RecordCopperMap(
+        by_record={("via", "R3", 0): "u_comp",
+                   ("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell"},
+        planned=2)
+
+    outcome = plan_subtraction(record_map, [cell_via], [], {"u_comp"}, set(),
+                               components=components)
+
+    assert outcome.removed == (("via", comp_via),)
+    assert outcome.removed[0][1] is comp_via
+    assert cell_via not in outcome.removed_of("via")
+    assert outcome.not_ours == 0
+
+
+def test_the_cell_level_and_the_component_level_with_one_index_are_distinct():
+    """The SAME index at the two levels names two different records: selecting one
+    of them removes exactly it (the flat-list version removed the cell's one
+    whichever was selected)."""
+    cell_via = _via_record(0.0)
+    comp_via = _via_record(5.0)
+    components = [{"role": "R3", "vias": [comp_via]}]
+    record_map = RecordCopperMap(
+        by_record={("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell",
+                   ("via", "R3", 0): "u_comp"},
+        planned=2)
+
+    only_cell = plan_subtraction(record_map, [cell_via], [], {"u_cell"}, set(),
+                                components=components)
+    only_comp = plan_subtraction(record_map, [cell_via], [], {"u_comp"}, set(),
+                                 components=components)
+
+    assert only_cell.removed == (("via", cell_via),)
+    assert only_comp.removed == (("via", comp_via),)
+
+
+def test_a_role_the_cell_does_not_have_is_not_a_record_of_the_cell():
+    """A role part naming no component of the cell (and not the placeholder)
+    resolves to NO record: nothing is removed, and the selected item is reported
+    as "not a record of the cell" instead of being dropped silently."""
+    comp_via = _via_record(5.0)
+    record_map = RecordCopperMap(by_record={("via", "GONE", 0): "u_x"}, planned=1)
+
+    outcome = plan_subtraction(record_map, [], [], {"u_x"}, set(),
+                               components=[{"role": "R3", "vias": [comp_via]}])
+
+    assert outcome.removed == ()
+    assert outcome.not_ours == 1

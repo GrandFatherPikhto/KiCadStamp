@@ -20,21 +20,37 @@ matched by the registry uuid and then by exact geometry). The invariant:
 
     you can subtract exactly what «Select cell» would highlight.
 
-Pure and Qt-free: it takes the map, the cell's OWN record lists and the uuids of
-the selected copper, and returns the records to remove (the SAME dicts, so the
-caller drops them by identity) plus the counters its Log lines need. It writes
-NOTHING — not the board, not the registry, not the config — and it never touches
-components: only copper is subtracted.
+A CELL'S COPPER HAS TWO LEVELS, and the map key says which. The dry run plans the
+cell's own copper under ``make_registry_key(anchor, cell, None, i)`` — the
+role part is ``SPOKE_LEVEL_ROLE_PLACEHOLDER`` and ``i`` is the index in the cell's
+own ``vias``/``tracks`` — AND each component's copper under
+``make_registry_key(anchor, cell, comp.role, i)``, where ``i`` is the index in THAT
+COMPONENT's ``vias``/``tracks``. So the record is resolved by the WHOLE key: the
+placeholder takes the cell's list, a role takes the list of the component carrying
+that role. Dropping the role part (the first version did) removed ``cell_vias[0]``
+when a COMPONENT's via 0 was selected — a silent, wrong record. A role the cell
+does not have, or an index past the list, removes nothing and is reported as "not
+a record of the cell".
+
+Pure and Qt-free: it takes the map, the cell's own record lists (and its
+components), and the uuids of the selected copper, and returns the records to
+remove (the SAME dicts, so the caller drops them by identity) plus the counters its
+Log lines need. It writes NOTHING — not the board, not the registry, not the
+config — and it never touches components: only copper is subtracted.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 
 __all__ = [
     "SubtractionOutcome",
     "matched_instance_labels",
     "plan_subtraction",
 ]
+
+_RECORD_LISTS = {"via": "vias", "track": "tracks"}
 
 
 @dataclass(frozen=True)
@@ -45,7 +61,9 @@ class SubtractionOutcome:
         in the selection. The records are the SAME dicts the caller holds, so it
         drops exactly them (by identity).
     not_ours — how many selected copper items are NOT records of this cell (they
-        are ignored, and the Log says so instead of silently dropping them).
+        are ignored, and the Log says so instead of silently dropping them). A map
+        entry that cannot be resolved to a record (an unknown role, an index past
+        the list) lands here too: it is not this cell's record either.
     components — how many selected items are components (ignored: copper only).
     planned — how many commands the instance's dry run produced.
     empty — the dry run planned NOTHING (a refused tree, an unrealized record, a
@@ -67,31 +85,56 @@ class SubtractionOutcome:
         return [rec for k, rec in self.removed if k == kind]
 
 
+def _record_bucket(kind: str, role_part, cell_vias, cell_tracks, by_role):
+    """The record LIST the key's role part points at, or None when the cell has no
+    such record: the cell's own list for the spoke-level placeholder, else the
+    component's list for the role the key names.
+
+    ONE place: the key grammar is read here only (``kind`` names the via/track
+    list, ``role_part`` names the level).
+    """
+    name = _RECORD_LISTS.get(kind)
+    if name is None:
+        return None
+    if role_part in (None, "", SPOKE_LEVEL_ROLE_PLACEHOLDER):
+        return cell_vias if name == "vias" else cell_tracks
+    component = by_role.get(str(role_part))
+    return None if component is None else (component.get(name) or [])
+
+
 def plan_subtraction(record_map, cell_vias, cell_tracks,
                      selected_via_uuids, selected_track_uuids,
-                     selected_components: int = 0) -> SubtractionOutcome:
+                     selected_components: int = 0, components=()) -> SubtractionOutcome:
     """Which records the selection names, and the counters for the Log lines.
 
     A record goes when the LIVE COPPER its own dry run matched is one of the
-    selected items — never because it merely sits near the selection.
+    selected items — never because it merely sits near the selection. The record is
+    found by the WHOLE map key ``(kind, role_part, index)``: the cell's own list for
+    the placeholder, the component's list for a role (see the module docstring).
     """
-    vias = list(cell_vias or ())
-    tracks = list(cell_tracks or ())
+    by_role: dict = {}
+    for comp in components or ():
+        role = comp.get("role") if isinstance(comp, dict) else None
+        if role:
+            by_role.setdefault(str(role), comp)
     selected = {"via": set(selected_via_uuids or ()),
                 "track": set(selected_track_uuids or ())}
-    buckets = {"via": vias, "track": tracks}
     ours: set = set()
     removed: list = []
     for key, uuid in (getattr(record_map, "by_record", None) or {}).items():
         try:
-            kind, _role_part, index = key
+            kind, role_part, index = key
         except (TypeError, ValueError):       # a foreign key shape: not a record
             continue
-        if kind not in buckets or uuid is None:
+        if kind not in selected or uuid is None:
+            continue
+        bucket = _record_bucket(kind, role_part, cell_vias, cell_tracks, by_role)
+        if bucket is None or index < 0 or index >= len(bucket):
+            # An unknown role / an index past the list: NOT this cell's record, so
+            # it is reported as "ignored" rather than removed from a wrong list.
             continue
         ours.add(uuid)
-        bucket = buckets[kind]
-        if uuid not in selected[kind] or index < 0 or index >= len(bucket):
+        if uuid not in selected[kind]:
             continue
         removed.append((kind, bucket[index]))
     selected_all = selected["via"] | selected["track"]
