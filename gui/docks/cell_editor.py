@@ -2539,8 +2539,10 @@ class CellDock(QWidget):
 
     def _finish_subtract_from_selection(self, result: Dict[str, Any]) -> None:
         """UI thread: report every removed record, then apply the removal to the
-        loaded cell (drop by identity — the plan records ARE those dicts), refresh
-        the tables and autostage, exactly like a manual row Delete."""
+        loaded cell — drop by identity from the cell's OWN lists AND from the
+        component lists the records live in (a cell's copper has TWO levels,
+        kicadstamp/subtract_selection.py), refresh the tables and autostage,
+        exactly like a manual row Delete."""
         self._active_op = None
         cell = result.get("cell", "?")
         if result.get("error"):
@@ -2573,12 +2575,7 @@ class CellDock(QWidget):
                 _("nothing to subtract — the selection holds no copper record of "
                   "cell {cell!r}").format(cell=cell), _SUCCESS_STYLE)
         else:
-            self._drop_records([r for kind, r in removed if kind == "via"],
-                               self._vias)
-            self._drop_records([r for kind, r in removed if kind == "track"],
-                               self._tracks)
-            self._refresh_all_tables()
-            self._autostage()
+            self._apply_subtracted_records(removed)
             for kind, record in removed:
                 self._show_message(record_report_line("-", record, kind),
                                    _WARN_STYLE)
@@ -2590,6 +2587,35 @@ class CellDock(QWidget):
                 _("{count} selected item(s) are not records of cell {cell!r} — "
                   "ignored").format(count=result["not_ours"], cell=cell),
                 _WARN_STYLE)
+
+    def _apply_subtracted_records(self, removed: list) -> None:
+        """Apply the worker's verdict to the loaded cell: drop the subtracted
+        records by IDENTITY from the cell's OWN lists AND from the list of the
+        component that carries them.
+
+        WHY both levels (С-2а-1, the blocker): the map key says which level the
+        record belongs to (kicadstamp/subtract_selection.py) — the spoke-level
+        placeholder indexes the cell's own `vias`/`tracks`, a ROLE indexes THAT
+        COMPONENT's `vias`. Dropping only from `self._vias`/`self._tracks` left a
+        component's via in place while the Log claimed it was subtracted: the
+        next Save wrote it straight back. Only `vias` needs the second level — a
+        component slot carries no tracks (TemplateComponentSlot).
+
+        The component dicts here are the very ones the worker was handed
+        (`payload["components"]` is `list(self._components)`, and `load_entry`
+        only SHALLOW-copies each slot), so `id()` finds the record in both. Then
+        the tables + autostage, exactly like a manual row Delete. Nothing is
+        written to disk here."""
+        vias = [r for kind, r in removed if kind == "via"]
+        tracks = [r for kind, r in removed if kind == "track"]
+        self._drop_records(vias, self._vias)
+        self._drop_records(tracks, self._tracks)
+        for component in self._components:
+            component_vias = component.get("vias")
+            if component_vias:
+                self._drop_records(vias, component_vias)
+        self._refresh_all_tables()
+        self._autostage()
 
     def _on_subtract_op_failed(self, message: str) -> None:
         self._active_op = None

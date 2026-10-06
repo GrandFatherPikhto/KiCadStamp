@@ -2434,7 +2434,10 @@ same zero-offset origin.
 button in the Cell dialog next to Refresh geometry and Add copper, and a right-click **Subtract selected copper...** action
 on a Cell leaf in the Cells category. It is Refresh's mirror image: instead of turning copper the cell does
 not describe into NEW records, it DELETES the records the selection does NOT name. Components are never
-touched. The pairing is the exact one **Select cell** uses — the registry uuid first, then exact geometry
+touched — no slot is ever removed; a component's OWN via is copper of the cell (the record's map key says
+which level it belongs to), so subtracting it takes the via out of THAT component's slot, while the cell's
+own via/track lists and every other record stay as they are. The pairing is the exact one **Select cell**
+uses — the registry uuid first, then exact geometry
 (position, layer, width, net) — so a foreign track running 0.1 mm away from a record never claims it (the
 greedy nearest-neighbour pairing Refresh uses for geometry would, which is why subtraction does not use it).
 **Invariant: you can subtract exactly what Select cell would highlight.** The instance follows the same
