@@ -43,6 +43,21 @@ from tests.fakes.write_later import write_later
 # `not long_op_active` and not "the side effect is already visible".
 from tests.gui.conftest import _pump
 
+
+@pytest.fixture(autouse=True)
+def _qt_app(qapp):
+    """Р3а-5 (the same fix as test_placer_dock.py / test_extract_spoke_dialog.py):
+    cells here build a REAL widget (`_bare_node_dialog()` -> `_NodeDialog`, and the
+    node-form windows) and take no other fixture, so a QApplication must exist even
+    when one of them runs FIRST in a pytest-xdist worker — the session `qapp`
+    otherwise arrives only because some sibling cell ran earlier in the process.
+    A widget with NO QApplication aborts the whole process (SIGABRT, core dump):
+    measured 2026-10-06 — `test_node_form_build_for_copper_needs_no_coordinates` and
+    `test_node_form_copper_rows_are_hidden_not_removed` abort 5/5 standalone, which
+    had read as a flaky test."""
+    return qapp
+
+
 # The same working example as tests/test_trees.py's GRAMMAR_EXAMPLE, expressed
 # as the root-config dict shape (tree_to_dict output) — two trees, nested
 # nodes, xy and polar offsets, a ref anchor and an origin anchor.
