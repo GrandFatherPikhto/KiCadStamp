@@ -19,10 +19,10 @@ reports: moved items on their target (nm), UUIDs unchanged, and every NON-moved
 track/via whose position changed (did KiCad drag copper after a footprint?).
 
 read — the cell read exactly as CellDock's "Update from selection" builds it
-(narrow_mixed_selection + build_refresh_plan + apply_live_copper_rule), with
-the explode-mode difference: selected copper the registry gives to a
-net_traces record is TRANSFERRED (read), not subtracted. Nothing is written to
-the config; the board selection is set to what the read would take.
+(narrow_mixed_selection + build_refresh_plan with remove_missing=True, С-1), with
+the explode-mode difference: selected copper the registry gives to a net_traces
+record is TRANSFERRED (read), not subtracted. Nothing is written to the config;
+the board selection is set to what the read would take.
 
 restore — every journal item back to its ABSOLUTE original position; then a
 re-read checks 0 nm and names the items moved by hand / gone.
@@ -42,7 +42,7 @@ from kicadstamp.domain.board import Footprint, Track, Via, unwrap
 from kicadstamp.registry import load_registry_entries, record_key_part
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.selection_narrowing import (
-    FootprintInfo, apply_live_copper_rule, cell_clusters, cell_record_addresses,
+    FootprintInfo, cell_clusters, cell_record_addresses,
     choose_instance, group_selection, is_own_key)
 from kicadstamp.sheet_names import resolve_sheet_path_names
 
@@ -270,15 +270,15 @@ def cmd_read(config_path, cell):
             entry["components"], entry.get("vias") or [], entry.get("tracks") or [],
             prelude.footprints, plan_v, plan_t, adapter,
             origin_role=entry.get("anchor_role"), add_new_copper=True,
-            remove_missing=False, keep_unpaired=True, reconcile_components=True,
-            config=cfg, chosen_cluster=prelude.copper_ctx.chosen_address[0],
-            chosen_sheet=prelude.copper_ctx.chosen_address[1],
+            remove_missing=True, reconcile_components=True,
+            config=cfg, chosen_cluster=prelude.chosen_address[0],
+            chosen_sheet=prelude.chosen_address[1],
             cell_layer=entry.get("layer") or "F.Cu",
             nested_placements=entry.get("clone_placements") or [],
             cells=dict(cfg.cells), sheet_names=sheet_names)
-        lines = apply_live_copper_rule(
-            plan, prelude.copper_ctx, entry.get("vias") or [],
-            entry.get("tracks") or [])
+        # С-1 (plan_2026_10_06_prune_absent_cell_copper): the soft live-UUID rule
+        # is gone from the product; the strict read deletes by the plan itself.
+        lines: list[str] = []
 
         def changed(pairs):
             return sum(1 for rec, geo in pairs

@@ -130,19 +130,6 @@ def _no_layer_warning(monkeypatch):
                         lambda adapter: None)
 
 
-@pytest.fixture(autouse=True)
-def _no_board_presence_check(monkeypatch):
-    """The corrected Н4 п.5 drives a REAL ``ApplyPipeline`` of its own (a live
-    socket) to read the geometry half of "is the copper on the board?". These
-    cells fake the board, so they stub that check to a NOT-checked verdict —
-    the honest "could not check": nothing is deleted and the unpaired records
-    are kept and named. The prune cells of their own file override this with a
-    crafted ``BoardCopperPresence``."""
-    from kicadstamp.absent_copper_prune import BoardCopperPresence
-    monkeypatch.setattr(cell_editor_mod, "instance_copper_presence",
-                        lambda *a, **k: BoardCopperPresence())
-
-
 def _make_dock(main_window, tmp_path, data=None):
     target = _write_config(tmp_path, data)
     dock = CellDock(main_window)
@@ -217,11 +204,13 @@ def test_clean_selection_is_also_narrowed_by_cluster(main_window, tmp_path):
     assert result["selection_lines"]
 
 
-def test_mixed_refresh_keeps_the_unpaired_track(main_window, tmp_path):
-    """Denis 2026-10-05, Н4 п.5: a MIXED read with ONE track the cell's records do
-    not pair leaves that record as it is (the registry does not know it), names
-    it, refreshes the paired record, still adds the live copper no record
-    describes, and makes the selection-after-read."""
+def test_mixed_refresh_deletes_the_unpaired_track(main_window, tmp_path):
+    """С-1 (plan_2026_10_06_prune_absent_cell_copper; Denis 2026-10-06): the
+    by-cluster read is STRICT too — a record with no pair in the (narrowed)
+    selection is DELETED, not left as it was, and the paired record is refreshed
+    while the live copper no record describes is still added. Supersedes the
+    Н4 п.5 soft cell, which asserted the opposite; rewritten by word of Denis,
+    not weakened."""
     paired = {"net": None, "layer": "F.Cu", "width_mm": 0.25,
               "start_along_mm": 0.0, "start_across_mm": 0.0,
               "end_along_mm": 1.0, "end_across_mm": 0.0}
@@ -236,26 +225,23 @@ def test_mixed_refresh_keeps_the_unpaired_track(main_window, tmp_path):
 
     assert "plan" in result, result
     plan = result["plan"]
-    assert plan.removed_via_records == [] and plan.removed_track_records == []
-    kept = dock._tracks[1]
-    assert kept["net"] == "GND" and kept["start_across_mm"] == 2.0
-    assert all(rec is not kept for rec, _geo in plan.track_updates)
+    gone = dock._tracks[1]
+    assert plan.removed_track_records == [gone]
+    assert all(rec is not gone for rec, _geo in plan.track_updates)
     assert len(plan.track_updates) == 1
     assert len(plan.new_track_records) == 1
     texts = [text for text, _level in result["selection_lines"]]
-    assert any("left as they are" in text for text in texts)
-    assert any("GND" in text for text in texts)
+    assert not any("left as they are" in text for text in texts)
     assert len(board.selected_calls) == 1
     assert _refs(board.selected_calls[0]) == ["C1", "C2", "t-unreg", "t-extra"]
 
 
-def test_clean_refresh_keeps_the_unregistered_unpaired_track(main_window, tmp_path):
-    """Н4 п.5 (Denis 2026-10-05): a record with no live pair whose copper the
-    registry does NOT know is LEFT as is (yellow line), on a clean selection as
-    on a mixed one — the deletion is the registry's live-UUID branch, owned by
-    the prelude. The selection-after-read is made. (Supersedes the Н2 "a clean
-    read deletes the unpaired record" cell: a behaviour change by word of Denis,
-    not a weakened guard.)"""
+def test_clean_refresh_deletes_the_unregistered_unpaired_track(main_window,
+                                                              tmp_path):
+    """С-1 (Denis 2026-10-06): a record with no live pair is DELETED on a clean
+    selection as on a mixed one — the cell becomes the selection, regardless of
+    whether the registry knows the record. Supersedes the Н4 п.5 soft cell (the
+    live-UUID branch kept it); rewritten by word of Denis, not weakened."""
     unpaired = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
                 "start_along_mm": 0.0, "start_across_mm": 2.0,
                 "end_along_mm": 1.0, "end_across_mm": 2.0}
@@ -267,9 +253,9 @@ def test_clean_refresh_keeps_the_unregistered_unpaired_track(main_window, tmp_pa
 
     assert "plan" in result, result
     plan = result["plan"]
-    assert plan.removed_track_records == []
+    assert plan.removed_track_records == [dock._tracks[0]]
     texts = [text for text, _level in result["selection_lines"]]
-    assert any("left as they are" in text for text in texts)
+    assert not any("left as they are" in text for text in texts)
     assert len(clean.selected_calls) == 1
 
 

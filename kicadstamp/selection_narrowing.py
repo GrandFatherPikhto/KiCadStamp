@@ -43,24 +43,19 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .cluster_matching import cluster_prefix_match
-from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from .i18n import _
 from .registry import record_key_part
 
 __all__ = [
-    "CopperReadContext",
     "CopperSubtraction",
     "FootprintInfo",
     "InstanceChoice",
-    "apply_live_copper_rule",
     "cell_clusters",
     "cell_record_addresses",
     "choose_instance",
-    "divide_unpaired_records",
     "group_selection",
     "is_own_key",
     "journal_is_the_read_instance",
-    "own_record_registry_key",
     "subtract_foreign_copper",
     "subtract_net_trace_copper",
 ]
@@ -468,182 +463,6 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
         report[label] = report.get(label, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
                              report=tuple(sorted(report.items())))
-
-
-# ── Н4 п.5: the live-UUID rule for copper with no live pair ─────────────────
-
-@dataclass
-class CopperReadContext:
-    """Everything the live-UUID deletion rule needs, gathered by the worker
-    (Н4 п.5, Denis 2026-10-05): the cell's registry identity/addresses, the two
-    registry ENTRY maps and the live board uuids.
-
-    NOTE (plan_2026_10_06_prune_absent_cell_copper, Дефект 1): the cell's OWN
-    record lists are NOT held here. The rule needs the SAME dict objects that
-    went to ``build_refresh_plan`` (``payload["vias"]``/``payload["tracks"]``),
-    to find a record's index — the registry key's index part. Keeping them here
-    invited the very bug this plan fixes: ``gui/mixed_selection.py`` filled them
-    with the SELECTION's live copper, so the index never matched and every
-    unpaired record read as "left as they are". The lists are now an EXPLICIT
-    argument of :func:`apply_live_copper_rule`."""
-
-    cell_identity: str | None
-    own_addresses: dict
-    chosen_address: tuple
-    chosen_refs: frozenset
-    via_entries: dict
-    track_entries: dict
-    board_via_uuids: frozenset
-    board_track_uuids: frozenset
-    # Ф1 (acceptance of cbc8bdc): False when the board copper could NOT be read.
-    # The deletion rule must then delete NOTHING — an empty uuid set is NOT "the
-    # board is empty", it is "we do not know" (a read error must never erase
-    # every unpaired record).
-    board_read_ok: bool = True
-
-
-def own_record_registry_key(entries, cell_identity: str | None,
-                            role: str | None, index: int | None,
-                            own_addresses: dict, chosen_address: tuple,
-                            chosen_refs: Iterable[str] = ()) -> str | None:
-    """The registry key naming THIS cell record at the CHOSEN instance, or None.
-
-    Matched through the product's own key grammar (``anchor|template|role|
-    index``) and :func:`is_own_key` — never by parsing an anchor out of a
-    record name. ``index`` is the record's 0-based position in the cell's
-    vias/tracks list (exactly what ``make_registry_key`` wrote)."""
-    if cell_identity is None or index is None or not entries:
-        return None
-    refs = frozenset(chosen_refs or ())
-    role_part = role if role is not None else SPOKE_LEVEL_ROLE_PLACEHOLDER
-    for key in entries:
-        parts = key.split("|")
-        if len(parts) != 4:
-            continue
-        _anchor, template_name, key_role, key_index = parts
-        if template_name != cell_identity or key_role != role_part:
-            continue
-        if str(key_index) != str(index):
-            continue
-        if is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
-            return key
-    return None
-
-
-def _record_label(record: dict, kind: str) -> str:
-    """A short human name for one copper record (kind + net), for the yellow
-    "left as they are" line."""
-    if record.get("net_from_role"):
-        pad = record.get("net_from_role_pad")
-        net = (f"net_from_role {record['net_from_role']}/{pad}"
-               if pad else f"net_from_role {record['net_from_role']}")
-    elif record.get("net"):
-        net = str(record["net"])
-    else:
-        net = _("(no net)")
-    return _("{kind} on {net}").format(kind=kind, net=net)
-
-
-def divide_unpaired_records(unpaired, records, kind, entries, board_uuids,
-                            ctx: CopperReadContext, presence=None):
-    """Н4 п.5: split the records with NO live pair into DELETE and KEEP.
-
-    A record is KEPT when its copper is found on the board by EITHER half of the
-    rule:
-
-      * REGISTRY — the uuid the registry stored for the record is live;
-      * GEOMETRY (plan_2026_10_06_prune_absent_cell_copper, Дефект 2) — the dry
-        run of THIS instance's recording produced a command for the record whose
-        copper ``match_planned_copper`` found on the board. ``presence`` is that
-        verdict (``BoardCopperPresence``); ``None`` keeps the historical
-        registry-ONLY behaviour.
-
-    A record found by NEITHER is DELETED. Everything kept is named for the
-    yellow Log line. Returns (to_delete, kept, kept_names).
-
-    ``records`` — the cell's OWN record lists (the SAME dicts that went to
-    ``build_refresh_plan``), used to find a record's index. The registry key
-    carries that index; feeding the SELECTION's copper here was Дефект 1 — the
-    index never matched and nothing was ever deleted."""
-    index_by_id = {id(r): i for i, r in enumerate(records or ())}
-    live = set(board_uuids or ())
-    to_delete: list = []
-    kept: list = []
-    names: list[str] = []
-    for rec in unpaired or ():
-        index = index_by_id.get(id(rec))
-        key = own_record_registry_key(
-            entries, ctx.cell_identity, rec.get("role"), index,
-            ctx.own_addresses, ctx.chosen_address, ctx.chosen_refs)
-        entry = (entries or {}).get(key) if key else None
-        uuid = getattr(entry, "uuid", None)
-        on_board = bool(uuid) and uuid in live
-        if not on_board and presence is not None:
-            on_board = presence.has(kind, rec.get("role"), index)
-        if on_board:
-            kept.append(rec)
-            names.append(_record_label(rec, kind))
-        else:
-            to_delete.append(rec)
-    return to_delete, kept, names
-
-
-def apply_live_copper_rule(plan, ctx: CopperReadContext, record_vias,
-                           record_tracks, presence=None,
-                           record_name=None) -> list[str]:
-    """Move the records whose copper is ABSENT from the board into the plan's
-    removed_* lists; keep and NAME the rest. Returns the yellow Log lines.
-    Mutates the plan's removal lists only.
-
-    ``record_vias``/``record_tracks`` — the cell's OWN record lists (the SAME
-    dicts ``build_refresh_plan`` got): the index part of a registry key is read
-    from them, NEVER from the selection's copper (Дефект 1).
-
-    ``presence`` — ``BoardCopperPresence`` from ``absent_copper_prune`` (the
-    geometry half). ``None`` = no geometry information: the historical
-    registry-only rule (direct/unit callers). A NOT-checked presence (the dry run
-    gave no command — a refused tree, a chain-only placement, an unrealized
-    record) deletes NOTHING and says so; a checked presence deletes only what
-    NEITHER the registry nor geometry found (Дефект 2)."""
-    # Ф1: a failed board-copper read means "we do not know", NOT "the board is
-    # empty" — delete nothing and say so.
-    if not getattr(ctx, "board_read_ok", True):
-        return [_("could not read the board copper — records without a live "
-                  "pair were left as they are")]
-    unpaired_v = list(getattr(plan, "unpaired_via_records", None) or ())
-    unpaired_t = list(getattr(plan, "unpaired_track_records", None) or ())
-    lines: list[str] = []
-    if presence is not None and not presence.checked:
-        # The geometry half could not run at all: KEEP every unpaired record.
-        kept_v, kept_t = unpaired_v, unpaired_t
-        if unpaired_v or unpaired_t:
-            lines.append(_("could not check the board for record {record} — "
-                           "unpaired records left as they are").format(
-                               record=record_name or "?"))
-    else:
-        to_del_v, kept_v, _names_v = divide_unpaired_records(
-            unpaired_v, record_vias, "via", ctx.via_entries,
-            ctx.board_via_uuids, ctx, presence)
-        to_del_t, kept_t, _names_t = divide_unpaired_records(
-            unpaired_t, record_tracks, "track", ctx.track_entries,
-            ctx.board_track_uuids, ctx, presence)
-        if to_del_v:
-            plan.removed_via_records = list(plan.removed_via_records) + to_del_v
-        if to_del_t:
-            plan.removed_track_records = list(plan.removed_track_records) + to_del_t
-        removed = len(to_del_v) + len(to_del_t)
-        # The summary names BOTH halves; only say it when geometry really ran
-        # (a registry-only caller keeps the historical, silent behaviour).
-        if removed and presence is not None:
-            lines.append(_("removed {count} record(s) whose copper is not on the "
-                           "board (by registry and by geometry)").format(
-                               count=removed))
-    names = [_record_label(r, "via") for r in kept_v]
-    names += [_record_label(r, "track") for r in kept_t]
-    if names:
-        lines.append(_("not in the selection, left as they are: {names}").format(
-            names=", ".join(names)))
-    return lines
 
 
 @dataclass(frozen=True)

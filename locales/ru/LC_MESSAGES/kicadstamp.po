@@ -8570,11 +8570,6 @@ msgstr ""
 "инстанс повёрнут на {angle}° — геометрия выражена в собственной системе "
 "координат шаблона, anchor_xy не изменялся"
 
-#: kicadstamp/cell_geometry_refresh.py:915
-#, python-brace-format
-msgid "{count} record(s) without a live pair were left as they are: {names}"
-msgstr "{count} записей без пары оставлены как есть: {names}"
-
 #: kicadstamp/cell_geometry_refresh.py:1067
 msgid "refresh"
 msgstr "обновление"
@@ -11303,33 +11298,17 @@ msgstr "  via для {owner}: уже существует, пропущено (�
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"
 
-#: kicadstamp/selection_narrowing.py:538
-msgid ""
-"could not read the board copper — records without a live pair were left "
-"as they are"
-msgstr "не удалось прочитать медь платы — записи без живой пары оставлены как есть"
-
-#: kicadstamp/selection_narrowing.py:553
-#, python-brace-format
-msgid "not in the selection, left as they are: {names}"
-msgstr "не в выделении, оставлены как есть: {names}"
-
-#: kicadstamp/selection_narrowing.py:571
+#: gui/docks/cell_editor.py:2060
 #, python-brace-format
 msgid ""
-"could not check the board for record {record} — unpaired records left as "
-"they are"
-msgstr ""
-"не удалось проверить плату для записи {record} — записи без пары оставлены "
-"как есть"
+"the selection has no copper — all {count} copper records of the cell were "
+"removed"
+msgstr "в выделении нет меди — вся медь ячейки удалена ({count} записей)"
 
-#: kicadstamp/selection_narrowing.py:590
+#: gui/docks/cell_editor.py:2171
 #, python-brace-format
-msgid ""
-"removed {count} record(s) whose copper is not on the board (by registry and "
-"by geometry)"
-msgstr ""
-"удалено {count} записей, чьей меди нет на плате (по реестру и по геометрии)"
+msgid "removed {count} record(s) not in the selection"
+msgstr "удалено {count} записей, которых нет в выделении"
 
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format

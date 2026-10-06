@@ -65,10 +65,6 @@ ROWS = [
      "                reconcile_components=False)  # MUTATION",
      "die", G, ()),
     # ── findings Ф1–Ф3 ──────────────────────────────────────────────────────
-    ("Ф1 failed board read deletes", NARROWING,
-     "    if not getattr(ctx, \"board_read_ok\", True):",
-     "    if False:  # MUTATION",
-     "die", G, ()),
     ("Ф2 removed role references not reported", REFRESH,
      "            refs = referencing_records_for_roles(\n"
      "                config, missing_roles, chosen_cluster, chosen_sheet)",

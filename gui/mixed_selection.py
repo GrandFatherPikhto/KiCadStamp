@@ -21,13 +21,11 @@ cell cluster keeps today's whole-selection path.
 The copper is the SELECTED copper minus everything the registries recorded for
 OTHER records (``subtract_foreign_copper``) minus every live ``net_traces:``
 record's planned copper even when unregistered (``subtract_net_trace_copper``,
-Н4 п.5а). The prelude also returns a ``CopperReadContext`` so the worker can
-apply Н4 п.5 — the decision itself lives in `kicadstamp/`. A record with no live
-pair is deleted only when its copper is NOT on the board by EITHER half of the
-rule: the registry uuid OR geometry (the corrected Н4 п.5,
-plan_2026_10_06_prune_absent_cell_copper). The context carries the registry
-identity/addresses and the live uuids; the cell's OWN record lists travel to the
-rule as an explicit argument from the worker, never here (Дефект 1).
+Н4 п.5а). The record with no live pair is no longer decided here at all: С-1
+(plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06) made the read
+STRICTLY the selection, so the worker itself passes ``remove_missing=True`` and
+this prelude only narrows and subtracts. The chosen instance's ``(cluster,
+sheet)`` address rides out in ``chosen_address`` for that plan.
 
 Returns None when the cell's cluster is UNKNOWN (nothing to narrow by) — the
 caller then keeps today's behaviour byte for byte. A truthy result always
@@ -49,7 +47,6 @@ from kicadstamp.registry import (
     record_key_part,
 )
 from kicadstamp.selection_narrowing import (
-    CopperReadContext,
     FootprintInfo,
     cell_clusters,
     cell_record_addresses,
@@ -79,8 +76,9 @@ class MixedPrelude:
     instance_footprints — the chosen instance's board components (the same
         objects), the component half of the selection-after-read.
     kept_copper — every live via/track that stayed in the read.
-    copper_ctx — the data Н4 п.5 needs to split the unpaired records (None only
-        for a refusal result, where nothing is planned anyway).
+    chosen_address — the chosen instance's (cluster, sheet) the narrowing
+        resolved (None only for a refusal result). The worker hands it to
+        ``build_refresh_plan`` as ``chosen_cluster``/``chosen_sheet``.
     log_lines — ((text, level), ...) the finish handler prints in the Log.
     refusal — a non-empty text means the caller must build nothing and print it
         red (the ambiguity / no-instance cases)."""
@@ -90,7 +88,7 @@ class MixedPrelude:
     tracks: list
     instance_footprints: list
     kept_copper: list
-    copper_ctx: Optional[CopperReadContext] = None
+    chosen_address: Optional[tuple] = None
     log_lines: list = field(default_factory=list)
     refusal: Optional[str] = None
     # Р3: the pieces handed from a net_traces record to the cell (empty unless the
@@ -282,31 +280,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         transfers = ()
         net_notes = list(net_v.notes) + list(net_t.notes)
 
-    # Ф1: a failed board-copper read must NOT look like "the board is empty" —
-    # the deletion rule then deletes nothing (board_read_ok=False).
-    board_read_ok = True
-    try:
-        board_via_uuids = frozenset(getattr(v, "uuid", None)
-                                    for v in adapter.get_vias())
-        board_track_uuids = frozenset(getattr(t, "uuid", None)
-                                      for t in adapter.get_tracks())
-    except Exception:  # noqa: BLE001 — a read must not crash the narrow
-        logger.exception("could not read the board copper for the live-UUID rule")
-        board_read_ok = False
-        board_via_uuids = frozenset()
-        board_track_uuids = frozenset()
-
-    # NOTE (plan_2026_10_06_prune_absent_cell_copper, Дефект 1): the context no
-    # longer carries the cell's record lists. The worker passes the SAME record
-    # dicts it gave build_refresh_plan straight to apply_live_copper_rule; the
-    # lists that used to sit here were the SELECTION's live copper, so the
-    # registry key's index never matched and nothing was ever deleted.
-    ctx = CopperReadContext(
-        cell_identity=cell_identity, own_addresses=own_addresses,
-        chosen_address=chosen_address, chosen_refs=frozenset(chosen_refs),
-        via_entries=via_entries, track_entries=track_entries,
-        board_via_uuids=board_via_uuids, board_track_uuids=board_track_uuids,
-        board_read_ok=board_read_ok)
+    # С-1 (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06): the read
+    # is STRICTLY the selection, decided by ``build_refresh_plan(remove_missing=
+    # True)`` in the worker. The soft Н4 п.5 verdict (registry uuid / geometry
+    # dry run) is gone from the product — nothing here reads the board's copper
+    # uuids any more, and no CopperReadContext crosses this boundary.
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, others), SUCCESS)]
     # Ф3: a net_traces record whose anchor could not be resolved says so.
@@ -321,9 +299,6 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         # (Н4), never handed over. Say it, never skip it silently.
         lines.append((_("the instance being read is not the exploded one — "
                         "the inter-cluster copper was subtracted"), WARN))
-    # м1: the "could not read the board copper" line is NOT added here — the
-    # worker gets it from ONE place only (apply_live_copper_rule), so refresh and
-    # import each print it exactly once.
     subtraction = _subtraction_line(
         [sub_v, sub_t] if transfer_ok else [sub_v, sub_t, net_v, net_t])
     if subtraction:
@@ -335,6 +310,6 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         tracks=list(kept_t),
         instance_footprints=list(instance_fps),
         kept_copper=list(kept_v) + list(kept_t),
-        copper_ctx=ctx,
+        chosen_address=(chosen_cluster, chosen_sheet),
         log_lines=lines,
         transfers=transfers)

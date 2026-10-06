@@ -545,17 +545,6 @@ class RefreshPlan:
     new_track_records: list[dict] = field(default_factory=list)
     removed_via_records: list[dict] = field(default_factory=list)
     removed_track_records: list[dict] = field(default_factory=list)
-    # keep_unpaired (Denis 2026-10-05): one Log line naming every record a MIXED
-    # read found without a live pair and left COMPLETELY as it is (nothing
-    # deleted, nothing changed). Empty unless keep_unpaired and at least one
-    # record had no live counterpart.
-    unpaired_reports: list[str] = field(default_factory=list)
-    # Н4 п.5: the unpaired records THEMSELVES (the SAME dicts), so the caller can
-    # apply the live-UUID rule — delete only when the registry's uuid for the
-    # record is ABSENT from the board, keep (and name) otherwise. Empty unless
-    # keep_unpaired and at least one record had no live pair.
-    unpaired_via_records: list[dict] = field(default_factory=list)
-    unpaired_track_records: list[dict] = field(default_factory=list)
     # J.1: honest report lines the GUI prints in the Log (non-rigid cluster /
     # turned instance). Empty for an ordinary unrotated rigid selection.
     warnings: list[str] = field(default_factory=list)
@@ -901,36 +890,6 @@ def _frame_warnings(frame: CellFrame | None) -> list[str]:
     return warnings
 
 
-def _record_label(record: dict, kind: str) -> str:
-    """A short human name for one cell record: its kind and net (net_from_role
-    ROLE/PAD, a literal net, or '(no net)') — the H.2.4 rule that an unpaired
-    record must be NAMED, not merely counted."""
-    if record.get("net_from_role"):
-        pad = record.get("net_from_role_pad")
-        net = (_("net_from_role {role}/{pad}").format(
-                   role=record["net_from_role"], pad=pad)
-               if pad else
-               _("net_from_role {role}").format(role=record["net_from_role"]))
-    elif record.get("net"):
-        net = str(record["net"])
-    else:
-        net = _("(no net)")
-    return _("{kind} on {net}").format(kind=kind, net=net)
-
-
-def _unpaired_kept_report(via_records: list[dict],
-                          track_records: list[dict]) -> list[str]:
-    """One Log line naming EVERY record keep_unpaired left without a live pair
-    (Denis 2026-10-05): a bare counter says nothing, so each record is named by
-    kind + net. Empty when nothing was unpaired."""
-    entries = ([_record_label(rec, "via") for rec in via_records]
-               + [_record_label(rec, "track") for rec in track_records])
-    if not entries:
-        return []
-    return [_("{count} record(s) without a live pair were left as they are: "
-              "{names}").format(count=len(entries), names=", ".join(entries))]
-
-
 def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
                                   chosen_sheet=None) -> dict:
     """Ф2 (acceptance of cbc8bdc, Н4 п.4): which records OUTSIDE the cell
@@ -1007,7 +966,6 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        origin_role: str | None = None,
                        add_new_copper: bool = False,
                        remove_missing: bool = False,
-                       keep_unpaired: bool = False,
                        reconcile_components: bool = False,
                        config: Any = None,
                        chosen_cluster: str | None = None,
@@ -1051,18 +1009,6 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     (H.2.2 — it is what catches a partial/foreign selection BEFORE any copper
     disappears).
 
-    keep_unpaired (Denis 2026-10-05, the SOFT mode the MIXED path uses): a
-    RECORD with no live counterpart is LEFT COMPLETELY AS IT IS — not a count
-    fatal, not deleted, not changed. The group is still paired up to min(n, m)
-    (globally nearest, H.1.3) so the paired records are refreshed and the live
-    copper they do not describe is still added (add_new_copper); the unpaired
-    records are only NAMED in RefreshPlan.unpaired_reports (the Log line
-    "N record(s) without a live pair were left as they are: <names>") and never
-    appear in removed_*. The deletion of a genuinely removed record belongs to
-    the read-back by the CLEAN selection after a mixed read (remove_missing=True,
-    today's ordinary path). Passing both keep_unpaired and remove_missing keeps
-    the records (keep_unpaired wins). Tier-4 leftover live copper keeps its
-    add_new_copper treatment; the symmetric ROLE match stays a hard fatal.
 
     cell_layer (H.1.1) — the cell's own copper layer, threaded into the track
     grouping (net/template + effective layer) so records and live tracks of the
@@ -1201,12 +1147,11 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     track_leftover: list[Any] = []
     via_removed: list[dict] = []
     track_removed: list[dict] = []
-    # keep_unpaired (Denis 2026-10-05): neither soft mode may make an unpaired
-    # record a count fatal, so both feed the matcher missing_is_fatal=False.
-    # They differ BELOW: remove_missing keeps the records in removed_* (delete),
-    # keep_unpaired reports them and CLEARS the lists (leave as they are). The
-    # strict default (both False) keeps today's collected fatal.
-    missing_is_fatal = not remove_missing and not keep_unpaired
+    # remove_missing (H.2.1): a record with no live counterpart is no longer a
+    # count fatal — the unpaired records go to removed_* for the caller to
+    # DELETE (the strict "cell = selection" rule of 2026-10-06). The strict
+    # default (remove_missing=False) keeps today's collected fatal.
+    missing_is_fatal = not remove_missing
     if frame is not None:
         via_updates, via_problems, via_leftover, via_removed = _match_copper(
             match_vias, raw_via_items, frame, role_to_ref, adapter, "via",
@@ -1245,21 +1190,8 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             _classify_import_net(rec, live, role_nets, components)
             new_track_records.append(rec)
 
-    # keep_unpaired: name every record left without a live pair and drop it from
-    # the deletion lists — the record must survive UNTOUCHED (nothing in the
-    # plan references it, so the caller has nothing to delete or rewrite).
-    unpaired_reports: list[str] = []
-    unpaired_via_records: list[dict] = []
-    unpaired_track_records: list[dict] = []
-    if keep_unpaired:
-        unpaired_via_records = list(via_removed)
-        unpaired_track_records = list(track_removed)
-        unpaired_reports = _unpaired_kept_report(via_removed, track_removed)
-        via_removed = []
-        track_removed = []
     # Н4.2: copper whose component role left the board goes regardless of
-    # pairing — it has nothing to stand on. Added AFTER the keep_unpaired
-    # clearing, so a soft read never resurrects it.
+    # pairing — it has nothing to stand on (added on top of remove_missing).
     if reconcile_components and missing_roles:
         seen_v = {id(r) for r in via_removed}
         for r in vias:
@@ -1282,9 +1214,6 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         new_track_records=new_track_records,
         removed_via_records=via_removed,
         removed_track_records=track_removed,
-        unpaired_reports=unpaired_reports,
-        unpaired_via_records=unpaired_via_records,
-        unpaired_track_records=unpaired_track_records,
         warnings=warnings,
         new_component_records=new_component_records,
         removed_component_records=removed_component_records,

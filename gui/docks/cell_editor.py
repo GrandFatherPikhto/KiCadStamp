@@ -100,11 +100,6 @@ from kicadstamp.config import (load_cell, load_cell_placement, load_template_com
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
-from kicadstamp.absent_copper_prune import (
-    BoardCopperPresence,
-    instance_copper_presence,
-)
-from kicadstamp.selection_narrowing import apply_live_copper_rule
 from kicadstamp.explode_transfer import apply_transfers
 
 from ..board_layers import (
@@ -121,7 +116,7 @@ from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
-from ..mixed_selection import WARN as _SELECTION_WARN
+from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
 from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
@@ -175,49 +170,6 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
     if prelude.refusal:
         return footprints, vias, tracks, None, prelude.refusal
     return (prelude.footprints, prelude.vias, prelude.tracks, prelude, None)
-
-
-def _prune_absent_cell_copper(plan, prelude, payload, cfg) -> list:
-    """Н4 п.5 for one read: delete the records whose copper left the board by
-    EITHER half of the rule (registry uuid OR geometry), keep and name the rest.
-
-    The geometry half is a dry run of THIS instance's recording
-    (``absent_copper_prune.instance_copper_presence`` — its OWN adapter, closed
-    on both paths). When no record places the cell (a chain-only placement), the
-    config is missing or the dry run gives nothing, the verdict is a NOT-checked
-    presence: the rule then deletes NOTHING and says so.
-
-    Wiring only (deepseek.md §45) — the decision lives in ``kicadstamp/``. The
-    cell's OWN record lists (``payload["vias"]/["tracks"]``) go to the rule as an
-    explicit argument: they are the SAME dicts ``build_refresh_plan`` got, so the
-    registry key's index resolves (Дефект 1)."""
-    ctx = prelude.copper_ctx
-    unpaired = bool(getattr(plan, "unpaired_via_records", None)
-                    or getattr(plan, "unpaired_track_records", None))
-    record = None
-    presence = None
-    if unpaired and cfg is not None:
-        from ..select_cell import instance_recording_name
-        record = instance_recording_name(
-            cfg, payload.get("cell_name"), ctx.chosen_address[0],
-            ctx.chosen_address[1])
-        if record is not None:
-            try:
-                presence = instance_copper_presence(
-                    payload.get("root_path"), record, payload.get("timeout_ms"),
-                    ctx.cell_identity)
-            except Exception:  # noqa: BLE001 — a check must not fail the read
-                logger.exception("could not check the board for the copper of "
-                                 "record %r", record)
-                presence = None
-    if presence is None:
-        # No geometry information: "could not check" -> keep every unpaired
-        # record (a fresh, NOT-checked presence carries that meaning into the
-        # rule). Only reached when the read actually has unpaired records.
-        presence = BoardCopperPresence() if unpaired else None
-    return list(apply_live_copper_rule(
-        plan, ctx, payload.get("vias") or [], payload.get("tracks") or [],
-        presence=presence, record_name=record))
 
 
 def _problem_lines(text: str) -> list[str]:
@@ -2073,40 +2025,39 @@ class CellDock(QWidget):
                 plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
                 add_new_copper=True,
-                # H.2: the CLEAN path keeps today's symmetry expression byte for
-                # byte — an unpaired record is DELETED (remove_missing=True when
-                # the prelude is None). A MIXED selection switches to the SOFT
-                # keep_unpaired (Denis 2026-10-05), which WINS over remove_missing:
-                # its records may legally have no live pair in the narrowed read,
-                # so they are left as they are and NAMED in the Log below (never
-                # deleted); the deletion belongs to the read-back by the clean
-                # selection after the read (Denis 2026-10-04: "а после — перечитать").
-                remove_missing=prelude is None,
-                keep_unpaired=prelude is not None,
+                # С-1 (plan_2026_10_06_prune_absent_cell_copper; Denis 2026-10-06):
+                # "Update from selection" is STRICT on EVERY path — a cell record
+                # (via/track) with no pair in the selection is DELETED, whether its
+                # copper is still on the board or not: the cell becomes exactly the
+                # selection. The read-back by a clean selection is no longer the
+                # only deletion path (the 2026-10-05 softening is withdrawn by word
+                # of Denis); "Import from selection" below stays purely additive.
+                remove_missing=True,
                 # Н4.2: a by-cluster read reconciles the component set — the
                 # instance's extra roles become NEW records, the cell's missing
                 # roles are DELETED (with their copper), never a role fatal.
                 reconcile_components=prelude is not None,
                 config=cfg,
-                chosen_cluster=(prelude.copper_ctx.chosen_address[0]
-                                if prelude and prelude.copper_ctx else None),
-                chosen_sheet=(prelude.copper_ctx.chosen_address[1]
-                              if prelude and prelude.copper_ctx else None),
+                chosen_cluster=(prelude.chosen_address[0]
+                                if prelude and prelude.chosen_address else None),
+                chosen_sheet=(prelude.chosen_address[1]
+                              if prelude and prelude.chosen_address else None),
                 cell_layer=payload.get("cell_layer"),
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
-            # Н4 п.5 (corrected, plan_2026_10_06_prune_absent_cell_copper): delete
-            # an unpaired record only when its copper is on the board by NEITHER
-            # the registry uuid NOR geometry; keep (and NAME) the rest. In the
-            # ordinary (non-cluster) path the old keep_unpaired report stands
-            # untouched.
-            if prelude is not None and prelude.copper_ctx is not None:
-                for line in _prune_absent_cell_copper(plan, prelude, payload, cfg):
-                    selection_lines.append((line, _SELECTION_WARN))
-            else:
-                for line in plan.unpaired_reports:
-                    selection_lines.append((line, _SELECTION_WARN))
+            # С-1 п.4: a selection with NO copper (only components ticked) removes
+            # EVERY copper record of the cell. Not forbidden (Denis 2026-10-06),
+            # but the consequence is SAID before the write as ONE red Log line —
+            # never a confirmation window (А0б).
+            read_copper = len(plan_vias) + len(plan_tracks)
+            removed_copper = (len(plan.removed_via_records)
+                              + len(plan.removed_track_records))
+            if not read_copper and removed_copper:
+                selection_lines.append((
+                    _("the selection has no copper — all {count} copper records "
+                      "of the cell were removed").format(count=removed_copper),
+                    _SELECTION_ERROR))
             # Р3а-1: the transfer is NOT applied here. This is the WORKER thread,
             # and `apply_transfers` writes the working set (its listener touches a
             # QTimer and widgets — "Timers cannot be started from another thread"),
@@ -2209,6 +2160,15 @@ class CellDock(QWidget):
             self._show_message(record_report_line("-", record, "via"), _WARN_STYLE)
         for record in plan.removed_track_records:
             self._show_message(record_report_line("-", record, "track"), _WARN_STYLE)
+        # С-1 п.1: the итог naming WHY those records went — every one of them had
+        # no pair in the selection (the strict rule of 2026-10-06).
+        removed_copper = (len(plan.removed_via_records)
+                          + len(plan.removed_track_records))
+        if removed_copper:
+            self._show_message(
+                _("removed {count} record(s) not in the selection").format(
+                    count=removed_copper),
+                _WARN_STYLE)
         self._show_message(
             _("Updated cell {name!r} from selection — {updated} record(s) updated, "
               "{added} via/track record(s) added, {removed} record(s) removed. "
@@ -2453,12 +2413,9 @@ class CellDock(QWidget):
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"),
                 reconcile_components=prelude is not None)
-            # м1: the board-copper lines (unreadable board, "could not check")
-            # come from ONE place on BOTH doors. Import never deletes, so only a
-            # failed read or a could-not-check verdict can produce a line here.
-            if prelude is not None and prelude.copper_ctx is not None:
-                for line in _prune_absent_cell_copper(plan, prelude, payload, cfg):
-                    selection_lines.append((line, _SELECTION_WARN))
+            # С-1 п.2: Import stays purely ADDITIVE — it never deletes, so it does
+            # NOT run the copper-presence rule at all; the strict path is Refresh's
+            # alone (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06).
             if prelude is not None:
                 try:
                     adapter.select_items(list(prelude.instance_footprints)

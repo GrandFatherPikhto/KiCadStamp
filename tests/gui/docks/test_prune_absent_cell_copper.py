@@ -1,24 +1,22 @@
 # tests/gui/docks/test_prune_absent_cell_copper.py
-"""Worker-level cells for the CORRECTED Н4 п.5 — a cell record whose copper left
-the board (plan_2026_10_06_prune_absent_cell_copper; Denis 2026-10-05/06).
+"""Worker-level cells for С-1 — "Update from selection" is STRICTLY the selection
+(plan_2026_10_06_prune_absent_cell_copper; Denis 2026-10-06).
+
+Denis's word of 2026-10-06 WITHDRAWS the soft Н4 п.5 rule of 2026-10-05: a cell
+record (via/track) with NO pair in the (narrowed) selection is DELETED, on EVERY
+path — a clean selection and a by-cluster (mixed) one — whether its copper is
+still on the board or not. The cell becomes exactly the selection. "Import from
+selection" stays purely additive.
 
 These drive the REAL ``CellDock._run_refresh_geometry`` /
-``_run_import_vias_tracks`` with a real config on disk and a fake board whose
-selection holds ONE of the cell's three tracks. They prove the rule Denis
-stated:
+``_run_import_vias_tracks`` with a real config on disk and a fake board, so the
+whole worker path is exercised; the board boundary is faked, the rule is the
+product's.
 
-  * a record whose copper is NOT found by the registry uuid but IS found by
-    GEOMETRY (the dry run of this instance's recording) is KEPT and named;
-  * a record the REGISTRY still knows as live is KEPT even when geometry misses;
-  * a record found by NEITHER is DELETED, with the "(by registry and by
-    geometry)" summary line;
-  * a dry run that yielded nothing deletes NOTHING ("could not check");
-  * Import stays purely ADDITIVE (it never deletes).
-
-The geometry half drives a real ApplyPipeline of its own, so these cells stub
-``cell_editor_mod.instance_copper_presence`` with a crafted
-``BoardCopperPresence`` — the board boundary is faked, the worker path and the
-pure rule are real.
+The soft cells this file used to hold (a record kept because its uuid was live
+or because geometry found it, the "could not check" guard) asserted the OPPOSITE
+and are REWRITTEN here by the word of the task's author (plan С-1 п.5), not
+weakened.
 """
 from types import SimpleNamespace
 
@@ -27,13 +25,9 @@ import pytest
 import gui.docks.cell_editor as cell_editor_mod
 from gui.board_layers import ALL_COPPER_LAYERS
 from gui.docks.cell_editor import CellDock
-from kicadstamp.absent_copper_prune import BoardCopperPresence
-from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
-from kicadstamp.domain.board import Footprint, Track, Via
+from kicadstamp.domain.board import Footprint, Track
 from kicadstamp.domain.geometry import BoardLayer, Vector2
-from kicadstamp.registry import make_registry_key, record_key_part
 
 
 def _track(net, across, width=0.25):
@@ -86,19 +80,23 @@ def _live_track(uuid, net, x1, y1, x2, y2):
 
 
 class _Board:
-    """DAC_BUF instance on the board: its two components, ONE selected track
-    that pairs record 0, and ONE extra selected track no record describes. The
-    board ALSO carries a track uuid the registry may name (guard 2)."""
+    """The DAC_BUF instance on the board: its two components and the ONE live
+    track that pairs record 0. ``with_extra`` adds a stray selected track no
+    record describes (the additive case); ``on_board_tracks`` is what a plain
+    board read returns — copper that EXISTS on the board but is NOT in the
+    selection, so the strict rule must IGNORE it (С-1)."""
 
-    def __init__(self, board_tracks=(), paired_net=None):
+    def __init__(self, paired_net=None, with_extra=True, on_board_tracks=()):
         self.selected = [
             _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1")),
             _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2")),
         ]
         self.track0 = _live_track("t0", paired_net, 10.0, 10.0, 11.0, 10.0)
         self.extra = _live_track("t-extra", "GNDX", 30.0, 30.0, 31.0, 30.0)
-        self.selected_all = list(self.selected) + [self.track0, self.extra]
-        self._board_tracks = list(board_tracks)
+        self.selected_all = list(self.selected) + [self.track0]
+        if with_extra:
+            self.selected_all.append(self.extra)
+        self._board_tracks = list(on_board_tracks)
         self.selected_calls = []
         self.adapter = SimpleNamespace(
             refresh_board=lambda: None,
@@ -131,7 +129,6 @@ def _make_dock(main_window, tmp_path, data=None):
 def _payload(dock, board):
     return {
         "board": board,
-        "timeout_ms": 50,
         "components": list(dock._components),
         "vias": list(dock._vias),
         "tracks": list(dock._tracks),
@@ -146,105 +143,92 @@ def _payload(dock, board):
     }
 
 
-def _presence(monkeypatch, indices=(), checked=True):
-    def _stub(*_a, **_k):
-        if not checked:
-            return BoardCopperPresence()
-        return BoardCopperPresence(
-            on_board=frozenset(("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, i)
-                               for i in indices),
-            planned=3, checked=True)
-    monkeypatch.setattr(cell_editor_mod, "instance_copper_presence", _stub)
-
-
 def _texts(result):
     return [text for text, _level in result["selection_lines"]]
 
 
-def test_geometry_keeps_a_record_whose_registry_uuid_is_stale(
+def test_clean_refresh_removes_every_record_not_in_the_selection(
         main_window, tmp_path, monkeypatch):
-    """Дефект 2: the second track's stored geometry is on the board (the dry run
-    matched it by geometry) although the registry no longer knows its uuid -> the
-    record is KEPT and named. The third track is on the board by NEITHER half ->
-    DELETED, and the summary says so. This is the cell the whole plan exists
-    for: the old rule deleted every record whose uuid went stale."""
+    """С-1 п.1: a clean selection pairing ONE of the cell's three tracks deletes
+    the other two — a record with no live pair is gone, no matter that its copper
+    could still be on the board. The Log names each removed record and the итог."""
     dock, _ = _make_dock(main_window, tmp_path)
-    board = _Board()
-    _presence(monkeypatch, indices=(1,))
+    board = _Board(with_extra=False)
+    messages = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(_payload(dock, board))
 
     assert "plan" in result, result
     plan = result["plan"]
-    kept = dock._tracks[1]
-    gone = dock._tracks[2]
-    assert plan.removed_track_records == [gone]
-    assert all(rec is not kept for rec, _geo in plan.track_updates)
-    texts = _texts(result)
-    assert any("left as they are" in t and "GND" in t for t in texts)
-    assert any("removed 1 record(s)" in t and "by registry and by geometry" in t
-               for t in texts)
+    assert plan.removed_track_records == [dock._tracks[1], dock._tracks[2]]
+    assert plan.removed_via_records == []
+    assert len(plan.track_updates) == 1
+    assert plan.new_track_records == []
+
+    dock._finish_refresh_geometry(result)
+
+    assert any("- track" in m for m in messages)
+    assert any("removed 2 record(s) not in the selection" in m for m in messages)
+    assert dock._tracks == [plan.track_updates[0][0]]
 
 
-def test_registry_keeps_a_record_geometry_missed(main_window, tmp_path,
-                                                 monkeypatch):
-    """Guard 2: the third record's registry uuid is LIVE even though geometry did
-    NOT match it -> the registry half alone keeps it. Only the record neither
-    half found is deleted."""
-    dock, target = _make_dock(main_window, tmp_path)
-    cfg, _ctx = load_config(str(target))
-    cell_identity = record_key_part("dac_buf", cfg.cells["dac_buf"].uuid)
-    key = make_registry_key("anchor:C1", cell_identity, None, 2)
-    entries = {key: SimpleNamespace(uuid="u-live")}
-    monkeypatch.setattr("gui.mixed_selection.load_registry_entries",
-                        lambda config_path, cfg=None: ({}, entries,
-                                                       {"u-live": key}))
-    board = _Board(board_tracks=[_live_track("u-live", "GND2", 40.0, 40.0,
-                                             41.0, 40.0)])
-    _presence(monkeypatch, indices=())            # geometry matches nothing
-
-    result = dock._run_refresh_geometry(_payload(dock, board))
-
-    assert "plan" in result, result
-    plan = result["plan"]
-    kept_registry = dock._tracks[2]
-    gone = dock._tracks[1]
-    assert plan.removed_track_records == [gone]
-    assert all(rec is not kept_registry for rec, _geo in plan.track_updates)
-    assert any("GND2" in t and "left as they are" in t for t in _texts(result))
-
-
-def test_a_dry_run_that_yielded_nothing_deletes_nothing(main_window, tmp_path,
-                                                        monkeypatch):
-    """Guard 3: the geometry half could not run (the dry run produced no command
-    — a refused tree, a chain-only placement, an unrealized record). The rule
-    deletes NOTHING and says which record it could not check."""
+def test_cluster_refresh_removes_records_whose_copper_is_on_the_board(
+        main_window, tmp_path):
+    """С-1 п.1, by-cluster path: the two cell tracks ARE on the board (a plain
+    board read returns them) but are NOT in the selection — the cell becomes the
+    selection, so both records go. The old rule kept them because the board
+    still carried their copper."""
     dock, _ = _make_dock(main_window, tmp_path)
-    board = _Board()
-    _presence(monkeypatch, checked=False)
+    live1 = _live_track("t1", "GND", 10.0, 12.0, 11.0, 12.0)
+    live2 = _live_track("t2", "GND2", 10.0, 14.0, 11.0, 14.0)
+    board = _Board(with_extra=False, on_board_tracks=[live1, live2])
+    # A foreign cluster sharing the selection: the by-cluster prelude must run.
+    board.selected.append(_fp("P1", "PA", "PIF_AVDD", 20.0, 10.0, ("ch1", "s3")))
+    board.selected.append(_fp("P2", "PB", "PIF_AVDD", 25.0, 10.0, ("ch1", "s4")))
+    board.selected_all.extend(board.selected[-2:])
 
     result = dock._run_refresh_geometry(_payload(dock, board))
 
     assert "plan" in result, result
     plan = result["plan"]
-    assert plan.removed_track_records == []
-    texts = _texts(result)
-    assert any("could not check the board for record" in t for t in texts)
-    assert not any("removed " in t and "by registry and by geometry" in t
-                   for t in texts)
+    # The board really carries them — strictness never consults the board.
+    assert [t.uuid for t in board.adapter.get_tracks()] == ["t1", "t2"]
+    assert plan.removed_track_records == [dock._tracks[1], dock._tracks[2]]
+    assert any("read instance DAC_BUF" in t for t in _texts(result))
 
 
-def test_import_never_deletes_and_stays_additive(main_window, tmp_path,
-                                                 monkeypatch):
-    """Guard 4: the SAME call of the rule through the IMPORT door — Import never
-    removes a record, and its call receives the cell's OWN record lists (a broken
-    import call is a TypeError, killing the mutation). The cell has ONE track so
-    the strictly-additive Import plan has no unpaired record (a missing pair is a
-    count fatal there)."""
+def test_selection_without_copper_removes_every_record_and_says_so(
+        main_window, tmp_path):
+    """С-1 п.4: only COMPONENTS selected -> EVERY copper record of the cell is
+    removed, and ONE RED Log line says so before the write (no dialog, А0б)."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    board = _Board(with_extra=False,
+                   on_board_tracks=[_live_track("t1", "GND", 10.0, 12.0,
+                                                11.0, 12.0)])
+    board.selected_all = list(board.selected)          # components only
+
+    result = dock._run_refresh_geometry(_payload(dock, board))
+
+    assert "plan" in result, result
+    plan = result["plan"]
+    assert len(plan.removed_track_records) == 3
+    # EVERY record of the cell is gone — the very same dicts (identity, not
+    # order/value: the loader may normalize them).
+    assert ({id(r) for r in plan.removed_track_records}
+            == {id(r) for r in dock._tracks})
+    assert any(level == "error" and "the selection has no copper" in text
+               for text, level in result["selection_lines"])
+
+
+def test_import_adds_new_copper_and_deletes_nothing(main_window, tmp_path):
+    """С-1 п.2: Import stays purely ADDITIVE. The selected track pairs the cell's
+    only record; the stray track no record describes becomes a NEW record —
+    nothing is removed and no strict line appears."""
     dock, _ = _make_dock(main_window, tmp_path,
                          _config_data(tracks=[_track("GND", 0.0)]))
-    board = _Board(paired_net="GND")
-    _presence(monkeypatch, indices=())
+    board = _Board(paired_net="GND", with_extra=True)
     before = [dict(r) for r in dock._tracks]
 
     result = dock._run_import_vias_tracks(_payload(dock, board))
@@ -254,19 +238,18 @@ def test_import_never_deletes_and_stays_additive(main_window, tmp_path,
     assert not hasattr(plan, "removed_track_records")
     assert dock._tracks == before                      # nothing was dropped
     assert len(plan.new_track_records) == 1            # the extra live track
-    assert not any("removed " in t for t in _texts(result))
+    assert not any("not in the selection" in t for t in _texts(result))
 
 
 def test_the_refresh_worker_reads_no_ui_thread_board_handle(
         main_window, tmp_path, monkeypatch):
     """Door guard (deepseek.md п.31): with the guard ARMED in ``raise`` mode, the
     refresh worker runs to completion — it never reads the guarded
-    ``connection.board`` getter (its geometry half builds its OWN adapter)."""
+    ``connection.board`` getter."""
     from gui import connection as conn_mod
 
     dock, _ = _make_dock(main_window, tmp_path)
-    board = _Board()
-    _presence(monkeypatch, indices=(1,))
+    board = _Board(with_extra=False)
     monkeypatch.setattr(conn_mod, "ui_thread_predicate", lambda: True)
     monkeypatch.setattr(conn_mod, "ui_thread_read_refusal", conn_mod.UI_READ_RAISE)
 

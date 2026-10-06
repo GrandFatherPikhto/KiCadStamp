@@ -21,8 +21,6 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key
 from kicadstamp.selection_narrowing import (
-    CopperReadContext,
-    apply_live_copper_rule,
     subtract_net_trace_copper,
 )
 from tests.fakes.format3 import det_uuid
@@ -220,8 +218,11 @@ def test_h4a_new_record_layer_written_only_on_the_other_side(gate):
 # ── N11: only the REMOVED role's copper goes ─────────────────────────────────
 
 def test_h4a_only_the_removed_roles_copper_is_deleted(gate):
-    """N11: a track whose `net_from_role` is a role that is STILL on the board is
-    NOT removed when another role goes."""
+    """N11 (С-1 form): the copper whose `net_from_role` is a role the instance
+    LACKS goes with the role; a record whose copper IS in the read is refreshed,
+    never removed — the strict read deletes exactly what the selection does not
+    hold (Denis 2026-10-06; the soft-mode form was rewritten by his word, not
+    weakened)."""
     components = [
         {"role": "DA", "offset_along_mm": 0.0, "offset_across_mm": 0.0,
          "angle_deg": 0.0},
@@ -239,9 +240,14 @@ def test_h4a_only_the_removed_roles_copper_is_deleted(gate):
     other_track = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
                    "start_along_mm": 0.0, "start_across_mm": 2.0,
                    "end_along_mm": 1.0, "end_across_mm": 2.0}
+    # The live track pairs other_track (origin C1 at (10,10); across 2.0 -> y 12).
+    live_other = Track(uuid="u-other", net_name="GND",
+                       start=Vector2.from_xy_mm(10.0, 12.0),
+                       end=Vector2.from_xy_mm(11.0, 12.0),
+                       width_mm=0.25, layer=BoardLayer.BL_F_Cu)
     plan = build_refresh_plan(
-        components, [gone_via], [other_track], [fp_c1, fp_c2], [], [], adapter,
-        keep_unpaired=True, reconcile_components=True, cell_layer="F.Cu")
+        components, [gone_via], [other_track], [fp_c1, fp_c2], [], [live_other],
+        adapter, remove_missing=True, reconcile_components=True, cell_layer="F.Cu")
     assert gone_via in plan.removed_via_records
     assert other_track not in plan.removed_track_records
 
@@ -354,31 +360,6 @@ def test_h4a_unresolved_net_trace_anchor_is_reported(gate, tmp_path,
     assert any("not subtracted" in t and "anchor 'X' not found" in t
                for t in texts)
     assert {t.uuid for t in prelude.tracks} == {"t-nt"}
-
-
-# ── Ф1: a failed board-copper read deletes NOTHING ──────────────────────────
-
-def test_h4a_failed_board_read_deletes_nothing(gate):
-    """Ф1: board_read_ok=False means "we do not know" — a record whose registry
-    uuid is not in the (empty) board set is KEPT, and the Log says why."""
-    record = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
-              "start_along_mm": 0.0, "start_across_mm": 2.0,
-              "end_along_mm": 1.0, "end_across_mm": 2.0}
-    key = make_registry_key("name:ent", "cell", None, 0)
-    entries = {key: SimpleNamespace(uuid="u-gone")}
-    ctx = CopperReadContext(
-        cell_identity="cell",
-        own_addresses={"ent": ("DAC_BUF", "Channel_0")},
-        chosen_address=("DAC_BUF", "Channel_0"), chosen_refs=frozenset(),
-        via_entries={}, track_entries=entries,
-        board_via_uuids=frozenset(), board_track_uuids=frozenset(),
-        board_read_ok=False)
-    plan = SimpleNamespace(unpaired_via_records=[],
-                           unpaired_track_records=[record],
-                           removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx, [], [record])
-    assert plan.removed_track_records == []
-    assert any("could not read the board copper" in ln for ln in lines)
 
 
 # ── Ф2: a removed role referenced outside the cell is named ─────────────────

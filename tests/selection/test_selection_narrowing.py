@@ -648,8 +648,8 @@ def test_read_back_is_a_fixpoint(gate, tmp_path):
     assert after is not None and after.refusal is None
     plan2 = build_refresh_plan(
         components, vias, tracks, list(after.footprints), list(after.vias),
-        list(after.tracks), adapter, add_new_copper=True, remove_missing=False,
-        keep_unpaired=True, reconcile_components=True, cell_layer="F.Cu")
+        list(after.tracks), adapter, add_new_copper=True, remove_missing=True,
+        reconcile_components=True, cell_layer="F.Cu")
     assert _plan_decomposition(plan2) == ([], [], [], [], [])
     assert (config_path.read_bytes(),
             (tmp_path / "registry" / "config.registry.json").read_bytes(),
@@ -657,69 +657,10 @@ def test_read_back_is_a_fixpoint(gate, tmp_path):
             ) == before
 
 
-def _h4_ctx(record, entries, board_uuids):
-    """A minimal CopperReadContext that makes `record` an OWN record of cell
-    'cell' at (DAC_BUF, Channel_0) — the Н4 п.5 decision needs only these. The
-    cell's OWN record lists are passed to the rule as an explicit argument, not
-    held here (plan_2026_10_06_prune_absent_cell_copper, Дефект 1)."""
-    from kicadstamp.selection_narrowing import CopperReadContext
-    return CopperReadContext(
-        cell_identity="cell",
-        own_addresses={"ent": ("DAC_BUF", "Channel_0")},
-        chosen_address=("DAC_BUF", "Channel_0"), chosen_refs=frozenset(),
-        via_entries={}, track_entries=entries,
-        board_via_uuids=frozenset(), board_track_uuids=frozenset(board_uuids))
+# ── remove_missing: the strict "cell = selection" mode (С-1, Denis 2026-10-06)
+#    and the untouched strict default (neither switch) ─────────────────────────
 
-
-def test_h4_p5_track_removed_from_selection_is_kept(gate):
-    """Н4 п.5 (Denis 2026-10-05): the track is taken OUT of the selection but is
-    STILL on the board, and the registry knows its uuid -> the record is KEPT and
-    the yellow "left as they are" line is produced. (Rewritten from the Н2 cell
-    that asserted deletion — a behaviour change by word of Denis, not a weakened
-    guard.)"""
-    from kicadstamp.selection_narrowing import (apply_live_copper_rule,
-                                                divide_unpaired_records)
-    record = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
-              "start_along_mm": 0.0, "start_across_mm": 2.0,
-              "end_along_mm": 1.0, "end_across_mm": 2.0}
-    key = make_registry_key("name:ent", "cell", None, 0)
-    entries = {key: SimpleNamespace(uuid="u-alive")}
-    ctx = _h4_ctx(record, entries, {"u-alive"})
-    to_delete, kept, names = divide_unpaired_records(
-        [record], [record], "track", entries, {"u-alive"}, ctx)
-    assert to_delete == [] and kept == [record] and names
-    plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
-                           removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx, [], [record])
-    assert plan.removed_track_records == []
-    assert any("left as they are" in ln for ln in lines)
-
-
-def test_h4_p5_track_erased_from_board_is_deleted(gate):
-    """Н4 п.5: the same record, but the uuid the registry stored is GONE from the
-    live board -> the record is DELETED (returned for removal) and NOT named in
-    the kept line."""
-    from kicadstamp.selection_narrowing import (apply_live_copper_rule,
-                                                divide_unpaired_records)
-    record = {"net": "GND", "layer": "F.Cu", "width_mm": 0.25,
-              "start_along_mm": 0.0, "start_across_mm": 2.0,
-              "end_along_mm": 1.0, "end_across_mm": 2.0}
-    key = make_registry_key("name:ent", "cell", None, 0)
-    entries = {key: SimpleNamespace(uuid="u-gone")}
-    ctx = _h4_ctx(record, entries, set())
-    to_delete, kept, names = divide_unpaired_records(
-        [record], [record], "track", entries, set(), ctx)
-    assert to_delete == [record] and kept == [] and names == []
-    plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
-                           removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx, [], [record])
-    assert plan.removed_track_records == [record]
-    assert lines == []
-
-
-# ── keep_unpaired: the SOFT mode of a MIXED read (Denis 2026-10-05) ─────────
-
-def _soft_scenario(kind):
+def _unpaired_scenario(kind):
     """One cell dac_buf (components DA/DB) and, for `kind` ('via'|'track'):
     ONE record that pairs a live item, ONE record with NO live pair at all, and
     a LIVE item no record describes (the new copper). Returns
@@ -762,60 +703,12 @@ def _soft_scenario(kind):
 
 
 @pytest.mark.parametrize("kind", ["via", "track"])
-def test_keep_unpaired_leaves_the_record_and_names_it(gate, kind):
-    """Denis 2026-10-05, the SOFT mode: with keep_unpaired=True a record that
-    has no live pair is NOT a fatal and NOT deleted — it is left completely as
-    it is and NAMED in the Log; the paired record is refreshed as usual and the
-    live copper no record describes is still ADDED. Both kinds (the matcher is
-    per-kind, and so is the report)."""
-    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
-     paired, unpaired) = _soft_scenario(kind)
-    before = dict(unpaired)
-    plan = build_refresh_plan(
-        components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
-        add_new_copper=True, keep_unpaired=True, cell_layer="F.Cu")
-    # NOTHING is doomed (neither kind), the unpaired record is byte-for-byte
-    # untouched and is not among the refreshed pairs.
-    assert plan.removed_via_records == [] and plan.removed_track_records == []
-    assert unpaired == before
-    updates = plan.via_updates if kind == "via" else plan.track_updates
-    news = plan.new_via_records if kind == "via" else plan.new_track_records
-    assert all(rec is not unpaired for rec, _geo in updates)
-    # the paired record WAS refreshed (the update genuinely changes it)...
-    assert [rec for rec, _geo in updates] == [paired]
-    _rec, geo = updates[0]
-    assert any(_rec.get(k) != v for k, v in geo.items())
-    # ...and the live copper no record describes is still added as a NEW record.
-    assert len(news) == 1
-    # the Log NAMES the kept record (count + name, never a bare counter).
-    assert len(plan.unpaired_reports) == 1
-    assert "1 record(s) without a live pair" in plan.unpaired_reports[0]
-    assert "GND" in plan.unpaired_reports[0]
-
-
-@pytest.mark.parametrize("kind", ["via", "track"])
-def test_keep_unpaired_wins_over_remove_missing(gate, kind):
-    """The mixed path passes remove_missing=True AND keep_unpaired=True together
-    (CellDock). With both set, keep_unpaired WINS: the record is left as it is,
-    not returned for deletion — the deletion belongs to the read-back by the
-    clean selection after a mixed read."""
-    (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
-     _paired, unpaired) = _soft_scenario(kind)
-    plan = build_refresh_plan(
-        components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
-        add_new_copper=True, remove_missing=True, keep_unpaired=True,
-        cell_layer="F.Cu")
-    assert plan.removed_via_records == [] and plan.removed_track_records == []
-    assert plan.unpaired_reports and "GND" in plan.unpaired_reports[0]
-
-
-@pytest.mark.parametrize("kind", ["via", "track"])
 def test_remove_missing_still_deletes_the_unpaired_record(gate, kind):
-    """The CLEAN-path mode is untouched: remove_missing=True (and no
-    keep_unpaired) still returns the unpaired record for DELETION, and no
-    keep-unpaired Log line is produced — for BOTH kinds."""
+    """remove_missing=True — the mode EVERY refresh path now uses (С-1, Denis
+    2026-10-06) — returns the record with no live pair for DELETION, for BOTH
+    kinds."""
     (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
-     _paired, unpaired) = _soft_scenario(kind)
+     _paired, unpaired) = _unpaired_scenario(kind)
     plan = build_refresh_plan(
         components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks, adapter,
         add_new_copper=True, remove_missing=True, cell_layer="F.Cu")
@@ -825,7 +718,6 @@ def test_remove_missing_still_deletes_the_unpaired_record(gate, kind):
     else:
         assert plan.removed_track_records == [unpaired]
         assert plan.removed_via_records == []
-    assert plan.unpaired_reports == []
 
 
 @pytest.mark.parametrize("kind", ["via", "track"])
@@ -836,7 +728,7 @@ def test_strict_default_still_fatals_on_the_unpaired_record(gate, kind):
     from kicadstamp.exceptions import ValidationError
 
     (components, fp_c1, fp_c2, adapter, vias, tracks, raw_vias, raw_tracks,
-     _paired, _unpaired) = _soft_scenario(kind)
+     _paired, _unpaired) = _unpaired_scenario(kind)
     with pytest.raises(ValidationError):
         build_refresh_plan(
             components, vias, tracks, [fp_c1, fp_c2], raw_vias, raw_tracks,
@@ -874,7 +766,9 @@ def test_reconcile_adds_a_new_role_the_cell_lacks(gate):
 
 def test_reconcile_deletes_a_role_absent_from_the_board_and_its_copper(gate):
     """Н4.2: a cell role the instance lacks is DELETED; the copper whose
-    `net_from_role` is that role goes with it, the other role's copper does not."""
+    `net_from_role` is that role goes with it, while a record whose copper IS in
+    the read is refreshed, not removed (the С-1 strict read deletes exactly what
+    the selection does not hold)."""
     components = [dict(_RECON_DA), dict(_RECON_DB),
                   {"role": "GONE", "offset_along_mm": 2.0,
                    "offset_across_mm": 0.0, "angle_deg": 0.0}]
@@ -886,9 +780,11 @@ def test_reconcile_deletes_a_role_absent_from_the_board_and_its_copper(gate):
                 "offset_across_mm": 0.0, "drill_mm": 0.3, "diameter_mm": 0.6}
     other_via = {"net": "GND", "offset_along_mm": 1.0,
                  "offset_across_mm": 1.0, "drill_mm": 0.3, "diameter_mm": 0.6}
+    live_other = Via(uuid="u-other", position=Vector2.from_xy_mm(11.0, 11.0),
+                     net_name="GND", drill_mm=0.3, diameter_mm=0.6)
     plan = build_refresh_plan(
-        components, [gone_via, other_via], [], [fp_c1, fp_c2], [], [], adapter,
-        keep_unpaired=True, reconcile_components=True, cell_layer="F.Cu")
+        components, [gone_via, other_via], [], [fp_c1, fp_c2], [live_other], [],
+        adapter, remove_missing=True, reconcile_components=True, cell_layer="F.Cu")
     assert [c["role"] for c in plan.removed_component_records] == ["GONE"]
     assert gone_via in plan.removed_via_records
     assert other_via not in plan.removed_via_records

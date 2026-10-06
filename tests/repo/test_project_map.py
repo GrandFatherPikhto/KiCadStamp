@@ -71,12 +71,18 @@ def test_reverse_edge_names_every_known_importer():
     Deliberately a SUBSET — the subject is "the map shows the reverse edge", not
     "the module has exactly these importers": pinning the full set made this guard
     redden on every legitimate new import (доделка 2 of Р3а-4). The EXACT property
-    is pinned on a TEMP tree below, where the importer set is the test's own."""
+    is pinned on a TEMP tree below, where the importer set is the test's own.
+
+    FACT UPDATE (С-1, plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06):
+    `gui.docks.cell_editor` no longer imports this module — the strict "by the
+    selection" read dropped the soft `apply_live_copper_rule` entirely — so the
+    list names `kicadstamp.explode` instead, a real importer. Five names, the same
+    property."""
     text = pm.build_map(ROOT)
     line = _reverse_line(text, "kicadstamp/selection_narrowing.py")
-    for importer in ("gui.docks.cell_anchor_view", "gui.docks.cell_editor",
-                     "gui.explode_guard", "gui.mixed_selection",
-                     "gui.select_cell"):
+    for importer in ("gui.docks.cell_anchor_view", "gui.explode_guard",
+                     "gui.mixed_selection", "gui.select_cell",
+                     "kicadstamp.explode"):
         assert importer in line, f"{importer} missing from: {line}"
 
 
