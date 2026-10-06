@@ -276,7 +276,9 @@ def cmd_read(config_path, cell):
             cell_layer=entry.get("layer") or "F.Cu",
             nested_placements=entry.get("clone_placements") or [],
             cells=dict(cfg.cells), sheet_names=sheet_names)
-        lines = apply_live_copper_rule(plan, prelude.copper_ctx)
+        lines = apply_live_copper_rule(
+            plan, prelude.copper_ctx, entry.get("vias") or [],
+            entry.get("tracks") or [])
 
         def changed(pairs):
             return sum(1 for rec, geo in pairs

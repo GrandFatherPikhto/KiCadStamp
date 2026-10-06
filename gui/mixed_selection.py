@@ -22,8 +22,12 @@ The copper is the SELECTED copper minus everything the registries recorded for
 OTHER records (``subtract_foreign_copper``) minus every live ``net_traces:``
 record's planned copper even when unregistered (``subtract_net_trace_copper``,
 Н4 п.5а). The prelude also returns a ``CopperReadContext`` so the worker can
-apply Н4 п.5 (delete a record only when the registry's uuid is ABSENT from the
-board) — the decision itself lives in `kicadstamp/`.
+apply Н4 п.5 — the decision itself lives in `kicadstamp/`. A record with no live
+pair is deleted only when its copper is NOT on the board by EITHER half of the
+rule: the registry uuid OR geometry (the corrected Н4 п.5,
+plan_2026_10_06_prune_absent_cell_copper). The context carries the registry
+identity/addresses and the live uuids; the cell's OWN record lists travel to the
+rule as an explicit argument from the worker, never here (Дефект 1).
 
 Returns None when the cell's cluster is UNKNOWN (nothing to narrow by) — the
 caller then keeps today's behaviour byte for byte. A truthy result always
@@ -292,12 +296,17 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         board_via_uuids = frozenset()
         board_track_uuids = frozenset()
 
+    # NOTE (plan_2026_10_06_prune_absent_cell_copper, Дефект 1): the context no
+    # longer carries the cell's record lists. The worker passes the SAME record
+    # dicts it gave build_refresh_plan straight to apply_live_copper_rule; the
+    # lists that used to sit here were the SELECTION's live copper, so the
+    # registry key's index never matched and nothing was ever deleted.
     ctx = CopperReadContext(
         cell_identity=cell_identity, own_addresses=own_addresses,
         chosen_address=chosen_address, chosen_refs=frozenset(chosen_refs),
         via_entries=via_entries, track_entries=track_entries,
         board_via_uuids=board_via_uuids, board_track_uuids=board_track_uuids,
-        vias=list(vias), tracks=list(tracks), board_read_ok=board_read_ok)
+        board_read_ok=board_read_ok)
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, others), SUCCESS)]
     # Ф3: a net_traces record whose anchor could not be resolved says so.

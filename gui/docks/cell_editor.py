@@ -100,6 +100,10 @@ from kicadstamp.config import (load_cell, load_cell_placement, load_template_com
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
+from kicadstamp.absent_copper_prune import (
+    BoardCopperPresence,
+    instance_copper_presence,
+)
 from kicadstamp.selection_narrowing import apply_live_copper_rule
 from kicadstamp.explode_transfer import apply_transfers
 
@@ -120,6 +124,7 @@ from ..cell_edit_context import (
 from ..mixed_selection import WARN as _SELECTION_WARN
 from ..mixed_selection import narrow_mixed_selection
 from ..select_cell import pick_instance, resolve_action_instance
+from .cell_form_guard import anchor_role_selection, effective_anchor_role
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message)
@@ -170,6 +175,49 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
     if prelude.refusal:
         return footprints, vias, tracks, None, prelude.refusal
     return (prelude.footprints, prelude.vias, prelude.tracks, prelude, None)
+
+
+def _prune_absent_cell_copper(plan, prelude, payload, cfg) -> list:
+    """Н4 п.5 for one read: delete the records whose copper left the board by
+    EITHER half of the rule (registry uuid OR geometry), keep and name the rest.
+
+    The geometry half is a dry run of THIS instance's recording
+    (``absent_copper_prune.instance_copper_presence`` — its OWN adapter, closed
+    on both paths). When no record places the cell (a chain-only placement), the
+    config is missing or the dry run gives nothing, the verdict is a NOT-checked
+    presence: the rule then deletes NOTHING and says so.
+
+    Wiring only (deepseek.md §45) — the decision lives in ``kicadstamp/``. The
+    cell's OWN record lists (``payload["vias"]/["tracks"]``) go to the rule as an
+    explicit argument: they are the SAME dicts ``build_refresh_plan`` got, so the
+    registry key's index resolves (Дефект 1)."""
+    ctx = prelude.copper_ctx
+    unpaired = bool(getattr(plan, "unpaired_via_records", None)
+                    or getattr(plan, "unpaired_track_records", None))
+    record = None
+    presence = None
+    if unpaired and cfg is not None:
+        from ..select_cell import instance_recording_name
+        record = instance_recording_name(
+            cfg, payload.get("cell_name"), ctx.chosen_address[0],
+            ctx.chosen_address[1])
+        if record is not None:
+            try:
+                presence = instance_copper_presence(
+                    payload.get("root_path"), record, payload.get("timeout_ms"),
+                    ctx.cell_identity)
+            except Exception:  # noqa: BLE001 — a check must not fail the read
+                logger.exception("could not check the board for the copper of "
+                                 "record %r", record)
+                presence = None
+    if presence is None:
+        # No geometry information: "could not check" -> keep every unpaired
+        # record (a fresh, NOT-checked presence carries that meaning into the
+        # rule). Only reached when the read actually has unpaired records.
+        presence = BoardCopperPresence() if unpaired else None
+    return list(apply_live_copper_rule(
+        plan, ctx, payload.get("vias") or [], payload.get("tracks") or [],
+        presence=presence, record_name=record))
 
 
 def _problem_lines(text: str) -> list[str]:
@@ -456,6 +504,12 @@ class CellDock(QWidget):
         # anchor" page, so a load-time snapshot of anchor_xy is stale either way
         # (see _build_cell_dict).
         self._loaded_name: Optional[str] = None
+        # СЦ-clobber (plan_2026_10_05_celldock_anchor_role_clobber): the anchor
+        # fields are re-written VERBATIM unless the user touched the picker this
+        # session (see cell_form_guard.effective_anchor_role) — the widget is
+        # never the source of truth for an untouched anchor_role.
+        self._loaded_anchor_role: Optional[str] = None
+        self._anchor_role_touched = False
         self._selected_component: Optional[int] = None
         self._selected_via: Optional[int] = None
         self._selected_track: Optional[int] = None
@@ -625,7 +679,18 @@ class CellDock(QWidget):
         self.name_edit.editingFinished.connect(self._autostage)
         self.comment_edit.editingFinished.connect(self._autostage)
         self.layer_combo.currentIndexChanged.connect(self._autostage)
+        # A mode switch is a user action on the anchor too: it marks the picker
+        # "touched" (BEFORE _autostage's _on_save reads the flag) so a freshly
+        # chosen Role mode writes the role the user sees. Guarded by _loading in
+        # the slot, so load_entry's own mode set does NOT count.
+        self.anchor_mode_combo.currentIndexChanged.connect(
+            self._mark_anchor_role_touched)
         self.anchor_mode_combo.currentIndexChanged.connect(self._autostage)
+        # _mark_anchor_role_touched FIRST: it must set the "touched" flag BEFORE
+        # _autostage's _on_save reads it, or a rejected change would still write
+        # the loaded value (slots run in connection order).
+        self.anchor_role_combo.currentIndexChanged.connect(
+            self._mark_anchor_role_touched)
         self.anchor_role_combo.currentIndexChanged.connect(self._autostage)
         self.anchor_pad_edit.editingFinished.connect(self._autostage)
 
@@ -951,6 +1016,14 @@ class CellDock(QWidget):
         # (see the combo's construction comment).
         mode = self.anchor_mode_combo.currentData()
         self._anchor_role_row.setVisible(mode == "role")
+
+    def _mark_anchor_role_touched(self) -> None:
+        """The user touched the anchor controls (the role picker OR the mode
+        switch) — from now on their pick is the answer (cell_form_guard).
+        Guarded by _loading so load_entry's own setCurrentText/setCurrentIndex
+        does NOT count as a touch."""
+        if not self._loading:
+            self._anchor_role_touched = True
 
     def _refresh_role_choices(self) -> None:
         """Repopulates every combo whose valid values are THIS cell's own
@@ -1632,7 +1705,12 @@ class CellDock(QWidget):
 
         mode = self.anchor_mode_combo.currentData()
         if mode == "role":
-            role = self.anchor_role_combo.currentText().strip()
+            # СЦ-clobber: the widget is the answer ONLY when the user touched it;
+            # otherwise the LOADED role is written verbatim (a closed combo can
+            # show the first role while the record says something else).
+            role = effective_anchor_role(
+                mode, self.anchor_role_combo.currentText(),
+                self._loaded_anchor_role, self._anchor_role_touched)
             if not role:
                 self._show_message(_("Anchor: pick a Role first."), _ERROR_STYLE)
                 return None
@@ -1751,7 +1829,9 @@ class CellDock(QWidget):
         every Role-anchored cell lost its origin_role, so build_refresh_plan
         fell back to the legacy (0,0) origin and re-reads started failing."""
         if self.anchor_mode_combo.currentData() == "role":
-            return self.anchor_role_combo.currentText().strip() or None
+            return effective_anchor_role(
+                "role", self.anchor_role_combo.currentText(),
+                self._loaded_anchor_role, self._anchor_role_touched)
         return None
 
     def _on_refresh_geometry(self) -> None:
@@ -1800,6 +1880,10 @@ class CellDock(QWidget):
         # lists regardless of list identity.
         payload = {
             "board": board,
+            # The copper-presence check (plan_2026_10_06_prune_absent_cell_copper)
+            # drives its OWN pipeline on the worker; its timeout comes from the
+            # SAME connection, never a constant (door contract).
+            "timeout_ms": worker_timeout_ms(connection),
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
@@ -2012,12 +2096,13 @@ class CellDock(QWidget):
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
-            # Н4 п.5: split the unpaired records by the registry's live uuid —
-            # delete only the ones whose copper is GONE from the board, keep
-            # (and NAME) the rest. In the ordinary (non-cluster) path the old
-            # keep_unpaired report stands untouched.
+            # Н4 п.5 (corrected, plan_2026_10_06_prune_absent_cell_copper): delete
+            # an unpaired record only when its copper is on the board by NEITHER
+            # the registry uuid NOR geometry; keep (and NAME) the rest. In the
+            # ordinary (non-cluster) path the old keep_unpaired report stands
+            # untouched.
             if prelude is not None and prelude.copper_ctx is not None:
-                for line in apply_live_copper_rule(plan, prelude.copper_ctx):
+                for line in _prune_absent_cell_copper(plan, prelude, payload, cfg):
                     selection_lines.append((line, _SELECTION_WARN))
             else:
                 for line in plan.unpaired_reports:
@@ -2286,6 +2371,9 @@ class CellDock(QWidget):
         # are untouched by construction).
         payload = {
             "board": board,
+            # Same copper-presence check and same timeout rule as the refresh
+            # read (plan_2026_10_06_prune_absent_cell_copper).
+            "timeout_ms": worker_timeout_ms(connection),
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
@@ -2365,11 +2453,11 @@ class CellDock(QWidget):
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"),
                 reconcile_components=prelude is not None)
-            # м1: the "could not read the board copper" line comes from ONE place
-            # (apply_live_copper_rule) on BOTH doors — import never deletes, so
-            # only a failed board read can produce a line here.
+            # м1: the board-copper lines (unreadable board, "could not check")
+            # come from ONE place on BOTH doors. Import never deletes, so only a
+            # failed read or a could-not-check verdict can produce a line here.
             if prelude is not None and prelude.copper_ctx is not None:
-                for line in apply_live_copper_rule(plan, prelude.copper_ctx):
+                for line in _prune_absent_cell_copper(plan, prelude, payload, cfg):
                     selection_lines.append((line, _SELECTION_WARN))
             if prelude is not None:
                 try:
@@ -2787,6 +2875,8 @@ class CellDock(QWidget):
             self.anchor_role_combo.setCurrentText("")
             self.anchor_pad_edit.setText("")
             self._loaded_name = None
+            self._loaded_anchor_role = None
+            self._anchor_role_touched = False
             self._on_anchor_mode_changed()
             self._components = []
             self._vias = []
@@ -2831,10 +2921,25 @@ class CellDock(QWidget):
         # (a rename in the form must still carry the LOADED cell's anchor_xy).
         self._loaded_name = name
         self._loading = True
+        role_warning = None
         try:
             self.name_edit.setText(name)
             self.comment_edit.setText(str(entry.get("comment") or ""))
             self.layer_combo.setCurrentIndex(self._findable(self.layer_combo, entry.get("layer", "F.Cu")))
+
+            # СЦ-clobber (plan_2026_10_05_celldock_anchor_role_clobber): pour THIS
+            # cell's roles into the combos BEFORE selecting the saved anchor_role.
+            # A closed QComboBox cannot select a value it does not yet hold — it
+            # silently keeps/auto-selects its FIRST item (the previous cell's
+            # role, or this cell's alphabetically first) and the next Save wrote
+            # that name into the record.
+            self._components = [dict(c) for c in (entry.get("components") or [])]
+            self._refresh_role_choices()
+            self._loaded_anchor_role = entry.get("anchor_role") or None
+            self._anchor_role_touched = False
+            role_value, role_warning = anchor_role_selection(
+                sorted({c["role"] for c in self._components}),
+                entry.get("anchor_role"))
 
             # Anchor dispatch (Фаза B): this form now owns ONLY the offline
             # Role anchor. A stored anchor_xy (v2 marker / Role+Pad anchor) is
@@ -2845,15 +2950,15 @@ class CellDock(QWidget):
             if entry.get("anchor_role"):
                 self.anchor_mode_combo.setCurrentIndex(
                     max(0, self.anchor_mode_combo.findData("role")))
-                self.anchor_role_combo.setCurrentText(str(entry["anchor_role"]))
+                self.anchor_role_combo.setCurrentText(role_value)
             else:
                 self.anchor_mode_combo.setCurrentIndex(
                     max(0, self.anchor_mode_combo.findData("none")))
                 self.anchor_role_combo.setCurrentText("")
             self.anchor_pad_edit.setText(str(entry.get("anchor_pad", "") or ""))
             self._on_anchor_mode_changed()
-
-            self._components = [dict(c) for c in (entry.get("components") or [])]
+            if role_warning:
+                self._show_message(role_warning, _WARN_STYLE)
             self._vias = [dict(v) for v in (entry.get("vias") or [])]
             self._tracks = [dict(t) for t in (entry.get("tracks") or [])]
             self._nested = [dict(n) for n in (entry.get("clone_placements") or [])]

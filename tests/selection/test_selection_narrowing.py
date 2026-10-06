@@ -659,15 +659,16 @@ def test_read_back_is_a_fixpoint(gate, tmp_path):
 
 def _h4_ctx(record, entries, board_uuids):
     """A minimal CopperReadContext that makes `record` an OWN record of cell
-    'cell' at (DAC_BUF, Channel_0) — the Н4 п.5 decision needs only these."""
+    'cell' at (DAC_BUF, Channel_0) — the Н4 п.5 decision needs only these. The
+    cell's OWN record lists are passed to the rule as an explicit argument, not
+    held here (plan_2026_10_06_prune_absent_cell_copper, Дефект 1)."""
     from kicadstamp.selection_narrowing import CopperReadContext
     return CopperReadContext(
         cell_identity="cell",
         own_addresses={"ent": ("DAC_BUF", "Channel_0")},
         chosen_address=("DAC_BUF", "Channel_0"), chosen_refs=frozenset(),
         via_entries={}, track_entries=entries,
-        board_via_uuids=frozenset(), board_track_uuids=frozenset(board_uuids),
-        vias=[], tracks=[record])
+        board_via_uuids=frozenset(), board_track_uuids=frozenset(board_uuids))
 
 
 def test_h4_p5_track_removed_from_selection_is_kept(gate):
@@ -689,7 +690,7 @@ def test_h4_p5_track_removed_from_selection_is_kept(gate):
     assert to_delete == [] and kept == [record] and names
     plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
                            removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx)
+    lines = apply_live_copper_rule(plan, ctx, [], [record])
     assert plan.removed_track_records == []
     assert any("left as they are" in ln for ln in lines)
 
@@ -711,7 +712,7 @@ def test_h4_p5_track_erased_from_board_is_deleted(gate):
     assert to_delete == [record] and kept == [] and names == []
     plan = SimpleNamespace(unpaired_via_records=[], unpaired_track_records=[record],
                            removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx)
+    lines = apply_live_copper_rule(plan, ctx, [], [record])
     assert plan.removed_track_records == [record]
     assert lines == []
 

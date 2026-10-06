@@ -130,6 +130,19 @@ def _no_layer_warning(monkeypatch):
                         lambda adapter: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_board_presence_check(monkeypatch):
+    """The corrected Н4 п.5 drives a REAL ``ApplyPipeline`` of its own (a live
+    socket) to read the geometry half of "is the copper on the board?". These
+    cells fake the board, so they stub that check to a NOT-checked verdict —
+    the honest "could not check": nothing is deleted and the unpaired records
+    are kept and named. The prune cells of their own file override this with a
+    crafted ``BoardCopperPresence``."""
+    from kicadstamp.absent_copper_prune import BoardCopperPresence
+    monkeypatch.setattr(cell_editor_mod, "instance_copper_presence",
+                        lambda *a, **k: BoardCopperPresence())
+
+
 def _make_dock(main_window, tmp_path, data=None):
     target = _write_config(tmp_path, data)
     dock = CellDock(main_window)

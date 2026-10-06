@@ -10681,6 +10681,20 @@ msgstr ""
 msgid "not in the selection, left as they are: {names}"
 msgstr ""
 
+#: kicadstamp/selection_narrowing.py:571
+#, python-brace-format
+msgid ""
+"could not check the board for record {record} — unpaired records left as "
+"they are"
+msgstr ""
+
+#: kicadstamp/selection_narrowing.py:590
+#, python-brace-format
+msgid ""
+"removed {count} record(s) whose copper is not on the board (by registry and "
+"by geometry)"
+msgstr ""
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"
@@ -17975,5 +17989,10 @@ msgstr ""
 msgid ""
 "Select cell: {components} component(s); the redraw planner produced no copper "
 "for record {record} (reason — in the Log above); copper — registry only: {r}"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"anchor_role {role!r} is not a role of this cell — kept; fix it in Cell anchor"
 msgstr ""
 

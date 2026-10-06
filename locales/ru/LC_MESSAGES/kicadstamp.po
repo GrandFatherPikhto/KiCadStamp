@@ -11314,6 +11314,23 @@ msgstr "не удалось прочитать медь платы — запи�
 msgid "not in the selection, left as they are: {names}"
 msgstr "не в выделении, оставлены как есть: {names}"
 
+#: kicadstamp/selection_narrowing.py:571
+#, python-brace-format
+msgid ""
+"could not check the board for record {record} — unpaired records left as "
+"they are"
+msgstr ""
+"не удалось проверить плату для записи {record} — записи без пары оставлены "
+"как есть"
+
+#: kicadstamp/selection_narrowing.py:590
+#, python-brace-format
+msgid ""
+"removed {count} record(s) whose copper is not on the board (by registry and "
+"by geometry)"
+msgstr ""
+"удалено {count} записей, чьей меди нет на плате (по реестру и по геометрии)"
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"
@@ -18878,4 +18895,11 @@ msgid ""
 msgstr ""
 "Выделить ячейку: {components} компонент(ов); планировщик перерисовки не дал "
 "меди для записи {record} (причина — в Логе выше); медь — только по реестру: {r}"
+
+#, python-brace-format
+msgid ""
+"anchor_role {role!r} is not a role of this cell — kept; fix it in Cell anchor"
+msgstr ""
+"anchor_role {role!r} — не роль этой ячейки — значение сохранено; поправьте "
+"на странице «Якорь ячейки»"
 

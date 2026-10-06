@@ -372,11 +372,11 @@ def test_h4a_failed_board_read_deletes_nothing(gate):
         chosen_address=("DAC_BUF", "Channel_0"), chosen_refs=frozenset(),
         via_entries={}, track_entries=entries,
         board_via_uuids=frozenset(), board_track_uuids=frozenset(),
-        vias=[], tracks=[record], board_read_ok=False)
+        board_read_ok=False)
     plan = SimpleNamespace(unpaired_via_records=[],
                            unpaired_track_records=[record],
                            removed_via_records=[], removed_track_records=[])
-    lines = apply_live_copper_rule(plan, ctx)
+    lines = apply_live_copper_rule(plan, ctx, [], [record])
     assert plan.removed_track_records == []
     assert any("could not read the board copper" in ln for ln in lines)
 
