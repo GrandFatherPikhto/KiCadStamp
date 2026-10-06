@@ -547,6 +547,50 @@ def test_the_cell_via_with_the_same_index_is_not_the_components(
     assert component["vias"]                 # the component's own via stayed
 
 
+def test_the_subtraction_is_staged_into_the_working_set_without_a_manual_save(
+        main_window, tmp_path, monkeypatch):
+    """С-2б: the real `SubtractWiring.finish` must STAGE the change, not merely
+    mutate the widget's lists. With a project open every dock edit lands in the
+    ConfigWorkingSet (`_autostage` → `_on_save` → `merge_write` → the working
+    set), and the project Save is what puts it on disk.
+
+    Without the autostage the subtraction would live ONLY in the dock's memory:
+    the Log would report it, the tables would show it, and the project Save would
+    write the record straight back. So the cell runs the real finish on a removed
+    record with NO manual Save and asserts the WORKING SET holds the cell without
+    it — while the file on disk still carries it (that is what makes it staging,
+    not a write)."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    dock, _ = _make_dock(main_window, tmp_path)
+    _fake_board(monkeypatch, [_live_track("u1", "GND", 10.0, 12.0, 11.0, 12.0)])
+    _fake_map(monkeypatch, {"dac0": _record_map(index=1, uuid="u1")})
+    _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    # monkeypatch, never `WORKING_SET.enabled = True` (tests/repo/test_repo_hygiene.py:
+    # a test does not assign into an imported name — the fixture undoes it for you).
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    try:
+        result = dock._run_subtract_from_selection(_payload(dock))
+        dock._finish_subtract_from_selection(result)      # the real wiring.finish
+
+        assert dock._tracks == [before[0], before[2]]     # the widget lost it
+        assert WORKING_SET.is_dirty(), "the subtraction must be staged"
+
+        staged = WORKING_SET.staged_content(str(dock._path.resolve()))
+        assert staged is not None, "nothing was staged for the cell's file"
+        tracks = staged["cells"]["dac_buf"]["tracks"]
+        assert len(tracks) == 2, tracks
+        assert [t.get("net") for t in tracks] == [None, "GND2"], tracks
+
+        # ...and it is STAGED, not written: the file on disk still carries it.
+        on_disk = sexp_to_dict(dock._path.read_text(encoding="utf-8"))
+        assert len(on_disk["cells"]["dac_buf"]["tracks"]) == 3
+    finally:
+        WORKING_SET.clear()
+
+
 # NOTE on the plan's guard 6 («Add selected copper» — the old Import — keeps its
 # cells, only the action's NAME changes): that plane needs no cell HERE. The import
 # door has its own guards (tests/gui/docks/test_cell_editor.py,

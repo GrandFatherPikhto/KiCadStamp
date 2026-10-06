@@ -20,6 +20,9 @@ its С-2а доделка (the same plan's "Приёмка С-2 ... ЧАСТИЧ
   * M9 (С-2а-3) the report builder is not used -> nothing is printed at all
   * M10 (С-2а-4) the worker's adapter is built without the profile -> a board read
                                                 made with the wrong rails
+  * M11 (С-2б)  the removed record is applied but never STAGED -> the change lives
+                                                in the widget only; the project Save
+                                                writes the record back
   * K1 a cosmetic comment                    -> MUST survive
 
 (The plan's fourth row, «Import started subtracting», needs no row of its own: the
@@ -135,6 +138,15 @@ ROWS = [
     ("M10 the worker's adapter is built without the profile", WORKER,
      "            \"config_path\": str(dock._root_path) if dock._root_path else None,",
      "            \"config_path\": None,  # MUTATION",
+     "die", G, ()),
+    # M11 (С-2б) — the dock must STAGE the result of the subtraction: with a project
+    # open every cell edit lands in the ConfigWorkingSet and the project Save writes
+    # it out (SubtractWiring._apply_removed -> dock._autostage()). Without it the
+    # Log and the tables report a change that would never reach the file.
+    ("M11 the subtraction is not staged (no autostage)", WORKER,
+     "        dock._refresh_all_tables()\n"
+     "        dock._autostage()",
+     "        dock._refresh_all_tables()  # MUTATION",
      "die", G, ()),
     # K1 — cosmetic comment (control): must survive.
     ("K1 cosmetic comment (control)", SUBTRACT,
