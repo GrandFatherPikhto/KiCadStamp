@@ -2429,6 +2429,23 @@ the extractor's own heuristic (a net a selected role's pad carries -> `net_from_
 plain literal net — Import never writes `net: null`, 2026-09-04), and its geometry is relative to the
 same zero-offset origin.
 
+**Subtract selected copper** (2026-10-06) — the third action over a cell's records: a **Subtract copper**
+button in the Cell dialog next to Refresh/Import, and a right-click **Subtract selected copper...** action
+on a Cell leaf in the Cells category. It is Refresh's mirror image: instead of turning copper the cell does
+not describe into NEW records, it DELETES the records the selection does NOT name. Components are never
+touched. The pairing is the exact one **Select cell** uses — the registry uuid first, then exact geometry
+(position, layer, width, net) — so a foreign track running 0.1 mm away from a record never claims it (the
+greedy nearest-neighbour pairing Refresh uses for geometry would, which is why subtraction does not use it).
+**Invariant: you can subtract exactly what Select cell would highlight.** The instance follows the same
+**Select cell** rule; when several instances' recordings match the selected copper the run refuses in red
+(a wrong instance's record would take copper away from a live one) and nothing is deleted. A selected
+component is ignored, so a selection of only components reports "no copper is selected" and subtracts
+nothing. An empty dry run (the recording is not materialised, the cell is placed by a chain) deletes nothing
+and says so in red — the same fragility Select cell has. Selected items that are not records of this cell
+are counted in one "not records of cell X — ignored" line. Every removed record is named (`- via …` /
+`- track …`) followed by "subtracted N record(s) — Save to write the change": like Refresh the change is
+staged and needs Save, and the registries are only read.
+
 **Behaviour change (2026-10-04/05): a MIXED selection is no longer a refusal.** Selecting the edited
 cluster together with the clusters standing next to it (on the live board DAC_BUF sits flush against
 the PIFs) used to fail on the first foreign Role. Now **Update from selection...** / **Import from

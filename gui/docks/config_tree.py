@@ -232,6 +232,11 @@ class ConfigTreeDock(QWidget):
     # copper the cell doesn't describe yet -> NEW records; existing ones are
     # never touched). Same (name, file_path) shape.
     cell_import_requested = pyqtSignal(str, object)
+    # Fired by the context menu's "Subtract selected copper..." (С-2, 2026-10-06,
+    # plan_2026_10_06_prune_absent_cell_copper) — CellDock listens via its
+    # subtract_from_selection_requested() entry point: it REMOVES the records the
+    # CURRENT selection names (copper only; components are never touched).
+    cell_subtract_requested = pyqtSignal(str, object)
     # Н5 (2026-10-05, plan_2026_10_04_refresh_mixed_cluster_selection): the
     # context menu's "Select cell" — highlight the placed instance's board
     # components PLUS the copper the registries recorded for this cell at that
@@ -1532,6 +1537,10 @@ class ConfigTreeDock(QWidget):
                 # cannot MODIFY one — they complement, never overlap).
                 menu.addAction(_("Import from selection...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
+                # С-2: the third action over the records — REMOVE the ones the
+                # CURRENT selection names (copper only).
+                menu.addAction(_("Subtract selected copper...")).triggered.connect(
+                    lambda: self.cell_subtract_requested.emit(old_name, file_path))
                 # СЦ-1: three items in order — components, cell, enclosed.
                 components_action = menu.addAction(_("Select cell components"))
                 components_action.setObjectName("select_cell_components_action")

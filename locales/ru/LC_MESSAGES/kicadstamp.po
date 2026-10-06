@@ -11310,6 +11310,46 @@ msgstr "в выделении нет меди — вся медь ячейки �
 msgid "removed {count} record(s) not in the selection"
 msgstr "удалено {count} записей, которых нет в выделении"
 
+#: gui/docks/cell_editor.py:582
+msgid "Subtract copper"
+msgstr "Вычесть медь"
+
+#: gui/docks/cell_editor.py:583
+msgid "Subtract selected copper"
+msgstr "Вычесть выделенное"
+
+#: gui/docks/config_tree.py:1536
+msgid "Subtract selected copper..."
+msgstr "Вычесть выделенное..."
+
+#: gui/subtract_copper.py:1
+#, python-brace-format
+msgid "no copper is selected — nothing was subtracted ({count} component(s) are ignored)"
+msgstr "медь не выделена — ничего не вычтено (компонентов проигнорировано: {count})"
+
+#, python-brace-format
+msgid "the selection matches {count} instances of cell {cell!r} ({labels}) — select the copper of ONE instance and subtract again"
+msgstr "выделение совпало с экземплярами ячейки {cell!r}: {count} ({labels}) — выделите медь ОДНОГО экземпляра и повторите вычитание"
+
+msgid "could not match the selection to the cell's records — the dry run planned nothing"
+msgstr "не удалось сопоставить выделение с записями ячейки — сухой прогон не дал ни одной команды"
+
+#, python-brace-format
+msgid "nothing to subtract — the selection holds no copper record of cell {cell!r}"
+msgstr "вычитать нечего — в выделении нет меди ячейки {cell!r}"
+
+#, python-brace-format
+msgid "subtracted {count} record(s) — Save to write the change"
+msgstr "вычтено записей: {count} — сохраните, чтобы записать изменение"
+
+#, python-brace-format
+msgid "{count} selected item(s) are not records of cell {cell!r} — ignored"
+msgstr "выделено {count} элемент(ов), не являющихся записями ячейки {cell!r} — проигнорировано"
+
+#, python-brace-format
+msgid "Subtract selected copper failed: {error}"
+msgstr "Не удалось вычесть выделенное: {error}"
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"

@@ -1041,6 +1041,10 @@ class DockHub:
         # existing records).
         self.config_tree_dock.cell_import_requested.connect(
             self._import_cell_from_selection)
+        # С-2 (plan_2026_10_06_prune_absent_cell_copper): the context menu's
+        # "Subtract selected copper..." — the records the CURRENT selection names.
+        self.config_tree_dock.cell_subtract_requested.connect(
+            self._subtract_cell_from_selection)
         # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the context menu's
         # "... (choose layers)..." variants — the SAME two delegates with the
         # layer dialog in front (one extra flag, no second implementation).
@@ -2964,6 +2968,16 @@ class DockHub:
         and staged by _autostage()."""
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
+
+    def _subtract_cell_from_selection(self, name, file_path) -> None:
+        """ConfigTreeDock's cell_subtract_requested delegate (С-2, plan_2026_10_06_
+        prune_absent_cell_copper) — the context menu's "Subtract selected copper...":
+        the same explicit file handling as the two reads above, then CellDock's own
+        subtraction entry point (it loads the requested cell when it is not the one
+        open and runs the very same worker as the dock's button). No layer dialog:
+        the pairing is by each record's own live copper. The change is staged by
+        CellDock._autostage()."""
+        self.cells_dock.subtract_from_selection_requested(name, file_path)
 
     # ── "Разнос" (Р2) ───────────────────────────────────────────────────────
 

@@ -112,6 +112,7 @@ from ..board_layers import (
 from ..worker import start_long_op
 from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
+from ..subtract_copper import run_subtract_worker
 from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
@@ -580,6 +581,13 @@ class CellDock(QWidget):
         self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
         self.import_vias_tracks_button.setEnabled(False)
         refresh_row.addWidget(self.import_vias_tracks_button)
+        # С-2 (Denis 2026-10-06): the third action over a cell's records — subtract
+        # the ones the CURRENT selection names (never touches components).
+        self.subtract_copper_button = QPushButton(_("Subtract copper"))
+        self.subtract_copper_button.setToolTip(_("Subtract selected copper"))
+        self.subtract_copper_button.clicked.connect(self._on_subtract_selected_copper)
+        self.subtract_copper_button.setEnabled(False)
+        refresh_row.addWidget(self.subtract_copper_button)
         # Phase E (plan_2026_09_09_..._phase_e): "Refresh geometry" / "Import
         # vias/tracks" fatal on any role missing from the selection, so they
         # need the WHOLE placed cluster instance selected — this button picks it
@@ -1745,6 +1753,7 @@ class CellDock(QWidget):
         enabled = adapter is not None and bool(self._components)
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
+        self.subtract_copper_button.setEnabled(enabled)
         self.select_cluster_button.setEnabled(enabled)
         self.select_cell_button.setEnabled(enabled)
         self.explode_button.setEnabled(enabled)
@@ -1832,9 +1841,8 @@ class CellDock(QWidget):
         # lists regardless of list identity.
         payload = {
             "board": board,
-            # The copper-presence check (plan_2026_10_06_prune_absent_cell_copper)
-            # drives its OWN pipeline on the worker; its timeout comes from the
-            # SAME connection, never a constant (door contract).
+            # Door contract: the worker's own pipeline reads THIS connection's
+            # timeout, never a constant.
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(self._components),
             "vias": list(self._vias),
@@ -2236,8 +2244,8 @@ class CellDock(QWidget):
     def _drop_records(removed_records: list, bucket: list) -> int:
         """Drop exactly the plan's removed records from `bucket` and return how
         many went. Identity-based (`id()`), never by value: identical records
-        may legitimately appear several times in a list, and only the one the
-        plan actually unpaired may go."""
+        may legitimately appear several times in a list, and only the record the
+        plan actually removed may go."""
         doomed = {id(r) for r in removed_records or []}
         if not doomed:
             return 0
@@ -2331,8 +2339,7 @@ class CellDock(QWidget):
         # are untouched by construction).
         payload = {
             "board": board,
-            # Same copper-presence check and same timeout rule as the refresh
-            # read (plan_2026_10_06_prune_absent_cell_copper).
+            # Same timeout rule as the refresh read (door contract).
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(self._components),
             "vias": list(self._vias),
@@ -2413,9 +2420,8 @@ class CellDock(QWidget):
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"),
                 reconcile_components=prelude is not None)
-            # С-1 п.2: Import stays purely ADDITIVE — it never deletes, so it does
-            # NOT run the copper-presence rule at all; the strict path is Refresh's
-            # alone (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06).
+            # С-1 п.2: Import stays purely ADDITIVE — it never deletes; the strict,
+            # deleting path is Refresh's alone (build_refresh_plan(remove_missing=True)).
             if prelude is not None:
                 try:
                     adapter.select_items(list(prelude.instance_footprints)
@@ -2483,6 +2489,121 @@ class CellDock(QWidget):
         self._refresh_all_tables()
         self._autostage()
         return count
+
+    # ── «Subtract selected copper» (С-2, plan_2026_10_06_prune_absent_cell_copper)
+
+    def _on_subtract_selected_copper(self) -> None:
+        """Button / context action: subtract the cell records the selection names.
+
+        No layer dialog: the pairing is by each record's own live copper (the
+        registry uuid, then exact geometry), so layers never enter it — and only
+        copper is subtracted, never a component."""
+        self._read_subtract_from_selection()
+
+    def _read_subtract_from_selection(self) -> None:
+        connection = getattr(self._main_window, "connection", None)
+        # Door contract (gui/connection.py's own refusal text): a PRESENCE check
+        # belongs on connection.is_connected, never on connection.board. This
+        # action also needs no board handle on the UI thread at all — the worker
+        # builds its OWN adapter and closes it (gui/subtract_copper.py).
+        if connection is None or not getattr(connection, "is_connected", False):
+            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
+            return
+        if not self._components:
+            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
+            return
+        if self._path is None:
+            self._show_message(_("Set the project root first."), _ERROR_STYLE)
+            return
+        if self._active_op is not None:
+            return
+        payload = {
+            "timeout_ms": worker_timeout_ms(connection),
+            "components": list(self._components),
+            "vias": list(self._vias),
+            "tracks": list(self._tracks),
+            "root_path": str(self._root_path) if self._root_path else None,
+            "cell_name": self.name_edit.text().strip(),
+            "cluster": self._remembered_cluster_value(),
+            "sheet": self._remembered_sheet_value(),
+        }
+        self._active_op = start_long_op(
+            connection, (self.subtract_copper_button,),
+            self._run_subtract_from_selection,
+            self._finish_subtract_from_selection, self._on_subtract_op_failed,
+            payload)
+
+    def _run_subtract_from_selection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Worker thread: the whole decision lives in the Qt-free modules."""
+        return run_subtract_worker(payload)
+
+    def _finish_subtract_from_selection(self, result: Dict[str, Any]) -> None:
+        """UI thread: report every removed record, then apply the removal to the
+        loaded cell (drop by identity — the plan records ARE those dicts), refresh
+        the tables and autostage, exactly like a manual row Delete."""
+        self._active_op = None
+        cell = result.get("cell", "?")
+        if result.get("error"):
+            for line in _problem_lines(result["error"]):
+                self._show_message(line, _ERROR_STYLE)
+            return
+        if result.get("no_copper"):
+            self._show_message(
+                _("no copper is selected — nothing was subtracted "
+                  "({count} component(s) are ignored)").format(
+                      count=result.get("components", 0)),
+                _WARN_STYLE)
+            return
+        if result.get("ambiguous"):
+            self._show_message(
+                _("the selection matches {count} instances of cell {cell!r} "
+                  "({labels}) — select the copper of ONE instance and subtract "
+                  "again").format(count=len(result["ambiguous"]), cell=cell,
+                                  labels="; ".join(result["ambiguous"])),
+                _ERROR_STYLE)
+            return
+        if result.get("empty"):
+            self._show_message(
+                _("could not match the selection to the cell's records — the dry "
+                  "run planned nothing"), _ERROR_STYLE)
+            return
+        removed = list(result.get("removed") or ())
+        if not removed:
+            self._show_message(
+                _("nothing to subtract — the selection holds no copper record of "
+                  "cell {cell!r}").format(cell=cell), _SUCCESS_STYLE)
+        else:
+            self._drop_records([r for kind, r in removed if kind == "via"],
+                               self._vias)
+            self._drop_records([r for kind, r in removed if kind == "track"],
+                               self._tracks)
+            self._refresh_all_tables()
+            self._autostage()
+            for kind, record in removed:
+                self._show_message(record_report_line("-", record, kind),
+                                   _WARN_STYLE)
+            self._show_message(
+                _("subtracted {count} record(s) — Save to write the change").format(
+                    count=len(removed)), _SUCCESS_STYLE)
+        if result.get("not_ours"):
+            self._show_message(
+                _("{count} selected item(s) are not records of cell {cell!r} — "
+                  "ignored").format(count=result["not_ours"], cell=cell),
+                _WARN_STYLE)
+
+    def _on_subtract_op_failed(self, message: str) -> None:
+        self._active_op = None
+        self._show_message(
+            _("Subtract selected copper failed: {error}").format(error=message),
+            _ERROR_STYLE)
+
+    def subtract_from_selection_requested(self, name: str, file_path) -> None:
+        """ConfigTreeDock's cell_subtract_requested delegate (С-2): the context
+        menu's "Subtract selected copper..." — load the requested cell when it is
+        not the one open, then run the SAME read as the dock's own button."""
+        if self.name_edit.text().strip() != name:
+            self.load_entry(name, file_path)
+        self._on_subtract_selected_copper()
 
     def import_from_selection_requested(self, name: str, file_path,
                                         choose_layers: bool = False) -> None:
