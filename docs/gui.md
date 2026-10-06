@@ -2444,10 +2444,10 @@ selection...** narrow the selection to ONE instance of the edited cell:
 * after the read the board selection is set to the chosen instance's components AND all the copper that
   entered the read, so the result is visible and can be corrected by hand and read again. Reading it
   back without a hand edit changes nothing — the run is a no-op and no file is written.
-* a record whose live pair is absent from the narrowed read is DELETED, on every path — the cell becomes
-  exactly the selection (Denis 2026-10-06: "давай просто строго: по выделению"). "Update from selection"
-  does not ask the board whether the copper is still there, so a selection with NO copper (only
-  components) removes EVERY copper record of the cell — a red Log line says so before the write. The
+* a cell record (via/track) with no live pair in the narrowed read is DELETED — on every path (a clean
+  selection and a by-cluster one), and whether its copper is still on the board or not: the cell becomes
+  exactly the selection, and the board is never asked. A selection with NO copper (only components)
+  therefore removes EVERY copper record of the cell — a red Log line says so before the write. The
   strictly-additive door is **Import from selection...**, which never deletes.
 * zero candidates (a wrong/incomplete cluster) — today's refusal (the role message); several candidates
   (e.g. two channels of the same cell selected) — a red Log line listing them, nothing read or written,
@@ -2471,10 +2471,6 @@ exact-role candidate rule then found ZERO candidates and refused the whole selec
   instance, or the origin role absent, stays a fatal (a red Log line);
 * copper is the SELECTED copper minus everything the registries recorded for other records AND minus
   every live `net_traces:` record's planned copper even when the registry does not know it yet;
-* a cell record with no live pair is DELETED — clean or by-cluster, and regardless of whether its copper
-  is still on the board (the 2026-10-05 softening is withdrawn, Denis 2026-10-06). Deleting a record that
-  was genuinely removed is therefore part of the read itself; **Import from selection...** remains the
-  purely additive door when the copper must be kept;
 * the rule runs on ANY selection, clean included; only an unknown cell cluster keeps today's path. All
   refusals are red Log lines — no dialog.
 

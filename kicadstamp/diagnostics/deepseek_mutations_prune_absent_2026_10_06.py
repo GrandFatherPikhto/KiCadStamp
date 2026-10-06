@@ -13,6 +13,7 @@ below map to the plan's own С-1 mutation list:
   * M3 the "selection has no copper" line is gone -> the red warning disappears
   * M4 the strict итог line is gone              -> the Log never says what went
   * M5 Import goes through the refresh plan      -> Import starts deleting
+  * C3 the "no copper" line fires with copper    -> the red line lies (Claude)
   * K1 a cosmetic comment                        -> MUST survive
 
 Guards: tests/gui/docks/test_prune_absent_cell_copper.py (the С-1 worker cells),
@@ -82,6 +83,13 @@ ROWS = [
      "                remove_missing=True,\n"
      "                cell_layer=payload.get(\"cell_layer\"),\n"
      "                reconcile_components=prelude is not None)",
+     "die", G, ()),
+    # C3 (Claude's С-1 acceptance finding): the red "no copper" line fires even
+    # when the selection HOLDS copper. The worker cells carry the NEGATIVE assert
+    # for it — that is the only thing that catches this.
+    ("C3 the no-copper line fires with copper present", EDITOR,
+     "            if not read_copper and removed_copper:",
+     "            if removed_copper:  # MUTATION",
      "die", G, ()),
     # K1 — cosmetic comment (control): must survive.
     ("K1 cosmetic comment (control)", ABSENT,

@@ -171,6 +171,9 @@ def test_clean_refresh_removes_every_record_not_in_the_selection(
 
     assert any("- track" in m for m in messages)
     assert any("removed 2 record(s) not in the selection" in m for m in messages)
+    # C3 (Claude's С-1 acceptance): the red "no copper" line must NOT fire when the
+    # selection DOES hold copper — otherwise it lies about what happened.
+    assert not any("the selection has no copper" in m for m in messages)
     assert dock._tracks == [plan.track_updates[0][0]]
 
 
@@ -197,6 +200,9 @@ def test_cluster_refresh_removes_records_whose_copper_is_on_the_board(
     assert [t.uuid for t in board.adapter.get_tracks()] == ["t1", "t2"]
     assert plan.removed_track_records == [dock._tracks[1], dock._tracks[2]]
     assert any("read instance DAC_BUF" in t for t in _texts(result))
+    # C3: the by-cluster path deletes too, but the selection HAS copper — the red
+    # "no copper" line must not appear.
+    assert not any("the selection has no copper" in t for t in _texts(result))
 
 
 def test_selection_without_copper_removes_every_record_and_says_so(
