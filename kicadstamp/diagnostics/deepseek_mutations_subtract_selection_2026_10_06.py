@@ -17,6 +17,7 @@ its С-2а доделка (the same plan's "Приёмка С-2 ... ЧАСТИЧ
                                                 check that DID run is denied in red
   * M8 (С-2а-2) no instance matched, so the ignored count is dropped -> the Log
                                                 loses its "not records of cell" line
+  * M9 (С-2а-3) the report builder is not used -> nothing is printed at all
   * K1 a cosmetic comment                    -> MUST survive
 
 (The plan's fourth row, «Import started subtracting», needs no row of its own: the
@@ -37,9 +38,12 @@ from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 a
 
 SUBTRACT = "kicadstamp/subtract_selection.py"
 ABSENT = "kicadstamp/absent_copper_prune.py"
+# С-2а-3 moved the GUI half — the read, the worker, the application and the report
+# — into this module; gui/docks/cell_editor.py keeps one-line delegates, so no row
+# targets it any more.
 WORKER = "gui/subtract_copper.py"
-EDITOR = "gui/docks/cell_editor.py"
-G = ["test_subtract_selection.py", "test_subtract_selected_copper.py"]
+G = ["test_subtract_selection.py", "test_subtract_selected_copper.py",
+     "test_subtract_copper.py"]
 
 ROWS = [
     # M1 — the defect the intermediate review found: the record is resolved from
@@ -62,30 +66,41 @@ ROWS = [
      "        if False:  # MUTATION",
      "die", G, ()),
     # M4 — the components-only guard is lost: a selection of components alone stops
-    # being named and reads as "nothing to subtract".
-    ("M4 the components-only guard is lost", EDITOR,
-     "        if result.get(\"no_copper\"):",
-     "        if False:  # MUTATION",
+    # being named and reads as "nothing to subtract". Since С-2а-3 the branch that
+    # NAMES it is the pure report builder (the guard itself, `if not selected`, is
+    # the worker's — both live in gui/subtract_copper.py now).
+    ("M4 the components-only guard is lost", WORKER,
+     "    if result.get(\"no_copper\"):",
+     "    if False:  # MUTATION",
      "die", G, ()),
     # M5 (С-2а-1) — the BLOCKER of the С-2а review: a cell's copper has TWO levels,
     # and the record of a COMPONENT has to leave that component's own list too.
-    # Dropping only from the cell's lists leaves the via in the file.
-    ("M5 only the cell's lists are dropped (component via stays)", EDITOR,
-     "        for component in self._components:\n"
+    # Dropping only from the cell's lists leaves the via in the file. (Since
+    # С-2а-3 the drop lives in the SubtractWiring, not in the giant.)
+    ("M5 only the cell's lists are dropped (component via stays)", WORKER,
+     "        for component in dock._components:\n"
      "            component_vias = component.get(\"vias\")\n"
      "            if component_vias:\n"
-     "                self._drop_records(vias, component_vias)\n"
-     "        self._refresh_all_tables()",
-     "        self._refresh_all_tables()  # MUTATION",
+     "                dock._drop_records(vias, component_vias)\n"
+     "        dock._refresh_all_tables()",
+     "        dock._refresh_all_tables()  # MUTATION",
      "die", G, ()),
     # M6 (С-2а-1) — the component's own list IS dropped, but the tables are never
     # rebuilt from it: the dock shows one thing and would save another.
-    ("M6 the component list is dropped but the table is not rebuilt", EDITOR,
-     "                self._drop_records(vias, component_vias)\n"
-     "        self._refresh_all_tables()\n"
-     "        self._autostage()",
-     "                self._drop_records(vias, component_vias)\n"
-     "        self._autostage()  # MUTATION",
+    ("M6 the component list is dropped but the table is not rebuilt", WORKER,
+     "                dock._drop_records(vias, component_vias)\n"
+     "        dock._refresh_all_tables()\n"
+     "        dock._autostage()",
+     "                dock._drop_records(vias, component_vias)\n"
+     "        dock._autostage()  # MUTATION",
+     "die", G, ()),
+    # M9 (С-2а-3) — the builder's call is severed: the lines the pure
+    # `subtract_report_lines` assembled never reach the Log. (An INLINE copy of
+    # the same strings would keep the behaviour and survive — that is a
+    # refactor, not a defect, and the giant's size is what catches it.)
+    ("M9 the report builder is not used (nothing is printed)", WORKER,
+     "        for text, level in subtract_report_lines(result):",
+     "        for text, level in []:  # MUTATION",
      "die", G, ()),
     # M7 (С-2а-2) — with several instances, "planned nothing" is the answer only
     # when EVERY run planned nothing. The old `not labels` test fired on ONE empty

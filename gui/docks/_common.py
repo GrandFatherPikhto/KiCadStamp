@@ -47,6 +47,18 @@ ERROR_STYLE = "color: #a00;"
 WARN_STYLE = "color: #a60;"
 SUCCESS_STYLE = "color: #070;"
 
+# The Qt-FREE level names a Qt-free module hands back (the mixed-selection
+# prelude's log_lines, gui/subtract_copper.subtract_report_lines) mapped onto
+# those styles — ONE home for the vocabulary, so no dock (and no Qt-free module)
+# keeps its own copy of the map.
+LEVEL_STYLE = {"success": SUCCESS_STYLE, "warn": WARN_STYLE, "error": ERROR_STYLE}
+
+
+def style_for_level(level: str) -> str:
+    """The message style for a Qt-free level name — "success" for anything the map
+    does not know, which is the default every caller used before it moved here."""
+    return LEVEL_STYLE.get(level, SUCCESS_STYLE)
+
 
 def confirm_first_run_adoption(parent, config_path, adapter=None) -> bool:
     """Bug 3 (2026-09-05) first-run heads-up shown BEFORE a redraw. When this

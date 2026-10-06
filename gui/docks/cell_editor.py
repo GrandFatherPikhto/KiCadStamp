@@ -112,7 +112,7 @@ from ..board_layers import (
 from ..worker import start_long_op
 from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
-from ..subtract_copper import run_subtract_worker
+from ..subtract_copper import SubtractWiring
 from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
@@ -123,14 +123,14 @@ from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
-                      merge_write, parse_float_field, set_combo_items, show_message)
+                      merge_write, parse_float_field, set_combo_items, show_message,
+                      style_for_level)
 from .cell_layers import open_cell_layers_dialog
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
-# Map the level names the mixed-selection prelude returns onto the dock's
-# message styles — the prelude is Qt-free and must not import them.
-_SELECTION_STYLE = {"success": _SUCCESS_STYLE, "warn": _WARN_STYLE,
-                    "error": _ERROR_STYLE}
+# The level names a Qt-FREE module hands back (the mixed-selection prelude's
+# log_lines, gui/subtract_copper.subtract_report_lines) are mapped to message
+# styles by ONE host, gui/docks/_common.style_for_level (moved there in С-2а-3).
 
 
 def _component_roles(components) -> set:
@@ -471,6 +471,10 @@ class CellDock(QWidget):
         # controller outlives its QThread (same pattern as every board-touching
         # dock: PointsDock/NetTraceDock/RoleClusterTreeDock keep _active_op).
         self._active_op: Optional[Any] = None
+        # «Subtract selected copper» (С-2а-3): the ONE host of that flow is
+        # gui/subtract_copper.SubtractWiring, and this dock is its collaborator —
+        # every delegate below is one line onto it.
+        self._subtract_flow = SubtractWiring(self)
         # The last live selection the ~400 ms tick distributed
         # (DockHub.set_board_selection). The layer dialog derives "which layers
         # carry copper in the selection" from HERE — a synchronous
@@ -2101,7 +2105,7 @@ class CellDock(QWidget):
         from cell). Mutation/autostage run through the dock's normal path."""
         self._active_op = None
         for text, level in result.get("selection_lines") or []:
-            self._show_message(text, _SELECTION_STYLE.get(level, _SUCCESS_STYLE))
+            self._show_message(text, style_for_level(level))
         if result.get("selection_refusal"):
             # Plan item 33: the mixed selection pins down several instances — a
             # red Log line listing the candidates, never a dialog.
@@ -2439,7 +2443,7 @@ class CellDock(QWidget):
         record); on Apply the dock's normal append/autostage path runs."""
         self._active_op = None
         for text, level in result.get("selection_lines") or []:
-            self._show_message(text, _SELECTION_STYLE.get(level, _SUCCESS_STYLE))
+            self._show_message(text, style_for_level(level))
         if result.get("selection_refusal"):
             # The same red Log line as the refresh path (plan item 33).
             self._show_message(result["selection_refusal"], _ERROR_STYLE)
@@ -2491,145 +2495,30 @@ class CellDock(QWidget):
         return count
 
     # ── «Subtract selected copper» (С-2, plan_2026_10_06_prune_absent_cell_copper)
+    #
+    # The WHOLE flow lives in gui/subtract_copper.py (SubtractWiring, modelled on
+    # gui/explode_wiring.py; its only collaborator is this dock) — §45: a giant
+    # keeps WIRING only. The names below are the ones the dock's button, the
+    # Config tree's context item and the cells call, so they stay as ONE-LINE
+    # delegates onto it (the one wiring instance is built in __init__).
 
     def _on_subtract_selected_copper(self) -> None:
-        """Button / context action: subtract the cell records the selection names.
-
-        No layer dialog: the pairing is by each record's own live copper (the
-        registry uuid, then exact geometry), so layers never enter it — and only
-        copper is subtracted, never a component."""
-        self._read_subtract_from_selection()
+        return self._subtract_flow.open()
 
     def _read_subtract_from_selection(self) -> None:
-        connection = getattr(self._main_window, "connection", None)
-        # Door contract (gui/connection.py's own refusal text): a PRESENCE check
-        # belongs on connection.is_connected, never on connection.board. This
-        # action also needs no board handle on the UI thread at all — the worker
-        # builds its OWN adapter and closes it (gui/subtract_copper.py).
-        if connection is None or not getattr(connection, "is_connected", False):
-            self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
-            return
-        if not self._components:
-            self._show_message(_("Load a cell with components first."), _ERROR_STYLE)
-            return
-        if self._path is None:
-            self._show_message(_("Set the project root first."), _ERROR_STYLE)
-            return
-        if self._active_op is not None:
-            return
-        payload = {
-            "timeout_ms": worker_timeout_ms(connection),
-            "components": list(self._components),
-            "vias": list(self._vias),
-            "tracks": list(self._tracks),
-            "root_path": str(self._root_path) if self._root_path else None,
-            "cell_name": self.name_edit.text().strip(),
-            "cluster": self._remembered_cluster_value(),
-            "sheet": self._remembered_sheet_value(),
-        }
-        self._active_op = start_long_op(
-            connection, (self.subtract_copper_button,),
-            self._run_subtract_from_selection,
-            self._finish_subtract_from_selection, self._on_subtract_op_failed,
-            payload)
+        return self._subtract_flow.open()
 
     def _run_subtract_from_selection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Worker thread: the whole decision lives in the Qt-free modules."""
-        return run_subtract_worker(payload)
+        return self._subtract_flow.run(payload)
 
     def _finish_subtract_from_selection(self, result: Dict[str, Any]) -> None:
-        """UI thread: report every removed record, then apply the removal to the
-        loaded cell — drop by identity from the cell's OWN lists AND from the
-        component lists the records live in (a cell's copper has TWO levels,
-        kicadstamp/subtract_selection.py), refresh the tables and autostage,
-        exactly like a manual row Delete."""
-        self._active_op = None
-        cell = result.get("cell", "?")
-        if result.get("error"):
-            for line in _problem_lines(result["error"]):
-                self._show_message(line, _ERROR_STYLE)
-            return
-        if result.get("no_copper"):
-            self._show_message(
-                _("no copper is selected — nothing was subtracted "
-                  "({count} component(s) are ignored)").format(
-                      count=result.get("components", 0)),
-                _WARN_STYLE)
-            return
-        if result.get("ambiguous"):
-            self._show_message(
-                _("the selection matches {count} instances of cell {cell!r} "
-                  "({labels}) — select the copper of ONE instance and subtract "
-                  "again").format(count=len(result["ambiguous"]), cell=cell,
-                                  labels="; ".join(result["ambiguous"])),
-                _ERROR_STYLE)
-            return
-        if result.get("empty"):
-            self._show_message(
-                _("could not match the selection to the cell's records — the dry "
-                  "run planned nothing"), _ERROR_STYLE)
-            return
-        removed = list(result.get("removed") or ())
-        if not removed:
-            self._show_message(
-                _("nothing to subtract — the selection holds no copper record of "
-                  "cell {cell!r}").format(cell=cell), _SUCCESS_STYLE)
-        else:
-            self._apply_subtracted_records(removed)
-            for kind, record in removed:
-                self._show_message(record_report_line("-", record, kind),
-                                   _WARN_STYLE)
-            self._show_message(
-                _("subtracted {count} record(s) — Save to write the change").format(
-                    count=len(removed)), _SUCCESS_STYLE)
-        if result.get("not_ours"):
-            self._show_message(
-                _("{count} selected item(s) are not records of cell {cell!r} — "
-                  "ignored").format(count=result["not_ours"], cell=cell),
-                _WARN_STYLE)
-
-    def _apply_subtracted_records(self, removed: list) -> None:
-        """Apply the worker's verdict to the loaded cell: drop the subtracted
-        records by IDENTITY from the cell's OWN lists AND from the list of the
-        component that carries them.
-
-        WHY both levels (С-2а-1, the blocker): the map key says which level the
-        record belongs to (kicadstamp/subtract_selection.py) — the spoke-level
-        placeholder indexes the cell's own `vias`/`tracks`, a ROLE indexes THAT
-        COMPONENT's `vias`. Dropping only from `self._vias`/`self._tracks` left a
-        component's via in place while the Log claimed it was subtracted: the
-        next Save wrote it straight back. Only `vias` needs the second level — a
-        component slot carries no tracks (TemplateComponentSlot).
-
-        The component dicts here are the very ones the worker was handed
-        (`payload["components"]` is `list(self._components)`, and `load_entry`
-        only SHALLOW-copies each slot), so `id()` finds the record in both. Then
-        the tables + autostage, exactly like a manual row Delete. Nothing is
-        written to disk here."""
-        vias = [r for kind, r in removed if kind == "via"]
-        tracks = [r for kind, r in removed if kind == "track"]
-        self._drop_records(vias, self._vias)
-        self._drop_records(tracks, self._tracks)
-        for component in self._components:
-            component_vias = component.get("vias")
-            if component_vias:
-                self._drop_records(vias, component_vias)
-        self._refresh_all_tables()
-        self._autostage()
+        return self._subtract_flow.finish(result)
 
     def _on_subtract_op_failed(self, message: str) -> None:
-        self._active_op = None
-        self._show_message(
-            _("Subtract selected copper failed: {error}").format(error=message),
-            _ERROR_STYLE)
+        return self._subtract_flow.failed(message)
 
     def subtract_from_selection_requested(self, name: str, file_path) -> None:
-        """ConfigTreeDock's cell_subtract_requested delegate (С-2): the context
-        menu's "Subtract selected copper..." — load the requested cell when it is
-        not the one open, then run the SAME read as the dock's own button."""
-        if self.name_edit.text().strip() != name:
-            self.load_entry(name, file_path)
-        self._on_subtract_selected_copper()
+        return self._subtract_flow.requested(name, file_path)
 
     def import_from_selection_requested(self, name: str, file_path,
                                         choose_layers: bool = False) -> None:
