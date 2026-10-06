@@ -13,6 +13,10 @@ its С-2а доделка (the same plan's "Приёмка С-2 ... ЧАСТИЧ
   * M5 (С-2а-1) only the CELL's lists are dropped -> the component keeps its own via,
                                                 and the next Save writes it back
   * M6 (С-2а-1) the component's list is dropped but the TABLE is not rebuilt
+  * M7 (С-2а-2) ANY empty run, not ALL of them, reads as "planned nothing" -> a
+                                                check that DID run is denied in red
+  * M8 (С-2а-2) no instance matched, so the ignored count is dropped -> the Log
+                                                loses its "not records of cell" line
   * K1 a cosmetic comment                    -> MUST survive
 
 (The plan's fourth row, «Import started subtracting», needs no row of its own: the
@@ -82,6 +86,31 @@ ROWS = [
      "        self._autostage()",
      "                self._drop_records(vias, component_vias)\n"
      "        self._autostage()  # MUTATION",
+     "die", G, ()),
+    # M7 (С-2а-2) — with several instances, "planned nothing" is the answer only
+    # when EVERY run planned nothing. The old `not labels` test fired on ONE empty
+    # run, denying in red a check that had already happened.
+    ("M7 any empty run reads as 'planned nothing'", WORKER,
+     "            elif all(rmap.empty for _l, _c, _s, rmap in maps):",
+     "            elif any(rmap.empty for _l, _c, _s, rmap in maps):  # MUTATION",
+     "die", G, ()),
+    # M8 (С-2а-2) — a selection matching no instance must still be COUNTED: the
+    # run happened, so the copper it did not name is "not records of the cell",
+    # never silence.
+    ("M8 no instance matched, the ignored count is lost", WORKER,
+     "            else:\n"
+     "                # The runs DID plan, but the selection is not this cell's copper.\n"
+     "                # That is the SAME answer one instance gives — \"nothing to\n"
+     "                # subtract\" plus the ignored count — never the red \"could not\n"
+     "                # match\" line, which would claim a check that never happened. The\n"
+     "                # counters are identical for every run here: no run holds a\n"
+     "                # selected uuid, so `removed` is empty whichever is taken; take a\n"
+     "                # NON-empty one, because an empty map answers \"nothing was\n"
+     "                # planned\" on its own. That run's cluster/sheet ride along in the\n"
+     "                # answer, but nothing was removed and no Log line names them.\n"
+     "                label = next(m[0] for m in maps if not m[3].empty)",
+     "            else:\n"
+     "                return {\"cell\": cell_name, \"removed\": [], \"not_ours\": 0}  # MUTATION",
      "die", G, ()),
     # K1 — cosmetic comment (control): must survive.
     ("K1 cosmetic comment (control)", SUBTRACT,

@@ -116,9 +116,23 @@ def run_subtract_worker(payload: dict) -> dict:
                 [(label, rmap) for label, _c, _s, rmap in maps], selected)
             if len(labels) > 1:
                 return {"ambiguous": list(labels), "cell": cell_name}
-            if not labels:
+            if labels:
+                label = labels[0]
+            elif all(rmap.empty for _l, _c, _s, rmap in maps):
+                # EVERY candidate's dry run planned NOTHING: the check could not
+                # run at all — subtract nothing and let the caller say why.
                 return {"empty": True, "planned": 0, "cell": cell_name}
-            label = labels[0]
+            else:
+                # The runs DID plan, but the selection is not this cell's copper.
+                # That is the SAME answer one instance gives — "nothing to
+                # subtract" plus the ignored count — never the red "could not
+                # match" line, which would claim a check that never happened. The
+                # counters are identical for every run here: no run holds a
+                # selected uuid, so `removed` is empty whichever is taken; take a
+                # NON-empty one, because an empty map answers "nothing was
+                # planned" on its own. That run's cluster/sheet ride along in the
+                # answer, but nothing was removed and no Log line names them.
+                label = next(m[0] for m in maps if not m[3].empty)
         else:
             label = maps[0][0]
         chosen = next(m for m in maps if m[0] == label)

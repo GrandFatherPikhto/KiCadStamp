@@ -342,6 +342,66 @@ def test_two_instances_both_matching_is_a_refusal(main_window, tmp_path,
     assert any("matches 2 instances" in m for m in messages)
 
 
+def test_several_instances_none_matching_is_nothing_to_subtract(
+        main_window, tmp_path, monkeypatch):
+    """С-2а-2 (plan_2026_10_06_prune_absent_cell_copper): several records place the
+    cell, the runs DID plan, and the selection matches NONE of them. That is not
+    "could not match" — the check ran; the copper is simply not this cell's. The
+    answer must be the single-instance one: "nothing to subtract" plus the ignored
+    count."""
+    data = _config_data(entities=[
+        {"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF",
+         "sheet": "Channel_0"},
+        {"name": "dac1", "cell": "dac_buf", "cluster": "DAC_BUF",
+         "sheet": "Channel_1"}])
+    dock, _ = _make_dock(main_window, tmp_path, data)
+    _fake_board(monkeypatch, [_live_track("u-foreign", "GND", 30.0, 30.0, 31.0, 30.0)])
+    # ONE candidate planned nothing at all, the other DID plan — with the old
+    # "empty whenever labels are empty" answer the first candidate was enough to
+    # turn the whole action into the red "planned nothing".
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap(),
+                            "dac1": _record_map(index=2, uuid="u1")})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+
+    assert result.get("empty") is not True, result
+    assert result["removed"] == [], result
+    assert result["not_ours"] == 1, result
+    dock._finish_subtract_from_selection(result)
+
+    assert dock._tracks == before
+    assert any("nothing to subtract" in m for m in messages)
+    assert any("not records of cell" in m for m in messages)
+    assert not any("could not match" in m for m in messages)
+
+
+def test_several_instances_all_runs_empty_say_it_could_not_match(
+        main_window, tmp_path, monkeypatch):
+    """The other side of С-2а-2: when EVERY candidate's dry run planned nothing the
+    check could not run at all — THAT is the red "could not match" answer, and
+    nothing is removed (the cell is not told the selection is foreign, because
+    nobody looked)."""
+    data = _config_data(entities=[
+        {"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF",
+         "sheet": "Channel_0"},
+        {"name": "dac1", "cell": "dac_buf", "cluster": "DAC_BUF",
+         "sheet": "Channel_1"}])
+    dock, _ = _make_dock(main_window, tmp_path, data)
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap(), "dac1": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result.get("empty") is True, result
+    assert dock._tracks == before
+    assert any("could not match the selection" in m for m in messages)
+
+
 def test_the_worker_needs_no_ui_thread_board_handle(main_window, tmp_path,
                                                     monkeypatch):
     """Door guard (deepseek.md п.31): with the guard ARMED in ``raise`` mode the
