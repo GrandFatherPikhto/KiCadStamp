@@ -91,10 +91,12 @@ ROWS = [
      "            if not read_copper and removed_copper:",
      "            if removed_copper:  # MUTATION",
      "die", G, ()),
-    # K1 — cosmetic comment (control): must survive.
+    # K1 — cosmetic comment (control): must survive. (С-2 turned the module's
+    # presence API into the record->live-copper MAP, so the control row moved with
+    # the file's own __all__.)
     ("K1 cosmetic comment (control)", ABSENT,
-     "__all__ = [\n    \"BoardCopperPresence\",\n    \"instance_copper_presence\",\n]",
-     "__all__ = [\n    \"BoardCopperPresence\",\n    \"instance_copper_presence\",\n]  # control",
+     "__all__ = [\n    \"RecordCopperMap\",\n    \"instance_record_copper_map\",\n]",
+     "__all__ = [\n    \"RecordCopperMap\",\n    \"instance_record_copper_map\",\n]  # control",
      "survive", G, ()),
 ]
 
