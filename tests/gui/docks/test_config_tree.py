@@ -467,7 +467,7 @@ def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkey
 
 
 def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkeypatch):
-    """"Import from selection..." (context menu, 2026-09-03, plan
+    """"Add selected copper..." (context menu, 2026-09-03, plan
     fpga_oscill_missing_copper_and_cell_import §B.3) — the cell leaf's context
     action emits cell_import_requested with the SAME (name, file_path) shape as
     "Update from selection...", so CellDock can load the right cell and
@@ -483,8 +483,8 @@ def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkey
 
     leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
     actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
-    assert "Import from selection..." in actions
-    actions["Import from selection..."].trigger()
+    assert "Add selected copper..." in actions
+    actions["Add selected copper..."].trigger()
 
     assert requested == [("one_role", root.resolve())]
 
@@ -936,8 +936,15 @@ def _context_menu_actions(dock, item, monkeypatch):
 
 def _add_labels(labels):
     """The context menu's "Add ..." block (incl. the unconditional "Add
-    included file...") — Rename/Delete/Edit/Export never start with 'Add '."""
-    return [label for label in labels if label.startswith("Add ")]
+    included file...") — Rename/Delete/Edit/Export never start with 'Add '.
+
+    The whole-cell copper read ("Add selected copper...", the additive action
+    renamed from "Import from selection..." on 2026-10-06) also starts with
+    'Add ' but is NOT a section add — filtered out by name so this guard keeps
+    measuring the section Add action it is about."""
+    return [label for label in labels
+            if label.startswith("Add ")
+            and not label.startswith("Add selected copper")]
 
 
 @pytest.mark.parametrize("category_label, expected_add", [

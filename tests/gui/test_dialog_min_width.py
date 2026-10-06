@@ -52,7 +52,7 @@ MAX_DIALOG_WIDTH_PX = 1000
 # with — that is the whole point of Р1, so both halves are pinned here.
 SHORT_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry", "Перечитать геометрию"),
-    "import_vias_tracks_button": ("Import copper", "Импорт меди"),
+    "import_vias_tracks_button": ("Add copper", "Добавить медь"),
     # СЦ-1 (plan_2026_10_05_select_cell_split): the former "Select cell" button
     # is now the components-only one; a second button carries the copper. The
     # Russian caption of the first stays SHORT («Выделить компоненты», no
@@ -64,8 +64,8 @@ SHORT_CAPTIONS = {
 FULL_CAPTIONS = {
     "refresh_geometry_button": ("Refresh geometry from selection",
                                 "Обновить геометрию по выделению"),
-    "import_vias_tracks_button": ("Import vias/tracks from selection",
-                                  "Импорт via/track из выделения"),
+    "import_vias_tracks_button": ("Add selected copper",
+                                  "Добавить выделенное"),
     "select_cluster_button": ("Select this cell's components on the board",
                               "Выделить компоненты этой ячейки на плате"),
     "select_cell_button": ("Select this cell's instance with its recorded copper",

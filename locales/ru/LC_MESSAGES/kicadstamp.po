@@ -1107,13 +1107,13 @@ msgstr "Обновить ячейку из выделения..."
 msgid "Update cell from selection (choose layers)..."
 msgstr "Обновить ячейку из выделения (выбрать слои)..."
 
-#: gui/main_window.py:443
-msgid "Import vias/tracks from selection..."
-msgstr "Импортировать виа/дорожки из выделения..."
+#: gui/main_window.py:443 gui/docks/config_tree.py:1538
+msgid "Add selected copper..."
+msgstr "Добавить выделенное..."
 
-#: gui/main_window.py:448
-msgid "Import vias/tracks from selection (choose layers)..."
-msgstr "Импортировать виа/дорожки из выделения (выбрать слои)..."
+#: gui/main_window.py:448 gui/docks/config_tree.py:1577
+msgid "Add selected copper (choose layers)..."
+msgstr "Добавить выделенное (выбрать слои)..."
 
 #: gui/main_window.py:461
 msgid "Record..."
@@ -2465,9 +2465,9 @@ msgstr "рефа {ref} больше нет на плате"
 msgid "{ref} now has Role {role!r}"
 msgstr "у рефа {ref} теперь роль {role!r}"
 
-#: gui/docks/cell_editor.py:388 gui/docks/cell_editor.py:597
-msgid "Import vias/tracks from selection"
-msgstr "Импорт via/track из выделения"
+#: gui/docks/cell_editor.py:365 gui/docks/cell_editor.py:580
+msgid "Add selected copper"
+msgstr "Добавить выделенное"
 
 #: gui/docks/cell_editor.py:392 gui/docks/explode_page.py:145
 msgid "Kind"
@@ -2548,9 +2548,9 @@ msgstr "Перечитать геометрию"
 msgid "Refresh geometry from selection"
 msgstr "Обновить геометрию по выделению"
 
-#: gui/docks/cell_editor.py:595
-msgid "Import copper"
-msgstr "Импорт меди"
+#: gui/docks/cell_editor.py:578
+msgid "Add copper"
+msgstr "Добавить медь"
 
 #: gui/docks/cell_editor.py:606 gui/docks/config_tree.py:1461
 #: gui/docks/config_tree.py:1508 tests/gui/test_select_cell.py:191
@@ -3651,17 +3651,9 @@ msgstr "Якорь ячейки..."
 msgid "Update from selection..."
 msgstr "Обновить по выделению..."
 
-#: gui/docks/config_tree.py:1505
-msgid "Import from selection..."
-msgstr "Импорт из выделения..."
-
 #: gui/docks/config_tree.py:1521
 msgid "Update from selection (choose layers)..."
 msgstr "Обновить из выделения (выбрать слои)..."
-
-#: gui/docks/config_tree.py:1525
-msgid "Import from selection (choose layers)..."
-msgstr "Импортировать из выделения (выбрать слои)..."
 
 #: gui/docks/config_tree.py:1532
 msgid "Copy placement from cell..."

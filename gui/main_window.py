@@ -440,12 +440,12 @@ class MainWindow(QMainWindow):
                 choose_layers=True))
         self.config_menu.addAction(self.update_cell_layers_action)
         self.import_cell_from_selection_action = QAction(
-            _("Import vias/tracks from selection..."), self)
+            _("Add selected copper..."), self)
         self.import_cell_from_selection_action.triggered.connect(
             lambda: self._dock_hub.import_selected_cell_from_selection())
         self.config_menu.addAction(self.import_cell_from_selection_action)
         self.import_cell_layers_action = QAction(
-            _("Import vias/tracks from selection (choose layers)..."), self)
+            _("Add selected copper (choose layers)..."), self)
         self.import_cell_layers_action.triggered.connect(
             lambda: self._dock_hub.import_selected_cell_from_selection(
                 choose_layers=True))

@@ -1048,12 +1048,12 @@ msgstr ""
 msgid "Update cell from selection (choose layers)..."
 msgstr ""
 
-#: gui/main_window.py:443
-msgid "Import vias/tracks from selection..."
+#: gui/main_window.py:443 gui/docks/config_tree.py:1538
+msgid "Add selected copper..."
 msgstr ""
 
-#: gui/main_window.py:448
-msgid "Import vias/tracks from selection (choose layers)..."
+#: gui/main_window.py:448 gui/docks/config_tree.py:1577
+msgid "Add selected copper (choose layers)..."
 msgstr ""
 
 #: gui/main_window.py:461
@@ -2297,9 +2297,9 @@ msgstr ""
 msgid "{ref} now has Role {role!r}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:388 gui/docks/cell_editor.py:597
-msgid "Import vias/tracks from selection"
-msgstr "Import vias/tracks from selection"
+#: gui/docks/cell_editor.py:365 gui/docks/cell_editor.py:580
+msgid "Add selected copper"
+msgstr "Add selected copper"
 
 #: gui/docks/cell_editor.py:392 gui/docks/explode_page.py:145
 msgid "Kind"
@@ -2380,8 +2380,8 @@ msgstr ""
 msgid "Refresh geometry from selection"
 msgstr "Refresh geometry from selection"
 
-#: gui/docks/cell_editor.py:595
-msgid "Import copper"
+#: gui/docks/cell_editor.py:578
+msgid "Add copper"
 msgstr ""
 
 #: gui/docks/cell_editor.py:606 gui/docks/config_tree.py:1461
@@ -3420,16 +3420,8 @@ msgstr ""
 msgid "Update from selection..."
 msgstr "Update from selection..."
 
-#: gui/docks/config_tree.py:1505
-msgid "Import from selection..."
-msgstr "Import from selection..."
-
 #: gui/docks/config_tree.py:1521
 msgid "Update from selection (choose layers)..."
-msgstr ""
-
-#: gui/docks/config_tree.py:1525
-msgid "Import from selection (choose layers)..."
 msgstr ""
 
 #: gui/docks/config_tree.py:1532

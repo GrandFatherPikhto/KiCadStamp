@@ -2311,7 +2311,7 @@ Cluster-tag slug, so the same name in two profiles means different boards). Two 
   - the **Cell anchor...** page prefills its working **Sheet/Cluster** from that context when the
     cell is opened, so the Role combo is already narrowed to the cluster the cell was last worked
     in — no click on the board required;
-  - the Cell dialog gains a **Select cluster** button next to Refresh geometry / Import copper: it
+  - the Cell dialog gains a **Select cluster** button next to Refresh geometry / Add copper: it
     highlights the whole remembered (Cluster, Sheet) instance on the live board, so those
     whole-cluster operations no longer need a manual hunt.
 It is a HINT, never a source of truth: a remembered cluster/sheet that no longer resolves on the
@@ -2337,8 +2337,8 @@ readable sheet names (the `ctx.sheet_names` VALUES, not the uuid-path keys), and
 editable picker — fill, never restrict, so a typed cluster not in the list still works).
 
 **Short button captions in the Cell dialog** (2026-09-17) — the three whole-cell buttons are captioned
-in two or three words: **Refresh geometry**, **Import copper** and **Select cluster**. The full phrase
-each one used to carry — "Refresh geometry from selection", "Import vias/tracks from selection",
+in two or three words: **Refresh geometry**, **Add copper** and **Select cluster**. The full phrase
+of each — "Refresh geometry from selection", "Add selected copper",
 "Select cluster of this cell on the board" — is its TOOLTIP now. The reason is width, not taste: named
 in full, these three captions sat in ONE row and summed to a 1290 px minimum, which forced the whole
 dialog to 1310 px. Qt never lays a widget out below its minimum, so neither a resize nor the screen cap
@@ -2346,7 +2346,7 @@ could help, and on a 1366x768 laptop the dialog hung over the edge with part of 
 unreachable. Dialogs and docks are limited to 1000 px (leaving room for the window frame and the
 taskbar), and `tests/gui/test_dialog_min_width.py` guards that in BOTH catalogues, because the Russian
 captions are longer. Measured on the day: 1310 → **578 px** (en), 1226 → **654 px** (ru). The
-right-click menu items in the Config tree (**Update from selection...**, **Import from selection...**)
+right-click menu items in the Config tree (**Update from selection...**, **Add selected copper...**)
 keep their long names — they are not in that row.
 
 **Refresh geometry from selection** (2026-09-03; captioned **Refresh geometry** in the Cell dialog since
@@ -2409,28 +2409,29 @@ updated, M via/track record(s) added, K record(s) removed. Save to write the cha
 that already matches reports "Nothing changed". Mutation/autostage go through the same path as a manual
 row Update/Add. **"Edit cell..." still opens its dialog** — that is that action's own purpose.
 
-**Import vias/tracks from selection** (2026-09-03; captioned **Import copper** in the Cell dialog since
-2026-09-17) — the additive counterpart of Refresh: a button right next to it in the Cell dialog AND a
-right-click **Import from selection...** action on a Cell leaf
+**Add selected copper** (2026-09-03; captioned **Add copper** in the Cell dialog) — the additive
+counterpart of Refresh: a button right next to it in the Cell dialog AND a right-click **Add selected
+copper...** action on a Cell leaf
 in the Config tree's Cells category. It backfills an EXISTING cell with NEW via/track records for live
 copper the cell's current records do not describe — the way to add vias/tracks that were missing from
 the original extraction (e.g. not yet routed when the cell was extracted, the `fpga_oscill` case)
 without touching what is already there. Select the whole cluster on the board first, then run it.
 
-Refresh and Import now BOTH turn "copper the cell does not describe" into NEW records — the difference
-is the rest of the run: **Update from selection...** is a full sync (it ALSO re-reads the geometry of
-the existing records — components and already-saved vias/tracks — from the selection), while **Import**
-is purely ADDITIVE — it never modifies or removes an existing record and cannot add components. Choose
-Import when you only want to backfill new copper without touching the already-saved geometry; choose
+Refresh and Add selected copper now BOTH turn "copper the cell does not describe" into NEW records — the
+difference is the rest of the run: **Update from selection...** is a full sync (it ALSO re-reads the
+geometry of the existing records — components and already-saved vias/tracks — from the selection), while
+**Add selected copper** is purely ADDITIVE — it never modifies or removes an existing record and cannot
+add components. Choose Add selected copper when you only want to backfill new copper without touching the
+already-saved geometry; choose
 **Update from selection...** when the whole cluster should be pulled up to date (moved parts/routes AND
 new copper together). The same symmetric role match and the same named-net/count checks stay fatal in
 both — a wrong/incomplete cluster is rejected exactly the same way. A new record's net is classified by
 the extractor's own heuristic (a net a selected role's pad carries -> `net_from_role`(+pad), else a
-plain literal net — Import never writes `net: null`, 2026-09-04), and its geometry is relative to the
+plain literal net — Add selected copper never writes `net: null`, 2026-09-04), and its geometry is relative to the
 same zero-offset origin.
 
 **Subtract selected copper** (2026-10-06) — the third action over a cell's records: a **Subtract copper**
-button in the Cell dialog next to Refresh/Import, and a right-click **Subtract selected copper...** action
+button in the Cell dialog next to Refresh geometry and Add copper, and a right-click **Subtract selected copper...** action
 on a Cell leaf in the Cells category. It is Refresh's mirror image: instead of turning copper the cell does
 not describe into NEW records, it DELETES the records the selection does NOT name. Components are never
 touched. The pairing is the exact one **Select cell** uses — the registry uuid first, then exact geometry
@@ -2448,8 +2449,8 @@ staged and needs Save, and the registries are only read.
 
 **Behaviour change (2026-10-04/05): a MIXED selection is no longer a refusal.** Selecting the edited
 cluster together with the clusters standing next to it (on the live board DAC_BUF sits flush against
-the PIFs) used to fail on the first foreign Role. Now **Update from selection...** / **Import from
-selection...** narrow the selection to ONE instance of the edited cell:
+the PIFs) used to fail on the first foreign Role. Now **Update from selection...** / **Add selected
+copper...** narrow the selection to ONE instance of the edited cell:
 
 * the selected components are grouped by (Cluster, instance sheet); the group whose Cluster is THIS
   cell's cluster AND whose role set is EXACTLY the cell's role set is taken. The CLUSTER, not the
@@ -2465,7 +2466,7 @@ selection...** narrow the selection to ONE instance of the edited cell:
   selection and a by-cluster one), and whether its copper is still on the board or not: the cell becomes
   exactly the selection, and the board is never asked. A selection with NO copper (only components)
   therefore removes EVERY copper record of the cell — a red Log line says so before the write. The
-  strictly-additive door is **Import from selection...**, which never deletes.
+  strictly-additive door is **Add selected copper...**, which never deletes.
 * zero candidates (a wrong/incomplete cluster) — today's refusal (the role message); several candidates
   (e.g. two channels of the same cell selected) — a red Log line listing them, nothing read or written,
   no dialog.
@@ -2517,7 +2518,7 @@ cell's copper can span several layers (F.Cu + inner + B.Cu), so both reads above
 each of them has two entry points:
 
 * **without the dialog** — the buttons in the Cell dialog, and the plain **Update from selection...** /
-  **Import from selection...** context-menu items: one click, no window, and no board read for the set
+  **Add selected copper...** context-menu items: one click, no window, and no board read for the set
   itself. They run with the REMEMBERED set (below);
 * **with the dialog** — the **"… (choose layers)…"** items in the same context menu and in
   **Tools → Config** (which act on the cell currently SELECTED in the Config tree): one checkbox per
@@ -2536,7 +2537,7 @@ choice and the next read would start with that layer off although the board has 
 **The tick beats the finding** (design Р12): a layer without a tick does not exist for the cell, and
 copper appearing on it does not tick it by itself. A ticked-off layer is therefore simply NOT read,
 which on **Refresh** means its track records lose their live counterpart and `remove_missing` REMOVES
-them; **Import** only ever adds, so there a ticked-off layer just means "nothing was added".
+them; **Add selected copper** only ever adds, so there a ticked-off layer just means "nothing was added".
 
 Every read reports in the Log which layers it looked at, and which it left out and WHY:
 `read layers: F.Cu, B.Cu`, `skipped In1.Cu: unchecked by hand`, `skipped In2.Cu: empty in the
@@ -2548,7 +2549,7 @@ the board at all, so their copper is invisible to a read: every read emits one L
 (`hidden copper layers on the board: …`), read fresh inside that same operation — we only WARN, we
 never work around the user's own visibility setting. And an EMPTY layer set (every box unticked) reads
 no track at all: on Refresh that deletes every track record of the cell, so it is confirmed first, in a
-window naming exactly that consequence (Cancel starts nothing and changes nothing); for Import, which
+window naming exactly that consequence (Cancel starts nothing and changes nothing); for Add selected copper, which
 deletes nothing, the same fact is a Log line — an empty set silences only the TRACKS there, while vias
 and components are read as usual.
 
@@ -2558,9 +2559,9 @@ that omit the key), so you can see at a glance whether a cell has inner-layer co
 on the cell — the set is computed from its records on every refresh, so it cannot drift from them, and
 no `Cell` grows a layer field.
 
-**Copy placement from cell...** (2026-09-06) — the OFFLINE sibling of Refresh/Import, reached from the
+**Copy placement from cell...** (2026-09-06) — the OFFLINE sibling of Refresh/Add, reached from the
 Config tree's cell context menu (right-click a Cell leaf, **Copy placement from cell...**, like Update/
-Import from selection). Instead of reading live copper from a board selection it copies the PLACEMENT of
+Add selected copper). Instead of reading live copper from a board selection it copies the PLACEMENT of
 another cell onto the right-clicked cell. Use it to restore the missing copper/geometry of a structurally
 identical "twin" cell — e.g. the negative PI filter `pif_n5v`, extracted with its components but no
 vias/tracks, rebuilt from the fully-routed positive twin `pif_p5v`. No live board is needed — a purely

@@ -1535,7 +1535,7 @@ class ConfigTreeDock(QWidget):
                 # live via/track copper the cell's current records don't
                 # describe as NEW records (Refresh cannot ADD a record; Import
                 # cannot MODIFY one — they complement, never overlap).
-                menu.addAction(_("Import from selection...")).triggered.connect(
+                menu.addAction(_("Add selected copper...")).triggered.connect(
                     lambda: self.cell_import_requested.emit(old_name, file_path))
                 # С-2: the third action over the records — REMOVE the ones the
                 # CURRENT selection names (copper only).
@@ -1574,7 +1574,7 @@ class ConfigTreeDock(QWidget):
                 ).triggered.connect(
                     lambda: self.cell_refresh_layers_requested.emit(old_name, file_path))
                 menu.addAction(
-                    _("Import from selection (choose layers)...")
+                    _("Add selected copper (choose layers)...")
                 ).triggered.connect(
                     lambda: self.cell_import_layers_requested.emit(old_name, file_path))
                 # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE

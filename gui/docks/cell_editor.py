@@ -362,7 +362,7 @@ class _ImportPreviewDialog(QDialog):
 
     def __init__(self, rows: List[List[str]], parent=None):
         super().__init__(parent)
-        self.setWindowTitle(_("Import vias/tracks from selection"))
+        self.setWindowTitle(_("Add selected copper"))
         self.resize(620, 360)
         layout = QVBoxLayout(self)
         table = QTableWidget(0, 3)
@@ -575,9 +575,9 @@ class CellDock(QWidget):
         # copper the cell's current records don't describe, and NEVER edits/
         # removes an existing one. Same activity gate, same worker pattern
         # (see _update_refresh_enabled, which gates BOTH buttons).
-        self.import_vias_tracks_button = QPushButton(_("Import copper"))
+        self.import_vias_tracks_button = QPushButton(_("Add copper"))
         self.import_vias_tracks_button.setToolTip(
-            _("Import vias/tracks from selection"))
+            _("Add selected copper"))
         self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
         self.import_vias_tracks_button.setEnabled(False)
         refresh_row.addWidget(self.import_vias_tracks_button)

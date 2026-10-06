@@ -724,8 +724,8 @@ def test_tools_config_cell_reads_route_to_dock_hub(real_main_window, monkeypatch
     texts = [a.text() for a in config.actions()]
     for label in ("Update cell from selection...",
                   "Update cell from selection (choose layers)...",
-                  "Import vias/tracks from selection...",
-                  "Import vias/tracks from selection (choose layers)..."):
+                  "Add selected copper...",
+                  "Add selected copper (choose layers)..."):
         assert label in texts
 
     calls = []
