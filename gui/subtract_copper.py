@@ -263,6 +263,11 @@ class SubtractWiring:
             "vias": list(dock._vias),
             "tracks": list(dock._tracks),
             "root_path": str(dock._root_path) if dock._root_path else None,
+            # С-2а-4: the worker's own adapter must be built for THIS profile,
+            # exactly like every other board-touching worker (gui/docks/cascade.py
+            # passes its config_path) — without this key the factory was handed
+            # None and fell back to its default.
+            "config_path": str(dock._root_path) if dock._root_path else None,
             "cell_name": dock.name_edit.text().strip(),
             "cluster": dock._remembered_cluster_value(),
             "sheet": dock._remembered_sheet_value(),

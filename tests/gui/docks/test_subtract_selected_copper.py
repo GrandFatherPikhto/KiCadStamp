@@ -143,6 +143,7 @@ def _payload(dock):
         "vias": list(dock._vias),
         "tracks": list(dock._tracks),
         "root_path": str(dock._root_path),
+        "config_path": str(dock._root_path),
         "cell_name": "dac_buf",
         "cluster": None,
         "sheet": None,
@@ -400,6 +401,44 @@ def test_several_instances_all_runs_empty_say_it_could_not_match(
     assert result.get("empty") is True, result
     assert dock._tracks == before
     assert any("could not match the selection" in m for m in messages)
+
+
+def test_the_dock_hands_its_profile_to_the_worker_and_its_adapter(
+        main_window, tmp_path, monkeypatch):
+    """С-2а-4: the action reads the board through its OWN adapter, and that adapter
+    has to be built for THIS profile — the payload used to carry no `config_path`
+    at all, so `create_board_adapter` fell back to its default instead (a board
+    read made with the wrong rails). The cell walks the whole chain: the dock's own
+    payload (the wiring's `open`, with `start_long_op` CAPTURED instead of started)
+    -> the worker -> the adapter factory."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    payloads = []
+    monkeypatch.setattr("gui.subtract_copper.start_long_op",
+                        lambda connection, widgets, fn, ok, err, *args, **kwargs:
+                        payloads.append(args[0]))
+    monkeypatch.setattr(main_window, "connection",
+                        SimpleNamespace(is_connected=True, timeout_ms=1234))
+
+    dock._on_subtract_selected_copper()
+
+    assert len(payloads) == 1, payloads
+    assert payloads[0]["config_path"] == str(dock._root_path), payloads[0]
+    assert payloads[0]["timeout_ms"] == 1234, payloads[0]
+
+    seen = {}
+
+    def _factory(**kwargs):
+        seen.update(kwargs)
+        return _Adapter([_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)])
+
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter", _factory)
+    _fake_map(monkeypatch, {"dac0": _record_map(index=0, uuid="u0")})
+
+    result = dock._run_subtract_from_selection(payloads[0])
+
+    assert seen.get("config_path") == str(dock._root_path), seen
+    assert seen.get("timeout_ms") == 1234, seen
+    assert result.get("removed") == [("track", dock._tracks[0])], result
 
 
 def test_the_worker_needs_no_ui_thread_board_handle(main_window, tmp_path,

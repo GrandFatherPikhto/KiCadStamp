@@ -18,6 +18,8 @@ its С-2а доделка (the same plan's "Приёмка С-2 ... ЧАСТИЧ
   * M8 (С-2а-2) no instance matched, so the ignored count is dropped -> the Log
                                                 loses its "not records of cell" line
   * M9 (С-2а-3) the report builder is not used -> nothing is printed at all
+  * M10 (С-2а-4) the worker's adapter is built without the profile -> a board read
+                                                made with the wrong rails
   * K1 a cosmetic comment                    -> MUST survive
 
 (The plan's fourth row, «Import started subtracting», needs no row of its own: the
@@ -126,6 +128,13 @@ ROWS = [
      "                label = next(m[0] for m in maps if not m[3].empty)",
      "            else:\n"
      "                return {\"cell\": cell_name, \"removed\": [], \"not_ours\": 0}  # MUTATION",
+     "die", G, ()),
+    # M10 (С-2а-4) — the worker builds its OWN adapter for the selection read, and
+    # that adapter must belong to THIS profile. The payload used to carry no
+    # `config_path` at all, so the factory fell back to its default.
+    ("M10 the worker's adapter is built without the profile", WORKER,
+     "            \"config_path\": str(dock._root_path) if dock._root_path else None,",
+     "            \"config_path\": None,  # MUTATION",
      "die", G, ()),
     # K1 — cosmetic comment (control): must survive.
     ("K1 cosmetic comment (control)", SUBTRACT,
