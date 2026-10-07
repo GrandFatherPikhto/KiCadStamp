@@ -28,7 +28,8 @@ from kicadstamp.config.sexp_format import sexp_to_dict
 
 from tests.gui.create_entity_helpers import (category, context_menu_actions,
                                              file_item, find_child,
-                                             minimal_imprint, write_config)
+                                             minimal_imprint, open_project,
+                                             write_config)
 
 
 def _dock(main_window, root):
@@ -390,3 +391,78 @@ def test_point_preselects_the_close_name_hint(main_window, tmp_path, monkeypatch
     next(act for label, act in actions if label.startswith("Point to cell")).trigger()
 
     assert seen["names"][seen["current"]] == "good", seen
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Ячейка без сущности: неиспользуемая (3б) — меню из двух, страница read-only
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_unused_cell_menu_is_only_create_entity_and_delete(
+        main_window, tmp_path, monkeypatch):
+    """3б (мутация 9): у неиспользуемой ячейки без сущности — только «Create
+    entity» и «Delete…»; ни «Edit cell...», ни платных пунктов, ни Rename."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+    labels = [label for label, _ in context_menu_actions(dock, cell, monkeypatch)]
+
+    assert "Create entity" in labels, labels
+    assert "Delete..." in labels, labels
+    for forbidden in ("Edit cell...", "Cell anchor...", "Update from selection...",
+                      "Add selected copper...", "Subtract selected copper...",
+                      "Select cell", "Select cell components", "Explode…",
+                      "Rename...", "Copy placement from cell..."):
+        assert forbidden not in labels, (forbidden, labels)
+
+
+def test_placed_cell_without_entity_keeps_the_full_menu(
+        main_window, tmp_path, monkeypatch):
+    """3б: ячейка, поставленная спицей БЕЗ сущности, работает как сегодня —
+    правится, имеет прежние пункты (чтобы не сломать живые спицы)."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "chains": [{"name": "ch1", "net": "N",
+                                    "spokes": [{"pad": "1", "cell": "c"}]}]})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+    labels = [label for label, _ in context_menu_actions(dock, cell, monkeypatch)]
+
+    for expected in ("Create entity", "Edit cell...", "Update from selection...",
+                     "Rename...", "Delete..."):
+        assert expected in labels, (expected, labels)
+
+
+def test_click_on_unused_cell_opens_the_cell_page_read_only(
+        real_main_window, tmp_path):
+    """3б: щелчок по неиспользуемой ячейке открывает страницу ячейки ТОЛЬКО
+    ДЛЯ ЧТЕНИЯ — поля недоступны, видна строка-подсказка."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    open_project(hub, root)
+    leaf = find_child(category(file_item(hub.config_tree_dock.tree, root), "cells"), "c")
+
+    hub.config_tree_dock._on_clicked(leaf, 0)
+
+    view = hub.cell_anchor_view
+    assert view._read_only is True
+    assert not view._tabs.isEnabled(), "поля должны быть недоступны"
+    assert not view._read_only_note.isHidden()
+
+
+def test_click_on_cell_with_entity_opens_the_cell_page_editable(
+        real_main_window, tmp_path):
+    """Обратная клетка: ячейка С сущностью открывается как прежде — правимой."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c"}]})
+    open_project(hub, root)
+    cell = find_child(category(file_item(hub.config_tree_dock.tree, root), "cells"), "c")
+
+    hub.config_tree_dock._on_clicked(cell, 0)
+
+    view = hub.cell_anchor_view
+    assert view._read_only is False
+    assert view._tabs.isEnabled()

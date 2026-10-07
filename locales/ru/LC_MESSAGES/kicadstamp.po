@@ -19095,3 +19095,6 @@ msgstr "Не на что указать {name!r}: в графе нет разд�
 #: gui/docks/config_tree.py
 msgid "Point failed"
 msgstr "Не удалось указать"
+#: gui/docks/cell_anchor_view.py
+msgid "create an entity to edit this cell"
+msgstr "создайте сущность, чтобы править эту ячейку"

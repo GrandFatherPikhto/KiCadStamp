@@ -54,6 +54,13 @@ MINIMAL_CELL = {
     },
 }
 
+# 2026-10-08 (plan_2026_10_05_entities_under_cells, 3б): a cell WITHOUT an
+# entity is now a READ-ONLY drawing whose menu keeps only "Create entity" and
+# "Delete…". Guards about a cell's NORMAL click / paid menu therefore use a cell
+# WITH an entity — their assertions are untouched, only the fixture changes.
+CELL_WITH_ENTITY = {**MINIMAL_CELL,
+                    "entities": [{"name": "one_role_e", "cell": "one_role"}]}
+
 # A root with EVERY recognized section present (one leaf each) — used by the
 # context-menu filtering tests (2026-08-13, plan context_menu_by_section) so
 # every category/leaf exists in the same tree.
@@ -249,7 +256,7 @@ def test_nested_includes_recurse(main_window, tmp_path):
 
 def test_clicking_a_cell_leaf_fires_cell_picked(main_window, tmp_path):
     root = tmp_path / "root.sexp"
-    _write(root, MINIMAL_CELL)
+    _write(root, CELL_WITH_ENTITY)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -448,9 +455,10 @@ def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     """"Update from selection..." (context menu, 2026-09-03, plan
     cell_geometry_refresh) — the cell leaf's context action emits
     cell_refresh_requested with the SAME (name, file_path) as "Edit cell...",
-    so CellDock can load the right cell and refresh its geometry."""
+    so CellDock can load the right cell and refresh its geometry. The cell
+    carries an entity (3б): an entityless cell no longer shows paid items."""
     root = tmp_path / "root.sexp"
-    _write(root, MINIMAL_CELL)
+    _write(root, CELL_WITH_ENTITY)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -471,9 +479,10 @@ def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     fpga_oscill_missing_copper_and_cell_import §B.3) — the cell leaf's context
     action emits cell_import_requested with the SAME (name, file_path) shape as
     "Update from selection...", so CellDock can load the right cell and
-    backfill NEW via/track records (the additive counterpart of refresh)."""
+    backfill NEW via/track records (the additive counterpart of refresh). The
+    cell carries an entity (3б)."""
     root = tmp_path / "root.sexp"
-    _write(root, MINIMAL_CELL)
+    _write(root, CELL_WITH_ENTITY)
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
@@ -2382,9 +2391,10 @@ def test_programmatic_set_current_item_does_not_navigate(main_window, tmp_path):
 def test_repeat_click_on_the_current_item_still_navigates(main_window, tmp_path):
     """G.5 gotcha #4: currentItemChanged does NOT fire on a repeat click of the
     already-current item — itemClicked stays connected so the repeat click still
-    re-opens the right page (e.g. coming back after switching away)."""
+    re-opens the right page (e.g. coming back after switching away). The cell
+    carries an entity (3б), so the click routes to cell_picked as before."""
     root = tmp_path / "root.sexp"
-    _write(root, MINIMAL_CELL)
+    _write(root, CELL_WITH_ENTITY)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     leaf = _find(_find(dock.tree.topLevelItem(0), "Cells"), "one_role")
@@ -2404,9 +2414,9 @@ def test_mouse_click_does_not_emit_file_selected_twice(main_window, tmp_path,
     """G.5 gotcha #4 (dedupe): a REAL mouse click emits currentItemChanged AND
     itemClicked. The current-change router skips while a mouse button is held,
     so itemClicked is the single router — file_selected (and the pick signal)
-    must fire exactly once."""
+    must fire exactly once. The cell carries an entity (3б)."""
     root = tmp_path / "root.sexp"
-    _write(root, MINIMAL_CELL)
+    _write(root, CELL_WITH_ENTITY)
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
     leaf = _find(_find(dock.tree.topLevelItem(0), "Cells"), "one_role")

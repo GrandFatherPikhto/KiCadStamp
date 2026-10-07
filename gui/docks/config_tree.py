@@ -235,6 +235,10 @@ class ConfigTreeDock(QWidget):
     # DIFFERENT action, see cell_edit_requested/add_cell_requested below,
     # deliberately not routed through this same signal.
     cell_picked = pyqtSignal(str)
+    # 3б (plan_2026_10_05_entities_under_cells): the SAME pick, but for a cell
+    # with NO entity and NO placer — a DRAWING. The cell page opens READ-ONLY
+    # ("create an entity to edit this cell"); DockHub routes this signal there.
+    cell_picked_read_only = pyqtSignal(str)
     # Fired by the context menu's "Edit cell..." (2026-08-06, added
     # alongside CellDock — see gui/docks/cell_editor.py) — CellDock listens
     # via its load_entry() entry point. (name, file_path), same "leaf name +
@@ -1291,6 +1295,78 @@ class ConfigTreeDock(QWidget):
         existing = leaf.toolTip(0)
         leaf.setToolTip(0, f"{existing}\n{hint}" if existing else hint)
 
+    def _add_cell_menu_items(self, menu, old_name, file_path) -> None:
+        """The cell's own menu block (Edit cell / anchor / the paid actions),
+        shared by a PLACED cell without an entity and a cell WITH one. NOT
+        shown for an UNUSED cell with no entity (3б)."""
+        menu.addAction(_("Edit cell...")).triggered.connect(
+            lambda: self.cell_edit_requested.emit(old_name, file_path))
+        # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_
+        # declarative_and_board_overlay): the dedicated anchor editor
+        # (Component/Marker tabs) as a Config right-QView page.
+        menu.addAction(_("Cell anchor...")).triggered.connect(
+            lambda: self.cell_anchor_requested.emit(old_name, file_path))
+        # 2026-09-03 (plan cell_geometry_refresh): refresh an existing
+        # cell's geometry from the current board selection — the
+        # one-click path Denis originally looked for ("как перечитать
+        # cell") without first opening CellDock and hunting for the
+        # button. Same (name, file_path) shape as cell_edit_requested.
+        menu.addAction(_("Update from selection...")).triggered.connect(
+            lambda: self.cell_refresh_requested.emit(old_name, file_path))
+        # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import
+        # §B.3): the ADDITIVE counterpart of the item above — import
+        # live via/track copper the cell's current records don't
+        # describe as NEW records (Refresh cannot ADD a record; Import
+        # cannot MODIFY one — they complement, never overlap).
+        menu.addAction(_("Add selected copper...")).triggered.connect(
+            lambda: self.cell_import_requested.emit(old_name, file_path))
+        # С-2: the third action over the records — REMOVE the ones the
+        # CURRENT selection names (copper only).
+        menu.addAction(_("Subtract selected copper...")).triggered.connect(
+            lambda: self.cell_subtract_requested.emit(old_name, file_path))
+        # СЦ-1: three items in order — components, cell, enclosed.
+        components_action = menu.addAction(_("Select cell components"))
+        components_action.setObjectName("select_cell_components_action")
+        components_action.triggered.connect(
+            lambda: self.cell_select_components_requested.emit(
+                old_name, file_path, None, None))
+        # Н5: highlight what a read would read (instance + own copper).
+        select_action = menu.addAction(_("Select cell"))
+        select_action.setObjectName("select_cell_action")
+        select_action.triggered.connect(
+            lambda: self.cell_select_requested.emit(
+                old_name, file_path, None, None))
+        # 2026-10-05: the whole enclosed copper of this cell's instance
+        # (components + the copper between them, no foreign pad).
+        enclosed_action = menu.addAction(_("Select enclosed copper"))
+        enclosed_action.setObjectName("select_enclosed_copper_action")
+        enclosed_action.triggered.connect(
+            lambda: self.cell_select_enclosed_requested.emit(
+                old_name, file_path, None, None))
+        # Р2: the cell door of the "Разнос" tab — the instance is
+        # resolved by DockHub with the "Select cell" rules.
+        menu.addAction(_("Explode…")).triggered.connect(
+            lambda: self.cell_explode_requested.emit(
+                old_name, file_path, None, None))
+        # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
+        # reads with the layer dialog in front. The FAST items above stay
+        # one-click (no window, no board read for the layer set); these
+        # ask FIRST which layers to read.
+        menu.addAction(
+            _("Update from selection (choose layers)...")
+        ).triggered.connect(
+            lambda: self.cell_refresh_layers_requested.emit(old_name, file_path))
+        menu.addAction(
+            _("Add selected copper (choose layers)...")
+        ).triggered.connect(
+            lambda: self.cell_import_layers_requested.emit(old_name, file_path))
+        # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
+        # sibling — copy another cell's placement (component geometry +
+        # vias/tracks) into this one; the donor is picked from a minimal
+        # role-set-fitted combobox (no live board selection involved).
+        menu.addAction(_("Copy placement from cell...")).triggered.connect(
+            lambda: self.cell_copy_requested.emit(old_name, file_path))
+
     def _add_orphan_menu(self, menu, entity, file_path) -> None:
         """3а: an entity whose cell/imprint is nowhere in the graph has nothing
         else to read — it can only be RE-POINTED or deleted."""
@@ -1445,7 +1521,11 @@ class ConfigTreeDock(QWidget):
             return
         _kind, section, ref = data
         if section == "cells":
-            self.cell_picked.emit(ref)
+            if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:
+                # 3б: a cell with no entity and no placer opens READ-ONLY.
+                self.cell_picked_read_only.emit(ref)
+            else:
+                self.cell_picked.emit(ref)
         elif section == "clone_placements":
             self.placement_picked.emit(ref)
         elif section == "thermal_via_arrays":
@@ -1683,8 +1763,10 @@ class ConfigTreeDock(QWidget):
         if rename_target is not None:
             section, old_name = rename_target[1], rename_target[2]
             # An orphan entity leaf brings its OWN two actions (below) and must
-            # NOT get the generic Rename/Delete pair.
+            # NOT get the generic Rename/Delete pair; an UNUSED cell keeps the
+            # generic Delete but not the Rename (3б).
             handled_orphan = False
+            suppress_rename = False
             if section == "imprints":
                 # Reread (2026-09-06, plan imprint §5.3): re-run the
                 # capture against the live board and, on explicit Apply, rewrite
@@ -1777,76 +1859,18 @@ class ConfigTreeDock(QWidget):
                 create_action.triggered.connect(
                     lambda checked=False, n=old_name, f=file_path:
                     self.add_entity_requested.emit("cell", n, f))
-                menu.addAction(_("Edit cell...")).triggered.connect(
-                    lambda: self.cell_edit_requested.emit(old_name, file_path))
-                # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_
-                # declarative_and_board_overlay): the dedicated anchor editor
-                # (Component/Marker tabs) as a Config right-QView page.
-                menu.addAction(_("Cell anchor...")).triggered.connect(
-                    lambda: self.cell_anchor_requested.emit(old_name, file_path))
-                # 2026-09-03 (plan cell_geometry_refresh): refresh an existing
-                # cell's geometry from the current board selection — the
-                # one-click path Denis originally looked for ("как перечитать
-                # cell") without first opening CellDock and hunting for the
-                # button. Same (name, file_path) shape as cell_edit_requested.
-                menu.addAction(_("Update from selection...")).triggered.connect(
-                    lambda: self.cell_refresh_requested.emit(old_name, file_path))
-                # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import
-                # §B.3): the ADDITIVE counterpart of the item above — import
-                # live via/track copper the cell's current records don't
-                # describe as NEW records (Refresh cannot ADD a record; Import
-                # cannot MODIFY one — they complement, never overlap).
-                menu.addAction(_("Add selected copper...")).triggered.connect(
-                    lambda: self.cell_import_requested.emit(old_name, file_path))
-                # С-2: the third action over the records — REMOVE the ones the
-                # CURRENT selection names (copper only).
-                menu.addAction(_("Subtract selected copper...")).triggered.connect(
-                    lambda: self.cell_subtract_requested.emit(old_name, file_path))
-                # СЦ-1: three items in order — components, cell, enclosed.
-                components_action = menu.addAction(_("Select cell components"))
-                components_action.setObjectName("select_cell_components_action")
-                components_action.triggered.connect(
-                    lambda: self.cell_select_components_requested.emit(
-                        old_name, file_path, None, None))
-                # Н5: highlight what a read would read (instance + own copper).
-                select_action = menu.addAction(_("Select cell"))
-                select_action.setObjectName("select_cell_action")
-                select_action.triggered.connect(
-                    lambda: self.cell_select_requested.emit(
-                        old_name, file_path, None, None))
-                # 2026-10-05: the whole enclosed copper of this cell's instance
-                # (components + the copper between them, no foreign pad).
-                enclosed_action = menu.addAction(_("Select enclosed copper"))
-                enclosed_action.setObjectName("select_enclosed_copper_action")
-                enclosed_action.triggered.connect(
-                    lambda: self.cell_select_enclosed_requested.emit(
-                        old_name, file_path, None, None))
-                # Р2: the cell door of the "Разнос" tab — the instance is
-                # resolved by DockHub with the "Select cell" rules.
-                menu.addAction(_("Explode…")).triggered.connect(
-                    lambda: self.cell_explode_requested.emit(
-                        old_name, file_path, None, None))
-                # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
-                # reads with the layer dialog in front. The FAST items above stay
-                # one-click (no window, no board read for the layer set); these
-                # ask FIRST which layers to read.
-                menu.addAction(
-                    _("Update from selection (choose layers)...")
-                ).triggered.connect(
-                    lambda: self.cell_refresh_layers_requested.emit(old_name, file_path))
-                menu.addAction(
-                    _("Add selected copper (choose layers)...")
-                ).triggered.connect(
-                    lambda: self.cell_import_layers_requested.emit(old_name, file_path))
-                # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
-                # sibling — copy another cell's placement (component geometry +
-                # vias/tracks) into this one; the donor is picked from a minimal
-                # role-set-fitted combobox (no live board selection involved).
-                menu.addAction(_("Copy placement from cell...")).triggered.connect(
-                    lambda: self.cell_copy_requested.emit(old_name, file_path))
+                if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:
+                    # 3б: a cell with NO entity and NO placer is a drawing — its
+                    # only actions are "Create entity" and the generic Delete
+                    # below; no paid items, no Rename. A PLACED cell without an
+                    # entity keeps the today behaviour (below).
+                    suppress_rename = True
+                else:
+                    self._add_cell_menu_items(menu, old_name, file_path)
             if not handled_orphan:
-                menu.addAction(_("Rename...")).triggered.connect(
-                    lambda: self._on_rename(file_path, section, old_name))
+                if not suppress_rename:
+                    menu.addAction(_("Rename...")).triggered.connect(
+                        lambda: self._on_rename(file_path, section, old_name))
                 menu.addAction(_("Delete...")).triggered.connect(
                     lambda: self._on_delete(file_path, section, old_name))
                 menu.addSeparator()

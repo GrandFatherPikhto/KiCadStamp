@@ -937,6 +937,10 @@ class DockHub:
         # Cell-anchor editor is the active Config right page it must make THAT
         # page follow the tree selection instead (G.4) — see _on_cell_picked.
         self.config_tree_dock.cell_picked.connect(self._on_cell_picked)
+        # 3б: the same page, but for a cell with no entity and no placer — it
+        # opens READ-ONLY ("create an entity to edit this cell").
+        self.config_tree_dock.cell_picked_read_only.connect(
+            self._on_cell_picked_read_only)
         # Entities leaf (2026-09-05, design config_qview_chain_entity_pages):
         # a single click opens the Entity right-QView page (record editor) —
         # NO longer routed into Placer's Entity mode (that mode stays available
@@ -3175,7 +3179,12 @@ class DockHub:
         no Cell dialog, no entity/net editor pops up (Denis 2026-09-06)."""
         self.cells_dock.copy_from_cell_requested(name, file_path)
 
-    def _on_cell_picked(self, name: str) -> None:
+    def _on_cell_picked_read_only(self, name: str) -> None:
+        """3б: an entityless, unplaced cell is a drawing — the merged cell page
+        opens for READING only. Same page and same handler as a normal pick."""
+        self._on_cell_picked(name, read_only=True)
+
+    def _on_cell_picked(self, name: str, read_only: bool = False) -> None:
         """A Config-tree cell selection ALWAYS opens the ONE merged cell page
         (task V, prompt_2026_09_11_cell_page_merge.md) — whether it came from a
         mouse click, an arrow key (G.5) or the context menu. It used to reveal
@@ -3193,9 +3202,10 @@ class DockHub:
             return
         self._focus_config_tree_dock()
         self.config_tree_dock.show_page(anchor_page)
-        if getattr(self.cell_anchor_view, "_cell_name", None) == name:
+        if (getattr(self.cell_anchor_view, "_cell_name", None) == name
+                and getattr(self.cell_anchor_view, "_read_only", False) == read_only):
             return
-        self.cell_anchor_view.load_entry(name, None)
+        self.cell_anchor_view.load_entry(name, None, read_only=read_only)
 
     def _edit_cell_anchor(self, name, file_path) -> None:
         """ConfigTreeDock's cell_anchor_requested delegate (2026-09-09, Phase C

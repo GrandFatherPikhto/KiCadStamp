@@ -18186,3 +18186,6 @@ msgstr ""
 #: gui/docks/config_tree.py
 msgid "Point failed"
 msgstr ""
+#: gui/docks/cell_anchor_view.py
+msgid "create an entity to edit this cell"
+msgstr ""

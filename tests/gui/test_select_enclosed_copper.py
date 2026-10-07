@@ -103,7 +103,11 @@ def test_cells_leaf_has_the_item_and_emits_the_rule_instance(
     instance is resolved downstream by the shared "Select cell" rule."""
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"dac_buf": {"components": [{"role": "R"}]}}})
+    # The cell carries an entity (3б): an ENTITYLESS cell is a read-only
+    # drawing whose menu keeps only "Create entity" + "Delete…", so the paid
+    # select item lives on a cell with an entity.
+    write_config(root, {"cells": {"dac_buf": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "dac0", "cell": "dac_buf"}]})
     open_project(hub, root)
 
     tree = hub.config_tree_dock.tree
