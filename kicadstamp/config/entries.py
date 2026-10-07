@@ -527,7 +527,10 @@ def _point_is_footprint_eligible(points: dict[str, Point], name: str, _visited=N
     _visited.add(name)
     point = points.get(name)
     if point is None:
-        return False  # unknown name — reported separately, see _check_anchor_point
+        # An unknown name never survives the format-3 gate: the graph check
+        # refuses the dangling reference before the cross-validation runs (see
+        # loader._check_anchor_point, plan_2026_10_05_uuid_tails part 2).
+        return False
     if point.shift_x_mm or point.shift_y_mm:
         return False
     if point.xy is not None:

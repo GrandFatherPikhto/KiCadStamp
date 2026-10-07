@@ -39,23 +39,23 @@ built from the record's identity) is therefore per-copy automatically, no
 extra code.
 
 CHANGED 2026-09-12 (plan_2026_09_12_internode_copper_core Э3.2, design §11/§15):
-a net_trace record's identity moved from its net to its `name`, and its copper
-may be represented by (role, pad) references instead of literal nets — so there
-are now TWO paths, chosen by HOW THE RECORD IS REPRESENTED:
+a net_trace record's identity is its `name`, and its copper may be represented
+by (role, pad) references instead of literal nets. Its expansion therefore
+rewrites NOTHING by sheet: the nets are resolved live from the INSTANCE's own
+components at apply time (net_trace_planner._item_net_name narrows each role
+search by the copy's anchor_sheet, which is this very instance sheet). The copy
+is renamed like a placement node: its `name` AND the node's ref become
+`<name>__{instance}` through the same old→new map the template's pivot_ref is
+rewritten through.
 
-  * path A — a record WITHOUT `name:` (a legacy literal-net record; the
-    `net_traces:` index key is then its net): the leading sheet segment is
-    substituted exactly as described above, INCLUDING the fatal on a net whose
-    leading segment is not the template's own sheet;
-  * path B — a record WITH `name:`: nothing is rewritten by sheet at all. Such
-    a record's copper is (role, pad)-based and its nets are resolved live from
-    the INSTANCE's own components at apply time
-    (net_trace_planner._item_net_name narrows each role search by the copy's
-    anchor_sheet, which is this very instance sheet) — which is why the
-    old_sheet requirement, and with it the "not a {sheet}-sheet net path"
-    fatal, simply does not apply here. The copy is renamed like a placement
-    node instead: its `name` AND the node's ref become `<name>__{instance}`
-    through the same old→new map the template's pivot_ref is rewritten through.
+REMOVED 2026-10-07 (plan plan_2026_10_05_uuid_tails, Д1/4): the LEGACY
+literal-net branch ("path A" — a record WITHOUT `name:`, whose nets were rewritten
+by replacing the leading sheet segment, with its "not a {sheet}-sheet net path"
+fatal). Under the format-3 gate every net_trace record carries a name (В36 mints
+one for a historically nameless record at the 2->3 lift), so that branch could
+never run — dead code is not kept. A format-2 file of that shape is now refused by
+the format-3 dangling-reference check, whose message names the template, the node
+and the net_traces record it could not find.
 
 v1.2 (2026-09-03, plan tree_instances_cluster): a declaration may OPTIONALLY
 carry `cluster:` — an override substituted into every generated Entity copy's
@@ -120,9 +120,9 @@ path, and the v1.2.1 composite-guard walks template nodes generically (the
 root is not special-cased), so cluster behaves identically for both shapes.
 The only genuinely new work: (a) the entry gate admits the shape — checked
 HERE with the same EXACTLY-ONE rule auto-anchor resolution itself requires
-(_template_root_entity_ref), and (b) `old_sheet` for net_trace
-leading-segment rewriting, which for an auto template comes from the root
-Entity's OWN sheet (there is no anchor.sheet). The generated instance tree
+(_template_root_entity_ref), and (b) `old_sheet` for a MOUNT node, which for an
+auto template comes from the root Entity's OWN sheet (there is no anchor.sheet).
+The generated instance tree
 stays auto-anchored (deep copy of a template with no 'anchor' key) — exactly
 right, since a generated clone needs the identical self-resolving root-node
 anchor its template has, especially when it too gets embedded as a module.
@@ -141,9 +141,9 @@ sheet (old_sheet) -> replaced by the instance sheet, and — ONLY together with
 that — the declaration's `cluster:` (the same external-search narrowing the
 role anchor's cluster gets, deliberately NOT the composite-guarded per-copy
 cluster); a DIFFERENT sheet is a board-wide reference and is kept VERBATIM
-(info-logged, never rewritten) — unlike _substitute_net_sheet, where a foreign
-sheet is a fatal (copper must belong to the template, a reference point need
-not); a MISSING sheet is a fatal, because the role would be ambiguous across
+(info-logged, never rewritten) — a mount is a reference POINT, not the
+template's own copper, so a foreign sheet is legal there; a MISSING sheet is a
+fatal, because the role would be ambiguous across
 the instances' sheets (the "all three channels mounted to channel 0" trap).
 (в) A template's pivot_ref names a node of THIS tree, and expansion renames
 nodes (placement -> __{instance}, net_trace -> leading-sheet substitution,
@@ -171,9 +171,8 @@ carry neither). Four rules, all in _expand_template:
       anchored template). A declaration anchor therefore OPENS the entry gate
       to a template of ANY anchor mode (origin/ref/point included — the very
       case that used to be an unconditional fatal), but a template that NEEDS
-      old_sheet (it has net_trace or mount nodes) and cannot yield one is a
-      fatal that says what to add, instead of a per-node mystery deep in the
-      walk;
+      old_sheet (it has a MOUNT node) and cannot yield one is a fatal that says
+      what to add, instead of a per-node mystery deep in the walk;
   (в) §И.3.3 — a declaration anchor of the form (self (ref "X")) names a node
       of the TEMPLATE, so X follows the SAME old->new ref map the walk collects
       (the one pivot_ref and a template's own self anchor already use); a name
@@ -204,18 +203,17 @@ v1 template constraints (each is a hard fatal, never a silent skip):
     applies ONLY while the declaration has no `anchor:` of its own — with one,
     the sheet parameterization is not needed for PLACEMENT and the template may
     be of any anchor mode (the old_sheet requirement above still holds for a
-    template that materializes net_trace/mount nodes);
+    template that materializes MOUNT nodes);
   - every template node must be kind=placement (or unset/auto) or kind=
     net_trace (chain/coordinate/clone/module nodes inside a template are not
     instantiated yet);
   - a placement node's ref must name an existing entities: entry; a net_trace
     node's ref must name an existing net_traces: entry BY ITS IDENTITY (name:,
     or the net: of a legacy record) — the same seam link_trees resolves;
-  - a net_trace node whose record is a LEGACY (name-less, literal-net) one
-    additionally requires the template's role anchor to carry a real sheet (the
-    old sheet whose leading net segment is rewritten), and the net's leading
-    segment must equal that sheet. A NAMED record is (role, pad)-based, rewrites
-    nothing by sheet and needs neither (path B, plan Э3.2).
+  - a net_trace node's record always carries a NAME under the gate (В36 mints
+    one at the 2->3 lift) and is (role, pad)-based: it rewrites nothing by sheet
+    and needs no template sheet (plan Э3.2; the legacy literal-net branch was
+    removed 2026-10-07, plan plan_2026_10_05_uuid_tails Д1/4).
 
 Q2 (revised 2026-09-02, second round): a referenced template Entity MAY carry
 its OWN real `sheet` — it is REQUIRED for the template's own live
@@ -277,29 +275,6 @@ def _literal_item_nets(record: dict) -> list[str]:
     return out
 
 
-def _substitute_net_sheet(net: str, old_sheet: str, new_sheet: str,
-                          template_name: str, node_ref: str) -> str:
-    """Replace the leading sheet segment of a net path `/{sheet}/...`.
-
-    Fatal (never silent) when the leading segment does not equal old_sheet —
-    a net whose leading segment isn't this template's own sheet is not this
-    template's copper and must not be rewritten; the same fatal guards a
-    malformed (non-`/`-prefixed) net string."""
-    parts = net.split('/')
-    if len(parts) < 2 or parts[0] != '' or parts[1] != old_sheet:
-        raise ValidationError(format_fatal_error(
-            _("tree_instance: template {template!r} net {ref!r} is not a "
-              "{old_sheet!r}-sheet net path").format(template=template_name,
-                                                     ref=node_ref,
-                                                     old_sheet=old_sheet),
-            [_("a net_trace node's net must be a board net path "
-               "'/{sheet}/{group}/{signal}' whose leading sheet segment equals "
-               "the template tree's anchor sheet — only that copper belongs to "
-               "this template and is rewritten per instance")]))
-    parts[1] = new_sheet
-    return '/'.join(parts)
-
-
 def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str]:
     """The set of distinct non-empty `cluster` values the given template
     placement nodes (recursively through children) would generate BEFORE any
@@ -330,36 +305,28 @@ def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str
     return clusters
 
 
-def _template_needs_old_sheet(nodes: list,
-                              net_traces_by_name: dict | None = None) -> bool:
+def _template_needs_old_sheet(nodes: list) -> bool:
     """True when the template carries a node whose expansion READS the
-    template's own sheet (`old_sheet`): a mount node (its anchor's sheet decides
-    inside/outside), or a LEGACY net_trace node — one whose record has no
-    `name:`, so its literal nets are rewritten by leading-sheet substitution
-    (path A). A NAMED net_trace record is (role, pad)-based and rewrites
-    nothing by sheet (path B, plan Э3.2), so it does not need the template to
-    yield one.
+    template's own sheet (`old_sheet`): a MOUNT node, whose anchor's sheet
+    decides whether it looks inside the template or out at the board.
 
-    `net_traces_by_name` is the record index; a caller that has only the raw
-    nodes (or a node whose record is MISSING) counts a net_trace node as
-    needing the sheet — conservative, and the missing record is a fatal of its
-    own anyway. Used by the entry gate (§И.4): a declaration that brings its
-    own `anchor` may use a template of ANY anchor mode, but such a template
-    must still be able to yield a sheet somewhere (a role anchor's sheet, or
-    the root Entity's own sheet) — otherwise the gate says exactly what to add
-    instead of leaving a per-node mystery fatal."""
+    A net_trace node never does any more: its record always carries a NAME under
+    the format-3 gate (В36 mints one for a historically nameless record at the
+    2->3 lift) and a named record's copper is (role, pad)-based, so nothing is
+    rewritten by sheet — the legacy literal-net branch is GONE
+    (plan_2026_10_05_uuid_tails Д1/4).
+
+    Used by the entry gate (§И.4): a declaration that brings its own `anchor`
+    may use a template of ANY anchor mode, but such a template must still be
+    able to yield a sheet somewhere (a role anchor's sheet, or the root Entity's
+    own sheet) — otherwise the gate says exactly what to add instead of leaving
+    a per-node mystery fatal."""
     for node in nodes:
         if not isinstance(node, dict):
             continue
         if node.get('kind') == 'mount':
             return True
-        if node.get('kind') == 'net_trace':
-            record = (net_traces_by_name or {}).get(node.get('ref'))
-            if record is not None and record.get('name'):
-                continue  # path B: nothing is rewritten by sheet
-            return True
-        if _template_needs_old_sheet(node.get('children') or [],
-                                     net_traces_by_name):
+        if _template_needs_old_sheet(node.get('children') or []):
             return True
     return False
 
@@ -723,55 +690,35 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
 
         gen = copy.deepcopy(node)
         gen_nt = copy.deepcopy(record)
-        if record.get('name'):
-            # ── Path B — a NAMED (role, pad)-based record ──────────────────
-            # Nothing is rewritten by sheet: the nets come live from the
-            # instance's own components (see the module docstring). The copy is
-            # renamed exactly like a placement node, `name` included, so the
-            # node ref and the record's effective identity stay equal.
-            new_ref = f"{_record_identity(record)}__{instance_name}"
-            gen['ref'] = new_ref
-            ref_map[orig_ref] = new_ref
-            gen_nt['name'] = new_ref
-            gen_nt['anchor_sheet'] = sheet
-            literal = _literal_item_nets(gen_nt)
-            if literal:
-                logger.warning(_(
-                    "tree_instance {name!r}: net_trace record {record!r} is "
-                    "named ((role, pad)-based), but its copper still carries "
-                    "literal net(s) at {items} — a named record's nets are NOT "
-                    "rewritten by sheet; check how the record was captured")
-                    .format(name=instance_name, record=orig_ref,
-                            items=", ".join(literal)))
-        else:
-            # ── Path A — a LEGACY literal-net record ───────────────────────
-            # Byte-for-byte the historical behaviour: the leading sheet segment
-            # is substituted on the record's own net and on every track/via net,
-            # which is why the template must be able to yield its own sheet.
-            if not old_sheet:
-                raise ValidationError(format_fatal_error(
-                    _("tree_instance: template {template!r} net_trace node {ref!r} "
-                      "needs the template's anchor sheet")
-                    .format(template=template_name, ref=orig_ref),
-                    [_("a net_trace node's net is rewritten by replacing its "
-                       "leading sheet segment (a legacy record has no name: and "
-                       "carries literal net paths), so the template tree's role "
-                       "anchor must carry a sheet (anchor.sheet) naming the "
-                       "template's own sheet")]))
-            new_net = _substitute_net_sheet(orig_ref, old_sheet, sheet,
-                                            template_name, orig_ref)
-            gen['ref'] = new_net
-            ref_map[orig_ref] = new_net
-            gen_nt['net'] = new_net
-            gen_nt['anchor_sheet'] = sheet
-            for t in gen_nt.get('tracks') or []:
-                if isinstance(t, dict) and t.get('net'):
-                    t['net'] = _substitute_net_sheet(t['net'], old_sheet, sheet,
-                                                     template_name, orig_ref)
-            for v in gen_nt.get('vias') or []:
-                if isinstance(v, dict) and v.get('net'):
-                    v['net'] = _substitute_net_sheet(v['net'], old_sheet, sheet,
-                                                     template_name, orig_ref)
+        # A NAME is the record's identity under the format-3 gate (В36 mints one
+        # for a historically nameless record at the 2->3 lift) and a named
+        # record's copper is (role, pad)-based: NOTHING is rewritten by sheet,
+        # the nets come live from the instance's own components (see the module
+        # docstring). The copy is renamed exactly like a placement node, `name`
+        # included, so the node ref and the record's effective identity stay
+        # equal.
+        #
+        # The LEGACY literal-net branch (a nameless record whose nets were
+        # rewritten by leading-segment substitution) is GONE — plan
+        # plan_2026_10_05_uuid_tails Д1/4: no post-lift graph can carry a
+        # nameless record, so that branch was unreachable dead code, and a
+        # format-2 file of that shape is refused by the format-3 dangling
+        # reference check, whose message names the template, the node and the
+        # net_traces record it could not find.
+        new_ref = f"{_record_identity(record)}__{instance_name}"
+        gen['ref'] = new_ref
+        ref_map[orig_ref] = new_ref
+        gen_nt['name'] = new_ref
+        gen_nt['anchor_sheet'] = sheet
+        literal = _literal_item_nets(gen_nt)
+        if literal:
+            logger.warning(_(
+                "tree_instance {name!r}: net_trace record {record!r} is "
+                "named ((role, pad)-based), but its copper still carries "
+                "literal net(s) at {items} — a named record's nets are NOT "
+                "rewritten by sheet; check how the record was captured")
+                .format(name=instance_name, record=orig_ref,
+                        items=", ".join(literal)))
         if current_format() >= 3:
             # Р-У5.3: the generated net_trace is a NEW record — its uuid is
             # computed, never the template record's. Р-У5.4: the generated node
@@ -865,10 +812,10 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     anchor (explicit (self ...) / absent); the shape is checked at the entry
     gate via _template_root_entity_ref, mirroring self-anchor resolution). For
     a ROLE template the instance sheet is written into the deep-copied anchor
-    (gen['anchor']['sheet']) and `old_sheet` (the net_trace leading-segment
-    rewrite's source) is anchor.sheet. For an AUTO template there is no 'anchor'
-    key to mutate — the generated tree stays auto-anchored and `old_sheet` is
-    the root Entity record's own sheet; the instance sheet/cluster reach the
+    (gen['anchor']['sheet']) and `old_sheet` (what a MOUNT node's anchor sheet
+    is compared against) is anchor.sheet. For an AUTO template there is no
+    'anchor' key to mutate — the generated tree stays auto-anchored and
+    `old_sheet` is the root Entity record's own sheet; the instance sheet/cluster reach the
     copies through the SAME per-node mechanism as any other node (_expand_node),
     because for an auto template the anchor IS its root node.
 
@@ -895,7 +842,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     anchor mode (§И.4): that is the whole point of the axis ("the same template,
     standing here / at this node" was inexpressible while a role-/self-anchored
     template was mandatory). `old_sheet` is STILL the TEMPLATE's (§И.3.2) — it
-    says what the template IS (which copper is its own), not where the copy
+    says what the template IS (which mounts look INSIDE it), not where the copy
     stands; a template that needs it and cannot yield it is a gate fatal.
     `decl_rotation` not None lands on the copy's Tree.rotation and REPLACES the
     template's own angle rather than adding to it (§И.3.4). Both None = today's
@@ -976,22 +923,20 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     else:
         old_sheet = None
     if (has_decl_anchor and old_sheet is None
-            and _template_needs_old_sheet(template.get('nodes') or [],
-                                          net_traces_by_name)):
+            and _template_needs_old_sheet(template.get('nodes') or [])):
         # §И.4: the declaration's anchor lets a template of any mode in, but a
-        # mount node, or a LEGACY (literal-net) net_trace node, still needs the
-        # template's OWN sheet, and that cannot be invented. A NAMED
-        # (role, pad)-based net_trace record does not (plan Э3.2), so it is not
-        # counted here. Say exactly what to add — the alternative would be a
-        # per-node fatal deep inside the walk, far from the real cause.
+        # MOUNT node still needs the template's OWN sheet (its anchor's sheet
+        # decides inside/outside), and that cannot be invented. Say exactly what
+        # to add — the alternative would be a per-node fatal deep inside the
+        # walk, far from the real cause.
         raise ValidationError(format_fatal_error(
             _("tree_instance {name!r}: template {template!r} declares its own "
               "place, but the template's own sheet cannot be derived")
             .format(name=instance_name, template=template_name),
-            [_("the template has a mount node or a legacy (literal-net) "
-               "net_trace node, whose expansion needs the template's own sheet — "
-               "add (sheet \"...\") to a (role ...) anchor of the template, or an "
-               "explicit sheet to the root Entity of the template tree")]))
+            [_("the template has a mount node, whose expansion needs the "
+               "template's own sheet — add (sheet \"...\") to a (role ...) anchor "
+               "of the template, or an explicit sheet to the root Entity of the "
+               "template tree")]))
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
     if has_decl_anchor:

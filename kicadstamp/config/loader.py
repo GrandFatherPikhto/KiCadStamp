@@ -113,7 +113,6 @@ from .format3 import (  # noqa: E402,F401  (re-exported)
     _check_format3_graph, _normalize_format3_refs,
     _check_expanded_uuids_unique,
 )
-from .name_hint import close_name_hint  # noqa: E402  (one place for the hint)
 
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
@@ -517,16 +516,14 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     def _check_anchor_point(owner_label: str, anchor_point: str | None, needs_footprint: bool):
         if anchor_point is None:
             return
-        if anchor_point not in points:
-            # The close-match suggestion lives in ONE place
-            # (config/name_hint.close_name_hint) — the format-3 dangling-reference
-            # refusal asks the very same function (plan_2026_10_05_uuid_tails п.1).
-            hint = close_name_hint(anchor_point, points.keys())
-            raise ValidationError(format_fatal_error(
-                _("{owner}: anchor_point {name!r} not found in points:{hint}")
-                .format(owner=owner_label, name=anchor_point, hint=hint),
-                [_("known points: {names}").format(names=sorted(points.keys()))]
-            ))
+        # An unknown `anchor_point` name never reaches here under the format-3
+        # gate: `_check_format3_graph` (called in _load_config_uncached BEFORE
+        # this cross-validation — loader.py's order, plan_2026_10_05_uuid_tails
+        # part 2) refuses every dangling reference, naming the record, the owner
+        # and a close-match suggestion (`config/name_hint.close_name_hint`). The
+        # old format-2 "not found in points" refusal lived here (branch removed
+        # 2026-10-07, plan Д1/4: unreachable dead code, like tree_instances'
+        # literal-net path A), and with it `close_name_hint`'s second caller.
         if needs_footprint and not _point_is_footprint_eligible(points, anchor_point):
             raise ValidationError(format_fatal_error(
                 _("{owner}: anchor_point {name!r} has no footprint to anchor on")

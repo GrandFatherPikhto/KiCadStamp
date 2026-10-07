@@ -15293,11 +15293,6 @@ msgstr " (возможно, вы имели в виду {suggestion!r}?)"
 msgid " (name hint: {hint!r})"
 msgstr " (подсказка имени: {hint!r})"
 
-#: kicadstamp/config/loader.py:525
-#, python-brace-format
-msgid "{owner}: anchor_point {name!r} not found in points:{hint}"
-msgstr "{owner}: anchor_point {name!r} не найден в points:{hint}"
-
 #: kicadstamp/config/loader.py:531
 #, python-brace-format
 msgid "{owner}: anchor_point {name!r} has no footprint to anchor on"
@@ -16122,17 +16117,15 @@ msgstr ""
 "tree_instance {name!r}: шаблон {template!r} объявляет собственное место, "
 "но собственный лист шаблона вывести нельзя"
 
-#: kicadstamp/config/tree_instances.py:991
+#: kicadstamp/config/tree_instances.py
 msgid ""
-"the template has a mount node or a legacy (literal-net) net_trace node, "
-"whose expansion needs the template's own sheet — add (sheet \"...\") to a"
-" (role ...) anchor of the template, or an explicit sheet to the root "
-"Entity of the template tree"
+"the template has a mount node, whose expansion needs the template's own "
+"sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an "
+"explicit sheet to the root Entity of the template tree"
 msgstr ""
-"в шаблоне есть узел mount либо старый узел net_trace (с буквальной "
-"сетью), для раскрытия которых нужен собственный лист шаблона — добавьте "
-"(sheet \"...\") в якорь (role ...) шаблона либо явный sheet корневой "
-"Entity дерева-шаблона"
+"в шаблоне есть узел mount, для раскрытия которого нужен собственный лист "
+"шаблона — добавьте (sheet \"...\") в якорь (role ...) шаблона либо явный "
+"sheet корневой Entity дерева-шаблона"
 
 #: kicadstamp/config/tree_instances.py:1044
 #, python-brace-format

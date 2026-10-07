@@ -20,18 +20,6 @@ from kicadstamp.exceptions import ValidationError
 from tests.fakes.format3 import without_identity
 
 
-def _pin_format2(monkeypatch):
-    """Pin this build to format 2 for a cell whose SUBJECT is format-2
-    semantics: the LEGACY literal-net net_trace expansion (a nameless record's
-    nets are rewritten by replacing the leading sheet segment). Under format 3
-    the lift mints a name for a nameless record and the product then treats it
-    as a NAMED (role, pad)-based record whose nets are deliberately NOT
-    rewritten — Path A of tree_instances.py is unreachable under the gate.
-    Named in the handoff note."""
-    from kicadstamp.config import format_version
-    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
-
-
 def _write(tmp_path, name, data) -> Path:
     p = tmp_path / name
     p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
@@ -674,51 +662,51 @@ def _net_trace_template_data(instances, anchor_sheet="Channel_0",
 
 class TestNetTrace:
     """v1.1 (2026-09-02, plan_2026_09_02_tree_instances_net_trace.md, design
-    §10 "Вариант Б"): a template's kind=net_trace node materializes one
-    net_traces: copy per instance — the net's LEADING sheet segment is
-    substituted (NOT the placement __{instance} suffix), because a net_trace
-    node's ref is a real board net name that must survive into
-    net_trace_planner/KiCad."""
+    §10 "Вариант Б") + Э3.2 (2026-09-12): a template's kind=net_trace node
+    materializes one net_traces: copy per instance, renamed like a placement
+    node (`<name>__{instance}` — the record's NAME is its identity under the
+    format-3 gate, and a node's ref names that same identity).
 
-    @staticmethod
-    def _nt_by_net(cfg, net):
-        return next(nt for nt in cfg.net_traces if nt.net == net)
+    The legacy literal-net branch (a nameless record whose nets were rewritten by
+    leading-sheet substitution) is GONE — plan plan_2026_10_05_uuid_tails Д1/4:
+    no post-lift graph can carry a nameless record, so the branch could never
+    run."""
 
-    def test_net_trace_nodes_materialize_one_record_per_instance(
-            self, tmp_path, monkeypatch):
-        _pin_format2(monkeypatch)
-        p = _write(tmp_path, "t.sexp", _net_trace_template_data([
+    def test_net_trace_nodes_materialize_one_record_per_instance(self, tmp_path):
+        p = _write(tmp_path, "t.sexp", _named_net_trace_template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"},
             {"template": "dac_buf_tpl", "name": "ch2_dac_buf", "sheet": "Channel_2"},
         ]))
         cfg, _ = load_config(str(p))
 
-        # template record untouched + one generated copy per instance; the
-        # distinct nets keep the existing net_traces dedup (one record per net)
-        # happy — load_config above would have fataled on a duplicate net.
-        assert [nt.net for nt in cfg.net_traces] == [
-            "/Channel_0/DAC/+3V3_AVDD",
-            "/Channel_1/DAC/+3V3_AVDD",
-            "/Channel_2/DAC/+3V3_AVDD",
+        # template record untouched + one generated copy per instance (a distinct
+        # NAME keeps the net_traces identity check happy — one record per net).
+        assert [nt.name for nt in cfg.net_traces] == [
+            "spi_clk__fpga__ch0_dac",
+            "spi_clk__fpga__ch0_dac__ch1_dac_buf",
+            "spi_clk__fpga__ch0_dac__ch2_dac_buf",
         ]
-        # template record keeps its own sheet (deep-copy expansion, never mutates)
-        assert self._nt_by_net(cfg, "/Channel_0/DAC/+3V3_AVDD").anchor_sheet == "Channel_0"
+        template = next(nt for nt in cfg.net_traces
+                        if nt.name == "spi_clk__fpga__ch0_dac")
+        assert template.anchor_sheet == "Channel_0"
 
         for inst, sheet in (("ch1_dac_buf", "Channel_1"),
                             ("ch2_dac_buf", "Channel_2")):
-            new_net = f"/{sheet}/DAC/+3V3_AVDD"
-            nt = self._nt_by_net(cfg, new_net)
-            assert nt.anchor_role == "DAC_BUF"
-            # net + every track/via net rewritten to the instance's sheet;
-            # anchor_sheet unconditionally overwritten (Q2 pattern)
-            assert nt.anchor_sheet == sheet
-            assert nt.tracks[0].net == new_net
-            assert nt.vias[0].net == new_net
-            # the generated tree's net_trace node references the NEW net (not a
-            # __{instance} suffix) -> linking by_key["net_trace:" + net] resolves
+            copy = next(nt for nt in cfg.net_traces
+                        if nt.name == f"spi_clk__fpga__ch0_dac__{inst}")
+            assert copy.anchor_role == "DAC_BUF"
+            # anchor_sheet unconditionally overwritten (Q2 pattern) — the
+            # per-instance narrowing context of the (role, pad) resolution
+            assert copy.anchor_sheet == sheet
+            # NOTHING is rewritten by sheet: the record's own net is descriptive
+            # and every item keeps its (role, pad) reference
+            assert copy.net == "/Channel_0/DAC/+3V3_AVDD"
+            assert copy.tracks[0].net is None
+            assert copy.vias[0].net is None
+            # the generated tree references the COPY by its new name
             tree = _tree_by_name(cfg, inst)
             nt_node = next(n for n in tree.nodes if n.kind == "net_trace")
-            assert nt_node.ref == new_net
+            assert nt_node.ref == f"spi_clk__fpga__ch0_dac__{inst}"
             assert tree.anchor.anchor_sheet == sheet
             # the placement sibling is still suffixed as before (v1 unchanged)
             assert any(n.ref == f"dac_buf__{inst}" for n in tree.nodes)
@@ -726,7 +714,7 @@ class TestNetTrace:
         # the template's own net_trace node ref is untouched
         tpl = _tree_by_name(cfg, "dac_buf_tpl")
         assert next(n for n in tpl.nodes if n.kind == "net_trace").ref == \
-            "/Channel_0/DAC/+3V3_AVDD"
+            "spi_clk__fpga__ch0_dac"
 
     def test_net_leading_segment_not_template_sheet_is_fatal(self, tmp_path):
         """A net whose leading segment isn't the template's anchor sheet is NOT
@@ -862,19 +850,18 @@ class TestClusterOverride:
             load_tree_instance({"template": "dac_buf_tpl", "name": "ch1_dac_buf",
                                 "sheet": "Channel_1", "cluter": "CLUST_A"})
 
-    def test_net_trace_anchor_cluster_ignores_declaration_cluster(
-            self, tmp_path, monkeypatch):
+    def test_net_trace_anchor_cluster_ignores_declaration_cluster(self, tmp_path):
         """The design §3 split, enforced in code: a declaration-level `cluster:`
         override rewrites the Entity copies (and role anchor), but MUST NOT
         leak into net_trace materialization — a net_trace's anchor_cluster is
         a different concept (external anchor search), never overwritten here."""
-        _pin_format2(monkeypatch)
-        p = _write(tmp_path, "t.sexp", _net_trace_template_data([
+        p = _write(tmp_path, "t.sexp", _named_net_trace_template_data([
             {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
              "cluster": "CLUST_A"},
         ]))
         cfg, _ = load_config(str(p))
-        nt = next(nt for nt in cfg.net_traces if nt.net == "/Channel_1/DAC/+3V3_AVDD")
+        nt = next(nt for nt in cfg.net_traces
+                  if nt.name == "spi_clk__fpga__ch0_dac__ch1_dac_buf")
         assert nt.anchor_cluster is None   # NOT rewritten by the declaration
         # ... but the placement sibling DID get the override — the declaration
         # was not simply dropped, only net_trace ignores it.
@@ -1245,54 +1232,6 @@ class TestClusterCompositeGuard:
         assert [fp.ref for fp in narrowed] == ["C149"]
 
 
-def _auto_net_trace_template_data(instances) -> dict:
-    """An AUTO-anchored template shaped like the live ch0_dac_buf copper: NO
-    (anchor ...) at all and EXACTLY ONE top-level placement node (the root
-    `dac_buf`) — the only legal auto shape — whose children mix a nested
-    placement (`pif_avdd`) with kind=net_trace DAC-copper nodes. Every net (and
-    the root Entity's own sheet) starts on /Channel_0/: `old_sheet` for the
-    net_trace leading-segment rewrite must come from the ROOT ENTITY record —
-    there is no anchor.sheet to read (exactly the case the v1.4 fix adds)."""
-    nets = ["/Channel_0/DAC/+3V3_AVDD", "/Channel_0/DAC/+3V3A_AVDD"]
-    records = []
-    for net in nets:
-        records.append({
-            "net": net, "anchor_role": "DAC_BUF", "anchor_sheet": "Channel_0",
-            "tracks": [{
-                "start_along_mm": 0.0, "start_across_mm": 0.0,
-                "end_along_mm": 1.0, "end_across_mm": 2.0,
-                "width_mm": 0.3, "layer": "F.Cu", "net": net}],
-            "vias": [{
-                "offset_along_mm": 0.5, "offset_across_mm": 0.5,
-                "drill_mm": 0.3, "diameter_mm": 0.6, "net": net}],
-        })
-    return {
-        # Row 2: entities reference these cells; a format-3 load resolves them.
-        "cells": {"c_dac": {}, "c_pif": {}},
-        "entities": [
-            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF",
-             "sheet": "Channel_0"},
-            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD",
-             "sheet": "Channel_0"},
-        ],
-        "net_traces": records,
-        "trees": [{
-            "name": "dac_buf_tpl",     # NO (anchor ...) -> auto-anchored
-            "nodes": [{
-                "ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
-                "rotation": 90.0,
-                "children": [
-                    {"ref": "pif_avdd", "kind": "placement",
-                     "xy": [0.5, 0.0]},
-                    {"ref": nets[0], "kind": "net_trace"},
-                    {"ref": nets[1], "kind": "net_trace"},
-                ],
-            }],
-        }],
-        "tree_instances": instances,
-    }
-
-
 class TestAutoAnchorTemplates:
     """v1.4 (2026-09-08, plan tree_instances_auto_root_template_support): an
     auto-anchored template — NO (anchor ...) at all (TreeAnchor.is_self) with
@@ -1459,43 +1398,6 @@ class TestAutoAnchorTemplates:
         cfg, _ = load_config(str(p))
         assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "OVERRIDE"
         assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "OVERRIDE"
-
-    def test_net_trace_children_rewritten_from_root_entity_sheet(
-            self, tmp_path, monkeypatch):
-        _pin_format2(monkeypatch)
-        """ch0_dac_buf-shaped end-to-end (plan regression): an AUTO template
-        (root `dac_buf` + a nested PIF placement + DAC copper net_trace
-        children, all on /Channel_0/) instantiated to Channel_1 with a
-        `cluster: DAC_BUF` declaration. Expansion must NOT fatal — old_sheet is
-        derived from the ROOT ENTITY's sheet (there is no anchor.sheet), every
-        net_trace copy is rewritten /Channel_0/... -> /Channel_1/..., and the
-        composite-guard keeps the PIF copy's own cluster (per-copy override
-        skipped)."""
-        p = _write(tmp_path, "t.sexp", _auto_net_trace_template_data([
-            {"template": "dac_buf_tpl", "name": "ch1_dac_buf",
-             "sheet": "Channel_1", "cluster": "DAC_BUF"}]))
-        cfg, _ = load_config(str(p))
-        tree = _tree_by_name(cfg, "ch1_dac_buf")
-        assert tree.anchor.is_self is True
-        # the generated tree's net_trace child nodes point at the REWRITTEN nets
-        nt_refs = sorted(n.ref for n in tree.nodes[0].children
-                         if n.kind == "net_trace")
-        assert nt_refs == ["/Channel_1/DAC/+3V3A_AVDD",
-                           "/Channel_1/DAC/+3V3_AVDD"]
-        # net_traces: generated copies on Channel_1, template ones untouched /0
-        for net in ("/Channel_1/DAC/+3V3_AVDD", "/Channel_1/DAC/+3V3A_AVDD"):
-            nt = next(x for x in cfg.net_traces if x.net == net)
-            assert nt.anchor_sheet == "Channel_1"
-            assert nt.tracks[0].net == net and nt.vias[0].net == net
-        for net in ("/Channel_0/DAC/+3V3_AVDD", "/Channel_0/DAC/+3V3A_AVDD"):
-            nt = next(x for x in cfg.net_traces if x.net == net)
-            assert nt.anchor_sheet == "Channel_0"
-        # placement copies: instance sheet; composite-guard kept per-copy
-        # clusters (root DAC_BUF, PIF child PIF_AVDD — NOT the DAC_BUF override)
-        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").sheet == "Channel_1"
-        assert _entity_by_name(cfg, "dac_buf__ch1_dac_buf").cluster == "DAC_BUF"
-        assert _entity_by_name(cfg, "pif_avdd__ch1_dac_buf").cluster == "PIF_AVDD"
-
 
 def _raw_tree(out: dict, name: str) -> dict:
     """The materialized template-dict of one instance (expand_tree_instances
@@ -1681,25 +1583,6 @@ class TestDeclarationOwnPlace:
             points={"p_tpl": {"xy": [5.0, 5.0]}})
         assert _tree_by_name(cfg, "ch1_dac_buf").anchor.is_origin is True
 
-    def test_origin_template_with_a_net_trace_needs_a_sheet(self):
-        """§И.4: a net_trace node's net is rewritten from the template's own
-        sheet, which an origin-anchored template cannot yield — the fatal says
-        exactly what to add instead of blaming a node deep in the walk."""
-        from kicadstamp.config.tree_instances import expand_tree_instances
-        data = _template_data([{
-            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
-            "sheet": "Channel_1", "anchor": {"origin": True}}],
-            anchor={"origin": True},
-            nodes=[
-                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
-                {"ref": "/Own/GRP/N", "kind": "net_trace"},
-            ])
-        with pytest.raises(ValidationError,
-                           match=r"the template's own sheet cannot be derived"):
-            expand_tree_instances(data)
-        with pytest.raises(ValidationError, match=r"add \(sheet"):
-            expand_tree_instances(data)
-
     def test_origin_template_with_a_mount_node_needs_a_sheet(self):
         """Same gate for a mount node: its anchor's sheet decides inside/outside
         against the template's own sheet, so old_sheet is required."""
@@ -1731,32 +1614,84 @@ class TestDeclarationOwnPlace:
 
     def test_old_sheet_still_comes_from_the_template_with_a_declared_anchor(self):
         """§И.3.2: a declaration anchor moves the instance but does NOT change
-        what it IS — the template's own sheet (here the root Entity's, there is
-        no role anchor) still drives the net_trace leading-segment rewrite,
-        while the copy's ANCHOR is exactly the declared origin."""
+        what it IS — the template's own sheet (here the root Entity's: there is
+        no role anchor) still decides which MOUNT anchor looks INSIDE the
+        template (and is therefore re-sheeted to the instance), while the copy's
+        ANCHOR is exactly the declared origin. A net_trace node no longer needs
+        that sheet at all (Д1/4 removed the literal-net branch)."""
         from kicadstamp.config.tree_instances import expand_tree_instances
         data = _template_data([{
             "template": "dac_buf_tpl", "name": "ch1_dac_buf",
             "sheet": "Channel_1", "anchor": {"origin": True}}],
             anchor={"origin": True})
         # The template's own sheet lives on its ROOT ENTITY (the shape a
-        # non-role template uses — Q2 keeps it for live re-readability), and the
-        # template's own copper is the /Channel_0/ net path.
+        # non-role template uses — Q2 keeps it for live re-readability).
         data["entities"][0]["sheet"] = "Channel_0"
         data["trees"][0]["nodes"] = [
             {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
              "children": [
-                 {"ref": "/Channel_0/GRP/N", "kind": "net_trace"},
+                 {"ref": "M_IN", "kind": "mount",
+                  "anchor": {"role": "HOST", "sheet": "Channel_0"}},
+                 {"ref": "M_OUT", "kind": "mount",
+                  "anchor": {"role": "OTHER", "sheet": "Elsewhere"}},
              ]},
         ]
-        data["net_traces"] = [{
-            "net": "/Channel_0/GRP/N", "anchor_role": "DAC_BUF",
-            "anchor_sheet": "Channel_0"}]
         out = expand_tree_instances(data)
         gen = _raw_tree(out, "ch1_dac_buf")
         assert gen["anchor"] == {"origin": True}
-        nets = sorted(nt["net"] for nt in out["net_traces"])
-        assert nets == ["/Channel_0/GRP/N", "/Channel_1/GRP/N"]
+        mounts = {n["ref"]: n for n in gen["nodes"][0]["children"]
+                  if n.get("kind") == "mount"}
+        # equal to the template's own sheet -> the INSTANCE sheet (it looks IN)
+        assert mounts["M_IN"]["anchor"]["sheet"] == "Channel_1"
+        # a board-wide reference is kept VERBATIM
+        assert mounts["M_OUT"]["anchor"]["sheet"] == "Elsewhere"
+
+
+def test_legacy_nameless_net_trace_profile_is_refused_with_a_clear_message(tmp_path):
+    """Plan plan_2026_10_05_uuid_tails Д1/4, п.3: a format-2 profile of the OLD
+    shape (a nameless net_traces record referenced by a tree template's
+    net_trace node) does NOT silently expand any more. The 2->3 lift mints a name
+    for the record, so the node's ref no longer resolves and the format-3
+    dangling-reference check REFUSES — naming the template, the node (its name
+    hint) and the net_traces record it could not find. The lift writes the file
+    once and leaves the previous version BESIDE it (*.bak), so nothing is lost."""
+    data = _net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
+    p = _write(tmp_path, "t.sexp", data)
+    original = p.read_text(encoding="utf-8")
+
+    with pytest.raises(ValidationError) as e:
+        load_config(str(p))
+    text = str(e.value)
+    assert "tree 'dac_buf_tpl'" in text          # which tree
+    assert "/Channel_0/DAC/+3V3_AVDD" in text    # which node (the name hint)
+    assert "not in net_traces" in text           # which record it could not find
+
+    # Not half-lifted: the pre-lift bytes live in a .bak next to the file.
+    baks = list(tmp_path.glob("t.sexp.bak.*"))
+    assert len(baks) == 1
+    assert baks[0].read_text(encoding="utf-8") == original
+
+
+def test_a_nameless_record_reaching_expansion_is_renamed_never_sheet_rewritten():
+    """Д1/4, the removal itself: `expand_tree_instances` called DIRECTLY with a
+    nameless net_traces record (only reachable in-process — a file always goes
+    through the 2->3 lift first) treats it like any other record: the copy is
+    renamed `<net>__{instance}` and NOTHING is rewritten by sheet. The old
+    literal-net branch is gone for good."""
+    from kicadstamp.config.tree_instances import expand_tree_instances
+    data = _net_trace_template_data([
+        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
+    out = expand_tree_instances(data)
+    copies = [nt for nt in out["net_traces"] if nt.get("name")]
+    assert [nt["name"] for nt in copies] == [
+        "/Channel_0/DAC/+3V3_AVDD__ch1_dac_buf"]
+    copy = copies[0]
+    assert copy["net"] == "/Channel_0/DAC/+3V3_AVDD"                # untouched
+    assert copy["tracks"][0]["net"] == "/Channel_0/DAC/+3V3_AVDD"   # untouched
+    gen = _raw_tree(out, "ch1_dac_buf")
+    assert any(n.get("ref") == "/Channel_0/DAC/+3V3_AVDD__ch1_dac_buf"
+               for n in gen["nodes"] if n.get("kind") == "net_trace")
 
 
 # ── Э3.2 (2026-09-12): a NAMED (role, pad) record — path B ────────────────
@@ -1766,9 +1701,9 @@ class TestDeclarationOwnPlace:
 # from the instance's own components, and the copy is renamed like a placement
 # node (`<name>__{instance}`) through the same old->new map.
 #
-# The path is chosen by HOW THE RECORD IS REPRESENTED (a name: vs a legacy
-# literal net) — the legacy path A above stays byte-for-byte compatible,
-# including its "not a {sheet}-sheet net path" fatal.
+# 2026-10-07 (plan plan_2026_10_05_uuid_tails Д1/4): this is now the ONLY path —
+# the legacy literal-net branch was removed (a nameless net_traces record cannot
+# survive the 2->3 lift, so that branch could never run).
 
 def _named_net_trace_template_data(instances,
                                    name="spi_clk__fpga__ch0_dac") -> dict:
@@ -1830,10 +1765,11 @@ def test_named_record_copy_keeps_role_pad_and_its_own_net(tmp_path):
     assert copy.vias[0].net_from_role_pad == "22"
 
 
-def test_named_record_needs_no_template_sheet_but_a_legacy_one_still_does():
-    """The §И.4 gate is now path-aware: a named (role, pad) record rewrites
-    nothing by sheet, so it no longer needs the template to yield one — while a
-    legacy literal-net record still does (its net path must be rewritten)."""
+def test_a_named_record_never_needs_the_template_sheet():
+    """§И.4 after Д1/4: a named (role, pad) record rewrites nothing by sheet, so
+    the entry gate does not demand a template sheet for it — a role anchor
+    WITHOUT a sheet is fine. (The legacy literal-net branch that did need one was
+    removed: a nameless record cannot survive the 2->3 lift.)"""
     from kicadstamp.config.tree_instances import expand_tree_instances
 
     named = _named_net_trace_template_data([
@@ -1844,29 +1780,19 @@ def test_named_record_needs_no_template_sheet_but_a_legacy_one_still_does():
     assert [nt["name"] for nt in out["net_traces"]] == [
         "spi_clk__fpga__ch0_dac", "spi_clk__fpga__ch0_dac__ch1_dac_buf"]
 
-    legacy = _net_trace_template_data([
-        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
-         "anchor": {"origin": True}}], template_anchor={"role": "DAC_BUF"})
-    with pytest.raises(ValidationError, match="own sheet cannot be derived"):
-        expand_tree_instances(legacy)
 
-
-def test_template_needs_old_sheet_is_path_aware():
-    """Unit level: a net_trace node counts as needing the template sheet only
-    when its record is a legacy (name-less) one; a missing record stays
-    conservative (its own fatal fires later), and mount nodes are unchanged."""
+def test_template_needs_old_sheet_only_for_mount_nodes():
+    """Unit level (Д1/4): only a MOUNT node makes the template's own sheet
+    necessary — a net_trace node never does any more (its record always carries a
+    name under the gate)."""
     from kicadstamp.config.tree_instances import _template_needs_old_sheet
 
-    nodes = [{"ref": "x", "kind": "net_trace"}]
-    assert _template_needs_old_sheet(nodes, {"x": {"net": "N"}}) is True
+    assert _template_needs_old_sheet([{"ref": "m", "kind": "mount"}]) is True
+    assert _template_needs_old_sheet([{"ref": "p", "kind": "placement"}]) is False
+    assert _template_needs_old_sheet([{"ref": "x", "kind": "net_trace"}]) is False
     assert _template_needs_old_sheet(
-        nodes, {"x": {"net": "N", "name": "n__a__b"}}) is False
-    assert _template_needs_old_sheet(nodes) is True          # no index: unknown
-    assert _template_needs_old_sheet(nodes, {}) is True      # record missing
-    assert _template_needs_old_sheet(
-        [{"ref": "m", "kind": "mount"}], {}) is True
-    assert _template_needs_old_sheet(
-        [{"ref": "p", "kind": "placement"}], {}) is False
+        [{"ref": "p", "kind": "placement",
+          "children": [{"ref": "m", "kind": "mount"}]}]) is True
 
 
 def test_named_record_with_a_literal_item_net_warns_and_is_left_alone(caplog):
