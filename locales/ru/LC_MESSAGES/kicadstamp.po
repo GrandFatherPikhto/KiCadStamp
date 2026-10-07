@@ -19070,3 +19070,28 @@ msgstr "Включить файл ({name})..."
 #, python-brace-format
 msgid "Remove this file ({name})"
 msgstr "Убрать этот файл ({name})"
+#: gui/docks/config_tree.py
+msgid "Point to cell…"
+msgstr "Указать ячейку…"
+
+#: gui/docks/config_tree.py
+msgid "Point to imprint…"
+msgstr "Указать импринт…"
+
+#: gui/docks/config_tree.py
+msgid "Delete entity"
+msgstr "Удалить сущность"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Point {name!r} at:"
+msgstr "На что указать {name!r}:"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Nothing to point {name!r} at: the graph has no {section}."
+msgstr "Не на что указать {name!r}: в графе нет раздела {section}."
+
+#: gui/docks/config_tree.py
+msgid "Point failed"
+msgstr "Не удалось указать"

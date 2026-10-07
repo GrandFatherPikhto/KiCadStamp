@@ -125,7 +125,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QFileDialog,
                               QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
-from kicadstamp.config.name_hint import close_name_hint
+from kicadstamp.config.name_hint import close_name, close_name_hint
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
@@ -198,6 +198,9 @@ _COMMENT_GLYPH = "📝 "
 # The shape is (file_path, parent_path) — the same as _file_context_for_item.
 _ROLE_OWN_FILE = Qt.ItemDataRole.UserRole + 1
 _ROLE_CELL_MARK = Qt.ItemDataRole.UserRole + 2
+# An entity leaf whose cell/imprint is nowhere in the graph (3а): its menu is
+# "Point to …" + "Delete entity" only — it has nothing else to read.
+_ROLE_ORPHAN = Qt.ItemDataRole.UserRole + 3
 # A cell without any entity is a second kind of orphan (п.3б): "not placed at
 # all" vs "placed by something that is not an entity".
 _CELL_UNUSED = "unused"
@@ -1221,6 +1224,7 @@ class ConfigTreeDock(QWidget):
         section_item.setData(0, Qt.ItemDataRole.UserRole, ("category", "entities"))
         for ref in orphans:
             leaf = self._entity_leaf(section_item, ref)
+            leaf.setData(0, _ROLE_ORPHAN, True)
             self._append_tooltip(leaf, self._orphan_hint(ref))
 
     def _orphan_hint(self, ref) -> str:
@@ -1286,6 +1290,62 @@ class ConfigTreeDock(QWidget):
             return
         existing = leaf.toolTip(0)
         leaf.setToolTip(0, f"{existing}\n{hint}" if existing else hint)
+
+    def _add_orphan_menu(self, menu, entity, file_path) -> None:
+        """3а: an entity whose cell/imprint is nowhere in the graph has nothing
+        else to read — it can only be RE-POINTED or deleted."""
+        if not isinstance(entity, dict):
+            return
+        label = (_("Point to imprint…") if entity.get("imprint") is not None
+                 else _("Point to cell…"))
+        menu.addAction(label).triggered.connect(
+            lambda checked=False, e=entity, f=file_path:
+            self._on_point_entity(e, f))
+        menu.addAction(_("Delete entity")).triggered.connect(
+            lambda checked=False, e=entity, f=file_path:
+            self._on_delete(f, "entities", e.get("name")))
+        menu.addSeparator()
+
+    def _on_point_entity(self, entity: dict, file_path: Path) -> None:
+        """Re-point an orphan at a graph cell/imprint, writing BOTH the name
+        and its uuid into the entity's OWN file (3а).
+
+        The uuid comes from the RAW index, never from load_config: a dangling
+        reference is exactly what makes load_config FATAL, so the picker and the
+        uuid are read off the broken graph itself."""
+        index = self._entity_index
+        if index is None or not isinstance(entity, dict):
+            return
+        if entity.get("imprint") is not None:
+            section, field, title = "imprints", "imprint", _("Point to imprint…")
+        else:
+            section, field, title = "cells", "cell", _("Point to cell…")
+        names = index.names_for(section)
+        if not names:
+            logger.error(_("Nothing to point {name!r} at: the graph has no {section}.")
+                         .format(name=entity.get("name"), section=section))
+            return
+        suggested = close_name(entity.get(field), names)
+        current = names.index(suggested) if suggested in names else 0
+        chosen, ok = QInputDialog.getItem(
+            self, title, _("Point {name!r} at:").format(name=entity.get("name")),
+            names, current, False)
+        if not ok or not chosen:
+            return
+        updated = dict(entity)
+        for ref_field in ("cell", "cell_uuid", "imprint", "imprint_uuid"):
+            updated.pop(ref_field, None)
+        updated[field] = chosen
+        updated[field + "_uuid"] = index.target_uuid(section, chosen)
+        try:
+            backup_file(file_path)
+            upsert_list_entry(file_path, "entities", updated,
+                              key_fn=lambda e: e.get("name"))
+        except (OSError, ValidationError) as e:
+            logger.error("%s: %s", _("Point failed"), e)
+            return
+        self.refresh()
+        self.graph_changed.emit()
 
     @staticmethod
     def _entries(raw, section):
@@ -1622,6 +1682,9 @@ class ConfigTreeDock(QWidget):
         rename_target = self._rename_target_for_item(item)
         if rename_target is not None:
             section, old_name = rename_target[1], rename_target[2]
+            # An orphan entity leaf brings its OWN two actions (below) and must
+            # NOT get the generic Rename/Delete pair.
+            handled_orphan = False
             if section == "imprints":
                 # Reread (2026-09-06, plan imprint §5.3): re-run the
                 # capture against the live board and, on explicit Apply, rewrite
@@ -1663,12 +1726,14 @@ class ConfigTreeDock(QWidget):
                         lambda checked=False, p=payload, f=file_path:
                         self.imprint_resource_requested.emit(p, f))
             if section == "entities":
-                # Н5-1(а): the SAME "Select cell" item on an Entities leaf — the
-                # entity names its own (cluster, sheet), so the tree sends the
-                # EXPLICIT instance (no menu, no guessing).
                 leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
                 entity = leaf_data[2] if leaf_data is not None else None
-                if isinstance(entity, dict) and entity.get("cell"):
+                if item.data(0, _ROLE_ORPHAN):
+                    # 3а: an entity whose cell/imprint is missing can only be
+                    # re-pointed or deleted — nothing else can be read from it.
+                    self._add_orphan_menu(menu, entity, file_path)
+                    handled_orphan = True
+                elif isinstance(entity, dict) and entity.get("cell"):
                     # СЦ-1: three items in order — components, cell, enclosed.
                     components_action = menu.addAction(_("Select cell components"))
                     components_action.setObjectName("select_cell_components_action")
@@ -1779,11 +1844,12 @@ class ConfigTreeDock(QWidget):
                 # role-set-fitted combobox (no live board selection involved).
                 menu.addAction(_("Copy placement from cell...")).triggered.connect(
                     lambda: self.cell_copy_requested.emit(old_name, file_path))
-            menu.addAction(_("Rename...")).triggered.connect(
-                lambda: self._on_rename(file_path, section, old_name))
-            menu.addAction(_("Delete...")).triggered.connect(
-                lambda: self._on_delete(file_path, section, old_name))
-            menu.addSeparator()
+            if not handled_orphan:
+                menu.addAction(_("Rename...")).triggered.connect(
+                    lambda: self._on_rename(file_path, section, old_name))
+                menu.addAction(_("Delete...")).triggered.connect(
+                    lambda: self._on_delete(file_path, section, old_name))
+                menu.addSeparator()
 
         selected_leaves = self._selected_export_items()
         if selected_leaves:

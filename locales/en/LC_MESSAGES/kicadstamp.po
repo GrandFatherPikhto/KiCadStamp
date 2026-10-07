@@ -18161,3 +18161,28 @@ msgstr ""
 #, python-brace-format
 msgid "Remove this file ({name})"
 msgstr ""
+#: gui/docks/config_tree.py
+msgid "Point to cell…"
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "Point to imprint…"
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "Delete entity"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Point {name!r} at:"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Nothing to point {name!r} at: the graph has no {section}."
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "Point failed"
+msgstr ""

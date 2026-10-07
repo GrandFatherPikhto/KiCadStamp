@@ -306,3 +306,87 @@ def test_file_block_is_plain_when_the_entity_file_is_the_visible_one(
     labels = [label for label, _ in context_menu_actions(dock, leaf, monkeypatch)]
     assert "Remove this file" in labels, labels
     assert not any("(" in l and "this file" in l for l in labels), labels
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Сирота-сущность: меню из двух пунктов и «Point to …» (3а)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _orphan_dock(main_window, tmp_path):
+    """An orphan entity in file B naming a MISSING cell 'god'; a cell 'good'
+    exists in root A. The graph is dangling — load_config would be FATAL, which
+    is exactly the case the raw index exists for."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "ent_b.sexp"
+    write_config(sub, {"entities": [{"name": "e1", "cell": "god"}]})
+    write_config(root, {"include": ["ent_b.sexp"],
+                        "cells": {"good": {"components": [{"role": "R"}]}}})
+    dock = _dock(main_window, root)
+    leaf = find_child(category(file_item(dock.tree, sub), "entities"), "e1")
+    return dock, root, sub, leaf
+
+
+def test_orphan_menu_is_only_point_and_delete(main_window, tmp_path, monkeypatch):
+    """3а: у сироты — ровно «Point to cell…» и «Delete entity»; ни Rename, ни
+    платных пунктов, ни «Edit cell...»."""
+    dock, _root, _sub, leaf = _orphan_dock(main_window, tmp_path)
+    labels = [label for label, _ in context_menu_actions(dock, leaf, monkeypatch)]
+
+    assert "Point to cell…" in labels, labels
+    assert "Delete entity" in labels, labels
+    for forbidden in ("Rename...", "Delete...", "Select cell",
+                      "Select cell components", "Select enclosed copper",
+                      "Explode…", "Edit cell..."):
+        assert forbidden not in labels, (forbidden, labels)
+
+
+def test_point_to_cell_writes_name_and_uuid_into_the_entitys_own_file(
+        main_window, tmp_path, monkeypatch):
+    """3а (мутация 6): «Point to cell…» пишет cell И cell_uuid в СВОЙ файл B
+    (uuid — из СЫРОГО индекса, не из load_config), файл A цел; после refresh()
+    сущность уходит под найденную ячейку."""
+    from kicadstamp import config_working_set
+
+    dock, root, sub, leaf = _orphan_dock(main_window, tmp_path)
+    before_a = root.read_bytes()
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
+    monkeypatch.setattr(
+        config_tree_mod.QInputDialog, "getItem",
+        staticmethod(lambda *a, **k: ("good", True)))
+
+    actions = context_menu_actions(dock, leaf, monkeypatch)
+    point = next(act for label, act in actions if label.startswith("Point to cell"))
+    point.trigger()
+
+    entity = _read(sub)["entities"][0]
+    assert entity["cell"] == "good"
+    assert entity["cell_uuid"] == dock._entity_index.target_uuid("cells", "good")
+    assert "imprint" not in entity and "imprint_uuid" not in entity
+    assert root.read_bytes() == before_a, "файл A не должен быть тронут"
+
+    # After refresh the entity is attached under the cell in A, and the orphan
+    # section in B is gone.
+    assert not _has_category(file_item(dock.tree, sub), "entities")
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "good")
+    assert find_child(cell, "e1")
+
+
+def test_point_preselects_the_close_name_hint(main_window, tmp_path, monkeypatch):
+    """3а: в выборе ПРЕДВЫБРАНА подсказка близкого имени (close_name)."""
+    from kicadstamp import config_working_set
+
+    dock, root, _sub, leaf = _orphan_dock(main_window, tmp_path)
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
+    seen = {}
+
+    def _get_item(parent, title, label, items, current=0, editable=True, *a, **k):
+        seen["names"] = list(items)
+        seen["current"] = current
+        return ("good", False)  # declined — nothing is written
+
+    monkeypatch.setattr(config_tree_mod.QInputDialog, "getItem",
+                        staticmethod(_get_item))
+    actions = context_menu_actions(dock, leaf, monkeypatch)
+    next(act for label, act in actions if label.startswith("Point to cell")).trigger()
+
+    assert seen["names"][seen["current"]] == "good", seen
