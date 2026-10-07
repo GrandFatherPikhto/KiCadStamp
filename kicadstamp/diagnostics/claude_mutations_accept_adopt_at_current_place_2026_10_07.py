@@ -24,13 +24,15 @@ G = ds.G
 ROWS = [
     ("N1 _execute never calls the pass", PIPE,
      "        adopt_cell_copper_at_current_place(\n"
-     "            self.adapter, self.cfg, self.items, registry, track_registry, write=True)",
+     "            self.adapter, self.cfg, self.items, registry, track_registry, write=True,\n"
+     "            sheet_names=self.sheet_names, position_overrides=self.position_overrides)",
      "        pass  # MUTATION",
      "die", G, ()),
     ("N2 the dry run never calls the pass", PIPE,
      "        adoption = adopt_cell_copper_at_current_place(\n"
      "            self.adapter, self.cfg, self.items, registry, track_registry,\n"
-     "            write=False)",
+     "            write=False, sheet_names=self.sheet_names,\n"
+     "            position_overrides=self.position_overrides)",
      "        from .adopt_at_current_place import AdoptionReport as _AR\n"
      "        adoption = _AR()  # MUTATION",
      "die", G, ()),

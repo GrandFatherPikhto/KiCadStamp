@@ -21,6 +21,17 @@ The place is read from the RECORD + the live cell frame — never from the plann
 commands (those do not exist yet at this point; they are planned after the move).
 That is why no reordering of the pipeline is needed.
 
+The instance's LIVE components are resolved by the SAME role resolution the plan
+of this run uses (``ClonePositionCalculator.role_refs_of`` →
+``resolve_roles_by_nets`` / ``by_selection`` with the clone's OWN narrowing
+anchor), never by ``clone.cluster`` / ``clone.sheet``: an Entity/tree_instances
+copy carries the TEMPLATE's cluster/sheet, so those two pick the WRONG channel
+(the live 2026-10-07 `fpga` defect — ch1 framed from ch0's components and adopted
+ch0's copper, which reconcile then deleted as "moved"). As a SECOND safety a live
+object is adopted only when its net is the one this clone's plan gives the record
+(``net_from_role`` resolved live, else ``resolve_net``): copper of a foreign chain
+is never taken, even at an exact geometric match.
+
 READ/decide here is pure; the ONLY write is ``reg.adopt_live`` (the registry's own
 schema owner), and only when ``write=True`` (a dry run passes False and counts
 "would adopt").
@@ -60,6 +71,8 @@ class AdoptionReport:
     instances: int = 0
     skipped_not_rigid: int = 0
     no_frame: int = 0
+    no_refs: int = 0
+    net_refused: int = 0
     ambiguous: int = 0
 
     @property
@@ -94,36 +107,83 @@ def _entry_from_live(kind: str, item):
                               net=item.net_name, layer=layer_to_str(item.layer))
 
 
+def _record_net(rec, clone, role_refs, adapter):
+    """``(declared, net)`` for ONE cell via/track record — how the CHAIN GUARD
+    knows the net this clone's plan will give the record, through the SAME
+    primitives the planner uses (``clone_geometry._resolve_clone_via/_track``
+    resolve a literal ``net`` with ``resolve_net``; ``net_from_role`` goes through
+    ``resolve_net_from_role``, the call ``ClonePositionCalculator._resolve_role_nets``
+    wraps).
+
+    ``declared`` False — the record names NEITHER ``net`` nor ``net_from_role``:
+    the planner FATALS on such a record (``clone_geometry``: "via/track without
+    net"), so no real cell reaches this; the guard then has no chain to compare and
+    leaves the geometry match standing. ``declared`` True with ``net`` None — the
+    record DOES name a chain that could not be resolved here (a ``net_from_role``
+    this instance has no role for): the guard REFUSES the object rather than adopt
+    copper it cannot attribute."""
+    from .exceptions import ValidationError
+    from .net_resolution import resolve_net, resolve_net_from_role
+    role = getattr(rec, "net_from_role", None)
+    if role is not None:
+        try:
+            return True, resolve_net_from_role(
+                role, getattr(rec, "net_from_role_pad", None), role_refs, adapter)
+        except ValidationError:
+            return True, None
+    net = getattr(rec, "net", None)
+    if net is None:
+        return False, None
+    return True, resolve_net(net, clone.params, clone.net_overrides,
+                             sheet=clone.sheet, cluster=clone.cluster)
+
+
 def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
-                                       *, write: bool) -> AdoptionReport:
+                                       *, write: bool, sheet_names=None,
+                                       position_overrides=None) -> AdoptionReport:
     """Run the at-current-place adoption over the RUN'S OWN cell instances.
 
     ``items`` — the resolved execution order AFTER --only/--cluster narrowing
     (``ApplyPipeline.items``): only its ``kind == "clone"`` instances are
     examined, so a foreign instance of the same cell is never touched. ``adapter``
     must be read at the PRE-move board. ``write`` — False on a dry run: everything
-    is decided and counted, nothing is saved.
+    is decided and counted, nothing is saved. ``sheet_names`` — the run's
+    hierarchical sheet map (the SAME one the planner resolves roles with).
+    ``position_overrides`` — the run's ``{name: PositionOverride}`` (tree
+    rigid-group redraw): it REPLACES the clone's anchor for the ROLE RESOLUTION
+    only — the cell frame is still built from the live poses, never from an
+    override (this pass exists to read the CURRENT place).
 
     SAFE BY CONSTRUCTION, like ``adopt_matching_unowned``: never deletes; a live
     item owned by ANY registry entry is never taken; a key whose stored uuid is
     STILL live is left alone (reconcile will move its copper); a key whose uuid is
-    gone from the board may be rebound; an ambiguous claim is taken by no one."""
+    gone from the board may be rebound; an ambiguous claim is taken by no one; and
+    a live item on another net than the record's is never taken (the chain guard)."""
     from .absent_copper_prune import (
         cell_record_slots,
         own_instance_context,
         pair_agrees_with_record,
+        record_of,
         record_points,
     )
     from .cell_frame import RIGID_TOLERANCE_MM
     from .cell_geometry_refresh import cell_frame_from_live, cell_slot_dicts
+    from .config import clone_placement_effective_name
     from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
-    from .placement.services.clone_position_calculator import clone_registry_identity
+    from .exceptions import ValidationError
+    from .placement.services.clone_position_calculator import (
+        ClonePositionCalculator, clone_registry_identity)
     from .registry import make_registry_key
 
     clones = [it.obj for it in (items or ()) if getattr(it, "kind", None) == "clone"]
     report = AdoptionReport()
     if not clones:
         return report
+
+    # The SAME role resolution the plan of this run uses — one place, so the pass
+    # can never pick another instance's components (a tree_instances copy carries
+    # the TEMPLATE's cluster/sheet).
+    calculator = ClonePositionCalculator(adapter, cfg, sheet_names=sheet_names)
 
     live = {"via": _live(adapter, "get_vias"),
             "track": _live(adapter, "get_tracks")}
@@ -146,22 +206,41 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
         cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
         if cell is None or cell_key_part is None:
             continue
-        cluster, sheet = getattr(clone, "cluster", None), getattr(clone, "sheet", None)
-        footprints = own_instance_context(adapter, cfg, cell_name, cluster, sheet)[0]
+        override = (position_overrides or {}).get(
+            clone_placement_effective_name(clone))
+        try:
+            role_refs = calculator.role_refs_of(clone, override)
+        except ValidationError as e:
+            report.no_refs += 1
+            logger.warning(_("Adopt at current place: the instance of cell {cell} on "
+                             "{cluster} could not resolve its roles ({reason}) — its "
+                             "copper is not adopted")
+                           .format(cell=cell_name, cluster=getattr(clone, "cluster", None),
+                                   reason=e))
+            continue
+        if role_refs is None:
+            continue
+        # The instance's live components come from `role_refs` (the `elif own_refs:`
+        # branch of own_instance_context). The clone's OWN cluster/sheet are
+        # deliberately NOT passed: on a tree_instances copy they are the TEMPLATE's,
+        # and a truthy cluster would WIN over own_refs — framing the wrong channel.
+        footprints = own_instance_context(
+            adapter, cfg, cell_name, None, None,
+            sheet_names=sheet_names, own_refs=role_refs)[0]
         frame = cell_frame_from_live(cell_slot_dicts(cell), footprints, adapter,
                                      origin_role=getattr(cell, "anchor_role", None))
         if frame is None:
             report.no_frame += 1
             logger.warning(_("Adopt at current place: no live cell frame for cell "
                              "{cell} on {cluster} — its copper is not adopted")
-                           .format(cell=cell_name, cluster=cluster))
+                           .format(cell=cell_name, cluster=getattr(clone, "cluster", None)))
             continue
         if frame.residual_mm > RIGID_TOLERANCE_MM:
             report.skipped_not_rigid += 1
             logger.warning(_("Adopt at current place: cell {cell} on {cluster} is not a "
                              "rigid copy of the cell (worst deviation {deviation} mm) — "
                              "its copper is not adopted, a trail may remain")
-                           .format(cell=cell_name, cluster=cluster,
+                           .format(cell=cell_name, cluster=getattr(clone, "cluster", None),
                                    deviation=f"{frame.residual_mm:.3f}"))
             continue
         report.instances += 1
@@ -175,14 +254,32 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
                 # The record's own copper is on the board — reconcile will move it
                 # by uuid. Never touch a live entry, or the move would be lost.
                 continue
+            rec = record_of(cell, kind, role_part, index)
             points = record_points(cell, kind, role_part, index)
-            if points is None:
+            if rec is None or points is None:
                 continue
             matches = [item for item in live[kind]
                        if getattr(item, "uuid", None) not in owned
                        and pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM)]
             if not matches:
                 continue
+            # THE CHAIN GUARD: a live object is adopted only when its net is the one
+            # this clone's plan will give the record. Copper of another chain
+            # (`/Channel_0/…` for ch1) is never taken, even at an exact geometric
+            # match — the safety net that catches a role resolution gone wrong again.
+            declared, expected_net = _record_net(rec, clone, role_refs, adapter)
+            if declared:
+                geoms = len(matches)
+                matches = [item for item in matches
+                           if getattr(item, "net_name", None) == expected_net]
+                if not matches:
+                    report.net_refused += 1
+                    logger.warning(_("Adopt at current place: {count} live {kind}(s) lie "
+                                     "where record {key} puts its copper, but on another "
+                                     "net ({net!r}) — not adopted")
+                                   .format(count=geoms, kind=kind, key=key,
+                                           net=expected_net))
+                    continue
             if len(matches) > 1:
                 report.ambiguous += 1
                 logger.warning(_("Adopt at current place: {count} live {kind}(s) lie where "

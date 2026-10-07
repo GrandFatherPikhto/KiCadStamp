@@ -22,7 +22,11 @@ live cell frame (rigid frames only). The key is built by the same builders the p
 the later redraw deletes that copper as stale instead of leaving it orphaned at the old place -
 this closes the "first action is a move" limit above. Never deletes; copper owned by another
 entry, an ambiguous claim and a non-rigid cluster are not taken. `dry_run` counts "would adopt N"
-and writes nothing.
+and writes nothing. The instance itself is identified by the SAME role resolution the plan of the
+same run uses — never by `clone.cluster`/`clone.sheet`, which on a `tree_instances` copy are the
+TEMPLATE's — and a live object is taken only when its net is the one this clone's plan gives that
+record. Without either guard a copy of another channel can adopt (and the redraw then delete)
+copper it does not own: the 2026-10-07 `fpga` defect.
 
 All services use the `kicad/adapter.py` adapter, the `geometry/` utilities, and the `config/` configuration package.
 

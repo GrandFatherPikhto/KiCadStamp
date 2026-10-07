@@ -18979,6 +18979,14 @@ msgstr "Усыновление на текущем месте: {count} запи�
 msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
 msgstr "Усыновление на текущем месте: усыновило бы {count} записей (реальный прогон пишет реестр)"
 
+#, python-brace-format
+msgid "Adopt at current place: the instance of cell {cell} on {cluster} could not resolve its roles ({reason}) — its copper is not adopted"
+msgstr "Усыновление на текущем месте: экземпляр ячейки {cell} на {cluster} не смог разрешить свои роли ({reason}) — его медь не усыновляется"
+
+#, python-brace-format
+msgid "Adopt at current place: {count} live {kind}(s) lie where record {key} puts its copper, but on another net ({net!r}) — not adopted"
+msgstr "Усыновление на текущем месте: {count} живых объектов «{kind}» лежат там, куда запись {key} кладёт свою медь, но на другой цепи ({net!r}) — не усыновлено"
+
 #: gui/main_window.py
 msgid "Copper"
 msgstr "Медь"

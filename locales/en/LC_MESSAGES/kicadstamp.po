@@ -18070,6 +18070,14 @@ msgstr ""
 msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
 msgstr ""
 
+#, python-brace-format
+msgid "Adopt at current place: the instance of cell {cell} on {cluster} could not resolve its roles ({reason}) — its copper is not adopted"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: {count} live {kind}(s) lie where record {key} puts its copper, but on another net ({net!r}) — not adopted"
+msgstr ""
+
 #: gui/main_window.py
 msgid "Copper"
 msgstr ""

@@ -773,7 +773,8 @@ class ApplyPipeline:
         registry, track_registry = self._open_registries()
         adoption = adopt_cell_copper_at_current_place(
             self.adapter, self.cfg, self.items, registry, track_registry,
-            write=False)
+            write=False, sheet_names=self.sheet_names,
+            position_overrides=self.position_overrides)
         moves = self.planned_moves
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
@@ -925,7 +926,8 @@ class ApplyPipeline:
         # The keys come from the SAME builders the planner uses, so after the move
         # reconcile deletes the adopted (old-place) copper as stale.
         adopt_cell_copper_at_current_place(
-            self.adapter, self.cfg, self.items, registry, track_registry, write=True)
+            self.adapter, self.cfg, self.items, registry, track_registry, write=True,
+            sheet_names=self.sheet_names, position_overrides=self.position_overrides)
 
         # --- Phase 0: coordinate_placements ("dumb placer") — self-
         # contained absolute-position moves, no dependency on anything else

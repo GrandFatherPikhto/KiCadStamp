@@ -75,6 +75,22 @@ MUTATIONS = [
      '    clones = [it.obj for it in (items or ()) if getattr(it, "kind", None) == "clone"]',
      '    clones = [it.obj for it in (items or ()) if getattr(it, "kind", None) in ("clone", "chain")]',
      "die", G, ()),
+    ("M9 the pass hands clone.cluster again (1б)", ADOPT,
+     "        footprints = own_instance_context(\n"
+     "            adapter, cfg, cell_name, None, None,\n"
+     "            sheet_names=sheet_names, own_refs=role_refs)[0]",
+     "        footprints = own_instance_context(\n"
+     "            adapter, cfg, cell_name, clone.cluster, clone.sheet,\n"
+     "            sheet_names=sheet_names, own_refs=role_refs)[0]",
+     "die", G, ()),
+    ("M10 the chain guard off (1б)", ADOPT,
+     "            if declared:",
+     "            if False:  # MUTATION",
+     "die", G, ()),
+    ("M11 own_refs not passed (1б)", ADOPT,
+     "            sheet_names=sheet_names, own_refs=role_refs)[0]",
+     "            sheet_names=sheet_names, own_refs=None)[0]",
+     "die", G, ()),
     ("K1 cosmetic comment (control)", ADOPT,
      "    report = AdoptionReport()\n    if not clones:",
      "    report = AdoptionReport()  # control\n    if not clones:",

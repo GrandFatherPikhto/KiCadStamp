@@ -260,6 +260,102 @@ class ClonePositionCalculator:
             resolved[key] = resolve_net_from_role(role, key[1], role_to_ref, self.adapter)
         return resolved
 
+    def _resolve_roles(self, placement, cell: Cell, anchor_position: Vector2 | None,
+                       parent_rotation_deg: float) -> dict[str, str]:
+        """Role -> ref for ONE placement — the ONE resolution ``_resolve_one_level``
+        and ``role_refs_of`` both come through. A caller OUTSIDE the planner that
+        must know the instance's OWN live components then gets EXACTLY the mapping
+        the plan of the same run will use (plan_2026_10_07_adopt_at_current_place,
+        доделка 1б: an Entity/tree_instances copy carries the TEMPLATE's
+        cluster/sheet, so clone.cluster/clone.sheet picks the WRONG channel — this
+        resolution picks the right one by the clone's own geometry).
+
+        ``anchor_position`` — this placement's world anchor (None for an
+        absolute-coordinate clone, e.g. an Entity/tree_instances copy).
+        ``parent_rotation_deg`` — the parent frame's rotation (0.0 at the top
+        level; ``override.rotation_deg`` for a rigid override).
+
+        clone.ignore_selection — per-item counterpart of --no-selection, scoped to
+        just this placement's own resolution (see temporarily_ignore_selection's
+        docstring). CellPlacement has no such field at all (closed boundary, no
+        selection mode either — see below) — always False for it, a plain no-op.
+        """
+        with self.adapter.temporarily_ignore_selection(getattr(placement, "ignore_selection", False)):
+            # 2026-09-07 (Denis: "Мы автоматизировать этот процесс не можем?" —
+            # geometric role narrowing for absolute-coordinate clones):
+            # resolve_roles_by_nets' step 5 (physical-proximity narrowing,
+            # role_narrowing._narrow_ambiguous_candidates) needs an
+            # anchor_position — but Entity/tree_instances-materialized clones
+            # (and any absolute-coordinate ClonePlacement) are always absolute
+            # (no anchor_ref/anchor_role/anchor_point set), so _resolve_anchor
+            # returns None here and step 5 never fires, even though this
+            # clone's OWN world position is already knowable from its xy.
+            # Compute a SEPARATE fallback for role-narrowing ONLY, reusing
+            # clone_layout_origin — the exact function that will later place
+            # this clone's origin — so it always matches the real geometry.
+            # The REAL anchor_position (used below in apply_clone_geometry for
+            # actual placement) is deliberately left untouched: feeding this
+            # fallback back into apply_clone_geometry would double-apply
+            # clone.xy's shift and corrupt the final position (see plan §0).
+            role_narrowing_anchor = (anchor_position if anchor_position is not None
+                                     else clone_layout_origin(placement, None, parent_rotation_deg))
+
+            # Selection mode only exists for a top-level ClonePlacement (the
+            # old cluster: branch — an exact Cluster-tag match — was migrated
+            # to coordinate_placements on 2026-08-12, Group 0); a nested
+            # CellPlacement is a reusable, closed-boundary recipe with no live
+            # GUI interaction concept, always resolved by nets.
+            if isinstance(placement, ClonePlacement) and clone_uses_selection_mode(
+                    placement, adapter=self.adapter, cell=cell,
+                    sheet_names=self.sheet_names):
+                return resolve_roles_by_selection(
+                    self.adapter, cell, placement,
+                    anchor_position=role_narrowing_anchor,
+                    sheet_names=self.sheet_names)
+            return resolve_roles_by_nets(
+                self.adapter, cell, placement,
+                anchor_position=role_narrowing_anchor,
+                sheet_names=self.sheet_names)
+
+    def role_refs_of(self, clone: ClonePlacement,
+                     position_override=None) -> dict[str, str] | None:
+        """Role -> ref for a TOP-LEVEL ClonePlacement, through the EXACT resolution
+        this run's plan will use — the cell lookup, the live anchor, the
+        nets/selection branch and the narrowing anchor all come from the SAME
+        methods (``_resolve_content`` / ``_resolve_anchor`` / ``_resolve_roles``).
+
+        Used by the at-current-place adoption: it needs the instance's OWN live
+        components to build the cell frame, and clone.cluster/clone.sheet are the
+        TEMPLATE's on a tree_instances copy — taking them would frame the wrong
+        channel (the live 2026-10-07 `fpga` defect). ``position_override`` — the
+        run's PositionOverride for this clone when it has one (tree rigid-group
+        redraw): the planner REPLACES the anchor and the parent frame with it, so
+        the reproduction must too. It is used ONLY to choose the components — the
+        adoption still frames the cell from the live poses.
+
+        None when the clone's cell is not in the config (``_resolve_content`` logs
+        and the planner skips such a clone — the same skip here)."""
+        cell, _name, _key_part = self._resolve_content(
+            clone.cell, None, clone_placement_effective_name(clone))
+        if cell is None:
+            return None
+        if position_override:
+            # The planner's own convention (compute_raw_positions): the override
+            # lands the cell's ORIGIN at override.position with override.rotation_deg
+            # as the parentless parent frame, and neutralizes clone.xy/rotation in an
+            # in-memory copy. Reproduce it, or the narrowing anchor would differ.
+            placement = dataclasses.replace(
+                clone, xy=(0.0, 0.0), radius_mm=None, angle_deg=None, rotation_deg=0.0)
+            anchor_position = position_override.position
+            parent_rotation_deg = position_override.rotation_deg
+        else:
+            placement = clone
+            with self.adapter.temporarily_ignore_selection(clone.ignore_selection):
+                anchor_position = self._resolve_anchor(clone)
+            parent_rotation_deg = 0.0
+        return self._resolve_roles(placement, cell, anchor_position,
+                                   parent_rotation_deg)
+
     def _resolve_anchor(self, clone: ClonePlacement) -> Vector2 | None:
         """
         anchor_ref/anchor_pad OR anchor_role(+anchor_sheet)/anchor_pad ->
@@ -420,46 +516,11 @@ class ClonePositionCalculator:
                  .format(cell=cell_name)]
             ))
 
-        # clone.ignore_selection — per-item counterpart of --no-selection,
-        # scoped to just this placement's own resolution (see
-        # temporarily_ignore_selection's docstring). CellPlacement has no
-        # such field at all (closed boundary, no selection mode either —
-        # see below) — always False for it, a plain no-op here.
-        with self.adapter.temporarily_ignore_selection(getattr(placement, "ignore_selection", False)):
-            # 2026-09-07 (Denis: "Мы автоматизировать этот процесс не можем?" —
-            # geometric role narrowing for absolute-coordinate clones):
-            # resolve_roles_by_nets' step 5 (physical-proximity narrowing,
-            # role_narrowing._narrow_ambiguous_candidates) needs an
-            # anchor_position — but Entity/tree_instances-materialized clones
-            # (and any absolute-coordinate ClonePlacement) are always absolute
-            # (no anchor_ref/anchor_role/anchor_point set), so _resolve_anchor
-            # returns None here and step 5 never fires, even though this
-            # clone's OWN world position is already knowable from its xy.
-            # Compute a SEPARATE fallback for role-narrowing ONLY, reusing
-            # clone_layout_origin — the exact function that will later place
-            # this clone's origin — so it always matches the real geometry.
-            # The REAL anchor_position (used below in apply_clone_geometry for
-            # actual placement) is deliberately left untouched: feeding this
-            # fallback back into apply_clone_geometry would double-apply
-            # clone.xy's shift and corrupt the final position (see plan §0).
-            role_narrowing_anchor = (anchor_position if anchor_position is not None
-                                     else clone_layout_origin(placement, None, parent_rotation_deg))
-
-            # Selection mode only exists for a top-level ClonePlacement (the
-            # old cluster: branch — an exact Cluster-tag match — was migrated
-            # to coordinate_placements on 2026-08-12, Group 0); a nested
-            # CellPlacement is a reusable, closed-boundary recipe with no live
-            # GUI interaction concept, always resolved by nets.
-            if isinstance(placement, ClonePlacement) and clone_uses_selection_mode(
-                    placement, adapter=self.adapter, cell=cell,
-                    sheet_names=self.sheet_names):
-                role_to_ref = resolve_roles_by_selection(self.adapter, cell, placement,
-                                                          anchor_position=role_narrowing_anchor,
-                                                          sheet_names=self.sheet_names)
-            else:
-                role_to_ref = resolve_roles_by_nets(self.adapter, cell, placement,
-                                                     anchor_position=role_narrowing_anchor,
-                                                     sheet_names=self.sheet_names)
+        # Role resolution — the ONE place, shared with role_refs_of (the
+        # at-current-place adoption reproduces this run's own instance mapping;
+        # see _resolve_roles).
+        role_to_ref = self._resolve_roles(placement, cell, anchor_position,
+                                          parent_rotation_deg)
 
         # Cell is assumed to be front; back = mirror (see apply_clone_geometry).
         # Resolve net_from_role-bearing via/track nets NOW (role_to_ref is

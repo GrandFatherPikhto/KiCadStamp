@@ -67,6 +67,7 @@ not the board, not the config. Callers decide what to do with the map.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -91,6 +92,7 @@ __all__ = [
     "own_registry_entries",
     "pair_agrees_with_record",
     "record_copper_map_for",
+    "record_of",
     "record_points",
     "registry_record_copper_map",
 ]
@@ -168,17 +170,20 @@ def _record_tail(key, cell_identity: Optional[str]) -> Optional[tuple]:
         return None
 
 
-def record_points(cell, kind: str, role_part: str, index: int):
-    """The STORED local points of the cell record a registry tail names, or None
-    when the cell holds NO such record today — an ORPHAN key (its ``index`` is
-    past the end of the list, the numbers having shifted after the list was
-    edited) or a role the cell no longer has. Both levels production resolves are
-    covered: a cell-level via/track under the ``__spoke__`` placeholder and a
-    component's via under its role.
+def record_of(cell, kind: str, role_part: str, index: int):
+    """The cell RECORD object a registry tail names, or None when the cell holds
+    NO such record today — an ORPHAN key (its ``index`` is past the end of the
+    list, the numbers having shifted after the list was edited) or a role the cell
+    no longer has.
 
-    One ``(along_mm, across_mm)`` for a via, two (start, end) for a track. A
-    component carries vias only (``TemplateComponentSlot``), so a track key never
-    names a role."""
+    THE one lookup of a record by ``(kind, role_part, index)``: :func:`record_points`
+    reads the stored points through it, and the at-current-place adoption reads the
+    record's own ``net`` / ``net_from_role`` through it for its chain guard
+    (plan_2026_10_07_adopt_at_current_place, доделка 1б) — never a second lookup.
+    Both levels production resolves are covered: a cell-level via/track under the
+    ``__spoke__`` placeholder and a component's via under its role. A component
+    carries vias only (``TemplateComponentSlot``), so a track key never names a
+    role."""
     if cell is None:
         return None
     if kind == "via":
@@ -190,18 +195,30 @@ def record_points(cell, kind: str, role_part: str, index: int):
             if slot is None:
                 return None
             records = list(getattr(slot, "vias", None) or ())
-        if not 0 <= index < len(records):
+    else:
+        if role_part != SPOKE_LEVEL_ROLE_PLACEHOLDER:
             return None
-        rec = records[index]
+        records = list(getattr(cell, "tracks", None) or ())
+    if not 0 <= index < len(records):
+        return None
+    return records[index]
+
+
+def record_points(cell, kind: str, role_part: str, index: int):
+    """The STORED local points of the cell record a registry tail names, or None
+    when the cell holds NO such record today — an ORPHAN key (its ``index`` is
+    past the end of the list, the numbers having shifted after the list was
+    edited) or a role the cell no longer has. The record itself is found by
+    :func:`record_of` (ONE lookup, shared with the chain guard).
+
+    One ``(along_mm, across_mm)`` for a via, two (start, end) for a track."""
+    rec = record_of(cell, kind, role_part, index)
+    if rec is None:
+        return None
+    if kind == "via":
         return ((float(rec.offset_along_mm), float(rec.offset_across_mm)),)
-    if role_part != SPOKE_LEVEL_ROLE_PLACEHOLDER:
-        return None
-    tracks = list(getattr(cell, "tracks", None) or ())
-    if not 0 <= index < len(tracks):
-        return None
-    track = tracks[index]
-    return ((float(track.start_along_mm), float(track.start_across_mm)),
-            (float(track.end_along_mm), float(track.end_across_mm)))
+    return ((float(rec.start_along_mm), float(rec.start_across_mm)),
+            (float(rec.end_along_mm), float(rec.end_across_mm)))
 
 
 def _live_points(live_item) -> tuple:
@@ -306,11 +323,15 @@ def own_instance_context(adapter, cfg, cell_name: str, cluster, sheet,
     instance the same way, so they can never disagree about "which registry keys
     are this cell's".
 
-    ``refs`` — the chosen instance's component refs (``own_refs`` when given, else
-    the cluster's live footprints); they are what makes an ``anchor:<ref>`` key
-    this cell's own. A board that cannot be read yields no refs — an ``anchor:``
-    key is then simply not claimed, and the ``name:``/``role:`` branches still
-    work."""
+    ``refs`` — the chosen instance's component refs. ``own_refs`` may be given as
+    EITHER a mapping ``{role: ref}`` (the shape the ``elif own_refs:`` branch reads
+    its footprints from — an already-resolved instance, e.g. the at-current-place
+    adoption's planner-identical role resolution) OR a plain iterable of refs (the
+    «Select cell» shape, where the component set still comes from the cluster and
+    ``own_refs`` only decides which ``anchor:<ref>`` keys are this cell's own).
+    They are what makes an ``anchor:<ref>`` key this cell's own. A board that
+    cannot be read yields no refs — an ``anchor:`` key is then simply not claimed,
+    and the ``name:``/``role:`` branches still work."""
     from .cell_instance import resolve_context_footprints
 
     if cluster:
@@ -324,8 +345,12 @@ def own_instance_context(adapter, cfg, cell_name: str, cluster, sheet,
                       if get_footprint else [])
     else:
         footprints = []
+    # A mapping's refs are its VALUES — a role->ref map iterated directly would
+    # give ROLES here and quietly break the anchor:<ref> test in is_own_key;
+    # a plain iterable of refs is taken as-is («Select cell»'s shape).
     refs = frozenset(
-        own_refs if own_refs is not None
+        (own_refs.values() if isinstance(own_refs, Mapping) else own_refs)
+        if own_refs is not None
         else [getattr(f, "ref", None) for f in footprints
               if getattr(f, "ref", None)])
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)

@@ -25,8 +25,12 @@ import pytest
 
 from kicadstamp.adopt_at_current_place import adopt_cell_copper_at_current_place
 from kicadstamp.config import (Cell, ClonePlacement, Config, TemplateComponentSlot,
-                               TemplateTrack, TemplateVia)
+                               TemplateTrack, TemplateVia, _load_cell, _load_entity,
+                               _load_point)
 from kicadstamp.config import format_version
+from kicadstamp.config.tree_instances import expand_tree_instances
+from kicadstamp.placement.entity_placement import materialize_entity_placements
+from kicadstamp.trees import tree_from_dict
 from kicadstamp.constants import ROLE_FIELD_NAME, SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
@@ -64,6 +68,12 @@ class _Adapter:
     def get_footprints(self):
         return list(self._footprints)
 
+    def get_footprint(self, ref):
+        # The read the `own_refs` branch of own_instance_context uses — the pass
+        # now resolves the instance through the planner's role map, so the
+        # adapter double must expose it like the real adapter does.
+        return next((fp for fp in self._footprints if fp.ref == ref), None)
+
     def get_vias(self):
         return list(self._vias)
 
@@ -85,13 +95,13 @@ class _Adapter:
 
 
 class _Fp(Footprint):
-    def __init__(self, ref, role, cluster, x_mm, y_mm, nets=()):
+    def __init__(self, ref, role, cluster, x_mm, y_mm, nets=(), path=()):
         super().__init__(ref=ref, uuid=f"uuid-{ref}", angle_deg=0.0,
                          position=Vector2.from_xy_mm(x_mm, y_mm),
                          layer=BoardLayer.BL_F_Cu)
         self.role = role
         self.cluster = cluster
-        self.sheet_path_uuids = ()
+        self.sheet_path_uuids = tuple(path)
         self.pads = [SimpleNamespace(number=str(i), net_name=n)
                      for i, n in enumerate(nets, start=1)]
 
@@ -108,8 +118,12 @@ def _live_track(uuid, x1, y1, x2, y2, net="N"):
 
 
 def _slot(role, along, across, vias=None):
+    # Faithful to a real TemplateComponentSlot (all four fields the role
+    # resolvers read): the at-current-place pass now runs the SAME role
+    # resolution the planner does, which reads slot.net_template.
     return SimpleNamespace(role=role, offset_along_mm=along,
-                           offset_across_mm=across, vias=vias or [])
+                           offset_across_mm=across, angle_deg=0.0,
+                           net_template=None, vias=vias or [])
 
 
 def _cell(*, second_slot=None, vias=None, tracks=None, components=None):
@@ -465,3 +479,207 @@ def test_adopted_keys_are_a_subset_of_the_plan_keys(gate, tmp_path):
     # the inclusion above is not vacuously true over a single merged key.
     assert any(SPOKE_LEVEL_ROLE_PLACEHOLDER in k for k in plan_keys)
     assert any("|DA|" in k for k in plan_keys)
+
+
+# ── доделка 1б: the instance resolution and the chain guard ───────────────────
+
+def test_own_instance_context_takes_a_role_maps_values_as_the_refs(gate):
+    """1б: the pass resolves the instance through the planner's role map and hands
+    it to own_instance_context as ``own_refs``. A mapping's refs are its VALUES —
+    iterating it directly would yield ROLES and quietly break the ``anchor:<ref>``
+    half of is_own_key."""
+    from kicadstamp.absent_copper_prune import own_instance_context
+
+    cell = _cell()
+    adapter = _adapter(cell)                       # one FPGA at FPGA_LIVE
+    _feet, _cid, _addr, _chosen, refs = own_instance_context(
+        adapter, _cfg(cell), CELL, None, None, own_refs={"FPGA": "IC9"})
+
+    assert refs == {"IC9"}
+
+
+def test_own_instance_context_keeps_a_ref_list_working_with_a_cluster(gate):
+    """Regression (rule 33): «Select cell» passes a plain ref LIST together with
+    the cluster and expects the cluster's components plus those refs as the
+    chosen ones — that shape must keep behaving exactly as before."""
+    from kicadstamp.absent_copper_prune import own_instance_context
+
+    cell = _cell()
+    adapter = _adapter(cell, footprints=[
+        _Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE),
+        _Fp("R1", "DA", CLUSTER, 20.0, 20.0)])
+    feet, _cid, _addr, _chosen, refs = own_instance_context(
+        adapter, _cfg(cell), CELL, CLUSTER, None, own_refs=["IC9"])
+
+    assert {f.ref for f in feet} == {"IC9", "R1"}   # the WHOLE cluster
+    assert refs == {"IC9"}                          # the list, unchanged
+
+
+def test_the_pass_does_not_hand_the_clone_cluster_to_the_instance_lookup(gate, tmp_path):
+    """1б (the live defect): on a tree_instances copy clone.cluster/clone.sheet are
+    the TEMPLATE's, and a truthy cluster WINS over own_refs inside
+    own_instance_context — framing the wrong channel. Two instances share ONE
+    cluster tag; the clone sits on Channel_1, so only Channel_1's copper may be
+    adopted. Mutation «the pass hands clone.cluster again» turns this red."""
+    cell = _cell(vias=[SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0,
+                                       net="N")])
+    clone = _clone(name="ch1_dac_buf", xy=(100.0, 100.0))
+    clone.cluster = CLUSTER          # the TEMPLATE's tag — the same on both channels
+    clone.sheet = "Channel_0"        # the TEMPLATE's sheet
+    adapter = _Adapter(
+        footprints=[_Fp("IC0", "FPGA", CLUSTER, 10.0, 10.0, nets=["N"]),
+                    _Fp("IC1", "FPGA", CLUSTER, 100.0, 100.0, nets=["N"])],
+        vias=[_live_via("v0", 10.0, 10.0), _live_via("v1", 100.0, 100.0)])
+
+    report, via_reg, _ = _run(adapter, cell, clone, tmp_path)
+
+    key = _key(clone, _cfg(cell), "via", None, 0)
+    assert report.adopted == 1
+    assert via_reg.entries[key].uuid == "v1"
+
+
+# The tree_instances shape: ONE cell, three channels, the copies keeping the
+# TEMPLATE's cluster (the live 2026-10-07 `fpga` defect).
+_CH = {"ch0": "Channel_0", "ch1": "Channel_1", "ch2": "Channel_2"}
+_CH_POS = {"ch0": (10.0, 10.0), "ch1": (100.0, 100.0), "ch2": (200.0, 200.0)}
+_CH_SHEET_UUID = {"ch0": "s0", "ch1": "s1", "ch2": "s2"}
+
+
+def _channels_cfg(*, per_channel_nets: bool):
+    """A REAL ``tree_instances`` expansion: one template tree plus two
+    declarations, each anchoring on its OWN literal ``points:`` entry — so three
+    Entity copies are materialized, one per channel, each keeping the TEMPLATE's
+    cluster and carrying its OWN sheet (Channel_0/1/2). That is the shape the live
+    2026-10-07 `fpga` defect had.
+
+    ``per_channel_nets`` — the cell's via/net_template use the reserved
+    ``{sheet}`` placeholder, so each copy expects its OWN channel's net (True), or
+    a single shared net (False, for the override cell that must be decided by the
+    resolved instance's PLACE)."""
+    via_net = "/{sheet}/DAC" if per_channel_nets else "DAC"
+    fp_net = "/{sheet}/FPGA" if per_channel_nets else "FPGA"
+    data = {
+        "points": {f"P{key[-1]}": {"xy": list(pos),
+                                   "uuid": det_uuid(f"points:P{key[-1]}")}
+                   for key, pos in _CH_POS.items()},
+        "cells": {CELL: {
+            "uuid": det_uuid(f"cells:{CELL}"),
+            "layer": "F.Cu", "anchor_role": "FPGA",
+            "components": [{"role": "FPGA", "offset_along_mm": 0.0,
+                            "offset_across_mm": 0.0, "angle_deg": 0.0,
+                            "net_template": fp_net}],
+            "vias": [{"offset_along_mm": 0.0, "offset_across_mm": 0.0,
+                      "net": via_net}]}},
+        "entities": [{"name": "E", "uuid": det_uuid("entities:E"), "cell": CELL,
+                      "cluster": CLUSTER, "sheet": _CH["ch0"]}],
+        "trees": [{"name": "tpl", "anchor": {"point": "P0"},
+                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]}]}],
+        "tree_instances": [
+            {"template": "tpl", "name": "ch1", "sheet": _CH["ch1"],
+             "anchor": {"point": "P1"}},
+            {"template": "tpl", "name": "ch2", "sheet": _CH["ch2"],
+             "anchor": {"point": "P2"}}],
+    }
+    expanded = expand_tree_instances(data)
+    cells = {n: _load_cell(n, c) for n, c in (expanded.get("cells") or {}).items()}
+    points = {n: _load_point(n, p)
+              for n, p in (expanded.get("points") or {}).items()}
+    entities = [_load_entity(e) for e in (expanded.get("entities") or [])]
+    trees = [tree_from_dict(t) for t in (expanded.get("trees") or [])]
+    return Config(cells=cells, points=points, entities=entities, trees=trees)
+
+
+def _channels_cascade(*, per_channel_nets: bool = True):
+    """(cfg, adapter, {clone name: clone}, sheet_names) — three materialized copies
+    from the tree_instances expansion, at Channel_0/1/2's places."""
+    cfg = _channels_cfg(per_channel_nets=per_channel_nets)
+    fp_net = (lambda ch: f"/{ch}/FPGA") if per_channel_nets else (lambda ch: "FPGA")
+    via_net = (lambda ch: f"/{ch}/DAC") if per_channel_nets else (lambda ch: "DAC")
+    fps = [_Fp(f"IC{key[-1]}", "FPGA", CLUSTER, *pos, nets=[fp_net(_CH[key])],
+               path=(_CH_SHEET_UUID[key], f"own-IC{key[-1]}"))
+           for key, pos in _CH_POS.items()]
+    vias = [_live_via(f"v{key[-1]}", *pos, net=via_net(_CH[key]))
+            for key, pos in _CH_POS.items()]
+    adapter = _Adapter(footprints=fps, vias=vias)
+    sheet_names = {u: ch for ch, u in _CH_SHEET_UUID.items()}
+    clones = {c.name: c for c in
+              materialize_entity_placements(adapter, cfg, sheet_names)}
+    return cfg, adapter, clones, sheet_names
+
+
+def test_the_three_channel_copies_keep_the_template_cluster_and_own_sheets(gate):
+    """1б: the rig really is the tree_instances shape — three copies of one cell,
+    ONE cluster, three sheets; without this the cascade cells below would prove
+    nothing about the live defect."""
+    _cfg_, _adapter_, clones, _sn = _channels_cascade()
+
+    assert set(clones) == {"E", "E__ch1", "E__ch2"}
+    assert len({c.cluster for c in clones.values()}) == 1
+    assert [clones[n].sheet for n in ("E", "E__ch1", "E__ch2")] \
+        == [_CH["ch0"], _CH["ch1"], _CH["ch2"]]
+
+
+def test_the_channel_cascade_never_takes_another_channels_copper(gate, tmp_path):
+    """1б end to end (the live defect): the forest runs ch0 -> ch1 -> ch2 as
+    separate passes over SHARED registries. ch0's records are seeded with FOREIGN
+    uuids (another machine's registry). After all three passes ch0's key points at
+    ch0's own copper — ch1/ch2 never took it, and no ch0 uuid left the board."""
+    cfg, adapter, clones, sheet_names = _channels_cascade()
+    order = [clones[n] for n in ("E", "E__ch1", "E__ch2")]
+    k0 = _key(order[0], cfg, "via", None, 0)
+    via_reg, trk_reg = _registries(
+        adapter, tmp_path, via_entries={k0: _via_entry("gone", 1.0, 1.0)})
+
+    adopted = []
+    for clone in order:
+        report = adopt_cell_copper_at_current_place(
+            adapter, cfg, [SimpleNamespace(kind="clone", obj=clone)],
+            via_reg, trk_reg, write=True, sheet_names=sheet_names)
+        adopted.append(report.adopted)
+
+    assert adopted == [1, 1, 1]                       # each channel its own copper
+    assert via_reg.entries[k0].uuid == "v0"           # ch0 rebound to ITS copper
+    assert [via_reg.entries[_key(c, cfg, "via", None, 0)].uuid
+            for c in order] == ["v0", "v1", "v2"]
+    assert "v0" in {v.uuid for v in adapter.get_vias()}   # still on the board
+
+
+def test_a_foreign_channels_net_in_the_record_geometry_is_not_taken(gate, tmp_path):
+    """1б: copper lying EXACTLY where the record puts it, but on the chain of
+    ANOTHER channel, is never adopted — the safety net that stops a wrong-chain
+    adoption even if the instance resolution drifts again."""
+    cfg, adapter, clones, sheet_names = _channels_cascade()
+    ch1 = clones["E__ch1"]
+    # Channel_0's via, moved onto Channel_1's record place, KEEPING its own chain
+    # (Channel_1's own via is removed so ONLY the foreign one sits there).
+    adapter._vias = [v for v in adapter._vias if v.uuid not in ("v0", "v1")] + [
+        _live_via("v0", *_CH_POS["ch1"], net=f"/{_CH['ch0']}/DAC")]
+    via_reg, trk_reg = _registries(adapter, tmp_path)
+
+    report = adopt_cell_copper_at_current_place(
+        adapter, cfg, [SimpleNamespace(kind="clone", obj=ch1)], via_reg, trk_reg,
+        write=True, sheet_names=sheet_names)
+
+    assert report.adopted == 0
+    assert report.net_refused >= 1
+    assert via_reg.entries == {}
+
+
+def test_the_override_picks_the_components_but_the_frame_stays_live(gate, tmp_path):
+    """1б/decision 2: a rigid-group PositionOverride REPLACES the anchor for the
+    ROLE RESOLUTION — the SAME components the plan would use. The cell frame is
+    still built from the LIVE poses (the pass reads the CURRENT place), so it is
+    Channel_2's copper that is adopted, from Channel_2's live place."""
+    cfg, adapter, clones, sheet_names = _channels_cascade(per_channel_nets=False)
+    clone = clones["E__ch1"]
+    override = SimpleNamespace(position=Vector2.from_xy_mm(*_CH_POS["ch2"]),
+                               rotation_deg=0.0)
+    via_reg, trk_reg = _registries(adapter, tmp_path)
+
+    report = adopt_cell_copper_at_current_place(
+        adapter, cfg, [SimpleNamespace(kind="clone", obj=clone)], via_reg, trk_reg,
+        write=True, sheet_names=sheet_names,
+        position_overrides={"E__ch1": override})
+
+    assert report.adopted == 1
+    assert [e.uuid for e in via_reg.entries.values()] == ["v2"]

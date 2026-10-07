@@ -20,8 +20,12 @@ NARROWING = rig.NARROWING
 
 ROWS = [
     ("C1 instance refs lost (anchor: copper)", SELECT,
-     "    refs = frozenset(\n        own_refs if own_refs is not None",
-     "    refs = frozenset() if True else frozenset(  # MUTATION\n        own_refs if own_refs is not None",
+     "    refs = frozenset(\n"
+     "        (own_refs.values() if isinstance(own_refs, Mapping) else own_refs)\n"
+     "        if own_refs is not None",
+     "    refs = frozenset() if True else frozenset(  # MUTATION\n"
+     "        (own_refs.values() if isinstance(own_refs, Mapping) else own_refs)\n"
+     "        if own_refs is not None",
      "die", G, ()),
     ("C2 DockHub delegate dropped", "gui/dock_hub.py",
      "        self.cells_dock.select_cell_requested(name, file_path, cluster, sheet)",
