@@ -40,6 +40,7 @@ from kicadstamp.config.includes import IncludeTreeNode
 __all__ = [
     "PLACED_BY_SPOKE", "PLACED_BY_CLONE", "PLACED_BY_NESTED",
     "RecordRef", "EntityRef", "PlacedBy", "EntityIndex", "build_entity_index",
+    "file_parent_map",
 ]
 
 # The WHAT token of a "placed by" note (3б). The human sentence is built where
@@ -232,3 +233,24 @@ def _add_placed(placed: dict, cell_uuid: Optional[str], kind: str,
     if not cell_uuid:
         return
     placed[cell_uuid].append(PlacedBy(kind, section, owner, owner_name))
+
+
+def file_parent_map(root: IncludeTreeNode) -> dict:
+    """``{file path -> its parent file's path, or None for the root}`` for
+    every file node.
+
+    The file-level block of a context menu ("Add included file…" / "Remove
+    this file") needs the parent of the file it acts on. For an entity leaf
+    under a cell from ANOTHER file that target is the entity's own declaring
+    file, so its parent is needed at BUILD time, before that file node is
+    reached — hence a pre-pass. First occurrence wins on a diamond (the same
+    file shown under two branches): any one parent can disable the include."""
+    parents: dict = {}
+
+    def walk(node: IncludeTreeNode, parent: Optional[Path]) -> None:
+        parents.setdefault(node.path, parent)
+        for child in node.children:
+            walk(child, node.path)
+
+    walk(root, None)
+    return parents

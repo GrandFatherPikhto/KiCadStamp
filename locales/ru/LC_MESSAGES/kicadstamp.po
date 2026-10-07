@@ -19026,3 +19026,38 @@ msgstr "Выделена записанная медь {k} записей дер
 #, python-brace-format
 msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
 msgstr "  {count} записей дерева {tree!r} не имеют меди на плате: {names}"
+#: gui/docks/config_tree.py
+msgid "spoke of chain"
+msgstr "спица цепочки"
+
+#: gui/docks/config_tree.py
+msgid "clone placement"
+msgstr "размещение клона"
+
+#: gui/docks/config_tree.py
+msgid "nested placement in cell"
+msgstr "вложенное размещение в ячейке"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "{kind}: {name}"
+msgstr "{kind}: {name}"
+
+#: gui/docks/config_tree.py
+msgid "refers to no cell or imprint — point it at one"
+msgstr "не ссылается ни на ячейку, ни на импринт — укажите цель"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "refers to a missing {kind} {name!r} ({uuid})"
+msgstr "ссылается на отсутствующую {kind} {name!r} ({uuid})"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "cell {name!r} has no entity — placed by {what}"
+msgstr "у ячейки {name!r} нет сущности — её ставит {what}"
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "cell {name!r} has no entity — it is not placed; create an entity to edit it"
+msgstr "у ячейки {name!r} нет сущности — она нигде не ставится; создайте сущность, чтобы её править"

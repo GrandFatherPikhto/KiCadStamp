@@ -18117,3 +18117,38 @@ msgstr ""
 #, python-brace-format
 msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
 msgstr ""
+#: gui/docks/config_tree.py
+msgid "spoke of chain"
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "clone placement"
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "nested placement in cell"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "{kind}: {name}"
+msgstr ""
+
+#: gui/docks/config_tree.py
+msgid "refers to no cell or imprint — point it at one"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "refers to a missing {kind} {name!r} ({uuid})"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "cell {name!r} has no entity — placed by {what}"
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "cell {name!r} has no entity — it is not placed; create an entity to edit it"
+msgstr ""

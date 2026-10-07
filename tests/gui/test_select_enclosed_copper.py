@@ -138,7 +138,11 @@ def test_entities_leaf_has_the_item_and_sends_its_explicit_instance(
     open_project(hub, root)
 
     tree = hub.config_tree_dock.tree
-    leaf = find_child(category(file_item(tree, root), "entities"), "dac0")
+    # plan_2026_10_05_entities_under_cells (Р63): an entity is now a CHILD of
+    # its cell, not a leaf of an "Entities" section — the menu and payload are
+    # unchanged, only the node moved.
+    cell_leaf = find_child(category(file_item(tree, root), "cells"), "dac_buf")
+    leaf = find_child(cell_leaf, "dac0")
 
     actions = context_menu_actions(hub.config_tree_dock, leaf, monkeypatch)
     matching = [act for _label, act in actions

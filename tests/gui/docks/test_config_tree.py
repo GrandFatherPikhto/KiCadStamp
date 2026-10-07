@@ -1717,9 +1717,15 @@ def test_f2_shortcut_is_widget_scoped(main_window, tmp_path):
 def test_cell_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
     """comment on a DICT-section (cells) entry: _entries() yields the bare
     name as payload, so the marker must come from raw.get(name) — the exact
-    regression the handoff flagged (payload is a str, not the record dict)."""
+    regression the handoff flagged (payload is a str, not the record dict).
+
+    The cell carries an entity on purpose: an ENTITYLESS cell now also shows
+    the no-entity marker hint (plan_2026_10_05_entities_under_cells, 3б), and
+    this guard is about the COMMENT glyph alone — the entity keeps its subject
+    isolated without touching any assertion."""
     root = tmp_path / "root.sexp"
-    _write(root, {"cells": {"noted": {"comment": "a cell note"}}})
+    _write(root, {"cells": {"noted": {"comment": "a cell note"}},
+                  "entities": [{"name": "e_noted", "cell": "noted"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1729,8 +1735,12 @@ def test_cell_leaf_with_comment_shows_glyph_and_tooltip(main_window, tmp_path):
 
 
 def test_cell_leaf_without_comment_is_plain(main_window, tmp_path):
+    """No comment -> no glyph and no comment tooltip. The entity is added for
+    the same reason as above: it keeps the no-entity marker out of the cell's
+    tooltip, so the guard still isolates "no comment"."""
     root = tmp_path / "root.sexp"
-    _write(root, {"cells": {"plain": {}}})
+    _write(root, {"cells": {"plain": {}},
+                  "entities": [{"name": "e_plain", "cell": "plain"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 

@@ -120,10 +120,12 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QFileDialog,
                               QInputDialog, QMenu, QMessageBox, QSplitter,
-                              QStackedWidget, QTreeWidget, QTreeWidgetItem,
-                              QTreeWidgetItemIterator, QVBoxLayout, QWidget)
+                              QStackedWidget, QStyle, QTreeWidget,
+                              QTreeWidgetItem, QTreeWidgetItemIterator,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.config.includes import IncludeTreeNode, walk_include_tree
+from kicadstamp.config.name_hint import close_name_hint
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
@@ -134,6 +136,9 @@ from ._common import (add_include, disable_include, display_path,
                       SplitterSizeKeeper, upsert_list_entry)
 from .entity_delete import backup_file, delete_entry, find_references
 from .entity_export import ExportItem, export_entries
+from .entity_index import (PLACED_BY_CLONE, PLACED_BY_NESTED,
+                           PLACED_BY_SPOKE, build_entity_index,
+                           file_parent_map)
 from .rename import CASCADE_FIELD, collect_graph_files, entry_effective_name, rename_entry
 
 logger = logging.getLogger(__name__)
@@ -183,6 +188,26 @@ _ADD_ACTION_BY_SECTION = {
 # it back to recover the entry's name (_item_identity, for selection restore).
 # One copy of the glyph string, so the two can never drift apart.
 _COMMENT_GLYPH = "📝 "
+
+
+# Extra per-item data roles. The 3-element UserRole tuple stays UNWIDENED
+# (several call sites destructure it by fixed arity). A cell leaf stores its
+# no-entity state here; an ENTITY leaf stores its OWN declaring file, so every
+# routing path (click, context menu, edit, rename, delete, export) takes the
+# write target from the RECORD, never from the cell it is shown under (п.4).
+# The shape is (file_path, parent_path) — the same as _file_context_for_item.
+_ROLE_OWN_FILE = Qt.ItemDataRole.UserRole + 1
+_ROLE_CELL_MARK = Qt.ItemDataRole.UserRole + 2
+# A cell without any entity is a second kind of orphan (п.3б): "not placed at
+# all" vs "placed by something that is not an entity".
+_CELL_UNUSED = "unused"
+_CELL_PLACED = "placed"
+# "placed by" kind -> its human label, the {what} of the cell hint.
+_PLACED_BY_LABEL = {
+    PLACED_BY_SPOKE: _("spoke of chain"),
+    PLACED_BY_CLONE: _("clone placement"),
+    PLACED_BY_NESTED: _("nested placement in cell"),
+}
 
 
 def _identity_to_json(ident: tuple) -> list:
@@ -458,6 +483,13 @@ class ConfigTreeDock(QWidget):
         self.setObjectName("config_tree_dock")
         self._main_window = main_window
         self._root_path: Optional[Path] = None
+        # Graph index built once per refresh() (see gui/docks/entity_index.py):
+        # which entities sit on each cell/imprint and who places a cell without
+        # one. None until the first refresh with a root.
+        self._entity_index = None
+        # Every file node's parent path — the target of a file-level action on
+        # an entity leaf, whose OWN file may differ from the visible ancestor.
+        self._file_parents: dict = {}
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -925,6 +957,7 @@ class ConfigTreeDock(QWidget):
         self._suppress_current_change = True
         try:
             self.tree.clear()
+            self._entity_index = None
             if self._root_path is None:
                 return
             try:
@@ -932,6 +965,8 @@ class ConfigTreeDock(QWidget):
             except (ValidationError, OSError) as e:
                 QTreeWidgetItem(self.tree, [str(e)])
                 return
+            self._entity_index = build_entity_index(node)
+            self._file_parents = file_parent_map(node)
             self._build_file_item(self.tree.invisibleRootItem(), node,
                                   parent_path=None)
             # (P3) Default = everything expanded (a new/never-seen entry must be
@@ -959,6 +994,7 @@ class ConfigTreeDock(QWidget):
         # must behave identically or the profile would not reflect reality.
         self._collapsed = self._load_collapsed()
         self.tree.clear()
+        self._entity_index = None
         if self._root_path is None:
             profiler.disable()
             return
@@ -968,6 +1004,8 @@ class ConfigTreeDock(QWidget):
             QTreeWidgetItem(self.tree, [str(e)])
             profiler.disable()
             return
+        self._entity_index = build_entity_index(node)
+        self._file_parents = file_parent_map(node)
         t1 = time.perf_counter()
         self._build_file_item(self.tree.invisibleRootItem(), node, parent_path=None)
         t2 = time.perf_counter()
@@ -1002,6 +1040,12 @@ class ConfigTreeDock(QWidget):
         file_item = QTreeWidgetItem(parent_item, [node.path.name])
         file_item.setData(0, Qt.ItemDataRole.UserRole, ("file", node.path, parent_path))
         for section, label in _SECTION_LABELS.items():
+            if section == "entities":
+                # Entities are children of their cell/imprint (п.1); only an
+                # ORPHAN stays in its own file's Entities section (п.3), so
+                # that section exists only when there is one.
+                self._add_orphan_entities(file_item, node)
+                continue
             raw = node.sections.get(section)
             if not raw:
                 continue
@@ -1040,7 +1084,12 @@ class ConfigTreeDock(QWidget):
                 if comment:
                     leaf.setToolTip(0, comment)
                 if section == "cells" and isinstance(raw, dict):
-                    self._add_nested_cell_children(leaf, raw.get(name) or {})
+                    cell_data = raw.get(name) or {}
+                    self._add_nested_cell_children(leaf, cell_data)
+                    self._add_cell_entities(leaf, cell_data)
+                    self._mark_cell(leaf, name, cell_data)
+                elif section == "imprints" and isinstance(payload, dict):
+                    self._add_imprint_entities(leaf, payload)
         for child in node.children:
             self._build_file_item(file_item, child, parent_path=node.path)
 
@@ -1119,6 +1168,123 @@ class ConfigTreeDock(QWidget):
             content = (f"cell:{nested['cell']}" if nested.get("cell") is not None
                       else f"role:{nested.get('role', '?')}")
             QTreeWidgetItem(leaf, [f"{nested.get('name', '?')} ({content})"])
+
+    # ── Entities under their cell/imprint (plan_2026_10_05_entities_under_cells) ──
+    #
+    # The SHAPE comes from gui/docks/entity_index.py (one graph pass); this
+    # class only WIRES it into tree items. An entity leaf carries its OWN file
+    # in _ROLE_OWN_FILE (п.4): the file of the cell it is shown under is NOT
+    # necessarily the file the record lives in.
+
+    def _entity_leaf(self, parent, ref) -> QTreeWidgetItem:
+        """One entity leaf: label (with its comment marker), the usual
+        ("leaf", "entities", <record>) payload, and the entity's OWN declaring
+        file in _ROLE_OWN_FILE so every routing path reads the write target
+        from the RECORD, not from the visible ancestor."""
+        name = ref.name or "?"
+        comment = ref.data.get("comment")
+        leaf = QTreeWidgetItem(
+            parent, [f"{_COMMENT_GLYPH}{name}" if comment else name])
+        leaf.setData(0, Qt.ItemDataRole.UserRole, ("leaf", "entities", ref.data))
+        leaf.setData(0, _ROLE_OWN_FILE,
+                     (ref.file_path, self._file_parents.get(ref.file_path)))
+        if comment:
+            leaf.setToolTip(0, comment)
+        return leaf
+
+    def _add_cell_entities(self, leaf, cell_data: dict) -> None:
+        index = self._entity_index
+        if index is None:
+            return
+        for ref in index.entities_for_cell(cell_data.get("uuid")):
+            self._entity_leaf(leaf, ref)
+
+    def _add_imprint_entities(self, leaf, record: dict) -> None:
+        index = self._entity_index
+        if index is None:
+            return
+        for ref in index.entities_for_imprint(record.get("uuid")):
+            self._entity_leaf(leaf, ref)
+
+    def _add_orphan_entities(self, file_item, node) -> None:
+        """An entity whose cell/imprint is nowhere in the graph stays in its
+        OWN file's Entities section (п.3) — that section exists ONLY when such
+        an orphan does (мутация «раздел показан при отсутствии сирот»)."""
+        index = self._entity_index
+        if index is None:
+            return
+        orphans = [ref for ref in index.orphans if ref.file_path == node.path]
+        if not orphans:
+            return
+        section_item = QTreeWidgetItem(file_item, [_SECTION_LABELS["entities"]])
+        section_item.setData(0, Qt.ItemDataRole.UserRole, ("category", "entities"))
+        for ref in orphans:
+            leaf = self._entity_leaf(section_item, ref)
+            self._append_tooltip(leaf, self._orphan_hint(ref))
+
+    def _orphan_hint(self, ref) -> str:
+        """The orphan's hint: the missing target plus the closest known name,
+        through the SAME close_name_hint the loader refusal uses (3а) — never
+        a second implementation."""
+        index = self._entity_index
+        if index is None:
+            return ""
+        data = ref.data
+        if data.get("cell") is not None:
+            section, field, kind = "cells", "cell", "cell"
+        elif data.get("imprint") is not None:
+            section, field, kind = "imprints", "imprint", "imprint"
+        else:
+            return _("refers to no cell or imprint — point it at one")
+        name = data.get(field)
+        return _("refers to a missing {kind} {name!r} ({uuid})").format(
+            kind=kind, name=name, uuid=data.get(field + "_uuid")) + \
+            close_name_hint(name, index.names_for(section))
+
+    def _mark_cell(self, leaf, name: str, cell_data: dict) -> None:
+        """A cell WITHOUT an entity is a second kind of orphan (п.3б): mark it
+        (icon + tooltip) and remember the variant for the context menu. A cell
+        WITH an entity is left unmarked."""
+        index = self._entity_index
+        if index is None:
+            return
+        uuid = cell_data.get("uuid")
+        if index.has_entity_for_cell(uuid):
+            return
+        placed = index.placed_by_cell(uuid)
+        if placed:
+            state = _CELL_PLACED
+            hint = _("cell {name!r} has no entity — placed by {what}").format(
+                name=name, what=self._placed_by_text(placed))
+            pixmap = QStyle.StandardPixmap.SP_MessageBoxInformation
+        else:
+            state = _CELL_UNUSED
+            hint = _("cell {name!r} has no entity — it is not placed; "
+                     "create an entity to edit it").format(name=name)
+            pixmap = QStyle.StandardPixmap.SP_MessageBoxWarning
+        leaf.setData(0, _ROLE_CELL_MARK, state)
+        leaf.setIcon(0, self.style().standardIcon(pixmap))
+        self._append_tooltip(leaf, hint)
+
+    def _placed_by_text(self, placed) -> str:
+        """The {what} token of a placed-but-entityless cell hint — the owner
+        display name resolved through the ONE effective-name rule."""
+        parts = []
+        for pb in placed:
+            owner = (pb.owner_name if pb.owner_name is not None
+                     else entry_effective_name(pb.section, pb.owner))
+            parts.append(_("{kind}: {name}").format(
+                kind=_PLACED_BY_LABEL.get(pb.kind, pb.kind), name=owner))
+        return ", ".join(parts)
+
+    @staticmethod
+    def _append_tooltip(leaf, hint: str) -> None:
+        """Append a marker hint to a leaf's tooltip without clobbering an
+        already-set comment tooltip."""
+        if not hint:
+            return
+        existing = leaf.toolTip(0)
+        leaf.setToolTip(0, f"{existing}\n{hint}" if existing else hint)
 
     @staticmethod
     def _entries(raw, section):
