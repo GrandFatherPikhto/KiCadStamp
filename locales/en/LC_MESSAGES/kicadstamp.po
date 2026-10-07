@@ -18069,3 +18069,43 @@ msgstr ""
 #, python-brace-format
 msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
 msgstr ""
+
+#: gui/main_window.py
+msgid "Copper"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Select inter-node copper"
+msgstr ""
+
+#: gui/main_window.py
+msgid "Select recorded inter-node copper"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "selecting inter-node copper"
+msgstr ""
+
+#: gui/docks/trees_dock.py
+msgid "selecting recorded copper"
+msgstr ""
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Select inter-node copper: no inter-node copper of tree {tree!r} is on the whole board — nothing was selected. The tree's nodes expect: {keys}"
+msgstr ""
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Selected {pieces} inter-node piece(s) of tree {tree!r} — {tracks} track(s), {vias} via(s)"
+msgstr ""
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Selected recorded copper of {k} record(s) of tree {tree!r} — {tracks} track(s), {vias} via(s)"
+msgstr ""
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
+msgstr ""

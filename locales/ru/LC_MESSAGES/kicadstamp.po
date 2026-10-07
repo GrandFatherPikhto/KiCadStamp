@@ -18978,3 +18978,43 @@ msgstr "Усыновление на текущем месте: {count} запи�
 #, python-brace-format
 msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
 msgstr "Усыновление на текущем месте: усыновило бы {count} записей (реальный прогон пишет реестр)"
+
+#: gui/main_window.py
+msgid "Copper"
+msgstr "Медь"
+
+#: gui/main_window.py
+msgid "Select inter-node copper"
+msgstr "Выделить межузловую медь"
+
+#: gui/main_window.py
+msgid "Select recorded inter-node copper"
+msgstr "Выделить записанную межузловую медь"
+
+#: gui/docks/trees_dock.py
+msgid "selecting inter-node copper"
+msgstr "выделение межузловой меди"
+
+#: gui/docks/trees_dock.py
+msgid "selecting recorded copper"
+msgstr "выделение записанной меди"
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Select inter-node copper: no inter-node copper of tree {tree!r} is on the whole board — nothing was selected. The tree's nodes expect: {keys}"
+msgstr "Выделить межузловую медь: на всей плате нет межузловой меди дерева {tree!r} — ничего не выделено. Узлы дерева ждут: {keys}"
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Selected {pieces} inter-node piece(s) of tree {tree!r} — {tracks} track(s), {vias} via(s)"
+msgstr "Выделено {pieces} межузловых кусков дерева {tree!r} — {tracks} дорожек, {vias} переходных"
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "Selected recorded copper of {k} record(s) of tree {tree!r} — {tracks} track(s), {vias} via(s)"
+msgstr "Выделена записанная медь {k} записей дерева {tree!r} — {tracks} дорожек, {vias} переходных"
+
+#: gui/select_internode_copper.py
+#, python-brace-format
+msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
+msgstr "  {count} записей дерева {tree!r} не имеют меди на плате: {names}"

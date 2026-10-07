@@ -1253,7 +1253,7 @@ CONN_PM5V anchor of the "power" tree) is highlighted in the Trees dock with a ne
 tooltip ("this node duplicates the tree's own anchor — safe to delete"), so it is visible without
 waiting for the redraw drift on the live board.
 
-**Tools → Trees → Reread inter-node copper** (2026-09-12, plan
+**Tools → Trees → Copper → Reread inter-node copper** (2026-09-12, plan
 `plan_2026_09_12_internode_copper_core`) re-reads the CURRENT tree's copper between pads from the live
 board — for the very case the old flow could not handle at all: the copper was captured ONCE, when the
 tree was built, and re-reading it meant rebuilding the tree and losing the placement. It matches fresh
@@ -1291,7 +1291,29 @@ Cluster tag are two nodes), and a bridge's record anchors on the channel end —
 narrow the DAC role to one footprint — while the FPGA end resolves by its own unique role. A NEW piece
 with a Role-less pad or no node-bearing pad is skipped with a Log warning, never a fatal.
 
-**Tools → Trees → Whose copper is this?** (2026-09-12, plan
+**Tools → Trees → Copper** (2026-10-07, plan `plan_2026_10_05_tree_reread_modules`) gathers everything
+about the CURRENT tree's inter-node copper in one place: **Reread inter-node copper**, **Select inter-node
+copper**, **Select recorded inter-node copper** and **Whose copper is this?** (the last two moved here with
+the reread; the actions themselves are unchanged).
+
+**Copper inside a module belongs to that module, and a record's name carries its channel** (2026-10-05/07,
+same plan): copper between two own nodes of ONE embedded `kind "module"` tree is that MODULE's copper — the
+module's own tree re-reads it — so the parent leaves it alone and reports it as `module` in the Log; only a
+piece with two nodes of DIFFERENT owners (or two of the parent's own nodes) is the parent's INTERNODE
+copper. A NEW record whose node came through a module is named after the channel
+(`pa_en__dac_buf_channel_0__fpga`), and the anchor's role check is cached per run, so a re-read no longer
+floods the Log with `role_narrowing` lines.
+
+**Select inter-node copper** (2026-10-07, same plan) highlights on the board exactly the copper a
+WHOLE-BOARD re-read would take — the SAME classifier both paths run (one place, so they cannot disagree) —
+and names the pieces it left alone by verdict, or, when it took none, what the tree's nodes expect. It is
+READ-ONLY: a selection, no config, registry or board write, no dialog, the outcome in the Log. **Select
+recorded inter-node copper** highlights the live copper of every `net_traces:` record the tree references,
+through the same matching the node's own "Select copper on board" uses; records whose copper is not on the
+board are named. After a whole-board re-read both select items highlight the same copper — a difference
+means the copper was not re-read, or a record is stale, and each Log line carries the numbers.
+
+**Tools → Trees → Copper → Whose copper is this?** (2026-09-12, plan
 `plan_2026_09_12_select_copper_by_record`) answers the reverse question: which `net_traces:` records own
 the copper you have SELECTED on the live board. It is READ-ONLY — it reads your selection and never
 changes it (answering a question by destroying the question would be wrong) — runs on a worker, and

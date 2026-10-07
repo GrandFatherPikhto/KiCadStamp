@@ -3451,6 +3451,25 @@ class TreesDock(QWidget):
         self._mark_dirty()
         self._rebuild_tabs()
 
+    # ── Inter-node copper: select (Т5 of plan_2026_10_05_tree_reread_modules) ──
+    # The DOOR (guards, payload, worker wiring, reporting) lives in
+    # gui/select_internode_copper.py; a giant keeps one-line delegates only
+    # (deepseek.md §45).
+
+    def _on_select_inter_node_copper(self, trigger=None) -> None:
+        """Tools → Trees → Copper → "Select inter-node copper" (В1, Т5-1):
+        highlight the CURRENT tree's inter-node copper that a WHOLE-BOARD
+        re-read would take (the SAME classifier) — READ-ONLY, on a worker."""
+        from gui.select_internode_copper import select_inter_node_copper
+        select_inter_node_copper(self, trigger)
+
+    def _on_select_recorded_inter_node_copper(self, trigger=None) -> None:
+        """Tools → Trees → Copper → "Select recorded inter-node copper" (В2,
+        Т5-2): highlight the live copper of every net_traces record the CURRENT
+        tree references — READ-ONLY, on a worker."""
+        from gui.select_internode_copper import select_recorded_inter_node_copper
+        select_recorded_inter_node_copper(self, trigger)
+
     # ── Inter-node copper: select a record's copper on the board (plan Э2) ──
 
     def _on_select_copper_by_record(self, node: TreeNode) -> None:

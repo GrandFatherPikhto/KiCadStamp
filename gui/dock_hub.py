@@ -2116,6 +2116,25 @@ class DockHub:
         self.trees_dock._on_identify_selected_copper(
             self._menu_trigger_action("identify_copper_action"))
 
+    def select_inter_node_copper(self) -> None:
+        """Tools → Trees → Copper → "Select inter-node copper" (В1, Т5-1 of
+        plan_2026_10_05_tree_reread_modules): highlight on the board the CURRENT
+        tree's inter-node copper that a WHOLE-BOARD re-read would take — a
+        background worker, READ-ONLY, the outcome in the Log. The menu QAction is
+        the operation's guard widget (Э2)."""
+        self._focus_trees_dock()
+        self.trees_dock._on_select_inter_node_copper(
+            self._menu_trigger_action("select_internode_action"))
+
+    def select_recorded_inter_node_copper(self) -> None:
+        """Tools → Trees → Copper → "Select recorded inter-node copper" (В2,
+        Т5-2): highlight the live copper of every net_traces record the CURRENT
+        tree references — a background worker, READ-ONLY, the outcome in the Log.
+        The menu QAction is the operation's guard widget (Э2)."""
+        self._focus_trees_dock()
+        self.trees_dock._on_select_recorded_inter_node_copper(
+            self._menu_trigger_action("select_recorded_internode_action"))
+
     def redraw_whole_tree(self) -> None:
         """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
         the CURRENT tree (background worker). The menu QAction is handed down as

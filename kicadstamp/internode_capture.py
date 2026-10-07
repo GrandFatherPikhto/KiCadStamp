@@ -77,11 +77,13 @@ from .utils.units import MM
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "AreaClassification",
     "CapturedTrace",
     "RereadPlan",
     "apply_reread_plan",
     "capture_unit",
     "capture_units",
+    "internode_units",
     "plan_internode_reread",
     "reread_report_lines",
     "tree_net_trace_identities",
@@ -493,6 +495,127 @@ def capture_units(adapter, units: Iterable[CopperUnit], *,
     return out, warnings
 
 
+# ── the classifier — the ONE place both the re-read and "Select inter-node
+#    copper" go through (plan_2026_10_05_tree_reread_modules T5-1) ───────────
+
+@dataclass
+class AreaClassification:
+    """The AREA's copper classified against `tree`'s nodes — the ONE classifier's
+    result, shared by the re-read (which turns `units` into records) and "Select
+    inter-node copper" (which highlights `units`).
+
+    `units` are ONLY the pieces classify_unit took (INTERNODE); `discarded` counts
+    the rest by verdict (including MODULE — copper inside one module, Т4-1);
+    `warnings` is the honest list of what could not be decided. The component
+    maps and the `resolver` are carried so the record builder reuses the SAME
+    node identities and the SAME per-run candidate cache — a second pass over the
+    same copper must never answer differently."""
+    units: list[CopperUnit] = field(default_factory=list)
+    discarded: dict[str, int] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    matched_components: int = 0
+    unmatched_components: int = 0
+    node_keys: list[str] = field(default_factory=list)
+    components: dict[str, _Component] = field(default_factory=dict)
+    node_key_by_ref: dict[str, tuple[str | None, str | None]] = field(
+        default_factory=dict)
+    node_name_label_by_ref: dict[str, str] = field(default_factory=dict)
+    anchor_sheet_by_ref: dict[str, str | None] = field(default_factory=dict)
+    resolver: Any = None
+
+
+def _classify_area(adapter, cfg: Config, tree: Tree, *,
+                   area_items: Iterable[Any],
+                   area_footprints: Iterable[Any],
+                   sheet_names: dict[str, str] | None = None
+                   ) -> AreaClassification:
+    """The area's copper classified against `tree` — the SHARED step of
+    `plan_internode_reread` and `internode_units` (T5-1).
+
+    It collects the tree's nodes (`tree_node_keys`), matches the area's
+    components to them (`_match_node`), splits the copper into units and runs
+    `classify_unit` once per unit. Everything a caller needs to go on is carried
+    out: the INTERNODE units, the discarded counters, the warnings, and the node
+    maps + the run's `RoleResolver`."""
+    _sn = dict(sheet_names or {})
+    out = AreaClassification()
+    node_keys = tree_node_keys(tree, cfg)
+    out.components = _area_components(adapter, area_footprints, _sn)
+    # Э1: a component belongs to a node when ANY segment of its sheet path names
+    # that node's sheet (the SAME seam the role resolver uses — sheet_in_path),
+    # so a tree's anchor and its copper can no longer disagree. The node's OWN
+    # sheet — never the component's leaf — is what a NEW record stores as its
+    # anchor_sheet (Э3), so the anchor narrows the role to THIS instance.
+    #
+    # Т1: a node's IDENTITY is `(cluster, sheet)`, not its label — three channels
+    # reuse the SAME Cluster tag (`DAC_BUF`) on different sheets, so a label that
+    # names one node cannot tell two apart. classify_unit gets the KEY; the
+    # LABEL keeps naming the record and the report.
+    node_owner_by_ref: dict[str, Any] = {}
+    for comp in out.components.values():
+        match, conflicts = _match_node(comp, node_keys)
+        if conflicts:
+            out.warnings.append(_(
+                "component {ref!r} (Cluster {cluster!r}, sheet path {path}) "
+                "matches {count} nodes of tree {tree!r} at once: {nodes} — the "
+                "component is left out of the tree, it is never guessed").format(
+                    ref=comp.ref, cluster=comp.cluster,
+                    path="/".join(comp.path) or "-", count=len(conflicts),
+                    tree=tree.name, nodes=", ".join(conflicts)))
+            continue
+        if match is None:
+            if comp.cluster is not None:
+                out.unmatched_components += 1
+            continue
+        label, sheet = match
+        key = (comp.cluster, sheet)
+        out.node_key_by_ref[comp.ref] = key
+        # Т4-3: the name label of a node reached through a module is
+        # `<cluster>/<sheet>`; Т4-1: its OWNER is that module.
+        out.node_name_label_by_ref[comp.ref] = node_keys.name_label(key) or label
+        node_owner_by_ref[comp.ref] = node_keys.owners.get(key)
+        out.anchor_sheet_by_ref[comp.ref] = sheet
+        out.matched_components += 1
+    out.node_keys = [_node_key_label(label, sheet)
+                     for (_cluster, sheet), label in node_keys.items()]
+    # ONE resolver for the whole run — its per-run candidate cache keeps the
+    # anchor check (Т2) from re-sweeping the board for every unit.
+    out.resolver = RoleResolver(adapter, _sn)
+
+    units, unit_warnings = find_copper_units(adapter, area_items,
+                                             footprints=area_footprints)
+    out.warnings.extend(unit_warnings)
+    for unit in units:
+        verdict = classify_unit(unit, out.node_key_by_ref,
+                                module_owner_by_ref=node_owner_by_ref)
+        if verdict is not CopperVerdict.INTERNODE:
+            # Э4: the copper the classification did NOT take is COUNTED, not
+            # silently dropped — the report names it by verdict (the live
+            # complaint was an empty report while 766 units existed).
+            out.discarded[verdict.value] = out.discarded.get(verdict.value, 0) + 1
+            continue
+        out.units.append(unit)
+    return out
+
+
+def internode_units(adapter, cfg: Config, tree: Tree, *,
+                    area_items: Iterable[Any],
+                    area_footprints: Iterable[Any],
+                    sheet_names: dict[str, str] | None = None
+                    ) -> tuple[list[CopperUnit], dict[str, int], list[str]]:
+    """The pieces of `tree`'s inter-node copper the classification TAKES from
+    `area` — `(units, discarded_by_verdict, warnings)`. THE invariant (T5-1 of
+    plan_2026_10_05_tree_reread_modules): this is the SAME classifier the re-read
+    uses (`plan_internode_reread` runs the identical `_classify_area`), so
+    "Select inter-node copper" highlights exactly what a whole-board re-read
+    would take. No second classifier exists."""
+    classification = _classify_area(
+        adapter, cfg, tree, area_items=area_items,
+        area_footprints=area_footprints, sheet_names=sheet_names)
+    return classification.units, classification.discarded, \
+        classification.warnings
+
+
 # ── the plan ───────────────────────────────────────────────────────────────
 
 def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
@@ -516,7 +639,10 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     verdict, and — when not one area component matched a node of this tree — the
     tree's own node keys, so the report can say what its nodes wait for instead
     of printing an empty result.
-    """
+
+    The classification itself is `_classify_area` — the SAME step
+    `internode_units` (and therefore "Select inter-node copper") runs, so the
+    re-read and the highlighting can never disagree (T5-1)."""
     _sn = dict(sheet_names or {})
     plan = RereadPlan()
     if zone_count:
@@ -524,54 +650,16 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             "zones are not read (see the Z1 work): only tracks and vias count "
             "as copper, so a pour never appears in the capture"))
 
-    node_keys = tree_node_keys(tree, cfg)
-    components = _area_components(adapter, area_footprints, _sn)
-    # Э1: a component belongs to a node when ANY segment of its sheet path names
-    # that node's sheet (the SAME seam the role resolver uses — sheet_in_path),
-    # so a tree's anchor and its copper can no longer disagree. The node's OWN
-    # sheet — never the component's leaf — is what a NEW record stores as its
-    # anchor_sheet (Э3), so the anchor narrows the role to THIS instance.
-    #
-    # Т1: a node's IDENTITY is `(cluster, sheet)`, not its label — three channels
-    # reuse the SAME Cluster tag (`DAC_BUF`) on different sheets, so a label that
-    # names one node cannot tell two apart. classify_unit gets the KEY; the
-    # LABEL keeps naming the record and the report.
-    node_key_by_ref: dict[str, tuple[str | None, str | None]] = {}
-    node_label_by_ref: dict[str, str] = {}
-    # Т4-1: the owner of each matched node (the topmost module it came through,
-    # else None) is what lets classify_unit leave a module's OWN copper to that
-    # module's tree; Т4-3: the name label of a module node is `<cluster>/<sheet>`.
-    node_owner_by_ref: dict[str, Any] = {}
-    node_name_label_by_ref: dict[str, str] = {}
-    anchor_sheet_by_ref: dict[str, str | None] = {}
-    for comp in components.values():
-        match, conflicts = _match_node(comp, node_keys)
-        if conflicts:
-            plan.warnings.append(_(
-                "component {ref!r} (Cluster {cluster!r}, sheet path {path}) "
-                "matches {count} nodes of tree {tree!r} at once: {nodes} — the "
-                "component is left out of the tree, it is never guessed").format(
-                    ref=comp.ref, cluster=comp.cluster,
-                    path="/".join(comp.path) or "-", count=len(conflicts),
-                    tree=tree.name, nodes=", ".join(conflicts)))
-            continue
-        if match is None:
-            if comp.cluster is not None:
-                plan.unmatched_components += 1
-            continue
-        label, sheet = match
-        key = (comp.cluster, sheet)
-        node_key_by_ref[comp.ref] = key
-        node_label_by_ref[comp.ref] = label
-        node_name_label_by_ref[comp.ref] = node_keys.name_label(key) or label
-        node_owner_by_ref[comp.ref] = node_keys.owners.get(key)
-        anchor_sheet_by_ref[comp.ref] = sheet
-        plan.matched_components += 1
-    plan.node_keys = [_node_key_label(label, sheet)
-                      for (_cluster, sheet), label in node_keys.items()]
-    # ONE resolver for the whole run — its per-run candidate cache keeps the
-    # anchor check (Т2) from re-sweeping the board for every unit.
-    resolver = RoleResolver(adapter, _sn)
+    classification = _classify_area(
+        adapter, cfg, tree, area_items=area_items,
+        area_footprints=area_footprints, sheet_names=_sn)
+    plan.warnings.extend(classification.warnings)
+    plan.discarded = classification.discarded
+    plan.matched_components = classification.matched_components
+    plan.unmatched_components = classification.unmatched_components
+    plan.node_keys = classification.node_keys
+    components = classification.components
+    resolver = classification.resolver
 
     identities = tree_net_trace_identities(tree)
     tree_records = [nt for nt in cfg.net_traces
@@ -582,10 +670,6 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             plan.warnings.append(_(
                 "tree {tree!r}: node {ref!r} references no net_traces: record — "
                 "skipped").format(tree=tree.name, ref=ident))
-
-    units, unit_warnings = find_copper_units(adapter, area_items,
-                                             footprints=area_footprints)
-    plan.warnings.extend(unit_warnings)
 
     # Match keys. A record with a stored signature is matched by it; a legacy
     # one (no signature) only by its net. Both maps are POPPED on use, so one
@@ -602,15 +686,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     taken: set[int] = set()
     existing_names = [net_trace_effective_name(nt) for nt in cfg.net_traces]
 
-    for unit in units:
-        verdict = classify_unit(unit, node_key_by_ref,
-                                module_owner_by_ref=node_owner_by_ref)
-        if verdict is not CopperVerdict.INTERNODE:
-            # Э4: the copper the classification did NOT take is COUNTED, not
-            # silently dropped — the report names it by verdict (the live
-            # complaint was an empty report while 766 units existed).
-            plan.discarded[verdict.value] = plan.discarded.get(verdict.value, 0) + 1
-            continue
+    for unit in classification.units:
         signature = frozenset(_pad_label(p, components) for p in unit.pads)
         old = by_signature.pop(signature, None)
         if old is None:
@@ -620,8 +696,8 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         # re-read and the "Extract tree" dialog must produce the SAME copper.
         record, warning = capture_unit(
             adapter, unit, components=components,
-            node_by_ref=node_name_label_by_ref,
-            node_sheet_by_ref=anchor_sheet_by_ref,
+            node_by_ref=classification.node_name_label_by_ref,
+            node_sheet_by_ref=classification.anchor_sheet_by_ref,
             sheet_names=_sn, existing=old, existing_names=existing_names,
             resolver=resolver)
         if warning:

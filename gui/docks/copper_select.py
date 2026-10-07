@@ -49,6 +49,22 @@ def _readonly_registries(adapter, config_path):
             TrackRegistry(adapter, trk_path))
 
 
+def record_live_items(adapter, record, *, via_registry, track_registry,
+                      sheet_names=None):
+    """The live board copper of ONE `net_traces:` record — the ONE seam every
+    "select this record's copper" action goes through: the node's context-menu
+    action ("Select copper on board") AND the tree action ("Select recorded
+    inter-node copper", Т5-2 of plan_2026_10_05_tree_reread_modules). It is
+    `net_trace_planner.find_live_copper`, the SAME routine `apply` adopts copper
+    through, so nobody can point "select" at different copper than apply manages.
+    READ-ONLY: it writes nothing anywhere."""
+    from kicadstamp.net_trace_planner import find_live_copper
+
+    return find_live_copper(adapter, record, via_registry=via_registry,
+                            track_registry=track_registry,
+                            sheet_names=dict(sheet_names or {}))
+
+
 def resolve_record(cfg, *, identity=None, net=None):
     """(NetTrace | None, error | None) — ONE `net_traces:` record for the action.
 
@@ -109,7 +125,6 @@ def run_select_record_copper_worker(payload: dict) -> dict:
     Role/Cluster values, exactly like the main connection."""
     from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.domain.board import Track, Via
-    from kicadstamp.net_trace_planner import find_live_copper
 
     adapter = None
     try:
@@ -118,10 +133,10 @@ def run_select_record_copper_worker(payload: dict) -> dict:
         adapter.refresh_board()
         via_registry, track_registry = _readonly_registries(
             adapter, payload["config_path"])
-        result = find_live_copper(adapter, payload["record"],
-                                  via_registry=via_registry,
-                                  track_registry=track_registry,
-                                  sheet_names=payload.get("sheet_names") or {})
+        result = record_live_items(adapter, payload["record"],
+                                   via_registry=via_registry,
+                                   track_registry=track_registry,
+                                   sheet_names=payload.get("sheet_names") or {})
         # Read the CURRENT selection before replacing it (select_items clears it).
         try:
             previous = len(adapter.get_selected_items() or [])

@@ -1376,7 +1376,7 @@ Extraction is a CLI command, not the mouse-selection `extract`:
 * **Tools → Trees → Extract tree…** offers the selected copper BETWEEN PADS
   (the dialog's third tab lists one row per unit, labelled with the net and the
   nodes it connects) and captures the checked ones on OK;
-* **Tools → Trees → Reread inter-node copper** re-reads them at any later time
+* **Tools → Trees → Copper → Reread inter-node copper** re-reads them at any later time
   from the live board. It ADDS new units and refreshes the geometry of the ones
   it finds (matched by `pads`); it NEVER deletes — a record whose copper is no
   longer on the board is reported in the Log and marked "no copper" in the tree,

@@ -29,6 +29,11 @@ the plan's own mutation list.
   * M13 A6 fallback from pads[0]                 -> mid-via cell red (Т4-2)
   * M14 T4-3 module label without the sheet      -> three-channels cell red (Т4-3)
   * M15 T4-4 cache only the candidates           -> cascade-once cell red (Т4-4)
+  * M16 T5-1 selection takes CLUSTER too         -> select-exactly-bridge red (Т5-1)
+  * M17 T5-1 node key = label (channels merge)   -> another-instance cell red (Т5-1)
+  * M18 T5-2 B2 skips the second record          -> missing-record cell red (Т5-2)
+  * M19 T5-1 B1's classifier diverges from read  -> invariant cell red (Т5-1)
+  * M20 T5-1 worker without a finally: close()   -> close-both-paths cell red (Т5-1)
   * K1  a cosmetic comment                       -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -54,11 +59,13 @@ def _interpreter() -> str:
 PY_BIN = _interpreter()
 
 GUARDS = ["test_internode_capture_modules.py",
-          "test_internode_capture.py"]
+          "test_internode_capture.py",
+          "test_select_internode_copper.py"]
 
 NODES = "kicadstamp/internode_nodes.py"
 CAPTURE = "kicadstamp/internode_capture.py"
 COPPER = "kicadstamp/internode_copper.py"
+SELECT = "gui/select_internode_copper.py"
 
 MUTATIONS = [
     ("M1 module walk disabled", NODES,
@@ -66,8 +73,8 @@ MUTATIONS = [
      '            if False:  # MUTATION',
      "die", GUARDS, ()),
     ("M2 node identity = label", CAPTURE,
-     "        node_key_by_ref[comp.ref] = key",
-     "        node_key_by_ref[comp.ref] = label  # MUTATION",
+     "        out.node_key_by_ref[comp.ref] = key",
+     "        out.node_key_by_ref[comp.ref] = label  # MUTATION",
      "die", GUARDS, ()),
     ("M3 anchor = always pads[0]", NODES,
      "    failed: list[str] = []\n    for pad in unit.pads:",
@@ -135,6 +142,41 @@ MUTATIONS = [
     ("M15 T4-4 cache only the candidates", NODES,
      "        cached = self._narrow_cache.get(key)",
      "        cached = None  # MUTATION",
+     "die", GUARDS, ()),
+    # ── Т5 (2026-10-07) ────────────────────────────────────────────────────
+    ("M16 T5-1 selection takes CLUSTER too", CAPTURE,
+     "        if verdict is not CopperVerdict.INTERNODE:",
+     "        if False:  # MUTATION",
+     "die", GUARDS, ()),
+    ("M17 T5-1 node key = label (channels merge)", NODES,
+     '                    key = (getattr(entity, "cluster", None),\n'
+     '                           getattr(entity, "sheet", None))',
+     '                    key = (getattr(entity, "cluster", None), None)  # MUTATION',
+     "die", GUARDS, ()),
+    ("M18 T5-2 B2 skips the second record", SELECT,
+     "        for nt in records:",
+     "        for nt in records[:1]:  # MUTATION",
+     "die", GUARDS, ()),
+    ("M19 T5-1 B1 classifier diverges from read", CAPTURE,
+     "    return classification.units, classification.discarded, \\\n"
+     "        classification.warnings",
+     "    return ([u for u in classification.units if len(u.pads) >= 3],  # MUTATION\n"
+     "            classification.discarded,\n"
+     "            classification.warnings)",
+     "die", GUARDS, ()),
+    ("M20 T5-1 worker without finally close", SELECT,
+     '            "node_keys": ([] if units\n'
+     '                          else _node_key_labels(payload["tree"], payload["cfg"])),\n'
+     "        }\n"
+     "    finally:\n"
+     "        if adapter is not None:\n"
+     "            adapter.close()",
+     '            "node_keys": ([] if units\n'
+     '                          else _node_key_labels(payload["tree"], payload["cfg"])),\n'
+     "        }\n"
+     "    finally:\n"
+     "        if adapter is not None:\n"
+     "            pass  # MUTATION",
      "die", GUARDS, ()),
     ("K1 cosmetic comment (control)", COPPER,
      '    MODULE = "module"',
