@@ -1571,8 +1571,11 @@ def test_cell_click_reloads_the_anchor_page_when_active(real_main_window,
     Placer page."""
     hub = real_main_window._dock_hub
     calls = []
+    # load_entry grew a read_only flag (3б of plan_2026_10_05_entities_under_cells):
+    # the spy accepts it, the guarded property (this cell reloads here) is unchanged.
     monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
-                        lambda name, file_path: calls.append((name, file_path)))
+                        lambda name, file_path, read_only=False:
+                        calls.append((name, file_path)))
     hub.cell_anchor_view._cell_name = "pif_3v3_vdd"
     hub.config_tree_dock.show_page(hub._cell_anchor_page)
 
