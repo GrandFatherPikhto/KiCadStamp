@@ -513,13 +513,24 @@ in **chain mode**. The context menu adds chains-specific actions: on a chain nod
 **Redraw chain** / **Bulk set Cell for net...**, on a pad leaf **Redraw spoke** / **Delete pad...**,
 on an anchor node **Redraw chains...** (redraws all chains under that anchor).
 
-Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows **Entities** and
-**Trees** categories. Since 2026-09-05 a single click on an **Entities** leaf opens the Config
-right-QView **Entity page** (the record's "Справка": Name/Cell/Sheet/Cluster read-only, Comment
-editable, plus a clickable placements list that jumps to the entity's tree in TreesDock); a
-**double click** on an Entities leaf opens the non-modal "Edit template" dialog with that Entity
-loaded (its electrical fields, see the [Tools](#tools) section); the **Trees** category is
-navigation-only — editing lives in the Trees dock.
+Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows a **Trees** category
+(navigation-only — editing lives in the Trees dock). Since 2026-10-08 (plan
+`plan_2026_10_05_entities_under_cells`) an Entity is **no longer a leaf of a top-level Entities
+category**: it is shown as a **child of the cell (`cell_uuid`) or imprint (`imprint_uuid`) it
+references**, after that cell's nested placements, sorted by name. The link is matched by UUID,
+never by the name in `cell:`/`imprint:`, so a renamed cell keeps its entities. A single click on
+such a leaf opens the Config right-QView **Entity page** (Name/Cell/Sheet/Cluster read-only,
+Comment editable, plus a clickable placements list that jumps to the entity's tree in TreesDock); a
+**double click** opens the non-modal "Edit template" dialog (its electrical fields, see the
+[Tools](#tools) section).
+
+The file's own **Entities** category survives ONLY for **orphans** — an entity whose target is
+nowhere in the graph (a broken file; nothing explains it better, see the paragraph on a cell
+without an entity below). The orphan leaf carries a hint naming the missing record plus, when one is
+close enough, the loader's own `did you mean ...?` suggestion, and its menu offers exactly two
+items: **Point to cell...** / **Point to imprint...** (which writes `cell`/`cell_uuid` or
+`imprint`/`imprint_uuid` into the entity's OWN file, then the entity moves under the target) and
+**Delete entity**.
 
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
@@ -568,6 +579,14 @@ source counts as the one already there. Deliberately strict — an untagged seco
 told apart from the first afterwards; want a second one, give it a cluster or a sheet. Creating an
 Entity is config-only: no board is read (it works with KiCad closed) and no tree node is placed
 (placing is a tree-only action).
+
+**A cell without any entity is a second kind of orphan (2026-10-08).** When NOTHING places it
+either, it is a **drawing**: shown with a warning mark and, in the context menu, ONLY **Create
+entity** and **Delete...**; a single click opens the cell page **read-only** (fields disabled,
+nothing is staged) with the hint "create an entity to edit this cell". A cell that is placed WITHOUT
+an entity (a chain spoke, a `clone_placements:` record, a nested `CellPlacement`) keeps the today
+behaviour on purpose — it is marked "placed by ..." but stays editable, so live spokes are not
+broken. A cell WITH an entity is unmarked and unchanged.
 
 Clicking a file/category switches the Detail dock to that node's own panel (a Cells leaf → Placer,
 ...; a plain file click no longer jumps to a Project page since 2026-09-01 — the Project tab moved
