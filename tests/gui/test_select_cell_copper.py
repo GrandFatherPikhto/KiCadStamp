@@ -358,7 +358,11 @@ def test_components_worker_selects_components_only(monkeypatch, tmp_path):
 def test_menu_has_three_items_in_order():
     import inspect
     import gui.docks.config_tree as ct
-    src = inspect.getsource(ct)
+    import gui.docks.entity_tree as et
+    # The cells: block lives in the entity-tree mixin since 2026-10-08, the
+    # entities: block still in the giant; together they hold the three items
+    # twice (cells + entities).
+    src = inspect.getsource(ct) + inspect.getsource(et)
     assert src.count("select_cell_components_action") == 2  # cells + entities
     assert src.count('"select_cell_action"') == 2
     assert src.count("select_enclosed_copper_action") == 2

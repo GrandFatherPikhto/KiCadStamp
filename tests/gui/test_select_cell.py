@@ -260,7 +260,10 @@ def test_tree_item_emits_the_signal():
     (the label is translated, so the guard reads the EMIT, not the caption)."""
     import inspect
     import gui.docks.config_tree as ct
-    src = inspect.getsource(ct)
+    import gui.docks.entity_tree as et
+    # The cells: menu block moved to the entity-tree mixin (2026-10-08); the
+    # properties are unchanged, so the guard reads BOTH sources.
+    src = inspect.getsource(ct) + inspect.getsource(et)
     assert "self.cell_select_requested.emit(" in src
     assert "old_name, file_path, None, None))" in src
 

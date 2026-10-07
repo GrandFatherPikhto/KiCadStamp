@@ -16,8 +16,9 @@ WHAT IS BEING PROVEN. The guards are:
   * tests/gui/docks/test_config_tree.py       — the orphan leaf's own file.
 
 Every row maps to a line of the plan's "Строки мутаций" list, plus the file
-block's own row (Denis's fork of п.4: the file block must name the RECORD's
-file, not the visible ancestor's).
+block's own row (Denis's fork of п.4). The tree plumbing lives in
+gui/docks/entity_tree.py (the mixin) since 2026-10-08 — rows M1/M5/M6/M7/M8/M10
+target that module; M9a/M11 stay in the giant.
 
 NOTE on M6: the format-3 writer stamp RESOLVES a new reference by full name, so
 it would fill a forgotten uuid anyway. The guard for "Point writes the uuid"
@@ -33,12 +34,13 @@ TREE = ["test_entities_under_cells.py"]
 TREE_CFG = ["test_entities_under_cells.py", "test_config_tree.py"]
 
 CFG = "gui/docks/config_tree.py"
+ET = "gui/docks/entity_tree.py"
 IDX = "gui/docks/entity_index.py"
 VIEW = "gui/docks/cell_anchor_view.py"
 
 ROWS = [
     # 1 — the entity file is taken from the visible ancestor, not the record (п.4).
-    ("M1 entity file from the ancestor again", CFG,
+    ("M1 entity file from the ancestor again", ET,
      "        own = item.data(0, _ROLE_OWN_FILE)\n"
      "        if own is not None:\n"
      "            return own",
@@ -63,17 +65,17 @@ ROWS = [
      "        elif False:  # MUTATION",
      "die", INDEX + TREE, ()),
     # 5 — an orphan disappears from the tree completely.
-    ("M5 orphan disappears from the tree", CFG,
+    ("M5 orphan disappears from the tree", ET,
      "        orphans = [ref for ref in index.orphans if ref.file_path == node.path]",
      "        orphans = []  # MUTATION",
      "die", TREE_CFG, ()),
     # 6 — "Point to cell…" writes the name but no cell_uuid (format 3 dangling).
-    ("M6 Point writes the name without the uuid", CFG,
+    ("M6 Point writes the name without the uuid", ET,
      "        updated[field + \"_uuid\"] = index.target_uuid(section, chosen)",
      "        updated[field + \"_uuid\"] = None  # MUTATION",
      "die", TREE, ()),
     # 7 — the orphan hint is own code, not the loader's close_name_hint.
-    ("M7 orphan hint is own code", CFG,
+    ("M7 orphan hint is own code", ET,
      "        return _(\"refers to a missing {kind} {name!r} ({uuid})\").format(\n"
      "            kind=kind, name=name, uuid=data.get(field + \"_uuid\")) + \\\n"
      "            close_name_hint(name, index.names_for(section))",
@@ -81,7 +83,7 @@ ROWS = [
      "            kind=kind, name=name, uuid=data.get(field + \"_uuid\"))  # MUTATION",
      "die", TREE, ()),
     # 8 — a cell WITH an entity is marked too (the marker is unconditional).
-    ("M8 cell WITH an entity is marked too", CFG,
+    ("M8 cell WITH an entity is marked too", ET,
      "        if index.has_entity_for_cell(uuid):\n            return",
      "        if False:  # MUTATION\n            return",
      "die", TREE, ()),
@@ -96,7 +98,7 @@ ROWS = [
      "        self._tabs.setEnabled(True)  # MUTATION",
      "die", TREE, ()),
     # 10 — the "Entities" section is shown even with no orphans.
-    ("M10 Entities section shown without orphans", CFG,
+    ("M10 Entities section shown without orphans", ET,
      "        if not orphans:\n            return",
      "        if not orphans:\n            pass  # MUTATION",
      "die", TREE, ()),
