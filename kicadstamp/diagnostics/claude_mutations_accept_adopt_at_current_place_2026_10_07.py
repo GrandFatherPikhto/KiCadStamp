@@ -19,6 +19,8 @@ from kicadstamp.diagnostics import deepseek_mutations_adopt_at_current_place_202
 
 ADOPT = ds.ADOPT
 PIPE = "kicadstamp/apply_pipeline.py"
+PRUNE = "kicadstamp/absent_copper_prune.py"
+CALC = "kicadstamp/placement/services/clone_position_calculator.py"
 G = ds.G
 
 ROWS = [
@@ -39,6 +41,21 @@ ROWS = [
     ("N3 a stale key is never rebound", ADOPT,
      '            if entry is not None and getattr(entry, "uuid", None) in live_uuid[kind]:',
      "            if entry is not None:  # MUTATION",
+     "die", G, ()),
+    # ── 1б (d33d2453): what the Demon's M9-M11 leave unguarded ─────────────
+    ("R1 refs of a role map are ROLES again", PRUNE,
+     "        (own_refs.values() if isinstance(own_refs, Mapping) else own_refs)",
+     "        own_refs  # MUTATION",
+     "die", G, ()),
+    ("R2 role_refs_of ignores the override", CALC,
+     "        if position_override:\n"
+     "            # The planner's own convention (compute_raw_positions)",
+     "        if False:  # MUTATION\n"
+     "            # The planner's own convention (compute_raw_positions)",
+     "die", G, ()),
+    ("R3 an unresolved net_from_role is adopted", ADOPT,
+     "        except ValidationError:\n            return True, None",
+     "        except ValidationError:\n            return False, None  # MUTATION",
      "die", G, ()),
     ("K2 cosmetic comment (control)", ADOPT,
      "    key_to_item: dict = {}          # (kind, key) -> live_item\n",
