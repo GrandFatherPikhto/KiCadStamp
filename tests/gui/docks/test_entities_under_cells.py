@@ -25,6 +25,7 @@ import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import (ConfigTreeDock, _CELL_PLACED, _CELL_UNUSED,
                                    _ROLE_CELL_MARK, _ROLE_OWN_FILE)
 from kicadstamp.config.sexp_format import sexp_to_dict
+from kicadstamp.config_working_set import format3_stamp_disabled
 
 from tests.gui.create_entity_helpers import (category, context_menu_actions,
                                              file_item, find_child,
@@ -346,18 +347,19 @@ def test_point_to_cell_writes_name_and_uuid_into_the_entitys_own_file(
     """3а (мутация 6): «Point to cell…» пишет cell И cell_uuid в СВОЙ файл B
     (uuid — из СЫРОГО индекса, не из load_config), файл A цел; после refresh()
     сущность уходит под найденную ячейку."""
-    from kicadstamp import config_working_set
-
     dock, root, sub, leaf = _orphan_dock(main_window, tmp_path)
     before_a = root.read_bytes()
-    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
     monkeypatch.setattr(
         config_tree_mod.QInputDialog, "getItem",
         staticmethod(lambda *a, **k: ("good", True)))
 
     actions = context_menu_actions(dock, leaf, monkeypatch)
     point = next(act for label, act in actions if label.startswith("Point to cell"))
-    point.trigger()
+    # The writer's format-3 stamp RESOLVES a new reference by name, so it would
+    # fill the uuid even if the tree forgot it. Disable the stamp here, so this
+    # guard pins the uuid the TREE writes (mutation "writes the name only").
+    with format3_stamp_disabled():
+        point.trigger()
 
     entity = _read(sub)["entities"][0]
     assert entity["cell"] == "good"
