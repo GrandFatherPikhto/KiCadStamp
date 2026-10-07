@@ -89,8 +89,11 @@ __all__ = [
 
 # The order the report lists copper the classification did NOT take in: the
 # design's own table order (Р1), minus INTERNODE — that is what a re-read takes.
-_DISCARD_ORDER = (CopperVerdict.FOREIGN, CopperVerdict.CLUSTER,
-                  CopperVerdict.UNMOORED, CopperVerdict.STUB)
+# MODULE rides between FOREIGN and CLUSTER: it is copper INSIDE a module, which
+# that module's own tree re-reads, so the parent names it and leaves it (Т4-1).
+_DISCARD_ORDER = (CopperVerdict.FOREIGN, CopperVerdict.MODULE,
+                  CopperVerdict.CLUSTER, CopperVerdict.UNMOORED,
+                  CopperVerdict.STUB)
 
 
 # ── result shapes ──────────────────────────────────────────────────────────
@@ -535,6 +538,11 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     # LABEL keeps naming the record and the report.
     node_key_by_ref: dict[str, tuple[str | None, str | None]] = {}
     node_label_by_ref: dict[str, str] = {}
+    # Т4-1: the owner of each matched node (the topmost module it came through,
+    # else None) is what lets classify_unit leave a module's OWN copper to that
+    # module's tree; Т4-3: the name label of a module node is `<cluster>/<sheet>`.
+    node_owner_by_ref: dict[str, Any] = {}
+    node_name_label_by_ref: dict[str, str] = {}
     anchor_sheet_by_ref: dict[str, str | None] = {}
     for comp in components.values():
         match, conflicts = _match_node(comp, node_keys)
@@ -552,8 +560,11 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
                 plan.unmatched_components += 1
             continue
         label, sheet = match
-        node_key_by_ref[comp.ref] = (comp.cluster, sheet)
+        key = (comp.cluster, sheet)
+        node_key_by_ref[comp.ref] = key
         node_label_by_ref[comp.ref] = label
+        node_name_label_by_ref[comp.ref] = node_keys.name_label(key) or label
+        node_owner_by_ref[comp.ref] = node_keys.owners.get(key)
         anchor_sheet_by_ref[comp.ref] = sheet
         plan.matched_components += 1
     plan.node_keys = [_node_key_label(label, sheet)
@@ -592,7 +603,8 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     existing_names = [net_trace_effective_name(nt) for nt in cfg.net_traces]
 
     for unit in units:
-        verdict = classify_unit(unit, node_key_by_ref)
+        verdict = classify_unit(unit, node_key_by_ref,
+                                module_owner_by_ref=node_owner_by_ref)
         if verdict is not CopperVerdict.INTERNODE:
             # Э4: the copper the classification did NOT take is COUNTED, not
             # silently dropped — the report names it by verdict (the live
@@ -607,7 +619,8 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         # ONE builder, shared with the dialog's capture (capture_unit) — the
         # re-read and the "Extract tree" dialog must produce the SAME copper.
         record, warning = capture_unit(
-            adapter, unit, components=components, node_by_ref=node_label_by_ref,
+            adapter, unit, components=components,
+            node_by_ref=node_name_label_by_ref,
             node_sheet_by_ref=anchor_sheet_by_ref,
             sheet_names=_sn, existing=old, existing_names=existing_names,
             resolver=resolver)

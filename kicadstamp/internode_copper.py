@@ -41,6 +41,9 @@ Classification (design §4 / plan Р1 — a STRICT RULE, not a threshold):
         -> INTERNODE — take it;
     all pads belong to ONE node
         -> CLUSTER — this is the cell's own copper, never take it;
+    every node belongs to the SAME embedded module (an owner is supplied)
+        -> MODULE — the copper inside one module, the MODULE tree's own, never
+           the parent's (Т4-1 of plan_2026_10_05_tree_reread_modules);
     a pad outside the tree
         -> FOREIGN — someone else's connection, never take it;
     no pads at all (a chain of stitching vias)
@@ -82,6 +85,7 @@ class CopperVerdict(str, Enum):
 
     INTERNODE = "internode"
     CLUSTER = "cluster"
+    MODULE = "module"
     FOREIGN = "foreign"
     UNMOORED = "unmoored"
     STUB = "stub"
@@ -361,6 +365,17 @@ def _trace_name_token(value: str) -> str:
     return token.lower() or "unnamed"
 
 
+def _trace_node_token(value: str) -> str:
+    """One TREE-NODE component of a generated trace name: the WHOLE label,
+    lowercased, with unsafe runs collapsed into a single underscore. Unlike the
+    net's token this does NOT take the path leaf — a node that came through a
+    module is labelled `<cluster>/<sheet>` and must keep BOTH halves, so three
+    channels sharing the tag `DAC_BUF` give `dac_buf_channel_0/1/2` instead of
+    three names differing only by an order-dependent `_2`/`_3` suffix (Т4-3 of
+    plan_2026_10_05_tree_reread_modules)."""
+    return _TRACE_NAME_UNSAFE.sub("_", value).strip("_").lower() or "unnamed"
+
+
 def generate_trace_name(net: str, node_labels: Iterable[str],
                         existing_names: Iterable[str] = ()) -> str:
     """The name of a captured inter-node copper record — `<net>__<node A>__
@@ -377,7 +392,7 @@ def generate_trace_name(net: str, node_labels: Iterable[str],
     re-read refreshes the geometry of an existing record and never renames it,
     or every tree node referencing the record would break on each read."""
     tokens = [_trace_name_token(net)]
-    tokens += sorted({_trace_name_token(label) for label in node_labels})
+    tokens += sorted({_trace_node_token(label) for label in node_labels})
     base = "__".join(tokens)
     taken = set(existing_names)
     if base not in taken:
@@ -388,12 +403,22 @@ def generate_trace_name(net: str, node_labels: Iterable[str],
     return f"{base}_{suffix}"
 
 
-def classify_unit(unit: CopperUnit, node_by_ref: Mapping[str, Any]) -> CopperVerdict:
+def classify_unit(unit: CopperUnit, node_by_ref: Mapping[str, Any], *,
+                  module_owner_by_ref: Mapping[str, Any] | None = None
+                  ) -> CopperVerdict:
     """Classify one unit against the tree's nodes.
 
     `node_by_ref` maps a component ref to the tree NODE it belongs to (any
     hashable node identity — the caller's tree-node key). A ref absent from the
     mapping is a component outside this tree.
+
+    `module_owner_by_ref` (optional, Т4-1) maps a component ref to the TOPMOST
+    `kind "module"` node through which its tree node came, or None/absent for the
+    tree's OWN node (`internode_nodes.TreeNodes.owners`). When EVERY pad's node is
+    owned by the SAME module, the unit is that MODULE's own inter-node copper —
+    the module tree stores and re-reads it itself — so it is MODULE here and the
+    parent leaves it alone. Without the map (the extract-dialog callers) the
+    verdict is never MODULE: they have no module content to speak of.
 
     The order matters and encodes the design table (§4 / Р1): a foreign pad
     outranks everything (the unit is somebody else's connection), then "no pad
@@ -405,6 +430,16 @@ def classify_unit(unit: CopperUnit, node_by_ref: Mapping[str, Any]) -> CopperVer
         return CopperVerdict.FOREIGN
     nodes = {node_by_ref[pad.ref] for pad in unit.pads}
     if len(nodes) >= 2:
+        if module_owner_by_ref is not None:
+            # The owner value is the topmost module NODE — an unhashable
+            # dataclass — so identity is compared by `id()`: every pad owned by
+            # the SAME module object (and none owned by the tree itself) means
+            # the copper is that MODULE's own (Т4-1).
+            owner_ids = {id(module_owner_by_ref.get(pad.ref))
+                         for pad in unit.pads}
+            if (len(owner_ids) == 1
+                    and module_owner_by_ref.get(unit.pads[0].ref) is not None):
+                return CopperVerdict.MODULE
         return CopperVerdict.INTERNODE
     if len(unit.pads) == 1:
         # One pad, dead end — a stub of the cluster's own copper, not a link.

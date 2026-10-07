@@ -1,7 +1,8 @@
 # kicadstamp/diagnostics/deepseek_mutations_tree_reread_modules_2026_10_05.py
 """Acceptance mutations for plan_2026_10_05_tree_reread_modules.md (the
-inter-node copper re-read sees `kind "module"` nodes, and a NEW record is
-anchored on the side it redraws from), DeepSeek, 2026-10-05.
+inter-node copper re-read sees `kind "module"` nodes, a NEW record is anchored on
+the side it redraws from, and the copper INSIDE one module is that module's, not
+the parent's), DeepSeek, 2026-10-05; extended for Т4 on 2026-10-07.
 
 Grown from deepseek_mutations_refresh_mixed_2026_10_05.py (rule 38): the same
 machinery — basename-resolved T under tests/, `_drop_pyc` for the mutated file,
@@ -9,9 +10,9 @@ the `original.count(old) != 1` refusal, a verdict of "ПРОМАХ" when nothing
 came back, a refused filter that matches no row, and a control that MUST survive.
 
 WHAT IS BEING PROVEN. The guards are tests/net/test_internode_capture_modules.py
-(Т3 cells 1-7) and tests/net/test_internode_capture.py (the no-module
-regression + the Т2 addendum cells). Every row maps to a line of the plan's own
-mutation list.
+(Т3 cells 1-7 + the Т4-1/Т4-2/Т4-3/Т4-4 cells) and tests/net/test_internode_capture.py
+(the no-module regression + the Т2 addendum cells). Every row maps to a line of
+the plan's own mutation list.
 
   * M1  module walk disabled                     -> cells 1-2 red
   * M2  node identity = label, not (cluster,sheet)-> cell 2 red
@@ -21,6 +22,13 @@ mutation list.
   * M6  unsuitable piece raises instead of skip  -> cell 5 red
   * M7  role checked only on pads[0]             -> role-less-not-first red
   * M8  unknown-node pad BLOCKS the unit         -> cell (а) red
+  * M9  module copper taken by the parent        -> module cell red (Т4-1)
+  * M10 two different modules -> module          -> between-modules cell red (Т4-1)
+  * M11 A2 narrowed-to-one is enough             -> chain-between-channels red (Т4-2)
+  * M12 A4 module's own children not walked      -> own-child cell red (Т4-2)
+  * M13 A6 fallback from pads[0]                 -> mid-via cell red (Т4-2)
+  * M14 T4-3 module label without the sheet      -> three-channels cell red (Т4-3)
+  * M15 T4-4 cache only the candidates           -> cascade-once cell red (Т4-4)
   * K1  a cosmetic comment                       -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -50,6 +58,7 @@ GUARDS = ["test_internode_capture_modules.py",
 
 NODES = "kicadstamp/internode_nodes.py"
 CAPTURE = "kicadstamp/internode_capture.py"
+COPPER = "kicadstamp/internode_copper.py"
 
 MUTATIONS = [
     ("M1 module walk disabled", NODES,
@@ -57,7 +66,7 @@ MUTATIONS = [
      '            if False:  # MUTATION',
      "die", GUARDS, ()),
     ("M2 node identity = label", CAPTURE,
-     "        node_key_by_ref[comp.ref] = (comp.cluster, sheet)",
+     "        node_key_by_ref[comp.ref] = key",
      "        node_key_by_ref[comp.ref] = label  # MUTATION",
      "die", GUARDS, ()),
     ("M3 anchor = always pads[0]", NODES,
@@ -92,9 +101,44 @@ MUTATIONS = [
      "    if not any(p.ref in node_sheet_by_ref for p in unit.pads):",
      "    if not all(p.ref in node_sheet_by_ref for p in unit.pads):  # MUTATION",
      "die", GUARDS, ()),
-    ("K1 cosmetic comment (control)", NODES,
-     "    keys: dict[tuple[str | None, str | None], str] = {}",
-     "    keys: dict[tuple[str | None, str | None], str] = {}  # control",
+    # ── Т4 (2026-10-07) ────────────────────────────────────────────────────
+    ("M9 module copper taken by the parent", COPPER,
+     "        if module_owner_by_ref is not None:",
+     "        if False:  # MUTATION",
+     "die", GUARDS, ()),
+    ("M10 two different modules -> module", COPPER,
+     "            if (len(owner_ids) == 1\n"
+     "                    and module_owner_by_ref.get(unit.pads[0].ref) is not None):",
+     "            if module_owner_by_ref.get(unit.pads[0].ref) is not None:  # MUTATION",
+     "die", GUARDS, ()),
+    ("M11 A2 narrowed-to-one is enough", NODES,
+     "        return len(narrowed) == 1 and narrowed[0].ref == expected_ref",
+     "        return len(narrowed) == 1  # MUTATION",
+     "die", GUARDS, ()),
+    ("M12 A4 module own children not walked", NODES,
+     "                # A module node's OWN children are ordinary nodes of THIS tree.\n"
+     "                walk(node.children, owner)\n"
+     "                continue",
+     "                continue  # MUTATION",
+     "die", GUARDS, ()),
+    ("M13 A6 fallback from pads[0]", CAPTURE,
+     "    tracks, vias = _items_from_unit(adapter, unit, components, point, "
+     "anchor_pad,",
+     "    anchor_pad = unit.pads[0]  # MUTATION\n"
+     "    tracks, vias = _items_from_unit(adapter, unit, components, point, "
+     "anchor_pad,",
+     "die", GUARDS, ()),
+    ("M14 T4-3 module label without the sheet", NODES,
+     '        return f"{cluster}/{sheet}" if sheet else label',
+     "        return label  # MUTATION",
+     "die", GUARDS, ()),
+    ("M15 T4-4 cache only the candidates", NODES,
+     "        cached = self._narrow_cache.get(key)",
+     "        cached = None  # MUTATION",
+     "die", GUARDS, ()),
+    ("K1 cosmetic comment (control)", COPPER,
+     '    MODULE = "module"',
+     '    MODULE = "module"  # control',
      "survive", GUARDS, ()),
 ]
 

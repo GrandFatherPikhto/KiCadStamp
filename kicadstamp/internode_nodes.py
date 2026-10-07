@@ -26,6 +26,7 @@ a selection, then refuses.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping as _Mapping
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -45,6 +46,7 @@ from .trees import Tree, _find_tree
 __all__ = [
     "AnchorSkip",
     "RoleResolver",
+    "TreeNodes",
     "choose_anchor_pad",
     "tree_node_keys",
 ]
@@ -52,49 +54,114 @@ __all__ = [
 
 # ── Т1: the tree's nodes, module content included ──────────────────────────
 
-def tree_node_keys(tree: Tree, cfg) -> dict[tuple[str | None, str | None], str]:
-    """{(cluster, sheet): node label} for the tree's placement nodes — the
-    components the tree owns, i.e. the "nodes" of the design's classification
-    table — INCLUDING the nodes of every tree embedded through a `kind "module"`
-    node, recursively (Т1 of plan_2026_10_05_tree_reread_modules).
+class TreeNodes(_Mapping):
+    """The tree's placement nodes AND their OWNER (Т1/Т4-1 of
+    plan_2026_10_05_tree_reread_modules).
+
+    It keeps the `{(cluster, sheet): label}` mapping `tree_node_keys` always
+    returned — the report, `internode_capture._match_node` and the probes read it
+    UNCHANGED, so a module's own copper can be told apart from a label without a
+    second look — and adds `owners`: the same key -> the OWNER of that node.
+
+    An owner is `None` for a node that is the tree's OWN (a top-level node, or a
+    `kind "module"` node's own children, which are ordinary nodes of THIS tree),
+    and the TOPMOST `kind "module"` node through which the node came for a node
+    of an EMBEDDED tree (a module nested deeper maps to its topmost module, never
+    to itself). That is exactly what lets a piece of copper whose every node
+    belongs to ONE module be called `module` — the tree of that module, not the
+    parent's, owns it (Т4-1)."""
+
+    def __init__(self, labels: dict[tuple[str | None, str | None], str],
+                 owners: dict[tuple[str | None, str | None], Any]) -> None:
+        self.labels = labels
+        self.owners = owners
+
+    def __getitem__(self, key):
+        return self.labels[key]
+
+    def __iter__(self):
+        return iter(self.labels)
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __eq__(self, other):
+        # Equal to the plain `{(cluster, sheet): label}` dict it replaces, so a
+        # caller that only ever wanted the keys never sees the owners (rule 33 —
+        # the walk tests keep asserting membership and `== {}` unchanged).
+        if isinstance(other, TreeNodes):
+            return self.labels == other.labels and self.owners == other.owners
+        return self.labels == other
+
+    def __repr__(self) -> str:
+        return repr(self.labels)
+
+    def name_label(self, key: tuple[str | None, str | None]) -> str | None:
+        """The label a NEW record's NAME uses for `key` (Т4-3): the Cluster
+        alone for the tree's OWN node (names of existing records never change),
+        `<cluster>/<sheet>` for a node that came through a module. Three channels
+        sharing the tag `DAC_BUF` must yield three DISTINCT names
+        (`pa_en__dac_buf_channel_0__fpga`, `..._channel_1_...`), not `_2`/`_3`
+        suffixes that say nothing about the channel."""
+        label = self.labels.get(key)
+        if label is None:
+            return None
+        if self.owners.get(key) is None:
+            return label
+        cluster, sheet = key
+        return f"{cluster}/{sheet}" if sheet else label
+
+
+def tree_node_keys(tree: Tree, cfg) -> TreeNodes:
+    """`TreeNodes` for the tree's placement nodes — the components the tree
+    owns, i.e. the "nodes" of the design's classification table — INCLUDING the
+    nodes of every tree embedded through a `kind "module"` node, recursively
+    (Т1 of plan_2026_10_05_tree_reread_modules).
 
     The walk is the same one `trees.find_role_placement_matches` performs: a
     module node's OWN `children` are ordinary nodes of THIS tree (walked in
-    place), and the embedded tree is resolved by `_find_tree(cfg, node.ref)`.
-    A missing tree is SKIPPED; a cycle (A -> B -> A) is broken by a set of
-    already walked tree names, so `tree_node_keys` terminates on any input.
+    place, and they belong to THIS tree, not to the module), and the embedded
+    tree is resolved by `_find_tree(cfg, node.ref)`. A missing tree is SKIPPED;
+    a cycle (A -> B -> A) is broken by a set of already walked tree names, so
+    `tree_node_keys` terminates on any input. A node reached THROUGH a module
+    carries that TOPMOST module as its owner, so "the copper inside one module"
+    is distinguishable from "the copper between two of them" (Т4-1).
 
     The KEY is `(cluster, sheet)`, not the label: three channels carry the SAME
     Cluster tag (`DAC_BUF`) on different sheets, and a piece of copper between
     two of them must classify as INTERNODE (two nodes), never as one cluster's
     own copper. The label (Cluster, falling back to the Entity name) stays what
-    the record name and the report use."""
+    the report uses; `name_label` gives the record-name label."""
     entities = {e.name: e for e in (getattr(cfg, "entities", []) or [])}
-    keys: dict[tuple[str | None, str | None], str] = {}
+    labels: dict[tuple[str | None, str | None], str] = {}
+    owners: dict[tuple[str | None, str | None], Any] = {}
     seen: set[str] = {tree.name}
 
-    def walk(nodes) -> None:
+    def walk(nodes, owner) -> None:
         for node in nodes:
             if node.kind == "module":
                 nested = _find_tree(cfg, node.ref)
                 if nested is not None and nested.name not in seen:
                     seen.add(nested.name)
-                    walk(nested.nodes)
+                    # The FIRST module entered owns everything reached through
+                    # it; a module nested deeper keeps that topmost owner.
+                    walk(nested.nodes, owner if owner is not None else node)
                 # A module node's OWN children are ordinary nodes of THIS tree.
-                walk(node.children)
+                walk(node.children, owner)
                 continue
             if node.kind in (None, "placement"):
                 entity = entities.get(node.ref)
                 if entity is not None:
+                    key = (getattr(entity, "cluster", None),
+                           getattr(entity, "sheet", None))
                     label = getattr(entity, "cluster", None) or getattr(
                         entity, "name", None) or node.ref
-                    keys.setdefault(
-                        (getattr(entity, "cluster", None),
-                         getattr(entity, "sheet", None)), label)
-            walk(node.children)
+                    labels.setdefault(key, label)
+                    owners.setdefault(key, owner)
+            walk(node.children, owner)
 
-    walk(tree.nodes)
-    return keys
+    walk(tree.nodes, None)
+    return TreeNodes(labels, owners)
 
 
 # ── Т2: the anchor a NEW record redraws from ───────────────────────────────
@@ -115,6 +182,13 @@ class RoleResolver:
         self._sheet_names = dict(sheet_names or {})
         self._label = label
         self._cache: dict[str, list] = {}
+        # Т4-4: the RESULT of narrowing is cached too, keyed by the whole
+        # question. The anchor check asks the SAME (role, sheet, cluster) once
+        # per pad and once per item of every unit, and every call emits an INFO
+        # `role_narrowing` line — a live `fpga` re-read wrote 532 of them. The
+        # candidate sweep alone is not enough; the cascade must run ONCE.
+        self._narrow_cache: dict[
+            tuple[str, str | None, str | None], list] = {}
 
     def candidates(self, role: str) -> list:
         cached = self._cache.get(role)
@@ -123,16 +197,25 @@ class RoleResolver:
             self._cache[role] = cached
         return cached
 
+    def narrowed(self, role: str, sheet: str | None,
+                 cluster: str | None) -> list:
+        """The candidates of `role` narrowed by `(sheet, cluster)` WITHOUT the
+        selection step — the cascade result, cached per run (Т4-4)."""
+        key = (role, sheet, cluster)
+        cached = self._narrow_cache.get(key)
+        if cached is None:
+            candidates = self.candidates(role)
+            cached = [] if not candidates else _narrow_by_sheet_cluster_selection(
+                list(candidates), self._adapter, set(),
+                sheet, cluster, self._sheet_names, self._label, role)
+            self._narrow_cache[key] = cached
+        return cached
+
     def resolves_to(self, role: str, sheet: str | None, cluster: str | None,
                     expected_ref: str) -> bool:
         """True when `role` narrowed by `(sheet, cluster)`, WITHOUT the
         selection step, leaves exactly the footprint `expected_ref`."""
-        candidates = self.candidates(role)
-        if not candidates:
-            return False
-        narrowed = _narrow_by_sheet_cluster_selection(
-            list(candidates), self._adapter, set(),
-            sheet, cluster, self._sheet_names, self._label, role)
+        narrowed = self.narrowed(role, sheet, cluster)
         return len(narrowed) == 1 and narrowed[0].ref == expected_ref
 
 
@@ -189,9 +272,13 @@ def _reference_resolves(item_pads: tuple[PadRef, ...],
         comp = components.get(pad.ref)
         if comp is not None and comp.role:
             return resolver.resolves_to(comp.role, sheet, cluster, comp.ref)
-    comp = components.get(anchor_pad.ref)
-    if comp is not None and comp.role:
-        return resolver.resolves_to(comp.role, sheet, cluster, comp.ref)
+    # An item that touches no pad of its own (a mid-chain via) falls back to the
+    # ANCHOR pad's role — and that role is EXACTLY the one the caller resolved to
+    # this anchor under this very (sheet, cluster) before offering it as a
+    # candidate, so re-checking it here cannot fail. Kept as an explicit `True`
+    # rather than a second look (A7 of the 05.10 acceptance: the fallback check is
+    # equivalent to True; a "second look" is what mutation A6 replaces, and it is
+    # caught by the anchor being the CHOSEN pad, not `pads[0]`).
     return True
 
 
