@@ -311,21 +311,21 @@ class TestAnchorPointCrossReference:
                            match="not found in points|not in points"):
             load_config(str(config_file))
 
-    def test_unknown_anchor_point_name_suggests_close_match(
-            self, tmp_path, monkeypatch):
-        """The close-match SUGGESTION is a format-2 loader diagnostic; under the
-        format-3 gate the dangling reference is refused earlier, with a different
-        message, so this cell (whose subject IS the suggestion) pins the build to
-        2 — named in the handoff note."""
-        from kicadstamp.config import format_version
-        monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    def test_unknown_anchor_point_name_suggests_close_match(self, tmp_path):
+        """Part 1 of plan_2026_10_05_uuid_tails: under the format-3 gate the typo
+        seeds a `uuid5` that no points: record has, so the DANGLING reference is
+        refused — and the refusal now carries BOTH the name hint the user typed
+        and the close-match suggestion (the same `config.name_hint` rule the
+        format-2 refusal used). No pin to format 2 any more."""
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"fpga_center": {"anchor_role": "FPGA"}},
             cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
             clone_placements=[{"cluster": "cp1", "cell": "one_role",
                                "anchor_point": "fpga_centre"}]))
-        with pytest.raises(ValidationError, match="did you mean 'fpga_center'"):
+        with pytest.raises(ValidationError) as e:
             load_config(str(config_file))
+        assert "did you mean 'fpga_center'" in str(e.value)
+        assert "fpga_centre" in str(e.value)
 
 
 def test_duplicate_point_key_across_includes_is_fatal(tmp_path):

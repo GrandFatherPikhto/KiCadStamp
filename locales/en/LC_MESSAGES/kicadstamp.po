@@ -14493,6 +14493,10 @@ msgstr ""
 msgid " (did you mean {suggestion!r}?)"
 msgstr " (did you mean {suggestion!r}?)"
 
+#, python-brace-format
+msgid " (name hint: {hint!r})"
+msgstr ""
+
 #: kicadstamp/config/loader.py:525
 #, python-brace-format
 msgid "{owner}: anchor_point {name!r} not found in points:{hint}"

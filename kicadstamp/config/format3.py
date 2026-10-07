@@ -23,6 +23,7 @@ from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..utils.file_cache import cached_file_read
 from .includes import _load_config_file, walk_include_tree
+from .name_hint import close_name_hint
 
 logger = logging.getLogger(__name__)
 
@@ -217,14 +218,33 @@ def _f3_record_holder(data: dict, section: str, name, index: int) -> dict | None
 
 def _f3_collect(data: dict, file_path: str, records: list, folders: list,
                 refs: list) -> None:
-    """Append one file's records, folders and refs, each tagged with its file."""
+    """Append one file's records, folders and refs, each tagged with its file.
+
+    A ref carries its NAME HINT (the name recorded beside the uuid) as well as
+    the uuid: the dangling-reference refusal shows that hint to the user (part 1
+    of plan_2026_10_05_uuid_tails) — a bare uuid is a value the user never typed."""
     for section, name, uuid, i in _f3_records(data):
         records.append((section, name, uuid, file_path, i))
     for ref in _f3_refs(data):
-        refs.append((ref.label, ref.target, ref.uuid, file_path))
+        refs.append((ref.label, ref.target, ref.uuid,
+                     ref.holder.get(ref.name_field), file_path))
     for section, table in (data.get("folders") or {}).items():
         for path_key, uuid in (table or {}).items():
             folders.append((section, path_key, uuid, file_path))
+
+
+def _reference_refusal_detail(hint, known_names) -> str:
+    """The detail appended to a dangling-reference refusal: the reference's own
+    NAME HINT, plus a close-match suggestion among the target section's records.
+
+    Both halves come from the ONE shared rule (`config.name_hint.close_name_hint`,
+    the same function the format-2 refusal asks) — this is the format-3 half of
+    that rule, not a second copy of it. A reference with no name hint (a bare
+    uuid) yields "" — the unchanged refusal (plan_2026_10_05_uuid_tails п.1/п.3)."""
+    if not hint:
+        return ""
+    return (_(" (name hint: {hint!r})").format(hint=hint)
+            + close_name_hint(hint, known_names))
 
 
 def _check_format3_graph(root_path: str) -> dict:
@@ -321,9 +341,12 @@ def _check_format3_graph(root_path: str) -> dict:
 
     # dangling references — place is the REFERENCING record's file (Н7)
     uuids_by_section: dict = {}
+    names_by_section: dict = {}
     for section, name, uuid, f, i in records:
         uuids_by_section.setdefault(section, set()).add(uuid)
-    for label, target, uuid, f in refs:
+        if name is not None:
+            names_by_section.setdefault(section, set()).add(name)
+    for label, target, uuid, hint, f in refs:
         # У2.2: after У2 a missing UUID would mean resolving by the (possibly
         # lying) name hint — forbidden by §0. The converter (У3) puts a UUID in
         # every reference, so a format-3 reference without one is a fatal.
@@ -334,9 +357,13 @@ def _check_format3_graph(root_path: str) -> dict:
                    "UUID (§0); the name is only a hint. Add the sibling UUID or "
                    "lift the file with the converter").format(path=f)]))
         if uuid not in uuids_by_section.get(target, set()):
+            # The base message keeps its msgid; the hint is appended from the ONE
+            # shared rule, so a bare-uuid reference reads exactly as before.
+            message = _("format 3: {label} references uuid {uuid}, which is not in "
+                        "{target}").format(label=label, uuid=uuid, target=target)
+            message += _reference_refusal_detail(hint, names_by_section.get(target, set()))
             raise ValidationError(format_fatal_error(
-                _("format 3: {label} references uuid {uuid}, which is not in "
-                  "{target}").format(label=label, uuid=uuid, target=target),
+                message,
                 [_("in {path}: a reference UUID must name an existing {target} "
                    "record").format(path=f, target=target)]))
 
