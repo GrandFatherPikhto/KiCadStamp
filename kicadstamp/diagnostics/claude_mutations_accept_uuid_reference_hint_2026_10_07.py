@@ -6,7 +6,8 @@ Reuses the machinery of deepseek_mutations_uuid_reference_hint_2026_10_07.py:
 
   * F1 the target section's names are never collected -> no suggestion
   * F2 the suggestion has no cutoff (always suggests something)
-  * F3 the format-2 loader refusal loses its suggestion
+  (F3 "the format-2 loader refusal loses its suggestion" was dropped after
+  4ddc1e0f removed that unreachable branch — its template no longer exists)
   * K2 cosmetic comment -> MUST survive
 
     KICADSTAMP_ACCEPT_ROOT=<tree> .venv/bin/python \
@@ -24,10 +25,6 @@ ROWS = [
     ("F2 suggestion without a cutoff", "kicadstamp/config/name_hint.py",
      "sorted(known_names or ()), n=1)",
      "sorted(known_names or ()), n=1, cutoff=0.0)",
-     "die", G, ()),
-    ("F3 format-2 loader loses the suggestion", "kicadstamp/config/loader.py",
-     "            hint = close_name_hint(anchor_point, points.keys())\n",
-     "            hint = \"\"  # MUTATION\n",
      "die", G, ()),
     ("K2 cosmetic comment (control)", "kicadstamp/config/name_hint.py",
      "__all__ = [\"close_name_hint\"]\n",
