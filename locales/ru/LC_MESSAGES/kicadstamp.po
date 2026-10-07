@@ -11346,6 +11346,18 @@ msgstr "выделено {count} элемент(ов), не являющихся
 msgid "Subtract selected copper failed: {error}"
 msgstr "Не удалось вычесть выделенное: {error}"
 
+#, python-brace-format
+msgid ""
+"the redraw planner produced no copper for record {record} (reason — in the "
+"Log above); matched by the registry only"
+msgstr ""
+"планировщик перерисовки не дал меди для записи {record} (причина — в Логе "
+"выше); сопоставлено только по реестру"
+
+#, python-brace-format
+msgid "{count} record(s) have no registry entry — not checked"
+msgstr "записей без ключа в реестре: {count} — не проверялись"
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"

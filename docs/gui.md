@@ -2447,11 +2447,15 @@ greedy nearest-neighbour pairing Refresh uses for geometry would, which is why s
 (a wrong instance's record would take copper away from a live one) and nothing is deleted. Several
 instances whose recordings all planned, but NONE of which matched, is NOT an error: the check did run and
 the selection is simply not this cell's copper — the ordinary "nothing to subtract" answer with the "not
-records of cell" count. The red "could not match" line is for the case where EVERY dry run planned nothing
-(so nothing was checked at all). A selected
+records of cell" count. The red "could not match" line is for the case where the
+dry run AND the registry both give nothing (so nothing was checked at all).
+An empty dry run — a tree the drift guard refused, an unrealized record — falls
+back to the REGISTRY ALONE: a yellow "matched by the registry only" line names the
+record, and any record the registry has no key for is reported as "N record(s)
+have no registry entry — not checked". The drift guard is never bypassed and
+nothing is written. A selected
 component is ignored, so a selection of only components reports "no copper is selected" and subtracts
-nothing. An empty dry run (the recording is not materialised, the cell is placed by a chain) deletes nothing
-and says so in red — the same fragility Select cell has. Selected items that are not records of this cell
+nothing. Selected items that are not records of this cell
 are counted in one "not records of cell X — ignored" line. Every removed record is named (`- via …` /
 `- track …`) followed by "subtracted N record(s) — Save to write the change": like Refresh the change is
 staged and needs Save, and the registries are only read.

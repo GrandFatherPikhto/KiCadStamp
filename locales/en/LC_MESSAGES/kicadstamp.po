@@ -10713,6 +10713,16 @@ msgstr ""
 msgid "Subtract selected copper failed: {error}"
 msgstr ""
 
+#, python-brace-format
+msgid ""
+"the redraw planner produced no copper for record {record} (reason — in the "
+"Log above); matched by the registry only"
+msgstr ""
+
+#, python-brace-format
+msgid "{count} record(s) have no registry entry — not checked"
+msgstr ""
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"

@@ -369,3 +369,19 @@ def test_select_cell_same_cell_keeps_unsaved_edits(main_window, tmp_path):
     dock.select_cell_requested("dac_buf", None, "DAC_BUF", "Channel_0")
     assert [dict(c) for c in dock._components] == before
     assert Path(dock._path) == inc
+
+
+# ── the ownership filter has ONE home (plan_2026_10_07_refused_tree_matching) ──
+
+def test_select_cell_targets_carries_no_second_filter_copy():
+    """Mutation "`select_cell_targets` grows its own filter loop again" dies
+    here: the ownership loop lives in
+    ``kicadstamp/absent_copper_prune.own_registry_entries``, which the
+    registry-only map of «Subtract selected copper» calls too — «Select cell»'s
+    fallback must NOT carry a second copy of ``is_own_key``."""
+    import inspect
+    from gui.select_cell import select_cell_targets
+
+    src = inspect.getsource(select_cell_targets)
+    assert "own_registry_entries" in src
+    assert "is_own_key(" not in src      # no CALL to the filter — only its name in prose

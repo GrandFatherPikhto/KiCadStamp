@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config.models import (
     clone_placement_effective_name,
@@ -29,7 +28,6 @@ from kicadstamp.registry import (
     PlacementRegistry,
     TrackRegistry,
     load_registry_entries,
-    record_key_part,
     registry_paths_for_config,
 )
 from kicadstamp.registry_match import (
@@ -37,7 +35,6 @@ from kicadstamp.registry_match import (
     match_planned_copper,
 )
 from kicadstamp.selection_narrowing import (
-    cell_record_addresses,
     is_own_key,
     record_address_matches,
 )
@@ -176,30 +173,21 @@ class SelectPlan:
 def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
                         cluster: str, sheet, sheet_names,
                         own_refs=None) -> SelectPlan:
-    """The components + OWN copper of the (cluster, sheet) instance."""
-    board_footprints = adapter.get_footprints()
-    if cluster:
-        footprints = resolve_context_footprints(
-            adapter, board_footprints, cluster, sheet, sheet_names)
-    elif own_refs:
-        # Identified refs (Р7) make the Cluster optional (resolve_action_instance
-        # returns "none"): the components ARE those refs, checked live. Without a
-        # cluster resolve_context_footprints can only return [] — that would hide
-        # the components of a spoke cell the refs already name.
-        footprints = [fp for ref in own_refs.values()
-                      if (fp := adapter.get_footprint(ref)) is not None]
-    else:
-        footprints = []
-    refs = frozenset(
-        own_refs if own_refs is not None
-        else [getattr(f, "ref", None) for f in footprints if getattr(f, "ref", None)])
+    """The components + OWN copper of the (cluster, sheet) instance.
 
-    cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
-    cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
-    cell_identity = record_key_part(cell_name, cell_uuid)
-    own_addresses = cell_record_addresses(cfg, cell_name)
-    chosen_address = (cluster, sheet)
-    _via_e, _trk_e, owner = load_registry_entries(config_path, cfg)
+    The ownership loop lives in the CORE now (plan_2026_10_07_refused_tree_matching):
+    ``absent_copper_prune.own_registry_entries`` runs the ONE ``is_own_key`` filter
+    over the SAME key tail — the registry-only map of «Subtract selected copper»
+    calls it too, so the fallback and this read can never disagree."""
+    from kicadstamp.absent_copper_prune import (
+        own_instance_context,
+        own_registry_entries,
+    )
+
+    footprints, cell_identity, own_addresses, chosen_address, refs = \
+        own_instance_context(adapter, cfg, cell_name, cluster, sheet,
+                             sheet_names=sheet_names, own_refs=own_refs)
+    via_entries, track_entries, _owner = load_registry_entries(config_path, cfg)
 
     # A fake/older adapter may not expose the copper reads; "no copper" is then
     # the honest answer (the components are still selected).
@@ -211,10 +199,10 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
                    for t in (_get_tracks() if _get_tracks else [])}
     copper: list = []
     missing = 0
-    for uuid, key in owner.items():
-        if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
-            continue
-        item = live_vias.get(uuid) or live_tracks.get(uuid)
+    for kind, _role_part, _index, uuid in own_registry_entries(
+            via_entries, track_entries, cell_identity, own_addresses,
+            chosen_address, refs):
+        item = (live_vias if kind == "via" else live_tracks).get(uuid)
         if item is None:
             missing += 1
         else:
@@ -308,24 +296,11 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     geometry. A command found by neither tier is recorded-but-absent ('K').
     Nothing is written anywhere (the registry is read, never saved; the board is
     selected, never edited)."""
-    board_footprints = adapter.get_footprints()
-    if cluster:
-        footprints = resolve_context_footprints(
-            adapter, board_footprints, cluster, sheet, sheet_names)
-    elif own_refs:
-        footprints = [fp for ref in own_refs.values()
-                      if (fp := adapter.get_footprint(ref)) is not None]
-    else:
-        footprints = []
-    refs = frozenset(
-        own_refs if own_refs is not None
-        else [getattr(f, "ref", None) for f in footprints if getattr(f, "ref", None)])
+    from kicadstamp.absent_copper_prune import own_instance_context
 
-    cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
-    cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
-    cell_identity = record_key_part(cell_name, cell_uuid)
-    own_addresses = cell_record_addresses(cfg, cell_name)
-    chosen_address = (cluster, sheet)
+    footprints, cell_identity, own_addresses, chosen_address, refs = \
+        own_instance_context(adapter, cfg, cell_name, cluster, sheet,
+                             sheet_names=sheet_names, own_refs=own_refs)
 
     _get_vias = getattr(adapter, "get_vias", None)
     _get_tracks = getattr(adapter, "get_tracks", None)

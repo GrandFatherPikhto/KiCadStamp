@@ -136,12 +136,70 @@ def test_an_error_is_one_red_line_per_problem(qapp):
         "FATAL: something", "- the first problem", "- the second problem"]
 
 
+def test_a_registry_only_match_adds_one_yellow_line(qapp):
+    """A map that came from the REGISTRY alone (a refused tree) says so in ONE
+    yellow line naming the record — the removed-record lines and the summary
+    follow as usual. The REASON is not repeated: it is already the drift guard's
+    own red Log line."""
+    track = _track("GND", 2.0)
+
+    lines = subtract_report_lines({
+        "cell": "dac_buf", "removed": [("track", track)], "not_ours": 0,
+        "source": "registry", "planned": 1, "record": "dac0"})
+
+    assert lines[0] == (
+        "the redraw planner produced no copper for record dac0 (reason — in the "
+        "Log above); matched by the registry only", "warn")
+    assert lines[1][0].startswith("- track GND")
+    assert lines[2] == ("subtracted 1 record(s) — Save to write the change",
+                        "success")
+
+
+def test_the_not_checked_count_is_one_yellow_line(qapp):
+    """Records the registry has no key for cannot be checked — named in one WARN
+    line, never silent (mutation: the not-checked line is lost)."""
+    lines = subtract_report_lines({
+        "cell": "dac_buf", "removed": [], "not_ours": 0,
+        "source": "registry", "planned": 1, "record": "dac0", "not_checked": 2})
+
+    assert [text for text, _l in lines][-1] == (
+        "2 record(s) have no registry entry — not checked")
+    assert [level for _t, level in lines][-1] == "warn"
+
+
+def test_the_red_planned_nothing_keeps_the_not_checked_count(qapp):
+    """Both the dry run AND the registry are empty: the red "could not match"
+    line stays, and the number of unchecked records is still named."""
+    lines = subtract_report_lines({
+        "cell": "dac_buf", "empty": True, "source": "registry", "planned": 0,
+        "record": "dac0", "not_checked": 3})
+
+    assert lines[0] == (
+        "could not match the selection to the cell's records — the dry run "
+        "planned nothing", "error")
+    assert lines[1] == ("3 record(s) have no registry entry — not checked",
+                        "warn")
+
+
+def test_a_dry_run_match_has_no_registry_only_line(qapp):
+    """A map that came from the DRY RUN carries source "dry_run" — no "matched by
+    the registry only" line (mutation: the registry path is enabled for a
+    non-empty run)."""
+    lines = subtract_report_lines({
+        "cell": "dac_buf", "removed": [("track", _track("N", 0.0))],
+        "not_ours": 0, "source": "dry_run", "planned": 3, "record": "dac0"})
+
+    assert not any("registry only" in text for text, _l in lines)
+
+
 @pytest.mark.parametrize("result", [
     {"cell": "c", "removed": [], "not_ours": 0},
     {"cell": "c", "empty": True},
+    {"cell": "c", "empty": True, "source": "registry", "not_checked": 3},
     {"cell": "c", "no_copper": True, "components": 1},
     {"cell": "c", "ambiguous": ["a", "b"]},
     {"cell": "c", "error": "boom"},
+    {"cell": "c", "source": "registry", "planned": 1, "record": "r"},
 ])
 def test_every_level_is_one_the_dock_can_map(qapp, result):
     """The report is Qt-free: it names a LEVEL, and every level it can name is one

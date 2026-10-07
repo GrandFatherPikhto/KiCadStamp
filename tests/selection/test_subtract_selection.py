@@ -24,6 +24,7 @@ cells never touch Qt or the board.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from kicadstamp.absent_copper_prune import (RecordCopperMap, record_copper_map_for)
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
@@ -358,3 +359,159 @@ def test_a_role_the_cell_does_not_have_is_not_a_record_of_the_cell():
 
     assert outcome.removed == ()
     assert outcome.not_ours == 1
+
+
+# ── the «registry only» map (a REFUSED tree: the dry run planned nothing) ────
+#
+# plan_2026_10_07_refused_tree_matching, rule 35. When the drift guard refused
+# the tree that places the instance, the recording is NOT materialized, the dry
+# run plans no command, and the exact pair cannot be built — so the map is built
+# from the REGISTRY ALONE. The cells below pin, at the CORE level, the
+# properties the plan's mutations attack: which keys are accepted (own only),
+# that a key's copper must be ON the board, that `kind` comes from the file the
+# key came from, and the "no registry entry" count.
+
+_RMAP_CELL = "dac_buf"
+
+
+class _RMapCfg:
+    """The smallest cfg `record_key_part`/`cell_record_addresses` read: one cell
+    with copper and the entities that place it."""
+
+    def __init__(self, cell, entities):
+        self.cells = {_RMAP_CELL: cell}
+        self.entities = list(entities)
+        self.clone_placements = []
+
+
+def _rmap_entity(name, uuid, cluster="DAC_BUF", sheet=None):
+    return SimpleNamespace(name=name, uuid=uuid, cell=_RMAP_CELL,
+                           cluster=cluster, sheet=sheet, retired=False)
+
+
+def _rmap_cell():
+    """1 cell via, 2 cell tracks, 1 component (role DA) via — 4 records."""
+    return SimpleNamespace(
+        uuid="uuid-cell",
+        vias=[SimpleNamespace()],
+        tracks=[SimpleNamespace(), SimpleNamespace()],
+        components=[SimpleNamespace(role="DA", vias=[SimpleNamespace()])],
+    )
+
+
+def _track_entry(uuid):
+    return {"uuid": uuid, "start_x_mm": 10.0, "start_y_mm": 10.0,
+            "end_x_mm": 11.0, "end_y_mm": 10.0, "width_mm": 0.25, "net": "N",
+            "layer": "F.Cu"}
+
+
+def _live_track(uuid):
+    return Track(uuid=uuid, net_name="N", start=Vector2.from_xy_mm(10.0, 10.0),
+                 end=Vector2.from_xy_mm(11.0, 10.0), width_mm=0.25,
+                 layer=BoardLayer.BL_F_Cu)
+
+
+class _BoardAdapter(_Adapter):
+    """`_Adapter` plus the footprint read `own_instance_context` makes."""
+
+    def get_footprints(self):
+        return []
+
+
+def _rmap_setup(tmp_path, *, foreign=False):
+    """(cfg, config_path, adapter) for dac_buf @ DAC_BUF.
+
+    Registry: an OWN track 0 (live), an OWN via DA 0 (live) and an OWN cell via
+    0 whose uuid is NOT on the board; when `foreign`, ANOTHER cell's track 1
+    (live) with the SAME tail as a record of ours."""
+    cfg = _RMapCfg(_rmap_cell(), [_rmap_entity("dac0", "uuid-ent")])
+    cell_identity = record_key_part(_RMAP_CELL, "uuid-cell")
+    anchor = f"name:{record_key_part('dac0', 'uuid-ent')}"
+    via_entries = {
+        make_registry_key(anchor, cell_identity, "DA", 0): _via_entry("u_c0"),
+        make_registry_key(anchor, cell_identity, None, 0): _via_entry("u_gone"),
+    }
+    track_entries = {
+        make_registry_key(anchor, cell_identity, None, 0): _track_entry("u_t0"),
+    }
+    adapter = _BoardAdapter(vias=[_live_via("u_c0", 10.0, 10.0)],
+                            tracks=[_live_track("u_t0")])
+    if foreign:
+        other = record_key_part("pif", "uuid-pif")
+        track_entries[make_registry_key("name:" + other, other, None, 1)] = \
+            _track_entry("u_foreign")
+        adapter._tracks.append(_live_track("u_foreign"))
+    _write_registries(tmp_path, via_entries, track_entries)
+    return cfg, _config_path(tmp_path), adapter
+
+
+def _rmap(adapter, config_path, cfg):
+    from kicadstamp.absent_copper_prune import registry_record_copper_map
+    return registry_record_copper_map(adapter, config_path, cfg, _RMAP_CELL,
+                                      "DAC_BUF", None)
+
+
+def test_registry_map_pairs_own_keys_with_the_live_copper_of_their_own_registry(
+        tmp_path):
+    """The happy path: own keys of BOTH files and BOTH levels map to the live
+    copper the registry stores — a via key as a VIA, a track key as a TRACK
+    (mutation: `kind` taken from the wrong registry)."""
+    cfg, config_path, adapter = _rmap_setup(tmp_path)
+
+    record_map = _rmap(adapter, config_path, cfg)
+
+    assert record_map.source == "registry"
+    assert record_map.planned == 2
+    assert record_map.by_record == {
+        ("via", "DA", 0): "u_c0",
+        ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_t0"}
+
+
+def test_registry_map_drops_a_key_whose_uuid_left_the_board(tmp_path):
+    """Mutation "the registry map does not check the uuid is on the board": the
+    cell's via 0 has an OWN key, but that uuid is GONE — it must NOT be claimed
+    (the subtraction would then "remove" a record whose copper is gone)."""
+    cfg, config_path, adapter = _rmap_setup(tmp_path)
+
+    record_map = _rmap(adapter, config_path, cfg)
+
+    assert ("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0) not in record_map.by_record
+    # ...and it IS checked (the registry knows about it) — not "not checked".
+    assert record_map.without_registry == 1        # only the foreign track 1
+
+
+def test_registry_map_never_claims_a_foreign_key(tmp_path):
+    """Mutation "the `is_own_key` filter is off": ANOTHER cell's key has its
+    copper live on the board and the SAME tail `(track, PH, 1)` as a record of
+    ours — it must never map."""
+    cfg, config_path, adapter = _rmap_setup(tmp_path, foreign=True)
+
+    record_map = _rmap(adapter, config_path, cfg)
+
+    assert ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 1) not in record_map.by_record
+    assert set(record_map.by_record.values()) == {"u_c0", "u_t0"}
+
+
+def test_registry_map_counts_the_records_without_a_registry_key(tmp_path):
+    """The honest count (mutation "the not-checked count is lost"): track 1 has
+    no OWN key, so it cannot be checked — the number is named, never silent."""
+    cfg, config_path, adapter = _rmap_setup(tmp_path, foreign=True)
+
+    record_map = _rmap(adapter, config_path, cfg)
+
+    assert record_map.without_registry == 1
+
+
+def test_registry_map_of_an_empty_registry_is_empty_and_counts_every_record(
+        tmp_path):
+    """The "red planned nothing" side: with NO registry at all the map is empty
+    (nothing to match), and EVERY record of the cell is "not checked"."""
+    _write_registries(tmp_path, {}, {})
+    cfg = _RMapCfg(_rmap_cell(), [_rmap_entity("dac0", "uuid-ent")])
+
+    record_map = _rmap(_BoardAdapter(), _config_path(tmp_path), cfg)
+
+    assert record_map.empty is True
+    assert record_map.planned == 0
+    assert record_map.source == "registry"
+    assert record_map.without_registry == 4        # all four records

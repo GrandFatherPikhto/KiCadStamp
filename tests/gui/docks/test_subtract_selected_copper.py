@@ -14,6 +14,7 @@ these do not repeat: which TIER paired a record (registry uuid or exact geometry
 here the map is the boundary, so a cell only asserts that the record whose live
 copper IS in the selection goes, and that nothing else does.
 """
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +26,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.registry import make_registry_key, record_key_part
 
 
 def _track(net, across, width=0.25):
@@ -112,10 +114,15 @@ def _live_via(uuid, net, x, y):
 
 
 class _Adapter:
-    """The whole board the worker sees: the selection, and a close()."""
+    """The whole board the worker sees: the selection, a close(), and — for the
+    REGISTRY fallback a refused tree falls back to — the two live copper lists
+    and the footprints `own_instance_context` reads for the instance's refs."""
 
-    def __init__(self, selected):
+    def __init__(self, selected, vias=(), tracks=(), footprints=()):
         self._selected = list(selected)
+        self._vias = list(vias)
+        self._tracks = list(tracks)
+        self._footprints = list(footprints)
         self.closed = False
 
     def refresh_board(self):
@@ -123,6 +130,15 @@ class _Adapter:
 
     def get_selected_items(self):
         return list(self._selected)
+
+    def get_vias(self):
+        return list(self._vias)
+
+    def get_tracks(self):
+        return list(self._tracks)
+
+    def get_footprints(self):
+        return list(self._footprints)
 
     def close(self):
         self.closed = True
@@ -150,8 +166,8 @@ def _payload(dock):
     }
 
 
-def _fake_board(monkeypatch, selected):
-    adapter = _Adapter(selected)
+def _fake_board(monkeypatch, selected, **board):
+    adapter = _Adapter(selected, **board)
     monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
                         lambda **kwargs: adapter)
     return adapter
@@ -596,3 +612,285 @@ def test_the_subtraction_is_staged_into_the_working_set_without_a_manual_save(
 # door has its own guards (tests/gui/docks/test_cell_editor.py,
 # test_cell_editor_mixed_selection.py, tests/selection/), and they stay green —
 # nothing in this action touches that path. The rename itself is a later commit.
+
+
+# ── a REFUSED tree: the dry run plans nothing, the map falls back to the
+#    REGISTRY ONLY (plan_2026_10_07_refused_tree_matching) ───────────────────
+#
+# The fixture is a REAL refused tree: the drift guard refuses the config below
+# (asserted first), so the recording is never materialized and
+# `instance_record_copper_map` returns an empty map — which is exactly what the
+# cells stub it to. The registry fallback then does the matching, by the SAME
+# `is_own_key` filter «Select cell» uses. One cell per row of the plan's table
+# (rule 35).
+
+
+def _refused_tree_data(*, component_vias=None, entities=None):
+    component = {"role": "FPGA", "offset_along_mm": 2.0,
+                 "offset_across_mm": 1.0, "angle_deg": 0.0}
+    if component_vias:
+        component["vias"] = component_vias
+    return {
+        "cells": {"dac_buf": {
+            "layer": "F.Cu",
+            "components": [component],
+            "vias": [],
+            "tracks": [_track(None, 0.0), _track("GND", 2.0)],
+            "clone_placements": [],
+        }},
+        "entities": list(entities if entities is not None
+                         else [{"name": "dac0", "cell": "dac_buf",
+                                "cluster": "DAC_BUF"}]),
+        "trees": [{"name": "bad", "anchor": {"role": "FPGA"},
+                   "nodes": [{"ref": "dac0", "kind": "placement",
+                              "xy": [0.0, 0.0]}]}],
+    }
+
+
+def _make_refused_dock(main_window, tmp_path, data=None):
+    return _make_dock(main_window, tmp_path,
+                      data if data is not None else _refused_tree_data())
+
+
+def _load_ids(target):
+    """(cfg, cell_identity, {entity name: identity}) from the LIFTED file."""
+    from kicadstamp.config import load_config
+    cfg, _ctx = load_config(str(target))
+    cell_id = record_key_part("dac_buf", cfg.cells["dac_buf"].uuid)
+    ents = {e.name: record_key_part(e.name, e.uuid) for e in cfg.entities}
+    return cfg, cell_id, ents
+
+
+def _write_registries(tmp_path, via_entries, track_entries):
+    """The TWO files `registry_paths_for_config` derives from ``root.sexp``: the
+    stem of the config names the file inside the `registry/` and `tracks/`
+    subfolders."""
+    (tmp_path / "registry").mkdir(exist_ok=True)
+    (tmp_path / "registry" / "root.registry.json").write_text(
+        json.dumps({"schema_version": 2, **via_entries}), encoding="utf-8")
+    (tmp_path / "tracks").mkdir(exist_ok=True)
+    (tmp_path / "tracks" / "root.tracks.registry.json").write_text(
+        json.dumps({"schema_version": 2, **track_entries}), encoding="utf-8")
+
+
+def _via_reg_entry(uuid):
+    return {"uuid": uuid, "x_mm": 10.0, "y_mm": 10.0, "net": "N",
+            "drill_mm": 0.3, "diameter_mm": 0.6}
+
+
+def _track_reg_entry(uuid):
+    return {"uuid": uuid, "start_x_mm": 10.0, "start_y_mm": 10.0,
+            "end_x_mm": 11.0, "end_y_mm": 10.0, "width_mm": 0.25, "net": "N",
+            "layer": "F.Cu"}
+
+
+def _own_track_key(cell_id, ent_identity, index):
+    return make_registry_key(f"name:{ent_identity}", cell_id, None, index)
+
+
+def _board_track(uuid, net="N"):
+    """A live board track for the registry map (only its uuid matters there)."""
+    return _live_track(uuid, net, 10.0, 10.0, 11.0, 10.0)
+
+
+def test_the_refused_tree_fixture_is_actually_refused(tmp_path):
+    """The plan demands a REAL refused tree, not a hand-made empty map: the drift
+    guard refuses THIS config, so its recording is not materialized — which is
+    why the dry run plans nothing (the cells below stub exactly that)."""
+    from kicadstamp.config import load_config
+    from kicadstamp.trees import check_tree_self_anchor_drift
+
+    target = tmp_path / "root.sexp"
+    target.write_text(dict_to_sexp(_refused_tree_data(), format_number=2),
+                      encoding="utf-8")
+    cfg, _ctx = load_config(str(target))
+
+    assert check_tree_self_anchor_drift(cfg, cfg.trees[0]) is not None
+
+
+def test_a_refused_tree_subtracts_by_the_registry_and_says_registry_only(
+        main_window, tmp_path, monkeypatch):
+    """Row 1: the tree is refused (the stub dry run is empty), but the record's
+    key IS in the registry — the record is subtracted, and a yellow line says the
+    planner produced no copper and the match came from the registry alone."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u0")})
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
+                tracks=[_board_track("u0")])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})       # the refused tree
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    assert result.get("error") is None, result
+    assert result["source"] == "registry", result
+    assert result["removed"] == [("track", before[0])], result
+    dock._finish_subtract_from_selection(result)
+
+    assert dock._tracks == before[1:]
+    assert any("matched by the registry only" in m for m in messages), messages
+    assert not any("could not match" in m for m in messages), messages
+
+
+def test_a_refused_tree_takes_a_component_via_out_of_its_slot(
+        main_window, tmp_path, monkeypatch):
+    """Row 2: the map key's role part names a COMPONENT — the subtraction leaves
+    the component's own `vias`, not the cell's lists (С-2а-1 holds on the
+    registry-only path too)."""
+    data = _refused_tree_data(component_vias=[_via_record(5.0)])
+    dock, target = _make_refused_dock(main_window, tmp_path, data)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path,
+                      {make_registry_key(f"name:{ents['dac0']}", cell_id,
+                                         "FPGA", 0): _via_reg_entry("u_c0")},
+                      {})
+    _fake_board(monkeypatch, [_live_via("u_c0", "N", 10.0, 10.0)],
+                vias=[_live_via("u_c0", "N", 10.0, 10.0)])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    _messages(dock, monkeypatch)
+    component = dock._components[0]
+    cell_vias = list(dock._vias)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+
+    assert result["removed"] == [("via", component["vias"][0])], result
+    assert result["source"] == "registry", result
+    dock._finish_subtract_from_selection(result)
+    assert component["vias"] == []
+    assert dock._vias == cell_vias
+
+
+def test_a_record_without_a_registry_key_is_not_checked_and_says_so(
+        main_window, tmp_path, monkeypatch):
+    """Row 3: the selected record has NO key in the registry — it cannot be
+    checked, so it is NOT subtracted and the count is named, never silent."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _cfg, cell_id, ents = _load_ids(target)
+    # only track 0 has a key; track 1 (the selection) has none
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u0")})
+    _fake_board(monkeypatch,
+                [_live_track("u1", None, 20.0, 20.0, 21.0, 20.0)],
+                tracks=[_board_track("u0")])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+
+    assert result["removed"] == [], result
+    assert result["not_ours"] == 1, result
+    dock._finish_subtract_from_selection(result)
+    assert dock._tracks == before
+    assert any("nothing to subtract" in m for m in messages), messages
+    assert any("have no registry entry" in m for m in messages), messages
+    assert not any("could not match" in m for m in messages), messages
+
+
+def test_a_refused_tree_with_foreign_copper_is_nothing_to_subtract(
+        main_window, tmp_path, monkeypatch):
+    """Row 4: the selection is copper of NO record of this cell — an ordinary
+    "nothing to subtract" plus the ignored count, never the red "could not
+    match" line (the check DID run)."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u0")})
+    _fake_board(monkeypatch,
+                [_live_track("u_foreign", "GND", 30.0, 30.0, 31.0, 30.0)],
+                tracks=[_board_track("u0")])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result["removed"] == [], result
+    assert result["not_ours"] == 1, result
+    assert dock._tracks == before
+    assert any("not records of cell" in m for m in messages), messages
+    assert not any("could not match" in m for m in messages), messages
+
+
+def test_a_refused_tree_with_an_empty_registry_stays_red(
+        main_window, tmp_path, monkeypatch):
+    """Row 5: BOTH the dry run and the registry are empty — nothing could be
+    checked at all, so the red "could not match" line stays."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _write_registries(tmp_path, {}, {})                       # empty registry
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result.get("empty") is True, result
+    assert result["planned"] == 0, result
+    assert dock._tracks == before
+    assert any("could not match the selection" in m for m in messages), messages
+
+
+def test_a_non_refused_tree_never_consults_the_registry(
+        main_window, tmp_path, monkeypatch):
+    """Row 6 / mutation "the registry path is enabled on a NON-empty run": when
+    the dry run planned something, the map is the dry run's — the registry's own
+    key (live copper of ANOTHER record) must never be subtracted, and no
+    "registry only" line appears."""
+    dock, target = _make_dock(main_window, tmp_path)          # a NORMAL config
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 2):
+                       _track_reg_entry("u2")})
+    # the dry run planned (track 1); the SELECTION is the registry's track 2
+    _fake_board(monkeypatch, [_live_track("u2", "GND2", 20.0, 20.0, 21.0, 20.0)],
+                tracks=[_board_track("u2", "GND2")])
+    _fake_map(monkeypatch, {"dac0": _record_map(index=1, uuid="u1")})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result["source"] == "dry_run", result
+    assert result["removed"] == [], result
+    assert result["not_ours"] == 1, result
+    assert dock._tracks == before
+    assert not any("registry only" in m for m in messages), messages
+
+
+def test_two_instances_take_the_refused_one_whose_registry_matches(
+        main_window, tmp_path, monkeypatch):
+    """Row 7: two instances, ONE refused (its registry holds the copper of the
+    selection), the other's dry run planned but did not match — the REFUSED
+    instance is taken (the choice is by the maps with their sources)."""
+    entities = [{"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF",
+                 "sheet": "Channel_0"},
+                {"name": "dac1", "cell": "dac_buf", "cluster": "DAC_BUF",
+                 "sheet": "Channel_1"}]
+    data = _refused_tree_data(entities=entities)
+    dock, target = _make_refused_dock(main_window, tmp_path, data)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u0")})
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
+                tracks=[_board_track("u0")])
+    # dac0 is refused (empty); dac1 planned, but its copper is NOT selected
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap(),
+                            "dac1": _record_map(index=1, uuid="u9")})
+    _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+
+    assert result["removed"] == [("track", before[0])], result
+    assert result["sheet"] == "Channel_0", result
+    assert result["source"] == "registry", result

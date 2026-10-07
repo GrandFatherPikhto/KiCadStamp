@@ -36,6 +36,14 @@ instance whose dry run matched the selected copper is taken; two matching is an
 ambiguity the caller REFUSES red (never a guess — the record of the wrong
 instance would take copper away from a live one); and when the runs DID plan but
 none of them matched, the answer is the ordinary "nothing to subtract" (С-2а-2).
+
+When the DRIFT GUARD refused the tree, the dry run plans nothing and the exact
+pair cannot be built — so the map falls back to the REGISTRY ALONE
+(`kicadstamp.absent_copper_prune.registry_record_copper_map`, the SAME
+`is_own_key` filter «Select cell»'s fallback uses). The guard is never bypassed
+and the config/registry/board are only READ. The red "planned nothing" line then
+stays only for the instance where the dry run AND the registry are both empty
+(plan_2026_10_07_refused_tree_matching).
 """
 from __future__ import annotations
 
@@ -70,19 +78,48 @@ def _selection(payload, adapter) -> tuple:
     return vias, tracks, footprints, uuids
 
 
+def _empty_result(entry, cell_name: str) -> dict:
+    """The "nothing could be checked" answer for ONE candidate entry
+    ``(label, cluster, sheet, record, map)``.
+
+    It carries the map's ``source``/``without_registry`` so the report can still
+    say how many records the registry had no key for — the reason the map is
+    empty is named, never silent."""
+    _label, cluster, sheet, record, record_map = entry
+    return {"empty": True, "planned": 0, "cell": cell_name,
+            "cluster": cluster, "sheet": sheet,
+            "source": record_map.source, "record": record or "",
+            "not_checked": record_map.without_registry}
+
+
 def run_subtract_worker(payload: dict) -> dict:
     """start_long_op worker — plain data in, plain data out (no widget).
 
+    For EVERY candidate instance the map is the EXACT pair of «Select cell» (the
+    instance recording's own dry run). When that dry run is EMPTY — a tree the
+    drift guard refused (the guard is NEVER bypassed: a leaked "materialize the
+    refused tree" flag would bring the live 4.75 mm ``fpga`` drift back into a
+    real apply), an unrealized record, a chain-only placement — the map is built
+    by the REGISTRY ALONE (`registry_record_copper_map`, the SAME ``is_own_key``
+    filter «Select cell»'s fallback uses). The red "planned nothing" answer
+    therefore stays ONLY for the instance where BOTH the dry run AND the registry
+    are empty: nothing could be checked at all.
+
     Returns one of:
       {"removed": [(kind, record), ...], "not_ours": n, "components": k,
-       "planned": p, "cluster": c, "sheet": s, "cell": name}
-      {"empty": True, ...}      — EVERY candidate's dry run planned nothing:
-                                  subtract NOTHING (the check could not run)
+       "planned": p, "cluster": c, "sheet": s, "cell": name,
+       "source": "dry_run"|"registry", "record": rec, "not_checked": n}
+      {"empty": True, ...}      — every candidate's dry run AND registry are
+                                  empty: subtract NOTHING (nothing was checked)
       {"ambiguous": [labels...]} — several instances matched: refuse
       {"no_copper": True, "components": k} — only components are selected
       {"error": text}
     """
-    from kicadstamp.absent_copper_prune import instance_record_copper_map
+    from kicadstamp.absent_copper_prune import (
+        RecordCopperMap,
+        instance_record_copper_map,
+        registry_record_copper_map,
+    )
     from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.config import load_config
     from kicadstamp.registry import record_key_part
@@ -96,9 +133,10 @@ def run_subtract_worker(payload: dict) -> dict:
     root = payload["root_path"]
     cell_name = payload["cell_name"]
     try:
-        cfg, _ctx = load_config(root)
+        cfg, ctx = load_config(root)
     except Exception as e:  # noqa: BLE001 — reported as a Log line, no modal
         return {"error": str(e)}
+    sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
 
     choice = resolve_action_instance(cfg, root, cell_name, payload.get("cluster"),
                                      payload.get("sheet"), None)
@@ -121,46 +159,45 @@ def run_subtract_worker(payload: dict) -> dict:
         maps: list = []
         for cluster, sheet in instances:
             record = instance_recording_name(cfg, cell_name, cluster, sheet)
-            if record is None:
-                continue
+            # A chain-only placement has no record to dry-run: the map starts
+            # empty and the registry fallback below still gets its chance.
+            record_map = (instance_record_copper_map(root, record,
+                                                     payload["timeout_ms"],
+                                                     cell_identity)
+                          if record is not None else RecordCopperMap())
+            if record_map.empty:
+                # The dry run planned nothing (a refused tree / an unrealized
+                # record): fall back to the registry for the SAME instance.
+                record_map = registry_record_copper_map(
+                    adapter, root, cfg, cell_name, cluster, sheet,
+                    sheet_names=sheet_names)
             maps.append((_instance_label(cluster, sheet), cluster, sheet,
-                         instance_record_copper_map(root, record,
-                                                    payload["timeout_ms"],
-                                                    cell_identity)))
-        if not maps:
-            # No record places the cell at any candidate instance (a chain-only
-            # placement): the dry run could not check it, so nothing is subtracted.
-            return {"empty": True, "planned": 0, "cell": cell_name,
-                    "cluster": choice.cluster, "sheet": choice.sheet}
+                         record, record_map))
         if choice.kind == "choose":
             labels = matched_instance_labels(
-                [(label, rmap) for label, _c, _s, rmap in maps], selected)
+                [(label, rmap) for label, _c, _s, _r, rmap in maps], selected)
             if len(labels) > 1:
                 return {"ambiguous": list(labels), "cell": cell_name}
             if labels:
                 label = labels[0]
-            elif all(rmap.empty for _l, _c, _s, rmap in maps):
-                # EVERY candidate's dry run planned NOTHING: the check could not
-                # run at all — subtract nothing and let the caller say why.
-                return {"empty": True, "planned": 0, "cell": cell_name}
+            elif all(rmap.empty for _l, _c, _s, _r, rmap in maps):
+                # EVERY candidate's dry run AND registry are empty: nothing could
+                # be checked at all — subtract nothing and let the caller say why.
+                return _empty_result(maps[0], cell_name)
             else:
-                # The runs DID plan, but the selection is not this cell's copper.
-                # That is the SAME answer one instance gives — "nothing to
-                # subtract" plus the ignored count — never the red "could not
-                # match" line, which would claim a check that never happened. The
-                # counters are identical for every run here: no run holds a
-                # selected uuid, so `removed` is empty whichever is taken; take a
-                # NON-empty one, because an empty map answers "nothing was
-                # planned" on its own. That run's cluster/sheet ride along in the
-                # answer, but nothing was removed and no Log line names them.
-                label = next(m[0] for m in maps if not m[3].empty)
+                # The runs DID plan (or the registry DID hold copper), but the
+                # selection is not this cell's copper. That is the SAME answer one
+                # instance gives — "nothing to subtract" plus the ignored count —
+                # never the red "could not match" line, which would claim a check
+                # that never happened. Take a NON-empty map, because an empty one
+                # answers "nothing was planned" on its own.
+                label = next(m[0] for m in maps if not m[4].empty)
         else:
             label = maps[0][0]
         chosen = next(m for m in maps if m[0] == label)
-        _label, cluster, sheet, record_map = chosen
+        _label, cluster, sheet, record, record_map = chosen
         if record_map.empty:
-            return {"empty": True, "planned": 0, "cell": cell_name,
-                    "cluster": cluster, "sheet": sheet}
+            return _empty_result(chosen, cell_name)
         outcome = plan_subtraction(
             record_map, payload.get("vias") or [], payload.get("tracks") or [],
             {getattr(v, "uuid", None) for v in vias},
@@ -169,7 +206,9 @@ def run_subtract_worker(payload: dict) -> dict:
             components=payload.get("components") or [])
         return {"cell": cell_name, "cluster": cluster, "sheet": sheet,
                 "removed": list(outcome.removed), "not_ours": outcome.not_ours,
-                "components": outcome.components, "planned": outcome.planned}
+                "components": outcome.components, "planned": outcome.planned,
+                "source": record_map.source, "record": record or "",
+                "not_checked": record_map.without_registry}
     except Exception as e:  # noqa: BLE001 — reported as a Log line, no modal
         return {"error": str(e)}
     finally:
@@ -185,6 +224,11 @@ def subtract_report_lines(result: dict) -> list:
     vocabulary the mixed-selection prelude already speaks — so this module needs
     no widget and no style constant. ONE place for every branch of the worker's
     answer, so the CellDock never grows a second copy of a message.
+
+    A map matched by the registry alone (a refused tree) adds ONE yellow line
+    saying so — the REASON (the drift guard's own message) is already a red line
+    in the Log and is NEVER repeated here — plus, when present, the honest "N
+    record(s) have no registry entry — not checked" count.
 
     The record lines reuse the ONE formatter of the refresh/import report
     (`record_report_line`), imported HERE: the giant imports this module at
@@ -206,23 +250,33 @@ def subtract_report_lines(result: dict) -> list:
                    "again").format(count=len(result["ambiguous"]), cell=cell,
                                    labels="; ".join(result["ambiguous"])),
                  "error")]
-    if result.get("empty"):
-        return [(_("could not match the selection to the cell's records — the dry "
-                   "run planned nothing"), "error")]
-    removed = list(result.get("removed") or ())
     lines: list = []
-    if removed:
-        lines += [(record_report_line("-", record, kind), "warn")
-                  for kind, record in removed]
-        lines.append((_("subtracted {count} record(s) — Save to write the change")
-                      .format(count=len(removed)), "success"))
+    if result.get("source") == "registry" and result.get("planned", 0) > 0:
+        lines.append((_("the redraw planner produced no copper for record "
+                        "{record} (reason — in the Log above); matched by the "
+                        "registry only").format(
+                            record=result.get("record") or "?"), "warn"))
+    if result.get("empty"):
+        lines.append((_("could not match the selection to the cell's records — "
+                        "the dry run planned nothing"), "error"))
     else:
-        lines.append((_("nothing to subtract — the selection holds no copper "
-                        "record of cell {cell!r}").format(cell=cell), "success"))
-    if result.get("not_ours"):
-        lines.append((_("{count} selected item(s) are not records of cell {cell!r} "
-                        "— ignored").format(count=result["not_ours"], cell=cell),
-                      "warn"))
+        removed = list(result.get("removed") or ())
+        if removed:
+            lines += [(record_report_line("-", record, kind), "warn")
+                      for kind, record in removed]
+            lines.append((_("subtracted {count} record(s) — Save to write the "
+                            "change").format(count=len(removed)), "success"))
+        else:
+            lines.append((_("nothing to subtract — the selection holds no copper "
+                            "record of cell {cell!r}").format(cell=cell),
+                          "success"))
+        if result.get("not_ours"):
+            lines.append((_("{count} selected item(s) are not records of cell "
+                            "{cell!r} — ignored").format(
+                                count=result["not_ours"], cell=cell), "warn"))
+    if result.get("not_checked"):
+        lines.append((_("{count} record(s) have no registry entry — not checked")
+                      .format(count=result["not_checked"]), "warn"))
     return lines
 
 
