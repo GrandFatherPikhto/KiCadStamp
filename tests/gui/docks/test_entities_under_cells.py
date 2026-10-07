@@ -21,10 +21,13 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt
 
+import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import (ConfigTreeDock, _CELL_PLACED, _CELL_UNUSED,
                                    _ROLE_CELL_MARK, _ROLE_OWN_FILE)
+from kicadstamp.config.sexp_format import sexp_to_dict
 
-from tests.gui.create_entity_helpers import (category, file_item, find_child,
+from tests.gui.create_entity_helpers import (category, context_menu_actions,
+                                             file_item, find_child,
                                              minimal_imprint, write_config)
 
 
@@ -182,3 +185,124 @@ def test_entity_leaf_carries_its_own_declaring_file(main_window, tmp_path):
     own = leaf.data(0, _ROLE_OWN_FILE)
     assert own is not None
     assert Path(own[0]).name == "ent_b.sexp", own
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Свой файл записи — ОДНО правило для всех путей (п.4; мутация 1 и файловый блок)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _cross_file_dock(main_window, tmp_path):
+    """Root A (with the cell) INCLUDES file B (with the entity) — the exact
+    shape п.4 guards. Returns (dock, root_a, sub_b, entity_leaf)."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "ent_b.sexp"
+    write_config(sub, {"entities": [{"name": "e1", "cell": "c"}]})
+    write_config(root, {"include": ["ent_b.sexp"],
+                        "cells": {"c": {"components": [{"role": "R"}]}}})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+    return dock, root, sub, find_child(cell, "e1")
+
+
+def _read(path):
+    return sexp_to_dict(path.read_text(encoding="utf-8")) or {}
+
+
+def test_rename_target_and_identity_of_cross_file_entity_use_its_own_file(
+        main_window, tmp_path):
+    """С2 (п.4, мутация 1): и цель правки, и личность выделения — файл B."""
+    dock, _root, _sub, leaf = _cross_file_dock(main_window, tmp_path)
+
+    target = dock._rename_target_for_item(leaf)
+    assert target[1:] == ("entities", "e1")
+    assert Path(target[0]).name == "ent_b.sexp", target
+
+    ident = dock._item_identity(leaf)
+    assert ident[0] == "leaf" and ident[2] == "entities"
+    assert Path(ident[1]).name == "ent_b.sexp", ident
+
+
+def test_rename_of_cross_file_entity_writes_to_b_and_leaves_a_intact(
+        main_window, tmp_path, monkeypatch):
+    """С2 (клетка «переименование»): запись уходит в B, файл A цел."""
+    from kicadstamp import config_working_set
+
+    dock, root, sub, leaf = _cross_file_dock(main_window, tmp_path)
+    before_a = root.read_bytes()
+    # A format-3 write resolves reference UUIDs against the ACTIVE graph root;
+    # a bare ConfigTreeDock tests only the dock, so the root is supplied here.
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
+    monkeypatch.setattr(config_tree_mod.QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: ("e2", True)))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    dock._on_rename(*dock._rename_target_for_item(leaf))
+
+    assert [e["name"] for e in _read(sub).get("entities") or []] == ["e2"]
+    assert root.read_bytes() == before_a, "файл A не должен быть тронут"
+
+
+def test_delete_of_cross_file_entity_writes_to_b_and_leaves_a_intact(
+        main_window, tmp_path, monkeypatch):
+    """С2 (клетка «удаление»): запись уходит в B, файл A цел."""
+    from kicadstamp import config_working_set
+
+    dock, root, sub, leaf = _cross_file_dock(main_window, tmp_path)
+    before_a = root.read_bytes()
+    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
+    monkeypatch.setattr(
+        config_tree_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k: config_tree_mod.QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+    dock._on_delete(*dock._rename_target_for_item(leaf))
+
+    assert not (_read(sub).get("entities") or [])
+    assert root.read_bytes() == before_a, "файл A не должен быть тронут"
+
+
+def test_export_of_cross_file_entity_targets_b(main_window, tmp_path):
+    """С2 (клетка «экспорт»): источник экспорта — файл B."""
+    dock, _root, _sub, leaf = _cross_file_dock(main_window, tmp_path)
+    leaf.setSelected(True)
+    items = dock._selected_export_items()
+    assert [Path(it.source_path).name for it in items] == ["ent_b.sexp"]
+
+
+def test_file_block_names_the_entitys_own_file_and_acts_on_it(
+        main_window, tmp_path, monkeypatch):
+    """С2 (клетка «файловый блок»): пункты называют B и действуют на B."""
+    dock, _root, _sub, leaf = _cross_file_dock(main_window, tmp_path)
+    actions = context_menu_actions(dock, leaf, monkeypatch)
+    labels = [label for label, _ in actions]
+    assert any(l.startswith("Remove this file (ent_b.sexp)") for l in labels), labels
+    assert any(l.startswith("Add included file (ent_b.sexp)") for l in labels), labels
+
+    seen = []
+    monkeypatch.setattr(dock, "_remove_file",
+                        lambda fp, pp: seen.append((Path(fp).name, Path(pp).name)))
+    for label, act in actions:
+        if label.startswith("Remove this file"):
+            act.trigger()
+    assert seen and seen[0][0] == "ent_b.sexp", seen
+
+
+def test_file_block_is_plain_when_the_entity_file_is_the_visible_one(
+        main_window, tmp_path, monkeypatch):
+    """Файл тот же — текст прежний (имя файла НЕ добавляется). Здесь и ячейка,
+    и сущность живут в B; лист визуально под B, значит прятать нечего."""
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "both_b.sexp"
+    write_config(sub, {"cells": {"c": {"components": [{"role": "R"}]}},
+                       "entities": [{"name": "e1", "cell": "c"}]})
+    write_config(root, {"include": ["both_b.sexp"]})
+    dock = _dock(main_window, root)
+
+    sub_item = file_item(dock.tree, sub)
+    cell = find_child(category(sub_item, "cells"), "c")
+    leaf = find_child(cell, "e1")
+    labels = [label for label, _ in context_menu_actions(dock, leaf, monkeypatch)]
+    assert "Remove this file" in labels, labels
+    assert not any("(" in l and "this file" in l for l in labels), labels

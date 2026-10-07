@@ -19061,3 +19061,12 @@ msgstr "у ячейки {name!r} нет сущности — её ставит {
 #, python-brace-format
 msgid "cell {name!r} has no entity — it is not placed; create an entity to edit it"
 msgstr "у ячейки {name!r} нет сущности — она нигде не ставится; создайте сущность, чтобы её править"
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Add included file ({name})..."
+msgstr "Включить файл ({name})..."
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Remove this file ({name})"
+msgstr "Убрать этот файл ({name})"

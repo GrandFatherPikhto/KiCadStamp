@@ -18152,3 +18152,12 @@ msgstr ""
 #, python-brace-format
 msgid "cell {name!r} has no entity — it is not placed; create an entity to edit it"
 msgstr ""
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Add included file ({name})..."
+msgstr ""
+
+#: gui/docks/config_tree.py
+#, python-brace-format
+msgid "Remove this file ({name})"
+msgstr ""

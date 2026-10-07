@@ -725,15 +725,16 @@ class ConfigTreeDock(QWidget):
                 return None
             return ("category", file_data[1], data[1])   # (file path, section)
         if kind == "leaf":
-            section_item = item.parent()
-            file_item = section_item.parent() if section_item else None
-            file_data = file_item.data(0, Qt.ItemDataRole.UserRole) if file_item else None
-            if file_data is None:
+            # The file comes from _file_context_for_item, NOT from the parent
+            # chain directly: an entity leaf under a cell carries its OWN file
+            # (п.4), and its identity must follow it.
+            file_ctx = self._file_context_for_item(item)
+            if file_ctx is None:
                 return None
             label = item.text(0)
             name = (label[len(_COMMENT_GLYPH):] if label.startswith(_COMMENT_GLYPH)
                     else label)
-            return ("leaf", file_data[1], data[1], name)  # (file path, section, name)
+            return ("leaf", file_ctx[0], data[1], name)  # (file path, section, name)
         if kind in ("anchor", "chain", "pad"):
             # chains: nested node — its owning file is the nearest file node
             # (anchor -> category -> file / chain -> anchor -> category -> file
@@ -1468,13 +1469,32 @@ class ConfigTreeDock(QWidget):
         return None
 
     def _file_context_for_item(self, item) -> Optional[tuple]:
-        """Walks up from `item` (inclusive) to the nearest file node —
-        every action below operates on that file regardless of whether the
-        file header itself, a category, or a leaf was actually clicked."""
+        """The (file_path, parent_path) an item's ACTIONS operate on — ONE
+        rule for every routing path (click, context menu, edit, rename,
+        delete, export).
+
+        For an ENTITY leaf that is the RECORD's OWN declaring file, taken
+        from _ROLE_OWN_FILE (п.4) — never the file of the cell it is shown
+        under. Every other kind keeps the nearest file ancestor: whether the
+        file header itself, a category or a leaf was clicked."""
+        own = item.data(0, _ROLE_OWN_FILE)
+        if own is not None:
+            return own
         while item is not None:
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if data is not None and data[0] == "file":
                 return data[1], data[2]  # (file_path, parent_path)
+            item = item.parent()
+        return None
+
+    def _nearest_file_path(self, item) -> Optional[Path]:
+        """The path of the nearest file ANCESTOR — the file an item is
+        VISUALLY under. For an entity leaf this may differ from its own file
+        (п.4); the difference is what makes the file block name its target."""
+        while item is not None:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data is not None and data[0] == "file":
+                return data[1]
             item = item.parent()
         return None
 
@@ -1492,8 +1512,14 @@ class ConfigTreeDock(QWidget):
         if leaf_data is None:
             return None
         if leaf_data[0] == "leaf":
-            _kind, section, _payload = leaf_data
-            return file_ctx[0], section, item.text(0)
+            _kind, section, payload = leaf_data
+            # An entity's own name comes from the RECORD (its label may carry
+            # the comment glyph); every other leaf keeps its label.
+            if section == "entities" and isinstance(payload, dict):
+                name = payload.get("name") or item.text(0)
+            else:
+                name = item.text(0)
+            return file_ctx[0], section, name
         if leaf_data[0] == "chain":
             # old_name = the chain's effective name (name or net), rebuilt from
             # the label the same way _item_identity does (strip the comment
@@ -1512,6 +1538,10 @@ class ConfigTreeDock(QWidget):
         if file_ctx is None:
             return
         file_path, parent_path = file_ctx
+        # Is the action's target (п.4: an entity's OWN file) the file the leaf
+        # is VISUALLY under? When it is not, the file block below names it, so
+        # the target of a click is never hidden.
+        file_differs = file_path != self._nearest_file_path(item)
 
         # Right-clicking outside the current selection replaces it with
         # just this item — standard tree UX, and what makes a plain
@@ -1787,12 +1817,18 @@ class ConfigTreeDock(QWidget):
             menu.addAction(label).triggered.connect(
                 lambda checked=False, sig=signal: sig.emit(file_path))
         # "Add included file..." is about the FILE, not a section, so it stays
-        # unconditional — it's relevant in every context.
-        menu.addAction(_("Add included file...")).triggered.connect(
+        # unconditional — it's relevant in every context. When the target is an
+        # entity's OWN file, hidden under a cell from another file, the label
+        # names it (see file_differs above).
+        add_label = (_("Add included file ({name})...").format(name=file_path.name)
+                     if file_differs else _("Add included file..."))
+        menu.addAction(add_label).triggered.connect(
             lambda: self._add_included_file(file_path))
         if parent_path is not None:
             menu.addSeparator()
-            menu.addAction(_("Remove this file")).triggered.connect(
+            remove_label = (_("Remove this file ({name})").format(name=file_path.name)
+                            if file_differs else _("Remove this file"))
+            menu.addAction(remove_label).triggered.connect(
                 lambda: self._remove_file(file_path, parent_path))
 
         menu.exec(self.tree.viewport().mapToGlobal(pos))
