@@ -58,6 +58,7 @@ from .registry import (PlacementRegistry, registry_paths_for_config,
                        TrackRegistry, default_operation_log_dir_for_config,
                        filter_existing_tracks, filter_existing_vias,
                        adopt_matching_unowned)
+from .adopt_at_current_place import adopt_cell_copper_at_current_place
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -766,10 +767,21 @@ class ApplyPipeline:
         # is unchanged). The divergence is honest and documented in the report
         # below, same as the existing "planned from the CURRENT board" note.
         vias, tracks = self.plan_copper()
+        # At-current-place adoption, DRY (write=False): the SAME pass a real run
+        # runs before its first move. It reads the board and the registry files
+        # and writes NOTHING — the registry files stay byte-for-byte unchanged.
+        registry, track_registry = self._open_registries()
+        adoption = adopt_cell_copper_at_current_place(
+            self.adapter, self.cfg, self.items, registry, track_registry,
+            write=False)
         moves = self.planned_moves
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
         lines.append(_("Order: {order}").format(order=" -> ".join(it.label for it in self.items)))
+        if adoption.adopted:
+            lines.append(_("Adopt at current place: would adopt {count} record(s) "
+                           "(a real run writes the registry)")
+                         .format(count=adoption.adopted))
         if coordinate_moves:
             lines.append(_("Coordinate placements (Phase 0, before the order above):"))
             for m in coordinate_moves:
@@ -877,6 +889,18 @@ class ApplyPipeline:
             uuids.append(fp.uuid)
         return uuids, False
 
+    def _open_registries(self):
+        """This run's via/track registries, from the ONE path decision
+        (``registry_paths_for_config``). Shared by ``_execute`` and ``_dry_run``
+        so the dry run's at-current-place adoption reads the SAME files a real
+        run would write."""
+        registry_path, track_registry_path = registry_paths_for_config(
+            self.config_path,
+            (self.ctx.registry_path if self.ctx else self.cfg.registry_path),
+            (self.ctx.track_registry_path if self.ctx else self.cfg.track_registry_path))
+        return (PlacementRegistry(self.adapter, registry_path),
+                TrackRegistry(self.adapter, track_registry_path))
+
     def _execute(self) -> None:
         ctx = self.ctx
         # Resolved absolute paths live on RuntimeContext (P1-3). Fall back to
@@ -887,17 +911,21 @@ class ApplyPipeline:
         # ctx.registry_path is the RESOLVED absolute value (a relative
         # cfg.registry_path resolved against the config dir by the loader); an
         # absolute value is kept as-is; both unset → the config-derived default.
-        registry_path, track_registry_path = registry_paths_for_config(
-            self.config_path,
-            (ctx.registry_path if ctx else self.cfg.registry_path),
-            (ctx.track_registry_path if ctx else self.cfg.track_registry_path))
         executor = BatchExecutor(
             self.adapter, self.cfg, batch_size=self.batch_size,
             operation_log_dir=((ctx.operation_log_dir if ctx else self.cfg.operation_log_dir)
                                or default_operation_log_dir_for_config(self.config_path)),
         )
-        registry = PlacementRegistry(self.adapter, registry_path)
-        track_registry = TrackRegistry(self.adapter, track_registry_path)
+        registry, track_registry = self._open_registries()
+        # Adopt-at-current-place (plan_2026_10_07_adopt_at_current_place): BEFORE
+        # any component moves, bind each cell record of THIS run's instances
+        # (self.items — --only/--cluster already applied) to the live copper that
+        # lies where the record puts it NOW. Without this the redraw draws new
+        # copper at the new place and the old copper stays orphaned — the "trail".
+        # The keys come from the SAME builders the planner uses, so after the move
+        # reconcile deletes the adopted (old-place) copper as stale.
+        adopt_cell_copper_at_current_place(
+            self.adapter, self.cfg, self.items, registry, track_registry, write=True)
 
         # --- Phase 0: coordinate_placements ("dumb placer") — self-
         # contained absolute-position moves, no dependency on anything else

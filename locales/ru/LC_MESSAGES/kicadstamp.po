@@ -18954,3 +18954,27 @@ msgstr ""
 "anchor_role {role!r} — не роль этой ячейки — значение сохранено; поправьте "
 "на странице «Якорь ячейки»"
 
+
+#, python-brace-format
+msgid "Adopt at current place: no live cell frame for cell {cell} on {cluster} — its copper is not adopted"
+msgstr "Усыновление на текущем месте: нет живого кадра ячейки {cell} на {cluster} — её медь не усыновляется"
+
+#, python-brace-format
+msgid "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of the cell (worst deviation {deviation} mm) — its copper is not adopted, a trail may remain"
+msgstr "Усыновление на текущем месте: ячейка {cell} на {cluster} — не жёсткая копия ячейки (худшее отклонение {deviation} мм) — её медь не усыновляется, след может остаться"
+
+#, python-brace-format
+msgid "Adopt at current place: {count} live {kind}(s) lie where record {key} puts its copper — ambiguous, none taken"
+msgstr "Усыновление на текущем месте: {count} живых объектов «{kind}» лежат там, куда запись {key} кладёт свою медь — неоднозначно, ничего не взято"
+
+#, python-brace-format
+msgid "Adopt at current place: live {uuid} is claimed by {count} records ({keys}) — none takes it"
+msgstr "Усыновление на текущем месте: на живой объект {uuid} претендуют {count} записей ({keys}) — никто его не берёт"
+
+#, python-brace-format
+msgid "Adopt at current place: {count} record(s) bound to their live copper ({vias} via(s), {tracks} track(s))"
+msgstr "Усыновление на текущем месте: {count} записей привязано к их живой меди ({vias} via, {tracks} дорожек)"
+
+#, python-brace-format
+msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
+msgstr "Усыновление на текущем месте: усыновило бы {count} записей (реальный прогон пишет реестр)"

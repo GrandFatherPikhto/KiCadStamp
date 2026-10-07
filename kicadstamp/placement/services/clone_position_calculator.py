@@ -146,6 +146,36 @@ def entity_anchor_id(entity: "Entity") -> str:
     return f"name:{record_key_part(entity_effective_name(entity), getattr(entity, 'uuid', None))}"
 
 
+def cell_key_part_for(cell_ref: str, cells) -> str:
+    """The ``template_name`` part of a registry key for a cell reference — the
+    ONE builder of that part (Р-У5.1): the cell's uuid under the format-3 gate,
+    its name in format 2 (``record_key_part``). A reference the config does not
+    hold keeps its own name (a placement whose cell is missing is skipped by the
+    planner anyway — see ``_resolve_content``).
+
+    Both the planner's path (``_resolve_content``) and the outside caller that
+    must REPRODUCE the planner's key (``clone_registry_identity``) go through
+    here, so the part can never be assembled two different ways."""
+    cell = (cells or {}).get(cell_ref) if cell_ref is not None else None
+    return (record_key_part(cell_ref, getattr(cell, "uuid", None))
+            if cell is not None else cell_ref)
+
+
+def clone_registry_identity(clone: ClonePlacement, cells) -> tuple:
+    """``(anchor_id, cell_name, cell_key_part)`` of a TOP-LEVEL ClonePlacement —
+    the three parts ``make_registry_key`` composes, built by the SAME functions
+    the planner uses (``clone_anchor_id`` + ``cell_key_part_for``).
+
+    THE one place a caller OUTSIDE the planner may derive a clone's registry key
+    (the at-current-place adoption, plan_2026_10_07_adopt_at_current_place). The
+    planner's own path (``_resolve_content`` + ``clone_anchor_id``) shares BOTH
+    builders, so an adoption key can never differ from the key the same run's
+    plan will produce — a drift would make ``reconcile`` prune the adopted entry
+    and delete exactly the copper this pass just saved."""
+    return (clone_anchor_id(clone), clone.cell,
+            cell_key_part_for(clone.cell, cells) if clone.cell is not None else None)
+
+
 def nested_anchor_id(anchor_id: str, nested_name: str) -> str:
     """Registry anchor_id of ONE nested cell placement inside `anchor_id` — the
     path-composed ``"<outer>/<nested.name>"`` (Phase 4 recursive cell).
@@ -314,8 +344,10 @@ class ClonePositionCalculator:
                                .format(name=label, cell=cell_ref))
                 return None, cell_ref, cell_ref
             # The registry key's template_name is the CELL's record part (Р-У5.1):
-            # uuid in format 3, name in format 2.
-            return cell, cell_ref, record_key_part(cell_ref, cell.uuid)
+            # uuid in format 3, name in format 2 — through the ONE builder,
+            # shared with clone_registry_identity (so an outside caller's key
+            # cannot drift from this one).
+            return cell, cell_ref, cell_key_part_for(cell_ref, self.cfg.cells)
         cell = Cell(
             name=f"__role__{role_ref}",
             components=[TemplateComponentSlot(

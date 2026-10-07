@@ -85,6 +85,7 @@ from .utils.units import MM
 
 __all__ = [
     "RecordCopperMap",
+    "cell_record_slots",
     "instance_record_copper_map",
     "own_instance_context",
     "own_registry_entries",
@@ -273,11 +274,12 @@ def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
     return out
 
 
-def _cell_record_slots(cell) -> set:
+def cell_record_slots(cell) -> set:
     """``{(kind, role_part, index)}`` — every copper record the cell's OWN lists
     can hold: cell-level vias/tracks under the spoke placeholder and each
     component's vias under its role (the SAME two levels ``plan_subtraction``
-    resolves). Used to count the records the registry has no key for."""
+    resolves). Shared by the registry-only map (to count the records the registry
+    has no key for) and by the at-current-place adoption (to walk the records)."""
     slots: set = set()
     if cell is None:
         return slots
@@ -440,7 +442,7 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
                for kind, items in live.items()}
     entries = own_registry_entries(via_entries, track_entries, cell_identity,
                                    own_addresses, chosen_address, refs)
-    without_registry = len(_cell_record_slots(cell) - {
+    without_registry = len(cell_record_slots(cell) - {
         (kind, role_part, index)
         for kind, role_part, index, _uuid in entries})
 

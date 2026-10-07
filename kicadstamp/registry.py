@@ -504,6 +504,15 @@ class BaseRegistry(ABC, Generic[TEntry]):
         self.entries[cmd.registry_key] = self._build_entry(cmd, created_uuid)
         self._save_entries(self.entries)
 
+    def adopt_live(self, key: str, entry) -> None:
+        """Bind ``key`` to an already-built entry and persist — the ONE write door
+        of the at-current-place adoption (plan_2026_10_07_adopt_at_current_place).
+        The CALLER builds the entry from the live item and decides which key may
+        adopt which item (the registry never inspects ownership); this only
+        persists the decision, exactly like ``record_created``. Never deletes."""
+        self.entries[key] = entry
+        self._save_entries(self.entries)
+
 
 # ── Via registry ──────────────────────────────────────────────────────────────
 

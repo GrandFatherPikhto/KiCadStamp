@@ -18045,3 +18045,27 @@ msgid ""
 "anchor_role {role!r} is not a role of this cell — kept; fix it in Cell anchor"
 msgstr ""
 
+
+#, python-brace-format
+msgid "Adopt at current place: no live cell frame for cell {cell} on {cluster} — its copper is not adopted"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of the cell (worst deviation {deviation} mm) — its copper is not adopted, a trail may remain"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: {count} live {kind}(s) lie where record {key} puts its copper — ambiguous, none taken"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: live {uuid} is claimed by {count} records ({keys}) — none takes it"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: {count} record(s) bound to their live copper ({vias} via(s), {tracks} track(s))"
+msgstr ""
+
+#, python-brace-format
+msgid "Adopt at current place: would adopt {count} record(s) (a real run writes the registry)"
+msgstr ""
