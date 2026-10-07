@@ -683,3 +683,20 @@ def test_the_override_picks_the_components_but_the_frame_stays_live(gate, tmp_pa
 
     assert report.adopted == 1
     assert [e.uuid for e in via_reg.entries.values()] == ["v2"]
+
+
+def test_a_record_whose_net_from_role_does_not_resolve_is_not_adopted(gate, tmp_path):
+    """Приёмка R3: the record names its chain through ``net_from_role``, but this
+    instance has NO such role, so the chain cannot be established. A live object
+    lying at the record's EXACT place is still NOT taken (net_refused), never
+    adopted on geometry alone — a chain we cannot name is not a chain we accept."""
+    cell = _cell(vias=[SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0,
+                                       net_from_role="GONE")])
+    clone = _clone()
+    adapter = _adapter(cell, vias=[_live_via("uv", *FPGA_LIVE)])
+
+    report, via_reg, _ = _run(adapter, cell, clone, tmp_path)
+
+    assert report.adopted == 0
+    assert report.net_refused >= 1
+    assert via_reg.entries == {}
