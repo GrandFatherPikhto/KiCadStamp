@@ -79,7 +79,7 @@ release (most releases do not change the grammar). The name is borrowed from KiC
 
 ```sexp
 (kicadstamp-config
-  (version 2)          ; the root's first child — what KiCadStamp writes
+  (version 3)          ; the root's first child — what KiCadStamp writes
   (layer "B.Cu")
   (cells ...))
 ```
@@ -88,8 +88,9 @@ release (most releases do not change the grammar). The name is borrowed from KiC
 |---|---|
 | Where it lives | `.sexp` — `(version N)` at the root (read from anywhere in the root, written first); `.json` — the `"version": N` key, first |
 | No number at all | format **1** — every file written before the number existed looks like this |
-| Current format | **2** |
+| Current format | **3** |
 | What the 1 → 2 step changes | only the number itself; the content does not change |
+| What the 2 → 3 step changes | record identity: every record gains a `uuid`, every reference gains its target's UUID beside the name, each section gains a folder table, and the profile's copper registry is lifted from schema 1 to 2 (see [Identity: UUID](#identity-uuid)) |
 | Who writes the number | the writer, always. Never write it by hand — saving the config adds it |
 
 ### What happens to an old file
@@ -105,6 +106,16 @@ rebuild has no per-step branch of the «this step may be done by insertion» kin
 release later), and its consequence is: legacy section names become canonical (`rules:` → `chains:`),
 default-valued fields are dropped, and the indentation becomes the writer's. **The meaning does not
 change**, and the previous bytes are in the `.bak`.
+
+**The 2 → 3 lift also mints identities.** Every record that has no `uuid` gets one derived from its
+`(section, full name)` — `uuid5` of `"<section>|<full name>"` — and no file path enters that seed, so the
+same profile lifted on two machines (or two shared files lifted in a different order) produces the SAME
+UUIDs. Each reference gets its target's UUID; each section gets a folder table (see
+[Identity: UUID](#identity-uuid)). **Every file of the graph is backed up separately**, and if a `.bak`
+cannot be taken the whole lift stops and that file is left as it is — a copy nobody could restore is not
+worth writing. A half-lifted graph is a legal state: if the lift stops after the first file, that file is
+already in format 3 and the next open finishes the rest. The profile's copper registry is lifted in the
+same open, with its own `.bak`.
 
 ### A file newer than the program
 
@@ -128,6 +139,105 @@ file is a fatal for it (`unsupported top-level key 'version'`) — the profile d
 the first lift Syncthing will carry both the lifted files and the `.bak` copies around; so let **one**
 machine open the project first — two at once would produce identical content, but Syncthing's behaviour
 on two simultaneous edits of one file has not been measured.
+
+**A first launch on a newer build lifts silently.** The GUI opens the last-used root on startup, so the
+first run of a new KiCadStamp lifts that profile before you have seen a thing (the only trace is the Log
+line). To watch a lift on a copy first: copy the profile directory, open the COPY, close it, and only
+then launch KiCadStamp with the original.
+
+---
+
+## Identity: UUID
+
+Since format 3 every record carries a `uuid` — an identity that survives a rename. The NAME stays, but
+it is a **human label and a hint**, never what a reference resolves by: a reference is resolved by its
+UUID, and the name beside it is rewritten from that UUID whenever the file is read or saved. Two records
+may not share a UUID, and a reference whose UUID names no record is a refusal — a dangling reference is
+never "fixed" by looking at the name.
+
+### How a reference looks
+
+A reference is a name plus its target's UUID, kept on ONE line:
+
+```sexp
+      (cell "Power/LDO/ldo" (uuid "11111111-1111-1111-1111-111111111111"))
+```
+
+(The examples in this section are the writer's own output.) In JSON the UUID is the sibling key
+`"cell_uuid"` instead. The same one-line shape is used for a tree node's `ref` and for a `point`
+reference in a tree's `anchor`:
+
+```sexp
+      (ref "E1" (uuid "33333333-3333-3333-3333-333333333333"))
+      (anchor_point "p1" (uuid "22222222-2222-2222-2222-222222222222"))
+```
+
+The reference fields that can carry a `<field>_uuid` are `cell`, `anchor_point`, `imprint`, and a tree
+node's `ref`. A record's OWN UUID is a child of the record, on its own line:
+
+```sexp
+    (cell
+      "Power/LDO/ldo"
+      (layer "B.Cu")
+      (uuid "11111111-1111-1111-1111-111111111111")
+    )
+```
+
+### Renaming, copying, deleting
+
+- **Renaming keeps the UUID.** Rename a record in the GUI (or by hand — the UUID is what identifies it)
+  and every reference to it still points at it, because a reference holds the UUID; the name hints are
+  rewritten on the next read/save. No reference is ever matched by name again.
+- **A copy gets a NEW UUID.** A `tree_instances` copy of a template record is a new record: its UUID is
+  computed deterministically from the original's UUID plus the instance identity (a different UUID
+  namespace from the lift's), so one template copied three times yields three distinct, stable
+  identities, and references inside a copy point at that copy. A record you add with no `uuid` is
+  stamped with a fresh `uuid4` when KiCadStamp writes the file (or inherits the UUID of a same-named
+  record in the file's previous version, so an in-place edit from a form keeps its identity).
+- **Deleting a referenced record is refused.** The delete lists the references and offers to delete them
+  too (cascade); declining cancels the delete entirely rather than leaving a dangling reference. Writing
+  a reference whose UUID is gone is refused as well. A dangling reference at load time is a refusal that
+  shows the referencing record, its name hint, and — when one record's name is close — a
+  `did you mean '…'?` suggestion. That suggestion is only a hint: nothing is resolved by name.
+
+### Folders
+
+A record name with `/` separators (`Power/LDO/ldo`) implies a folder row for every prefix. The folder
+table is a child of its SECTION:
+
+```sexp
+  (cells
+    (folders
+      (folder
+        "Power"
+        (uuid "55555555-5555-5555-5555-555555555555")
+      )
+      (folder
+        "Power/LDO"
+        (uuid "66666666-6666-6666-6666-666666666666")
+      )
+    )
+    (cell
+      "Power/LDO/ldo"
+      (layer "B.Cu")
+      (uuid "11111111-1111-1111-1111-111111111111")
+    )
+  )
+```
+
+One folder path has ONE UUID across the whole `include:` graph — two files carrying a row for the same
+path must agree, and a mismatch is a refusal naming both files. An empty folder is never removed.
+
+### Hand-editing rules
+
+- You may rename a record freely — the UUID is what identifies it.
+- **Never edit or copy a `uuid` by hand.** Two records with the same UUID are a refusal ("duplicate
+  uuid"), and a copied UUID is a copy that claims to be the original.
+- A record without a `uuid` in a **format-3 file** is a refusal on load ("record … has no uuid"): add
+  `(uuid "…")` by hand, or let KiCadStamp's editor rewrite the record. A file that is still
+  `(version 2)` or older is lifted automatically and gets its UUIDs from the migration seed.
+- A reference with no UUID sibling (`(cell "x")` with no `(uuid …)`) in a format-3 file is a refusal on
+  load too: the name alone no longer identifies anything.
 
 ---
 

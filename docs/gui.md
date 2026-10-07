@@ -533,7 +533,9 @@ Right-click any entry for:
 - **Export.../Export selected...** — select one or more entries (multi-select is enabled just for
   this) and copy them into a separate file via a Save dialog. The originals are left untouched. If
   the target file already has content, you're asked whether to merge the exported entries into it
-  or overwrite the whole file.
+  or overwrite the whole file. **Under format 3 the export refuses for now** (the Save dialog cannot
+  tell it the target profile's root, which the write needs to resolve UUIDs): you get a Log error and
+  no file. This returns in a later stage.
 
 Right-click a file node for **Add cell.../Add point.../Add chain.../Add placer.../Add thermal via
 pad.../Add included file...**, plus **Remove this file** (soft-disables its `include:` entry,
