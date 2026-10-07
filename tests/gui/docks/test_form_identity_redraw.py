@@ -207,6 +207,35 @@ def test_clone_placement_redraw_keeps_its_uuid_and_cell_uuid(main_window, tmp_pa
     assert spliced.cell_uuid == cell_uuid
 
 
+# ── coordinate placement ───────────────────────────────────────────────────
+
+def test_coordinate_redraw_keeps_its_uuid_and_anchor_point_uuid(main_window, tmp_path):
+    """0а-2: the coordinate path needs the same identity — its own uuid AND the
+    anchor point's uuid (the reference resolution reads it)."""
+    target = tmp_path / "root.sexp"
+    _write(target, {
+        "points": {"p1": {"anchor_role": "FPGA"}},
+        "coordinate_placements": [
+            {"name": "cp1", "cluster": "C1", "role": "R1",
+             "anchor_point": "p1", "x_mm": 1.0, "y_mm": 2.0},
+        ],
+    })
+    cfg = load_config(str(target))[0]
+    saved = cfg.coordinate_placements[0]
+    dock = PlacerDock(main_window)
+    dock.set_root_path(target)
+    dock.load_placement({"name": "cp1", "cluster": "C1", "role": "R1",
+                         "anchor_point": "p1", "x_mm": 1.0, "y_mm": 2.0,
+                         "uuid": saved.uuid})
+
+    payload = dock._collect_redraw_inputs()
+
+    assert payload is not None
+    spliced = payload["cfg"].coordinate_placements[-1]
+    assert spliced.uuid == saved.uuid
+    assert spliced.anchor_point_uuid == saved.anchor_point_uuid
+
+
 # ── chain ──────────────────────────────────────────────────────────────────
 
 def test_chain_redraw_keeps_the_chain_uuid_and_the_spoke_cell_uuid(main_window, tmp_path):

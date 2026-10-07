@@ -425,6 +425,17 @@ def add_list_entry(path: Path, section: str, entry: str) -> bool:
     return True
 
 
+class RecordNameTaken(ValidationError, OSError):
+    """Raised by upsert_list_entry when the name would land on ANOTHER record.
+
+    Deliberately BOTH a `ValidationError` (it IS a pre-write refusal by meaning,
+    so callers that validate may catch it that way) and an `OSError`: every
+    existing write path already wraps its upsert in `except OSError` and turns
+    the error into a RED Log line, so the refusal is reported without patching
+    ten call sites — and, more importantly, it cannot escape into a Qt slot,
+    where an uncaught exception aborts the process (docs/board_door.md)."""
+
+
 def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str = "name",
                       key_fn: Optional[Callable[[Dict[str, Any]], Any]] = None) -> bool:
     """Read-merge-write like merge_write()/add_list_entry(), but for a list
@@ -441,21 +452,60 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
     — rules: needs this because a Rule's identity for --only falls back to
     net: when name: is absent (config/models.py's rule_effective_name()),
     unlike clone_placements:/thermal_via_arrays: which always require an
-    explicit name:."""
+    explicit name:.
+
+    IDENTITY IS THE UUID WHEN THE ENTRY CARRIES ONE (2026-10-07, plan
+    plan_2026_10_05_uuid_tails 0а-1). A form save that RENAMES a record keeps
+    the record's uuid (the form-identity rule), so matching by name alone found
+    no record under the new name and APPENDED a second one: the format-3 writer
+    stamp then refused the whole write with "duplicate uuid" and a renamed
+    record became un-saveable. Now the entry replaces the record that ALREADY
+    carries its uuid — the rename lands in place. An entry WITHOUT a uuid keeps
+    the historical name-based behaviour, byte for byte.
+
+    A name held by ANOTHER record is a `ValidationError` raised BEFORE anything
+    is written: either the rename lands on a name that already exists, or the
+    entry's uuid belongs to no record while its name belongs to one we do not
+    own. Refusing beats overwriting a foreign record — and beats a
+    duplicate-uuid/duplicate-name fatal from the writer stamp."""
     identity = key_fn if key_fn is not None else (lambda e: e.get(key))
     existing = copy.deepcopy(_read_data(path))
     items = existing.setdefault(section, [])
     if not isinstance(items, list):
         raise OSError(_("{section}: in {path} is not a list — refusing to touch it")
                       .format(section=section, path=path))
-    overwritten = False
+    uuid = entry.get("uuid")
+    by_uuid = None          # the record THIS entry edits (same uuid)
+    by_identity = None      # a name-matched record WITHOUT a uuid (legacy edit)
+    taken = None            # a name-matched record of ANOTHER uuid (conflict)
     for i, existing_entry in enumerate(items):
-        if isinstance(existing_entry, dict) and identity(existing_entry) == identity(entry):
-            items[i] = entry
-            overwritten = True
-            break
-    if not overwritten:
+        if not isinstance(existing_entry, dict):
+            continue
+        if uuid and existing_entry.get("uuid") == uuid:
+            by_uuid = i
+            continue
+        if identity(existing_entry) == identity(entry):
+            if uuid and existing_entry.get("uuid"):
+                taken = i
+            elif by_identity is None:
+                by_identity = i
+    if taken is not None:
+        # `taken` implies the entry carries a uuid and the record owns another:
+        # either the rename lands on a name that is already used, or the name
+        # belongs to a record this form does not own. Both are a refusal.
+        raise RecordNameTaken(_(
+            "cannot save {name!r} in {section}: the name is already used by "
+            "another record — rename that record first, or choose another name")
+            .format(name=identity(entry), section=section))
+    if by_uuid is not None:
+        items[by_uuid] = entry
+        overwritten = True
+    elif by_identity is not None:
+        items[by_identity] = entry
+        overwritten = True
+    else:
         items.append(entry)
+        overwritten = False
     _write_data(path, existing)
     return overwritten
 

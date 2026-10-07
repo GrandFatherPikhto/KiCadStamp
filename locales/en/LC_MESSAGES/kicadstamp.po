@@ -9525,6 +9525,10 @@ msgstr "{path} is not valid {kind}: {error}"
 msgid "{section}: in {path} is not a list — refusing to touch it"
 msgstr "{section}: in {path} is not a list — refusing to touch it"
 
+#, python-brace-format
+msgid "cannot save {name!r} in {section}: the name is already used by another record — rename that record first, or choose another name"
+msgstr ""
+
 #: kicadstamp/config_writer.py:548 kicadstamp/config_writer.py:667
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"

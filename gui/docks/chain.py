@@ -545,6 +545,12 @@ class ChainDock(QWidget):
         entry: Dict[str, Any] = {"net": net}
         if self._chain_entry is not None:
             entry["spokes"] = list(self._chain_entry.get("spokes") or [])
+            # The loaded chain's IDENTITY (format 3): carrying it makes a rename
+            # typed in the form land IN PLACE — upsert_list_entry matches by uuid
+            # (plan plan_2026_10_05_uuid_tails 0а-1), instead of appending a
+            # second record under the new name.
+            if self._chain_entry.get("uuid"):
+                entry["uuid"] = self._chain_entry["uuid"]
         name = self.name_edit.text().strip()
         if name:
             entry["name"] = name

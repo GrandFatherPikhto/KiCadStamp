@@ -1,0 +1,55 @@
+# tools/tidy_handoff.yaml — settings for tools/tidy_handoff.py
+#
+# The script walks `root` recursively. In every directory it moves files named
+# "<prefix>_<rest>.<ext>" into a "<prefix>/" subdirectory of THAT SAME directory
+# (a recursive generalisation of techdocs/handoff/deepseek/categories.sh), makes
+# sure each such "<prefix>/" has an "arch/" inside it, and moves files older
+# than `archive_after_days` days into that "arch/".
+
+# Recursive root to tidy. A relative path resolves against the repository root
+# (the parent directory of tools/), so the default stays correct no matter where
+# you run the script from.
+root: techdocs
+
+# A category file older than this many days is moved into the sibling arch/.
+# Set to null to disable archiving (the arch/ directory is still created).
+archive_after_days: 5
+
+# How a file's age is measured:
+#   mtime    — filesystem modification time (default);
+#   filename — the first YYYY_MM_DD / YYYY-MM-DD found in the name, falling back
+#              to mtime when the name carries no date (handoff docs do).
+archive_date_source: mtime
+
+# Only files with these extensions are sorted into category directories.
+extensions:
+  - .md
+
+# Explicit prefix -> directory map (the union of the two categories.sh files).
+# The trailing underscore may be omitted; it is added automatically.
+prefixes:
+  plan_: plan
+  handoff_: handoff
+  design_: design
+  done_: done
+  note_: note
+  prompt_: prompt
+  backlog_: backlog
+  diag_: diag
+  brainstorm_: brainstorm
+  step_: step
+  idea_: idea
+
+# Handle any other "<word>_<rest>.<ext>" prefix by moving it into "<word>/".
+# This is the "and so on" generalisation; set to false for the strict,
+# whitelist-only behaviour of categories.sh.
+auto_prefixes: true
+
+# Prefixes that are never auto-mapped (only honoured when auto_prefixes is true).
+ignore_prefixes: []
+
+# Skip dotfiles and dot-directories (e.g. .commit_msg_*.txt, .stfolder).
+skip_hidden: true
+
+# When true, only report what would happen. Overridden by --dry-run.
+dry_run: false
