@@ -17,7 +17,6 @@ this module's namespace — and therefore kicadstamp/config/__init__.py's
 `from .loader import ...` surface — is unchanged.
 """
 import copy
-import difflib
 import logging
 from pathlib import Path
 
@@ -114,6 +113,7 @@ from .format3 import (  # noqa: E402,F401  (re-exported)
     _check_format3_graph, _normalize_format3_refs,
     _check_expanded_uuids_unique,
 )
+from .name_hint import close_name_hint  # noqa: E402  (one place for the hint)
 
 
 def load_config(path: str) -> tuple[Config, RuntimeContext]:
@@ -518,9 +518,10 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         if anchor_point is None:
             return
         if anchor_point not in points:
-            suggestion = difflib.get_close_matches(anchor_point, sorted(points.keys()), n=1)
-            hint = (_(" (did you mean {suggestion!r}?)").format(suggestion=suggestion[0])
-                    if suggestion else "")
+            # The close-match suggestion lives in ONE place
+            # (config/name_hint.close_name_hint) — the format-3 dangling-reference
+            # refusal asks the very same function (plan_2026_10_05_uuid_tails п.1).
+            hint = close_name_hint(anchor_point, points.keys())
             raise ValidationError(format_fatal_error(
                 _("{owner}: anchor_point {name!r} not found in points:{hint}")
                 .format(owner=owner_label, name=anchor_point, hint=hint),
