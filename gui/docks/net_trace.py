@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLa
 from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import Config, RuntimeContext, load_config, load_net_trace
+from kicadstamp.config.form_identity import identify
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
@@ -89,6 +90,10 @@ class NetTraceDock(QWidget):
         # never holds the machine-written geometry (Э2, plan
         # select_copper_by_record; design §12.1).
         self._current_identity: Optional[str] = None
+        # Form identity (plan_2026_10_05_uuid_tails, part 0): the uuid of the
+        # record loaded into the form and the stable uuid of a brand-new one.
+        self._loaded_uuid: Optional[str] = None
+        self._draft_uuid: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -258,6 +263,9 @@ class NetTraceDock(QWidget):
         # Remember WHICH record the flat list opened (name:, else a legacy net:)
         # so "Select on board" acts on it, not on an ambiguous net (Э2).
         self._current_identity = str(entry.get("name") or entry.get("net") or "") or None
+        # Part 0: remember the record's identity for Redraw/Save.
+        self._loaded_uuid = entry.get("uuid")
+        self._draft_uuid = None
         if file_path is None:
             file_path = find_list_entry_file(self._root_path, "net_traces", entry)
         if file_path is not None:
@@ -287,6 +295,8 @@ class NetTraceDock(QWidget):
         # drop the previously opened identity — "Select on board" then resolves
         # the form's net honestly.
         self._current_identity = None
+        self._loaded_uuid = None
+        self._draft_uuid = None
         board = self._connection.board
         if board is None:
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
@@ -472,6 +482,11 @@ class NetTraceDock(QWidget):
         entry = self._build_entry_dict()
         if entry is None:
             return
+        # Keep the identity the Redraw preview already used (part 0): a new
+        # record's uuid is minted ONCE and reused here.
+        identity_uuid = self._draft_uuid or self._loaded_uuid
+        if identity_uuid:
+            entry["uuid"] = identity_uuid
         try:
             load_net_trace(entry)  # validate before writing anything
         except ValidationError as e:
@@ -516,6 +531,8 @@ class NetTraceDock(QWidget):
                 action=_("Overwrote") if overwritten else _("Wrote"),
                 net=entry["net"], path=display_path(self._path)),
             _SUCCESS_STYLE)
+        self._loaded_uuid = entry.get("uuid")
+        self._draft_uuid = entry.get("uuid")
         self.saved.emit()
 
     # ── Redraw ─────────────────────────────────────────────────────────────
@@ -578,6 +595,19 @@ class NetTraceDock(QWidget):
                     entry["anchor_rotation_deg"] = saved_dict["anchor_rotation_deg"]
                 break
 
+        # Form identity (part 0): the widgets carry no uuid — carry the SAVED
+        # record's identity (its uuid; NetTrace has no cell/point references)
+        # so the registry key holds instead of refusing (Р-У5.7).
+        try:
+            entry = identify(entry, "net_traces", cfg=cfg,
+                             identity=entry.get("name") or entry.get("net"),
+                             identity_of=lambda nt: nt.name or nt.net,
+                             remembered_uuid=self._loaded_uuid,
+                             draft_uuid=self._draft_uuid)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        self._draft_uuid = entry.get("uuid")
         nt = load_net_trace(entry)  # full NetTrace incl. carried geometry
         # load_config() returns the graph cache's SHARED Config (no defensive
         # deepcopy) — the replace-by-net below must not mutate the cached one.

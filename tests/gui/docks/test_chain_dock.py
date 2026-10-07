@@ -22,7 +22,7 @@ from types import SimpleNamespace
 import gui.docks.chain as chain_mod
 from gui.board_nets import board_net_names
 from gui.docks.chain import ChainDock
-from kicadstamp.config import (Config, RuntimeContext, chain_effective_name,
+from kicadstamp.config import (Cell, Config, RuntimeContext, chain_effective_name,
                                load_chain as _lc)
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 
@@ -524,7 +524,11 @@ def test_redraw_spoke_isolates_only_the_selected_spoke(main_window, tmp_path):
     previously the siblings were temporarily skip=True, drop_inactive_items
     removed them from the chain and the isolated spoke popped the neighbour's
     first natural-order component)."""
-    dock, _ = _make_dock(main_window, tmp_path)
+    # Part 0: the graph must declare the cells the spokes name — the
+    # form-identity rule refuses a reference whose name is not in the loaded
+    # graph, exactly as the format-3 writer does at write time.
+    dock, _ = _make_dock(main_window, tmp_path,
+                         data={"chains": [], "cells": {"fpga": {}, "cap": {}}})
     chain_data = {"net": "+3V3", "anchor_role": "FPGA", "spokes": [
         {"pad": "17", "cell": "fpga"}, {"pad": "26", "cell": "cap"}]}
 
@@ -556,7 +560,10 @@ def test_redraw_timeout_follows_the_connection(main_window, tmp_path, monkeypatc
     """The UI half: the payload carries the timeout the main connection RUNS
     with (what Settings > KiCad applied), never a literal of the dock's own."""
     dock, _root = _make_dock(main_window, tmp_path)
-    fake_cfg, fake_ctx = Config(), RuntimeContext()
+    # Part 0: the spoke names a cell, so the fake graph must carry it (its
+    # uuid, the record identity the redraw splices with).
+    fake_cfg, fake_ctx = Config(
+        cells={"cap": Cell(name="cap", uuid="U-CAP")}), RuntimeContext()
     monkeypatch.setattr(chain_mod, "load_config", lambda path: (fake_cfg, fake_ctx))
     main_window.connection.timeout_ms = 31_000     # exactly what the Settings tab writes
 

@@ -62,6 +62,7 @@ from kicadstamp.apply_pipeline import ApplyPipeline
 from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import (Config, RuntimeContext, load_config,
                                 load_thermal_via_array)
+from kicadstamp.config.form_identity import identify
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 
@@ -94,6 +95,11 @@ class ThermalViaArrayDock(QWidget):
         self._active_op: Optional[Any] = None
         self._path: Optional[Path] = None
         self._root_path: Optional[Path] = None
+        # Form identity (plan_2026_10_05_uuid_tails, part 0): the uuid of the
+        # record loaded into the form (so a rename still edits THAT record) and
+        # the stable uuid of a brand-new record (minted once, reused by Save).
+        self._loaded_uuid: Optional[str] = None
+        self._draft_uuid: Optional[str] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -363,6 +369,20 @@ class ThermalViaArrayDock(QWidget):
             self._show_message(_("Failed to load file: {error}").format(error=e), _ERROR_STYLE)
             return None
 
+        # Form identity (plan_2026_10_05_uuid_tails, part 0): the widgets carry
+        # no uuid, so the record spliced below would lose the identity the
+        # registry key needs (record_key_part refuses to fall back to a name).
+        # Give it the saved record's own uuid and resolve anchor_point_uuid.
+        try:
+            entry = identify(entry, "thermal_via_arrays", cfg=cfg,
+                             remembered_uuid=self._loaded_uuid,
+                             draft_uuid=self._draft_uuid)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        self._draft_uuid = entry.get("uuid")
+        tva = load_thermal_via_array(entry)
+
         # Replace-by-name: previewing an already-saved entry's edits must
         # not create a second copy alongside the saved one.
         cfg = replace(cfg)  # graph cache is shared; don't mutate the cached Config
@@ -444,6 +464,12 @@ class ThermalViaArrayDock(QWidget):
         entry = self._build_entry_dict()
         if entry is None:
             return
+        # Keep the identity the Redraw preview already used (part 0): a new
+        # record's uuid is minted ONCE and reused here, so the preview's copper
+        # key and the saved record's key are the same.
+        identity_uuid = self._draft_uuid or self._loaded_uuid
+        if identity_uuid:
+            entry["uuid"] = identity_uuid
         if self._path is None:
             self._show_message(_("Set the project root first."), _ERROR_STYLE)
             return
@@ -464,6 +490,9 @@ class ThermalViaArrayDock(QWidget):
                 action=_("Overwrote") if overwritten else _("Wrote"),
                 name=entry["name"], path=display_path(self._path)),
             _SUCCESS_STYLE)
+        # The saved record's identity is now the one in force for this form.
+        self._loaded_uuid = entry.get("uuid")
+        self._draft_uuid = entry.get("uuid")
         self.saved.emit()
 
     # ── Starting a brand new entry (ConfigTreeDock's Add thermal via pad) ───
@@ -477,6 +506,8 @@ class ThermalViaArrayDock(QWidget):
         self._loading = True
         try:
             self._path = self._root_path
+            self._loaded_uuid = None
+            self._draft_uuid = None
             self.name_edit.setText("")
             self.comment_edit.setText("")
             self.origin_widget.clear()
@@ -508,6 +539,10 @@ class ThermalViaArrayDock(QWidget):
             file_path = find_list_entry_file(self._root_path, "thermal_via_arrays", entry)
         if file_path is not None:
             self._path = file_path
+        # Remember the loaded record's identity so a rename in the form still
+        # edits the SAME record on Redraw (part 0).
+        self._loaded_uuid = entry.get("uuid")
+        self._draft_uuid = None
         self._loading = True
         try:
             self.name_edit.setText(str(entry.get("name", "")))

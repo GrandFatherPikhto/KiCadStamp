@@ -126,6 +126,7 @@ from kicadstamp.config import (ClonePlacement, Config, Entity, RuntimeContext,
                                coordinate_placement_effective_name,
                                entity_effective_name, load_clone_placement,
                                load_config, load_coordinate_placement, load_entity)
+from kicadstamp.config.form_identity import identify
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
@@ -716,6 +717,12 @@ class PlacerDock(QWidget):
         # the CURRENT identity) appends a duplicate instead of replacing it
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity: Optional[str] = None
+        # Form identity (plan_2026_10_05_uuid_tails, part 0): the uuid of the
+        # record loaded into the form and the stable uuid of a brand-new one —
+        # so a Redraw splices the record with its identity instead of a bare
+        # form dict (record_key_part would refuse a missing uuid, Р-У5.7).
+        self._loaded_uuid: Optional[str] = None
+        self._draft_uuid: Optional[str] = None
         # The same "form-level rename must delete the old record" identity,
         # for Entity mode (2026-08-30, Entity/Placement split, phase 5.2) —
         # see _loaded_clone_identity and _do_save_entity.
@@ -1769,6 +1776,21 @@ class PlacerDock(QWidget):
                 .format(cell=entry["cell"]), _ERROR_STYLE)
             return None
 
+        # Form identity (part 0): the widgets carry no uuid — give the record
+        # the identity of the one it replaces (its own uuid + cell_uuid /
+        # anchor_point_uuid resolved by the form's name hints).
+        try:
+            entry = identify(entry, "clone_placements", cfg=cfg,
+                             identity=entry.get("name") or entry.get("cluster"),
+                             identity_of=clone_placement_effective_name,
+                             remembered_uuid=self._loaded_uuid,
+                             draft_uuid=self._draft_uuid)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        self._draft_uuid = entry.get("uuid")
+        clone_placement = load_clone_placement(entry)
+
         # Replace-by-name: previewing an already-saved placement's edits
         # must not create a second copy alongside the saved one — match on the
         # effective save/--only identity (placer_name if set, else Cluster),
@@ -1818,6 +1840,20 @@ class PlacerDock(QWidget):
         if loaded is None:
             return None
         cfg, ctx = loaded
+
+        # Form identity (part 0): the widgets carry no uuid — give the record
+        # the identity of the one it replaces (its own uuid + anchor_point_uuid).
+        try:
+            entry = identify(entry, "coordinate_placements", cfg=cfg,
+                             identity=name,
+                             identity_of=coordinate_placement_effective_name,
+                             remembered_uuid=self._loaded_uuid,
+                             draft_uuid=self._draft_uuid)
+        except ValidationError as e:
+            self._show_message(str(e), _ERROR_STYLE)
+            return None
+        self._draft_uuid = entry.get("uuid")
+        cp = load_coordinate_placement(entry)
 
         # Replace-by-name: previewing an already-saved entry's edits must
         # not create a second copy alongside the saved one.
@@ -2420,9 +2456,16 @@ class PlacerDock(QWidget):
         if self.is_entity:
             self._do_save_entity(entry)
             return
+        # Keep the identity the Redraw preview already used (part 0): a new
+        # record's uuid is minted ONCE and reused here.
+        identity_uuid = self._draft_uuid or self._loaded_uuid
         if self.is_coordinate:
+            if identity_uuid:
+                entry["uuid"] = identity_uuid
             self._do_save_coordinate(entry)
             return
+        if identity_uuid:
+            entry["uuid"] = identity_uuid
         try:
             load_clone_placement(entry)  # validate before writing anything
         except ValidationError as e:
@@ -2548,6 +2591,8 @@ class PlacerDock(QWidget):
         except ValidationError as e:
             self._show_message(str(e), _ERROR_STYLE)
             return
+        if not entry.get("uuid") and self._loaded_uuid:
+            entry["uuid"] = self._loaded_uuid
         name = coordinate_placement_effective_name(cp)
         try:
             # Match existing entries by their RAW effective name (name or
@@ -2605,6 +2650,8 @@ class PlacerDock(QWidget):
         # (2026-08-15, plan placer_form_save_renames_not_duplicates).
         self._loaded_clone_identity = None
         self._loaded_entity_identity = None
+        self._loaded_uuid = None
+        self._draft_uuid = None
         self._loaded_entity_imprint = None
         self._placement_status_label.setText("")
         self.sheet_edit.setCurrentText("")
@@ -2625,6 +2672,8 @@ class PlacerDock(QWidget):
         passed path is ignored."""
         self._loading = True
         self._placer_path = self._root_path
+        self._loaded_uuid = None
+        self._draft_uuid = None
         self.cell_mode_combo.setCurrentIndex(1)  # -> Single component (signal toggles tabs)
         self._on_cell_mode_changed()
         self.coordinate_form.clear()
@@ -2648,6 +2697,10 @@ class PlacerDock(QWidget):
             file_path = find_list_entry_file(self._root_path, section, entry)
         if file_path is not None:
             self._placer_path = file_path
+        # Part 0: remember the record's identity for Redraw/Save (set BEFORE the
+        # coordinate path's early return below).
+        self._loaded_uuid = entry.get("uuid")
+        self._draft_uuid = None
         # Reset the clone Origin before anything else (plan 2026-08-13, p.3):
         # on the moment set_selected_cell() runs below, anchor_cluster must be
         # empty (or already THIS record's), never the previous record's value —

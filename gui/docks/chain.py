@@ -77,6 +77,7 @@ from kicadstamp.cli_common import api_error_message
 from kicadstamp.config import (Chain, Config, RuntimeContext, load_config,
                                load_chain, load_manual_spoke,
                                chain_effective_name)
+from kicadstamp.config.form_identity import identify
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.utils.units import MM
@@ -689,6 +690,7 @@ class ChainDock(QWidget):
     def _collect_redraw_payload(
         self, chains: List["Chain"],
         isolate_spokes: Optional[Dict[str, Any]] = None,
+        raw_entries: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Build the ApplyPipeline payload from ONE OR MORE loaded Chains —
         the tree's context menu / Tools menu pass the chain dicts; this loads
@@ -713,7 +715,26 @@ class ChainDock(QWidget):
 
         cfg = dataclasses.replace(cfg)  # graph cache is shared; don't mutate it
         names: List[str] = []
-        for chain in chains:
+        sources = list(zip(chains, raw_entries)) if raw_entries else [
+            (chain, None) for chain in chains]
+        for chain, raw in sources:
+            if raw is not None:
+                # Form identity (plan_2026_10_05_uuid_tails, part 0): the tree's
+                # chain dict may carry no uuid — give the chain and each spoke's
+                # `cell` reference the identity of the record they replace, so
+                # ApplyPipeline sees a format-3 record instead of a nameless one.
+                try:
+                    raw = identify(raw, "chains", cfg=cfg,
+                                   identity=_chain_identity(raw),
+                                   identity_of=chain_effective_name)
+                except ValidationError as e:
+                    self._show_message(str(e), _ERROR_STYLE)
+                    return None
+                try:
+                    chain = load_chain(raw)
+                except ValidationError as e:
+                    self._show_message(str(e), _ERROR_STYLE)
+                    return None
             effective = chain_effective_name(chain)
             names.append(effective)
             cfg.chains = [c for c in cfg.chains if chain_effective_name(c) != effective]
@@ -731,7 +752,7 @@ class ChainDock(QWidget):
         except ValidationError as e:
             self._show_message(str(e), _ERROR_STYLE)
             return
-        payload = self._collect_redraw_payload([chain])
+        payload = self._collect_redraw_payload([chain], raw_entries=[chain_dict])
         if payload is None:
             return
         self._start_redraw_op(payload)
@@ -761,7 +782,8 @@ class ChainDock(QWidget):
         if not (0 <= pad_index < len(chain.spokes)):
             return
         isolate = {chain_effective_name(chain): {chain.spokes[pad_index].pad}}
-        payload = self._collect_redraw_payload([chain], isolate_spokes=isolate)
+        payload = self._collect_redraw_payload([chain], isolate_spokes=isolate,
+                                               raw_entries=[chain_dict])
         if payload is None:
             return
         self._start_redraw_op(payload)
@@ -809,7 +831,7 @@ class ChainDock(QWidget):
         if not chains:
             self._show_message(_("Nothing to redraw."), _ERROR_STYLE)
             return
-        payload = self._collect_redraw_payload(chains)
+        payload = self._collect_redraw_payload(chains, raw_entries=chain_dicts)
         if payload is None:
             return
         self._start_redraw_op(payload)
