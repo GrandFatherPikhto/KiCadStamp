@@ -32,6 +32,7 @@ from kicadstamp.registry import (
 )
 from kicadstamp.registry_match import (
     TIER_REGISTRY,
+    accept_planned_match,
     match_planned_copper,
 )
 from kicadstamp.selection_narrowing import (
@@ -158,7 +159,11 @@ class SelectPlan:
 
     СЦ-2 counters (the read path): copper_by_registry ('R'), copper_by_geometry
     ('G'), copper_missing ('K' — recorded by the planner but not on the board),
-    copper_planned (how many commands the redraw planner produced)."""
+    copper_planned (how many commands the redraw planner produced).
+
+    not_checked_notes — the honest reasons copper the registry offered was NOT
+    taken (a pair that does not sit where the record puts it, an ORPHAN key, a
+    non-rigid frame): one wording for both doors, already folded into `line`."""
 
     footprints: list
     copper: list
@@ -168,6 +173,7 @@ class SelectPlan:
     copper_by_geometry: int = 0
     copper_missing: int = 0
     copper_planned: int = 0
+    not_checked_notes: tuple = ()
 
 
 def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
@@ -175,39 +181,51 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
                         own_refs=None) -> SelectPlan:
     """The components + OWN copper of the (cluster, sheet) instance.
 
-    The ownership loop lives in the CORE now (plan_2026_10_07_refused_tree_matching):
-    ``absent_copper_prune.own_registry_entries`` runs the ONE ``is_own_key`` filter
-    over the SAME key tail — the registry-only map of «Subtract selected copper»
-    calls it too, so the fallback and this read can never disagree."""
+    The copper comes from the ONE registry-only map
+    (``absent_copper_prune.registry_record_copper_map``) — the SAME map «Subtract
+    selected copper» builds for a refused tree, so the two can never disagree
+    about "which copper is mine": the ownership loop (``is_own_key``), the place
+    check inside a RIGID cell frame and the ORPHAN rule
+    (plan_2026_10_07_registry_pair_frame_check) ALL live there. Copper the map
+    refuses is NOT selected — never highlighted as this cell's own — and the
+    numbers travel in the line."""
     from kicadstamp.absent_copper_prune import (
+        not_checked_reasons,
         own_instance_context,
-        own_registry_entries,
+        registry_record_copper_map,
     )
 
-    footprints, cell_identity, own_addresses, chosen_address, refs = \
-        own_instance_context(adapter, cfg, cell_name, cluster, sheet,
-                             sheet_names=sheet_names, own_refs=own_refs)
-    via_entries, track_entries, _owner = load_registry_entries(config_path, cfg)
+    feet = own_instance_context(adapter, cfg, cell_name, cluster, sheet,
+                                sheet_names=sheet_names, own_refs=own_refs)
+    footprints = feet[0]
+    record_map = registry_record_copper_map(
+        adapter, config_path, cfg, cell_name, cluster, sheet,
+        sheet_names=sheet_names, own_refs=own_refs)
 
     # A fake/older adapter may not expose the copper reads; "no copper" is then
     # the honest answer (the components are still selected).
     _get_vias = getattr(adapter, "get_vias", None)
     _get_tracks = getattr(adapter, "get_tracks", None)
-    live_vias = {getattr(v, "uuid", None): v
-                 for v in (_get_vias() if _get_vias else [])}
-    live_tracks = {getattr(t, "uuid", None): t
-                   for t in (_get_tracks() if _get_tracks else [])}
+    live = {"via": {getattr(v, "uuid", None): v
+                    for v in (_get_vias() if _get_vias else [])},
+            "track": {getattr(t, "uuid", None): t
+                      for t in (_get_tracks() if _get_tracks else [])}}
     copper: list = []
-    missing = 0
-    for kind, _role_part, _index, uuid in own_registry_entries(
-            via_entries, track_entries, cell_identity, own_addresses,
-            chosen_address, refs):
-        item = (live_vias if kind == "via" else live_tracks).get(uuid)
-        if item is None:
-            missing += 1
-        else:
+    for (kind, _role_part, _index), uuid in (record_map.by_record or {}).items():
+        item = live[kind].get(uuid)
+        if item is not None:
             copper.append(item)
+    # Everything the registry offered and this map did NOT take: copper that is
+    # simply not on the board (named, never an error), plus whatever the place
+    # check / the ORPHAN rule refused (named by the notes below).
+    missing = max(0, record_map.entries_total - len(record_map.by_record)
+                  - record_map.disagreed - record_map.orphan_keys)
 
+    notes = tuple(not_checked_reasons(
+        not_rigid=record_map.not_rigid,
+        frame_residual_mm=record_map.frame_residual_mm,
+        disagreed=record_map.disagreed,
+        orphan_keys=record_map.orphan_keys))
     line = _("selected: {components} component(s), {vias} via(s), "
              "{tracks} track(s) — {cell} on {sheet}").format(
         components=len(footprints), vias=_count_kind(copper, "via"),
@@ -216,10 +234,13 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
     if missing:
         line += _("; the registry remembers {n} more, not on the board").format(
             n=missing)
+    if notes:
+        line += " " + " ".join(notes)
     return SelectPlan(footprints=footprints, copper=copper,
                       missing_registry=missing,
                       copper_by_registry=len(copper),
-                      copper_planned=len(copper) + missing, line=line)
+                      copper_planned=len(copper) + missing, line=line,
+                      not_checked_notes=notes)
 
 
 def _count_kind(items, kind: str) -> int:
@@ -296,7 +317,10 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     geometry. A command found by neither tier is recorded-but-absent ('K').
     Nothing is written anywhere (the registry is read, never saved; the board is
     selected, never edited)."""
-    from kicadstamp.absent_copper_prune import own_instance_context
+    from kicadstamp.absent_copper_prune import (
+        not_checked_reasons,
+        own_instance_context,
+    )
 
     footprints, cell_identity, own_addresses, chosen_address, refs = \
         own_instance_context(adapter, cfg, cell_name, cluster, sheet,
@@ -313,18 +337,27 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     via_reg = PlacementRegistry(adapter, via_path)
     trk_reg = TrackRegistry(adapter, trk_path)
 
-    matches = list(match_planned_copper(via_reg, planned_vias, live_items=live_vias))
-    matches += list(match_planned_copper(trk_reg, planned_tracks, live_items=live_tracks))
+    matches = [(reg, m) for reg, cmds, live in (
+        (via_reg, planned_vias, live_vias),
+        (trk_reg, planned_tracks, live_tracks))
+        for m in match_planned_copper(reg, cmds, live_items=live)]
 
     copper: list = []
     seen: set = set()
-    by_registry = by_geometry = missing = 0
-    for m in matches:
+    by_registry = by_geometry = missing = refused = 0
+    for reg, m in matches:
         key = getattr(m.command, "registry_key", None)
         if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
             continue
         if m.live is None:
             missing += 1
+            continue
+        if not accept_planned_match(reg, m):
+            # The registry's uuid pointed at copper that is NOT where THIS record
+            # plans its own (a shifted `index` — rule 1 of
+            # plan_2026_10_07_registry_pair_frame_check): not checked, and never
+            # highlighted as this cell's copper.
+            refused += 1
             continue
         uuid = getattr(m.live, "uuid", None)
         if uuid is not None and uuid in seen:
@@ -337,17 +370,22 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
             by_geometry += 1
         copper.append(m.live)
 
+    notes = tuple(not_checked_reasons(
+        not_rigid=False, frame_residual_mm=None, disagreed=refused,
+        orphan_keys=0))
     line = _("Select cell: {components} component(s); copper — {by_registry} by "
              "registry, {by_geometry} by geometry; recorded but not on the board "
              "— {missing}").format(
         components=len(footprints), by_registry=by_registry,
         by_geometry=by_geometry, missing=missing)
+    if notes:
+        line += " " + " ".join(notes)
     return SelectPlan(footprints=footprints, copper=copper,
                       copper_by_registry=by_registry,
                       copper_by_geometry=by_geometry,
                       copper_missing=missing,
                       copper_planned=len(planned_vias) + len(planned_tracks),
-                      line=line)
+                      line=line, not_checked_notes=notes)
 
 
 def cell_has_recorded_copper(cell) -> bool:
@@ -377,4 +415,6 @@ def no_planned_copper_targets(adapter, cfg, config_path: str, cell_name: str,
                   "above); copper — registry only: {r}").format(
         components=len(plan.footprints), record=record_name,
         r=plan.copper_by_registry)
+    if plan.not_checked_notes:
+        plan.line += " " + " ".join(plan.not_checked_notes)
     return plan

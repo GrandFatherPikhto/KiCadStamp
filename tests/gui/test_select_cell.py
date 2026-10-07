@@ -10,7 +10,8 @@ import pytest
 
 from kicadstamp.config import format_version
 from kicadstamp.config.format_version import current_format
-from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
+                                SPOKE_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key, record_key_part
@@ -63,12 +64,35 @@ class _Adapter:
         return list(self._tracks)
 
 
-def _fp(ref, role, cluster):
+def _fp(ref, role, cluster, x_mm=0.0, y_mm=0.0):
     fp = Footprint(ref=ref, uuid=f"uuid-{ref}",
-                   position=Vector2.from_xy_mm(0.0, 0.0), angle_deg=0.0,
+                   position=Vector2.from_xy_mm(x_mm, y_mm), angle_deg=0.0,
                    layer=BoardLayer.BL_F_Cu)
     fp.sheet_path_uuids = ()
     return fp
+
+
+def _slot(role, along, across):
+    return SimpleNamespace(role=role, offset_along_mm=along,
+                           offset_across_mm=across, vias=[])
+
+
+def _rec_via(along, across):
+    return SimpleNamespace(offset_along_mm=along, offset_across_mm=across)
+
+
+def _rec_track(along, across, end_along, end_across):
+    return SimpleNamespace(start_along_mm=along, start_across_mm=across,
+                           end_along_mm=end_along, end_across_mm=end_across)
+
+
+def _cell(uuid, *, vias=(), tracks=(), components=()):
+    """The fixture cell: the two slots (DA at the cell's own (0,0), DB at (5,0))
+    are what makes the registry-only frame RIGID and its origin the cell's own
+    (0,0) — the live footprints below are placed to match."""
+    return SimpleNamespace(uuid=uuid, anchor_role=None, anchor_xy=None,
+                           vias=list(vias), tracks=list(tracks),
+                           components=list(components))
 
 
 def _write_registries(tmp_path, via_entries, track_entries):
@@ -107,13 +131,17 @@ def test_select_cell_targets_own_instance_and_own_copper(gate, tmp_path):
     from gui.select_cell import select_cell_targets
 
     cell_uuid = det_uuid("cells:dac_buf")
-    cfg = _Cfg(cells={"dac_buf": _Rec(uuid=cell_uuid)})
+    cfg = _Cfg(cells={"dac_buf": _cell(
+        cell_uuid,
+        vias=[_rec_via(0.0, 0.0), _rec_via(2.0, 2.0)],
+        tracks=[_rec_track(0.0, 0.0, 1.0, 0.0)],
+        components=[_slot("DA", 0.0, 0.0), _slot("DB", 5.0, 0.0)])})
     cell_identity = record_key_part("dac_buf", cell_uuid)
     config_path = tmp_path / "config.sexp"
     config_path.write_text("", encoding="utf-8")
 
-    fp_c1 = _fp("C1", "DA", "DAC_BUF")
-    fp_c2 = _fp("C2", "DB", "DAC_BUF")
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0)
+    fp_c2 = _fp("C2", "DB", "DAC_BUF", 5.0, 0.0)
     fp_p1 = _fp("P1", "PA", "PIF_AVDD")
     v_own = Via(uuid="v_own", position=Vector2.from_xy_mm(0.0, 0.0),
                 net_name=None, drill_mm=0.3, diameter_mm=0.6)
@@ -126,19 +154,25 @@ def test_select_cell_targets_own_instance_and_own_copper(gate, tmp_path):
                   end=Vector2.from_xy_mm(1.0, 0.0),
                   width_mm=0.25, layer=BoardLayer.BL_F_Cu)
     # own: anchor:<ref> of THIS instance; foreign: another instance; gone: not live.
+    # Every key names a REAL record of the cell (the spoke placeholder + index) —
+    # an ORPHAN key is never a pair, so it could not test the ownership rule.
     via_entries = {
-        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity, "r", 0):
+        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
+                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_own", "x_mm": 0.0, "y_mm": 0.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
-        make_registry_key("anchor:X9:1:0.0000:0.0000", cell_identity, "r", 0):
+        make_registry_key("anchor:X9:1:0.0000:0.0000", cell_identity,
+                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_foreign", "x_mm": 1.0, "y_mm": 1.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
-        make_registry_key("anchor:C2:1:0.0000:0.0000", cell_identity, "r", 0):
+        make_registry_key("anchor:C2:1:0.0000:0.0000", cell_identity,
+                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 1):
             {"uuid": "v_gone", "x_mm": 2.0, "y_mm": 2.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
     }
     track_entries = {
-        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity, "r", 0):
+        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
+                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "t_own", "start_x_mm": 0.0, "start_y_mm": 0.0,
              "end_x_mm": 1.0, "end_y_mm": 0.0, "width_mm": 0.25,
              "net": "N", "layer": "F.Cu"},
@@ -160,17 +194,20 @@ def test_select_cell_targets_counts_registry_uuids_not_on_board(gate, tmp_path):
     from gui.select_cell import select_cell_targets
 
     cell_uuid = det_uuid("cells:dac_buf")
-    cfg = _Cfg(cells={"dac_buf": _Rec(uuid=cell_uuid)})
+    cfg = _Cfg(cells={"dac_buf": _cell(
+        cell_uuid, vias=[_rec_via(0.0, 0.0)],
+        components=[_slot("DA", 0.0, 0.0)])})
     cell_identity = record_key_part("dac_buf", cell_uuid)
     config_path = tmp_path / "config.sexp"
     config_path.write_text("", encoding="utf-8")
     via_entries = {
-        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity, "r", 0):
+        make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
+                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_gone", "x_mm": 0.0, "y_mm": 0.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
     }
     _write_registries(tmp_path, via_entries, {})
-    fp_c1 = _fp("C1", "DA", "DAC_BUF")
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0)
     adapter = _Adapter({"C1": ("DA", "DAC_BUF")}, footprints=[fp_c1], vias=[])
     plan = select_cell_targets(adapter, cfg, str(config_path), "dac_buf",
                                "DAC_BUF", None, {}, own_refs=["C1"])
@@ -373,15 +410,18 @@ def test_select_cell_same_cell_keeps_unsaved_edits(main_window, tmp_path):
 
 # ── the ownership filter has ONE home (plan_2026_10_07_refused_tree_matching) ──
 
-def test_select_cell_targets_carries_no_second_filter_copy():
-    """Mutation "`select_cell_targets` grows its own filter loop again" dies
-    here: the ownership loop lives in
-    ``kicadstamp/absent_copper_prune.own_registry_entries``, which the
-    registry-only map of «Subtract selected copper» calls too — «Select cell»'s
-    fallback must NOT carry a second copy of ``is_own_key``."""
+def test_select_cell_fallback_uses_the_one_registry_map():
+    """Mutation "`select_cell_targets` grows its own scan again" dies here: the
+    registry-only copper comes from
+    ``kicadstamp/absent_copper_prune.registry_record_copper_map`` — the SAME map
+    «Subtract selected copper» builds for a refused tree, which owns the
+    ``is_own_key`` loop, the key tail AND (plan_2026_10_07_registry_pair_frame_check)
+    the place check and the ORPHAN rule. «Select cell»'s fallback must not carry a
+    second copy of any of them."""
     import inspect
     from gui.select_cell import select_cell_targets
 
     src = inspect.getsource(select_cell_targets)
-    assert "own_registry_entries" in src
+    assert "registry_record_copper_map" in src
+    assert "own_registry_entries" not in src
     assert "is_own_key(" not in src      # no CALL to the filter — only its name in prose

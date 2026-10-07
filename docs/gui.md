@@ -2442,6 +2442,11 @@ own via/track lists and every other record stay as they are. The pairing is the 
 uses — the registry uuid first, then exact geometry
 (position, layer, width, net) — so a foreign track running 0.1 mm away from a record never claims it (the
 greedy nearest-neighbour pairing Refresh uses for geometry would, which is why subtraction does not use it).
+The registry's stored uuid is taken only when that copper really SITS WHERE THE RECORD PUTS IT: on a dry run at
+the command's own planned place (the registry's own tolerance), and on the registry-only path inside the cell
+frame — which is used only while that frame is a rigid copy of the cell. A pair that does not, a key whose
+index has no record any more (an orphan) and every pair of a non-rigid cluster are **not checked**: counted and
+named in yellow, never subtracted and never highlighted as this cell's own copper.
 **Invariant: you can subtract exactly what Select cell would highlight.** The instance follows the same
 **Select cell** rule; when several instances' recordings match the selected copper the run refuses in red
 (a wrong instance's record would take copper away from a live one) and nothing is deleted. Several

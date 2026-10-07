@@ -84,6 +84,8 @@ __all__ = [
     "build_import_plan",
     "build_refresh_plan",
     "cell_content_bbox",
+    "cell_frame_from_live",
+    "cell_slot_dicts",
     "cell_zero_slot_role",
     "match_components",
     "net_template_regex",
@@ -723,6 +725,52 @@ def _cell_frame_for(components: list[dict], matched: list[dict],
                      mount=(mount[0], mount[1]), residual_mm=fit.residual_mm)
 
 
+def _frame_and_context(components, footprints, adapter, action_label,
+                       origin_role=None, reconcile=False):
+    """(frame, role_to_ref, matched, origin, mount, problems) — the ONE
+    construction of the cell frame PLUS the role match it is built from.
+
+    J.1: the frame (kicadstamp/cell_frame.py) is the ONE "cell <-> world"
+    transform — rotation and mirror are FITTED from the stored offsets against
+    the live deltas of every matched role at once, so a rotated instance is never
+    baked INTO the cell (re-reading is idempotent) and anchor_xy is never
+    touched. ``frame`` is None when the origin could not be resolved.
+
+    Refresh and import need the other outputs too, so the construction lives HERE
+    and they share it with the public :func:`cell_frame_from_live` — one place,
+    never a copy (rule: "одно правило — одно место")."""
+    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
+        components, footprints, adapter, action_label, origin_role, reconcile)
+    frame = (_cell_frame_for(components, matched, footprints, role_to_ref,
+                             origin, mount) if origin is not None else None)
+    return frame, role_to_ref, matched, origin, mount, problems
+
+
+def cell_frame_from_live(components, footprints, adapter, origin_role=None):
+    """PUBLIC: the cell frame of a LIVE instance, built by the VERY code path
+    "Refresh geometry from selection" uses — the role match (with its origin and
+    mount) plus the fit, never a second implementation.
+
+    ``components`` — the cell's slots as dicts (role + the two stored offsets;
+    :func:`cell_slot_dicts` turns a loaded Cell into that shape), ``footprints``
+    — the instance's live footprints, ``origin_role`` — the cell's ``anchor_role``
+    (None keeps the legacy zero-offset-slot origin). None when the origin cannot
+    be resolved: the caller then has nothing to measure against and must say so
+    instead of guessing."""
+    return _frame_and_context(components, footprints, adapter, _("refresh"),
+                              origin_role)[0]
+
+
+def cell_slot_dicts(cell) -> list[dict]:
+    """A loaded ``Cell``'s slots in the list-of-dicts shape the frame and the
+    cell readers take (role + the two STORED offsets) — the frame needs nothing
+    else, and the GUI already holds exactly this shape."""
+    return [{"role": getattr(slot, "role", None),
+             "offset_along_mm": float(getattr(slot, "offset_along_mm", 0.0)),
+             "offset_across_mm": float(getattr(slot, "offset_across_mm", 0.0))}
+            for slot in (getattr(cell, "components", None) or ())]
+
+
 def _nested_role_cell(role: str) -> Cell:
     """The synthesized one-component Cell for a `role:`-only nested placement —
     the SAME construction clone_position_calculator._resolve_content uses at
@@ -1023,17 +1071,12 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     unused in v1: the cell does not store params, so existing parametrized
     literals are handled by template-shape matching (§1.4), which needs no map.
     """
-    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
-        components, footprints, adapter,
-        _("refresh"), origin_role, reconcile=reconcile_components)
-
-    # J.1: the ONE cell<->world frame (kicadstamp/cell_frame.py) — rotation and
-    # mirror are FITTED from the stored offsets against the live deltas of every
-    # matched role at once, so a rotated instance is no longer baked INTO the
-    # cell (re-reading is idempotent) and anchor_xy is never touched (the cell's
-    # own frame does not change). None when the origin could not be resolved.
-    frame = _cell_frame_for(components, matched, footprints, role_to_ref,
-                            origin, mount) if origin is not None else None
+    # The ONE cell frame construction (kicadstamp/cell_frame.py, J.1) — the role
+    # match, the origin/mount it needs and the fit, the same code the public
+    # `cell_frame_from_live` door runs: one place, never a second implementation.
+    frame, role_to_ref, matched, origin, mount, problems = _frame_and_context(
+        components, footprints, adapter, _("refresh"), origin_role,
+        reconcile=reconcile_components)
     warnings = _frame_warnings(frame)
 
     # N (2026-09-11): the cell's NESTED clone_placements — same action, same
@@ -1332,14 +1375,12 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     anything else -> a plain literal `net:` — never None. Never mutates its
     inputs.
     """
-    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
-        components, footprints, adapter,
-        _("import"), origin_role, reconcile=reconcile_components)
-
-    # J.1: the very SAME cell frame as Refresh (cell_frame.py) — importing from
-    # a rotated instance must append offsets in the cell's own frame too.
-    frame = _cell_frame_for(components, matched, footprints, role_to_ref,
-                            origin, mount) if origin is not None else None
+    # J.1: the very SAME cell frame as Refresh, from the ONE construction
+    # (_frame_and_context) — importing from a rotated instance must append
+    # offsets in the cell's own frame too.
+    frame, role_to_ref, matched, origin, mount, problems = _frame_and_context(
+        components, footprints, adapter, _("import"), origin_role,
+        reconcile=reconcile_components)
 
     # Import does not change components: a copper record whose `net_from_role`
     # is a role the board does not have cannot resolve — drop it from the match

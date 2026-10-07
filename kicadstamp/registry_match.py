@@ -40,6 +40,7 @@ __all__ = [
     "TIER_GEOMETRY",
     "TIER_REGISTRY",
     "PlannedCopperMatch",
+    "accept_planned_match",
     "match_planned_copper",
 ]
 
@@ -127,3 +128,30 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
             taken.add(getattr(live, "uuid", None))
         out.append(PlannedCopperMatch(command=cmd, live=live, tier=tier))
     return out
+
+
+def accept_planned_match(reg: "BaseRegistry", match: PlannedCopperMatch) -> bool:
+    """READ-ONLY verdict: may this match be USED as the record's pair?
+
+    Tier 2 (geometry) — always: the match WAS found by that very predicate.
+    Tier 1 (the registry's stored uuid) — only when the live item really lies
+    where the command PLANS the copper (``reg._live_matches`` — the registry's
+    own predicate and its ``POSITION_TOLERANCE_MM`` tolerance, never a second
+    one). The key's ``index`` is the record's number in the cell's list AT THE
+    LAST REDRAW: editing that list ("Refresh geometry from selection"
+    strictly, "Add", "Subtract") shifts the numbers and nobody renumbers the
+    registry, so ``…|k`` can keep the uuid of ANOTHER record's copper — and
+    when a record was deleted its copper is usually still on the board, so
+    tier 1 would hand it to the record that now sits at index k (finding of
+    the f3e116d0 acceptance; plan_2026_10_07_registry_pair_frame_check,
+    rule 1).
+
+    No cell frame is needed here: a tree that was NOT refused is redrawn, so
+    the command's OWN place is exact even when the live cluster is not a rigid
+    copy of the cell. A rejected pair is simply "not checked" — the caller
+    counts it and never subtracts it."""
+    if match.live is None:
+        return False
+    if match.tier != TIER_REGISTRY:
+        return True
+    return bool(reg._live_matches(match.live, match.command))

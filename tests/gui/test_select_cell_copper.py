@@ -19,7 +19,8 @@ import kicadstamp.adapter_factory as adapter_factory_mod
 
 from kicadstamp.config import format_version
 from kicadstamp.config.format_version import current_format
-from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
+                                  SPOKE_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import ViaCommand
@@ -35,13 +36,22 @@ def gate(request, monkeypatch):
 
 class _Rec:
     def __init__(self, name=None, uuid=None, cell=None, cluster=None, sheet=None,
-                 retired=False):
+                 retired=False, role=None, vias=(), tracks=(), components=(),
+                 anchor_role=None, anchor_xy=None):
         self.name = name
         self.uuid = uuid
         self.cell = cell
         self.cluster = cluster
         self.sheet = sheet
         self.retired = retired
+        # the cell's own record lists / slots (a Cell as the registry-only map
+        # and the cell frame read them)
+        self.role = role
+        self.vias = list(vias)
+        self.tracks = list(tracks)
+        self.components = list(components)
+        self.anchor_role = anchor_role
+        self.anchor_xy = anchor_xy
 
 
 class _Cfg:
@@ -86,12 +96,21 @@ class _Adapter:
         pass
 
 
-def _fp(ref, role, cluster):
+def _fp(ref, role, cluster, x_mm=0.0, y_mm=0.0):
     fp = Footprint(ref=ref, uuid=f"uuid-{ref}",
-                   position=Vector2.from_xy_mm(0.0, 0.0), angle_deg=0.0,
+                   position=Vector2.from_xy_mm(x_mm, y_mm), angle_deg=0.0,
                    layer=BoardLayer.BL_F_Cu)
     fp.sheet_path_uuids = ()
     return fp
+
+
+def _rec_via(along, across):
+    return SimpleNamespace(offset_along_mm=along, offset_across_mm=across)
+
+
+def _slot(role, along, across):
+    return SimpleNamespace(role=role, offset_along_mm=along,
+                           offset_across_mm=across, vias=[])
 
 
 def _write_via_registry(tmp_path, via_entries):
@@ -121,16 +140,28 @@ def _planned_via(key):
 
 
 def _setup(tmp_path, live_vias):
-    """(cfg, config_path, adapter, our_registry_key) for cell dac_buf @ DAC_BUF."""
+    """(cfg, config_path, adapter, our_registry_key) for cell dac_buf @ DAC_BUF.
+
+    The cell carries ONE real record — the cell-level via 0 at the cell's own
+    (0,0) — and ONE slot (role DA, also at (0,0)); the live footprint C1 of that
+    role stands at the world origin, so the registry-only frame is RIGID with its
+    origin on the cell's (0,0): the record's stored offset IS its world position.
+    The key names that record through the spoke placeholder — an ORPHAN key (a
+    role the cell does not have, an index past the list) is never a pair
+    (plan_2026_10_07_registry_pair_frame_check, rule 3), so it could not carry
+    the cells below."""
     cell_uuid = det_uuid("cells:dac_buf")
-    cfg = _Cfg(cells={"dac_buf": _Rec(uuid=cell_uuid)})
+    cfg = _Cfg(cells={"dac_buf": _Rec(
+        uuid=cell_uuid, vias=[_rec_via(0.0, 0.0)],
+        components=[_slot("DA", 0.0, 0.0)])})
     cell_identity = record_key_part("dac_buf", cell_uuid)
     config_path = tmp_path / "config.sexp"
     config_path.write_text("", encoding="utf-8")
-    fp_c1 = _fp("C1", "DA", "DAC_BUF")
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0)
     adapter = _Adapter({"C1": ("DA", "DAC_BUF")}, footprints=[fp_c1],
                        vias=live_vias)
-    key = make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity, "r", 0)
+    key = make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
+                            SPOKE_LEVEL_ROLE_PLACEHOLDER, 0)
     return cfg, config_path, adapter, key
 
 

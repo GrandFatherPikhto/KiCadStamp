@@ -23,7 +23,8 @@ import gui.docks.cell_editor as cell_editor_mod
 from gui.docks.cell_editor import CellDock
 from kicadstamp.absent_copper_prune import RecordCopperMap
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import (ROLE_FIELD_NAME,
+                                  SPOKE_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key, record_key_part
@@ -113,17 +114,52 @@ def _live_via(uuid, net, x, y):
                drill_mm=0.3, diameter_mm=0.6)
 
 
+def _live_fp(ref, x_mm, y_mm):
+    return Footprint(ref=ref, uuid=f"uuid-{ref}", angle_deg=0.0,
+                     position=Vector2.from_xy_mm(x_mm, y_mm),
+                     layer=BoardLayer.BL_F_Cu)
+
+
+# The Role/Cluster the fake board answers per ref: the cell's own ZERO-offset
+# slot (the frame's origin, the legacy rule) and the second slot DA the NON-RIGID
+# cell below adds.
+_FIELDS = {"Z9": ("ZERO", "DAC_BUF"), "R9": ("DA", "DAC_BUF")}
+
+
+def _live_zero(x_mm=10.0, y_mm=10.0):
+    """The instance's live ZERO-offset slot footprint — the cell frame's origin.
+
+    It stands exactly on the live copper at (10, 10) the cells below put on the
+    board, so the record whose stored offset is (0, 0) lands on it — and the fit
+    has no second slot to get a direction from, so the residual is 0.0: RIGID,
+    which is what the registry-only path requires
+    (plan_2026_10_07_registry_pair_frame_check, rule 2)."""
+    return _live_fp("Z9", x_mm, y_mm)
+
+
+def _live_da(x_mm, y_mm):
+    """The second slot's live footprint — where the NON-RIGID cell's live cluster
+    stops being a rigid copy of the cell."""
+    return _live_fp("R9", x_mm, y_mm)
+
+
 class _Adapter:
     """The whole board the worker sees: the selection, a close(), and — for the
-    REGISTRY fallback a refused tree falls back to — the two live copper lists
-    and the footprints `own_instance_context` reads for the instance's refs."""
+    REGISTRY fallback a refused tree falls back to — the two live copper lists,
+    the footprints `own_instance_context` reads for the instance's refs and the
+    Role/Cluster fields the cell FRAME is built from."""
 
-    def __init__(self, selected, vias=(), tracks=(), footprints=()):
+    def __init__(self, selected, vias=(), tracks=(), footprints=(), fields=None):
         self._selected = list(selected)
         self._vias = list(vias)
         self._tracks = list(tracks)
         self._footprints = list(footprints)
+        self._fields = dict(fields or {})
         self.closed = False
+
+    def get_field_value(self, fp, name):
+        role, cluster = self._fields.get(fp.ref, (None, None))
+        return role if name == ROLE_FIELD_NAME else cluster
 
     def refresh_board(self):
         pass
@@ -167,6 +203,7 @@ def _payload(dock):
 
 
 def _fake_board(monkeypatch, selected, **board):
+    board.setdefault("fields", dict(_FIELDS))
     adapter = _Adapter(selected, **board)
     monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
                         lambda **kwargs: adapter)
@@ -625,15 +662,23 @@ def test_the_subtraction_is_staged_into_the_working_set_without_a_manual_save(
 # (rule 35).
 
 
-def _refused_tree_data(*, component_vias=None, entities=None):
+def _refused_tree_data(*, component_vias=None, entities=None,
+                       extra_component=None):
     component = {"role": "FPGA", "offset_along_mm": 2.0,
                  "offset_across_mm": 1.0, "angle_deg": 0.0}
     if component_vias:
         component["vias"] = component_vias
+    components = [component, {"role": "ZERO", "offset_along_mm": 0.0,
+                              "offset_across_mm": 0.0, "angle_deg": 0.0}]
+    if extra_component is not None:
+        components.append(dict(extra_component))
     return {
         "cells": {"dac_buf": {
             "layer": "F.Cu",
-            "components": [component],
+            "components": components,
+            # the cell's own zero-offset slot: the legacy frame origin the
+            # registry-only path needs, and NOT an anchor_role — the drift guard
+            # below refuses THIS config (the tree anchors on role FPGA at (2,1))
             "vias": [],
             "tracks": [_track(None, 0.0), _track("GND", 2.0)],
             "clone_placements": [],
@@ -719,7 +764,7 @@ def test_a_refused_tree_subtracts_by_the_registry_and_says_registry_only(
                       {_own_track_key(cell_id, ents["dac0"], 0):
                        _track_reg_entry("u0")})
     _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
-                tracks=[_board_track("u0")])
+                tracks=[_board_track("u0")], footprints=[_live_zero()])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap()})       # the refused tree
     messages = _messages(dock, monkeypatch)
     before = list(dock._tracks)
@@ -747,8 +792,11 @@ def test_a_refused_tree_takes_a_component_via_out_of_its_slot(
                       {make_registry_key(f"name:{ents['dac0']}", cell_id,
                                          "FPGA", 0): _via_reg_entry("u_c0")},
                       {})
-    _fake_board(monkeypatch, [_live_via("u_c0", "N", 10.0, 10.0)],
-                vias=[_live_via("u_c0", "N", 10.0, 10.0)])
+    # the component's via 0 is stored 5 mm ACROSS, so its world place is
+    # (10, 15) with the live FPGA at (12, 11) — the record's own place
+    _fake_board(monkeypatch, [_live_via("u_c0", "N", 10.0, 15.0)],
+                vias=[_live_via("u_c0", "N", 10.0, 15.0)],
+                footprints=[_live_zero()])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
     _messages(dock, monkeypatch)
     component = dock._components[0]
@@ -775,7 +823,7 @@ def test_a_record_without_a_registry_key_is_not_checked_and_says_so(
                        _track_reg_entry("u0")})
     _fake_board(monkeypatch,
                 [_live_track("u1", None, 20.0, 20.0, 21.0, 20.0)],
-                tracks=[_board_track("u0")])
+                tracks=[_board_track("u0")], footprints=[_live_zero()])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
     messages = _messages(dock, monkeypatch)
     before = list(dock._tracks)
@@ -803,7 +851,7 @@ def test_a_refused_tree_with_foreign_copper_is_nothing_to_subtract(
                        _track_reg_entry("u0")})
     _fake_board(monkeypatch,
                 [_live_track("u_foreign", "GND", 30.0, 30.0, 31.0, 30.0)],
-                tracks=[_board_track("u0")])
+                tracks=[_board_track("u0")], footprints=[_live_zero()])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
     messages = _messages(dock, monkeypatch)
     before = list(dock._tracks)
@@ -824,7 +872,8 @@ def test_a_refused_tree_with_an_empty_registry_stays_red(
     checked at all, so the red "could not match" line stays."""
     dock, target = _make_refused_dock(main_window, tmp_path)
     _write_registries(tmp_path, {}, {})                       # empty registry
-    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)])
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
+                footprints=[_live_zero()])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
     messages = _messages(dock, monkeypatch)
     before = list(dock._tracks)
@@ -836,6 +885,100 @@ def test_a_refused_tree_with_an_empty_registry_stays_red(
     assert result["planned"] == 0, result
     assert dock._tracks == before
     assert any("could not match the selection" in m for m in messages), messages
+
+
+def test_a_shifted_key_does_not_subtract_its_neighbour(
+        main_window, tmp_path, monkeypatch):
+    """Row 'запись k удалена, ключи сдвинуты': the registry still holds the
+    copper of a record the cell no longer has, so the key's index now means the
+    NEIGHBOUR. The pair does not sit where that record puts its own copper —
+    nothing is subtracted and the count is named (plan ... , rule 2)."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u_del")})
+    # the deleted record's copper: 4 mm from where record 0 puts its own
+    _fake_board(monkeypatch,
+                [_live_track("u_del", None, 10.0, 14.0, 11.0, 14.0)],
+                tracks=[_live_track("u_del", None, 10.0, 14.0, 11.0, 14.0)],
+                footprints=[_live_zero()])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result.get("empty") is True, result
+    assert dock._tracks == before
+    assert any("no pair of the registry could be checked" in m for m in messages), \
+        messages
+    assert any("do not sit where the record puts them" in m for m in messages), \
+        messages
+    assert not any("could not match the selection" in m for m in messages), \
+        messages
+
+
+def test_a_key_past_the_record_list_is_never_checked(
+        main_window, tmp_path, monkeypatch):
+    """Row 'ключ-сирота': the key's index is past the end of the cell's record
+    list (the numbers shifted) — it names NO record, so it is never a pair, and
+    the count is named with its own wording."""
+    dock, target = _make_refused_dock(main_window, tmp_path)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 7):
+                       _track_reg_entry("u7")})
+    _fake_board(monkeypatch,
+                [_live_track("u7", None, 10.0, 10.0, 11.0, 10.0)],
+                tracks=[_live_track("u7", None, 10.0, 10.0, 11.0, 10.0)],
+                footprints=[_live_zero()])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result.get("empty") is True, result
+    assert dock._tracks == before
+    assert any("past the end of the cell's record list" in m for m in messages), \
+        messages
+    assert not any("could not match the selection" in m for m in messages), \
+        messages
+
+
+def test_a_non_rigid_cluster_accepts_no_registry_pair_and_names_the_residual(
+        main_window, tmp_path, monkeypatch):
+    """Row 'нежёсткий кластер': the live cluster is NOT a rigid copy of the cell,
+    so its frame cannot tell a pair from its neighbour — NO registry pair is
+    accepted, nothing is subtracted, and the residual is the yellow reason
+    (plan ..., rule 2)."""
+    data = _refused_tree_data(extra_component={"role": "DA",
+                                               "offset_along_mm": 5.0,
+                                               "offset_across_mm": 1.0})
+    dock, target = _make_refused_dock(main_window, tmp_path, data)
+    _cfg, cell_id, ents = _load_ids(target)
+    _write_registries(tmp_path, {},
+                      {_own_track_key(cell_id, ents["dac0"], 0):
+                       _track_reg_entry("u0")})
+    # DA is stored 3 mm along from the mount but stands 19 mm across on the board
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
+                tracks=[_board_track("u0")],
+                footprints=[_live_zero(), _live_da(15.0, 30.0)])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    result = dock._run_subtract_from_selection(_payload(dock))
+    dock._finish_subtract_from_selection(result)
+
+    assert result.get("empty") is True, result
+    assert dock._tracks == before
+    assert any("not a rigid copy of the cell" in m for m in messages), messages
+    assert any("no pair of the registry could be checked" in m for m in messages), \
+        messages
 
 
 def test_a_non_refused_tree_never_consults_the_registry(
@@ -882,7 +1025,7 @@ def test_two_instances_take_the_refused_one_whose_registry_matches(
                       {_own_track_key(cell_id, ents["dac0"], 0):
                        _track_reg_entry("u0")})
     _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
-                tracks=[_board_track("u0")])
+                tracks=[_board_track("u0")], footprints=[_live_zero()])
     # dac0 is refused (empty); dac1 planned, but its copper is NOT selected
     _fake_map(monkeypatch, {"dac0": RecordCopperMap(),
                             "dac1": _record_map(index=1, uuid="u9")})

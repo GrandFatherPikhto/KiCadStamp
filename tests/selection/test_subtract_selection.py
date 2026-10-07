@@ -27,8 +27,8 @@ import json
 from types import SimpleNamespace
 
 from kicadstamp.absent_copper_prune import (RecordCopperMap, record_copper_map_for)
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
-from kicadstamp.domain.board import Track, Via
+from kicadstamp.constants import ROLE_FIELD_NAME, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
 from kicadstamp.registry import make_registry_key, record_key_part
@@ -390,13 +390,41 @@ def _rmap_entity(name, uuid, cluster="DAC_BUF", sheet=None):
 
 
 def _rmap_cell():
-    """1 cell via, 2 cell tracks, 1 component (role DA) via — 4 records."""
+    """1 cell via, 2 cell tracks, 1 component (role DA) via — 4 records.
+
+    The STORED offsets are the ones the fixture's live copper sits at (the cell's
+    zero-offset slot DA is the live frame's origin, placed at the world origin by
+    `_BoardAdapter`), so a registry-only pair of this fixture is a pair that DOES
+    sit where its record puts it — the place check of
+    plan_2026_10_07_registry_pair_frame_check is satisfied by construction, and
+    the cells below stay about the properties they name."""
     return SimpleNamespace(
         uuid="uuid-cell",
-        vias=[SimpleNamespace()],
-        tracks=[SimpleNamespace(), SimpleNamespace()],
-        components=[SimpleNamespace(role="DA", vias=[SimpleNamespace()])],
+        anchor_role=None,
+        anchor_xy=None,
+        vias=[SimpleNamespace(offset_along_mm=10.0, offset_across_mm=10.0)],
+        tracks=[SimpleNamespace(start_along_mm=10.0, start_across_mm=10.0,
+                                end_along_mm=11.0, end_across_mm=10.0),
+                SimpleNamespace(start_along_mm=10.0, start_across_mm=12.0,
+                                end_along_mm=11.0, end_across_mm=12.0)],
+        components=[SimpleNamespace(
+            role="DA", offset_along_mm=0.0, offset_across_mm=0.0,
+            vias=[SimpleNamespace(offset_along_mm=10.0,
+                                  offset_across_mm=10.0)])],
     )
+
+
+class _RMapFp(Footprint):
+    """A live footprint that also carries the Role/Cluster fields the adapter
+    reads (`get_field_value`)."""
+
+    def __init__(self, ref, role, cluster, x_mm, y_mm):
+        super().__init__(ref=ref, uuid=f"uuid-{ref}", angle_deg=0.0,
+                         position=Vector2.from_xy_mm(x_mm, y_mm),
+                         layer=BoardLayer.BL_F_Cu)
+        self.role = role
+        self.cluster = cluster
+        self.sheet_path_uuids = ()
 
 
 def _track_entry(uuid):
@@ -412,10 +440,17 @@ def _live_track(uuid):
 
 
 class _BoardAdapter(_Adapter):
-    """`_Adapter` plus the footprint read `own_instance_context` makes."""
+    """`_Adapter` plus the footprint reads `own_instance_context` and the cell
+    frame make: ONE live footprint for the cell's own zero-offset slot (role DA,
+    cluster DAC_BUF) at the world origin — so the fixture's frame is RIGID and its
+    origin is the cell's own (0,0), which makes a record's stored offset its world
+    position."""
+
+    def get_field_value(self, fp, name):
+        return fp.role if name == ROLE_FIELD_NAME else fp.cluster
 
     def get_footprints(self):
-        return []
+        return [_RMapFp("C1", "DA", "DAC_BUF", 0.0, 0.0)]
 
 
 def _rmap_setup(tmp_path, *, foreign=False):

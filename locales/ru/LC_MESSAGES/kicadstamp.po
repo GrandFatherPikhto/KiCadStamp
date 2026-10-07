@@ -11358,6 +11358,33 @@ msgstr ""
 msgid "{count} record(s) have no registry entry — not checked"
 msgstr "записей без ключа в реестре: {count} — не проверялись"
 
+msgid ""
+"the live cluster has no usable cell frame — registry pairs are not checked"
+msgstr ""
+"у живого кластера нет пригодного кадра ячейки — пары по реестру не проверялись"
+
+#, python-brace-format
+msgid ""
+"the live cluster is not a rigid copy of the cell (worst deviation "
+"{deviation} mm) — registry pairs are not checked"
+msgstr ""
+"живой кластер не является жёсткой копией ячейки (худшее отклонение "
+"{deviation} мм) — пары по реестру не проверялись"
+
+#, python-brace-format
+msgid "{count} registry pair(s) do not sit where the record puts them — not checked"
+msgstr "пар по реестру не там, куда запись кладёт медь: {count} — не проверялись"
+
+msgid "nothing was subtracted — no pair of the registry could be checked"
+msgstr ""
+"ничего не вычтено — ни одну пару из реестра проверить не удалось"
+
+#, python-brace-format
+msgid ""
+"{count} registry key(s) point past the end of the cell's record list — not "
+"checked"
+msgstr "ключей реестра за концом списка записей ячейки: {count} — не проверялись"
+
 #: kicadstamp/selection_narrowing.py:582
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"

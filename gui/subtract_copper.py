@@ -89,7 +89,34 @@ def _empty_result(entry, cell_name: str) -> dict:
     return {"empty": True, "planned": 0, "cell": cell_name,
             "cluster": cluster, "sheet": sheet,
             "source": record_map.source, "record": record or "",
-            "not_checked": record_map.without_registry}
+            "not_checked": record_map.without_registry,
+            **_refusal_counts(record_map)}
+
+
+def _refused_anything(result: dict) -> bool:
+    """True when the map DID offer pairs and the check refused them.
+
+    The report needs the difference: an empty map with nothing offered is "we
+    could not check" (the red line), while an empty map whose pairs were REFUSED
+    is "we checked and refused" — saying "the dry run planned nothing" would then
+    name the wrong reason (plan_2026_10_07_registry_pair_frame_check, step 4).
+
+    A non-rigid frame counts only when the registry DID have own keys
+    (``entries_total``): with no key at all nothing was refused, so that stays the
+    red "nothing to check" answer."""
+    return bool(result.get("disagreed") or result.get("orphan_keys")
+                or (result.get("not_rigid") and result.get("entries_total")))
+
+
+def _refusal_counts(record_map) -> dict:
+    """The reasons the map did NOT take a pair the registry offered, as plain
+    data — the ONE place the worker reads them, so a caller (the report, a
+    future one) never has to know the map's field names."""
+    return {"disagreed": record_map.disagreed,
+            "orphan_keys": record_map.orphan_keys,
+            "not_rigid": record_map.not_rigid,
+            "frame_residual_mm": record_map.frame_residual_mm,
+            "entries_total": record_map.entries_total}
 
 
 def run_subtract_worker(payload: dict) -> dict:
@@ -208,7 +235,8 @@ def run_subtract_worker(payload: dict) -> dict:
                 "removed": list(outcome.removed), "not_ours": outcome.not_ours,
                 "components": outcome.components, "planned": outcome.planned,
                 "source": record_map.source, "record": record or "",
-                "not_checked": record_map.without_registry}
+                "not_checked": record_map.without_registry,
+                **_refusal_counts(record_map)}
     except Exception as e:  # noqa: BLE001 — reported as a Log line, no modal
         return {"error": str(e)}
     finally:
@@ -228,12 +256,17 @@ def subtract_report_lines(result: dict) -> list:
     A map matched by the registry alone (a refused tree) adds ONE yellow line
     saying so — the REASON (the drift guard's own message) is already a red line
     in the Log and is NEVER repeated here — plus, when present, the honest "N
-    record(s) have no registry entry — not checked" count.
+    record(s) have no registry entry — not checked" count and the refusal notes
+    of `absent_copper_prune.not_checked_reasons` (a pair that does not sit where
+    the record puts it, an ORPHAN key, a non-rigid frame): the ONE wording
+    «Select cell» uses too, so the same refusal reads the same on both doors.
 
     The record lines reuse the ONE formatter of the refresh/import report
     (`record_report_line`), imported HERE: the giant imports this module at
     start-up, so a module-level import would close a cycle.
     """
+    from kicadstamp.absent_copper_prune import not_checked_reasons
+
     from .docks.cell_editor import _problem_lines, record_report_line
 
     cell = result.get("cell", "?")
@@ -256,9 +289,19 @@ def subtract_report_lines(result: dict) -> list:
                         "{record} (reason — in the Log above); matched by the "
                         "registry only").format(
                             record=result.get("record") or "?"), "warn"))
+    refused = _refused_anything(result)
     if result.get("empty"):
-        lines.append((_("could not match the selection to the cell's records — "
-                        "the dry run planned nothing"), "error"))
+        # Nothing was subtracted either way, but WHY differs: a map with no pair
+        # at all is "we could not check" (red); a map whose offered pairs the
+        # place check refused is "we checked and refused" — the yellow reasons
+        # below name each refusal, and claiming "the dry run planned nothing"
+        # would name the wrong one.
+        if refused:
+            lines.append((_("nothing was subtracted — no pair of the registry "
+                            "could be checked"), "warn"))
+        else:
+            lines.append((_("could not match the selection to the cell's records "
+                            "— the dry run planned nothing"), "error"))
     else:
         removed = list(result.get("removed") or ())
         if removed:
@@ -277,6 +320,12 @@ def subtract_report_lines(result: dict) -> list:
     if result.get("not_checked"):
         lines.append((_("{count} record(s) have no registry entry — not checked")
                       .format(count=result["not_checked"]), "warn"))
+    for note in not_checked_reasons(
+            not_rigid=bool(result.get("not_rigid")),
+            frame_residual_mm=result.get("frame_residual_mm"),
+            disagreed=int(result.get("disagreed") or 0),
+            orphan_keys=int(result.get("orphan_keys") or 0)):
+        lines.append((note, "warn"))
     return lines
 
 

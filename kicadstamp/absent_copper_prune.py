@@ -34,6 +34,24 @@ key: every command of one dry run shares the anchor and template, so that tail
 tells the records apart — the ONE association the plan allows ("запись ↔ команда
 — по индексу в ключе реестра").
 
+A TAIL IS A NUMBER, and the number is the record's place in the cell's list AT
+THE LAST REDRAW. Editing that list shifts the numbers while nobody renumbers the
+registry, so a key can keep the uuid of ANOTHER record's copper (finding of the
+f3e116d0 acceptance, plan_2026_10_07_registry_pair_frame_check). Every pair is
+therefore CHECKED BY PLACE, each path in the one place it can trust:
+
+  * a DRY RUN — the live item must lie where the COMMAND plans the copper
+    (``registry_match.accept_planned_match``; the tree was redrawn, so the plan's
+    own place is exact even for a non-rigid cluster);
+  * the REGISTRY-ONLY path — inside the CELL FRAME, and only while that frame is
+    RIGID (a non-rigid frame is off by more than the step between neighbouring
+    records, so it cannot tell a pair from its neighbour).
+
+A pair that does not sit where the record puts the copper, a key whose index has
+NO record at all (an ORPHAN), and EVERY pair of a non-rigid frame are "not
+checked": counted and named by the caller, never subtracted and never highlighted
+as this cell's own.
+
 History: the first С-1 rule asked only the REGISTRY ("delete a record when the
 uuid the registry stored for it is gone") and then tried to answer "is the copper
 still on the board" with a ``BoardCopperPresence`` verdict. С-1 made the read
@@ -48,10 +66,12 @@ not the board, not the config. Callers decide what to do with the map.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .i18n import _
 from .registry import (
     PlacementRegistry,
     TrackRegistry,
@@ -59,31 +79,46 @@ from .registry import (
     record_key_part,
     registry_paths_for_config,
 )
-from .registry_match import match_planned_copper
+from .registry_match import accept_planned_match, match_planned_copper
 from .selection_narrowing import cell_record_addresses, is_own_key
+from .utils.units import MM
 
 __all__ = [
     "RecordCopperMap",
     "instance_record_copper_map",
     "own_instance_context",
     "own_registry_entries",
+    "pair_agrees_with_record",
     "record_copper_map_for",
+    "record_points",
     "registry_record_copper_map",
 ]
 
 
 @dataclass(frozen=True)
 class RecordCopperMap:
-    """``{(kind, role_part, index): live_uuid}`` for ONE instance's dry run.
+    """``{(kind, role_part, index): live_uuid}`` for ONE instance's copper.
 
     ``planned`` — how many commands the dry run produced (0 = the record placed
     no copper: a refused tree, an unrealized record, a chain-only placement).
     For a map built by :func:`registry_record_copper_map` ``planned`` is the
-    number of registry-matched entries and ``source`` is ``"registry"``.
+    number of registry pairs ACCEPTED and ``source`` is ``"registry"``.
 
     ``without_registry`` — for a registry-only map, how many of this cell's copper
     records the registry has NO key for. They cannot be checked this way, so the
     caller names the number instead of pretending the cell has no such copper.
+
+    ``disagreed`` — pairs the registry offered whose live copper does NOT sit
+    where the record puts it (checked by place: the command's planned place on a
+    dry run, the rigid cell frame on the registry-only path). They are NOT in the
+    map and must never be subtracted or highlighted as this cell's own.
+    ``orphan_keys`` — registry keys of this cell whose ``index`` has NO record in
+    the cell today (the numbers shifted after the list was edited): never a pair.
+    ``entries_total`` — how many own registry keys this map examined, so a caller
+    can tell "its copper is not on the board" from "the pair was refused".
+    ``not_rigid`` / ``frame_residual_mm`` — the registry-only path's frame could
+    not be trusted (non-rigid, or not built at all): NO registry pair was accepted
+    and the number is what the caller prints as the reason.
 
     The caller must subtract NOTHING when ``empty`` and say why — "we could not
     check", never "the cell has no copper".
@@ -93,6 +128,11 @@ class RecordCopperMap:
     planned: int = 0
     source: str = "dry_run"
     without_registry: int = 0
+    disagreed: int = 0
+    orphan_keys: int = 0
+    entries_total: int = 0
+    not_rigid: bool = False
+    frame_residual_mm: Optional[float] = None
 
     @property
     def empty(self) -> bool:
@@ -125,6 +165,112 @@ def _record_tail(key, cell_identity: Optional[str]) -> Optional[tuple]:
         return parts[2], int(parts[3])
     except ValueError:
         return None
+
+
+def record_points(cell, kind: str, role_part: str, index: int):
+    """The STORED local points of the cell record a registry tail names, or None
+    when the cell holds NO such record today — an ORPHAN key (its ``index`` is
+    past the end of the list, the numbers having shifted after the list was
+    edited) or a role the cell no longer has. Both levels production resolves are
+    covered: a cell-level via/track under the ``__spoke__`` placeholder and a
+    component's via under its role.
+
+    One ``(along_mm, across_mm)`` for a via, two (start, end) for a track. A
+    component carries vias only (``TemplateComponentSlot``), so a track key never
+    names a role."""
+    if cell is None:
+        return None
+    if kind == "via":
+        if role_part == SPOKE_LEVEL_ROLE_PLACEHOLDER:
+            records = list(getattr(cell, "vias", None) or ())
+        else:
+            slot = next((s for s in (getattr(cell, "components", None) or ())
+                         if getattr(s, "role", None) == role_part), None)
+            if slot is None:
+                return None
+            records = list(getattr(slot, "vias", None) or ())
+        if not 0 <= index < len(records):
+            return None
+        rec = records[index]
+        return ((float(rec.offset_along_mm), float(rec.offset_across_mm)),)
+    if role_part != SPOKE_LEVEL_ROLE_PLACEHOLDER:
+        return None
+    tracks = list(getattr(cell, "tracks", None) or ())
+    if not 0 <= index < len(tracks):
+        return None
+    track = tracks[index]
+    return ((float(track.start_along_mm), float(track.start_across_mm)),
+            (float(track.end_along_mm), float(track.end_across_mm)))
+
+
+def _live_points(live_item) -> tuple:
+    """``(x_mm, y_mm)`` of a live via's centre / a live track's two ends."""
+    if hasattr(live_item, "position"):
+        return ((live_item.position.x / MM, live_item.position.y / MM),)
+    return ((live_item.start.x / MM, live_item.start.y / MM),
+            (live_item.end.x / MM, live_item.end.y / MM))
+
+
+def _max_point_distance(a: tuple, b: tuple) -> float:
+    """max endpoint distance between two same-length point tuples. A track
+    segment is UNORIENTED, so the orientation that fits better is taken — the
+    SAME convention the refresh's `_greedy_nearest` uses."""
+    if len(a) == 1:
+        return math.dist(a[0], b[0])
+    straight = max(math.dist(a[0], b[0]), math.dist(a[1], b[1]))
+    flipped = max(math.dist(a[0], b[1]), math.dist(a[1], b[0]))
+    return min(straight, flipped)
+
+
+def pair_agrees_with_record(points, live_item, frame, tol_mm) -> bool:
+    """True ⇔ the live copper lies WHERE THE RECORD PUTS IT, measured in the cell
+    frame of the instance — the ONE place of comparison of the registry-only path
+    (the same translation "Refresh geometry from selection" writes the cell
+    through).
+
+    ``points`` — what :func:`record_points` returned. None means the cell holds NO
+    such record (an ORPHAN key, or a role it no longer has), and such a key is
+    NEVER a pair: a shifted number must not be checked against the wrong record.
+    ``frame`` — None means the place cannot be computed (no origin / the frame was
+    not built): the pair is not accepted either. A NON-RIGID frame must not be
+    passed here at all — the caller refuses every pair then, with the residual as
+    the reason (``RIGID_TOLERANCE_MM`` is the tolerance of a rigid one).
+    ``tol_mm`` — the caller's tolerance (``RIGID_TOLERANCE_MM``).
+
+    Pure: mm floats in, a verdict out. READ-ONLY, like everything in this map."""
+    if points is None or frame is None or live_item is None:
+        return False
+    expect = tuple(frame.point_to_world_mm(along, across)
+                   for along, across in points)
+    return _max_point_distance(expect, _live_points(live_item)) <= tol_mm
+
+
+def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
+                        disagreed: int, orphan_keys: int) -> list:
+    """The honest reasons a pair the registry OFFERED was not accepted, as
+    translated fragments — ONE wording for the doors that report them («Subtract
+    selected copper»'s Log lines and «Select cell»'s own line), so the same
+    refusal can never be described two different ways.
+
+    Empty when everything the registry offered was either accepted or simply not
+    on the board (the latter is a count of its own, not a refusal)."""
+    out: list = []
+    if not_rigid:
+        if frame_residual_mm is None:
+            out.append(_("the live cluster has no usable cell frame — registry "
+                         "pairs are not checked"))
+        else:
+            out.append(_("the live cluster is not a rigid copy of the cell "
+                         "(worst deviation {deviation} mm) — registry pairs are "
+                         "not checked")
+                       .format(deviation=f"{frame_residual_mm:.3f}"))
+    if disagreed:
+        out.append(_("{count} registry pair(s) do not sit where the record puts "
+                     "them — not checked").format(count=disagreed))
+    if orphan_keys:
+        out.append(_("{count} registry key(s) point past the end of the cell's "
+                     "record list — not checked").format(count=orphan_keys))
+    return out
 
 
 def _cell_record_slots(cell) -> set:
@@ -257,51 +403,106 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
 
     For every registry key ``is_own_key`` accepts for this instance, the record
     ``(kind, role_part, index)`` maps to the live copper the registry's stored
-    uuid points at. A key whose uuid is NOT on the board (the copper was removed
-    or re-routed) maps to nothing — it must never be claimed, or the subtraction
-    would "remove" a record whose copper is gone. ``source`` is ``"registry"`` and
-    ``without_registry`` counts this cell's records the registry has no key for.
+    uuid points at — AND the pair must sit where the record puts the copper, in
+    the cell frame built from the instance's LIVE components. Two guards belong
+    here because this path exists exactly where there is no current redraw to
+    trust (plan_2026_10_07_registry_pair_frame_check, rules 2 and 3):
+
+      * the place is checked only while the frame is RIGID
+        (``residual_mm <= RIGID_TOLERANCE_MM``): a non-rigid cluster's frame is
+        off by more than the step between neighbouring records, so it cannot tell
+        a pair from its neighbour — then NO registry pair is accepted at all, and
+        ``not_rigid``/``frame_residual_mm`` carry the reason to the caller's line;
+      * a key whose ``index`` has NO record in the cell today (an ORPHAN — the
+        numbers shifted after the list was edited) is never a pair and is counted
+        in ``orphan_keys``.
+
+    A key whose uuid is NOT on the board (the copper was removed or re-routed)
+    maps to nothing — it must never be claimed, or the subtraction would "remove"
+    a record whose copper is gone. ``source`` is ``"registry"``;
+    ``without_registry`` counts this cell's records the registry has no key for,
+    ``entries_total`` how many own keys were examined, ``disagreed`` the pairs the
+    registry offered that do not sit where the record puts them.
 
     READ-ONLY: reads the two registry files and the board, writes nothing. The
     drift guard, the redraw plan and the config are not touched."""
-    _footprints, cell_identity, own_addresses, chosen_address, refs = \
+    from .cell_frame import RIGID_TOLERANCE_MM
+    from .cell_geometry_refresh import cell_frame_from_live, cell_slot_dicts
+
+    cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
+    footprints, cell_identity, own_addresses, chosen_address, refs = \
         own_instance_context(adapter, cfg, cell_name, cluster, sheet,
                              sheet_names=sheet_names, own_refs=own_refs)
     via_entries, track_entries, _owner = load_registry_entries(config_path, cfg)
-    live_uuids = {
-        "via": {getattr(v, "uuid", None)
-                for v in _live_items(adapter, "get_vias")},
-        "track": {getattr(t, "uuid", None)
-                  for t in _live_items(adapter, "get_tracks")},
-    }
+    live = {"via": _live_items(adapter, "get_vias"),
+            "track": _live_items(adapter, "get_tracks")}
+    by_uuid = {kind: {getattr(item, "uuid", None): item for item in items}
+               for kind, items in live.items()}
     entries = own_registry_entries(via_entries, track_entries, cell_identity,
                                    own_addresses, chosen_address, refs)
+    without_registry = len(_cell_record_slots(cell) - {
+        (kind, role_part, index)
+        for kind, role_part, index, _uuid in entries})
+
+    frame = cell_frame_from_live(
+        cell_slot_dicts(cell), footprints, adapter,
+        origin_role=getattr(cell, "anchor_role", None))
+    residual = None if frame is None else frame.residual_mm
+    if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:
+        # No frame / no rigid frame: not one pair can be checked by place, so
+        # none is claimed — the caller prints the reason, never a lie.
+        return RecordCopperMap(by_record={}, planned=0, source="registry",
+                               without_registry=without_registry,
+                               entries_total=len(entries), not_rigid=True,
+                               frame_residual_mm=residual)
+
     by_record: dict = {}
-    checked: set = set()
+    disagreed = orphan = 0
     for kind, role_part, index, uuid in entries:
-        checked.add((kind, role_part, index))
-        if uuid in live_uuids[kind]:
-            by_record[(kind, role_part, index)] = uuid
-    cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
-    without_registry = len(_cell_record_slots(cell) - checked)
+        live_item = by_uuid[kind].get(uuid)
+        if live_item is None:
+            continue                     # the copper is gone — never claimed
+        points = record_points(cell, kind, role_part, index)
+        if points is None:
+            orphan += 1                  # an ORPHAN key is never a pair
+            continue
+        if not pair_agrees_with_record(points, live_item, frame,
+                                       RIGID_TOLERANCE_MM):
+            disagreed += 1               # not where the record puts the copper
+            continue
+        by_record[(kind, role_part, index)] = uuid
     return RecordCopperMap(by_record=by_record, planned=len(by_record),
-                           source="registry", without_registry=without_registry)
+                           source="registry", without_registry=without_registry,
+                           entries_total=len(entries), disagreed=disagreed,
+                           orphan_keys=orphan, frame_residual_mm=residual)
 
 
 def _map_for(adapter, config_path: str, cell_identity: Optional[str],
              planned_vias, planned_tracks) -> RecordCopperMap:
-    """The read-only match of one dry run's commands against the live board."""
+    """The read-only match of one dry run's commands against the live board.
+
+    A tier-1 (registry uuid) match is taken only when the live item really lies
+    where the COMMAND plans the copper (`accept_planned_match`, the registry's own
+    predicate): the key stores the record's number at the LAST REDRAW, so a
+    shifted number hands over the copper of ANOTHER record
+    (plan_2026_10_07_registry_pair_frame_check, rule 1). Tier 2 is geometric by
+    construction and needs no second check. A rejected pair is NOT in the map and
+    is counted in ``disagreed`` — the caller names it as "not checked"."""
     via_path, trk_path = registry_paths_for_config(config_path)
     via_reg = PlacementRegistry(adapter, via_path)
     trk_reg = TrackRegistry(adapter, trk_path)
 
     by_record: dict = {}
+    disagreed = 0
     for kind, reg, cmds, live in (
             ("via", via_reg, planned_vias, _live_items(adapter, "get_vias")),
             ("track", trk_reg, planned_tracks,
              _live_items(adapter, "get_tracks"))):
         for m in match_planned_copper(reg, list(cmds or ()), live_items=live):
             if m.live is None:
+                continue
+            if not accept_planned_match(reg, m):
+                disagreed += 1
                 continue
             tail = _record_tail(getattr(m.command, "registry_key", None),
                                 cell_identity)
@@ -311,4 +512,5 @@ def _map_for(adapter, config_path: str, cell_identity: Optional[str],
                 continue
             by_record[(kind, tail[0], tail[1])] = getattr(m.live, "uuid", None)
     planned = len(planned_vias or ()) + len(planned_tracks or ())
-    return RecordCopperMap(by_record=by_record, planned=planned)
+    return RecordCopperMap(by_record=by_record, planned=planned,
+                           disagreed=disagreed)
