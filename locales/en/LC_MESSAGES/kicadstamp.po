@@ -15303,12 +15303,11 @@ msgid ""
 " the template's own sheet cannot be derived"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:991
+#: kicadstamp/config/tree_instances.py
 msgid ""
-"the template has a mount node or a legacy (literal-net) net_trace node, "
-"whose expansion needs the template's own sheet — add (sheet \"...\") to a"
-" (role ...) anchor of the template, or an explicit sheet to the root "
-"Entity of the template tree"
+"the template has a mount node, whose expansion needs the template's own "
+"sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an "
+"explicit sheet to the root Entity of the template tree"
 msgstr ""
 
 #: kicadstamp/config/tree_instances.py:1044
