@@ -458,6 +458,45 @@ def test_node_owners_distinguish_the_tree_from_each_module():
     assert nodes == dict(nodes.items())          # rule 33: the walk tests stand
 
 
+def _nested_module_cfg():
+    """A module INSIDE a module: the parent tree owns ONE module node m0, whose
+    children are its own placement node (e_a) AND another module node m1 (whose
+    child is e_b). Both ends are reached THROUGH m0."""
+    entities = [Entity(name="e_a", cell="c", cluster="CA", sheet="S0"),
+                Entity(name="e_b", cell="c", cluster="CB", sheet="S1")]
+    m1 = _Tree("m1", [_node("e_b", "placement")])
+    m0 = _Tree("m0", [_node("e_a", "placement"), _node("m1", "module")])
+    fpga = _Tree("fpga", [_node("m0", "module")])
+    return Config(entities=entities, trees=[m1, m0, fpga])
+
+
+_SHEETS_NESTED = {"s0": "S0", "s1": "S1"}
+
+
+def _nested_module_board():
+    fps = [_fp("A0", "R_A", "CA", 10.0, 10.0, ("s0",)),
+           _fp("B0", "R_B", "CB", 30.0, 10.0, ("s1",))]
+    pads = {"A0": [_pad("1", "N_AB", 10.0, 10.0)],
+            "B0": [_pad("1", "N_AB", 30.0, 10.0)]}
+    return _Board(fps, pads), fps
+
+
+def test_copper_inside_a_module_nested_in_another_module_is_the_top_modules():
+    """Доделка 4а / C1 — the TOPMOST module owns a node reached through it, however
+    deep the nesting: a piece between m0's OWN child and a node INSIDE m0's nested
+    module m1 is ONE module's copper (m0), so the parent tree must NOT take it.
+    Mutation 'a NESTED module owns its nodes (not the topmost one)' gives the two
+    ends different owners and turns this red."""
+    board, fps = _nested_module_board()
+    cfg = _nested_module_cfg()
+    plan = plan_internode_reread(
+        board, cfg, _tree_fpga(cfg),
+        area_items=[_track(10.0, 10.0, 30.0, 10.0, "N_AB")],
+        area_footprints=fps, sheet_names=_SHEETS_NESTED)
+    assert plan.added == []
+    assert plan.discarded.get("module") == 1
+
+
 # ── Т4-2: cells for the mutations that survived the 05.10 acceptance ──────
 
 def _same_net_channels(channels=3):

@@ -328,6 +328,41 @@ def test_the_worker_closes_its_own_adapter_on_both_paths(monkeypatch):
     assert board2.closed is True
 
 
+def test_the_recorded_worker_closes_its_own_adapter_on_both_paths(monkeypatch):
+    """Доделка 4а / C4 — the В2 worker's OWN adapter is closed in the `finally`,
+    on the happy path AND when the selection raises (the same socket contract the
+    В1 cell above pins). Mutation 'B2 worker without finally close' turns the
+    second half red."""
+    from gui.docks import copper_select
+
+    def fake_readonly(adapter, config_path):
+        return SimpleNamespace(entries={}), SimpleNamespace(entries={})
+
+    live = _track(10.0, 10.0, 20.0, 10.0, "N", "liveA")
+
+    def fake_record_live_items(adapter, record, *, via_registry, track_registry,
+                               sheet_names=None):
+        return SimpleNamespace(found=[live] if record.name == "recA" else [],
+                               identity=record.name)
+
+    monkeypatch.setattr(copper_select, "_readonly_registries", fake_readonly)
+    monkeypatch.setattr(copper_select, "record_live_items", fake_record_live_items)
+    cfg, tree = _two_record_tree_cfg()
+
+    board = _Board([], {}, [])
+    board._tracks = [live]
+    _install_adapter(monkeypatch, board)
+    run_select_recorded_inter_node_copper_worker(_payload(cfg, tree))
+    assert board.closed is True
+
+    board2 = _Board([], {}, [])
+    board2.raise_on_select = True
+    _install_adapter(monkeypatch, board2)
+    with pytest.raises(RuntimeError):
+        run_select_recorded_inter_node_copper_worker(_payload(cfg, tree))
+    assert board2.closed is True
+
+
 # ── the GUI wiring: worker on the socket, no UI-thread board read, refusal ──
 
 def _minimal_root(tmp_path):
