@@ -50,7 +50,9 @@ SN = "kicadstamp/selection_narrowing.py"
 MIXEDSEL = "gui/mixed_selection.py"
 SELECTCELL = "gui/select_cell.py"
 PIPE = "kicadstamp/apply_pipeline.py"
-WRITER = "kicadstamp/config_writer.py"
+# доделка: the В rule moved to its own module (config_writer re-exports it), so
+# M8 follows the RULE, not the file that happens to re-export it.
+WRITER = "kicadstamp/config_stage_report.py"
 OUT = "gui/read_outcome.py"
 
 MUTATIONS = [
@@ -64,11 +66,19 @@ MUTATIONS = [
     # a one-cell read again (the live 73-records × one read shape).
     ("M2 the net filter is removed", SN,
      "        if filterable:\n"
-     "            nets, resolvable = record_nets(adapter, nt, sheet_names)\n"
+     "            # quiet=True (доделка 2 of plan_2026_10_08_narrowing_net_traces_cost):\n"
+     "            # this question is asked of EVERY record for ONE read, and the role\n"
+     "            # search's `role_narrowing` lines were 2 184 of the live Log for one\n"
+     "            # click. DEBUG here; the redraw keeps them at INFO.\n"
+     "            nets, resolvable = record_nets(adapter, nt, sheet_names, quiet=True)\n"
      "            if resolvable and nets and not (nets & wanted):\n"
      "                skipped += 1\n"
      "                continue\n",
-     "        pass  # MUTATION: no net filter\n",
+     "        if False:  # MUTATION: no net filter\n"
+     "            nets, resolvable = record_nets(adapter, nt, sheet_names, quiet=True)\n"
+     "            if resolvable and nets and not (nets & wanted):\n"
+     "                skipped += 1\n"
+     "                continue\n",
      "die", NET_FILTER, ()),
     # 3 — the filter is too eager: a record of the SELECTED net is dropped too, so
     # copper that IS the selection's own is no longer subtracted/transferred.
@@ -113,7 +123,12 @@ MUTATIONS = [
     # 7 — the dry run throws its adoption report away (the seam of Б): nothing to
     # hand over, so the consumer falls back to the PLANNED place.
     ("M7 the dry run keeps no report", PIPE,
-     "        self.at_current_place = adoption\n",
+     "        self.at_current_place, adoption_lines = dry_run_adoption(\n"
+     "            self.adapter, self.cfg, self.items, registry, track_registry,\n"
+     "            sheet_names=self.sheet_names, position_overrides=self.position_overrides)\n",
+     "        _dropped, adoption_lines = dry_run_adoption(\n"
+     "            self.adapter, self.cfg, self.items, registry, track_registry,\n"
+     "            sheet_names=self.sheet_names, position_overrides=self.position_overrides)\n"
      "        self.at_current_place = None  # MUTATION\n",
      "die", PIPELINE, ()),
     # 8 — a staged write claims the file again (В): the lie Denis read at 19:40:39.
