@@ -382,12 +382,132 @@ def run_log(args) -> int:
     return 0
 
 
+# ── режим 3: сколько чтений конфига за ОДНО обновление после записи ─────────
+
+def _patch_everywhere(real, wrapper) -> list:
+    """Подменяет функцию ВО ВСЕХ модулях, которые её уже импортировали.
+
+    `from X import f` связывает имя в момент импорта, поэтому подмена только
+    `X.f` не видна ни одному такому модулю. Возвращает ``[(модуль, имя), ...]`` —
+    список мест, чтобы зонд вернул их как было."""
+    import sys
+
+    patched = []
+    for mod in list(sys.modules.values()):
+        if mod is None:
+            continue
+        try:
+            name = real.__name__
+            if getattr(mod, name, None) is real:
+                setattr(mod, name, wrapper)
+                patched.append((mod, name))
+        except Exception:  # noqa: BLE001 — чужой модуль не повод падать
+            continue
+    return patched
+
+
+def _counting(real, counters, name):
+    """Счётчик вызовов + ОДНА строка «кто зовёт»: первый кадр ЗА ПРЕДЕЛАМИ
+    самого читателя (сам читатель и файловый кэш в стеке не интересны)."""
+    import traceback
+
+    def _wrapped(*args, **kwargs):
+        counters.add(name)
+        frames = [f for f in traceback.extract_stack()[:-1]
+                  if f.filename != real.__code__.co_filename]
+        if frames:
+            f = frames[-1]
+            counters.add(f"{name} <- {Path(f.filename).name}:{f.lineno} {f.name}")
+        return real(*args, **kwargs)
+
+    _wrapped.__name__ = real.__name__
+    return _wrapped
+
+
+def run_fanout(args) -> int:
+    """Сколько раз за ОДНО обновление интерфейса после записи (как его соединяет
+    DockHub: `ConfigTreeDock.refresh()` + `graph_changed.emit()`) зовутся
+    ``load_config`` / ``walk_include_tree`` / ``collect_section_entries`` — и КТО
+    зовёт (одна строка стека на место вызова).
+
+    Платы здесь не нужно: обновление доков после записи плату не читает. Профиль
+    КОПИРУЕТСЯ во временный каталог (тот же `_copy_profile`), рабочий набор
+    делается ГРЯЗНЫМ — это и есть живая ситуация Дениса: правка в памяти, на диск
+    не записана."""
+    import copy
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    counters = Counters()
+    root, temp_root = _copy_profile(Path(args.config))
+    try:
+        app = QApplication.instance() or QApplication([])
+        from gui.main_window import MainWindow
+
+        window = MainWindow(timeout_ms=10, verbose=False)
+        window._timer.stop()
+        window._selection_timer.stop()
+        patched: list = []
+        real_fns: list = []
+        try:
+            window.root_metadata_dock.set_root_file(Path(root))
+
+            # ГРЯЗНЫЙ рабочий набор: правка уходит в память, файл не тронут.
+            from kicadstamp.config_working_set import WORKING_SET
+            from kicadstamp.config_writer import _read_data
+            data = copy.deepcopy(_read_data(Path(root)))
+            data["_probe_marker"] = "dirty"
+            WORKING_SET.enabled = True
+            WORKING_SET.stage_write(Path(root), data)
+
+            from kicadstamp.config import includes as includes_mod
+            from kicadstamp.config import loader as loader_mod
+            from gui.docks import rename as rename_mod
+
+            for real, name in ((loader_mod.load_config, "load_config"),
+                               (includes_mod.walk_include_tree, "walk_include_tree"),
+                               (rename_mod.collect_section_entries,
+                                "collect_section_entries")):
+                real_fns.append(real)
+                patched.extend(_patch_everywhere(
+                    real, _counting(real, counters, name)))
+
+            window.config_tree_dock.refresh()
+            window.config_tree_dock.graph_changed.emit()
+        finally:
+            # Возврат подменённых имён — по одному модулю за раз, в обратном
+            # порядке: в модуле мог оказаться и наш же счётчик.
+            for mod, name in reversed(patched):
+                for real in real_fns:
+                    if real.__name__ == name:
+                        setattr(mod, name, real)
+            window._timer.stop()
+            window._selection_timer.stop()
+            window._poll_worker.stop()
+            window.log_dock.remove_handler()
+        print(f"профиль: {args.config}")
+        print(f"копия:   {root}")
+        print(f"рабочий набор грязный: {WORKING_SET.is_dirty()}")
+        print()
+        for line in counters.report():
+            print(line)
+        return 0
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Замер п.0: чтения меди и чтения конфига на одно нажатие")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--config", help="живой профиль (копируется во временный)")
     source.add_argument("--log", help="живой actions.log для потокового разбора")
+    # Режим, а не источник: --fanout идёт ВМЕСТЕ с --config.
+    parser.add_argument("--fanout", action="store_true",
+                        help="режим 3: сколько чтений конфига за одно обновление — "
+                             "вместе с --config")
     parser.add_argument("--cell", default=None, help="ячейка экземпляра замера")
     parser.add_argument("--entity", default="fpga_vccio_139",
                         help="сущность экземпляра замера (cluster/sheet из неё)")
@@ -400,7 +520,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     parts = [x for x in str(args.board_items or "").split(",") if x.strip()]
     args.board_items = (tuple(int(x) for x in parts) if len(parts) == 2 else (0, 0))
-    return run_log(args) if args.log else run_counters(args)
+    if args.log:
+        return run_log(args)
+    if args.fanout:
+        return run_fanout(args)
+    return run_counters(args)
 
 
 if __name__ == "__main__":
