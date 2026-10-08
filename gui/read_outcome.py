@@ -34,7 +34,7 @@ from kicadstamp.i18n import _
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ReadOutcome", "read_outcome", "replace_selection"]
+__all__ = ["ReadOutcome", "read_outcome", "replace_selection", "select_after_read"]
 
 
 @dataclass(frozen=True)
@@ -150,3 +150,20 @@ def replace_selection(adapter, *, footprints, vias, raw_tracks, plan_footprints,
         except Exception:  # noqa: BLE001 — a selection write is best-effort
             logger.exception("select-after-read failed")
     return outcome
+
+
+def select_after_read(adapter, *, selection, kept, prelude, layer_report) -> ReadOutcome:
+    """`replace_selection` for a READ's OWN data, in ONE call: ``selection`` is
+    what the board had selected — ``(footprints, vias, raw_tracks)`` — and
+    ``kept`` is what the read went on with — ``(footprints, vias, tracks)``.
+    Both groups are exactly what the worker already holds.
+
+    Exists so a dock's worker keeps WIRING only (rule 45): naming those six lists
+    at every call site is what grew `gui/docks/cell_editor.py` by ten lines for
+    part Г of plan_2026_10_08_narrowing_net_traces_cost."""
+    sel_f, sel_v, sel_t = selection
+    keep_f, keep_v, keep_t = kept
+    return replace_selection(
+        adapter, footprints=sel_f, vias=sel_v, raw_tracks=sel_t,
+        plan_footprints=keep_f, plan_vias=keep_v, plan_tracks=keep_t,
+        prelude=prelude, layer_report=layer_report)

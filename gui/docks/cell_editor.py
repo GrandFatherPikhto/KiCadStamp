@@ -117,7 +117,7 @@ from ..cell_entity_choice import instance_for_read, read_instance
 from .explode_page import adapter_of
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
-from ..read_outcome import replace_selection
+from ..read_outcome import select_after_read
 from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -1916,10 +1916,6 @@ class CellDock(QWidget):
                                       payload.get("empty_layers"))
             # N: the nested placements name OTHER cells, so their definitions
             # (and the project's sheet map, used by the role-narrowing cascade)
-            # come from the root config. Loaded ONLY when there is something to
-            # read — an ordinary cell keeps the previous cost exactly.
-            # N: the nested placements name OTHER cells, so their definitions
-            # (and the project's sheet map, used by the role-narrowing cascade)
             # come from the root config. The mixed-selection prelude needs the
             # SAME config (its cells/entities), so it is loaded whenever the root
             # path is known; a config that fails to load falls back to today's
@@ -1988,14 +1984,11 @@ class CellDock(QWidget):
             # and it would run BEFORE the plan is applied on the UI thread: a plan
             # refusal in between would leave the piece owned by nobody. The worker
             # only CARRIES the transfers over (plain data).
-            # Plan item 3 + Г (plan_2026_10_08_narrowing_net_traces_cost): the
-            # read REPLACES the board selection with exactly what it took and says
-            # in ONE line what it skipped and why — both owned by gui/read_outcome
-            # (one rule, one wording, both doors).
-            outcome = replace_selection(
-                adapter, footprints=footprints, vias=vias, raw_tracks=raw_tracks,
-                plan_footprints=plan_footprints, plan_vias=plan_vias,
-                plan_tracks=plan_tracks, prelude=prelude,
+            # Г (plan_2026_10_08_narrowing_net_traces_cost): the read REPLACES the
+            # selection with exactly what it took, and says so in ONE line.
+            outcome = select_after_read(
+                adapter, selection=(footprints, vias, raw_tracks),
+                kept=(plan_footprints, plan_vias, plan_tracks), prelude=prelude,
                 layer_report=layer_read)
         except ValidationError as e:
             # N1(a): the mixed-selection Log lines (e.g. "records without a live
@@ -2004,8 +1997,7 @@ class CellDock(QWidget):
             # failure.
             return {"error": str(e), "selection_lines": selection_lines}
         return {"plan": plan, "layer_report": layer_read,
-                "selection_lines": selection_lines,
-                "read_line": outcome.line,
+                "selection_lines": selection_lines, "read_line": outcome.line,
                 "transfers": tuple(prelude.transfers) if prelude is not None else ()}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
@@ -2032,8 +2024,7 @@ class CellDock(QWidget):
         # Э4/Э5: the layer report goes FIRST and unconditionally — a read without
         # a dialog has no other place to say which layers it looked at.
         self._report_layer_read(result.get("layer_report"))
-        # Г: and then the ONE line of the read itself — what it took out of the
-        # selection and what it left behind, and why.
+        # Г: then the ONE line of the read itself (what it took and left behind).
         if result.get("read_line"):
             self._show_message(result["read_line"], _SUCCESS_STYLE)
         plan = result["plan"]
@@ -2362,11 +2353,9 @@ class CellDock(QWidget):
             # С-1 п.2: Import stays purely ADDITIVE — it never deletes; the strict,
             # deleting path is Refresh's alone (build_refresh_plan(remove_missing=True)).
             # Г: the same rule as the Refresh read (one module, one wording).
-            # Here the consequence is only "not added" — an Import never removes.
-            outcome = replace_selection(
-                adapter, footprints=footprints, vias=vias, raw_tracks=raw_tracks,
-                plan_footprints=plan_footprints, plan_vias=plan_vias,
-                plan_tracks=plan_tracks, prelude=prelude,
+            outcome = select_after_read(
+                adapter, selection=(footprints, vias, raw_tracks),
+                kept=(plan_footprints, plan_vias, plan_tracks), prelude=prelude,
                 layer_report=layer_read)
         except ValidationError as e:
             return {"error": str(e)}
