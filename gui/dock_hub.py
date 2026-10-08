@@ -100,21 +100,8 @@ from .worker import refresh_board_before_live_read
 logger = logging.getLogger(__name__)
 
 
-# ── worker functions (pure: connection + plain args, no widgets) ─────────────
-#
-# The ADAPTER is taken INSIDE each worker, never on the UI thread (door §31):
-# `start_long_op` hands the CONNECTION over, and `adapter_of` reads
-# `connection.board` on the WORKING thread — the same helper, and the same rule,
-# as gui/docks/explode_page.py's own worker block.
-
 def reconcile_overlay_worker(connection) -> dict:
-    """Worker: reconcile the overlay key map with what is really on the layer.
-
-    The adapter is read through `adapter_of` on THIS (the worker) thread, so the
-    connect/refresh hook (`DockHub.reconcile_overlay`) never opens the door from
-    the UI thread. `OverlayMarkerOwner.reconcile` tolerates a missing adapter —
-    it answers `{"skipped": "no-board"}` — and never raises, which is why the
-    worker needs no presence answer from its caller."""
+    """Worker: reconcile the overlay key map with the live layer."""
     return overlay_markers.owner.reconcile(adapter_of(connection))
 
 
@@ -3292,31 +3279,15 @@ class DockHub:
         No guard widget and no busy word (Э2, plan_2026_09_12_busy_indicator):
         this is AUTOMATIC housekeeping fired by MainWindow._finish_poll on
         connect/refresh, not something the user started — the disabled-layer
-        rule above plus the long_op_active check below are its only guards.
-
-        Door (08.10.2026, plan_2026_10_08_door_noise_on_connect п.2). This hook
-        used to read the shared adapter ON the UI thread (`connection.board` →
-        `.adapter`) and hand it to the worker — one red "Reading the live board
-        from the UI thread without a sign" line per session, on every connect.
-        The door's order of means has a better answer here than a sign: the UI
-        half asks the CONNECTION (`connection.is_connected`) and hands the
-        WORKER the connection, while `reconcile_overlay_worker` takes the
-        adapter on the worker thread through `adapter_of` — the same helper the
-        explode workers use (gui/docks/explode_page.py). So there is no sign
-        here at all, and no presence answer is needed by the worker either:
-        `owner.reconcile` answers {"skipped": "no-board"} for a missing adapter."""
-        # Р2/Р2б-1: this is the connect/refresh hook MainWindow._finish_poll
-        # drives — the overlay reconcile runs FIRST and the explode-journal read
-        # runs AFTER it (in its own on_success/on_error, or right away when the
-        # reconcile does not start). Reading the journal first STARTED a long op,
-        # so `long_op_active` was already True a few lines below and the overlay
-        # reconcile was skipped on EVERY connect/refresh (Р2б-1 regression).
+        rule above plus the long_op_active check below are its only guards."""
+        # Р2/Р2б-1: the reconcile runs FIRST, the explode-journal read follows (in
+        # its own on_success/on_error, or right away when this does not start).
+        # Reading the journal first STARTED a long op, so `long_op_active` was
+        # already True below and the reconcile was skipped on EVERY connect/refresh.
         from .worker import start_long_op
         if not getattr(connection, "is_connected", False) \
                 or getattr(connection, "long_op_active", False):
-            # Nothing to reconcile (no board / the shared socket is busy): the
-            # explode-state read still runs — its own LongOpController defers
-            # once on a busy socket.
+            # Nothing to reconcile (no connection / busy socket).
             self.refresh_explode_state()
             return
         self._overlay_reconcile_op = start_long_op(
