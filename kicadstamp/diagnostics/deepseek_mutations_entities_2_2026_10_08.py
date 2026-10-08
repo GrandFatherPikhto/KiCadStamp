@@ -33,6 +33,12 @@ WHAT IS BEING PROVEN (the cells live in tests/gui/ and tests/selection/):
   * M11 the read-only rule is not re-applied after a refill (2в, п.6 — a root
        change hands the buttons back)
   * M12 the CellDock stops gating on "nothing places this cell" (2в, п.5)
+  * M13 the read-only answer is remembered, not recomputed (2г, п.1 — the live
+       "orphan -> Create entity" defect: the page stays read-only forever)
+  * M14 the door's "Edit cell..." forgets the entity it came from (2г, п.2 — the
+       page then lands on the cell's first entity, not the item's)
+  * M15 the CellDock asks "no entity" instead of "nothing places it" (2г, п.3 — a
+       cell placed by a chain spoke loses its board buttons)
   * K1 a cosmetic comment -> MUST survive
 
 NOT here on purpose:
@@ -139,21 +145,42 @@ MUTATIONS = [
      "    pass  # MUTATION\n",
      "die", DROP_TEST, ()),
     # 11 — the gate stops re-applying its rule after a refill (2в, п.6): a root
-    # change refills the form, which re-enables the buttons by its own rules.
+    # change refills the form, which re-enables the buttons by its own rules. From
+    # 2г, п.1 the tail asks the index afresh, so the whole call IS the mutation.
     ("M11 the read-only rule is not re-applied after a refill", ANCHOR,
-     "        # 2в, п.6 — and LAST OF ALL, the read-only rule: EVERY refill re-enables the\n"
-     "        # buttons by its own rules (the root change refills the form too, and the\n"
-     "        # mixin above drives the Fill button), so the ONE gate that owns the rule\n"
-     "        # applies it again here — after every other setEnabled.\n"
-     "        self._read_only_gate.reapply()\n",
+     "        self._read_only_gate.reapply(read_only_cell(self, self._open_read_only))\n",
      "        pass  # MUTATION\n",
      "die", TREE_TEST, ()),
     # 12 — the CellDock stops judging "nothing places this cell" (2в, п.5): its
     # board buttons come back for a cell that has no instance to read.
     ("M12 the CellDock ignores that nothing places the cell", EDITOR,
-     "        enabled = (connected and bool(self._components)\n"
-     "                   and not unplaced_without_entity(self))\n",
+     "        enabled = connected and bool(self._components) and not unplaced_without_entity(self)\n",
      "        enabled = connected and bool(self._components)  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 13 — the read-only answer is REMEMBERED, not recomputed (2г, п.1): creating
+    # an entity on an orphan leaves the page read-only for good — the live defect.
+    ("M13 the read-only answer is remembered, not recomputed", ANCHOR,
+     "        self._read_only_gate.reapply(read_only_cell(self, self._open_read_only))\n",
+     "        self._read_only_gate.reapply()  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 14 — the door's "Edit cell..." forgets the entity it came from (2г, п.2): the
+    # page lands on the cell's first entity while the store says the item's.
+    ("M14 the door forgets the entity it came from", DOORS,
+     "    hub.cell_anchor_view.load_entry(cell_name, file_path,\n"
+     "                                    opened_from=entity_name)\n",
+     "    hub.cell_anchor_view.load_entry(cell_name, file_path,\n"
+     "                                    opened_from=None)  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 15 — the CellDock asks "no entity" instead of "nothing places it" (2г, п.3):
+    # a cell placed by a chain spoke (no entity) loses its board buttons.
+    ("M15 the CellDock asks no-entity instead of nothing-places-it", DOORS,
+     "    return instance_state(dock) is True\n",
+     "    provider = getattr(dock, \"entity_index_provider\", None)  # MUTATION\n"
+     "    index = provider() if provider is not None else None\n"
+     "    uuid = _loaded_cell_uuid(dock)\n"
+     "    if index is None or not uuid:\n"
+     "        return False\n"
+     "    return not index.has_entity_for_cell(uuid)\n",
      "die", TREE_TEST, ()),
     # K1 — a cosmetic comment changes nothing: MUST survive.
     ("K1 a cosmetic comment", CHOICE,
