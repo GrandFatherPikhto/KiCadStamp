@@ -22,6 +22,12 @@ WHAT IS BEING PROVEN (the cells live in tests/gui/ and tests/selection/):
   * M4 a cell nobody places offers "Manual…" again
   * M5 the write no longer says the change reaches every entity
   * M6 the explicit address is ignored by the prelude (the refusal is gone)
+  * M7 an entity with no pins reads as {} again (доделка 2б, п.1 — the live
+       "Place marker" fatal: the reader branches on `is not None`)
+  * M8 the door stops publishing its entity (2б, п.4 — the action then reads the
+       channel the page was LAST on)
+  * M9 the gate stops disabling the board buttons (2б, п.3 — the guard reads
+       Qt's WA_ForceDisabled, so it cannot be satisfied by the tab being off)
   * K1 a cosmetic comment -> MUST survive
 
 NOT here on purpose:
@@ -45,6 +51,9 @@ CHOICE = "gui/cell_entity_choice.py"
 PICKER = "gui/docks/cell_entity_picker.py"
 MIXIN = "gui/docks/cell_instance_mixin.py"
 MIXED = "gui/mixed_selection.py"
+HUB = "gui/dock_hub.py"
+READ_ONLY = "gui/docks/cell_read_only.py"
+TREE_TEST = ["test_entities_under_cells.py"]
 
 MUTATIONS = [
     # 1 — the working instance is ignored: the reader falls back to whatever the
@@ -84,6 +93,29 @@ MUTATIONS = [
      "    if expected_address is not None and expected_address.cluster:\n",
      "    if False:  # MUTATION\n",
      "die", SEL_TEST, ()),
+    # 7 — an entity that pins NO refs is turned back into an EMPTY map: the live
+    # frame reader then takes the "identified by refs" path with nothing to
+    # identify and dies as a stale identification ("Place marker", 2б, п.1).
+    ("M7 an entity with no pins reads as an empty map", CHOICE,
+     "    if not isinstance(raw, dict):\n        return None\n",
+     "    if not isinstance(raw, dict):\n        return {}  # MUTATION\n",
+     "die", CHOICE_TEST + DROP_TEST, ()),
+    # 8 — the door stops publishing the entity it came from: the action that
+    # follows reads whatever entity the page was last on (2б, п.4).
+    ("M8 the door does not publish its entity", HUB,
+     "    pin_working_instance(root, name, entity, index)\n",
+     "    pass  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 9 — the gate stops disabling the board buttons: they are then only off
+    # because their tab is off — the green-for-the-wrong-reason guard Denis
+    # refused (2б, п.3).
+    ("M9 the gate leaves the board buttons alone", READ_ONLY,
+     "        if read_only:\n"
+     "            for button in board_buttons:\n"
+     "                if button is not None:\n"
+     "                    button.setEnabled(False)\n",
+     "        pass  # MUTATION\n",
+     "die", TREE_TEST, ()),
     # K1 — a cosmetic comment changes nothing: MUST survive.
     ("K1 a cosmetic comment", CHOICE,
      "# The three kinds of an address row.",
