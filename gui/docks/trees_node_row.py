@@ -234,11 +234,13 @@ def apply_node_form(form) -> bool:
       1. `build_node()` — the form's own validation;
       2. `plan_node_edit` — everything the next config LOAD (and the writer stamp)
          would refuse, checked BEFORE the node or the tree is touched: the
-         `ref_uuid` the NEW ref names, and the loader's own rules over the whole
-         forest as it would be. A refusal is a red line under the form and in the
-         Log, and the node keeps its ref (this is the order that makes "nothing is
-         touched" true — `_apply_parent_change` re-hangs the node in place and
-         must therefore run only AFTER the probe passed);
+         `ref_uuid` the NEW ref names (against the DOCK's current graph — see the
+         note at the call), and the loader's own rules over the whole forest as it
+         would be, the edited tree INCLUDING the parent the form has selected. A
+         refusal is a red line under the form and in the Log, and the node keeps
+         its ref (this is the order that makes "nothing is touched" true —
+         `_apply_parent_change` re-hangs the node in place and must therefore run
+         only AFTER the probe passed);
       3. `_apply_parent_change()` — the Parent combo's re-hang (Э1);
       4. `commit_node_edit` — the copy plus the tree-level cascade (one Log line
          when the tree's pivot-ref / self anchor followed);
@@ -252,8 +254,15 @@ def apply_node_form(form) -> bool:
     built = form.build_node()
     if built is None:
         return False  # build_node already warned
+    # The graph to resolve against is the DOCK's CURRENT one, not the snapshot the
+    # form took at construction: the dock swaps `_cfg` on every `graph_changed`
+    # (a Save elsewhere in the app, a Create entity/cell of this very session), and
+    # a form opened before that would otherwise refuse a record that exists — the
+    # false "names no existing … record" refusal Denis hit (09.10).
+    cfg = (getattr(form._dock, "_cfg", None) if form._dock is not None
+           else form._cfg)
     refusal = plan_node_edit(
-        form._dock, form._tree, form._existing, built, cfg=form._cfg,
+        form._dock, form._tree, form._existing, built, cfg=cfg,
         selected_parent=form._selected_parent_node(),
         current_parent=form._parent_node)
     if refusal is not None:

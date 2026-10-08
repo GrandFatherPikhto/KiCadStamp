@@ -150,6 +150,20 @@ MUTATIONS = [
      "    section = _F3_NODE_KIND_TARGET.get(kind)\n",
      "    section = _F3_NODE_KIND_TARGET.get(\"placement\")  # MUTATION\n",
      "die", OWNER_TEST, ()),
+    # 14 — the graph is taken from the FORM's snapshot again: an entity created
+    # while the form was open is refused with the false "names no existing …".
+    ("M14 the cfg is the form's stale snapshot", ROW,
+     "    cfg = (getattr(form._dock, \"_cfg\", None) if form._dock is not None\n"
+     "           else form._cfg)\n",
+     "    cfg = form._cfg  # MUTATION: the form's snapshot\n",
+     "die", ROW_TEST, ()),
+    # 15 — the probe ignores the parent the form has selected: the refusal for a
+    # handle re-hung under a mount comes from the dock's own guard with ITS text,
+    # not from the loader (C1 of the acceptance harness).
+    ("M15 the probe ignores the selected parent", ROW,
+     "        selected_parent=form._selected_parent_node(),\n",
+     "        selected_parent=form._parent_node,  # MUTATION\n",
+     "die", ROW_TEST, ()),
     # K2 — a cosmetic comment in the new module: MUST survive.
     ("K2 a cosmetic comment in the new module", ROW,
      "never a second copy of either",

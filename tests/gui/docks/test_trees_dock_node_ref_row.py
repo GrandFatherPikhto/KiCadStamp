@@ -475,24 +475,86 @@ def test_a_ref_taken_in_another_tree_is_refused_by_the_forest_probe(
     assert root.read_text(encoding="utf-8") == before  # nothing written
 
 
-def test_an_entity_staged_in_this_session_resolves_at_apply(main_window, tmp_path,
-                                                            format3):
-    """(и) The name -> uuid map comes from the cfg the dock ALREADY holds (it is
-    refreshed on graph_changed), never from a fresh read: an Entity created in
-    this session and sitting in the working set must resolve — and the node takes
-    ITS uuid."""
+def test_an_entity_staged_while_the_form_is_open_resolves_at_apply(
+        main_window, tmp_path, format3):
+    """(и) The name -> uuid map comes from the DOCK's CURRENT cfg — the snapshot a
+    form took when it OPENED is stale the moment anything is created elsewhere (a
+    Save in another dock, a "Create entity" of this very session). The rig
+    reproduces Denis's order exactly: the form is open FIRST, the Entity is
+    written and the dock re-reads the graph AFTERWARDS — so `form._cfg` no longer
+    is `dock._cfg` at Apply time, and judging by the snapshot would refuse a record
+    that exists (the false "names no existing entities record")."""
     from kicadstamp.config_writer import read_data, write_data
 
     dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E1")     # the form is OPEN now
+
     data = read_data(root)
     data["entities"].append({"name": "E_NEW", "cell": "c", "uuid": "U-NEW"})
     write_data(root, data)                            # the product's write path
-    dock.refresh_ref_candidates()                     # the dock re-reads the root
+    dock.refresh_ref_candidates()                     # the dock swaps its cfg
+    assert form._cfg is not dock._cfg, "the rig must keep the form's snapshot stale"
 
-    _widget, _item, form = _open_form(dock, "E1")
-    form.ref_combo.setCurrentText("E_NEW")
+    form.ref_combo.setCurrentText("E_NEW")            # free-typed: the combo is old
     assert form.apply() is True
 
     written = _node_shot(root)
     assert (written["ref"], written["ref_uuid"]) == ("E_NEW", "U-NEW")
     assert _reload(root).trees[0].nodes[0].ref == "E_NEW"
+
+
+def test_reparenting_the_handle_under_a_mount_is_refused(main_window, tmp_path,
+                                                         format3, caplog):
+    """(к) The tree's pivot-ref must stay a node that FOLLOWS the tree: re-hanging
+    it under a `mount` node pins its base to a live component and the next load is
+    a fatal ("hangs under mount node …"). The LOADER's own rule catches it in the
+    probe — BEFORE `_apply_parent_change` touches the structure — so the refusal
+    carries the loader's text and the node is still where it was.
+
+    The Parent combo offers that mount row only because the tree's pivot-ref moved
+    to this node AFTER the form opened (another editor); a form built afterwards
+    bars the mount row by construction, and `_reparent_node` refuses it too — the
+    SAME predicate, no second copy. The probe is what makes the refusal the
+    loader's, and this cell is what keeps that true."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    tree = dock._trees[0]
+    _widget, _item, form = _open_form(dock, "E1")
+    node = form._existing
+    before = root.read_text(encoding="utf-8")
+
+    tree.pivot_ref = "E1"                    # the handle moved to E1 while open
+    index = form.parent_combo.findText("M1")
+    assert index >= 0, "the rig must still offer the mount row"
+    form.parent_combo.setCurrentIndex(index)
+    with caplog.at_level("ERROR"):
+        assert form.apply() is False
+
+    assert "hangs under mount node" in caplog.text   # the LOADER's own text
+    assert node.ref == "E1"
+    assert dock._find_parent(tree, node) is None      # not re-hung
+    assert tree.pivot_ref == "E1"
+    assert root.read_text(encoding="utf-8") == before
+
+
+def test_an_auto_kind_node_loses_its_ref_uuid(main_window, tmp_path, format3):
+    """(л) kind None ("auto"): the node references no FIXED section, so
+    `node_ref_uuid` resolves None and the copy CLEARS the uuid. The loader neither
+    fatals on it (the local-kind rule names concrete kinds) nor normalizes such a
+    node, so the file loads and the node keeps the name it names — the decision's
+    "any other kind -> ref_uuid = None", for the auto case."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E1")
+    node = form._existing
+    assert node.ref_uuid                              # the lift gave it one
+
+    index = form.kind_combo.findData(None)            # the "auto" row
+    assert index >= 0
+    form.kind_combo.setCurrentIndex(index)
+    form.ref_combo.setEditText("E1")                  # the kind change cleared it
+    assert form.apply() is True
+
+    written = _node_shot(root)
+    assert "ref_uuid" not in written                  # cleared, not carried
+    assert "kind" not in written                      # "auto" is the default kind
+    reloaded = _reload(root)
+    assert reloaded.trees[0].nodes[0].ref == "E1"     # the name is untouched
