@@ -543,13 +543,18 @@ def test_creating_an_entity_lifts_the_read_only_page(real_main_window, tmp_path,
     assert unplaced_without_entity(hub.cells_dock) is False, \
         "CellDock судит по тому же пересчитанному ответу"
 
-    # …и обратно: сущности нет (конфиг перезаписан) — страница снова только для
-    # чтения тем же пересчётом. Порядок как у настоящего удаления (и создания):
-    # СНАЧАЛА дерево перечитывает граф и свой индекс, потом graph_changed — иначе
-    # страница спросила бы УСТАРЕВШИЙ индекс (и правильно бы не поверила).
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
-    hub.config_tree_dock.refresh()
-    hub.config_tree_dock.graph_changed.emit()
+    # …и обратно — НАСТОЯЩИМ удалением (пункт меню → подтверждение → refresh +
+    # graph_changed), как и создание выше: сущности нет — страница снова только
+    # для чтения тем же пересчётом. Именно удалением, а не сырой перезаписью
+    # файла: продуктовая запись гасит кэш графа, сырая — нет, и на «грубом»
+    # (Windows-тик) mtime сторож ловил бы устаревший индекс вместо правила.
+    monkeypatch.setattr(
+        config_tree_mod.QMessageBox, "question",
+        staticmethod(lambda *a, **k:
+                     config_tree_mod.QMessageBox.StandardButton.Yes))
+    monkeypatch.setattr(config_tree_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+    hub.config_tree_dock._on_delete(root, "entities", "e1")
 
     assert not view._tabs.isEnabled(), "без сущности страница снова только для чтения"
     assert not view._read_only_gate.note.isHidden()
