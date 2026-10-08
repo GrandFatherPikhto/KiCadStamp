@@ -499,6 +499,16 @@ def test_click_on_unused_cell_opens_the_cell_page_read_only(
             Qt.WidgetAttribute.WA_ForceDisabled), \
             f"{name} выключена НЕ гейтом — сторож был бы зелёным чужим эффектом"
 
+    # 2в, п.6: a ROOT CHANGE refills the form too, and that refill re-enables the
+    # buttons by its own rules — the read-only rule must be re-applied.
+    other = tmp_path / "other.sexp"
+    write_config(other, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    view.set_root_path(other)
+    for name in _PAGE_ENABLED_BUTTONS:
+        assert getattr(view, name).testAttribute(
+            Qt.WidgetAttribute.WA_ForceDisabled), \
+            f"{name} вернулась после смены корня"
+
 
 def test_click_on_cell_with_entity_opens_the_cell_page_editable(
         real_main_window, tmp_path):

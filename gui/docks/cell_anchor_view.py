@@ -1108,17 +1108,19 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self._file_path = Path(file_path) if file_path is not None else None
         self.open_cell(opened_from)
         self._prefill_cell_context()
-        self._reload_form()
-        self._sync_explode_context()
-        # 2б, п.3: the board buttons go to the gate explicitly — a cell nobody
-        # places must have them OFF, and that must be their own state, not a
-        # side effect of the tab widget being disabled.
+        # 2б, п.3 + 2в, п.6: the board buttons go to the gate explicitly — a cell
+        # nobody places must have them OFF — and the gate is applied BEFORE the
+        # form renders, because `_reload_form` re-enables them by its own rules
+        # and its tail re-applies this rule (`reapply`). One owner for every
+        # refill, including the one `set_root_path` runs.
         self._read_only_gate.apply(self._tabs, read_only, (
             self._read_selection_button, self._fill_selection_button,
             self._set_anchor_button, self._clear_anchor_button,
             self._place_marker_button, self._show_bbox_button,
             self._read_marker_button, self._remove_marker_button,
             self._hide_bbox_button, self._remove_overlay_button))
+        self._reload_form()
+        self._sync_explode_context()
 
     # ── Phase E: remembered (Cluster, Sheet) context ──────────────────────
 
@@ -1415,6 +1417,11 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         # working row, including the enable/disable of the three fields it drives,
         # after every setEnabled above).
         self.reload_instance()
+        # 2в, п.6 — and LAST OF ALL, the read-only rule: EVERY refill re-enables the
+        # buttons by its own rules (the root change refills the form too, and the
+        # mixin above drives the Fill button), so the ONE gate that owns the rule
+        # applies it again here — after every other setEnabled.
+        self._read_only_gate.reapply()
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()

@@ -34,6 +34,11 @@ class ReadOnlyGate:
         self.note.setWordWrap(True)
         self.note.setVisible(False)
         layout.addWidget(self.note)
+        # What the last `apply` was given — `reapply` needs no second flag on the
+        # page, and ONE place keeps owning the rule.
+        self._tabs = None
+        self._board_buttons: tuple = ()
+        self._read_only = False
 
     def apply(self, tabs: QTabWidget, read_only: bool,
               board_buttons: tuple = ()) -> None:
@@ -54,9 +59,29 @@ class ReadOnlyGate:
         call, and this gate is applied last on purpose), so re-enabling anything
         here would undo a deliberate off (a marker that is not on the board, a
         cell with no components)."""
-        tabs.setEnabled(not read_only)
-        self.note.setVisible(read_only)
-        if read_only:
-            for button in board_buttons:
-                if button is not None:
-                    button.setEnabled(False)
+        self._tabs = tabs
+        self._board_buttons = tuple(board_buttons)
+        self._read_only = bool(read_only)
+        tabs.setEnabled(not self._read_only)
+        self.note.setVisible(self._read_only)
+        if self._read_only:
+            self._disable_buttons()
+
+    def reapply(self) -> None:
+        """Run the remembered rule again — for a REFILL that did not come through
+        `load_entry` (2в, п.6: `set_root_path` reloads the form too, and its own
+        `_reload_form` re-enables every board button).
+
+        The gate keeps what it was last applied with, so the page needs no second
+        flag of its own and the rule still lives in ONE place. A no-op before the
+        first `apply` (nothing to remember) and on a read-write page."""
+        if self._tabs is None or not self._read_only:
+            return
+        self._tabs.setEnabled(False)
+        self.note.setVisible(True)
+        self._disable_buttons()
+
+    def _disable_buttons(self) -> None:
+        for button in self._board_buttons:
+            if button is not None:
+                button.setEnabled(False)
