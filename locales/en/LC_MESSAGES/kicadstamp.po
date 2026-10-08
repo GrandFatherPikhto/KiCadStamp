@@ -439,6 +439,11 @@ msgstr ""
 msgid "Pick a cell in the Config tree first."
 msgstr ""
 
+#: gui/dock_hub.py
+#, python-brace-format
+msgid "pick an entity of cell {cell!r}"
+msgstr ""
+
 #: gui/dock_hub.py:2974
 #, python-brace-format
 msgid "no config record places {cell} — nothing to explode"

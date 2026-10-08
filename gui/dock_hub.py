@@ -2940,41 +2940,53 @@ class DockHub:
         self.cells_dock.load_entry(name, file_path)
         self._open_cell_dialog()
 
-    def _selected_cell_or_report(self):
-        """The Config tree's currently selected cell as (name, file_path), or None
-        with a Log line already written — the ONE "no cell selected" handling the
-        Tools → Config delegates below share (same idiom as
-        delete_selected_chain/reread_imprint)."""
-        selection = self.config_tree_dock.selected_cell()
-        if selection is None:
+    def _selected_cell_entry_or_report(self):
+        """The Config tree's currently selected CELL as (name, file path, entity),
+        or None with a Log line already written — the ONE handling the two Tools →
+        Config delegates below share (same idiom as
+        delete_selected_chain/reread_imprint).
+
+        часть 3, п.5: an ENTITY leaf acts through ITS address (the read resolves
+        it from the name, `gui/entity_doors.door_address`); a CELL leaf names no
+        instance, so the item SAYS SO and reads nothing — the address is taken
+        only where it is visible."""
+        entry = self.config_tree_dock.selected_cell_entry()
+        if entry is None:
             show_message(_("Pick a cell in the Config tree first."), "",
                          logging.getLogger(__name__))
             return None
-        return selection
+        name, file_path, entity = entry
+        if not entity:
+            show_message(_("pick an entity of cell {cell!r}").format(cell=name), "",
+                         logging.getLogger(__name__))
+            return None
+        return name, file_path, entity
 
     def update_selected_cell_from_selection(self, choose_layers: bool = False) -> None:
         """Main menu Tools → Config → "Update cell from selection...": the cell
-        currently SELECTED in the Config tree (Denis asked for both variants in
-        both places, Э4), then the very same read the context menu's "Update from
-        selection..." runs. `choose_layers=True` is the OTHER variant: the layer
-        dialog opens first and what it confirms becomes the read's layer set."""
-        selection = self._selected_cell_or_report()
-        if selection is None:
+        (or entity) currently SELECTED in the Config tree (Denis asked for both
+        variants in both places, Э4), then the very same read the tree menu's
+        "Update from selection..." runs. `choose_layers=True` is the OTHER
+        variant: the layer dialog opens first and what it confirms becomes the
+        read's layer set."""
+        entry = self._selected_cell_entry_or_report()
+        if entry is None:
             return
-        name, file_path = selection
-        self.cells_dock.refresh_from_selection_requested(
-            name, file_path, choose_layers=choose_layers)
+        name, file_path, entity = entry
+        entity_doors.refresh_cell_from_selection(self, name, file_path, None, None,
+                                                 entity, choose_layers)
 
     def import_selected_cell_from_selection(self, choose_layers: bool = False) -> None:
         """Main menu Tools → Config → "Import vias/tracks from selection...": the
-        ADDITIVE counterpart of the delegate above, on the cell currently selected
-        in the Config tree — same fast / choose-layers split."""
-        selection = self._selected_cell_or_report()
-        if selection is None:
+        ADDITIVE counterpart of the delegate above, on the cell (or entity)
+        currently selected in the Config tree — same fast / choose-layers split
+        and the same "an entity leaf is what carries the address" rule."""
+        entry = self._selected_cell_entry_or_report()
+        if entry is None:
             return
-        name, file_path = selection
-        self.cells_dock.import_from_selection_requested(
-            name, file_path, choose_layers=choose_layers)
+        name, file_path, entity = entry
+        entity_doors.import_cell_from_selection(self, name, file_path, None, None,
+                                                entity, choose_layers)
 
     def _refresh_cell_from_selection(self, name, file_path, cluster=None,
                                      sheet=None, entity=None,

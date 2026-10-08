@@ -226,6 +226,26 @@ class EntityTreeMixin:
         existing = leaf.toolTip(0)
         leaf.setToolTip(0, f"{existing}\n{hint}" if existing else hint)
 
+    def selected_cell_entry(self) -> Optional[tuple]:
+        """The selected CELL entry as (name, file path, entity name): entity name
+        is None for a CELL leaf and the ENTITY's own name for an entity leaf
+        (часть 3, п.5 — the Tools → Config entries act on the address the tree
+        SHOWS, and a cell leaf names no instance). The mirror of selected_chain()
+        / selected_imprint(); the identity comes from _item_identity()."""
+        for tree_item in self.tree.selectedItems():
+            identity = self._item_identity(tree_item)
+            if identity is None or identity[0] != "leaf":
+                continue
+            if identity[2] == "cells":
+                return identity[3], identity[1], None
+            if identity[2] == "entities":
+                data = tree_item.data(0, Qt.ItemDataRole.UserRole)
+                entity = data[2] if data is not None else None
+                if isinstance(entity, dict) and entity.get("cell"):
+                    # file_path None: CellDock resolves the CELL's file (Н5б).
+                    return entity.get("cell"), None, entity.get("name")
+        return None
+
     # ── Cell / orphan context-menu blocks ──────────────────────────────────
 
     def _add_cell_menu_items(self, menu, old_name, file_path) -> None:

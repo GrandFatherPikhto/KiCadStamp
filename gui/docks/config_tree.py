@@ -1805,22 +1805,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                     return file_ctx[0], data[2]
         return None
 
-    def selected_cell(self) -> Optional[tuple]:
-        """The currently selected cells leaf as (name, file_path), or None when
-        there is no selection or the selection is a different node kind.
-
-        The Tools → Config entries (DockHub.update_selected_cell_from_selection /
-        import_selected_cell_from_selection, Э4 of plan_2026_09_12_cell_layer_
-        dialog) act on the cell currently selected in the Config tree — the mirror
-        of selected_chain()/selected_imprint() above. The identity comes from
-        _item_identity(), so a commented label is stripped exactly as elsewhere."""
-        for tree_item in self.tree.selectedItems():
-            identity = self._item_identity(tree_item)
-            if (identity is not None and identity[0] == "leaf"
-                    and identity[2] == "cells"):
-                return identity[3], identity[1]      # (name, file path)
-        return None
-
     def _selected_export_items(self) -> list:
         """Currently selected tree leaves/nodes, as ExportItem tuples — file/
         category headers and chains: anchor groups are ignored (Export only

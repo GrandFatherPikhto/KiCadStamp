@@ -751,35 +751,70 @@ def test_tools_config_cell_reads_route_to_dock_hub(real_main_window, monkeypatch
                      ("import", False), ("import", True)]
 
 
-def test_tools_config_cell_read_acts_on_the_selected_cell(real_main_window,
-                                                          monkeypatch):
-    """The Tools leg needs a cell: it acts on the one SELECTED in the Config tree,
-    the same shape as the other Tools delegates (delete_selected_chain, ...)."""
+def test_tools_config_cell_read_acts_on_the_selected_entity(real_main_window,
+                                                            monkeypatch,
+                                                            tmp_path):
+    """часть 3, п.5: the Tools leg acts on the address the tree SHOWS. The ENTITY
+    leaf carries it (its own file is NOT the target — file_path=None, Н5б), and
+    the read goes through the very same doors the tree menu uses, with the address
+    handed in as an argument."""
     hub = real_main_window._dock_hub
-    monkeypatch.setattr(hub.config_tree_dock, "selected_cell",
-                        lambda: ("one_role", "root.sexp"))
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}},
+                  "entities": [{"name": "e1", "cell": "one_role",
+                                "cluster": "CL", "sheet": "S1"}]})
+    hub.config_tree_dock.set_root_file(root)          # builds the part-1 index
+    monkeypatch.setattr(hub.config_tree_dock, "selected_cell_entry",
+                        lambda: ("one_role", None, "e1"))
     calls = []
     monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
-                        lambda name, file_path, choose_layers=False:
-                        calls.append(("refresh", name, file_path, choose_layers)))
+                        lambda name, file_path, choose_layers=False, **kw:
+                        calls.append(("refresh", name, file_path, choose_layers, kw)))
     monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
-                        lambda name, file_path, choose_layers=False:
-                        calls.append(("import", name, file_path, choose_layers)))
+                        lambda name, file_path, choose_layers=False, **kw:
+                        calls.append(("import", name, file_path, choose_layers, kw)))
 
     hub.update_selected_cell_from_selection()
     hub.update_selected_cell_from_selection(choose_layers=True)
     hub.import_selected_cell_from_selection()
 
-    assert calls == [("refresh", "one_role", "root.sexp", False),
-                     ("refresh", "one_role", "root.sexp", True),
-                     ("import", "one_role", "root.sexp", False)]
+    assert [call[:4] for call in calls] == [
+        ("refresh", "one_role", None, False),
+        ("refresh", "one_role", None, True),
+        ("import", "one_role", None, False)]
+    for _kind, _name, _file, _layers, kwargs in calls:
+        assert kwargs["expected_address"].entity_name == "e1", kwargs
+
+
+def test_tools_config_cell_read_on_a_cell_leaf_reads_nothing(real_main_window,
+                                                            monkeypatch):
+    """часть 3, п.5: a CELL leaf names no instance — the item SAYS SO in the Log
+    and NOTHING is read (the dock entry points are not even reached)."""
+    hub = real_main_window._dock_hub
+    monkeypatch.setattr(hub.config_tree_dock, "selected_cell_entry",
+                        lambda: ("one_role", "root.sexp", None))
+    started = []
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda *args, **kwargs: started.append((args, kwargs)))
+    monkeypatch.setattr(hub.cells_dock, "import_from_selection_requested",
+                        lambda *args, **kwargs: started.append((args, kwargs)))
+    messages = []
+    monkeypatch.setattr(dock_hub_mod, "show_message",
+                        lambda text, style="", logger=None: messages.append(text))
+
+    hub.update_selected_cell_from_selection()
+    hub.import_selected_cell_from_selection()
+
+    assert started == [], "лист ячейки не читает плату вообще"
+    assert messages == ["pick an entity of cell 'one_role'"] * 2
 
 
 def test_tools_config_cell_read_without_a_selected_cell_shows_a_message(
         real_main_window, monkeypatch):
     """No cell selected in the Config tree -> a Log line, no read started."""
     hub = real_main_window._dock_hub
-    monkeypatch.setattr(hub.config_tree_dock, "selected_cell", lambda: None)
+    monkeypatch.setattr(hub.config_tree_dock, "selected_cell_entry",
+                        lambda: None)
     started = []
     monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
                         lambda *args, **kwargs: started.append((args, kwargs)))
