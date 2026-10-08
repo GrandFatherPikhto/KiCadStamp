@@ -1,11 +1,14 @@
 # kicadstamp/diagnostics/claude_mutations_accept_narrowing_cost_2026_10_08.py
 """Claude's acceptance rows for parts А–Г of plan_2026_10_08_narrowing_net_traces_cost
-(commits 1b45d75f … 04cafe28) — on top of Demon's rig machinery.
+(commits 1b45d75f … 04cafe28; C4–C6 — доделка d0bd25f0 … 5d55e586) — on top of Demon's rig machinery.
 
   * C1 a record whose net does NOT resolve is reported resolvable — the filter may
        then drop a record whose registry copper sits in the selection
   * C2 a selected piece with NO net no longer switches the net filter off
   * C3 a read that took nothing still rewrites the selection (clears it)
+  * C4 the per-record net question stops asking for quiet (доделка 2, 8d4fe32d)
+  * C5 the narrowing cascade ignores quiet — writes INFO always
+  * C6 the read-only live-copper door stops asking for quiet (44d946b3)
   * K1 a cosmetic comment — MUST survive
 
     .venv/bin/python kicadstamp/diagnostics/claude_mutations_accept_narrowing_cost_2026_10_08.py
@@ -30,6 +33,20 @@ ROWS = [
      "    if outcome.replaced:\n        try:\n            adapter.select_items(",
      "    if True:  # MUTATION\n        try:\n            adapter.select_items(",
      "die", T, ()),
+    ("C4 the dry net question is loud again", ds.SN,
+     "            nets, resolvable = record_nets(adapter, nt, sheet_names, quiet=True)\n",
+     "            nets, resolvable = record_nets(adapter, nt, sheet_names)  # MUTATION\n",
+     "die", T, ()),
+    ("C5 the cascade ignores quiet", "kicadstamp/placement/services/role_narrowing.py",
+     "    log = logger.debug if quiet else logger.info\n",
+     "    log = logger.info  # MUTATION\n",
+     "die", T, ()),
+    ("C6 find_live_copper is loud again", ds.NTP,
+     "            planned_vias, planned_tracks = plan_net_traces(\n"
+     "                adapter, [nt], sheet_names=_sn, quiet=True)\n",
+     "            planned_vias, planned_tracks = plan_net_traces(\n"
+     "                adapter, [nt], sheet_names=_sn)  # MUTATION\n",
+     "die", T + ["test_net_trace_live_copper.py"], ()),
     ("K1 cosmetic comment (control)", ds.OUT,
      "def replace_selection(adapter, *, footprints, vias, raw_tracks, plan_footprints,",
      "def replace_selection(adapter, *, footprints, vias, raw_tracks, plan_footprints,  # control",
