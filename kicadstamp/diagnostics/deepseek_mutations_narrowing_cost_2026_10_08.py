@@ -46,6 +46,7 @@ OUTCOME = ["test_read_outcome.py"]
 
 # The modules (basenames resolved under tests/ by the rig).
 NTP = "kicadstamp/net_trace_planner.py"
+COPPER = "gui/docks/copper_select.py"
 SN = "kicadstamp/selection_narrowing.py"
 MIXEDSEL = "gui/mixed_selection.py"
 SELECTCELL = "gui/select_cell.py"
@@ -151,6 +152,18 @@ MUTATIONS = [
      '    if False:  # MUTATION\n'
      '        line += _("; skipped {count}: {reasons}").format(\n',
      "die", OUTCOME, ()),
+    # 11 — the PLAN throws the flag away (доделка 2, live 08.10): every read-only
+    # door writes its per-record lines at INFO again — 458 of them for one click.
+    ("M11 the plan ignores quiet", NTP,
+     "    log = logger.debug if quiet else logger.info\n",
+     "    log = logger.info  # MUTATION\n",
+     "die", NET_FILTER, ()),
+    # 12 — the identify door stops asking (доделка 2): the same per-record lines
+    # come back for the 73 records IT plans.
+    ("M12 the identify door stops asking", COPPER,
+     "                    adapter, [nt], sheet_names=dict(sheet_names or {}), quiet=True)\n",
+     "                    adapter, [nt], sheet_names=dict(sheet_names or {}))  # MUTATION\n",
+     "die", NET_FILTER, ()),
     # K1 — a cosmetic docstring change changes nothing: MUST survive.
     ("K1 a cosmetic docstring change", OUT,
      '"""What a read TOOK out of the selection',
