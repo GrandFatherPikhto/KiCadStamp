@@ -78,6 +78,7 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import defer_while_socket_busy, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
+from .trees_node_row import copy_node_onto, refresh_node_row
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
                             run_identify_copper_worker,
@@ -1004,26 +1005,6 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     rotation = (relative_rotation_deg(child_deg, base_rot)
                 if child_deg is not None else None)
     return offset_mm, rotation
-
-
-def _copy_node_onto(target: TreeNode, built: TreeNode) -> None:
-    """Copy every editable field of a BUILT node onto an EXISTING node in place
-    (mutate, don't swap identity — other structures may hold a reference, e.g.
-    _node_items). The single copy routine shared by every node-edit apply path
-    (the master-detail Node tab's apply()/redraw() and the dialog forms), so
-    they can never drift."""
-    target.ref = built.ref
-    target.kind = built.kind
-    target.xy = built.xy
-    target.polar = built.polar
-    target.rotation = built.rotation
-    target.name = built.name
-    target.group = built.group
-    # NOTE (2026-09-11, plan_2026_09_11_tree_inner_point_and_rotation §V.3): the
-    # pivot_xy/pivot_polar copy that used to sit here is GONE — a node carries no
-    # pivot any more (the inner point belongs to the TREE). The tree-level
-    # editor arrives in stage Б2.1.
-    target.anchor = built.anchor
 
 
 class TreesDock(QWidget):
@@ -5391,9 +5372,14 @@ class NodeFormWidget(QWidget):
             return False  # build_node already warned
         if not self._apply_parent_change():
             return False
-        _copy_node_onto(self._existing, built)
+        old_ref = self._existing.ref
+        copy_node_onto(self._existing, built)
         if self._dock is not None:
             self._dock._mark_dirty()
+            # The row is a SEPARATE object keyed by the node's ref — move its
+            # registry key to the new ref and repaint it through the render's
+            # own routine (no _rebuild_tabs: it would tear this form down).
+            refresh_node_row(self._dock, self._tree, self._existing, old_ref)
         self._touched = False
         self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
         return True
