@@ -19038,6 +19038,30 @@ msgstr "размещение клона"
 msgid "nested placement in cell"
 msgstr "вложенное размещение в ячейке"
 
+#: gui/cell_entity_choice.py
+msgid "Manual…"
+msgstr "Вручную…"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "{name} — {cluster} on {sheet}"
+msgstr "{name} — {cluster} на {sheet}"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "{name} — refs {refs}"
+msgstr "{name} — ссылки {refs}"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "{name} — not placed"
+msgstr "{name} — не размещена"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "{chain} — pad {pad}"
+msgstr "{chain} — пад {pad}"
+
 #: gui/docks/config_tree.py
 #, python-brace-format
 msgid "{kind}: {name}"
