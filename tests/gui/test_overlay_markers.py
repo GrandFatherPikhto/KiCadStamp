@@ -363,6 +363,26 @@ def test_malformed_legacy_state_never_raises():
 
 # ── reconcile hook (E.2.4): DockHub dispatches it on a worker ─────────────
 
+
+class _ConnDouble:
+    """The connection surface the overlay hook asks about.
+
+    `is_connected` is a PROPERTY over the board — the same answer
+    ``BoardConnection`` gives (``self.board is not None``, gui/connection.py:405),
+    not a constant: the "no board" cell below leans on exactly that, and a
+    constant ``True`` would leave it checking a question nothing asks any more.
+    08.10.2026 (plan_2026_10_08_door_noise_on_connect): the hook used to ask the
+    DOOR (``connection.board``) for this; it asks the connection now."""
+
+    def __init__(self, board, *, long_op_active=False):
+        self.board = board
+        self.long_op_active = long_op_active
+
+    @property
+    def is_connected(self) -> bool:
+        return self.board is not None
+
+
 def test_dock_hub_reconcile_overlay_dispatches_on_a_worker(monkeypatch):
     from types import SimpleNamespace
     from gui import dock_hub, worker
@@ -370,19 +390,32 @@ def test_dock_hub_reconcile_overlay_dispatches_on_a_worker(monkeypatch):
     calls = []
     monkeypatch.setattr(worker, "start_long_op",
                         lambda *a, **k: calls.append(a) or "controller")
+    # The reconcile ITSELF is a recorder here: this cell is about which function
+    # travels to the worker and what it is handed, not about what the owner does
+    # with the adapter (the owner's own cells live above).
+    seen = []
+    monkeypatch.setattr(markers_mod.owner, "reconcile",
+                        lambda adapter, **k: seen.append(adapter) or {})
 
-    class _Conn:
-        long_op_active = False
-        board = SimpleNamespace(adapter=object())
-
+    connection = _ConnDouble(SimpleNamespace(adapter=object()))
     hub = dock_hub.DockHub.__new__(dock_hub.DockHub)   # no full GUI build
-    hub.reconcile_overlay(_Conn())
+    hub.reconcile_overlay(connection)
 
     assert calls, "reconcile must be dispatched"
-    # worker fn is the owner's reconcile (a bound method — compare equal, not
-    # identical); the adapter is the first worker arg.
-    assert calls[0][2] == markers_mod.owner.reconcile
-    assert calls[0][5] is not None
+    # The NAMED worker goes to the worker, and it is handed the CONNECTION — its
+    # first worker arg is the connection, not a captured adapter (08.10.2026,
+    # plan_2026_10_08_door_noise_on_connect п.2): the UI thread must not open the
+    # door, so the adapter is taken INSIDE the worker (door §31, the worker
+    # before the sign).
+    assert calls[0][2] is dock_hub.reconcile_overlay_worker
+    assert calls[0][5] is connection
+
+    # ...and that worker really resolves the ADAPTER out of the connection it is
+    # handed — calling it exactly as start_long_op would, which is what proves
+    # the reference REACHES the reconcile. A lambda (or an adapter captured on
+    # the UI thread) could not promise that.
+    assert dock_hub.reconcile_overlay_worker(connection) == {}
+    assert seen == [connection.board.adapter]
 
 
 def test_dock_hub_reconcile_overlay_skips_without_a_board(monkeypatch):
@@ -392,12 +425,8 @@ def test_dock_hub_reconcile_overlay_skips_without_a_board(monkeypatch):
     monkeypatch.setattr(worker, "start_long_op",
                         lambda *a, **k: calls.append(a) or "controller")
 
-    class _Conn:
-        long_op_active = False
-        board = None
-
     hub = dock_hub.DockHub.__new__(dock_hub.DockHub)
-    hub.reconcile_overlay(_Conn())
+    hub.reconcile_overlay(_ConnDouble(None))
     assert calls == []
 
 
@@ -409,12 +438,9 @@ def test_dock_hub_reconcile_overlay_skips_while_socket_is_busy(monkeypatch):
     monkeypatch.setattr(worker, "start_long_op",
                         lambda *a, **k: calls.append(a) or "controller")
 
-    class _Conn:
-        long_op_active = True
-        board = SimpleNamespace(adapter=object())
-
     hub = dock_hub.DockHub.__new__(dock_hub.DockHub)
-    hub.reconcile_overlay(_Conn())
+    hub.reconcile_overlay(
+        _ConnDouble(SimpleNamespace(adapter=object()), long_op_active=True))
     assert calls == []
 
 

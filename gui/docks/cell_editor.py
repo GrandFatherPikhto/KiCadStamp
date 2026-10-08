@@ -968,9 +968,9 @@ class CellDock(QWidget):
         roles = sorted({s.role for s in snapshot if s.role})
         set_combo_items(self.comp_role_edit, roles)
         set_combo_items(self.nested_role_combo, roles)
-        # A push_snapshot only fires while connected (board present), so this
-        # is the dock's live-board heartbeat — refresh the geometry button's
-        # enabled state on it (adapter present AND a cell is loaded).
+        # A push_snapshot only fires while connected, so this is the dock's
+        # live-board heartbeat — refresh the geometry button's enabled state on
+        # it (connected AND a cell is loaded).
         self._update_refresh_enabled()
 
     # ── Anchor UI ─────────────────────────────────────────────────────────
@@ -1746,15 +1746,25 @@ class CellDock(QWidget):
 
     def _update_refresh_enabled(self) -> None:
         """The refresh-geometry AND import-vias/tracks buttons are meaningful
-        only when a live board adapter is present AND a cell with components
-        is loaded (Import needs the same clean role match as Refresh, see
+        only when a live connection is present AND a cell with components is
+        loaded (Import needs the same clean role match as Refresh, see
         build_import_plan). CellDock receives no per-selection feed (only
         push_snapshot's role lists), so an EMPTY board selection is not gated
-        here — the worker reports it as a clear error at click time instead."""
+        here — the worker reports it as a clear error at click time instead.
+
+        08.10.2026 (plan_2026_10_08_door_noise_on_connect, п.1): this is a
+        PRESENCE question, so it asks the CONNECTION and never opens the door —
+        the old `connection.board` → `.adapter` chain was a UI-thread read
+        without a sign, i.e. a red Log line on every connect (gui/connection.py's
+        guard, mode "log"). `is_connected` is the door's own sanctioned answer
+        (`self.board is not None`, С10) and the buttons grey out exactly as
+        before: no connection, no enabled action. A live board always carries its
+        `.adapter` — BoardConnection.connect() reads it before publishing the
+        board — so nothing is lost by not looking at it. Same shape as
+        gui/subtract_copper.py's SubtractWiring.open."""
         connection = getattr(self._main_window, "connection", None)
-        board = getattr(connection, "board", None) if connection is not None else None
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        enabled = adapter is not None and bool(self._components)
+        connected = bool(getattr(connection, "is_connected", False))
+        enabled = connected and bool(self._components)
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.subtract_copper_button.setEnabled(enabled)

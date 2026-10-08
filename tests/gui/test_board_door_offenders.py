@@ -24,6 +24,7 @@ The three, in the order the armed run of 21.09.2026 named them:
 Numbers live in the docstrings, names describe the property (rule 37).
 """
 import logging
+import threading
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -1383,3 +1384,156 @@ def _active_graph_root(tmp_path, monkeypatch):
     set_active_graph_root(tmp_path / "active_root.sexp")
     yield
     set_active_graph_root(None)
+
+
+# ── 08.10.2026 — the two red lines of the connect path ───────────────────────
+# plan_2026_10_08_door_noise_on_connect. Denis saw, on EVERY connect:
+#   ERROR gui.connection: Reading the live board from the UI thread without a
+#   sign: gui/docks/cell_editor.py:1755 | gui/dock_hub.py:3285
+# Both sat on MainWindow._finish_poll's success path, and both were a PRESENCE
+# question and a HANDLE delivery — never a board read. So the door's order of
+# means had an answer for each that is not a sign: the presence one asks the
+# CONNECTION (`connection.is_connected`, п.1), and the handle is taken by the
+# WORKER itself (`adapter_of`, п.2). ONE cell below covers both places, because
+# one _finish_poll turn reaches both — push_snapshot ->
+# CellDock.refresh_known_roles -> _update_refresh_enabled, and the turn's end ->
+# DockHub.reconcile_overlay. The door is ARMED in the rig's mode (a violation
+# RAISES), so these cells can only pass while neither place opens the door from
+# the UI thread.
+
+
+def test_the_connect_path_does_not_read_the_board_unsigned(
+        real_main_window, monkeypatch):
+    """The two offenders of 08.10.2026, pinned by the REAL guard.
+
+    Both were found by the armed run rather than by a spy, and both are fixed by
+    ASKING SOMETHING ELSE (the connection, the worker) — so the property here is
+    «no refusal on the connect path», not «some call was not made».
+
+    Mutation check: put `board = getattr(connection, "board", None)` back into
+    CellDock._update_refresh_enabled, or into DockHub.reconcile_overlay, and this
+    fails with a refusal naming that file."""
+    from gui import dock_hub, worker as worker_mod
+
+    dispatched = []
+    # The workers are RECORDED, never run: the UI half is this cell's subject,
+    # and the overlay worker's own body has its own cell below (it reads the
+    # board on its own thread, which is the point of the fix).
+    monkeypatch.setattr(worker_mod, "start_long_op",
+                        lambda *a, **k: dispatched.append(a) or "controller")
+    # A live board — the connect path's own precondition (the poll's success
+    # branch); the fakes' `.adapter` is all the UI half may ever need.
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    _arm_the_door(monkeypatch)
+
+    real_main_window._finish_poll(
+        {"error": None, "duration_s": 0.001,
+         "net_names": [], "copper_net_names": []})      # must not raise
+
+    assert any(call[2] is dock_hub.reconcile_overlay_worker
+               for call in dispatched), \
+        "the overlay reconcile must still be dispatched on connect"
+
+
+def test_the_overlay_reconcile_worker_takes_the_adapter_off_the_connection(
+        real_main_window, monkeypatch):
+    """The handle reaches the reconcile — taken by the WORKER, on its own thread.
+
+    `reconcile_overlay` hands the worker the CONNECTION (not a captured adapter),
+    and `reconcile_overlay_worker` resolves the adapter through `adapter_of` on
+    the thread the worker runs on. The door is ARMED here, so this also pins the
+    other half of the ordering: the adapter read belongs to a thread the guard
+    does not call the UI thread, and the UI thread itself never opens the door.
+
+    Mutation checks: pass `None` instead of the connection to `start_long_op`
+    (the adapter then never arrives), or take the adapter on the UI thread again
+    in `reconcile_overlay` (this fails with the refusal)."""
+    from gui import dock_hub
+    from gui import overlay_markers as markers_mod
+    from gui import worker as worker_mod
+
+    connection = real_main_window.connection
+    adapter = object()
+    connection.board = SimpleNamespace(adapter=adapter)
+
+    seen: list = []
+    monkeypatch.setattr(markers_mod.owner, "reconcile",
+                        lambda a, **k: seen.append(a) or {})
+
+    def _sync(_conn, _widgets, fn, _on_success, _on_error, *args, **kwargs):
+        """`start_long_op`, faithful in the ONE thing this cell is about: the
+        worker fn runs on a thread of its OWN, never on the caller's. The
+        continuations are left out on purpose — the order of on_success belongs
+        to tests/gui/test_explode_page.py."""
+        failed: list = []
+
+        def _run():
+            try:
+                fn(*args)
+            except Exception as e:  # noqa: BLE001 — measured, then asserted
+                failed.append(e)
+
+        thread = threading.Thread(target=_run, name="OverlayReconcileWorker")
+        thread.start()
+        thread.join()
+        assert not failed, failed
+        return "controller"
+
+    monkeypatch.setattr(worker_mod, "start_long_op", _sync)
+    _arm_the_door(monkeypatch)
+
+    real_main_window._dock_hub.reconcile_overlay(connection)
+
+    assert seen == [adapter], (
+        "the reconcile must be handed the board's adapter — got " f"{seen!r}")
+
+
+_CELL_ACTION_BUTTONS = (
+    "refresh_geometry_button",
+    "import_vias_tracks_button",
+    "subtract_copper_button",
+    "select_cluster_button",
+    "select_cell_button",
+    "explode_button",
+)
+
+
+@pytest.mark.parametrize("button_name", _CELL_ACTION_BUTTONS)
+def test_the_cell_dock_buttons_follow_the_connection(
+        real_main_window, tmp_path, monkeypatch, button_name):
+    """plan_2026_10_08_door_noise_on_connect п.1 — the six actions CellDock gates
+    together follow the CONNECTION: no connection, grey; a live board, alive. One
+    parametrized row per button, because the gate owns all six and a row is a
+    promise that that row was driven (rule 35).
+
+    The door is ARMED over the enabled flip, so the flip can only happen without
+    the dock reading `connection.board` — which is exactly what it used to do on
+    every connect. The board is a production-shaped stand-in (a live board always
+    carries its `.adapter`: BoardConnection.connect() reads it before publishing
+    the board), so what this row pins is that the ANSWER comes from the
+    CONNECTION, never from a handle.
+
+    Mutation check: restore the `connection.board` chain in
+    `CellDock._update_refresh_enabled` and this fails with the refusal."""
+    from gui.docks.cell_editor import CellDock
+
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(
+        {"cells": {"probe": {"components": [
+            {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0}]}}},
+        format_number=2), encoding="utf-8")
+    dock = CellDock(real_main_window)
+    dock.set_root_path(root)
+    dock.load_entry("probe")
+    button = getattr(dock, button_name)
+
+    real_main_window.connection.board = None
+    dock._update_refresh_enabled()
+    assert not button.isEnabled(), \
+        "no connection — the action must be grey"
+
+    _arm_the_door(monkeypatch)
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+    dock._update_refresh_enabled()                    # must not raise
+    assert button.isEnabled(), \
+        "a live connection — the action must be alive"

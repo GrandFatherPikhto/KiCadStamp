@@ -260,7 +260,17 @@ def test_the_overlay_reconcile_runs_before_the_state_read(ex, monkeypatch):
     `refresh_explode_state()` starts a long op, so with the old order
     `long_op_active` was already True when the reconcile was about to start and
     EVERY connect/refresh skipped the overlay reconcile. Both must run, the
-    reconcile FIRST."""
+    reconcile FIRST.
+
+    08.10.2026 (plan_2026_10_08_door_noise_on_connect п.2): the function the UI
+    thread dispatches is `DockHub.reconcile_overlay_worker`, which takes the
+    adapter INSIDE itself (door §31: the worker before the sign). So "the
+    reconcile ran" is now recorded WHERE IT RUNS — the owner's own reconcile
+    call — instead of by the name of the function put into the worker queue.
+    That is strictly STRONGER than the old anchor: an assertion on the wrapper's
+    name would also pass for a wrapper that never calls the reconcile at all.
+    All three asserts survive: the reconcile ran, the state read ran, and the
+    reconcile ran FIRST."""
     hub = ex._dock_hub
     order = []
 
@@ -279,12 +289,17 @@ def test_the_overlay_reconcile_runs_before_the_state_read(ex, monkeypatch):
     monkeypatch.setattr(page_mod, "start_long_op", _sync)
     monkeypatch.setattr(page_mod, "explode_state_worker",
                         lambda connection: ("none", None))
+    # The reconcile call itself is the RECORD (see the docstring): `_sync` runs
+    # the worker fn immediately, so this append happens from INSIDE the wrapper,
+    # while the state read only lands in `order` afterwards, from on_success.
+    monkeypatch.setattr(overlay_markers.owner, "reconcile",
+                        lambda adapter, **kwargs: order.append("reconcile") or {})
 
     hub.reconcile_overlay(ex.connection)
 
-    assert overlay_markers.owner.reconcile in order         # the reconcile RAN
+    assert "reconcile" in order                             # the reconcile RAN
     assert page_mod.explode_state_worker in order           # and the state READ ran
-    assert order.index(overlay_markers.owner.reconcile) < order.index(
+    assert order.index("reconcile") < order.index(
         page_mod.explode_state_worker)                      # reconcile FIRST
 
 
