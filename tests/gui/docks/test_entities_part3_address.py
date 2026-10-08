@@ -188,8 +188,10 @@ def test_the_read_bodies_take_the_doors_address_not_the_store(
 
 def test_the_subtract_flow_takes_the_address_over_the_store(
         main_window, tmp_path, monkeypatch):
-    """То же на вычитании: адрес двери становится парой (cluster, sheet) payload,
-    хранилище не спрошено; без адреса — прежние поля хранилища."""
+    """доделка 3а, п.2: вычитание берёт экземпляр ТЕМ ЖЕ ОДНИМ правилом, что и
+    чтения — адрес двери (cluster / sheet И пины `refs`) побеждает, а без адреса
+    отвечает СТРОКА СТРАНИЦЫ (хранилище рабочего экземпляра), а не приватное поле
+    дока: второй адресный реализации больше нет."""
     captured = []
 
     def _start(connection, widgets, fn, on_success, on_error, *args, **kwargs):
@@ -197,24 +199,27 @@ def test_the_subtract_flow_takes_the_address_over_the_store(
         return None
 
     monkeypatch.setattr("gui.subtract_copper.start_long_op", _start)
+    root = tmp_path / "root.sexp"
     dock = SimpleNamespace(
         _main_window=SimpleNamespace(
             connection=SimpleNamespace(is_connected=True, timeout_ms=7)),
         _components=[{"role": "R"}], _vias=[], _tracks=[],
-        _path=tmp_path / "root.sexp", _root_path=tmp_path / "root.sexp",
-        _active_op=None,
-        name_edit=SimpleNamespace(text=lambda: "c"),
-        _remembered_cluster_value=lambda: "CL1",
-        _remembered_sheet_value=lambda: "S1")
+        _path=root, _root_path=root, _active_op=None,
+        name_edit=SimpleNamespace(text=lambda: "c"))
     wiring = SubtractWiring(dock)
 
-    wiring._open_with_instance(entity_address(dict(_E2)))
+    # The door's own address wins — AND it carries the entity's pins.
+    wiring._open_with_instance(entity_address(dict(_E2, refs={"R": "R7"})))
     assert (captured[-1]["cluster"], captured[-1]["sheet"]) == ("CL2", "S2")
+    assert captured[-1]["refs"] == {"R": "R7"}, "пины сущности обязаны доехать"
     assert captured[-1]["cell_name"] == "c"
 
+    # Without an address the PAGE's row answers — the SAME working-instance store
+    # every read uses (an entity without refs keeps refs None, never {}).
+    remember_working_instance(root, "c", entity_address(dict(_E1)))
     wiring.open()
-    assert (captured[-1]["cluster"], captured[-1]["sheet"]) == ("CL1", "S1"), \
-        "без адреса — поля хранилища, как было"
+    assert (captured[-1]["cluster"], captured[-1]["sheet"]) == ("CL1", "S1")
+    assert captured[-1]["refs"] is None, "сущность без refs — None, не {}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

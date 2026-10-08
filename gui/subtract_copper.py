@@ -51,6 +51,7 @@ import logging
 
 from kicadstamp.i18n import _
 
+from .cell_entity_choice import instance_for_read
 from .connection import worker_timeout_ms
 from .docks._common import ERROR_STYLE as _ERROR_STYLE, style_for_level
 from .worker import start_long_op
@@ -166,7 +167,7 @@ def run_subtract_worker(payload: dict) -> dict:
     sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
 
     choice = resolve_action_instance(cfg, root, cell_name, payload.get("cluster"),
-                                     payload.get("sheet"), None)
+                                     payload.get("sheet"), payload.get("refs"))
     if choice.kind == "no-record":
         return {"error": choice.message}
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
@@ -197,7 +198,7 @@ def run_subtract_worker(payload: dict) -> dict:
                 # record): fall back to the registry for the SAME instance.
                 record_map = registry_record_copper_map(
                     adapter, root, cfg, cell_name, cluster, sheet,
-                    sheet_names=sheet_names)
+                    own_refs=payload.get("refs"), sheet_names=sheet_names)
             maps.append((_instance_label(cluster, sheet), cluster, sheet,
                          record, record_map))
         if choice.kind == "choose":
@@ -369,11 +370,15 @@ class SubtractWiring:
             return
         if dock._active_op is not None:
             return
-        if expected_address is not None:
-            cluster, sheet = expected_address.cluster, expected_address.sheet
-        else:
-            cluster, sheet = (dock._remembered_cluster_value(),
-                              dock._remembered_sheet_value())
+        # часть 3, п.2 + доделка 3а, п.2: the SAME ONE instance rule every READ
+        # uses — the door's own address wins (its cluster / sheet AND the entity's
+        # `refs:` pins), else the PAGE's row (the working-instance store, else the
+        # remembered context / identified refs). The old code took only
+        # (cluster, sheet) from the address — dropping the pins — and else asked
+        # the dock's remembered fields directly, i.e. a second rule.
+        instance = instance_for_read(dock._root_path,
+                                     dock.name_edit.text().strip(),
+                                     expected_address)
         payload = {
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(dock._components),
@@ -386,8 +391,11 @@ class SubtractWiring:
             # None and fell back to its default.
             "config_path": str(dock._root_path) if dock._root_path else None,
             "cell_name": dock.name_edit.text().strip(),
-            "cluster": cluster,
-            "sheet": sheet,
+            "cluster": instance.cluster,
+            "sheet": instance.sheet,
+            # доделка 3а, п.2: the entity's pins ride in the payload — the
+            # registry fallback narrows which `anchor:<ref>` keys are this cell's.
+            "refs": dict(instance.refs) if instance.refs else None,
         }
         dock._active_op = start_long_op(
             connection, (),

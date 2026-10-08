@@ -1,7 +1,7 @@
 # kicadstamp/diagnostics/deepseek_mutations_entities_part3a_2026_10_08.py
 """Acceptance mutations for "Доделка 3а" of plan_2026_10_05_entities_under_cells.md
-(the refusal names the SELECTION's own entity of the same cell), DeepSeek,
-2026-10-08.
+(the refusal names the SELECTION's own entity of the same cell; the subtraction
+uses the same ONE address rule as the reads), DeepSeek, 2026-10-08.
 
 Grown from deepseek_mutations_entities_part3_2026_10_08.py (rule 38), whose
 machinery is deepseek_mutations_refresh_mixed_2026_10_05.py — the SAME guards:
@@ -9,11 +9,12 @@ basename-resolved tests under tests/, `_drop_pyc`, the `original.count(old) != 1
 refusal (a non-unique template is a MISS, not a kill), ПРОМАХ when nothing turns
 red, and a control that MUST survive.
 
-WHAT IS BEING PROVEN (the new cell lives in
-tests/selection/test_selection_narrowing.py):
+WHAT IS BEING PROVEN:
   * M1 the refusal forgets the selection's own entity (the part-3 wording returns)
   * M2 the lookup returns the cell's FIRST entity, not the one the address names
   * M3 the lookup compares clusters by equality, not `record_address_matches`
+  * M4 the subtract worker drops the entity's pins (the registry narrowing)
+  * M5 the subtract door stops carrying the pins of the door's address
   * K1 a cosmetic comment -> MUST survive
 
     .venv/bin/python kicadstamp/diagnostics/deepseek_mutations_entities_part3a_2026_10_08.py
@@ -21,8 +22,11 @@ tests/selection/test_selection_narrowing.py):
 from kicadstamp.diagnostics import deepseek_mutations_refresh_mixed_2026_10_05 as rig
 
 SEL_TEST = ["test_selection_narrowing.py"]
+SUBTRACT_TEST = ["test_subtract_selected_copper.py"]
+DOOR_TEST = ["test_entities_part3_address.py"]
 NARROW = "kicadstamp/selection_narrowing.py"
 MIXED = "gui/mixed_selection.py"
+SUBTRACT = "gui/subtract_copper.py"
 
 MUTATIONS = [
     # 1 — the refusal drops the selection's own entity: the part-3 wording comes
@@ -53,6 +57,21 @@ MUTATIONS = [
      "        if (getattr(e, \"cluster\", None) == cluster  # MUTATION\n"
      "                and getattr(e, \"sheet\", None) == sheet):\n",
      "die", SEL_TEST, ()),
+    # 4 — the worker drops the entity's pins: `anchor:<other ref>` is own again
+    # and copper it owns is subtracted (доделка 3а, п.2).
+    ("M4 the subtract worker drops the entity's pins", SUBTRACT,
+     "                record_map = registry_record_copper_map(\n"
+     "                    adapter, root, cfg, cell_name, cluster, sheet,\n"
+     "                    own_refs=payload.get(\"refs\"), sheet_names=sheet_names)\n",
+     "                record_map = registry_record_copper_map(\n"
+     "                    adapter, root, cfg, cell_name, cluster, sheet,\n"
+     "                    sheet_names=sheet_names)\n",
+     "die", SUBTRACT_TEST, ()),
+    # 5 — the door stops carrying the pins of the address it was handed.
+    ("M5 the subtract door drops the entity's pins", SUBTRACT,
+     "            \"refs\": dict(instance.refs) if instance.refs else None,\n",
+     "            \"refs\": None,  # MUTATION\n",
+     "die", DOOR_TEST, ()),
     # K1 — a cosmetic comment changes nothing: MUST survive.
     ("K1 a cosmetic comment", MIXED,
      "            # The selection names ANOTHER instance — nothing is read from it.",

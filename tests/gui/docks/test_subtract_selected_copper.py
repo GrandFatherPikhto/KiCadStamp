@@ -1037,3 +1037,49 @@ def test_two_instances_take_the_refused_one_whose_registry_matches(
     assert result["removed"] == [("track", before[0])], result
     assert result["sheet"] == "Channel_0", result
     assert result["source"] == "registry", result
+
+
+def test_the_entitys_pinned_refs_narrow_which_copper_is_this_instance(
+        main_window, tmp_path, monkeypatch):
+    """доделка 3а, п.2: пины сущности (`refs` в payload) сужают, какие
+    `anchor:<ref>` записи суть ЭТОГО экземпляра. Пины называют `C1`, значит
+    `anchor:C1` — наша медь, а `anchor:Z9` (живой слот ячейки) — НЕ наша: её медь
+    из выделения игнорируется, а не вычитается.
+
+    Дверь несёт пины в payload (тест дока `test_the_subtract_flow_...`); здесь
+    проверяется, что ВОРКЕР отдаёт их в сужение
+    (`registry_record_copper_map(own_refs=...)`) — без них `anchor:Z9` снова своя
+    и её запись была бы вычтена (мутация M4)."""
+    entity = {"name": "dac0", "cell": "dac_buf", "cluster": "DAC_BUF",
+              "refs": {"ZERO": "C1"}}
+    dock, target = _make_refused_dock(main_window, tmp_path,
+                                      _refused_tree_data(entities=[entity]))
+    _cfg, cell_id, _ents = _load_ids(target)
+    # TWO own keys: the pinned C1 (cell track 1) and the live zero slot Z9 (0).
+    _write_registries(
+        tmp_path, {},
+        {make_registry_key("anchor:C1", cell_id, SPOKE_LEVEL_ROLE_PLACEHOLDER, 1):
+         _track_reg_entry("u1"),
+         make_registry_key("anchor:Z9", cell_id, SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+         _track_reg_entry("u0")})
+    # The selection is the UNPINNED slot's copper (u0). The frame's live zero
+    # slot is Z9 at (10, 10); u1 (track 1, across 2.0 mm) sits at (10, 12).
+    _fake_board(monkeypatch, [_live_track("u0", None, 10.0, 10.0, 11.0, 10.0)],
+                tracks=[_board_track("u0"),
+                        _live_track("u1", "N", 10.0, 12.0, 11.0, 12.0)],
+                footprints=[_live_zero()])
+    _fake_map(monkeypatch, {"dac0": RecordCopperMap()})
+    messages = _messages(dock, monkeypatch)
+    before = list(dock._tracks)
+
+    payload = _payload(dock)
+    payload["cluster"] = "DAC_BUF"
+    payload["refs"] = {"ZERO": "C1"}        # the entity's pins, as the door sends
+
+    result = dock._run_subtract_from_selection(payload)
+    dock._finish_subtract_from_selection(result)
+
+    assert result["removed"] == [], result
+    assert result["not_ours"] == 1, result
+    assert dock._tracks == before
+    assert any("not records of cell" in m for m in messages), messages
