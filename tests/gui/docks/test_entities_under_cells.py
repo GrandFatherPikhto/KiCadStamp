@@ -820,7 +820,7 @@ def test_the_entity_door_publishes_that_entity_as_the_working_instance(tmp_path)
     последней (`read_instance` отвечает из хранилища в момент использования)."""
     from types import SimpleNamespace
     from gui.cell_entity_choice import read_instance, working_instance
-    from gui.dock_hub import _pin_door_instance
+    from gui.entity_doors import pin_door_instance
     from gui.docks.entity_index import build_entity_index
     from kicadstamp.config.includes import walk_include_tree
     root = tmp_path / "root.sexp"
@@ -835,20 +835,20 @@ def test_the_entity_door_publishes_that_entity_as_the_working_instance(tmp_path)
         root_metadata_dock=SimpleNamespace(root_path=root))
 
     # the cell page was last on e1 (a pick, or an earlier door) …
-    _pin_door_instance(hub, "c", "e1")
+    pin_door_instance(hub, "c", "e1")
     assert read_instance(root, "c").cluster == "CL1"
 
     # … and now the door of e2 fires: the store follows the DOOR, not the page.
-    _pin_door_instance(hub, "c", "e2")
+    pin_door_instance(hub, "c", "e2")
     row = working_instance(root, "c")
     assert row is not None and row.entity_name == "e2"
     assert read_instance(root, "c").cluster == "CL2"
 
     # A name the graph no longer knows clears the record — the door's own
     # explicit (cluster, sheet) is then in charge, never a stale entity.
-    _pin_door_instance(hub, "c", "gone")
+    pin_door_instance(hub, "c", "gone")
     assert working_instance(root, "c") is None
 
     # A CELL leaf names no entity: nothing is written at all.
-    _pin_door_instance(hub, "c", None)
+    pin_door_instance(hub, "c", None)
     assert working_instance(root, "c") is None
