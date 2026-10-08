@@ -113,6 +113,23 @@ def test_entity_is_indexed_under_its_imprint(tmp_path):
     assert idx.orphans == ()
 
 
+def test_entity_named_finds_a_cells_entity_and_not_an_imprints(tmp_path):
+    """2в, п.4 (ловушка C4 приёмки 2б): поиск по имени, которым дверь 2б
+    превращает имя в адрес, видит ТОЛЬКО сущности ячеек. У сущности импринта
+    страницы, которую эта дверь открывает, нет — искать её здесь значило бы
+    обещать её вызывающему."""
+    idx, _ = _index(tmp_path, {
+        "cells": {"c_a": _cell(CELL_A)},
+        "imprints": [{"name": "amp", "uuid": IMP}],
+        "entities": [_entity("cell_ent", cell="c_a", cell_uuid=CELL_A),
+                     _entity("imp_ent", imprint="amp", imprint_uuid=IMP)],
+    })
+    assert idx.entity_named("cell_ent").name == "cell_ent"
+    assert idx.entity_named("imp_ent") is None, "сущность импринта — не адрес двери"
+    assert idx.entity_named("gone") is None
+    assert idx.entity_named("") is None and idx.entity_named(None) is None
+
+
 def test_entity_in_file_b_is_attached_to_cell_in_file_a(tmp_path):
     """С2 плана: сущность в B, ячейка в A (через include:) — сущность
     привязана к ячейке, а её СОБСТВЕННЫЙ файл — B (п.4: не файл ячейки)."""
