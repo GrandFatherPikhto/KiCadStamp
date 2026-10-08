@@ -26,6 +26,25 @@ Measured with the probe on `ecc29e5` (Windows 11, offscreen, PyQt 6.11, base of
 this task): CellDialog 1310 px (en) / 1226 px (ru); the next widest widget in the
 whole app is RoleClusterTreeDock at 898 px (en) / 970 px (ru) — so the Cell dialog
 was the only offender, and this guard stays on it (plan §4).
+
+Since 08.10.2026 the two cells CARRY THE EVIDENCE (Ш1-2..Ш1-6 of
+plan_2026_10_08_cell_dialog_width_windows): the Cell dialog is 1106 px on the
+Windows runner and 337 px here, so the failing platform is the only probe the
+project has (no Windows dev machine, and `skipif win32` is forbidden). Both
+messages are assembled by the probe's own formatters — the en half from the live
+dialog, the ru half from the probe's JSON — and both name the layout ROWS
+(items + gaps + margins: that is how the three-button row of `ecc29e5` came to
+1290 px) and the widest VISIBLE descendants. Three measured facts shape the
+block, and two of them would otherwise answer with nothing:
+
+* `isVisible()` is False for EVERY descendant of a never-shown dialog (measured:
+  0 of 300), so the filter is `isVisibleTo(offender)` (45 of 300 survive) and the
+  dropped count is reported — the rows keep what the filter drops, because a
+  QTabWidget's minimum is computed over ALL its pages;
+* a row sum without the gaps reads 295 px for a row that costs 307 px (and the
+  dialog 337 px), i.e. it stays under a limit the offender is over;
+* the "≥ 60 % of the offender" share is a FLAG, never a filter: the holders on
+  `ecc29e5` were 386/410/494 out of 1310 px — 29/31/38 %.
 """
 import json
 import os
@@ -35,12 +54,16 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from PyQt6.QtWidgets import QPushButton
 
 from gui.docks.cell_dialog import CellDialog
 from gui.docks.cell_editor import CellDock
 
+# The evidence formatters live in the probe, not here: the ru half reads the SAME
+# block out of the probe's JSON, and two copies of the wording would drift apart.
 # Ф2.0: depth-independent (tests/paths.py).
+from kicadstamp.diagnostics.probe_gui_min_sizes import (
+    descendants_visibility, format_offender_evidence, format_widest_widgets,
+    guilty_rows, platform_context, widest_descendants)
 from tests.paths import REPO_ROOT as _ROOT
 
 # Р4: 1366x768 is the smallest screen the project must live on; 1000 px leaves
@@ -92,35 +115,53 @@ def ru_report() -> dict:
     return report
 
 
-def _ru_button(report: dict, attr: str) -> dict:
-    for button in report["cell_dialog_buttons"]:
-        if button.get("attr") == attr:
-            assert not button.get("missing"), f"{attr} is missing from CellDock"
-            return button
-    raise AssertionError(f"{attr} was not measured by the probe")
-
-
 # ── С1: the dialog fits a laptop screen, in both catalogues ────────────────
 
 def test_cell_dialog_minimum_width_fits_the_screen(main_window):
     """С1: the dialog's own floor is what decides whether it can be placed on a
-    1366x768 screen at all — Qt ignores every attempt to go below it."""
+    1366x768 screen at all — Qt ignores every attempt to go below it.
+
+    This message is the only place a WINDOWS-only offender can be named: the same
+    dialog measures 337 px here and 1106 px on the runner, so the failure prints
+    the layout rows and the widest visible descendants rather than asking for a
+    probe run on a platform the project does not own."""
     dialog = _build_cell_dialog(main_window)
     width = dialog.minimumSizeHint().width()
     assert width <= MAX_DIALOG_WIDTH_PX, (
         f"CellDialog demands {width} px of width (limit {MAX_DIALOG_WIDTH_PX}) — "
         f"on a 1366x768 laptop it hangs over the screen edge; the row of three "
-        f"buttons is the usual reason (see probe_gui_min_sizes.py)")
+        f"buttons is the usual reason:\n"
+        + format_offender_evidence(
+            width=width, limit=MAX_DIALOG_WIDTH_PX,
+            rows=guilty_rows(dialog, dialog, MAX_DIALOG_WIDTH_PX),
+            widest=widest_descendants(dialog, dialog, MAX_DIALOG_WIDTH_PX),
+            visibility=descendants_visibility(dialog),
+            context=platform_context("en")))
 
 
 def test_cell_dialog_minimum_width_fits_the_screen_in_russian():
     """С1, the Russian half (Р7) — via the probe subprocess, because Denis works
-    in Russian and only the ru catalogue can prove the ru numbers."""
-    measured = ru_report()["cell_dialog"]
+    in Russian and only the ru catalogue can prove the ru numbers.
+
+    The evidence comes out of the probe's JSON: on the platform where this cell
+    fails the probe has already computed the rows and the descendants (it does so
+    for every offender, and `isVisibleTo` is measured against the offender), and
+    `format_widest_widgets()` adds the app-wide table — the difference between ONE
+    stretched widget and a platform-wide change, which are fixed in different
+    places."""
+    report = ru_report()
+    measured = report["cell_dialog"]
     assert measured is not None, "the ru probe did not measure CellDialog"
-    assert measured["min_width"] <= MAX_DIALOG_WIDTH_PX, (
-        f"CellDialog demands {measured['min_width']} px of width in Russian "
-        f"(limit {MAX_DIALOG_WIDTH_PX})")
+    width = measured["min_width"]
+    assert width <= MAX_DIALOG_WIDTH_PX, (
+        f"CellDialog demands {width} px of width in Russian "
+        f"(limit {MAX_DIALOG_WIDTH_PX}):\n"
+        + format_offender_evidence(
+            width=width, limit=MAX_DIALOG_WIDTH_PX,
+            rows=measured.get("guilty_rows"), widest=measured.get("widest"),
+            visibility=measured.get("descendants"),
+            context=report.get("platform_context"),
+            extra=format_widest_widgets(report)))
 
 
 # ── С4: a Log line that sends you to a button names the button as it looks ──

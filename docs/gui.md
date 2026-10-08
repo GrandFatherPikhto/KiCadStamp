@@ -2410,6 +2410,18 @@ captions are longer. Measured on the day: 1310 → **578 px** (en), 1226 → **6
 right-click menu items in the Config tree (**Update from selection...**, **Add selected copper...**)
 keep their long names — they are not in that row.
 
+**A failed width guard NAMES the offender** (2026-10-08) — the Cell dialog measures 337 px here and
+1106 px on the Windows runner, so the platform that fails is the only probe the project has (there is no
+Windows dev machine, and skipping the guard there is not allowed). Both guard cells therefore print the
+EVIDENCE together with the failure: the layout rows widest first, each as `items + gaps + row margins`
+(the historical row of three buttons reads "295 px of items" and really costs 307 px, against a 337 px
+dialog), and the widest VISIBLE descendants with class, object name, text and their share of the
+offender's width. A row is never hidden for being under the limit: an offender can pass the limit on
+the margins of its own layouts, and then the message says so AND still names the widest row.
+`kicadstamp/diagnostics/probe_gui_min_sizes.py` also reports the platform context (style, DPI, device
+pixel ratio, font, and a fixed sample string measured through QFontMetrics), because "one widget
+stretched" and "the whole Qt changed under us" are fixed in different places.
+
 **Refresh geometry from selection** (2026-09-03; captioned **Refresh geometry** in the Cell dialog since
 2026-09-17 — see "Short button captions" above, and the Log hints name that caption) — a button in the
 Cell dialog AND a right-click **Update from selection...** action on a Cell leaf in the Config tree's
