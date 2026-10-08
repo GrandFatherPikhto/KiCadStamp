@@ -144,7 +144,8 @@ from ..worker import start_long_op
 from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, combo_line_edits, display_path,
-                      merge_write, own_line_edits, show_message)
+                      merge_write, own_line_edits, show_message,
+                      write_report_line)
 from .rename import collect_all_sheet_names, collect_section_entries, find_dict_entry_file
 
 logger = logging.getLogger(__name__)
@@ -895,9 +896,11 @@ class PointsDock(QWidget):
             return
 
         self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=name, path=display_path(self._path)),
+            write_report_line(
+                _("{action} {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=name, path=display_path(self._path)),
+                f"{name!r}", self._path, created=not overwritten),
             _SUCCESS_STYLE)
         self._refresh_point_names()
         # Ж.2.3: a Save under a DIFFERENT name is a rename — the point the old

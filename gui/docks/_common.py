@@ -33,6 +33,7 @@ from kicadstamp.exceptions import strip_fatal_block
 
 from kicadstamp.config_writer import (
     read_data, write_data, add_include, add_list_entry, disable_include,
+    write_report_line,
     display_path, merge_write, non_includable_keys, upsert_clone_placement,
     upsert_entity, upsert_entity_placement, upsert_list_entry)
 

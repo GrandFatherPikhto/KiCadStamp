@@ -284,6 +284,57 @@ def test_save_overwrites_by_name_or_net(main_window, tmp_path, caplog):
     assert any("Overwrote" in r.message for r in caplog.records)
 
 
+def _stage(monkeypatch):
+    """Turn the GUI's staged mode on for one test (conftest clears it after)."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    return WORKING_SET
+
+
+def test_a_staged_new_chain_never_claims_the_file(main_window, tmp_path, caplog,
+                                                  monkeypatch):
+    """Part В of plan_2026_10_08_narrowing_net_traces_cost, through the REAL dock:
+    while the working set holds the change the Log must not say the file was
+    written. Mutation: go back to the dock's own sentence and 'Wrote' shows up."""
+    dock, target = _make_dock(main_window, tmp_path, {"cells": {"c1": {}}})
+    before = target.read_bytes()
+    _stage(monkeypatch)
+
+    dock.net_edit.setCurrentText("+3V3")
+    dock.origin_widget.load(mode="anchor", role="FPGA")
+    dock.name_edit.setText("ch1")
+    dock._on_save()
+
+    assert target.read_bytes() == before, "the staged change must not reach the file"
+    messages = [r.message for r in caplog.records]
+    assert any("Staged new 'ch1' — not saved yet (File → Save)" in m
+               for m in messages), messages
+    assert not any("Wrote" in m for m in messages), messages
+
+
+def test_a_staged_change_to_an_existing_chain_says_so(main_window, tmp_path, caplog,
+                                                      monkeypatch):
+    """The same for a record that already existed — and never 'Overwrote ... in
+    <file>', the sentence Denis read right before "похоже, ничего не записывается"."""
+    dock, target = _make_dock(main_window, tmp_path, {"chains": [
+        {"name": "ch1", "net": "+3V3", "anchor_role": "FPGA", "spokes": []}]})
+    dock.load_chain({"name": "ch1", "net": "+3V3", "anchor_role": "FPGA",
+                     "spokes": []})
+    dock.net_edit.setCurrentText("+3V3")
+    dock.comment_edit.setText("updated")
+    before = target.read_bytes()
+    _stage(monkeypatch)
+
+    dock._on_save()
+
+    assert target.read_bytes() == before
+    messages = [r.message for r in caplog.records]
+    assert any("Staged changes to 'ch1' — not saved yet (File → Save)" in m
+               for m in messages), messages
+    assert not any("Overwrote" in m for m in messages), messages
+
+
 def test_comment_saves_and_loads_back(main_window, tmp_path):
     dock, target = _make_dock(main_window, tmp_path, {"chains": [
         {"net": "+3V3", "anchor_role": "FPGA", "comment": "a chain note", "spokes": []},

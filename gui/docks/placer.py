@@ -148,7 +148,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STY
                       merge_write, own_line_edits, parse_float_field, read_data,
                       set_combo_items, set_mode_pair_enabled, show_message,
                       upsert_clone_placement, upsert_entity, upsert_entity_placement,
-                      upsert_list_entry)
+                      upsert_list_entry, write_report_line)
 # _KeyValueTableEditor moved to _common.KeyValueTableEditor (2026-08-30,
 # ToolsDock shares it) — keep the old private name for existing call sites
 # and tests (placer_mod._KeyValueTableEditor).
@@ -2494,9 +2494,12 @@ class PlacerDock(QWidget):
             return
 
         self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=new_identity, path=display_path(self._placer_path)),
+            write_report_line(
+                _("{action} {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=new_identity, path=display_path(self._placer_path)),
+                f"{new_identity!r}", self._placer_path,
+                created=not overwritten),
             _SUCCESS_STYLE)
         self.saved.emit()
 
@@ -2573,9 +2576,11 @@ class PlacerDock(QWidget):
                 return
 
         self._show_message(
-            _("{action} entity {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=new_identity, path=display_path(target_path)),
+            write_report_line(
+                _("{action} entity {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=new_identity, path=display_path(target_path)),
+                f"{new_identity!r}", target_path, created=not overwritten),
             _SUCCESS_STYLE)
         self.saved.emit()
 
@@ -2608,9 +2613,11 @@ class PlacerDock(QWidget):
             self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
             return
         self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=name, path=display_path(self._placer_path)),
+            write_report_line(
+                _("{action} {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=name, path=display_path(self._placer_path)),
+                f"{name!r}", self._placer_path, created=not overwritten),
             _SUCCESS_STYLE)
         self.saved.emit()
 

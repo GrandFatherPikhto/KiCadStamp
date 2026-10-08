@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 20:32+0300\n"
+"POT-Creation-Date: 2026-10-08 20:35+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -274,25 +274,25 @@ msgstr "Отпечатки"
 #: gui/dock_hub.py:605 gui/dock_hub.py:1656 gui/dock_hub.py:2042
 #: gui/dock_hub.py:2097 gui/dock_hub.py:2282 gui/dock_hub.py:2590
 #: gui/dock_hub.py:2733 gui/dock_hub.py:3097 gui/docks/cell_editor.py:1646
-#: gui/docks/cell_editor.py:1728 gui/docks/cell_editor.py:2246
-#: gui/docks/cell_editor.py:2550 gui/docks/cell_editor.py:2686
-#: gui/docks/chain.py:595 gui/docks/chain.py:634 gui/docks/chain.py:711
-#: gui/docks/chain.py:807 gui/docks/chain.py:903 gui/docks/chain.py:925
+#: gui/docks/cell_editor.py:1730 gui/docks/cell_editor.py:2248
+#: gui/docks/cell_editor.py:2552 gui/docks/cell_editor.py:2688
+#: gui/docks/chain.py:596 gui/docks/chain.py:637 gui/docks/chain.py:714
+#: gui/docks/chain.py:810 gui/docks/chain.py:906 gui/docks/chain.py:928
 #: gui/docks/imprint_place.py:731 gui/docks/net_trace.py:305
 #: gui/docks/net_trace.py:414 gui/docks/net_trace.py:480
-#: gui/docks/net_trace.py:564 gui/docks/placer.py:1748 gui/docks/placer.py:1758
+#: gui/docks/net_trace.py:566 gui/docks/placer.py:1748 gui/docks/placer.py:1758
 #: gui/docks/placer.py:1999 gui/docks/placer.py:2174 gui/docks/placer.py:2292
-#: gui/docks/placer.py:2454 gui/docks/points.py:432 gui/docks/points.py:538
-#: gui/docks/points.py:715 gui/docks/points.py:882
+#: gui/docks/placer.py:2454 gui/docks/points.py:433 gui/docks/points.py:539
+#: gui/docks/points.py:716 gui/docks/points.py:883
 #: gui/docks/profile_import.py:222 gui/docks/thermal_via.py:354
 #: gui/docks/thermal_via.py:474 gui/explode_wiring.py:111
 #: gui/select_enclosed_copper.py:134 gui/subtract_copper.py:368
 msgid "Set the project root first."
 msgstr "Сначала задайте root проекта."
 
-#: gui/dock_hub.py:619 gui/dock_hub.py:1664 gui/docks/cell_editor.py:1722
-#: gui/docks/cell_editor.py:1820 gui/docks/cell_editor.py:2240
-#: gui/docks/cell_editor.py:2547 gui/docks/dedupe.py:136
+#: gui/dock_hub.py:619 gui/dock_hub.py:1664 gui/docks/cell_editor.py:1724
+#: gui/docks/cell_editor.py:1822 gui/docks/cell_editor.py:2242
+#: gui/docks/cell_editor.py:2549 gui/docks/dedupe.py:136
 #: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
 #: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
 #: gui/docks/net_trace.py:302 gui/docks/net_trace.py:417
@@ -347,8 +347,8 @@ msgid "Deleted net {name!r}. Backed up: {backups}."
 msgstr "Удалена цепь {name!r}. Резервная копия: {backups}."
 
 #: gui/dock_hub.py:1720 gui/docks/cell_editor.py:1573
-#: gui/docks/create_entity.py:161 gui/docks/points.py:366
-#: gui/docks/points.py:535 gui/docks/thermal_via.py:272
+#: gui/docks/create_entity.py:161 gui/docks/points.py:367
+#: gui/docks/points.py:536 gui/docks/thermal_via.py:272
 msgid "Name is required."
 msgstr "Требуется имя."
 
@@ -444,8 +444,8 @@ msgstr "Извлечь дерево"
 
 #: gui/dock_hub.py:2269 gui/dock_hub.py:2277 gui/dock_hub.py:2585
 #: gui/dock_hub.py:2730 gui/dock_hub.py:2788 gui/docks/placer.py:1993
-#: gui/docks/points.py:437 gui/docks/points.py:542 gui/docks/points.py:719
-#: gui/docks/points.py:770 gui/docks/role_cluster_tree.py:905
+#: gui/docks/points.py:438 gui/docks/points.py:543 gui/docks/points.py:720
+#: gui/docks/points.py:771 gui/docks/role_cluster_tree.py:905
 #: gui/docks/role_cluster_tree.py:917 gui/docks/trees_dock.py:4406
 #: gui/docks/trees_dock.py:7804 gui/docks/trees_dock.py:7868
 msgid "Not connected."
@@ -568,11 +568,11 @@ msgid "An entity named {name!r} already exists."
 msgstr "Сущность с именем {name!r} уже существует."
 
 #: gui/dock_hub.py:3164 gui/docks/cell_editor.py:1652
-#: gui/docks/cell_refs_tab.py:1143 gui/docks/chain.py:608
-#: gui/docks/chain.py:656 gui/docks/create_project_dialog.py:168
+#: gui/docks/cell_refs_tab.py:1143 gui/docks/chain.py:609
+#: gui/docks/chain.py:659 gui/docks/create_project_dialog.py:168
 #: gui/docks/entity_page.py:250 gui/docks/net_trace.py:527
-#: gui/docks/placer.py:2493 gui/docks/placer.py:2555 gui/docks/placer.py:2572
-#: gui/docks/placer.py:2608 gui/docks/points.py:894
+#: gui/docks/placer.py:2493 gui/docks/placer.py:2558 gui/docks/placer.py:2575
+#: gui/docks/placer.py:2613 gui/docks/points.py:895
 #: gui/docks/root_metadata.py:719 gui/docks/root_metadata.py:800
 #: gui/docks/thermal_via.py:485 gui/docks/tools.py:233
 #: kicadstamp/extract_writer.py:121
@@ -657,7 +657,7 @@ msgstr "Ничего не выбрано"
 msgid "Role:"
 msgstr "Роль:"
 
-#: gui/docks/_cell_identity.py:61 gui/docks/chain.py:257
+#: gui/docks/_cell_identity.py:61 gui/docks/chain.py:258
 #: gui/docks/create_entity.py:89 gui/docks/entity_page.py:96
 #: gui/docks/instantiate_cell_dialog.py:197 gui/docks/placer.py:862
 #: gui/docks/tree_from_selection_dialog.py:208 gui/fieldstool_window.py:227
@@ -991,7 +991,7 @@ msgid "Remove from include:"
 msgstr "Убрать из include:"
 
 #: gui/docks/cell_editor.py:382 gui/docks/cell_editor.py:410
-#: gui/docks/cell_layers.py:110 gui/docks/chain.py:138
+#: gui/docks/cell_layers.py:110 gui/docks/chain.py:139
 #: gui/docks/instances_dialog.py:294 gui/docks/profile_import.py:178
 #: gui/docks/settings_dialog.py:52 gui/docks/trees_dock.py:6525
 #: gui/docks/trees_dock.py:7921 gui/include_recovery.py:122
@@ -1521,7 +1521,7 @@ msgstr ""
 "кластер у строк разный ({clusters}) — нажмите «Применить ко всем "
 "строкам», чтобы разметить одним кластером"
 
-#: gui/docks/cell_editor.py:2578 gui/select_cell.py:127
+#: gui/docks/cell_editor.py:2580 gui/select_cell.py:127
 #: gui/select_enclosed_copper.py:157
 #, python-brace-format
 msgid ""
@@ -1669,7 +1669,7 @@ msgstr "  {count} записей дерева {tree!r} не имеют меди 
 msgid "No project loaded — open a root config first."
 msgstr "Проект не загружен — сначала откройте корневой конфиг."
 
-#: gui/docks/chain.py:390 gui/docks/placer.py:2161 gui/docks/placer.py:2287
+#: gui/docks/chain.py:391 gui/docks/placer.py:2161 gui/docks/placer.py:2287
 #: gui/docks/trees_dock.py:3281 gui/docks/trees_dock.py:3366
 #: gui/docks/trees_dock.py:3490 gui/docks/trees_dock.py:3547
 #: gui/docks/trees_dock.py:5845 gui/docks/trees_dock.py:6029
@@ -1782,8 +1782,8 @@ msgstr ""
 msgid "{count} record(s) have no registry entry — not checked"
 msgstr "записей без ключа в реестре: {count} — не проверялись"
 
-#: gui/docks/cell_editor.py:1725 gui/docks/cell_editor.py:2243
-#: gui/docks/cell_editor.py:2553 gui/docks/cell_editor.py:2689
+#: gui/docks/cell_editor.py:1727 gui/docks/cell_editor.py:2245
+#: gui/docks/cell_editor.py:2555 gui/docks/cell_editor.py:2691
 #: gui/subtract_copper.py:365
 msgid "Load a cell with components first."
 msgstr "Сначала загрузите шаблон с компонентами."
@@ -1863,7 +1863,7 @@ msgstr "пад (необязательно)"
 
 #: gui/docks/_anchor_origin.py:109 gui/docks/cell_anchor_view.py:779
 #: gui/docks/cell_editor.py:548 gui/docks/cell_editor.py:691
-#: gui/docks/cell_editor.py:767 gui/docks/chain.py:251 gui/docks/placer.py:261
+#: gui/docks/cell_editor.py:767 gui/docks/chain.py:252 gui/docks/placer.py:261
 #: gui/docks/thermal_via.py:131 gui/docks/tree_from_selection_dialog.py:221
 #: gui/docks/trees_dock.py:6819
 msgid "Pad:"
@@ -1895,36 +1895,36 @@ msgstr "X:"
 msgid "Y:"
 msgstr "Y:"
 
-#: gui/docks/_anchor_origin.py:200 gui/docks/chain.py:260
+#: gui/docks/_anchor_origin.py:200 gui/docks/chain.py:261
 #: gui/docks/placer.py:218 gui/docks/placer.py:281
 msgid "Cartesian"
 msgstr "Картезианская"
 
-#: gui/docks/_anchor_origin.py:200 gui/docks/chain.py:260
+#: gui/docks/_anchor_origin.py:200 gui/docks/chain.py:261
 #: gui/docks/placer.py:281
 msgid "Polar"
 msgstr "Радиальная"
 
-#: gui/docks/_anchor_origin.py:202 gui/docks/chain.py:262
+#: gui/docks/_anchor_origin.py:202 gui/docks/chain.py:263
 #: gui/docks/placer.py:220
 msgid "Mode:"
 msgstr "Режим:"
 
-#: gui/docks/_anchor_origin.py:210 gui/docks/chain.py:281
+#: gui/docks/_anchor_origin.py:210 gui/docks/chain.py:282
 msgid "Radius:"
 msgstr "Радиус:"
 
-#: gui/docks/_anchor_origin.py:212 gui/docks/chain.py:278
+#: gui/docks/_anchor_origin.py:212 gui/docks/chain.py:279
 #: gui/docks/placer.py:296
 msgid "radius mm"
 msgstr "радиус, мм"
 
 #: gui/docks/_anchor_origin.py:214 gui/docks/cell_editor.py:613
-#: gui/docks/chain.py:283
+#: gui/docks/chain.py:284
 msgid "Angle:"
 msgstr "Угол:"
 
-#: gui/docks/_anchor_origin.py:216 gui/docks/chain.py:280
+#: gui/docks/_anchor_origin.py:216 gui/docks/chain.py:281
 #: gui/docks/placer.py:298
 msgid "angle deg"
 msgstr "угол, град"
@@ -1938,22 +1938,22 @@ msgstr "Точка:"
 msgid "Kind:"
 msgstr "Вид:"
 
-#: gui/docks/_anchor_origin.py:272 gui/docks/chain.py:267
+#: gui/docks/_anchor_origin.py:272 gui/docks/chain.py:268
 #: gui/docks/trees_dock.py:6832
 msgid "shift X mm (0)"
 msgstr "сдвиг X мм (0)"
 
-#: gui/docks/_anchor_origin.py:274 gui/docks/chain.py:269
+#: gui/docks/_anchor_origin.py:274 gui/docks/chain.py:270
 #: gui/docks/trees_dock.py:6836
 msgid "shift Y mm (0)"
 msgstr "сдвиг Y мм (0)"
 
-#: gui/docks/_anchor_origin.py:275 gui/docks/chain.py:270
+#: gui/docks/_anchor_origin.py:275 gui/docks/chain.py:271
 #: gui/docks/trees_dock.py:6830
 msgid "Shift X:"
 msgstr "Сдвиг X:"
 
-#: gui/docks/_anchor_origin.py:277 gui/docks/chain.py:272
+#: gui/docks/_anchor_origin.py:277 gui/docks/chain.py:273
 #: gui/docks/trees_dock.py:6834
 msgid "Shift Y:"
 msgstr "Сдвиг Y:"
@@ -2030,29 +2030,29 @@ msgid "same as Cluster unless changed (identity for Save/--only)"
 msgstr ""
 
 #: gui/docks/_cell_identity.py:67 gui/docks/cell_editor.py:492
-#: gui/docks/cell_editor.py:805 gui/docks/chain.py:210
+#: gui/docks/cell_editor.py:805 gui/docks/chain.py:211
 #: gui/docks/create_entity.py:79 gui/docks/imprint.py:669
-#: gui/docks/imprint.py:684 gui/docks/placer.py:864 gui/docks/points.py:235
+#: gui/docks/imprint.py:684 gui/docks/placer.py:864 gui/docks/points.py:236
 #: gui/docks/thermal_via.py:110
 msgid "Name:"
 msgstr "Имя:"
 
 #: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:505
-#: gui/docks/chain.py:212 gui/docks/entity_page.py:78
-#: gui/docks/net_trace.py:109 gui/docks/placer.py:206 gui/docks/points.py:240
+#: gui/docks/chain.py:213 gui/docks/entity_page.py:78
+#: gui/docks/net_trace.py:109 gui/docks/placer.py:206 gui/docks/points.py:241
 #: gui/docks/thermal_via.py:112
 msgid "optional free-form note"
 msgstr "опциональная свободная заметка"
 
 #: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:506
-#: gui/docks/chain.py:213 gui/docks/entity_page.py:80
-#: gui/docks/net_trace.py:110 gui/docks/placer.py:865 gui/docks/points.py:241
+#: gui/docks/chain.py:214 gui/docks/entity_page.py:80
+#: gui/docks/net_trace.py:110 gui/docks/placer.py:865 gui/docks/points.py:242
 #: gui/docks/thermal_via.py:113
 msgid "Comment:"
 msgstr "Комментарий:"
 
 # Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
-#: gui/docks/_common.py:90
+#: gui/docks/_common.py:91
 msgid ""
 "This profile's registry is empty, but the board already has copper.\n"
 "\n"
@@ -2076,15 +2076,15 @@ msgstr ""
 "перенесёт её, а не продублирует."
 
 # Bug 3 (2026-09-05) first-run adoption heads-up — gui/docks/_common.py
-#: gui/docks/_common.py:100
+#: gui/docks/_common.py:101
 msgid "Adopt existing copper into the registry?"
 msgstr "Зарегистрировать существующую медь в реестре?"
 
-#: gui/docks/_common.py:620
+#: gui/docks/_common.py:621
 msgid "Add / update"
 msgstr "Добавить / обновить"
 
-#: gui/docks/_common.py:623 gui/docks/cell_editor.py:639
+#: gui/docks/_common.py:624 gui/docks/cell_editor.py:639
 #: gui/docks/cell_editor.py:709 gui/docks/cell_editor.py:781
 #: gui/docks/cell_editor.py:856
 msgid "Remove selected"
@@ -2745,13 +2745,13 @@ msgstr "Положение"
 msgid "Net"
 msgstr "Сеть"
 
-#: gui/docks/cell_editor.py:381 gui/docks/chain.py:136 gui/docks/chain.py:308
+#: gui/docks/cell_editor.py:381 gui/docks/chain.py:137 gui/docks/chain.py:309
 #: gui/docks/imprint.py:1283 gui/docks/settings_dialog.py:51
 #: gui/docks/trees_dock.py:2200 gui/docks/trees_dock.py:6506
 msgid "Apply"
 msgstr "Применить"
 
-#: gui/docks/cell_editor.py:399 gui/docks/cell_editor.py:2721
+#: gui/docks/cell_editor.py:399 gui/docks/cell_editor.py:2723
 msgid "Copy placement from cell"
 msgstr "Скопировать расстановку из шаблона"
 
@@ -2863,7 +2863,7 @@ msgid "optional — blank means the rule's own net"
 msgstr "необязательно — пусто означает собственную цепь правила"
 
 #: gui/docks/cell_editor.py:676 gui/docks/cell_editor.py:756
-#: gui/docks/chain.py:124 gui/docks/chain.py:207 gui/docks/net_trace.py:107
+#: gui/docks/chain.py:125 gui/docks/chain.py:208 gui/docks/net_trace.py:107
 #: gui/docks/thermal_via.py:135
 msgid "Net:"
 msgstr "Цепь:"
@@ -2934,13 +2934,13 @@ msgstr "Шаблон"
 msgid "Content:"
 msgstr "Содержимое:"
 
-#: gui/docks/cell_editor.py:817 gui/docks/chain.py:254
+#: gui/docks/cell_editor.py:817 gui/docks/chain.py:255
 #: gui/docks/entity_page.py:82 gui/docks/extract_spoke_dialog.py:95
 #: gui/docks/instantiate_cell_dialog.py:128 gui/docks/placer.py:796
 msgid "Cell:"
 msgstr "Шаблон:"
 
-#: gui/docks/cell_editor.py:842 gui/docks/chain.py:291
+#: gui/docks/cell_editor.py:842 gui/docks/chain.py:292
 #: gui/docks/imprint_place.py:253 gui/docks/placer.py:924
 #: gui/docks/trees_dock.py:5060
 msgid "Rotation (deg):"
@@ -3049,7 +3049,7 @@ msgid "Pick a Role first."
 msgstr "Сначала выберите Role."
 
 #: gui/docks/cell_editor.py:1501 gui/docks/instances_dialog.py:153
-#: gui/docks/placer.py:426 gui/docks/placer.py:1596 gui/docks/placer.py:2565
+#: gui/docks/placer.py:426 gui/docks/placer.py:1596 gui/docks/placer.py:2568
 msgid "Rotation"
 msgstr "Поворот"
 
@@ -3061,37 +3061,37 @@ msgstr "Сначала выберите строку вложенного шаб
 msgid "Anchor: pick a Role first."
 msgstr "Якорь: сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1656 gui/docks/chain.py:610
-#: gui/docks/placer.py:2497 gui/docks/placer.py:2611 gui/docks/points.py:898
-#: gui/docks/thermal_via.py:489 kicadstamp/extract_writer.py:136
+#: gui/docks/cell_editor.py:1657 gui/docks/chain.py:612
+#: gui/docks/placer.py:2498 gui/docks/placer.py:2617 gui/docks/points.py:900
+#: gui/docks/thermal_via.py:490 kicadstamp/extract_writer.py:136
 #, python-brace-format
 msgid "{action} {name!r} in {path}"
 msgstr "{action} {name!r} в {path}"
 
-#: gui/docks/cell_editor.py:1657 gui/docks/chain.py:611
-#: gui/docks/net_trace.py:531 gui/docks/placer.py:2498 gui/docks/placer.py:2577
-#: gui/docks/placer.py:2612 gui/docks/points.py:899
-#: gui/docks/thermal_via.py:490 kicadstamp/extract_writer.py:137
+#: gui/docks/cell_editor.py:1658 gui/docks/chain.py:613
+#: gui/docks/net_trace.py:532 gui/docks/placer.py:2499 gui/docks/placer.py:2581
+#: gui/docks/placer.py:2618 gui/docks/points.py:901
+#: gui/docks/thermal_via.py:491 kicadstamp/extract_writer.py:137
 msgid "Overwrote"
 msgstr "Перезаписал"
 
-#: gui/docks/cell_editor.py:1657 gui/docks/chain.py:611
-#: gui/docks/net_trace.py:531 gui/docks/placer.py:2498 gui/docks/placer.py:2577
-#: gui/docks/placer.py:2612 gui/docks/points.py:899
-#: gui/docks/thermal_via.py:490 kicadstamp/extract_writer.py:137
+#: gui/docks/cell_editor.py:1658 gui/docks/chain.py:613
+#: gui/docks/net_trace.py:532 gui/docks/placer.py:2499 gui/docks/placer.py:2581
+#: gui/docks/placer.py:2618 gui/docks/points.py:901
+#: gui/docks/thermal_via.py:491 kicadstamp/extract_writer.py:137
 msgid "Wrote"
 msgstr "Записал"
 
-#: gui/docks/cell_editor.py:1835
+#: gui/docks/cell_editor.py:1837
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr "Не удалось прочитать медные слои платы: {error}"
 
-#: gui/docks/cell_editor.py:1844 gui/docks/cell_layers.py:76
+#: gui/docks/cell_editor.py:1846 gui/docks/cell_layers.py:76
 msgid "Layers to read"
 msgstr "Слои для чтения"
 
-#: gui/docks/cell_editor.py:1845
+#: gui/docks/cell_editor.py:1847
 msgid ""
 "No layer is selected. Refresh deletes every track record of this cell. "
 "Continue?"
@@ -3099,42 +3099,42 @@ msgstr ""
 "Не выбран ни один слой. Refresh удалит из ячейки все записи дорожек. "
 "Продолжить?"
 
-#: gui/docks/cell_editor.py:1863
+#: gui/docks/cell_editor.py:1865
 #, python-brace-format
 msgid "read layers: {layers}"
 msgstr "прочитаны слои: {layers}"
 
-#: gui/docks/cell_editor.py:1866
+#: gui/docks/cell_editor.py:1868
 msgid "no layer of the selection was read"
 msgstr "ни один слой выделения не прочитан"
 
-#: gui/docks/cell_editor.py:1870
+#: gui/docks/cell_editor.py:1872
 #, python-brace-format
 msgid "skipped {layer}: unchecked by hand"
 msgstr "пропущен {layer}: снят вручную"
 
-#: gui/docks/cell_editor.py:1874
+#: gui/docks/cell_editor.py:1876
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr "пропущен {layer}: пусто в выделении"
 
-#: gui/docks/cell_editor.py:1979
+#: gui/docks/cell_editor.py:1981
 #, python-brace-format
 msgid ""
 "the selection has no copper — all {count} copper records of the cell were"
 " removed"
 msgstr "в выделении нет меди — вся медь ячейки удалена ({count} записей)"
 
-#: gui/docks/cell_editor.py:2038
+#: gui/docks/cell_editor.py:2040
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Ничего не изменилось — выделение уже совпадает с геометрией этого шаблона."
 
-#: gui/docks/cell_editor.py:2090
+#: gui/docks/cell_editor.py:2092
 #, python-brace-format
 msgid "removed {count} record(s) not in the selection"
 msgstr "удалено {count} записей, которых нет в выделении"
 
-#: gui/docks/cell_editor.py:2094
+#: gui/docks/cell_editor.py:2096
 #, python-brace-format
 msgid ""
 "Updated cell {name!r} from selection — {updated} record(s) updated, "
@@ -3145,12 +3145,12 @@ msgstr ""
 "добавлено via/track записей: {added}, удалено записей: {removed}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2104
+#: gui/docks/cell_editor.py:2106
 #, python-brace-format
 msgid "Refresh failed: {error}"
 msgstr "Сбой обновления: {error}"
 
-#: gui/docks/cell_editor.py:2256
+#: gui/docks/cell_editor.py:2258
 msgid ""
 "No layer is selected — no track will be read (vias and components are "
 "read as usual)."
@@ -3158,13 +3158,13 @@ msgstr ""
 "Не выбран ни один слой — дорожки не читаются (виа и компоненты читаются "
 "как обычно)."
 
-#: gui/docks/cell_editor.py:2392
+#: gui/docks/cell_editor.py:2394
 msgid ""
 "Nothing to import — every selected via/track is already described by this"
 " cell."
 msgstr "Импортировать нечего — все via/track из выделения уже описаны этим целлом."
 
-#: gui/docks/cell_editor.py:2401
+#: gui/docks/cell_editor.py:2403
 #, python-brace-format
 msgid ""
 "Imported {count} new record(s) from selection into {name!r}. Save to "
@@ -3173,22 +3173,22 @@ msgstr ""
 "Импортировано новых записей: {count} — из выделения в {name!r}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2409
+#: gui/docks/cell_editor.py:2411
 #, python-brace-format
 msgid "Import failed: {error}"
 msgstr "Импорт не удался: {error}"
 
-#: gui/docks/cell_editor.py:2501 gui/docks/cell_editor.py:2518
+#: gui/docks/cell_editor.py:2503 gui/docks/cell_editor.py:2520
 #, python-brace-format
 msgid "cell {name!r} is not in the config — cannot select it"
 msgstr "ячейка {name!r} не найдена в конфиге — выделить её нельзя"
 
-#: gui/docks/cell_editor.py:2616 gui/docks/cell_editor.py:2658
+#: gui/docks/cell_editor.py:2618 gui/docks/cell_editor.py:2660
 #, python-brace-format
 msgid "Select cluster failed: {error}"
 msgstr "Не удалось выделить кластер: {error}"
 
-#: gui/docks/cell_editor.py:2621
+#: gui/docks/cell_editor.py:2623
 #, python-brace-format
 msgid ""
 "the remembered refs are stale ({reasons}) — nothing was selected; "
@@ -3199,7 +3199,7 @@ msgstr ""
 "идентифицируйте экземпляр заново кнопкой «Заполнить по выделению» на "
 "странице якоря ячейки"
 
-#: gui/docks/cell_editor.py:2638
+#: gui/docks/cell_editor.py:2640
 #, python-brace-format
 msgid ""
 "Selected the {count} identified footprint(s) of this cell on the board — "
@@ -3208,7 +3208,7 @@ msgstr ""
 "Выделено {count} опознанных посадочных мест этой ячейки на плате — готово"
 " для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2644
+#: gui/docks/cell_editor.py:2646
 #, python-brace-format
 msgid ""
 "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready"
@@ -3217,7 +3217,7 @@ msgstr ""
 "Выделено {count} посадочных мест кластера {cluster!r} на плате — готово "
 "для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2650
+#: gui/docks/cell_editor.py:2652
 #, python-brace-format
 msgid ""
 "No footprint of cluster {cluster!r} is on the current board — the "
@@ -3226,12 +3226,12 @@ msgstr ""
 "На текущей плате нет ни одного футпринта кластера {cluster!r} — "
 "запомненный контекст больше не резолвится; выберите кластер вручную."
 
-#: gui/docks/cell_editor.py:2683
+#: gui/docks/cell_editor.py:2685
 msgid "Pick a cell to copy into first."
 msgstr "Сначала выберите шаблон, в который копировать."
 
 # ===== Copy placement from cell, context-menu flow (2026-09-06) =====
-#: gui/docks/cell_editor.py:2695
+#: gui/docks/cell_editor.py:2697
 msgid "No other cell fits this one's roles to copy from."
 msgstr "Ни один другой шаблон не подходит по ролям для копирования."
 
@@ -3241,7 +3241,7 @@ msgstr "Ни один другой шаблон не подходит по ро�
 # plan_2026_09_23_cell_placement_copy_replaces_copper): подтверждение +
 # переписанная строка успеха; старый «дописывающий» вариант ниже выведен из
 # употребления.
-#: gui/docks/cell_editor.py:2722
+#: gui/docks/cell_editor.py:2724
 #, python-brace-format
 msgid ""
 "Cell {name!r} already has copper: {target_vias} via(s) and "
@@ -3252,7 +3252,7 @@ msgstr ""
 "track будут ЗАМЕНЕНЫ на {source_vias} via и {source_tracks} track из "
 "{source!r}."
 
-#: gui/docks/cell_editor.py:2737
+#: gui/docks/cell_editor.py:2739
 #, python-brace-format
 msgid ""
 "Copied placement from {source!r} into {name!r} — {components} "
@@ -3623,29 +3623,29 @@ msgstr "запись на плату"
 msgid "{count} component(s) written to the board"
 msgstr "Записано на плату компонентов: {count}"
 
-#: gui/docks/chain.py:116
+#: gui/docks/chain.py:117
 msgid "Bulk-set Cell for net"
 msgstr "Пакетная замена Cell для сети"
 
-#: gui/docks/chain.py:128
+#: gui/docks/chain.py:129
 msgid "New Cell:"
 msgstr "Новая Cell:"
 
-#: gui/docks/chain.py:155
+#: gui/docks/chain.py:156
 msgid "Pick a net."
 msgstr "Выберите сеть."
 
-#: gui/docks/chain.py:159 gui/docks/chain.py:929
+#: gui/docks/chain.py:160 gui/docks/chain.py:932
 #, python-brace-format
 msgid "No chains on net {net!r}."
 msgstr "Нет цепей на сети {net!r}."
 
-#: gui/docks/chain.py:163
+#: gui/docks/chain.py:164
 #, python-brace-format
 msgid "{name} in {file} (pads: {pads})"
 msgstr "{name} в {file} (пады: {pads})"
 
-#: gui/docks/chain.py:169
+#: gui/docks/chain.py:170
 #, python-brace-format
 msgid ""
 "Will set cell {cell!r} on {n} chain(s) / {m} spoke(s) of net {net!r}:\n"
@@ -3654,12 +3654,12 @@ msgstr ""
 "Будет изменена cell {cell!r}: цепей — {n}, спиц — {m} (сеть {net!r}):\n"
 "{lines}"
 
-#: gui/docks/chain.py:209
+#: gui/docks/chain.py:210
 msgid "optional — defaults to net for --only"
 msgstr "необязательно — по умолчанию цепь для --only"
 
-#: gui/docks/chain.py:228 gui/docks/chain.py:395 gui/docks/chain.py:403
-#: gui/docks/chain.py:410 gui/docks/placer.py:315 gui/docks/placer.py:931
+#: gui/docks/chain.py:229 gui/docks/chain.py:396 gui/docks/chain.py:404
+#: gui/docks/chain.py:411 gui/docks/placer.py:315 gui/docks/placer.py:931
 #: gui/docks/placer.py:2169 gui/docks/placer.py:2173 gui/docks/placer.py:2205
 #: gui/docks/placer.py:2212 gui/docks/placer.py:2291 gui/docks/placer.py:2297
 #: gui/docks/placer.py:2328 gui/docks/placer.py:2336
@@ -3669,105 +3669,105 @@ msgstr "необязательно — по умолчанию цепь для -
 msgid "Read current position"
 msgstr "Считать текущее положение"
 
-#: gui/docks/chain.py:237 gui/docks/chain.py:295 gui/docks/net_trace.py:119
+#: gui/docks/chain.py:238 gui/docks/chain.py:296 gui/docks/net_trace.py:119
 #: gui/docks/placer.py:318 gui/docks/thermal_via.py:165
 msgid "Retired"
 msgstr "Снято с использования"
 
-#: gui/docks/chain.py:238 gui/docks/chain.py:296 gui/docks/net_trace.py:120
+#: gui/docks/chain.py:239 gui/docks/chain.py:297 gui/docks/net_trace.py:120
 #: gui/docks/placer.py:320 gui/docks/thermal_via.py:166
 msgid "Skip"
 msgstr "Пропустить"
 
-#: gui/docks/chain.py:250
+#: gui/docks/chain.py:251
 msgid "pad number on the chain's own anchor"
 msgstr "номер пада на собственном якоре цепи"
 
-#: gui/docks/chain.py:310 gui/docks/net_trace.py:128 gui/docks/placer.py:959
+#: gui/docks/chain.py:311 gui/docks/net_trace.py:128 gui/docks/placer.py:959
 #: gui/docks/thermal_via.py:172 gui/docks/trees_dock.py:2202
 #: gui/docks/trees_dock.py:2834 gui/docks/trees_dock.py:6508
 msgid "Redraw"
 msgstr "Перерисовать"
 
-#: gui/docks/chain.py:408
+#: gui/docks/chain.py:409
 msgid "chain anchor"
 msgstr "Якорь цепи"
 
-#: gui/docks/chain.py:415 gui/docks/trees_dock.py:4851
+#: gui/docks/chain.py:416 gui/docks/trees_dock.py:4851
 #: tests/gui/docks/test_trees_dock_anchor_position.py:153
 #, python-brace-format
 msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
 msgstr "якорь {ref!r}: ({x:.3f}, {y:.3f}) мм @ {rot}°"
 
-#: gui/docks/chain.py:472 gui/docks/thermal_via.py:276
+#: gui/docks/chain.py:473 gui/docks/thermal_via.py:276
 msgid "Pad is required."
 msgstr "Требуется пад."
 
-#: gui/docks/chain.py:476
+#: gui/docks/chain.py:477
 msgid "Cell is required."
 msgstr "Требуется шаблон."
 
-#: gui/docks/chain.py:484
+#: gui/docks/chain.py:485
 #, python-brace-format
 msgid "Radius: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/chain.py:489 gui/docks/trees_dock.py:7576
+#: gui/docks/chain.py:490 gui/docks/trees_dock.py:7576
 #, python-brace-format
 msgid "Angle: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/chain.py:493
+#: gui/docks/chain.py:494
 msgid "Polar mode needs both Radius and Angle."
 msgstr ""
 
-#: gui/docks/chain.py:500
+#: gui/docks/chain.py:501
 #, python-brace-format
 msgid "Shift X: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/chain.py:505
+#: gui/docks/chain.py:506
 #, python-brace-format
 msgid "Shift Y: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/chain.py:516
+#: gui/docks/chain.py:517
 #, python-brace-format
 msgid "Rotation: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/chain.py:542 gui/docks/net_trace.py:234 gui/docks/net_trace.py:309
+#: gui/docks/chain.py:543 gui/docks/net_trace.py:234 gui/docks/net_trace.py:309
 #: kicadstamp/spoke_extraction.py:544
 msgid "Net is required."
 msgstr "Требуется цепь."
 
-#: gui/docks/chain.py:660
+#: gui/docks/chain.py:663
 #, python-brace-format
 msgid "{context} {name!r} in {path}"
 msgstr "{context} {name!r} в {path}"
 
-#: gui/docks/chain.py:661
+#: gui/docks/chain.py:664
 msgid "Pad saved"
 msgstr "Пад сохранён"
 
-#: gui/docks/chain.py:692
+#: gui/docks/chain.py:695
 msgid "Pad saved:"
 msgstr "Пад сохранён:"
 
-#: gui/docks/chain.py:719 gui/docks/net_trace.py:422 gui/docks/net_trace.py:581
+#: gui/docks/chain.py:722 gui/docks/net_trace.py:422 gui/docks/net_trace.py:583
 #: gui/docks/thermal_via.py:369
 #, python-brace-format
 msgid "Failed to load file: {error}"
 msgstr "Не удалось загрузить файл: {error}"
 
-#: gui/docks/chain.py:838 gui/docks/trees_dock.py:4747
+#: gui/docks/chain.py:841 gui/docks/trees_dock.py:4747
 #: gui/docks/trees_dock.py:4750
 msgid "Nothing to redraw."
 msgstr "Нечего перерисовывать."
 
-#: gui/docks/chain.py:857 gui/docks/chain.py:862 gui/docks/chain.py:866
-#: gui/docks/chain.py:892 gui/docks/net_trace.py:630 gui/docks/net_trace.py:633
-#: gui/docks/net_trace.py:637 gui/docks/placer.py:1895 gui/docks/placer.py:1900
+#: gui/docks/chain.py:860 gui/docks/chain.py:865 gui/docks/chain.py:869
+#: gui/docks/chain.py:895 gui/docks/net_trace.py:632 gui/docks/net_trace.py:635
+#: gui/docks/net_trace.py:639 gui/docks/placer.py:1895 gui/docks/placer.py:1900
 #: gui/docks/placer.py:1904 gui/docks/placer.py:2363
 #: gui/docks/thermal_via.py:405 gui/docks/thermal_via.py:410
 #: gui/docks/thermal_via.py:414 gui/docks/thermal_via.py:434
@@ -3775,41 +3775,41 @@ msgstr "Нечего перерисовывать."
 msgid "Placement failed: {error}"
 msgstr "Размещение не удалось: {error}"
 
-#: gui/docks/chain.py:874 gui/docks/net_trace.py:644 gui/docks/placer.py:1936
+#: gui/docks/chain.py:877 gui/docks/net_trace.py:646 gui/docks/placer.py:1936
 #: gui/docks/thermal_via.py:421
 #, python-brace-format
 msgid "Placed {name!r}."
 msgstr "Размещено {name!r}."
 
-#: gui/docks/chain.py:885 gui/docks/net_trace.py:553 gui/docks/placer.py:2360
+#: gui/docks/chain.py:888 gui/docks/net_trace.py:555 gui/docks/placer.py:2360
 #: gui/docks/thermal_via.py:431 gui/docks/trees_dock.py:3682
 #: gui/docks/trees_dock.py:3695 gui/docks/trees_dock.py:4700
 #: gui/docks/trees_dock.py:4767
 msgid "placing"
 msgstr "расстановка"
 
-#: gui/docks/chain.py:914
+#: gui/docks/chain.py:917
 msgid "Bulk-set Cell needs both a net and a cell."
 msgstr "Для пакетной замены Cell нужны и сеть, и cell."
 
-#: gui/docks/chain.py:951 gui/docks/chain.py:958
+#: gui/docks/chain.py:954 gui/docks/chain.py:961
 #, python-brace-format
 msgid "{name} in {file}: {err}"
 msgstr "{name} в {file}: {err}"
 
-#: gui/docks/chain.py:956
+#: gui/docks/chain.py:959
 #, python-brace-format
 msgid "{name} in {file}"
 msgstr "{name} в {file}"
 
-#: gui/docks/chain.py:962
+#: gui/docks/chain.py:965
 #, python-brace-format
 msgid "Bulk-set Cell: wrote {n_ok} chain(s); FAILED {n_failed} — {failed}"
 msgstr ""
 "Пакетная замена Cell: записано цепей {n_ok}; НЕ УДАЛОСЬ {n_failed} — "
 "{failed}"
 
-#: gui/docks/chain.py:967
+#: gui/docks/chain.py:970
 #, python-brace-format
 msgid "Bulk-set Cell: wrote {n} chain(s) on net {net!r}."
 msgstr "Пакетная замена Cell: записано цепей {n} на сети {net!r}."
@@ -6339,7 +6339,7 @@ msgstr ""
 msgid "Selected {found} copper piece(s) for {name!r} on the board."
 msgstr "На плате выделено {found} кусков меди для {name!r}."
 
-#: gui/docks/net_trace.py:530
+#: gui/docks/net_trace.py:531
 #, python-brace-format
 msgid "{action} net trace {net!r} in {path}"
 msgstr "{action} трассировку сети {net!r} в {path}"
@@ -6653,12 +6653,12 @@ msgstr "Для чтения позиции ячейки нужны имя Cluste
 msgid "Placer: tag Cluster={name}"
 msgstr "Расстановщик: назначить Cluster={name}"
 
-#: gui/docks/placer.py:2576
+#: gui/docks/placer.py:2580
 #, python-brace-format
 msgid "{action} entity {name!r} in {path}"
 msgstr "{action} entity {name!r} в {path}"
 
-#: gui/docks/points.py:197
+#: gui/docks/points.py:198
 #, python-brace-format
 msgid ""
 "Point {name!r}: marker not drawn — the overlay layer {layer!r} is not "
@@ -6667,19 +6667,19 @@ msgstr ""
 "Точка {name!r}: маркер не нарисован — слой оверлея {layer!r} не включён "
 "на этой плате, либо не удалось прочитать плату."
 
-#: gui/docks/points.py:234
+#: gui/docks/points.py:235
 msgid "name (referenced by anchor_point elsewhere)"
 msgstr "имя (на него ссылаются anchor_point в другом месте)"
 
-#: gui/docks/points.py:264
+#: gui/docks/points.py:265
 msgid "Resolve"
 msgstr "Разрешить"
 
-#: gui/docks/points.py:268 gui/docks/trees_dock.py:5129
+#: gui/docks/points.py:269 gui/docks/trees_dock.py:5129
 msgid "Read from board"
 msgstr "Прочитать с платы"
 
-#: gui/docks/points.py:270
+#: gui/docks/points.py:271
 msgid ""
 "Fill the position from this point's marker circle — drag the circle in "
 "KiCad first (Resolve places it)."
@@ -6688,25 +6688,25 @@ msgstr ""
 "кружок в KiCad (его ставит Resolve)."
 
 # ── Points dock: overlay circles (plan_2026_09_11_points_markers) ──
-#: gui/docks/points.py:276 gui/docks/points.py:685
+#: gui/docks/points.py:277 gui/docks/points.py:686
 msgid "Show all points"
 msgstr "Показать все точки"
 
-#: gui/docks/points.py:467 gui/docks/points.py:500
+#: gui/docks/points.py:468 gui/docks/points.py:501
 #, python-brace-format
 msgid "Resolve failed: {error}"
 msgstr "Разрешение не удалось: {error}"
 
-#: gui/docks/points.py:486
+#: gui/docks/points.py:487
 msgid " (no footprint to highlight)"
 msgstr " (нет футпринта для подсветки)"
 
-#: gui/docks/points.py:488
+#: gui/docks/points.py:489
 #, python-brace-format
 msgid "X={x:.3f}mm Y={y:.3f}mm{suffix}"
 msgstr "X={x:.3f}мм Y={y:.3f}мм{suffix}"
 
-#: gui/docks/points.py:547
+#: gui/docks/points.py:548
 #, python-brace-format
 msgid ""
 "Point {name!r}: no marker on the board — press Resolve first (nothing was"
@@ -6715,12 +6715,12 @@ msgstr ""
 "Точка {name!r}: на плате нет маркера — сначала нажмите Resolve (ничего не"
 " прочитано)."
 
-#: gui/docks/points.py:579 gui/docks/points.py:660
+#: gui/docks/points.py:580 gui/docks/points.py:661
 #, python-brace-format
 msgid "Read position failed: {error}"
 msgstr "Не удалось прочитать позицию: {error}"
 
-#: gui/docks/points.py:624
+#: gui/docks/points.py:625
 #, python-brace-format
 msgid ""
 "Point {name!r}: the marker is gone from the board (deleted in KiCad or "
@@ -6729,7 +6729,7 @@ msgstr ""
 "Точка {name!r}: маркер исчез с платы (удалён в KiCad или снесён) — "
 "нажмите Resolve, чтобы поставить новый."
 
-#: gui/docks/points.py:642
+#: gui/docks/points.py:643
 #, python-brace-format
 msgid ""
 "Read from the board: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm (was "
@@ -6738,7 +6738,7 @@ msgstr ""
 "Прочитано с платы: {name!r} xy = X={x:.3f}mm Y={y:.3f}mm (было "
 "X={old_x:.3f}mm Y={old_y:.3f}mm)."
 
-#: gui/docks/points.py:649
+#: gui/docks/points.py:650
 #, python-brace-format
 msgid ""
 "Read from the board: {name!r} shift = X={shift_x:+.3f}mm "
@@ -6749,20 +6749,20 @@ msgstr ""
 " (было X={old_x:+.3f}mm Y={old_y:+.3f}mm); точка теперь разрешается в "
 "X={x:.3f}mm Y={y:.3f}mm."
 
-#: gui/docks/points.py:684
+#: gui/docks/points.py:685
 msgid "Hide all points"
 msgstr "Скрыть все точки"
 
-#: gui/docks/points.py:757
+#: gui/docks/points.py:758
 #, python-brace-format
 msgid "Point {name!r} did not resolve: {error}"
 msgstr "Точка {name!r} не разрешилась: {error}"
 
-#: gui/docks/points.py:761
+#: gui/docks/points.py:762
 msgid "No points to show."
 msgstr "Нет точек для показа."
 
-#: gui/docks/points.py:786
+#: gui/docks/points.py:787
 #, python-brace-format
 msgid "Show all points failed: {error}"
 msgstr "Показ всех точек не удался: {error}"
@@ -10654,12 +10654,26 @@ msgstr ""
 msgid "{path} is not valid {kind}: {error}"
 msgstr "{path} не является корректным {kind}: {error}"
 
-#: kicadstamp/config_writer.py:414 kicadstamp/config_writer.py:475
+#: kicadstamp/config_writer.py:394
+#, python-brace-format
+msgid "Staged new {subject} — not saved yet (File → Save)"
+msgstr ""
+"{subject} — новая запись отложена в рабочем наборе, ещё не сохранено "
+"(File → Save)"
+
+#: kicadstamp/config_writer.py:395
+#, python-brace-format
+msgid "Staged changes to {subject} — not saved yet (File → Save)"
+msgstr ""
+"{subject} — изменения отложены в рабочем наборе, ещё не сохранено (File →"
+" Save)"
+
+#: kicadstamp/config_writer.py:448 kicadstamp/config_writer.py:509
 #, python-brace-format
 msgid "{section}: in {path} is not a list — refusing to touch it"
 msgstr "{section}: в {path} не является списком — не трогаю"
 
-#: kicadstamp/config_writer.py:497
+#: kicadstamp/config_writer.py:531
 #, python-brace-format
 msgid ""
 "cannot save {name!r} in {section}: the name is already used by another "
@@ -10668,22 +10682,22 @@ msgstr ""
 "не удаётся сохранить {name!r} в {section}: это имя уже занято другой "
 "записью — переименуйте её или выберите другое имя"
 
-#: kicadstamp/config_writer.py:598 kicadstamp/config_writer.py:717
+#: kicadstamp/config_writer.py:632 kicadstamp/config_writer.py:751
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: в {path} не является списком — не трогаю"
 
-#: kicadstamp/config_writer.py:722
+#: kicadstamp/config_writer.py:756
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr "дерево {name!r} не найдено в {path}"
 
-#: kicadstamp/config_writer.py:729
+#: kicadstamp/config_writer.py:763
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr "у дерева {name!r} нет узла {ref!r}, под который добавить"
 
-#: kicadstamp/config_writer.py:862
+#: kicadstamp/config_writer.py:896
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: в {path} не является списком — не трогаю"

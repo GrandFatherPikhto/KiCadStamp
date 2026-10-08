@@ -122,7 +122,7 @@ from .cell_form_guard import anchor_role_selection, effective_anchor_role
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message,
-                      style_for_level)
+                      style_for_level, write_report_line)
 from .cell_layers import open_cell_layers_dialog
 from .rename import collect_all_cell_names, collect_section_entries, find_dict_entry_file
 
@@ -1653,9 +1653,11 @@ class CellDock(QWidget):
             return
 
         self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=name, path=display_path(self._path)),
+            write_report_line(
+                _("{action} {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=name, path=display_path(self._path)),
+                f"{name!r}", self._path, created=not overwritten),
             _SUCCESS_STYLE)
         self.saved.emit()
 

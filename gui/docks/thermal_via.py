@@ -72,7 +72,7 @@ from ._anchor_origin import AnchorOriginWidget
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       combo_line_edits, configure_searchable, display_path,
                       own_line_edits, set_combo_items, show_message,
-                      upsert_list_entry)
+                      upsert_list_entry, write_report_line)
 from .rename import collect_all_point_names, collect_all_sheet_names, find_list_entry_file
 
 logger = logging.getLogger(__name__)
@@ -486,9 +486,11 @@ class ThermalViaArrayDock(QWidget):
             return
 
         self._show_message(
-            _("{action} {name!r} in {path}").format(
-                action=_("Overwrote") if overwritten else _("Wrote"),
-                name=entry["name"], path=display_path(self._path)),
+            write_report_line(
+                _("{action} {name!r} in {path}").format(
+                    action=_("Overwrote") if overwritten else _("Wrote"),
+                    name=entry["name"], path=display_path(self._path)),
+                f"{entry['name']!r}", self._path, created=not overwritten),
             _SUCCESS_STYLE)
         # The saved record's identity is now the one in force for this form.
         self._loaded_uuid = entry.get("uuid")

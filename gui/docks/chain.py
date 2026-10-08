@@ -89,7 +89,8 @@ from .live_position import read_anchor_live
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       combo_line_edits, configure_searchable, display_path,
                       own_line_edits, parse_float_field, set_combo_items,
-                      set_mode_pair_enabled, show_message, upsert_list_entry)
+                      set_mode_pair_enabled, show_message, upsert_list_entry,
+                      write_report_line)
 from .rename import (collect_all_cell_names, collect_all_chain_nets,
                      collect_all_point_names, collect_all_sheet_names,
                      collect_chains_by_net, find_list_entry_file)
@@ -607,9 +608,11 @@ class ChainDock(QWidget):
         except OSError as e:
             self._show_message(_("Write failed: {error}").format(error=e), _ERROR_STYLE)
             return
-        suffix = _("{action} {name!r} in {path}").format(
-            action=_("Overwrote") if overwritten else _("Wrote"),
-            name=_chain_identity(entry), path=display_path(self._path))
+        suffix = write_report_line(
+            _("{action} {name!r} in {path}").format(
+                action=_("Overwrote") if overwritten else _("Wrote"),
+                name=_chain_identity(entry), path=display_path(self._path)),
+            f"{_chain_identity(entry)!r}", self._path, created=not overwritten)
         self._show_message(f"{context} {suffix}".strip(), _SUCCESS_STYLE)
         # Deliberately does NOT update self._chain_entry: chain-mode edits only
         # touch the chain's OWN fields (Net/Name/Origin/Retired/Skip), and its

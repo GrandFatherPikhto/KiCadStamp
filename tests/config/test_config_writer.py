@@ -22,7 +22,9 @@ focused purely on the unsupported-format fatal behavior.
 
 import pytest
 
-from kicadstamp.config_writer import _read_data, _write_data
+from kicadstamp.config_writer import (
+    _read_data, _write_data, is_staged_write, write_report_line,
+)
 from kicadstamp.exceptions import ValidationError
 
 from tests.fakes.format3 import without_identity
@@ -133,3 +135,66 @@ def _active_graph_root(tmp_path):
     set_active_graph_root(tmp_path / "active_root.sexp")
     yield
     set_active_graph_root(None)
+
+
+# ── part В of plan_2026_10_08_narrowing_net_traces_cost: ONE wording rule for a
+#    write's outcome — "Wrote/Overwrote ... in <file>" ONLY when the bytes really
+#    reached the disk, "Staged ... not saved yet (File -> Save)" while the working
+#    set holds them ───────────────────────────────────────────────────────────
+
+@pytest.fixture
+def staged(monkeypatch):
+    """The GUI's staged mode (tests/conftest.py clears it after each test)."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    return WORKING_SET
+
+
+def test_the_physical_line_is_returned_unchanged_when_the_file_is_written(tmp_path):
+    """No working set (CLI, tests, a closed project): the dock's own sentence goes
+    through untouched — every existing wording and every existing cell intact."""
+    path = tmp_path / "cfg.sexp"
+
+    assert is_staged_write(path) is False
+    assert write_report_line("Wrote 'dac0' in <file>", "'dac0'", path,
+                             created=True) == "Wrote 'dac0' in <file>"
+    assert write_report_line("Overwrote 'dac0' in <file>", "'dac0'", path,
+                             created=False) == "Overwrote 'dac0' in <file>"
+
+
+def test_a_staged_new_record_says_so_and_the_file_stays_untouched(tmp_path, staged):
+    """The live 19:40:39 defect: the line claimed the file, the bytes were in the
+    working set and the mtime never moved. A NEW record says "Staged new"."""
+    path = tmp_path / "cfg.sexp"
+    _write_data(path, {"cells": {}})
+
+    assert not path.exists(), "a staged write must not create the file"
+    assert is_staged_write(path) is True
+    assert write_report_line("Wrote 'dac0' in <file>", "'dac0'", path,
+                             created=True) == \
+        "Staged new 'dac0' — not saved yet (File → Save)"
+
+
+def test_a_staged_change_says_so(tmp_path, staged):
+    """The SAME rule for a record that already existed: "Staged changes to"."""
+    path = tmp_path / "cfg.sexp"
+    _write_data(path, {"cells": {"dac0": {}}})
+
+    assert write_report_line("Overwrote 'dac0' in <file>", "'dac0'", path,
+                             created=False) == \
+        "Staged changes to 'dac0' — not saved yet (File → Save)"
+
+
+def test_discarding_the_working_set_brings_the_physical_wording_back(tmp_path, staged):
+    """"Staged" is a STATE, not a sticky flag: once the file is no longer held by
+    the working set the dock's own sentence is true again."""
+    path = tmp_path / "cfg.sexp"
+    _write_data(path, {"cells": {}})
+    assert is_staged_write(path) is True
+
+    staged.clear()
+
+    assert is_staged_write(path) is False
+    assert write_report_line("Wrote 'dac0' in <file>", "'dac0'", path,
+                             created=True) == "Wrote 'dac0' in <file>"
