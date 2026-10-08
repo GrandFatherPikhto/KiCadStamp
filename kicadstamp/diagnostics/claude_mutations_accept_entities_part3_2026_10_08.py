@@ -26,10 +26,11 @@ ROWS = [
      "    if False:  # MUTATION\n",
      "die", T, ()),
     ("C2 subtract ignores the door's address", SUB,
-     "        if expected_address is not None:\n"
-     "            cluster, sheet = expected_address.cluster, expected_address.sheet\n",
-     "        if False:  # MUTATION\n"
-     "            cluster, sheet = expected_address.cluster, expected_address.sheet\n",
+     # retargeted 08.10 after 90807597 (subtract moved onto instance_for_read)
+     "                                     dock.name_edit.text().strip(),\n"
+     "                                     expected_address)\n",
+     "                                     dock.name_edit.text().strip(),\n"
+     "                                     None)  # MUTATION\n",
      "die", T, ()),
     ("C3 Update and Add items swap engines", TREE,
      "                (\"refresh_from_selection_action\", _(\"Update from selection...\"),\n"
