@@ -90,8 +90,29 @@ def test_an_entity_address_names_its_cluster_and_sheet():
     """п.1: подпись сущности — «<имя> — <кластер> on <лист>»."""
     row = entity_address(_entity("ch1", cluster="DAC_BUF", sheet="Channel_1"))
     assert row.label == "ch1 — DAC_BUF on Channel_1"
-    assert (row.source, row.entity_name, row.cluster, row.sheet, row.refs) == (
-        "entity", "ch1", "DAC_BUF", "Channel_1", {})
+    assert (row.source, row.entity_name, row.cluster, row.sheet) == (
+        "entity", "ch1", "DAC_BUF", "Channel_1")
+    assert row.refs is None
+
+
+def test_an_entity_that_pins_nothing_reads_as_none_never_an_empty_map():
+    """Доделка 2б, п.1 (блокер, живой дефект «Place marker»): у сущности без
+    `refs` адрес несёт None, а НЕ `{}` — `_live_cluster_frame` ветвится по
+    `role_to_ref is not None`, и пустая карта уводит его в путь «по refs» (фатал
+    «stale identification») вместо поиска по кластеру.
+
+    Свойство держится на всём пути: адрес → хранилище → читатель."""
+    row = entity_address(_entity("ch1", cluster="DAC_BUF", sheet="Channel_1"))
+    assert row.refs is None
+
+    root = Path("/tmp/root.sexp")
+    remember_working_instance(root, CELL, row)
+    back = working_instance(root, CELL)
+    assert back is not None and back.refs is None
+    assert read_instance(root, CELL).refs is None
+    # Сущность, названная только парой (кластер, лист), в явный экземпляр refs
+    # НЕ добавляет — читатель тогда разрешает кластер, как и должен.
+    assert explicit_kwargs(back) == {"cluster": "DAC_BUF", "sheet": "Channel_1"}
 
 
 def test_an_entity_address_that_pins_refs_labels_them():

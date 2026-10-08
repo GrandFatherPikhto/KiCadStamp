@@ -12,6 +12,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import gui.docks.cell_anchor_view as view_mod
 from gui import settings
 from gui.cell_edit_context import (
@@ -246,6 +248,38 @@ def test_the_working_instance_is_the_entitys_not_the_cells_remembered_refs(
     _pick(view, "Manual…")
     assert view.active_refs() == {"R": "C43"}
     assert view._refs_edit.text() == "C43"
+
+
+def test_an_entity_without_refs_sends_none_to_the_marker_worker(main_window,
+                                                               tmp_path):
+    """Доделка 2б, п.1 (блокер, живой дефект «Place marker»): сущность с парой
+    (кластер, лист) и БЕЗ refs отдаёт странице `active_refs() is None`, и воркер
+    ставит маркер ПО КЛАСТЕРУ. Пустая карта `{}` — вторая половина этой же
+    клетки — тот самый фатал «stale identification», который Денис поймал
+    вживую: `_live_cluster_frame` ветвится по `is not None`.
+
+    Подделка платы берётся у соседа (tests/gui/docks/test_cell_anchor_view.py) —
+    одна оснастка на два файла, второй подделки здесь не заводим."""
+    import gui.board_overlay as bo
+    from kicadstamp.exceptions import ValidationError
+    from tests.gui.docks.test_cell_anchor_view import (_OverlayAdapter, _cell,
+                                                       _live_cluster_fps)
+    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    root, index = _root(tmp_path, [_entity("ch1", cluster="CL")])
+    view = _view(main_window, root, index)
+
+    refs = view.active_refs()          # ровно то, что страница отдаёт воркеру
+    assert refs is None
+
+    key = view_mod.overlay_markers.cell_anchor_key("/r", CELL, "marker")
+    assert view_mod._ensure_marker_worker(
+        _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
+        "User.KiCadStamp", refs) is not None
+
+    with pytest.raises(ValidationError):
+        view_mod._ensure_marker_worker(
+            _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
+            "User.KiCadStamp", {})
 
 
 def test_choosing_an_entity_never_writes_the_cells_remembered_context(

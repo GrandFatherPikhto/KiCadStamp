@@ -144,7 +144,12 @@ class CellInstanceGate:
         """The pins of the entity row in force, or None on "Manual…". An entity
         row with NO pins returns None too — which is why callers ask is_manual()
         FIRST: with an entity chosen the cell's remembered refs must never be
-        used behind it (п.5)."""
+        used behind it (п.5).
+
+        The None for "no pins" comes from the ADDRESS itself (`_refs_map` in
+        gui/cell_entity_choice.py normalizes an empty map to None, доделка 2б,
+        п.1), so this method never has to — and a caller must NOT turn it back
+        into `{}`: the live frame reader branches on `is not None`."""
         row = self.row()
         return row.refs if row is not None else None
 

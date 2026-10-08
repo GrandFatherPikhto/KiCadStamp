@@ -85,6 +85,10 @@ class InstanceAddress:
 
     `refs` is the entity's own role -> refdes map (its `refs:` field) — an
     explicit identification, which is why an entity address needs no guesswork.
+    An entity that pins NO refdes keeps `refs=None`, NEVER `{}`: the live frame
+    reader branches on `role_to_ref is not None`, so an empty map would send it
+    down the "identified by refs" path with nothing to identify — the
+    "stale identification" fatal Denis hit live on 08.10 (доделка 2б, п.1).
 
     `resolved` is False for a spoke whose parts the planner cannot find on the
     board (п.2а): the ROW still exists, but an action on it must report a red
@@ -95,7 +99,7 @@ class InstanceAddress:
     entity_name: Optional[str] = None
     cluster: Optional[str] = None
     sheet: Optional[str] = None
-    refs: dict = dataclasses.field(default_factory=dict)
+    refs: Optional[dict] = None
     chain: Optional[str] = None
     pad: object = None
     resolved: bool = True
@@ -111,12 +115,19 @@ class InstanceAddress:
         return (self.source, self.entity_name, self.chain, self.pad, self.label)
 
 
-def _refs_map(raw) -> dict:
-    """The entity's raw `refs:` field as a role -> refdes dict ({} when it is
-    absent or not a mapping — the everyday case for a role-resolved entity)."""
+def _refs_map(raw) -> Optional[dict]:
+    """The entity's raw `refs:` field as a role -> refdes dict, or None when it
+    is absent, empty or not a mapping — the everyday case for a role-resolved
+    entity.
+
+    None, NOT `{}`: this function is the ONE place the "no pins" decision is
+    made (доделка 2б, п.1). The live frame reader `_live_cluster_frame` branches
+    on `role_to_ref is not None`, so an empty map reaches it as "identified by
+    refs" and dies as a stale identification instead of resolving the cluster."""
     if not isinstance(raw, dict):
-        return {}
-    return {str(role): str(ref) for role, ref in raw.items() if role and ref}
+        return None
+    return ({str(role): str(ref) for role, ref in raw.items() if role and ref}
+            or None)
 
 
 def _refs_label(refs: dict) -> str:
@@ -146,7 +157,10 @@ def entity_label(data: dict) -> str:
 
 
 def entity_address(data: dict) -> InstanceAddress:
-    """One `entities:` RAW record as an address row."""
+    """One `entities:` RAW record as an address row.
+
+    `refs` is the record's own pins, or None when it pins none (see
+    `_refs_map`: an empty map is NEVER produced here)."""
     return InstanceAddress(
         source=SOURCE_ENTITY,
         label=entity_label(data),
@@ -357,7 +371,7 @@ def read_instance(root_path, cell_name) -> ReadInstance:
     address = working_instance(root_path, cell_name)
     if address is not None and address.cluster:
         return ReadInstance(address=address, cluster=address.cluster,
-                            sheet=address.sheet, refs=address.refs or None)
+                            sheet=address.sheet, refs=address.refs)
     cluster, sheet = remembered_cell_edit_context(root_path, cell_name)
     return ReadInstance(cluster=cluster, sheet=sheet,
                         refs=remembered_cell_refs(root_path, cell_name))
@@ -392,7 +406,9 @@ def remember_working_instance(root_path, cell_name, address) -> None:
                 "name": address.entity_name,
                 "cluster": address.cluster,
                 "sheet": address.sheet,
-                "refs": dict(address.refs or {}),
+                # None, never {}: the round-trip through `entity_address` must
+                # not turn "no pins" back into an empty identification (п.1).
+                "refs": dict(address.refs) if address.refs else None,
             }
         settings.state.set(WORKING_INSTANCE_KEY, state)
     except Exception:  # noqa: BLE001 — a state write must never break a pick
