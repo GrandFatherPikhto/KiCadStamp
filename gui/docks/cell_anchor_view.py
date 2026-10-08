@@ -99,6 +99,7 @@ from ..cell_entity_choice import (
     not_the_entity_line,
     remembered_last_entity,
     remember_last_entity,
+    remember_working_instance,
     write_applies_line,
 )
 from ..cell_identification import (
@@ -1336,9 +1337,16 @@ class CellAnchorView(QWidget):
 
     def _after_instance_applied(self) -> None:
         """The gate wrote the working fields — reload what depends on them (the
-        refs line and the Name/Comment identity block)."""
+        refs line and the Name/Comment identity block), and PUBLISH the working
+        instance to the one store every other reader uses (п.1).
+
+        Publishing is what makes the CellDock's payload and the mixed-selection
+        door agree with what this page shows: they read that store at the moment
+        of use, so no copy can drift out of step with the dropdown."""
         self._reload_refs_field()
         self._reload_identity()
+        remember_working_instance(self._root_path, self._cell_name,
+                                  self._entity_gate.row())
 
     def _active_refs(self) -> Optional[dict]:
         """The refs of the WORKING INSTANCE (п.5): the picked entity's own pins,

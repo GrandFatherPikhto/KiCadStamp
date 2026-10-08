@@ -18167,6 +18167,11 @@ msgstr ""
 
 #: gui/cell_entity_choice.py
 #, python-brace-format
+msgid "the selection carries no Cluster — cannot verify it is entity {entity!r}; reading it as that entity's instance"
+msgstr ""
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
 msgid "cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) — the change applies to every entity of the cell"
 msgstr ""
 

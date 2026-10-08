@@ -20,7 +20,11 @@ from gui.cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
-from gui.cell_entity_choice import LAST_ENTITY_KEY, remembered_last_entity
+from gui.cell_entity_choice import (
+    LAST_ENTITY_KEY,
+    remembered_last_entity,
+    working_instance,
+)
 from gui.docks.cell_anchor_view import CellAnchorView
 from gui.docks.entity_index import build_entity_index
 from kicadstamp.config.includes import walk_include_tree
@@ -282,6 +286,28 @@ def test_a_read_of_another_instance_is_refused_while_an_entity_is_chosen(
     assert view._cluster_combo.currentText() == "DAC_BUF"   # untouched
     assert view._role_combo.currentText() == ""             # nothing read in
     assert view._entity_picker.current_address().entity_name == "ch0"
+
+
+def test_a_pick_publishes_the_working_instance_the_cell_dock_reads(
+        main_window, tmp_path):
+    """п.1: страница ПУБЛИКУЕТ рабочий экземпляр в ОДНО хранилище — по нему
+    CellDock строит payload в момент нажатия; своей копии он не держит, поэтому
+    разъехаться с выпадашкой не может."""
+    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0"),
+                                   _entity("ch1", "DAC_BUF", "Channel_1")])
+    view = _view(main_window, root, index)
+    assert working_instance(root, CELL).entity_name == "ch0"   # первая по имени
+
+    _pick(view, "ch1 — DAC_BUF on Channel_1")
+
+    row = working_instance(root, CELL)
+    assert (row.entity_name, row.cluster, row.sheet) == \
+        ("ch1", "DAC_BUF", "Channel_1")
+
+    _pick(view, "Manual…")
+
+    assert working_instance(root, CELL) is None, \
+        "«Manual…» — экземпляр задают поля самой страницы"
 
 
 def test_the_hub_hands_the_page_the_trees_entity_index(real_main_window):

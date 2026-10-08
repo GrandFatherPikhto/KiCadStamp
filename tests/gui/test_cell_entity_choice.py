@@ -27,6 +27,7 @@ from gui.cell_entity_choice import (
     MANUAL,
     SOURCE_ENTITY,
     SOURCE_SPOKE,
+    WORKING_INSTANCE_KEY,
     address_matches_selection,
     build_choices,
     default_index,
@@ -36,7 +37,9 @@ from gui.cell_entity_choice import (
     not_the_entity_line,
     remembered_last_entity,
     remember_last_entity,
+    remember_working_instance,
     spoke_address,
+    working_instance,
     write_applies_line,
 )
 from gui.docks.entity_index import build_entity_index
@@ -283,6 +286,50 @@ def test_a_stale_or_non_entity_row_matches_nothing():
     assert not address_matches_selection(None, "DAC_BUF", None)
     assert not_the_entity_line("ch1") == \
         "the selection is not entity 'ch1' — nothing read"
+
+
+def test_the_working_instance_is_stored_and_read_back_as_the_same_address():
+    """п.1: рабочий экземпляр ячейки лежит в ОДНОМ хранилище — что выпадашка
+    записала, то читатель (CellDock) и прочитает."""
+    root = Path("/tmp/root.sexp")
+    row = entity_address(_entity("ch1", cluster="DAC_BUF", sheet="Channel_1",
+                                 refs={"R_IN": "C43"}))
+    assert working_instance(root, CELL) is None
+
+    remember_working_instance(root, CELL, row)
+
+    back = working_instance(root, CELL)
+    assert back is not None
+    assert (back.entity_name, back.cluster, back.sheet, back.refs) == (
+        "ch1", "DAC_BUF", "Channel_1", {"R_IN": "C43"})
+    assert back.label == row.label
+    assert str(root) in settings.state.get(WORKING_INSTANCE_KEY, {})
+
+
+def test_the_manual_row_clears_the_working_instance():
+    """п.2: «Manual…» означает «экземпляр — поля самой страницы», и залежавшаяся
+    запись сущности не смеет перебивать их."""
+    root = Path("/tmp/root.sexp")
+    remember_working_instance(root, CELL,
+                              entity_address(_entity("ch1", cluster="DAC_BUF")))
+    assert working_instance(root, CELL) is not None
+
+    remember_working_instance(root, CELL, manual_address())
+
+    assert working_instance(root, CELL) is None
+    assert settings.state.get(WORKING_INSTANCE_KEY) == {}
+
+
+def test_a_malformed_working_instance_reads_as_nothing():
+    """Битое/чужое состояние — это «ничего не записано», а не падение: читатель
+    тогда идёт к запомненному контексту, как до части 2."""
+    root = Path("/tmp/root.sexp")
+    settings.state.set(WORKING_INSTANCE_KEY, "не-словарь")
+    assert working_instance(root, CELL) is None
+    settings.state.set(WORKING_INSTANCE_KEY, {str(root): {CELL: {"cluster": "X"}}})
+    assert working_instance(root, CELL) is None      # нет имени — не адрес
+    assert working_instance(None, CELL) is None
+    assert working_instance(root, "") is None
 
 
 def test_a_write_under_an_entity_says_it_applies_to_every_entity():

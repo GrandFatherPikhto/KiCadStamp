@@ -19077,6 +19077,11 @@ msgstr "выделение — не сущность {entity!r} — ничего
 
 #: gui/cell_entity_choice.py
 #, python-brace-format
+msgid "the selection carries no Cluster — cannot verify it is entity {entity!r}; reading it as that entity's instance"
+msgstr "у выделения нет тега Cluster — нельзя проверить, что это сущность {entity!r}; читается экземпляр этой сущности"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
 msgid "cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) — the change applies to every entity of the cell"
 msgstr "ячейка {cell!r} обновлена из сущности {entity!r} ({cluster} на {sheet}) — изменение применится ко всем сущностям ячейки"
 

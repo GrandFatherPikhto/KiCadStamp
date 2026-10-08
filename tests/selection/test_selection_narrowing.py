@@ -400,6 +400,120 @@ def test_two_candidates_produce_a_refusal_not_a_plan(gate, tmp_path):
     assert prelude.refusal and "Channel_1" in prelude.refusal
 
 
+# ── Часть 2, п.5: чтение, привязанное к выбранной сущности ──────────────────
+
+class _FpRef2:
+    """A footprint handle as the prelude reads it (ref + sheet chain)."""
+
+    def __init__(self, ref, chain=()):
+        self.ref = ref
+        self.sheet_path_uuids = tuple(chain)
+
+
+def _pinned_cfg():
+    """A loaded config whose `dac_buf` cell has its uuid — format 3 refuses a
+    registry key for a record without one, and these reads reach the registry."""
+    return _Cfg(cells={"dac_buf": _Rec(uuid=det_uuid("cells:dac_buf"))})
+
+
+def _pinned_entity(name="ch0", cluster="DAC_BUF", sheet="Channel_0"):
+    from gui.cell_entity_choice import entity_address
+    return entity_address({"name": name, "cluster": cluster, "sheet": sheet})
+
+
+def test_a_selection_of_another_instance_is_refused_for_a_pinned_read(
+        gate, tmp_path):
+    """п.5: с выбранной сущностью чтение привязано к ней — выделение ДРУГОГО
+    экземпляра (та же ячейка, другой канал) даёт отказ, а не молчаливое чтение
+    чужой пары."""
+    from gui.cell_entity_choice import entity_address
+    from gui.mixed_selection import narrow_mixed_selection
+
+    config_path = tmp_path / "config.sexp"
+    config_path.write_text("", encoding="utf-8")
+    _write_registries(tmp_path, {}, {})
+    cfg = _pinned_cfg()
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")})
+    other_channel = [_FpRef2("C1", ("ch1", "a")), _FpRef2("C2", ("ch1", "b"))]
+    # The entity names the OTHER channel — the sheet is what tells the channels
+    # apart, so the pin carries one and the selection resolves to another.
+    pinned = _pinned_entity()
+
+    prelude = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter, footprints=other_channel,
+        vias=[], tracks=[], cfg=cfg,
+        sheet_names={"ch0": "Channel_0", "ch1": "Channel_1"},
+        cell_name="dac_buf", cell_roles={"DA", "DB"},
+        remembered_cluster="DAC_BUF", expected_address=pinned)
+
+    assert prelude is not None
+    assert prelude.refusal == \
+        "the selection is not entity 'ch0' — nothing read"
+    assert not prelude.log_lines, "отказ — это отказ, а не жёлтая строка"
+
+
+def test_a_selection_of_the_pinned_instance_reads_it_without_a_warning(
+        gate, tmp_path):
+    """Та же привязка, но выделение — СВОЙ экземпляр: читается он, и никакой
+    жёлтой строки «проверить нельзя» нет."""
+    from gui.mixed_selection import narrow_mixed_selection
+
+    config_path = tmp_path / "config.sexp"
+    config_path.write_text("", encoding="utf-8")
+    _write_registries(tmp_path, {}, {})
+    cfg = _pinned_cfg()
+    own = [_FpRef2("C1", ("ch0", "a")), _FpRef2("C2", ("ch0", "b"))]
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
+                       footprints=own)
+    # No sheet on the pin: a fixture chain resolves to a MULTI-name sheet chain
+    # (see resolve_sheet_path_names), which the board lookup matches only when
+    # nothing is asked of the sheet — the product's own best-effort cascade.
+    pinned = _pinned_entity(sheet=None)
+
+    prelude = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter, footprints=own,
+        vias=[], tracks=[], cfg=cfg,
+        sheet_names={"ch0": "Channel_0", "ch1": "Channel_1"},
+        cell_name="dac_buf", cell_roles={"DA", "DB"},
+        remembered_cluster="DAC_BUF", expected_address=pinned)
+
+    assert prelude is not None and prelude.refusal is None
+    assert [f.ref for f in prelude.footprints] == ["C1", "C2"]
+    texts = [text for text, _level in prelude.log_lines]
+    assert not any("cannot verify" in text for text in texts)
+
+
+def test_an_untagged_selection_is_read_as_the_pinned_entity_and_says_so(
+        gate, tmp_path):
+    """п.5: выделение без тега Cluster проверить нечем — оно пропускается (это и
+    есть инструмент «пары ещё нет»), но НЕ молча: жёлтая строка говорит, что
+    сверить выделение с сущностью не удалось, и читается экземпляр сущности."""
+    from gui.mixed_selection import WARN, narrow_mixed_selection
+
+    config_path = tmp_path / "config.sexp"
+    config_path.write_text("", encoding="utf-8")
+    _write_registries(tmp_path, {}, {})
+    cfg = _pinned_cfg()
+    board = [_FpRef2("C1", ("ch0", "a")), _FpRef2("C2", ("ch0", "b"))]
+    untagged = [_FpRef2("T1", ())]
+    adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF"),
+                        "T1": (None, None)}, footprints=board)
+    pinned = _pinned_entity(sheet=None)
+
+    prelude = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter, footprints=untagged,
+        vias=[], tracks=[], cfg=cfg, sheet_names={"ch0": "Channel_0"},
+        cell_name="dac_buf", cell_roles={"DA", "DB"},
+        remembered_cluster="DAC_BUF", expected_address=pinned)
+
+    assert prelude is not None and prelude.refusal is None
+    assert [f.ref for f in prelude.footprints] == ["C1", "C2"]
+    warned = [(text, level) for text, level in prelude.log_lines
+              if "cannot verify" in text]
+    assert warned and warned[0][1] == WARN
+    assert "'ch0'" in warned[0][0]
+
+
 # ── "Fill from selection": filter other clusters BEFORE the refusals ────────
 
 class _Comp:

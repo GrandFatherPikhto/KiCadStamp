@@ -59,6 +59,12 @@ from kicadstamp.selection_narrowing import (
 )
 from kicadstamp.sheet_names import resolve_sheet_path_names
 
+from .cell_entity_choice import (
+    address_matches_selection,
+    cannot_verify_line,
+    not_the_entity_line,
+)
+
 logger = logging.getLogger(__name__)
 
 SUCCESS = "success"
@@ -163,6 +169,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                            vias: list, tracks: list, cfg, sheet_names,
                            cell_name: str, cell_roles,
                            remembered_cluster=None, remembered_sheet=None,
+                           expected_address=None,
                            explode_transfer: bool = False, explode_journal=None
                            ) -> Optional[MixedPrelude]:
     """Narrow ANY selection (clean or mixed) to ONE cell instance, or return
@@ -176,7 +183,16 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     from ``ExplodeGuard``. The transfer runs ONLY for THAT instance — the READ's
     own resolved address (``chosen_address``) must name it. Reading any other
     instance subtracts the inter-cluster copper as usual (Н4) and appends a
-    yellow line saying so (never a silent skip)."""
+    yellow line saying so (never a silent skip).
+
+    ``expected_address`` (part 2, п.5): the instance EXPLICITLY chosen on the cell
+    page's "Entity" dropdown (gui/cell_entity_choice.InstanceAddress), read from
+    the ONE working-instance store. When given, its own (cluster, sheet) IS the
+    instance and the selection may only CONFIRM it: a selection naming ANOTHER
+    instance is refused with a red line, and a selection with no Cluster at all
+    cannot be checked — it passes with a YELLOW line, never silently (tagging a
+    fresh pair is what these doors are for). The address comes from the page; this
+    function never derives one from a cluster/sheet guesswork."""
     if not cell_name:
         return None
     entities = getattr(cfg, "entities", ()) or ()
@@ -195,7 +211,22 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     groups = group_selection(infos, entities)
     choice = choose_instance(groups, cell_roles, clusters)
 
-    if choice.chosen_key is not None:
+    unverified_line = ""
+    own_key = choice.chosen_key
+    if expected_address is not None and expected_address.cluster:
+        own_cluster = own_key[0] if own_key else None
+        if own_cluster and not address_matches_selection(
+                expected_address, own_cluster, own_key[1] if own_key else None):
+            # The selection names ANOTHER instance — nothing is read from it.
+            return _refusal_preamble(
+                not_the_entity_line(expected_address.entity_name),
+                footprints, vias, tracks)
+        if not own_cluster:
+            unverified_line = cannot_verify_line(expected_address)
+        chosen_cluster, chosen_sheet = (expected_address.cluster,
+                                        expected_address.sheet)
+        others = ()
+    elif choice.chosen_key is not None:
         chosen_cluster, chosen_sheet = choice.chosen_key
         others = choice.others
     elif choice.no_own_cluster:
@@ -287,6 +318,10 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # uuids any more, and no CopperReadContext crosses this boundary.
 
     lines = [(_instance_line(chosen_cluster, chosen_sheet, others), SUCCESS)]
+    if unverified_line:
+        # п.5: the read is pinned to an entity, but the selection carried no
+        # Cluster — nothing CHECKED it, so it is said out loud, not passed on.
+        lines.append((unverified_line, WARN))
     # Ф3: a net_traces record whose anchor could not be resolved says so.
     for note in net_notes:
         lines.append((note, WARN))

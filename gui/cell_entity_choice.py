@@ -41,11 +41,13 @@ from . import settings
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "MANUAL", "SOURCE_ENTITY", "SOURCE_SPOKE", "LAST_ENTITY_KEY",
+    "MANUAL", "SOURCE_ENTITY", "SOURCE_SPOKE",
+    "LAST_ENTITY_KEY", "WORKING_INSTANCE_KEY",
     "InstanceAddress", "entity_address", "manual_address", "spoke_address",
     "build_choices", "default_index", "explicit_kwargs",
-    "address_matches_selection", "not_the_entity_line", "write_applies_line",
-    "remember_last_entity", "remembered_last_entity",
+    "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
+    "write_applies_line", "remember_last_entity", "remembered_last_entity",
+    "remember_working_instance", "working_instance",
 ]
 
 # The three kinds of an address row. "Manual…" is a row too: it is not "no
@@ -58,6 +60,15 @@ MANUAL = "manual"
 # per (root config, cell name). Deliberately its OWN key — see the module
 # docstring: CELL_EDIT_CONTEXT_KEY erases the cell's identified refs.
 LAST_ENTITY_KEY = "cell_last_entity"
+
+# The gui_state.json key holding the WORKING INSTANCE of a cell — the address the
+# cell page's "Entity" dropdown is on. ONE owner for everyone who reads the
+# instance (the CellDock's payload, the mixed-selection door): the dropdown WRITES
+# it, each reader reads it AT THE MOMENT OF USE. A copy pushed at a dock would be
+# a second source and would drift the moment that dock is opened on another cell,
+# or the page is not there to push. Cleared on the "Manual…" row: a stale entity
+# record must never win over the hand-typed fields.
+WORKING_INSTANCE_KEY = "cell_working_instance"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -254,6 +265,18 @@ def address_matches_selection(address, cluster, sheet) -> bool:
                                   (cluster, sheet))
 
 
+def cannot_verify_line(address) -> str:
+    """The YELLOW line of a read pinned to an entity while the selection carries
+    no Cluster at all (п.5).
+
+    Such a read may proceed — tagging a fresh pair is exactly what the buttons do
+    — but it must not pass SILENTLY: the user has to see that nothing checked the
+    selection against the entity."""
+    return _("the selection carries no Cluster — cannot verify it is entity "
+             "{entity!r}; reading it as that entity's instance").format(
+        entity=getattr(address, "entity_name", None))
+
+
 def not_the_entity_line(entity_name) -> str:
     """The refusal of a board read that is pinned to an entity row while the
     SELECTION belongs to another instance (п.5) — a red line, never a silent
@@ -298,6 +321,67 @@ def remember_last_entity(root_path, cell_name, entity_name) -> None:
     except Exception:  # noqa: BLE001 — a state write must never break a pick
         logger.warning("Failed to remember the last entity of %r — state write "
                        "skipped", cell_name)
+
+
+def remember_working_instance(root_path, cell_name, address) -> None:
+    """Record the WORKING INSTANCE of `cell_name` — the row the dropdown is on.
+
+    An ENTITY address stores its name, (cluster, sheet) and pins (the shape of an
+    `entities:` record, so the reader builds the same InstanceAddress with
+    `entity_address`); the "Manual…" row or None CLEARS the record. Best-effort
+    and never raises — a state write must never break a pick.
+
+    The stored pins CAN rot (the entity's own `refs:` may change in the config):
+    like every other hint here they are only a hint, and the live frame reader
+    refuses a stale identification instead of reading someone else's pair."""
+    if root_path is None or not cell_name:
+        return
+    try:
+        state = settings.state.get(WORKING_INSTANCE_KEY, {})
+        if not isinstance(state, dict):
+            state = {}
+        per_root = state.setdefault(str(root_path), {})
+        if not isinstance(per_root, dict):
+            per_root = state[str(root_path)] = {}
+        if address is None or address.is_manual:
+            per_root.pop(str(cell_name), None)
+            if not per_root:
+                state.pop(str(root_path), None)
+        else:
+            per_root[str(cell_name)] = {
+                "name": address.entity_name,
+                "cluster": address.cluster,
+                "sheet": address.sheet,
+                "refs": dict(address.refs or {}),
+            }
+        settings.state.set(WORKING_INSTANCE_KEY, state)
+    except Exception:  # noqa: BLE001 — a state write must never break a pick
+        logger.warning("Failed to remember the working instance of %r — state "
+                       "write skipped", cell_name)
+
+
+def working_instance(root_path, cell_name) -> Optional[InstanceAddress]:
+    """The working instance recorded for `cell_name` (an ENTITY address), or None
+    when nothing is recorded or the "Manual…" row is in force.
+
+    Never raises: "no record" is the everyday case (a project opened before this
+    key existed, or a manual instance), and the caller then keeps reading the
+    remembered context exactly as it did before."""
+    if root_path is None or not cell_name:
+        return None
+    try:
+        state = settings.state.get(WORKING_INSTANCE_KEY, {}) or {}
+        if not isinstance(state, dict):
+            return None
+        per_root = state.get(str(root_path))
+        if not isinstance(per_root, dict):
+            return None
+        row = per_root.get(str(cell_name))
+        if not isinstance(row, dict) or not row.get("name"):
+            return None
+        return entity_address(row)
+    except Exception:  # noqa: BLE001 — best-effort read, never fatal
+        return None
 
 
 def remembered_last_entity(root_path, cell_name) -> Optional[str]:

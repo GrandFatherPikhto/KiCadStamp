@@ -117,6 +117,7 @@ from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
+from ..cell_entity_choice import working_instance
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
 from ..select_cell import pick_instance, resolve_action_instance
@@ -158,6 +159,10 @@ def _narrow_for_read(payload, adapter, footprints, vias, tracks, cfg, sheet_name
             cell_roles=_component_roles(payload.get("components")),
             remembered_cluster=payload.get("remembered_cluster"),
             remembered_sheet=payload.get("remembered_sheet"),
+            # Part 2, п.5: the instance EXPLICITLY chosen on the cell page (its
+            # "Entity" dropdown) — the prelude pins the read to it and refuses a
+            # selection of another instance.
+            expected_address=payload.get("expected_entity"),
             explode_transfer=bool(payload.get("explode_transfer")),
             # Р3а-3: the exploded instance's address (from ExplodeGuard) rides
             # along so the narrow can re-check the address it RESOLVED.
@@ -1761,12 +1766,24 @@ class CellDock(QWidget):
         self.select_cell_button.setEnabled(enabled)
         self.explode_button.setEnabled(enabled)
 
-    def _remembered_cluster_value(self) -> Optional[str]:
-        """The remembered Cluster of the loaded cell, or None — the fallback the
-        mixed-selection prelude uses when no config record places this cell.
+    def _working_instance_value(self):
+        """The WORKING INSTANCE of the loaded cell — the address the cell page's
+        "Entity" dropdown is on — read from the ONE store at the MOMENT OF USE
+        (part 2, п.1: the page writes it, every reader reads it, so no copy can
+        drift). None on "Manual…", or for a cell the page was never used on: then
+        the remembered context answers, exactly as it did before."""
+        if self._root_path is None:
+            return None
+        return working_instance(self._root_path, self.name_edit.text().strip())
 
-        Read on the UI thread from gui_state (best-effort, never a board read),
-        exactly like CellDock's own "Select cluster" button."""
+    def _remembered_cluster_value(self) -> Optional[str]:
+        """The Cluster of the instance this read targets — the cell page's
+        dropdown first (part 2, п.1), else the remembered Cluster, with no config
+        record placing this cell. Read on the UI thread from gui_state, best-effort
+        (never a board read), like CellDock's own "Select cluster" button."""
+        working = self._working_instance_value()
+        if working is not None and working.cluster:
+            return working.cluster
         if self._root_path is None:
             return None
         cluster, _sheet = remembered_cell_edit_context(
@@ -1774,9 +1791,10 @@ class CellDock(QWidget):
         return cluster
 
     def _remembered_sheet_value(self) -> Optional[str]:
-        """The remembered Sheet of the loaded cell, or None — the fallback the
-        prelude uses when the selection holds no component of the cell's cluster
-        (Н4.1). Read on the UI thread from gui_state, best-effort."""
+        """The Sheet of that instance, the same way (part 2, п.1)."""
+        working = self._working_instance_value()
+        if working is not None and working.cluster:
+            return working.sheet
         if self._root_path is None:
             return None
         _cluster, sheet = remembered_cell_edit_context(
@@ -1862,6 +1880,8 @@ class CellDock(QWidget):
             "cell_name": self.name_edit.text().strip(),
             "remembered_cluster": self._remembered_cluster_value(),
             "remembered_sheet": self._remembered_sheet_value(),
+            # The instance the cell page shows, if any (part 2, п.5).
+            "expected_entity": self._working_instance_value(),
             # H.1.1: the cell's own copper layer, so the engine never pairs a
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
@@ -2354,6 +2374,8 @@ class CellDock(QWidget):
             "cell_name": self.name_edit.text().strip(),
             "remembered_cluster": self._remembered_cluster_value(),
             "remembered_sheet": self._remembered_sheet_value(),
+            # The instance the cell page shows, if any (part 2, п.5).
+            "expected_entity": self._working_instance_value(),
             # H.1.2: Import stays purely ADDITIVE (no remove_missing here) but
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
@@ -2619,7 +2641,11 @@ class CellDock(QWidget):
         if self._active_op is not None:
             return
         cell_name = self.name_edit.text().strip()
-        refs = remembered_cell_refs(self._root_path, cell_name) or {}
+        # Part 2, п.5: with an entity chosen on the cell page ITS pins name the
+        # instance; the remembered identification is the "Manual…" case.
+        working = self._working_instance_value()
+        refs = ((working.refs if working is not None else None)
+                or remembered_cell_refs(self._root_path, cell_name) or {})
         # The ONE instance rule (Р2а-3), shared with the "Разнос" door.
         choice = resolve_action_instance(
             self._load_cfg_for_instance(), self._root_path, cell_name,
