@@ -15,6 +15,7 @@ project for a ONE-cell read). The cells below pin:
     ``_item_net_name``), so the filter can never disagree with the plan.
 """
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -252,6 +253,73 @@ def test_the_same_question_without_quiet_still_writes_info(gate, caplog):
 
     assert _narrowing_lines(caplog.records, logging.INFO), \
         "planning for real must keep saying what it narrowed"
+
+
+def _board_with_anchor():
+    """The two-channel board PLUS a resolvable anchor: a record's plan then really
+    runs (anchor resolves), which is what the READ-ONLY doors ask of every record
+    — the shape whose per-record lines Denis read in the live Log."""
+    ch0 = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0, ("ch0", "u-c1"))
+    ch1 = _fp("C2", "DA", "DAC_BUF", 0.0, 0.0, ("ch1", "u-c2"))
+    anchor = _fp("U1", "FPGA", None, 10.0, 10.0)
+    return _CountingAdapter({"C1": ("DA", "DAC_BUF"), "C2": ("DA", "DAC_BUF"),
+                             "U1": ("FPGA", None)},
+                            footprints=[ch0, ch1, anchor])
+
+
+def _record_lines(records, level, needle):
+    return [r.getMessage() for r in records if r.levelno == level
+            and needle in r.getMessage()]
+
+
+def test_the_plan_itself_is_quiet_only_when_asked(gate, caplog):
+    """`quiet` reaches the PLAN: on a read-only door's question the per-record
+    «… planned» line and the role search's steps go to DEBUG; the redraw's own
+    plan (no quiet) keeps them at INFO.
+
+    Mutation: ignore `quiet` in plan_net_traces and the live 458-line batch comes
+    back for ONE click."""
+    from kicadstamp.net_trace_planner import plan_net_traces
+
+    adapter = _board_with_anchor()
+    # Literal nets on its items: the plan's OWN line is what this cell watches
+    # (the cascade's DEBUG is pinned by the `record_nets` cells above).
+    with caplog.at_level(logging.DEBUG):
+        plan_net_traces(adapter, [_record("NT1", net="NET1")], _SHEETS, quiet=True)
+        quiet_planned = _record_lines(caplog.records, logging.INFO,
+                                      "net_traces entry")
+        caplog.clear()
+        plan_net_traces(adapter, [_record("NT1", net="NET1")], _SHEETS)
+        loud_planned = _record_lines(caplog.records, logging.INFO,
+                                     "net_traces entry")
+
+    assert quiet_planned == []
+    assert len(loud_planned) == 1, loud_planned
+
+
+def test_the_copper_identify_door_does_not_flood_the_log(gate, caplog):
+    """«Whose copper is this?» asks EVERY record the same dry question, so its
+    per-record lines are not news — they go to DEBUG, and the answer stands.
+
+    The live click of 08.10 planned 73 records through this very door and wrote
+    458 INFO lines into the Log (доделка 2 of plan_2026_10_08_narrowing_net_traces_cost)."""
+    from gui.docks.copper_select import identify_selected_copper
+
+    adapter = _board_with_anchor()
+    selected_via = _via("sel-v", net="OTHER")
+    adapter._vias = [selected_via]
+    cfg = SimpleNamespace(net_traces=[_named_record(f"NT{i}") for i in range(1, 6)])
+    reg = SimpleNamespace(entries={})
+
+    with caplog.at_level(logging.DEBUG):
+        result = identify_selected_copper(
+            adapter, cfg, [selected_via], via_registry=reg, track_registry=reg,
+            sheet_names=_SHEETS)
+        info_planned = _record_lines(caplog.records, logging.INFO, "net_traces entry")
+        info_steps = _narrowing_lines(caplog.records, logging.INFO)
+
+    assert result.total == 1
+    assert info_planned == [] and info_steps == []
 
 
 def test_a_record_with_one_unresolvable_piece_is_not_dropped(gate):

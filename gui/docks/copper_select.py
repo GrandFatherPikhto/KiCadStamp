@@ -315,8 +315,12 @@ def identify_selected_copper(adapter, cfg, selected, *, via_registry,
             if nt.retired or nt.skip:
                 continue  # apply does not place it; tier 1 already covered it
             try:
+                # quiet=True: this door asks EVERY record "is this copper yours?",
+                # so its per-record lines (and the role search's narrowing steps)
+                # belong in DEBUG — the live 08.10 click wrote 458 INFO lines here
+                # (доделка 2 of plan_2026_10_08_narrowing_net_traces_cost).
                 planned_vias, planned_tracks = plan_net_traces(
-                    adapter, [nt], sheet_names=dict(sheet_names or {}))
+                    adapter, [nt], sheet_names=dict(sheet_names or {}), quiet=True)
             except Exception as e:  # noqa: BLE001 — one bad anchor must not kill the rest
                 result.reasons.append(_(
                     "record {name!r}: its anchor could not be resolved live "

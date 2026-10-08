@@ -211,7 +211,8 @@ def record_nets(adapter, nt: NetTrace,
 
 
 def plan_net_traces(adapter, net_traces: list[NetTrace],
-                    sheet_names: dict[str, str] | None = None,
+                    sheet_names: dict[str, str] | None = None, *,
+                    quiet: bool = False,
                     ) -> tuple[list[ViaCommand], list[TrackCommand]]:
     """Expand every active (non-retired, non-skip) NetTrace into absolute
     ViaCommand/TrackCommand, anchors resolved LIVE from the current board.
@@ -219,14 +220,22 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
     Returns (vias, tracks). Every command carries a registry_key built from
     net_trace_anchor_id (see net_trace_anchor_id) so the standard registry
     reconcile/execute path gives idempotency and "follow the moved anchor".
+
+    ``quiet=True`` — the caller is a READ-ONLY door (``find_live_copper``,
+    ``identify_selected_copper``) that asks this of EVERY record, so the
+    per-record lines and the role search's ``role_narrowing`` steps go to DEBUG:
+    the live click of 08.10 planned 73 records and wrote 458 such INFO lines into
+    the Log (доделка 2 of plan_2026_10_08_narrowing_net_traces_cost). The REDRAW
+    passes nothing and writes exactly as it did.
     """
     _sn = sheet_names or {}
+    log = logger.debug if quiet else logger.info
     vias: list[ViaCommand] = []
     tracks: list[TrackCommand] = []
     for nt in net_traces:
         if nt.retired or nt.skip:
-            logger.info(_("net_traces entry (net {net!r}): retired/skip, not planned")
-                        .format(net=nt.net))
+            log(_("net_traces entry (net {net!r}): retired/skip, not planned")
+                .format(net=nt.net))
             continue
         # NOTE: never name the discarded footprint `_` here — the i18n helper
         # is imported as `_` at module level, and an assignment would shadow it
@@ -247,7 +256,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
         for i, t in enumerate(nt.tracks):
             # A literal net, or a (role, pad) reference resolved live — see
             # _item_net_name.
-            net_name = _item_net_name(adapter, nt, t, _sn, label)
+            net_name = _item_net_name(adapter, nt, t, _sn, label, quiet=quiet)
             tracks.append(TrackCommand(
                 start=local_to_absolute(anchor, t.start_along_mm, t.start_across_mm, rotation_deg),
                 end=local_to_absolute(anchor, t.end_along_mm, t.end_across_mm, rotation_deg),
@@ -258,7 +267,7 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 registry_key=net_trace_registry_key(nt, i),
             ))
         for i, v in enumerate(nt.vias):
-            net_name = _item_net_name(adapter, nt, v, _sn, label)
+            net_name = _item_net_name(adapter, nt, v, _sn, label, quiet=quiet)
             vias.append(ViaCommand(
                 position=local_to_absolute(anchor, v.offset_along_mm, v.offset_across_mm, rotation_deg),
                 drill_mm=v.drill_mm,
@@ -267,8 +276,8 @@ def plan_net_traces(adapter, net_traces: list[NetTrace],
                 owner_ref=nt.net,
                 registry_key=net_trace_registry_key(nt, i),
             ))
-        logger.info(_("net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned")
-                    .format(net=nt.net, tracks=len(nt.tracks), vias=len(nt.vias)))
+        log(_("net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned")
+            .format(net=nt.net, tracks=len(nt.tracks), vias=len(nt.vias)))
     return vias, tracks
 
 
@@ -471,8 +480,10 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
             "registry was consulted")
     else:
         try:
+            # quiet: this is a READ-ONLY door asking about EVERY record — its
+            # per-record lines are the noise Denis read in the live Log (доделка 2).
             planned_vias, planned_tracks = plan_net_traces(
-                adapter, [nt], sheet_names=_sn)
+                adapter, [nt], sheet_names=_sn, quiet=True)
         except Exception as e:  # noqa: BLE001 — a read must never raise here
             reason = _(
                 "the anchor could not be resolved live ({error}) — the geometry "
