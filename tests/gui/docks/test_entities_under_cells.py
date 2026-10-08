@@ -813,6 +813,36 @@ def test_the_entity_leaf_opens_the_cell_page_on_that_entity(
         "пункт «на этой сущности» бывает только у листа-сущности"
 
 
+def test_the_edit_cell_item_reaches_the_page_through_the_hub(real_main_window,
+                                                             tmp_path):
+    """2в, п.3 (C2): делегат хаба проверяется ЦЕЛИКОМ, а не только сигнал —
+    «Edit cell...» у сущности открывает страницу НА НЕЙ, хотя до этого
+    выпадашка стояла на другой сущности той же ячейки.
+
+    Подмена `opened_from=None` (или потеря имени по пути сигнал → хаб → страница)
+    роняет эту клетку, а сторожа на сам СИГНАЛ — нет: сигнал её и не касается."""
+    from gui.cell_entity_choice import working_instance
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL1", "sheet": "S1"},
+                                     {"name": "e2", "cell": "c",
+                                      "cluster": "CL2", "sheet": "S2"}]})
+    open_project(hub, root)
+
+    hub.cell_anchor_view.load_entry("c", root)
+    assert hub.cell_anchor_view._entity_picker.current_address().entity_name \
+        == "e1", "по умолчанию — первая по имени"
+
+    hub._edit_cell_anchor_for_entity("c", root, "e2")
+    view = hub.cell_anchor_view
+
+    assert view._entity_picker.current_address().entity_name == "e2"
+    assert view._cluster_combo.currentText() == "CL2", "поля — адрес этой сущности"
+    assert working_instance(root, "c").entity_name == "e2"
+
+
 def test_the_entity_door_publishes_that_entity_as_the_working_instance(tmp_path):
     """2б, п.4 (мутация «выбор по последней»): дверь сущности пишет СВОЮ
     сущность в ОДНО хранилище рабочего экземпляра, поэтому действие, которое
