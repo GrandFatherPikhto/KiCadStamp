@@ -115,7 +115,6 @@ from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
 from ..cell_entity_choice import instance_for_read, read_instance
 from .explode_page import adapter_of
-from ..entity_doors import unplaced_without_entity
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
 from ..select_cell import pick_instance, resolve_action_instance
@@ -549,85 +548,6 @@ class CellDock(QWidget):
         anchor_role_form.addRow(_("Pad:"), self.anchor_pad_edit)
         layout.addWidget(self._anchor_role_row)
 
-        # Refresh geometry from selection (2026-09-03, plan
-        # cell_geometry_refresh) — an operation over the WHOLE loaded cell
-        # (components + vias + tracks), so it lives above the tabs, not inside
-        # any single component/via/track page. Enabled whenever the live board
-        # adapter is present AND the loaded cell has components (the actual
-        # empty-selection case is reported at run time — CellDock receives no
-        # selection feed to gate on, see _update_refresh_enabled).
-        #
-        # THE THREE CAPTIONS BELOW ARE DELIBERATELY SHORT (2026-09-17, plan
-        # plan_2026_09_17_cell_dialog_min_width.md). They sit in ONE QHBoxLayout;
-        # named in full they added up to a 1290 px minimum, and that forced the
-        # whole Cell dialog to 1310 px — wider than a 1366x768 laptop screen, so
-        # the dialog hung over the edge and part of the buttons was unreachable
-        # (measured with kicadstamp/diagnostics/probe_gui_min_sizes.py; the tabs
-        # need only 502 px, so they were never to blame). The full phrase each
-        # button used to be named with is its TOOLTIP now: same msgid, so the
-        # catalogs need no new entry for the tooltip, and the meaning stays one
-        # hover away. The words are Denis's (2026-09-17); the width limit and the
-        # bilingual guard live in tests/gui/test_dialog_min_width.py.
-        refresh_row = QHBoxLayout()
-        self.refresh_geometry_button = QPushButton(_("Refresh geometry"))
-        self.refresh_geometry_button.setToolTip(
-            _("Refresh geometry from selection"))
-        self.refresh_geometry_button.clicked.connect(self._on_refresh_geometry)
-        self.refresh_geometry_button.setEnabled(False)
-        refresh_row.addWidget(self.refresh_geometry_button)
-        # Import vias/tracks from selection (2026-09-03, plan
-        # fpga_oscill_missing_copper_and_cell_import §B.3) — the additive
-        # counterpart of Refresh: backfills NEW via/track records for live
-        # copper the cell's current records don't describe, and NEVER edits/
-        # removes an existing one. Same activity gate, same worker pattern
-        # (see _update_refresh_enabled, which gates BOTH buttons).
-        self.import_vias_tracks_button = QPushButton(_("Add copper"))
-        self.import_vias_tracks_button.setToolTip(
-            _("Add selected copper"))
-        self.import_vias_tracks_button.clicked.connect(self._on_import_vias_tracks)
-        self.import_vias_tracks_button.setEnabled(False)
-        refresh_row.addWidget(self.import_vias_tracks_button)
-        # С-2 (Denis 2026-10-06): the third action over a cell's records — subtract
-        # the ones the CURRENT selection names (never touches components).
-        self.subtract_copper_button = QPushButton(_("Subtract copper"))
-        self.subtract_copper_button.setToolTip(_("Subtract selected copper"))
-        self.subtract_copper_button.clicked.connect(self._on_subtract_selected_copper)
-        self.subtract_copper_button.setEnabled(False)
-        refresh_row.addWidget(self.subtract_copper_button)
-        # Phase E (plan_2026_09_09_..._phase_e): "Refresh geometry" / "Import
-        # vias/tracks" fatal on any role missing from the selection, so they
-        # need the WHOLE placed cluster instance selected — this button picks it
-        # from the remembered (Cluster, Sheet) the cell was last extracted in,
-        # removing the manual hunt before every re-read. Same activity gate.
-        # СЦ-1 (plan_2026_10_05_select_cell_split): "Select cell components" —
-        # the instance's components ONLY (the former "Select cell" caption; the
-        # one-click entry to "Refresh geometry").
-        self.select_cluster_button = QPushButton(_("Select cell components"))
-        self.select_cluster_button.setObjectName("select_cell_components_button")
-        self.select_cluster_button.setToolTip(
-            _("Select this cell's components on the board"))
-        self.select_cluster_button.clicked.connect(
-            lambda checked=False: self._on_select_cell(with_copper=False))
-        self.select_cluster_button.setEnabled(False)
-        refresh_row.addWidget(self.select_cluster_button)
-        # СЦ-1: "Select cell" — the instance's components PLUS its recorded
-        # copper (registry then geometry), right beside the components button.
-        self.select_cell_button = QPushButton(_("Select cell"))
-        self.select_cell_button.setObjectName("select_cell_button")
-        self.select_cell_button.setToolTip(
-            _("Select this cell's instance with its recorded copper"))
-        self.select_cell_button.clicked.connect(
-            lambda checked=False: self._on_select_cell(with_copper=True))
-        self.select_cell_button.setEnabled(False)
-        refresh_row.addWidget(self.select_cell_button)
-        # Р2 "Разнос": the tab's CellDock door, right beside them.
-        self.explode_button = QPushButton(_("Explode…"))
-        self.explode_button.setToolTip(
-            _("Move foreign clusters aside and re-read this cell"))
-        self.explode_button.clicked.connect(self._on_explode)
-        self.explode_button.setEnabled(False)
-        refresh_row.addWidget(self.explode_button)
-        layout.addLayout(refresh_row)
 
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs, 1)
@@ -950,12 +870,11 @@ class CellDock(QWidget):
         Nested cells tab's Cell combo stays sourced from the WHOLE include
         graph (a nested cell routinely lives in a different file).
 
-        The board buttons are re-judged here too (2г, п.1)."""
+        """
         self._root_path = path
         self._path = path
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
-        self._update_refresh_enabled()
 
     def set_board_selection(self, items, selected) -> None:
         """The live selection tick (DockHub.set_board_selection fan-out) — the
@@ -973,8 +892,6 @@ class CellDock(QWidget):
         roles = sorted({s.role for s in snapshot if s.role})
         set_combo_items(self.comp_role_edit, roles)
         set_combo_items(self.nested_role_combo, roles)
-        # push_snapshot fires only while connected — the live-board heartbeat.
-        self._update_refresh_enabled()
 
     # ── Anchor UI ─────────────────────────────────────────────────────────
 
@@ -1061,9 +978,6 @@ class CellDock(QWidget):
         self._refresh_nested_table()
         self._refresh_role_choices()
         self._refresh_content_layers()
-        # The loaded cell changed (load_entry/new_cell/add/remove/...) — the
-        # geometry-refresh button only makes sense on a non-empty cell.
-        self._update_refresh_enabled()
 
     def _refresh_content_layers(self) -> None:
         """Э6: light a checkbox per layer this cell HAS copper records on, in
@@ -1747,25 +1661,6 @@ class CellDock(QWidget):
 
     # ── Refresh geometry from selection (2026-09-03, plan cell_geometry_refresh)
 
-    def _update_refresh_enabled(self) -> None:
-        """The refresh-geometry AND import-vias/tracks buttons are meaningful
-        only when a live connection is present AND a cell with components is
-        loaded (Import needs the same clean role match as Refresh, see
-        build_import_plan). CellDock receives no per-selection feed (only
-        push_snapshot's role lists), so an EMPTY board selection is not gated
-        here — the worker reports it as a clear error at click time instead. A
-        cell nobody places and nobody gives an entity to has no instance at all
-        (2в, п.5) — the buttons are off for it, like the page's board ones.
-        Presence: `connection.is_connected`, never the door — docs/board_door.md §2."""
-        connection = getattr(self._main_window, "connection", None)
-        connected = bool(getattr(connection, "is_connected", False))
-        enabled = connected and bool(self._components) and not unplaced_without_entity(self)
-        self.refresh_geometry_button.setEnabled(enabled)
-        self.import_vias_tracks_button.setEnabled(enabled)
-        self.subtract_copper_button.setEnabled(enabled)
-        self.select_cluster_button.setEnabled(enabled)
-        self.select_cell_button.setEnabled(enabled)
-        self.explode_button.setEnabled(enabled)
 
     def _read_instance(self):
         """The instance a READ of this cell must use — the ONE call into
@@ -1894,7 +1789,7 @@ class CellDock(QWidget):
             "explode_journal": getattr(self, "_pending_explode_journal", None),
         }
         self._active_op = start_long_op(
-            connection, (self.refresh_geometry_button,),
+            connection, (),
             self._run_refresh_geometry, self._finish_refresh_geometry,
             self._on_refresh_op_failed, payload,
             # The transfer read is EXPLODE-MODE: it is one of the few ops allowed
@@ -1930,7 +1825,7 @@ class CellDock(QWidget):
             # `adapter=None`: the dialog's own worker takes it off the connection
             # (часть 3, п.7) — no board handle on this thread.
             self, connection, None, self._selection_items, run_read,
-            widgets=(self.refresh_geometry_button, self.import_vias_tracks_button),
+            widgets=(),
             on_error=self._on_layers_read_failed)
 
     def _on_layers_read_failed(self, message: str) -> None:
@@ -2397,7 +2292,7 @@ class CellDock(QWidget):
             "empty_layers": list(empty_layers),
         }
         self._active_op = start_long_op(
-            connection, (self.import_vias_tracks_button,),
+            connection, (),
             self._run_import_vias_tracks, self._finish_import_vias_tracks,
             self._on_import_op_failed, payload)
 
@@ -2696,7 +2591,7 @@ class CellDock(QWidget):
             "with_copper": with_copper,
         }
         self._active_op = start_long_op(
-            connection, (self.select_cluster_button, self.select_cell_button),
+            connection, (),
             self._run_select_cluster_on_board,
             self._finish_select_cluster_on_board,
             self._on_select_cluster_failed, payload,
@@ -2734,21 +2629,20 @@ class CellDock(QWidget):
             # for "Re-read by selection".
             self._show_message(result["line"], _SUCCESS_STYLE)
             return
-        # Р6 of plan_2026_09_17_cell_dialog_min_width: these two lines send the
-        # user to a button, so they name it as it is CAPTIONED now — a message
-        # pointing at a caption that is no longer on screen is exactly the kind of
-        # untruth the caption change was made to remove. The captions here must
-        # match self.refresh_geometry_button's ("Refresh geometry").
+        # часть 3, п.4: the CellDock buttons are gone, so these two lines send the
+        # user to the ENTITY leaf's item instead — a message pointing at a caption
+        # that is no longer on screen is the untruth Р6 of
+        # plan_2026_09_17_cell_dialog_min_width removed.
         if result.get("identified"):
             self._show_message(
                 _("Selected the {count} identified footprint(s) of this cell on "
-                  "the board — ready for “Refresh geometry”.")
+                  "the board — ready for “Update from selection…”.")
                 .format(count=result["selected"]),
                 _SUCCESS_STYLE)
         elif result["selected"]:
             self._show_message(
                 _("Selected {count} footprint(s) of cluster {cluster!r} on the "
-                  "board — ready for “Refresh geometry”.")
+                  "board — ready for “Update from selection…”.")
                 .format(count=result["selected"], cluster=result["cluster"]),
                 _SUCCESS_STYLE)
         else:

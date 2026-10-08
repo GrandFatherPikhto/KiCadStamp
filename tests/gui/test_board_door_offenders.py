@@ -1411,8 +1411,9 @@ def test_the_connect_path_does_not_read_the_board_unsigned(
     «no refusal on the connect path», not «some call was not made».
 
     Mutation check: put `board = getattr(connection, "board", None)` back into
-    CellDock._update_refresh_enabled, or into DockHub.reconcile_overlay, and this
-    fails with a refusal naming that file."""
+    DockHub.reconcile_overlay (or into the cell reads of часть 3, п.7) and this
+    fails with a refusal naming that file. The CellDock half of this cell is gone
+    with the buttons (часть 3, п.4): the dock no longer asks anything on connect."""
     from gui import dock_hub, worker as worker_mod
 
     dispatched = []
@@ -1486,54 +1487,3 @@ def test_the_overlay_reconcile_worker_takes_the_adapter_off_the_connection(
 
     assert seen == [adapter], (
         "the reconcile must be handed the board's adapter — got " f"{seen!r}")
-
-
-_CELL_ACTION_BUTTONS = (
-    "refresh_geometry_button",
-    "import_vias_tracks_button",
-    "subtract_copper_button",
-    "select_cluster_button",
-    "select_cell_button",
-    "explode_button",
-)
-
-
-@pytest.mark.parametrize("button_name", _CELL_ACTION_BUTTONS)
-def test_the_cell_dock_buttons_follow_the_connection(
-        real_main_window, tmp_path, monkeypatch, button_name):
-    """plan_2026_10_08_door_noise_on_connect п.1 — the six actions CellDock gates
-    together follow the CONNECTION: no connection, grey; a live board, alive. One
-    parametrized row per button, because the gate owns all six and a row is a
-    promise that that row was driven (rule 35).
-
-    The door is ARMED over the enabled flip, so the flip can only happen without
-    the dock reading `connection.board` — which is exactly what it used to do on
-    every connect. The board is a production-shaped stand-in (a live board always
-    carries its `.adapter`: BoardConnection.connect() reads it before publishing
-    the board), so what this row pins is that the ANSWER comes from the
-    CONNECTION, never from a handle.
-
-    Mutation check: restore the `connection.board` chain in
-    `CellDock._update_refresh_enabled` and this fails with the refusal."""
-    from gui.docks.cell_editor import CellDock
-
-    root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(
-        {"cells": {"probe": {"components": [
-            {"role": "ORIG", "offset_along_mm": 0.0, "offset_across_mm": 0.0}]}}},
-        format_number=2), encoding="utf-8")
-    dock = CellDock(real_main_window)
-    dock.set_root_path(root)
-    dock.load_entry("probe")
-    button = getattr(dock, button_name)
-
-    real_main_window.connection.board = None
-    dock._update_refresh_enabled()
-    assert not button.isEnabled(), \
-        "no connection — the action must be grey"
-
-    _arm_the_door(monkeypatch)
-    real_main_window.connection.board = SimpleNamespace(adapter=object())
-    dock._update_refresh_enabled()                    # must not raise
-    assert button.isEnabled(), \
-        "a live connection — the action must be alive"

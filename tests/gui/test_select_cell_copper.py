@@ -464,7 +464,7 @@ def test_select_cell_door_payload_carries_no_board_handle(
     assert launched["payload"]["config_path"] and launched["payload"]["timeout_ms"]
 
 
-def test_each_button_routes_its_own_mode(real_main_window, tmp_path, monkeypatch):
+def test_each_entry_point_routes_its_own_mode(real_main_window, tmp_path, monkeypatch):
     """(а) guard 1: CLICKING the CellDock buttons routes the right mode —
     "Select cell components" (False) and "Select cell" (True). The door tests
     above call the entry methods directly; only a CLICK covers the buttons'
@@ -504,8 +504,10 @@ def test_each_button_routes_its_own_mode(real_main_window, tmp_path, monkeypatch
                         lambda: threading.current_thread() is main)
     monkeypatch.setattr(conn_mod, "ui_thread_read_refusal", conn_mod.UI_READ_RAISE)
 
-    dock.select_cluster_button.click()
+    # часть 3, п.4: the buttons are gone from CellDock; the two MODES live on the
+    # entry points the tree doors drive (components-only vs components + copper).
+    dock.select_cell_components_requested("dac_buf", root)
     assert launched["payload"]["with_copper"] is False
     launched.clear()
-    dock.select_cell_button.click()
+    dock.select_cell_requested("dac_buf", root)
     assert launched["payload"]["with_copper"] is True

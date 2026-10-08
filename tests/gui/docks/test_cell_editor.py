@@ -1043,29 +1043,8 @@ def test_run_refresh_geometry_refreshes_the_board_first(main_window, tmp_path):
     assert "error" in result      # the empty payload is a role problem, not ours
 
 
-def test_refresh_geometry_button_enabled_only_with_board_and_components(main_window, tmp_path):
-    """§2.1 activity: adapter present (push_snapshot fires) AND the loaded cell
-    has components. No board -> disabled; empty cell -> disabled."""
-    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
-    dock.load_entry("t")
-    # No board yet — refresh_known_roles isn't called, button stays disabled.
-    assert not dock.refresh_geometry_button.isEnabled()
-
-    # Board present but cell still empty.
-    main_window.connection.board = _RefreshBoard([])
-    dock.refresh_known_roles([])
-    assert not dock.refresh_geometry_button.isEnabled()
-
-    # Load a cell WITH components while the board is present.
-    dock.load_entry("t", None)
-    dock._components.append({"role": "ORIG", "offset_along_mm": 0.0,
-                             "offset_across_mm": 0.0})
-    dock._refresh_all_tables()
-    assert dock.refresh_geometry_button.isEnabled()
-
-
-def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window, tmp_path,
-                                                                   monkeypatch):
+def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(
+        main_window, tmp_path, monkeypatch):
     """Successful plan -> applied DIRECTLY, no preview dialog (2026-09-06):
     mutates ONLY the geometric keys on the SAME dicts already in
     _components/_vias, every other field survives intact
@@ -1296,29 +1275,8 @@ class _ImportBoard:
             get_footprint_pads=lambda fp: [])
 
 
-def test_import_button_enabled_only_with_board_and_components(main_window, tmp_path):
-    """§B.3 activity: the import button shares Refresh's gate — adapter present
-    AND the loaded cell has components."""
-    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {"components": []}}})
-    dock.load_entry("t")
-    # No board yet — refresh_known_roles isn't called, button stays disabled.
-    assert not dock.import_vias_tracks_button.isEnabled()
-
-    # Board present but cell still empty.
-    main_window.connection.board = _RefreshBoard([])
-    dock.refresh_known_roles([])
-    assert not dock.import_vias_tracks_button.isEnabled()
-
-    # Load a cell WITH components while the board is present.
-    dock.load_entry("t", None)
-    dock._components.append({"role": "ORIG", "offset_along_mm": 0.0,
-                             "offset_across_mm": 0.0})
-    dock._refresh_all_tables()
-    assert dock.import_vias_tracks_button.isEnabled()
-
-
-def test_import_apply_appends_new_records_keeps_existing(main_window, tmp_path,
-                                                         monkeypatch):
+def test_import_apply_appends_new_records_keeps_existing(
+        main_window, tmp_path, monkeypatch):
     """A clean import plan -> Apply APPENDS only the genuinely-new via/track
     records; the existing GND via (claimed by its live counterpart in tier 2)
     is neither duplicated nor mutated. Preview dialog is stubbed to Accept so
@@ -2124,8 +2082,8 @@ def test_the_refresh_dialog_path_is_fed_the_distributed_selection(
 
     assert calls["parent"] is dock
     assert calls["items"] == [track]
-    assert calls["widgets"] == (dock.refresh_geometry_button,
-                                dock.import_vias_tracks_button)
+    # часть 3, п.4: the buttons that used to be the guard widgets are gone.
+    assert calls["widgets"] == ()
 
     calls["on_ok"](["B.Cu"])
     assert payloads[-1]["layers"] == ["B.Cu"]

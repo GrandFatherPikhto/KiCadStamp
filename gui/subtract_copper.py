@@ -390,7 +390,7 @@ class SubtractWiring:
             "sheet": sheet,
         }
         dock._active_op = start_long_op(
-            connection, (dock.subtract_copper_button,),
+            connection, (),
             self.run, self.finish, self.failed, payload)
 
     # ── the worker and the two halves of its answer ──────────────────────────

@@ -47,31 +47,6 @@ from tests.paths import REPO_ROOT as _ROOT
 # room for the window frame and the taskbar. ONE constant, as the plan asks.
 MAX_DIALOG_WIDTH_PX = 1000
 
-# The three buttons of the row (gui/docks/cell_editor.py). Captions are Denis's
-# words of 2026-09-17; the tooltip carries the phrase the button used to be named
-# with — that is the whole point of Р1, so both halves are pinned here.
-SHORT_CAPTIONS = {
-    "refresh_geometry_button": ("Refresh geometry", "Перечитать геометрию"),
-    "import_vias_tracks_button": ("Add copper", "Добавить медь"),
-    # СЦ-1 (plan_2026_10_05_select_cell_split): the former "Select cell" button
-    # is now the components-only one; a second button carries the copper. The
-    # Russian caption of the first stays SHORT («Выделить компоненты», no
-    # «ячейки») — short Russian captions are this guard's own requirement (Р7),
-    # and the dock is about a cell anyway.
-    "select_cluster_button": ("Select cell components", "Выделить компоненты"),
-    "select_cell_button": ("Select cell", "Выделить ячейку"),
-}
-FULL_CAPTIONS = {
-    "refresh_geometry_button": ("Refresh geometry from selection",
-                                "Обновить геометрию по выделению"),
-    "import_vias_tracks_button": ("Add selected copper",
-                                  "Добавить выделенное"),
-    "select_cluster_button": ("Select this cell's components on the board",
-                              "Выделить компоненты этой ячейки на плате"),
-    "select_cell_button": ("Select this cell's instance with its recorded copper",
-                           "Выделить экземпляр ячейки вместе с записанной медью"),
-}
-
 _RU_REPORT: dict | None = None
 
 
@@ -148,54 +123,14 @@ def test_cell_dialog_minimum_width_fits_the_screen_in_russian():
         f"(limit {MAX_DIALOG_WIDTH_PX})")
 
 
-# ── С2: short caption, meaning in the tooltip, in both catalogues ──────────
-
-def test_every_button_has_a_short_caption_and_the_full_phrase_on_hover(main_window):
-    """С2: Р1 trades the long caption for a tooltip, and that trade is only honest
-    while the tooltip actually carries the phrase the caption gave up."""
-    dock = CellDock(main_window)
-    for attr, captions in SHORT_CAPTIONS.items():
-        button = getattr(dock, attr, None)
-        assert isinstance(button, QPushButton), f"{attr} is not a button"
-        assert button.text() in captions, (
-            f"{attr} caption is {button.text()!r}, expected one of {captions!r}")
-        tooltip = button.toolTip()
-        assert tooltip, f"{attr} lost its tooltip — the full phrase lives nowhere"
-        assert tooltip in FULL_CAPTIONS[attr], (
-            f"{attr} tooltip is {tooltip!r}; it must be the phrase the button used "
-            f"to be named with, i.e. one of {FULL_CAPTIONS[attr]!r}")
-
-
-def test_every_button_is_short_and_explained_in_russian_too():
-    """С2, the Russian half (Р7): short Russian captions are a REQUIREMENT (a long
-    translation would defeat the whole task on Denis's screen), and the Russian
-    tooltip is the full Russian phrase."""
-    report = ru_report()
-    for attr, captions in SHORT_CAPTIONS.items():
-        button = _ru_button(report, attr)
-        assert button["text"] in captions, (
-            f"{attr} caption is {button['text']!r} in Russian, "
-            f"expected one of {captions!r} — long captions are the bug")
-        assert button["tooltip"], f"{attr} has no tooltip in the ru catalogue"
-        assert button["tooltip"] in FULL_CAPTIONS[attr], (
-            f"{attr} tooltip is {button['tooltip']!r} in Russian, expected one of "
-            f"{FULL_CAPTIONS[attr]!r}")
-
-
 # ── С4: a Log line that sends you to a button names the button as it looks ──
 
-def test_the_hint_lines_name_the_caption_the_button_actually_shows(main_window,
-                                                                   caplog):
-    """С4/Р6: two success lines tell the user which button to press next. Sending
-    them to a caption that is no longer on screen is the same untruth the caption
-    change was made to remove, so the line must quote the CURRENT caption.
-
-    The caption is read off the WIDGET, not written into the test twice: rename
-    the button without touching these lines and this guard fails, which is the
-    whole point (Р6 exists because code and message drifted apart)."""
+def test_the_hint_lines_name_the_menu_item_to_press_next(main_window, caplog):
+    """Р6 of plan_2026_09_17_cell_dialog_min_width, re-pointed by часть 3, п.4: the
+    two success lines tell the user what to do NEXT, and the CellDock buttons they
+    used to name are GONE — the honest reference is the ENTITY leaf's item
+    ("Update from selection…"), and the removed caption must never come back."""
     dock = CellDock(main_window)
-    caption = dock.refresh_geometry_button.text()
-    assert caption, "the button has no caption at all"
 
     caplog.clear()
     dock._finish_select_cluster_on_board({"identified": True, "selected": 2})
@@ -208,13 +143,10 @@ def test_the_hint_lines_name_the_caption_the_button_actually_shows(main_window,
     for message, where in ((identified, "identified refs"),
                            (by_cluster, "cluster by name")):
         assert message.strip(), f"the {where} branch logged nothing"
-        assert caption in message, (
-            f"the {where} Log line does not name the button's current caption "
-            f"{caption!r}: {message!r}")
-        for old_phrase in FULL_CAPTIONS["refresh_geometry_button"]:
-            assert old_phrase not in message, (
-                f"the {where} Log line still sends the user to the caption that "
-                f"no longer exists ({old_phrase!r}): {message!r}")
+        assert "Update from selection" in message, (
+            f"the {where} Log line does not name the item to press: {message!r}")
+        assert "Refresh geometry" not in message, (
+            f"the {where} Log line still names the REMOVED button: {message!r}")
 
 
 if __name__ == "__main__":  # pragma: no cover — by hand, like the probes

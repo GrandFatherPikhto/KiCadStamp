@@ -887,16 +887,14 @@ def test_the_entity_leaf_opens_the_cell_page_on_that_entity(
         "пункт «на этой сущности» бывает только у листа-сущности"
 
 
-def test_the_cell_docks_board_buttons_are_off_when_nothing_places_the_cell(
+def test_the_page_is_editable_for_a_placed_cell_and_read_only_for_an_unplaced_one(
         real_main_window, tmp_path):
-    """2в, п.5: у ячейки, которую никто не ставит, кнопки платы выключены и в
-    CellDock — тем же признаком, что и «только чтение» на странице (3б), и по
-    ТОМУ ЖЕ индексу части 1 (провайдер от хаба, второго обхода графа нет).
-
-    Обратная половина: у ячейки С сущностью кнопки на месте — иначе сторож был бы
-    зелёным «всё выключено»."""
+    """2в, п.5 + часть 3, п.4: with the CellDock buttons gone, the ONE surface that
+    still gates board actions is the cell PAGE, and its rule is the index's: a cell
+    nobody places (and no entity claims) is a drawing — read-only; a cell WITH an
+    entity, and one placed by a CHAIN SPOKE, are editable (Claude's C8: «no entity»
+    alone must never gate it)."""
     from types import SimpleNamespace
-    from PyQt6.QtCore import Qt
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]},
@@ -908,26 +906,61 @@ def test_the_cell_docks_board_buttons_are_off_when_nothing_places_the_cell(
                                     "spokes": [{"pad": "1", "cell": "s"}]}]})
     open_project(hub, root)
     real_main_window.connection.board = SimpleNamespace(adapter=object())
+    view = hub.cell_anchor_view
 
-    dock = hub.cells_dock
-    dock.load_entry("d", root)
-    dock._update_refresh_enabled()
-    assert not dock.refresh_geometry_button.isEnabled()
-    assert dock.refresh_geometry_button.testAttribute(
-        Qt.WidgetAttribute.WA_ForceDisabled), \
-        "кнопка выключена НЕ правилом «ячейку никто не ставит»"
+    view.load_entry("d", root)
+    assert not view._tabs.isEnabled(), \
+        "ячейку никто не ставит — страница только для чтения"
 
-    dock.load_entry("c", root)
-    dock._update_refresh_enabled()
-    assert dock.refresh_geometry_button.isEnabled(), \
-        "у ячейки с сущностью кнопки платы на месте"
+    view.load_entry("c", root)
+    assert view._tabs.isEnabled(), "у ячейки с сущностью страница правимая"
 
-    # Claude's C8: a cell placed by a CHAIN SPOKE (no entity at all) HAS an
-    # instance — its buttons stay on. "No entity" alone must never gate them.
-    dock.load_entry("s", root)
-    dock._update_refresh_enabled()
-    assert dock.refresh_geometry_button.isEnabled(), \
-        "ячейку ставит спица — кнопки платы включены"
+    view.load_entry("s", root)
+    assert view._tabs.isEnabled(), \
+        "ячейку ставит спица — страница правимая (C8: «нет сущности» ≠ чертёж)"
+
+
+def _signal_recorder(dock, signal_name):
+    """Collect every payload a dock emits on `signal_name` (a list the guard
+    reads afterwards) — the menu is driven by a real QAction, so the guard sees
+    what the tree really sends, not what its source text says."""
+    seen: list = []
+    getattr(dock, signal_name).connect(lambda *a: seen.append(a))
+    return seen
+
+
+def test_the_entity_leaf_opens_the_cell_page_on_that_entity(
+        main_window, tmp_path, monkeypatch):
+    """2б, п.4: у листа-сущности ОДИН пункт «Edit cell...», и он называет эту
+    сущность — страница открывается НА НЕЙ (`opened_from`), а не на последней
+    или первой сущности ячейки. У листа ЯЧЕЙКИ такого пункта нет: дверь ячейки
+    экземпляр не называет."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "S1"},
+                                     {"name": "e2", "cell": "c",
+                                      "cluster": "CL2", "sheet": "S2"}]})
+    dock = _dock(main_window, root)
+    cells = category(file_item(dock.tree, root), "cells")
+    seen = _signal_recorder(dock, "cell_anchor_entity_requested")
+
+    actions = context_menu_actions(dock, find_child(find_child(cells, "c"),
+                                                    "e2"), monkeypatch)
+    action = next((act for _label, act in actions
+                   if act.objectName() == "edit_cell_for_entity_action"), None)
+    assert action is not None, [label for label, _act in actions]
+    action.trigger()
+
+    assert len(seen) == 1, seen
+    name, file_arg, entity = seen[0]
+    assert (name, entity) == ("c", "e2")
+    assert Path(file_arg).resolve() == root.resolve()
+
+    cell_actions = context_menu_actions(dock, find_child(cells, "c"), monkeypatch)
+    assert not any(act.objectName() == "edit_cell_for_entity_action"
+                   for _label, act in cell_actions), \
+        "пункт «на этой сущности» бывает только у листа-сущности"
 
 
 def test_the_edit_cell_item_reaches_the_page_through_the_hub(real_main_window,

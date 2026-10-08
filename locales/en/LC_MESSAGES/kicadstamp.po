@@ -18255,3 +18255,11 @@ msgstr ""
 #: gui/docks/cell_anchor_view.py
 msgid "create an entity to edit this cell"
 msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Update from selection…”."
+msgstr ""
+
+#: gui/docks/cell_editor.py
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Update from selection…”."
+msgstr ""

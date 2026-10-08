@@ -205,8 +205,7 @@ def test_the_subtract_flow_takes_the_address_over_the_store(
         _active_op=None,
         name_edit=SimpleNamespace(text=lambda: "c"),
         _remembered_cluster_value=lambda: "CL1",
-        _remembered_sheet_value=lambda: "S1",
-        subtract_copper_button=object())
+        _remembered_sheet_value=lambda: "S1")
     wiring = SubtractWiring(dock)
 
     wiring._open_with_instance(entity_address(dict(_E2)))

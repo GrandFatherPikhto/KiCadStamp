@@ -19164,3 +19164,11 @@ msgstr "Не удалось указать"
 #: gui/docks/cell_anchor_view.py
 msgid "create an entity to edit this cell"
 msgstr "создайте сущность, чтобы править эту ячейку"
+
+#: gui/docks/cell_editor.py
+msgid "Selected the {count} identified footprint(s) of this cell on the board — ready for “Update from selection…”."
+msgstr "Выделено {count} опознанных посадочных мест этой ячейки на плате — готово для «Update from selection…»."
+
+#: gui/docks/cell_editor.py
+msgid "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready for “Update from selection…”."
+msgstr "Выделено {count} посадочных мест кластера {cluster!r} на плате — готово для «Update from selection…»."

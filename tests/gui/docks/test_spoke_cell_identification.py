@@ -877,13 +877,14 @@ def test_c6a_dispatch_hands_the_remembered_refs_to_the_worker(
         "the identified refs must travel as the LAST positional argument"
 
 
-def test_c7a_the_select_cluster_button_payload_carries_the_remembered_refs(
+def test_c7a_the_select_entry_point_payload_carries_the_remembered_refs(
         main_window, tmp_path, monkeypatch):
-    """С7а/D2: the Cell dialog's "Select cluster of this cell on the board" reads
-    the identified refs out of the state and puts them into the worker payload.
-    С10/С16 cover the worker, but they BUILD the payload by hand — so a payload
-    built with an empty map (mutation D2) went unnoticed and the button silently
-    went back to selecting the whole spoke cluster (50 components)."""
+    """С7а/D2: CellDock's "Select cell" entry point (the tree doors drive it; its
+    own button is gone — часть 3, п.4) reads the identified refs out of the state
+    and puts them into the worker payload. С10/С16 cover the worker, but they
+    BUILD the payload by hand — so a payload built with an empty map (mutation D2)
+    went unnoticed and the entry point silently went back to selecting the whole
+    spoke cluster (50 components)."""
     root = _cell_config(tmp_path)
     remember_cell_instance(root, "fpga_pwr_bank", Identification(
         cluster=CLUSTER, sheet=None,
