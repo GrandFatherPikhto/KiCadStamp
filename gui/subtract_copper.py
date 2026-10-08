@@ -338,7 +338,16 @@ class SubtractWiring:
 
     # ── the door ────────────────────────────────────────────────────────────
     def open(self) -> None:
-        """Button / context action: subtract the cell records the selection names.
+        """Button / context action: subtract the cell records the selection names."""
+        self._open_with_instance(None)
+
+    def _open_with_instance(self, expected_address) -> None:
+        """The ONE subtraction door (С-2; часть 3, п.2 grew it an address).
+
+        `expected_address` is the address a BOARD door handed over — the entity
+        leaf's own, resolved by gui/entity_doors.door_address. Given, it IS the
+        instance (the working-instance store is not consulted); None keeps the
+        cell's remembered context, exactly as before.
 
         No layer dialog: the pairing is by each record's own live copper (the
         registry uuid, then exact geometry), so layers never enter it — and only
@@ -360,6 +369,11 @@ class SubtractWiring:
             return
         if dock._active_op is not None:
             return
+        if expected_address is not None:
+            cluster, sheet = expected_address.cluster, expected_address.sheet
+        else:
+            cluster, sheet = (dock._remembered_cluster_value(),
+                              dock._remembered_sheet_value())
         payload = {
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(dock._components),
@@ -372,8 +386,8 @@ class SubtractWiring:
             # None and fell back to its default.
             "config_path": str(dock._root_path) if dock._root_path else None,
             "cell_name": dock.name_edit.text().strip(),
-            "cluster": dock._remembered_cluster_value(),
-            "sheet": dock._remembered_sheet_value(),
+            "cluster": cluster,
+            "sheet": sheet,
         }
         dock._active_op = start_long_op(
             connection, (dock.subtract_copper_button,),
@@ -404,14 +418,15 @@ class SubtractWiring:
             _("Subtract selected copper failed: {error}").format(error=message),
             _ERROR_STYLE)
 
-    def requested(self, name: str, file_path) -> None:
+    def requested(self, name: str, file_path, expected_address=None) -> None:
         """ConfigTreeDock's cell_subtract_requested delegate (С-2): the context
         menu's "Subtract selected copper..." — load the requested cell when it is
-        not the one open, then run the SAME read as the dock's own button."""
+        not the one open, then run the SAME read as the dock's own button.
+        `expected_address` (часть 3, п.2) is the entity leaf's own address."""
         dock = self._dock
         if dock.name_edit.text().strip() != name:
             dock.load_entry(name, file_path)
-        self.open()
+        self._open_with_instance(expected_address)
 
     # ── the application of the verdict ──────────────────────────────────────
     def _apply_removed(self, removed: list) -> None:

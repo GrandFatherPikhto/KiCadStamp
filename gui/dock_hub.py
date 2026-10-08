@@ -2976,49 +2976,31 @@ class DockHub:
         self.cells_dock.import_from_selection_requested(
             name, file_path, choose_layers=choose_layers)
 
-    def _refresh_cell_from_selection(self, name, file_path, choose_layers=False) -> None:
+    def _refresh_cell_from_selection(self, name, file_path, cluster=None,
+                                     sheet=None, entity=None,
+                                     choose_layers=False) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03, plan
-        cell_geometry_refresh) — the context menu's "Update from selection...":
-        same explicit file handling as _edit_cell, then drive CellDock's own
-        refresh entry point (which loads the cell when it is not the currently
-        open one and runs the same _on_refresh_geometry path as the button).
+        cell_geometry_refresh) — the flow lives in gui/entity_doors.py, together
+        with the часть-3 address rule: an ENTITY leaf's read carries ITS OWN
+        address as an argument. Never opens the Cell dialog (H.3, 2026-09-10)."""
+        entity_doors.refresh_cell_from_selection(self, name, file_path, cluster,
+                                                 sheet, entity, choose_layers)
 
-        2026-09-10 (plan_2026_09_10_cell_refresh_symmetric_and_no_dialog, H.3):
-        deliberately does NOT open the Cell dialog, exactly like
-        _copy_cell_placement below. The flat Config list made it look like
-        "clicked refresh — an Edit Cell window popped up", and it is not needed:
-        the per-record report goes to the Log dock and the change is staged for
-        Save by _autostage(). "Edit cell..." keeps opening the dialog — that is
-        that action's own purpose (its component/via/track tables have no home
-        on the merged QView page)."""
-        self.cells_dock.refresh_from_selection_requested(
-            name, file_path, choose_layers=choose_layers)
+    def _import_cell_from_selection(self, name, file_path, cluster=None,
+                                    sheet=None, entity=None,
+                                    choose_layers=False) -> None:
+        """ConfigTreeDock's cell_import_requested delegate — the additive
+        counterpart of _refresh_cell_from_selection; same flow, same address
+        rule, no Cell dialog (H.3). Lives in gui/entity_doors.py."""
+        entity_doors.import_cell_from_selection(self, name, file_path, cluster,
+                                                sheet, entity, choose_layers)
 
-    def _import_cell_from_selection(self, name, file_path, choose_layers=False) -> None:
-        """ConfigTreeDock's cell_import_requested delegate (2026-09-03, plan
-        fpga_oscill_missing_copper_and_cell_import §B.3) — the context menu's
-        "Import from selection...": the ADDITIVE backfill counterpart of
-        _refresh_cell_from_selection (Refresh cannot ADD a record; Import
-        never MODIFIES one). Same explicit file handling as _edit_cell, then
-        drive CellDock's own import entry point (loads the cell when it is
-        not the currently open one and runs the same _on_import_vias_tracks
-        path as the button).
-
-        H.3 (2026-09-10): no Cell dialog here either — same reasoning as
-        _refresh_cell_from_selection above; the result is reported in the Log
-        and staged by _autostage()."""
-        self.cells_dock.import_from_selection_requested(
-            name, file_path, choose_layers=choose_layers)
-
-    def _subtract_cell_from_selection(self, name, file_path) -> None:
-        """ConfigTreeDock's cell_subtract_requested delegate (С-2, plan_2026_10_06_
-        prune_absent_cell_copper) — the context menu's "Subtract selected copper...":
-        the same explicit file handling as the two reads above, then CellDock's own
-        subtraction entry point (it loads the requested cell when it is not the one
-        open and runs the very same worker as the dock's button). No layer dialog:
-        the pairing is by each record's own live copper. The change is staged by
-        CellDock._autostage()."""
-        self.cells_dock.subtract_from_selection_requested(name, file_path)
+    def _subtract_cell_from_selection(self, name, file_path, cluster=None,
+                                      sheet=None, entity=None) -> None:
+        """ConfigTreeDock's cell_subtract_requested delegate (С-2) — same flow
+        and address rule (`gui/entity_doors.subtract_cell_from_selection`)."""
+        entity_doors.subtract_cell_from_selection(self, name, file_path, cluster,
+                                                  sheet, entity)
 
     # ── "Разнос" (Р2) ───────────────────────────────────────────────────────
 

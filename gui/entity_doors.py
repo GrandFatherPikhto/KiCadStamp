@@ -1,17 +1,27 @@
 # gui/entity_doors.py
 """The ENTITY door: "a tree item came FROM an entity — work THAT entity".
 
-Both rules of доделка 2б, п.4 live here and nowhere else:
+The rules of доделка 2б, п.4 and of часть 3, п.2 live here and nowhere else:
 
   * `pin_door_instance` — publish the entity as the cell's WORKING INSTANCE
-    before the action reads anything (`cell_working_instance`, owned by
-    gui/cell_entity_choice);
+    (`cell_working_instance`, owned by gui/cell_entity_choice) so the cell PAGE
+    remembers what its dropdown showed, and move an ALREADY OPEN page onto that
+    entity (2в, п.2: one writer, one store). Since часть 3 this is VISIBILITY,
+    not the address a board read uses;
+  * `door_address` — the entity's EXPLICIT address (cluster, sheet and its own
+    `refs:` pins), resolved from the NAME the signal carries through the part-1
+    index and handed to the action AS AN ARGUMENT (`expected_address`). That is
+    what stops a read from working whichever entity the cell page was last on —
+    Denis' live case of 08.10;
   * `open_cell_anchor_for_entity` — open the cell PAGE pinned to that entity
-    (`opened_from`), so the dropdown lands on the entity the item came from.
+    (`opened_from`), so the dropdown lands on the entity the item came from;
+  * `refresh_cell_from_selection` / `import_cell_from_selection` /
+    `subtract_cell_from_selection` — the board doors of the tree: ONE function
+    per action, each handing the resolved address over.
 
 Why a module of their own: `gui/dock_hub.py` is a giant and rule 45 lets it only
-SHRINK, and because the rule is more than the two call sites — the tree emits a
-NAME, this module turns it into an instance (through the part-1 index,
+SHRINK, and because the rule is more than the call sites — the tree emits a NAME,
+this module turns it into an instance (through the part-1 index,
 `entity_index.entity_named`), and the hub only delegates.
 
 Qt-free on purpose: nothing here builds or reads a widget. It CALLS methods on
@@ -21,22 +31,28 @@ docks) instead of a whole window.
 """
 from __future__ import annotations
 
-from .cell_entity_choice import pin_working_instance
+from typing import Optional
+
+from .cell_entity_choice import (
+    InstanceAddress,
+    entity_address,
+    entity_address_named,
+    pin_working_instance,
+)
 
 
 def pin_door_instance(hub, cell_name, entity_name) -> bool:
-    """Make the entity a door came from the cell's working instance.
+    """Make the entity a door came from the cell's WORKING INSTANCE — the page's
+    memory of what its dropdown shows, and the mover of an open page.
 
-    The page's "Entity" dropdown owns the store, and every reader — CellDock's
-    payload, the mixed-selection door — reads it AT THE MOMENT OF USE. A board
-    item of an entity leaf therefore has to publish its own entity before the
-    action that follows, or that action reads whatever entity the page was last
-    on: open channel_1 and the action reads channel_0 (Denis, 08.10).
+    The page's "Entity" dropdown owns the store (2в, п.2: one writer, one store).
+    Since часть 3, п.2 the store is NOT the address a board read uses — a board
+    door hands its own address over (`door_address`); this function is what keeps
+    the PAGE showing the entity a tree item was clicked under.
 
     When the cell PAGE is already open on this cell, the dropdown — not this
     module — is the writer: the page is asked to move to that entity and its own
-    apply publishes the record (2в, п.2: one writer, one store). Otherwise the
-    record is written here, as before.
+    apply publishes the record. Otherwise the record is written here, as before.
 
     The name is resolved through the part-1 index the tree already built — never
     a second walk of it. A name the graph no longer knows clears the record
@@ -54,6 +70,34 @@ def pin_door_instance(hub, cell_name, entity_name) -> bool:
     index = getattr(getattr(hub, "config_tree_dock", None), "_entity_index", None)
     root = getattr(getattr(hub, "root_metadata_dock", None), "root_path", None)
     return pin_working_instance(root, cell_name, entity_name, index)
+
+
+def door_address(hub, entity_name, cluster=None,
+                 sheet=None) -> Optional[InstanceAddress]:
+    """The EXPLICIT address of the entity a board door came from (часть 3, п.2).
+
+    The entity NAME rides in the signal (2б, п.4); the address — cluster, sheet
+    and the entity's own `refs:` pins — is resolved HERE, through the part-1
+    index the tree already built (`entity_address_named`), and handed to the
+    action as an ARGUMENT. The working-instance store is NOT the path any more:
+    it stays only as the cell page's memory of what its dropdown shows.
+
+    The index is asked FIRST, and not as a nicety: it is the same lookup
+    `pin_working_instance` makes, and it is the only way to get the entity's
+    `refs:` pins, which a (cluster, sheet) signal cannot carry.
+
+    When the index no longer knows the name (an entity renamed or removed since
+    the tree was drawn — an action started from a stale tree), the leaf's OWN
+    (cluster, sheet) are used: exactly the values the item displayed. With
+    neither, None — the action then keeps its ordinary rules, never a guess."""
+    index = getattr(getattr(hub, "config_tree_dock", None), "_entity_index", None)
+    row = entity_address_named(index, entity_name)
+    if row is not None:
+        return row
+    if entity_name and (cluster or sheet):
+        return entity_address({"name": entity_name, "cluster": cluster,
+                               "sheet": sheet})
+    return None
 
 
 def open_cell_anchor_for_entity(hub, cell_name, file_path, entity_name) -> None:
@@ -108,6 +152,47 @@ def open_explode(hub, name, file_path=None, cluster=None, sheet=None,
     from, None for a CELL leaf or the CellDock's own button."""
     pin_door_instance(hub, name, entity)
     hub.explode_wiring.open_tab(name, file_path, cluster, sheet)
+
+
+def _address_kwargs(hub, cluster, sheet, entity) -> dict:
+    """`{"expected_address": addr}` when the item names an ENTITY, else {}.
+
+    ONE place builds the argument of the three board doors below. A CELL leaf
+    (no entity) passes nothing at all: the call shape stays exactly what it was
+    for every existing caller and stand-in, and the read keeps its ordinary
+    rules. An entity leaf says MORE, never less."""
+    address = door_address(hub, entity, cluster, sheet)
+    return {} if address is None else {"expected_address": address}
+
+
+def refresh_cell_from_selection(hub, name, file_path, cluster=None, sheet=None,
+                                entity=None, choose_layers=False) -> None:
+    """The tree's "Update from selection" door (cell leaf AND entity leaf).
+
+    The flow was three lines of `gui/dock_hub.py`; it lives here because the
+    part-3 rule is about WHICH instance the read works with, and that decision
+    (`_address_kwargs`) is this module's. `choose_layers` picks the dialog leg of
+    the same read, exactly as before."""
+    hub.cells_dock.refresh_from_selection_requested(
+        name, file_path, choose_layers=choose_layers,
+        **_address_kwargs(hub, cluster, sheet, entity))
+
+
+def import_cell_from_selection(hub, name, file_path, cluster=None, sheet=None,
+                               entity=None, choose_layers=False) -> None:
+    """The tree's "Add selected copper" door — the additive counterpart of
+    `refresh_cell_from_selection`, same address rule."""
+    hub.cells_dock.import_from_selection_requested(
+        name, file_path, choose_layers=choose_layers,
+        **_address_kwargs(hub, cluster, sheet, entity))
+
+
+def subtract_cell_from_selection(hub, name, file_path, cluster=None, sheet=None,
+                                 entity=None) -> None:
+    """The tree's "Subtract selected copper" door — same address rule (С-2 flow,
+    no layer dialog: the pairing is by each record's own live copper)."""
+    hub.cells_dock.subtract_from_selection_requested(
+        name, file_path, **_address_kwargs(hub, cluster, sheet, entity))
 
 
 def _loaded_cell_uuid(dock) -> Optional[str]:

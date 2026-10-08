@@ -657,7 +657,10 @@ def test_cell_refresh_requested_does_not_open_the_cell_dialog(real_main_window,
                         lambda name, file_path, choose_layers=False:
                         calls.append((name, file_path, choose_layers)))
 
-    real_main_window.config_tree_dock.cell_refresh_requested.emit("one_role", root)
+    # часть 3, п.2: the signal grew (cluster, sheet, entity); a CELL leaf passes
+    # None for all three, and the stand-in below keeps its (name, file_path) shape.
+    real_main_window.config_tree_dock.cell_refresh_requested.emit(
+        "one_role", root, None, None, None)
 
     # Э4 added the choose_layers flag: the "..." item keeps it False.
     assert calls == [("one_role", root, False)]
@@ -679,7 +682,8 @@ def test_cell_import_requested_does_not_open_the_cell_dialog(real_main_window,
                         lambda name, file_path, choose_layers=False:
                         calls.append((name, file_path, choose_layers)))
 
-    real_main_window.config_tree_dock.cell_import_requested.emit("one_role", root)
+    real_main_window.config_tree_dock.cell_import_requested.emit(
+        "one_role", root, None, None, None)
 
     assert calls == [("one_role", root, False)]
     assert not dialog.isVisible()
@@ -705,9 +709,9 @@ def test_context_menu_choose_layers_legs_ask_for_the_dialog(real_main_window,
                         calls.append(("import", name, file_path, choose_layers)))
 
     real_main_window.config_tree_dock.cell_refresh_layers_requested.emit(
-        "one_role", root)
+        "one_role", root, None, None, None)
     real_main_window.config_tree_dock.cell_import_layers_requested.emit(
-        "one_role", root)
+        "one_role", root, None, None, None)
 
     assert calls == [("refresh", "one_role", root, True),
                      ("import", "one_role", root, True)]

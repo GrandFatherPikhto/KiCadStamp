@@ -2259,14 +2259,19 @@ def test_the_requested_entry_points_can_choose_layers(main_window, tmp_path,
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     called = []
+    # часть 3, п.2: the dialog legs carry the door's address now, and the plain
+    # legs land in the read BODY itself (the door's fast leg takes no address —
+    # `_on_refresh_geometry` is the BUTTON's, and a Qt `clicked` would pass its
+    # `checked` bool straight into such a parameter). The four observations, and
+    # the assertion below, are unchanged.
     monkeypatch.setattr(dock, "_on_refresh_geometry_with_layers",
-                        lambda: called.append("refresh-dialog"))
-    monkeypatch.setattr(dock, "_on_refresh_geometry",
-                        lambda: called.append("refresh-fast"))
+                        lambda *a, **kw: called.append("refresh-dialog"))
+    monkeypatch.setattr(dock, "_read_refresh_from_selection",
+                        lambda *a, **kw: called.append("refresh-fast"))
     monkeypatch.setattr(dock, "_on_import_vias_tracks_with_layers",
-                        lambda: called.append("import-dialog"))
-    monkeypatch.setattr(dock, "_on_import_vias_tracks",
-                        lambda: called.append("import-fast"))
+                        lambda *a, **kw: called.append("import-dialog"))
+    monkeypatch.setattr(dock, "_read_import_from_selection",
+                        lambda *a, **kw: called.append("import-fast"))
 
     dock.refresh_from_selection_requested("t", dock._path, choose_layers=True)
     dock.refresh_from_selection_requested("t", dock._path)

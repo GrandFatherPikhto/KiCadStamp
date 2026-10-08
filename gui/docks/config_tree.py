@@ -233,21 +233,24 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # plan cell_geometry_refresh) — CellDock listens via its
     # refresh_from_selection_requested() entry point: load the requested cell
     # (when not already the one open) and run the geometry refresh from the
-    # current board selection. Same (name, file_path) shape as
-    # cell_edit_requested.
-    cell_refresh_requested = pyqtSignal(str, object)
+    # current board selection.
+    #
+    # часть 3, п.2: same five fields as cell_select_requested — an ENTITY leaf's
+    # item names its entity, a CELL leaf passes None for the last three.
+    cell_refresh_requested = pyqtSignal(str, object, object, object, object)
     # Fired by the context menu's "Import from selection..." (2026-09-03,
     # plan fpga_oscill_missing_copper_and_cell_import §B.3) — CellDock
     # listens via its import_from_selection_requested() entry point: the
     # ADDITIVE backfill counterpart of cell_refresh_requested (live via/track
     # copper the cell doesn't describe yet -> NEW records; existing ones are
-    # never touched). Same (name, file_path) shape.
-    cell_import_requested = pyqtSignal(str, object)
+    # never touched). Same five-field shape (часть 3, п.2).
+    cell_import_requested = pyqtSignal(str, object, object, object, object)
     # Fired by the context menu's "Subtract selected copper..." (С-2, 2026-10-06,
     # plan_2026_10_06_prune_absent_cell_copper) — CellDock listens via its
     # subtract_from_selection_requested() entry point: it REMOVES the records the
-    # CURRENT selection names (copper only; components are never touched).
-    cell_subtract_requested = pyqtSignal(str, object)
+    # CURRENT selection names (copper only; components are never touched). Same
+    # five-field shape (часть 3, п.2).
+    cell_subtract_requested = pyqtSignal(str, object, object, object, object)
     # Н5 (2026-10-05, plan_2026_10_04_refresh_mixed_cluster_selection): the
     # context menu's "Select cell" — highlight the placed instance's board
     # components PLUS the copper the registries recorded for this cell at that
@@ -284,10 +287,10 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
-    # Tools → Config. Same (name, file_path) payload; DockHub passes
+    # Tools → Config. Same five-field payload (часть 3, п.2); DockHub passes
     # choose_layers=True down to the one CellDock entry point of each read.
-    cell_refresh_layers_requested = pyqtSignal(str, object)
-    cell_import_layers_requested = pyqtSignal(str, object)
+    cell_refresh_layers_requested = pyqtSignal(str, object, object, object, object)
+    cell_import_layers_requested = pyqtSignal(str, object, object, object, object)
     # Fired by the context menu's "Copy placement from cell..." (2026-09-06,
     # plan copy_placement_from_cell) — CellDock listens via its
     # copy_from_cell_requested() entry point: the OFFLINE cell-to-cell

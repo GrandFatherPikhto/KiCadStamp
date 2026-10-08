@@ -44,12 +44,14 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "MANUAL", "SOURCE_ENTITY", "SOURCE_SPOKE",
     "LAST_ENTITY_KEY", "WORKING_INSTANCE_KEY",
-    "InstanceAddress", "entity_address", "manual_address", "spoke_address",
+    "InstanceAddress", "entity_address", "entity_address_named",
+    "manual_address", "spoke_address",
     "build_choices", "default_index", "explicit_kwargs",
     "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
     "write_applies_line", "remember_last_entity", "remembered_last_entity",
     "remember_working_instance", "working_instance", "ReadInstance",
-    "read_instance", "pin_working_instance",
+    "read_instance", "read_instance_of", "instance_for_read",
+    "pin_working_instance",
 ]
 
 # The three kinds of an address row. "Manual…" is a row too: it is not "no
@@ -179,6 +181,23 @@ def entity_addresses(index, cell_uuid) -> list:
         return []
     return [entity_address(ref.data)
             for ref in index.entities_for_cell(cell_uuid)]
+
+
+def entity_address_named(index, entity_name) -> Optional[InstanceAddress]:
+    """The address of the entity NAMED, through the part-1 index (or None).
+
+    ONE lookup for the two callers that turn a NAME a signal carried back into an
+    address: the door that publishes the cell's working instance
+    (`pin_working_instance`, 2б п.4), and the door that hands the address STRAIGHT
+    to an action as an argument (part 3, п.2). The index is
+    `gui/docks/entity_index.py`'s own — a second walk of the graph is exactly what
+    that module exists to prevent."""
+    if index is None or not entity_name:
+        return None
+    ref = index.entity_named(entity_name)
+    if ref is None:
+        return None
+    return entity_address(ref.data)
 
 
 def manual_address() -> InstanceAddress:
@@ -334,11 +353,7 @@ def pin_working_instance(root_path, cell_name, entity_name, index=None) -> bool:
     (False) — never a guess."""
     if root_path is None or not cell_name or not entity_name:
         return False
-    row = None
-    if index is not None:
-        ref = index.entity_named(entity_name)
-        if ref is not None:
-            row = entity_address(ref.data)
+    row = entity_address_named(index, entity_name)
     if row is None or not (row.cluster or row.refs):
         remember_working_instance(root_path, cell_name, None)
         return False
@@ -405,6 +420,35 @@ def read_instance(root_path, cell_name) -> ReadInstance:
     cluster, sheet = remembered_cell_edit_context(root_path, cell_name)
     return ReadInstance(cluster=cluster, sheet=sheet,
                         refs=remembered_cell_refs(root_path, cell_name))
+
+
+def read_instance_of(address) -> ReadInstance:
+    """The read instance of an EXPLICIT address (part 3, п.2) — the row a DOOR
+    handed over, with the working-instance STORE never consulted.
+
+    The store answers "what the cell page's dropdown is on" and is read AT THE
+    MOMENT OF USE; a door that already knows its entity must not ask it again —
+    that window is what let a live read work another channel (Denis, 08.10). An
+    address without a cluster (an entity pinning no instance) yields the same
+    empty instance the store's "Manual…" row does, so the caller keeps its
+    ordinary refusal instead of reading someone else's pair."""
+    return ReadInstance(address=address, cluster=address.cluster,
+                        sheet=address.sheet, refs=address.refs)
+
+
+def instance_for_read(root_path, cell_name, expected_address=None) -> ReadInstance:
+    """The instance ONE read of `cell_name` must use (часть 3, п.2).
+
+    `expected_address` — the address a BOARD DOOR handed over (an entity leaf's
+    own, resolved by gui/entity_doors.door_address): it IS the instance and the
+    working-instance store is not consulted at all. Without one the store answers,
+    exactly as it did before part 2 — the page's own "Entity" dropdown record.
+
+    Lives here, with the other address rules, so a guard calls it DIRECTLY: the
+    rule is which SOURCE wins, and no dock is needed to ask that."""
+    if expected_address is not None:
+        return read_instance_of(expected_address)
+    return read_instance(root_path, cell_name)
 
 
 def remember_working_instance(root_path, cell_name, address) -> None:

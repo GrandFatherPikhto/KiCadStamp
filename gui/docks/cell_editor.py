@@ -113,7 +113,7 @@ from ..worker import start_long_op
 from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
-from ..cell_entity_choice import read_instance
+from ..cell_entity_choice import instance_for_read, read_instance
 from ..entity_doors import unplaced_without_entity
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
@@ -1802,13 +1802,17 @@ class CellDock(QWidget):
         board for the set itself (P.3.1) — one click, no extra IPC round trip."""
         self._read_refresh_from_selection(remembered_read_layers())
 
-    def _read_refresh_from_selection(self, layers, empty_layers=()) -> None:
+    def _read_refresh_from_selection(self, layers, empty_layers=(),
+                                     expected_address=None) -> None:
         """The refresh read, with the layer set already decided on this (the UI)
         thread: ALL_COPPER_LAYERS or a collection of canonical copper names. The
         worker only filters by it (Э5). `_on_refresh_geometry` is the fast path
         over this, `_on_refresh_geometry_with_layers` the dialog path — which is
         also the only caller that knows `empty_layers` (the layers IT left off as
         empty; the fast path has no dialog to have seen them).
+
+        `expected_address` (часть 3, п.2): the address a DOOR handed over — the
+        read works THAT entity, never the working-instance store (None = page).
 
         Board IPC (selection read + net_from_role resolution) runs on the worker
         thread via start_long_op; the preview dialog + Apply stay on the UI
@@ -1836,6 +1840,10 @@ class CellDock(QWidget):
         # boxes unchecked) alike.
         if _is_empty_layer_set(layers) and not self._confirm_empty_layers():
             return
+        # часть 3, п.2: the door's own address wins; else the page's row.
+        instance = instance_for_read(self._root_path,
+                                     self.name_edit.text().strip(),
+                                     expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_refresh_plan never mutates them, and the records
         # it returns are the SAME dict objects, so Apply lands on the loaded
@@ -1858,9 +1866,9 @@ class CellDock(QWidget):
             # cell whose uuid is the registry template part) and the remembered
             # Cluster fallback for when the config names no cluster.
             "cell_name": self.name_edit.text().strip(),
-            "remembered_cluster": self._remembered_cluster_value(),
-            "remembered_sheet": self._remembered_sheet_value(),
-            "expected_entity": self._read_instance().address,
+            "remembered_cluster": instance.cluster,
+            "remembered_sheet": instance.sheet,
+            "expected_entity": instance.address,
             # H.1.1: the cell's own copper layer, so the engine never pairs a
             # record with a live track on the OTHER layer of the same net (same
             # formula as _build_cell_dict).
@@ -1893,11 +1901,16 @@ class CellDock(QWidget):
         self._pending_explode_transfer = False
         self._pending_explode_journal = None
 
-    def _on_refresh_geometry_with_layers(self) -> None:
+    def _on_refresh_geometry_with_layers(self, expected_address=None) -> None:
         """The DIALOG path of the same read (Э3/Э4): the board's copper layers are
         read on a WORKER (P.3.2 phase 1), the dialog opens on this thread with the
-        finished list, and only OK starts the read itself."""
-        self._open_layers_dialog(self._read_refresh_from_selection)
+        finished list, and only OK starts the read itself.
+
+        `expected_address` (часть 3, п.2) rides through the dialog into the read."""
+        self._open_layers_dialog(
+            lambda layers, empty_layers=(): self._read_refresh_from_selection(
+                layers, empty_layers=empty_layers,
+                expected_address=expected_address))
 
     def _open_layers_dialog(self, run_read) -> None:
         """Phases 1+2 of the dialog path, for BOTH reads. The guard widgets are
@@ -2258,7 +2271,8 @@ class CellDock(QWidget):
     def refresh_from_selection_requested(self, name: str, file_path,
                                          choose_layers: bool = False,
                                          explode_transfer: bool = False,
-                                         explode_journal=None) -> None:
+                                         explode_journal=None,
+                                         expected_address=None) -> None:
         """ConfigTreeDock's cell_refresh_requested delegate (2026-09-03) — the
         context menu's "Update from selection...": when a DIFFERENT cell is
         requested, load it first, then run the same _on_refresh_geometry path as
@@ -2279,7 +2293,10 @@ class CellDock(QWidget):
         `explode_transfer`/`explode_journal` (Р3/Р3а-3): the Explode tab asks for
         the ownership transfer AND hands the exploded instance's address over;
         both are consumed by _read_refresh_from_selection and cleared there
-        (never sticky)."""
+        (never sticky).
+
+        `expected_address` (часть 3, п.2): the door's OWN entity address, resolved
+        for it through the part-1 index; the store is then not consulted at all."""
         # Р3: the Explode tab asks for the ownership transfer; the flag is consumed
         # by _read_refresh_from_selection and cleared there (never sticky).
         self._pending_explode_transfer = bool(explode_transfer)
@@ -2290,9 +2307,12 @@ class CellDock(QWidget):
         if self.name_edit.text().strip() != name:
             self.load_entry(name, file_path)
         if choose_layers:
-            self._on_refresh_geometry_with_layers()
+            self._on_refresh_geometry_with_layers(expected_address)
         else:
-            self._on_refresh_geometry()
+            # The door's fast leg: `_on_refresh_geometry` is the BUTTON's leg and
+            # takes no address (a Qt `clicked` would fill it with its `checked`).
+            self._read_refresh_from_selection(remembered_read_layers(),
+                                              expected_address=expected_address)
 
     # ── Import vias/tracks from selection (2026-09-03, plan
     #    fpga_oscill_missing_copper_and_cell_import §B.3) ─────────────────
@@ -2302,11 +2322,15 @@ class CellDock(QWidget):
         REMEMBERED layer set and no dialog (P.3.1)."""
         self._read_import_from_selection(remembered_read_layers())
 
-    def _read_import_from_selection(self, layers, empty_layers=()) -> None:
+    def _read_import_from_selection(self, layers, empty_layers=(),
+                                    expected_address=None) -> None:
         """The import read, with the layer set already decided on this thread.
         A track on a layer outside `layers` is invisible to the plan, so it is
         simply never imported (Э5). `empty_layers` comes from the dialog path
         only, exactly as in _read_refresh_from_selection.
+
+        `expected_address` (часть 3, п.2): same door-supplied address as the
+        refresh read — one rule for both, never the store.
 
         Board IPC (selection read + net_from_role resolution) runs on the worker
         thread via start_long_op; the preview dialog + Apply stay on the UI
@@ -2335,6 +2359,10 @@ class CellDock(QWidget):
                 _("No layer is selected — no track will be read (vias and "
                   "components are read as usual)."),
                 _WARN_STYLE)
+        # часть 3, п.2: same ONE rule as the refresh read.
+        instance = instance_for_read(self._root_path,
+                                     self.name_edit.text().strip(),
+                                     expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_import_plan never mutates them, and the plan's
         # new records are brand-new dicts to APPEND on Apply (existing records
@@ -2351,9 +2379,9 @@ class CellDock(QWidget):
             # one narrowing for every door, so Import needs the same context.
             "root_path": str(self._root_path) if self._root_path else None,
             "cell_name": self.name_edit.text().strip(),
-            "remembered_cluster": self._remembered_cluster_value(),
-            "remembered_sheet": self._remembered_sheet_value(),
-            "expected_entity": self._read_instance().address,
+            "remembered_cluster": instance.cluster,
+            "remembered_sheet": instance.sheet,
+            "expected_entity": instance.address,
             # H.1.2: Import stays purely ADDITIVE (no remove_missing here) but
             # still needs the cell's layer so a NEW record on the other layer
             # keeps its `layer` key instead of silently becoming the cell's.
@@ -2370,10 +2398,13 @@ class CellDock(QWidget):
             self._run_import_vias_tracks, self._finish_import_vias_tracks,
             self._on_import_op_failed, payload)
 
-    def _on_import_vias_tracks_with_layers(self) -> None:
-        """The DIALOG path of the import read — the same dialog and the same two
-        phases as the refresh one (Э3/Э4)."""
-        self._open_layers_dialog(self._read_import_from_selection)
+    def _on_import_vias_tracks_with_layers(self, expected_address=None) -> None:
+        """The DIALOG path of the import read — same dialog, same two phases
+        (Э3/Э4); `expected_address` (часть 3, п.2) rides into the read."""
+        self._open_layers_dialog(
+            lambda layers, empty_layers=(): self._read_import_from_selection(
+                layers, empty_layers=empty_layers,
+                expected_address=expected_address))
 
     def _run_import_vias_tracks(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Worker thread: selection read + plan build — never touches a widget.
@@ -2516,22 +2547,29 @@ class CellDock(QWidget):
     def _on_subtract_op_failed(self, message: str) -> None:
         return self._subtract_flow.failed(message)
 
-    def subtract_from_selection_requested(self, name: str, file_path) -> None:
-        return self._subtract_flow.requested(name, file_path)
+    def subtract_from_selection_requested(self, name: str, file_path,
+                                          expected_address=None) -> None:
+        """ConfigTreeDock's cell_subtract_requested delegate (С-2). часть 3, п.2:
+        an entity leaf's door hands its own address over (живой случай 08.10)."""
+        return self._subtract_flow.requested(name, file_path, expected_address)
 
     def import_from_selection_requested(self, name: str, file_path,
-                                        choose_layers: bool = False) -> None:
+                                        choose_layers: bool = False,
+                                        expected_address=None) -> None:
         """ConfigTreeDock's cell_import_requested delegate (2026-09-03) — the
         context menu's "Import from selection...": when the requested cell is
         not the one currently loaded, load it first, then run the same
         _on_import_vias_tracks path as the dock's own button. `choose_layers`
-        (Э4) is the dialog leg, exactly as in refresh_from_selection_requested."""
+        (Э4) is the dialog leg, exactly as in refresh_from_selection_requested.
+
+        `expected_address` (часть 3, п.2): same rule as the refresh read."""
         if self.name_edit.text().strip() != name or self._path != file_path:
             self.load_entry(name, file_path)
         if choose_layers:
-            self._on_import_vias_tracks_with_layers()
+            self._on_import_vias_tracks_with_layers(expected_address)
         else:
-            self._on_import_vias_tracks()
+            self._read_import_from_selection(remembered_read_layers(),
+                                             expected_address=expected_address)
 
     # ── Select cluster on the board (Phase E, plan ..._phase_e) ──────────
 

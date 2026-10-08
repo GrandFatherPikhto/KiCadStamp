@@ -464,14 +464,19 @@ def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     dock.set_root_file(root)
 
     requested = []
-    dock.cell_refresh_requested.connect(lambda name, path: requested.append((name, path)))
+    # часть 3, п.2: the signal carries the entity fields too — (name, file_path,
+    # cluster, sheet, entity). A CELL leaf names NO entity; that is pinned here
+    # instead of only the first two fields.
+    dock.cell_refresh_requested.connect(
+        lambda name, path, cluster, sheet, entity:
+        requested.append((name, path, cluster, sheet, entity)))
 
     leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
     actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
     assert "Update from selection..." in actions
     actions["Update from selection..."].trigger()
 
-    assert requested == [("one_role", root.resolve())]
+    assert requested == [("one_role", root.resolve(), None, None, None)]
 
 
 def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkeypatch):
@@ -488,14 +493,17 @@ def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     dock.set_root_file(root)
 
     requested = []
-    dock.cell_import_requested.connect(lambda name, path: requested.append((name, path)))
+    # часть 3, п.2: same five-field shape as above; a CELL leaf names no entity.
+    dock.cell_import_requested.connect(
+        lambda name, path, cluster, sheet, entity:
+        requested.append((name, path, cluster, sheet, entity)))
 
     leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
     actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
     assert "Add selected copper..." in actions
     actions["Add selected copper..."].trigger()
 
-    assert requested == [("one_role", root.resolve())]
+    assert requested == [("one_role", root.resolve(), None, None, None)]
 
 
 def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp_path):

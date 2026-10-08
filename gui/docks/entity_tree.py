@@ -245,18 +245,21 @@ class EntityTreeMixin:
         # cell") without first opening CellDock and hunting for the
         # button. Same (name, file_path) shape as cell_edit_requested.
         menu.addAction(_("Update from selection...")).triggered.connect(
-            lambda: self.cell_refresh_requested.emit(old_name, file_path))
+            lambda: self.cell_refresh_requested.emit(
+                old_name, file_path, None, None, None))
         # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import
         # §B.3): the ADDITIVE counterpart of the item above — import
         # live via/track copper the cell's current records don't
         # describe as NEW records (Refresh cannot ADD a record; Import
         # cannot MODIFY one — they complement, never overlap).
         menu.addAction(_("Add selected copper...")).triggered.connect(
-            lambda: self.cell_import_requested.emit(old_name, file_path))
+            lambda: self.cell_import_requested.emit(
+                old_name, file_path, None, None, None))
         # С-2: the third action over the records — REMOVE the ones the
         # CURRENT selection names (copper only).
         menu.addAction(_("Subtract selected copper...")).triggered.connect(
-            lambda: self.cell_subtract_requested.emit(old_name, file_path))
+            lambda: self.cell_subtract_requested.emit(
+                old_name, file_path, None, None, None))
         # СЦ-1: three items in order — components, cell, enclosed.
         components_action = menu.addAction(_("Select cell components"))
         components_action.setObjectName("select_cell_components_action")
@@ -288,11 +291,13 @@ class EntityTreeMixin:
         menu.addAction(
             _("Update from selection (choose layers)...")
         ).triggered.connect(
-            lambda: self.cell_refresh_layers_requested.emit(old_name, file_path))
+            lambda: self.cell_refresh_layers_requested.emit(
+                old_name, file_path, None, None, None))
         menu.addAction(
             _("Add selected copper (choose layers)...")
         ).triggered.connect(
-            lambda: self.cell_import_layers_requested.emit(old_name, file_path))
+            lambda: self.cell_import_layers_requested.emit(
+                old_name, file_path, None, None, None))
         # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
         # sibling — copy another cell's placement (component geometry +
         # vias/tracks) into this one; the donor is picked from a minimal
