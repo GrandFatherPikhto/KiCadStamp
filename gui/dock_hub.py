@@ -55,8 +55,8 @@ from kicadstamp.logging_setup import get_log_listener
 
 from . import overlay_markers
 from .connection import ui_thread_board_read
-# The ENTITY doors' rules live in their own module (2в, п.1: rule 45 — a giant
-# only shrinks); every delegate below is a one-liner over them.
+# The ENTITY doors' rules live in their own module (2в, п.1); the delegates below
+# are one-liners over them.
 from . import entity_doors
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import (
@@ -361,12 +361,13 @@ class DockHub:
         # made here only becomes visible there when that copy re-reads the file.
         # Two hooks, two owners — never one callback doing both by luck.
         self.cell_anchor_view.on_overrides_written = self._on_overrides_written
-        # Part 2 (п.1): the cell page's "Entity" dropdown asks the Config tree for
-        # the ONE entity index of part 1 — that dock already walks the graph on
-        # every refresh, and a second walker is exactly what the index module
-        # exists to prevent.
-        self.cell_anchor_view.entity_index_provider = \
-            lambda: getattr(self.config_tree_dock, "_entity_index", None)
+        # Part 2 (п.1) + 2в, п.5: BOTH readers of "who places this cell" — the
+        # page's dropdown and the CellDock's buttons — take the ONE entity index
+        # from the Config tree dock (a second walker is what that module exists
+        # to prevent).
+        provider = lambda: getattr(self.config_tree_dock, "_entity_index", None)
+        self.cell_anchor_view.entity_index_provider = provider
+        self.cells_dock.entity_index_provider = provider
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -3053,8 +3054,7 @@ class DockHub:
             return
         wiring.refresh_state()
 
-    # The four ENTITY doors (2б, п.4 — bodies and rules in gui/entity_doors.py):
-    # a CELL leaf sends no entity, an entity leaf sends its own name.
+    # The four ENTITY doors (2б, п.4; bodies and rules in gui/entity_doors.py).
     def _select_enclosed_copper_from_tree(self, name, file_path=None, cluster=None,
                                           sheet=None, entity=None) -> None:
         entity_doors.select_enclosed_copper_from_tree(

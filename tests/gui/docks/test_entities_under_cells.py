@@ -823,6 +823,38 @@ def test_the_entity_leaf_opens_the_cell_page_on_that_entity(
         "пункт «на этой сущности» бывает только у листа-сущности"
 
 
+def test_the_cell_docks_board_buttons_are_off_when_nothing_places_the_cell(
+        real_main_window, tmp_path):
+    """2в, п.5: у ячейки, которую никто не ставит, кнопки платы выключены и в
+    CellDock — тем же признаком, что и «только чтение» на странице (3б), и по
+    ТОМУ ЖЕ индексу части 1 (провайдер от хаба, второго обхода графа нет).
+
+    Обратная половина: у ячейки С сущностью кнопки на месте — иначе сторож был бы
+    зелёным «всё выключено»."""
+    from types import SimpleNamespace
+    from PyQt6.QtCore import Qt
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]},
+                                  "d": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c"}]})
+    open_project(hub, root)
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+
+    dock = hub.cells_dock
+    dock.load_entry("d", root)
+    dock._update_refresh_enabled()
+    assert not dock.refresh_geometry_button.isEnabled()
+    assert dock.refresh_geometry_button.testAttribute(
+        Qt.WidgetAttribute.WA_ForceDisabled), \
+        "кнопка выключена НЕ правилом «ячейку никто не ставит»"
+
+    dock.load_entry("c", root)
+    dock._update_refresh_enabled()
+    assert dock.refresh_geometry_button.isEnabled(), \
+        "у ячейки с сущностью кнопки платы на месте"
+
+
 def test_the_edit_cell_item_reaches_the_page_through_the_hub(real_main_window,
                                                              tmp_path):
     """2в, п.3 (C2): делегат хаба проверяется ЦЕЛИКОМ, а не только сигнал —

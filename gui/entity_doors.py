@@ -108,3 +108,26 @@ def open_explode(hub, name, file_path=None, cluster=None, sheet=None,
     from, None for a CELL leaf or the CellDock's own button."""
     pin_door_instance(hub, name, entity)
     hub.explode_wiring.open_tab(name, file_path, cluster, sheet)
+
+
+def unplaced_without_entity(dock) -> bool:
+    """True when NOTHING places the cell `dock` has loaded AND no entity claims
+    it (2в, п.5) — the CellDock twin of the page's read-only case (3б): its board
+    buttons have no instance to read, so they must be OFF.
+
+    The answer comes from the part-1 index the dock is handed as a provider — the
+    SAME ONE index the tree and the page use, never a second walk of the graph —
+    and it lives here, with the other "what does the index say about this cell"
+    answers, because rule 45 keeps gui/docks/cell_editor.py shrinking.
+
+    Without a provider, or without the cell's uuid, the dock cannot judge and
+    keeps today's behaviour (every bare-dock test relies on that)."""
+    provider = getattr(dock, "entity_index_provider", None)
+    index = provider() if provider is not None else None
+    if index is None:
+        return False
+    uuid = dock._loaded_entry_on_disk().get("uuid")
+    if not uuid:
+        return False
+    return (not index.has_entity_for_cell(uuid)
+            and not index.placed_by_cell(uuid))

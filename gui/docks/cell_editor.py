@@ -114,6 +114,7 @@ from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
 from ..cell_entity_choice import read_instance
+from ..entity_doors import unplaced_without_entity
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
 from ..select_cell import pick_instance, resolve_action_instance
@@ -1750,10 +1751,14 @@ class CellDock(QWidget):
         push_snapshot's role lists), so an EMPTY board selection is not gated
         here — the worker reports it as a clear error at click time instead.
 
+        A cell nobody places and nobody gives an entity to has no instance at
+        all (2в, п.5) — the buttons are off for it, like the page's board ones.
+
         Presence: `connection.is_connected`, never the door — docs/board_door.md §2."""
         connection = getattr(self._main_window, "connection", None)
         connected = bool(getattr(connection, "is_connected", False))
-        enabled = connected and bool(self._components)
+        enabled = (connected and bool(self._components)
+                   and not unplaced_without_entity(self))
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.subtract_copper_button.setEnabled(enabled)
