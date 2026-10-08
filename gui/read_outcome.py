@@ -27,11 +27,14 @@ called on that path, and the caller asserts that by construction.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from kicadstamp.i18n import _
 
-__all__ = ["ReadOutcome", "read_outcome"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["ReadOutcome", "read_outcome", "replace_selection"]
 
 
 @dataclass(frozen=True)
@@ -127,3 +130,23 @@ def read_outcome(*, footprints, vias, raw_tracks, plan_footprints, plan_vias,
             reasons="; ".join(f"{label} — {count}" for label, count in parts))
     return ReadOutcome(items=items, line=line, selected=selected_total,
                        read=read_total, skipped=skipped)
+
+
+def replace_selection(adapter, *, footprints, vias, raw_tracks, plan_footprints,
+                      plan_vias, plan_tracks, prelude, layer_report) -> ReadOutcome:
+    """Build the outcome AND set the board selection to it — the ONE call both reads
+    make, so the docks keep no rule of their own (rule 45: a giant gets wiring).
+
+    A selection write is BEST-EFFORT and is the last thing the read does: the plan
+    is already built and must not be lost because KiCad refused a highlight. The
+    outcome comes back either way — the line is what the Log needs."""
+    outcome = read_outcome(
+        footprints=footprints, vias=vias, raw_tracks=raw_tracks,
+        plan_footprints=plan_footprints, plan_vias=plan_vias,
+        plan_tracks=plan_tracks, prelude=prelude, layer_report=layer_report)
+    if outcome.replaced:
+        try:
+            adapter.select_items(list(outcome.items))
+        except Exception:  # noqa: BLE001 — a selection write is best-effort
+            logger.exception("select-after-read failed")
+    return outcome
