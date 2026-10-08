@@ -377,6 +377,30 @@ def test_a_pick_publishes_the_working_instance_the_cell_dock_reads(
         "«Manual…» — экземпляр задают поля самой страницы"
 
 
+def test_a_door_that_names_an_entity_moves_the_open_page_too(main_window,
+                                                            tmp_path):
+    """2в, п.2 (мутация «дверь не трогает открытую страницу»): страница открыта
+    на этой ячейке и стоит на ch0; дверь называет ch1 → И выпадашка, И хранилище
+    идут на ch1. Иначе следующий «Place marker» на странице читал бы ch0, а
+    кнопка CellDock — ch1."""
+    from types import SimpleNamespace
+    from gui.entity_doors import pin_door_instance
+    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0"),
+                                   _entity("ch1", "DAC_BUF", "Channel_1")])
+    view = _view(main_window, root, index)
+    assert view._entity_picker.current_address().entity_name == "ch0"
+    hub = SimpleNamespace(
+        cell_anchor_view=view,
+        config_tree_dock=SimpleNamespace(_entity_index=index),
+        root_metadata_dock=SimpleNamespace(root_path=root))
+
+    assert pin_door_instance(hub, CELL, "ch1") is True
+
+    assert view._entity_picker.current_address().entity_name == "ch1"
+    assert view.active_refs() == view._entity_picker.current_address().refs
+    assert working_instance(root, CELL).entity_name == "ch1"
+
+
 def test_the_hub_hands_the_page_the_trees_entity_index(real_main_window):
     """Проводка: страница берёт индекс у дока дерева — своего обхода графа у неё
     нет (иначе это был бы второй индекс, который модуль части 1 запрещает)."""

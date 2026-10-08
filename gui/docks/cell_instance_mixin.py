@@ -40,6 +40,7 @@ from kicadstamp.i18n import _
 
 from ..cell_edit_context import remembered_cell_refs
 from ..cell_entity_choice import (
+    SOURCE_ENTITY,
     address_matches_selection,
     build_choices,
     entity_addresses,
@@ -333,6 +334,27 @@ class CellInstanceMixin:
     def _remembered_entity(self) -> Optional[str]:
         """The entity NAME this cell was last worked with (п.4)."""
         return remembered_last_entity(self._root_path, self._cell_name)
+
+    def show_entity_instance(self, entity_name) -> bool:
+        """Move the dropdown to the ENTITY named — for a door that names an
+        entity while this page is ALREADY open on the same cell (2в, п.2).
+
+        The row is selected through the widget and APPLIED through the gate
+        (`choose`), so the ordinary path runs: the gate writes the working
+        fields, reloads what depends on them and PUBLISHES the record
+        (`_after_instance_applied`). Writing the store here instead would be the
+        second copy of the instance this part exists to prevent.
+
+        False when this cell has no such row (an entity renamed since the graph
+        was read, or a page without the part-1 index): the caller then falls back
+        to publishing the store, as before."""
+        row = next((r for r in self._address_choices()
+                    if r.source == SOURCE_ENTITY and r.entity_name == entity_name),
+                   None)
+        if row is None or not self._entity_picker.select_address(row.key):
+            return False
+        self._entity_gate.choose()
+        return True
 
     def _remember_entity_pick(self, name: Optional[str]) -> None:
         """Remember the picked entity BY NAME under its own state key (п.4) — and

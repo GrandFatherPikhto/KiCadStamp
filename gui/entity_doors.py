@@ -33,14 +33,24 @@ def pin_door_instance(hub, cell_name, entity_name) -> bool:
     action that follows, or that action reads whatever entity the page was last
     on: open channel_1 and the action reads channel_0 (Denis, 08.10).
 
+    When the cell PAGE is already open on this cell, the dropdown — not this
+    module — is the writer: the page is asked to move to that entity and its own
+    apply publishes the record (2в, п.2: one writer, one store). Otherwise the
+    record is written here, as before.
+
     The name is resolved through the part-1 index the tree already built — never
     a second walk of it. A name the graph no longer knows clears the record
     (the door's own explicit cluster/sheet is then in charge); no name at all (a
     CELL leaf) writes nothing. Returns True when the record was published.
 
-    Nothing is read from `hub` beyond the two docks, so a stand-in hub works."""
+    Nothing is read from `hub` beyond the docks it owns, so a stand-in hub
+    works."""
     if not entity_name:
         return False
+    view = getattr(hub, "cell_anchor_view", None)
+    if getattr(view, "_cell_name", None) == cell_name:
+        if view.show_entity_instance(entity_name):
+            return True
     index = getattr(getattr(hub, "config_tree_dock", None), "_entity_index", None)
     root = getattr(getattr(hub, "root_metadata_dock", None), "root_path", None)
     return pin_working_instance(root, cell_name, entity_name, index)
