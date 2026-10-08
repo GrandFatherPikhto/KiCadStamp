@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 20:30+0300\n"
+"POT-Creation-Date: 2026-10-08 20:32+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -61,8 +61,8 @@ msgstr "{name} — {cluster} на {sheet}"
 
 #: gui/cell_entity_choice.py:157 gui/cell_entity_choice.py:326
 #: gui/cell_entity_choice.py:342 gui/mixed_selection.py:115
-#: gui/mixed_selection.py:157 gui/mixed_selection.py:266 gui/select_cell.py:142
-#: gui/select_cell.py:237 gui/select_enclosed_copper.py:86
+#: gui/mixed_selection.py:157 gui/mixed_selection.py:266 gui/select_cell.py:144
+#: gui/select_cell.py:239 gui/select_enclosed_copper.py:86
 #: gui/subtract_copper.py:66
 msgid "(no sheet)"
 msgstr "(без листа)"
@@ -1521,7 +1521,7 @@ msgstr ""
 "кластер у строк разный ({clusters}) — нажмите «Применить ко всем "
 "строкам», чтобы разметить одним кластером"
 
-#: gui/docks/cell_editor.py:2578 gui/select_cell.py:125
+#: gui/docks/cell_editor.py:2578 gui/select_cell.py:127
 #: gui/select_enclosed_copper.py:157
 #, python-brace-format
 msgid ""
@@ -1533,13 +1533,13 @@ msgstr ""
 "на плате или запомните через «Заполнить по выделению» на странице якоря "
 "ячейки."
 
-#: gui/select_cell.py:140 gui/select_enclosed_copper.py:84
+#: gui/select_cell.py:142 gui/select_enclosed_copper.py:84
 #: gui/subtract_copper.py:64
 #, python-brace-format
 msgid "{cluster} on {sheet}"
 msgstr "{cluster} на {sheet}"
 
-#: gui/select_cell.py:233
+#: gui/select_cell.py:235
 #, python-brace-format
 msgid ""
 "selected: {components} component(s), {vias} via(s), {tracks} track(s) — "
@@ -1548,12 +1548,12 @@ msgstr ""
 "выделено: {components} компонент(ов), {vias} переходных, {tracks} дорожек"
 " — {cell} на {sheet}"
 
-#: gui/select_cell.py:239
+#: gui/select_cell.py:241
 #, python-brace-format
 msgid "; the registry remembers {n} more, not on the board"
 msgstr "; реестр помнит ещё {n}, на плате их нет"
 
-#: gui/select_cell.py:383
+#: gui/select_cell.py:463
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); copper — {by_registry} by "
@@ -1564,7 +1564,16 @@ msgstr ""
 "реестру, {by_geometry} по геометрии; записано, но на плате нет — "
 "{missing}"
 
-#: gui/select_cell.py:420
+#: gui/select_cell.py:469
+#, python-brace-format
+msgid ""
+"the instance stands {deviation} mm away from where the tree places it — "
+"the copper was taken at its current place"
+msgstr ""
+"экземпляр стоит не там, где его ставит дерево ({deviation} мм) — медь "
+"взята по текущему месту"
+
+#: gui/select_cell.py:504
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); the redraw planner produced no "
@@ -1585,7 +1594,7 @@ msgstr "рефа {ref} больше нет на плате"
 msgid "{ref} now has Role {role!r}"
 msgstr "у рефа {ref} теперь роль {role!r}"
 
-#: gui/select_cell_copper.py:210
+#: gui/select_cell_copper.py:216
 msgid "the cell is placed by a chain — geometry is not searched (registry only)"
 msgstr "ячейку ставит цепочка — по геометрии не ищется (только реестр)"
 

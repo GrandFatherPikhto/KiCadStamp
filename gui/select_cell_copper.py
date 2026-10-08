@@ -160,10 +160,16 @@ def _run_with_copper(payload: dict) -> dict:
                 payload.get("cluster"), payload.get("sheet"), sheet_names,
                 record, own_refs=refs or None)
         else:
+            # Б2 of plan_2026_10_08_narrowing_net_traces_cost: the pipeline's dry
+            # run ALREADY ran the at-current-place pass, and its bound pairs are
+            # the copper this instance has on the board right now — handed over
+            # instead of recalculated (see ApplyPipeline.at_current_place).
             plan = select_cell_copper_targets(
                 pipeline.adapter, cfg, root, payload["cell_name"],
                 payload.get("cluster"), payload.get("sheet"), sheet_names,
-                vias, tracks, own_refs=refs or None)
+                vias, tracks, own_refs=refs or None,
+                at_current_place=getattr(
+                    getattr(pipeline, "at_current_place", None), "bound", None))
         items = list(plan.footprints) + list(plan.copper)
         if items:
             pipeline.adapter.select_items(items)

@@ -133,6 +133,12 @@ def _via(uuid, x_mm, y_mm, net="N", drill=0.3, dia=0.6):
                drill_mm=drill, diameter_mm=dia)
 
 
+def _planned_via_at(key, x_mm, y_mm):
+    return ViaCommand(position=Vector2.from_xy_mm(x_mm, y_mm), net_name="N",
+                      drill_mm=0.3, diameter_mm=0.6, owner_ref="C1",
+                      registry_key=key)
+
+
 def _planned_via(key):
     return ViaCommand(position=Vector2.from_xy_mm(0.0, 0.0), net_name="N",
                       drill_mm=0.3, diameter_mm=0.6, owner_ref="C1",
@@ -257,6 +263,80 @@ def test_recorded_but_absent_is_counted(gate, tmp_path):
     plan = _core(adapter, cfg, config_path, [_planned_via(key)])
     assert plan.copper == [] and plan.copper_missing == 1
     assert "recorded but not on the board — 1" in plan.line
+
+
+# ── (Б2/Б3) медь ТЕКУЩЕГО места из прохода + строка Δ ───────────────────────
+
+def test_the_current_place_copper_is_selected_and_the_delta_named(gate, tmp_path):
+    """Б2+Б3 of plan_2026_10_08_narrowing_net_traces_cost: the pairs the
+    at-current-place pass decided on are selected AS-IS (they are the answer to
+    "what does this instance have on the board now") and the distance to the plan
+    is named once. Nothing here recomputes the current place.
+
+    Mutation: ignore `at_current_place` and the live case comes back — 0 copper
+    while the board carries it."""
+    from gui.select_cell import select_cell_copper_targets
+
+    cfg, config_path, adapter, key = _setup(tmp_path, [_via("v_cur", 0.0, 0.0)])
+    _write_via_registry(tmp_path, {})           # the registry does NOT know it yet
+    live_via = adapter.get_vias()[0]
+
+    plan = select_cell_copper_targets(
+        adapter, cfg, str(config_path), "dac_buf", "DAC_BUF", None, {},
+        [_planned_via_at(key, 5.0, 0.0)], [], own_refs=["C1"],
+        at_current_place=(("via", key, live_via),))
+
+    assert [getattr(i, "uuid", None) for i in plan.copper] == ["v_cur"]
+    assert plan.copper_by_geometry == 1 and plan.copper_by_registry == 0
+    assert plan.copper_missing == 0
+    assert "5.000 mm away from where the tree places it" in plan.line, plan.line
+
+
+def test_the_worker_selects_what_the_read_wrote_at_the_current_place(
+        monkeypatch, tmp_path):
+    """The acceptance scenario of part Б: the read wrote copper into the cell and
+    the instance was NOT redrawn (the registry does not know the copper and the
+    planned place finds nothing — exactly the live defect). «Select cell» right
+    after the read must still select the components AND that copper, at the place
+    the instance stands NOW, and say how far it is from the tree's place.
+
+    Mutation: stop handing `pipeline.at_current_place` over and the selection is
+    the components alone."""
+    from gui import select_cell_copper as scc
+
+    config_path = tmp_path / "root.sexp"
+    _min_config(config_path)                  # cells.dac_buf + entity dac0
+    live_via = _via("v-read", 10.0, 10.0)
+    adapter = _Adapter({"C1": ("R", "DAC_BUF")},
+                       footprints=[_fp("C1", "R", "DAC_BUF")], vias=[live_via])
+
+    class _Pipe:
+        def __init__(self, *a, **k):
+            self.adapter = adapter
+            self.at_current_place = SimpleNamespace(
+                bound=(("via", "k1", live_via),), adopted=1)
+            self.closed = False
+
+        def run(self):
+            pass
+
+        def plan_copper(self):
+            # The plan puts the record's copper 5 mm away from where it stands.
+            return [_planned_via_at("k1", 15.0, 10.0)], []
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr("kicadstamp.apply_pipeline.ApplyPipeline", _Pipe)
+
+    result = scc.run_select_cell_worker({
+        "with_copper": True, "root_path": str(config_path), "timeout_ms": 1,
+        "cell_name": "dac_buf", "cluster": "DAC_BUF", "sheet": None, "refs": {}})
+
+    assert [getattr(i, "uuid", None) for i in adapter.selected] == \
+        ["uuid-C1", "v-read"], "components AND the copper the read wrote"
+    assert result["copper"] == 1 and result["by_geometry"] == 1
+    assert "5.000 mm away from where the tree places it" in result["line"]
 
 
 # ── registry files untouched ────────────────────────────────────────────────

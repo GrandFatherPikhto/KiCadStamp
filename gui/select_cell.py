@@ -15,6 +15,7 @@ the live reads/`adapter.select_items` stay in the worker (Qt-free by design,
 like gui/mixed_selection.py)."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -39,6 +40,7 @@ from kicadstamp.selection_narrowing import (
     is_own_key,
     record_address_matches,
 )
+from kicadstamp.utils.units import MM
 
 
 def cell_instances(cfg, cell_name: str, remembered_cluster=None,
@@ -302,10 +304,56 @@ def instance_placed_by_chain(cfg, cell_name: str, cluster) -> bool:
     return False
 
 
+def _mm_points(item) -> tuple:
+    """``(x_mm, y_mm)`` of a live item (via: its centre) or of a PLANNED command
+    (via: its position) — one point for a via, two for a track."""
+    if getattr(item, "position", None) is not None:
+        return ((item.position.x / MM, item.position.y / MM),)
+    return ((item.start.x / MM, item.start.y / MM),
+            (item.end.x / MM, item.end.y / MM))
+
+
+def planned_place_delta_mm(bound, planned_vias, planned_tracks) -> tuple:
+    """``(worst_delta_mm, compared)`` — how far the copper the at-current-place
+    pass found stands from where the PLAN puts the SAME record (matched by
+    ``registry_key``). ``compared`` 0 means nothing could be compared (no bound
+    copper, or its record is not in this plan) and the caller says nothing.
+
+    This is the ONE 「экземпляр стоит не там, где его ставит дерево」 measure (part
+    Б3 of plan_2026_10_08_narrowing_net_traces_cost): it uses the pairs the pass
+    decided on and the run's own plan, never a second geometry of its own."""
+    commands = {}
+    for cmd in list(planned_vias or ()) + list(planned_tracks or ()):
+        key = getattr(cmd, "registry_key", None)
+        if key:
+            commands.setdefault(key, cmd)
+    worst = 0.0
+    compared = 0
+    for _kind, key, item in bound or ():
+        cmd = commands.get(key)
+        if cmd is None:
+            continue
+        expect, actual = _mm_points(cmd), _mm_points(item)
+        if len(expect) != len(actual):
+            continue
+        if len(expect) == 1:
+            delta = math.dist(expect[0], actual[0])
+        else:
+            # a track segment is UNORIENTED: take the orientation that fits better
+            straight = max(math.dist(expect[0], actual[0]),
+                           math.dist(expect[1], actual[1]))
+            flipped = max(math.dist(expect[0], actual[1]),
+                          math.dist(expect[1], actual[0]))
+            delta = min(straight, flipped)
+        worst = max(worst, delta)
+        compared += 1
+    return worst, compared
+
+
 def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
                                cluster, sheet, sheet_names,
                                planned_vias, planned_tracks,
-                               own_refs=None) -> SelectPlan:
+                               own_refs=None, at_current_place=None) -> SelectPlan:
     """The components + the RECORDED copper of the (cluster, sheet) instance.
 
     The copper is found in two tiers over the commands the REDRAW PLANNER
@@ -320,7 +368,14 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     A live item the registry owns under ANOTHER record is never taken by
     geometry. A command found by neither tier is recorded-but-absent ('K').
     Nothing is written anywhere (the registry is read, never saved; the board is
-    selected, never edited)."""
+    selected, never edited).
+
+    ``at_current_place`` — the pairs the at-current-place pass decided on
+    (``AdoptionReport.bound``, part Б2): the copper the instance has on the board
+    AT ITS CURRENT PLACE, which is exactly what made the live defect («0 by
+    geometry» after a read that was never redrawn). They are taken as-is, counted
+    with the geometry tier, and the distance to the plan is named once (Б3) —
+    never by re-running the current-place calculation here."""
     from kicadstamp.absent_copper_prune import (
         not_checked_reasons,
         own_instance_context,
@@ -349,11 +404,18 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     copper: list = []
     seen: set = set()
     by_registry = by_geometry = missing = refused = 0
+    bound_keys = {key for _kind, key, _item in at_current_place or ()}
     for reg, m in matches:
         key = getattr(m.command, "registry_key", None)
         if not is_own_key(key, cell_identity, own_addresses, chosen_address, refs):
             continue
         if m.live is None:
+            if getattr(m.command, "registry_key", None) in bound_keys:
+                # The record's copper IS on the board — at the instance's CURRENT
+                # place, where the pass (Б2) found it and counted it below. Calling
+                # it "recorded but not on the board" was exactly the live 19:42
+                # line ("... 7") while the pass had bound those very 7.
+                continue
             missing += 1
             continue
         if not accept_planned_match(reg, m):
@@ -377,14 +439,36 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
             by_geometry += 1
         copper.append(m.live)
 
+    # Б2: the copper the pass found at the instance's CURRENT place — the answer
+    # the planned-place tiers above cannot give when the instance was never
+    # redrawn. Deduped by uuid against what is already taken, counted as
+    # geometry (that IS how it was found).
+    for _kind, _key, item in at_current_place or ():
+        uuid = getattr(item, "uuid", None)
+        if uuid is not None and uuid in seen:
+            continue
+        if uuid is not None:
+            seen.add(uuid)
+        by_geometry += 1
+        copper.append(item)
+
     notes = tuple(not_checked_reasons(
         not_rigid=False, frame_residual_mm=None, disagreed=0,
         orphan_keys=0, away_from_place=refused))
+    # Б3: ONE line saying the instance does not stand where the tree puts it — the
+    # copper above WAS taken at its current place, so the number is information,
+    # never a refusal.
+    worst_delta, compared = planned_place_delta_mm(
+        at_current_place, planned_vias, planned_tracks)
     line = _("Select cell: {components} component(s); copper — {by_registry} by "
              "registry, {by_geometry} by geometry; recorded but not on the board "
              "— {missing}").format(
         components=len(footprints), by_registry=by_registry,
         by_geometry=by_geometry, missing=missing)
+    if compared:
+        line += " " + _("the instance stands {deviation} mm away from where the "
+                        "tree places it — the copper was taken at its current "
+                        "place").format(deviation=f"{worst_delta:.3f}")
     if notes:
         line += " " + " ".join(notes)
     return SelectPlan(footprints=footprints, copper=copper,

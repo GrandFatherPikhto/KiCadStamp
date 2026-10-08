@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 20:30+0300\n"
+"POT-Creation-Date: 2026-10-08 20:32+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -52,8 +52,8 @@ msgstr ""
 
 #: gui/cell_entity_choice.py:157 gui/cell_entity_choice.py:326
 #: gui/cell_entity_choice.py:342 gui/mixed_selection.py:115
-#: gui/mixed_selection.py:157 gui/mixed_selection.py:266 gui/select_cell.py:142
-#: gui/select_cell.py:237 gui/select_enclosed_copper.py:86
+#: gui/mixed_selection.py:157 gui/mixed_selection.py:266 gui/select_cell.py:144
+#: gui/select_cell.py:239 gui/select_enclosed_copper.py:86
 #: gui/subtract_copper.py:66
 msgid "(no sheet)"
 msgstr ""
@@ -1430,7 +1430,7 @@ msgid ""
 "to tag one cluster"
 msgstr ""
 
-#: gui/docks/cell_editor.py:2578 gui/select_cell.py:125
+#: gui/docks/cell_editor.py:2578 gui/select_cell.py:127
 #: gui/select_enclosed_copper.py:157
 #, python-brace-format
 msgid ""
@@ -1439,25 +1439,25 @@ msgid ""
 "selection”."
 msgstr ""
 
-#: gui/select_cell.py:140 gui/select_enclosed_copper.py:84
+#: gui/select_cell.py:142 gui/select_enclosed_copper.py:84
 #: gui/subtract_copper.py:64
 #, python-brace-format
 msgid "{cluster} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:233
+#: gui/select_cell.py:235
 #, python-brace-format
 msgid ""
 "selected: {components} component(s), {vias} via(s), {tracks} track(s) — "
 "{cell} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:239
+#: gui/select_cell.py:241
 #, python-brace-format
 msgid "; the registry remembers {n} more, not on the board"
 msgstr ""
 
-#: gui/select_cell.py:383
+#: gui/select_cell.py:463
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); copper — {by_registry} by "
@@ -1465,7 +1465,14 @@ msgid ""
 "{missing}"
 msgstr ""
 
-#: gui/select_cell.py:420
+#: gui/select_cell.py:469
+#, python-brace-format
+msgid ""
+"the instance stands {deviation} mm away from where the tree places it — "
+"the copper was taken at its current place"
+msgstr ""
+
+#: gui/select_cell.py:504
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); the redraw planner produced no "
@@ -1483,7 +1490,7 @@ msgstr ""
 msgid "{ref} now has Role {role!r}"
 msgstr ""
 
-#: gui/select_cell_copper.py:210
+#: gui/select_cell_copper.py:216
 msgid "the cell is placed by a chain — geometry is not searched (registry only)"
 msgstr ""
 
