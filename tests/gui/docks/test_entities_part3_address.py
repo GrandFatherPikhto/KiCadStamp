@@ -274,6 +274,37 @@ def test_the_entity_leaf_carries_the_board_items_with_its_own_address(
         assert args == ("c", None, "CL2", "S2", "e2"), (name, args)
 
 
+def test_the_cell_reads_never_touch_the_board_handle(main_window, tmp_path,
+                                                     monkeypatch):
+    """часть 3, п.7: presence is asked of the CONNECTION (`is_connected`) and the
+    adapter is taken by the WORKER — the live log of 08.10 carried an ERROR on
+    every read because the dock asked for the board handle instead. Here the
+    handle RAISES on access, so a read that touches it cannot pass quietly."""
+    root = tmp_path / "root.sexp"
+    _config_with_two_entities(root)
+    dock = CellDock(main_window)
+    dock.set_root_path(root)
+    dock.load_entry("c")
+
+    class _Conn:
+        is_connected = True
+        timeout_ms = 1000
+
+        @property
+        def board(self):
+            raise AssertionError(
+                "the cell read must not ask for the board handle (часть 3, п.7)")
+
+    main_window.connection = _Conn()
+    payloads = _capture_payloads(monkeypatch)
+
+    dock.refresh_from_selection_requested("c", root)
+    dock.import_from_selection_requested("c", root)
+
+    assert [p["connection"] for p in payloads] == [main_window.connection] * 2, \
+        "the WORKER gets the connection — it takes the adapter itself"
+
+
 def test_a_cell_leaf_carries_no_board_item_at_all(real_main_window, tmp_path,
                                                 monkeypatch):
     """часть 3, п.3: ни одного пункта платы на листе ЯЧЕЙКИ — без исключения
