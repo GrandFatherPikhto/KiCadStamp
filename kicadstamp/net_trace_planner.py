@@ -134,7 +134,7 @@ def _resolve_anchor(adapter, nt: NetTrace, sheet_names: dict[str, str]):
 
 
 def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
-                   label: str) -> str:
+                   label: str, *, quiet: bool = False) -> str:
     """The net of one track/via of a net trace, resolved LIVE.
 
     An item either carries a literal net (a legacy record, and the plain
@@ -154,19 +154,24 @@ def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
     lemma 2 (exactly one non-rule net) when the pad is omitted — and stays
     fatal on an unresolved/ambiguous role, a missing pad or a multi-net role:
     apply stops, it never guesses. The record's own `net` is only a fall-back
-    for an item that carries neither."""
+    for an item that carries neither.
+
+    ``quiet`` — the role search of a DRY, per-record question (``record_nets``)
+    then logs its narrowing steps at DEBUG instead of INFO (part 2 of
+    plan_2026_10_08_narrowing_net_traces_cost); planning a record passes nothing."""
     role = getattr(item, "net_from_role", None)
     if role is None:
         return item.net or nt.net
     fp = resolve_footprint_by_role(
         adapter, role, nt.anchor_sheet, nt.anchor_cluster, sheet_names,
-        label=label)
+        label=label, quiet=quiet)
     return resolve_net_from_role(role, getattr(item, "net_from_role_pad", None),
                                  {role: fp.ref}, adapter)
 
 
 def record_nets(adapter, nt: NetTrace,
-                sheet_names: dict[str, str] | None = None) -> tuple[set[str], bool]:
+                sheet_names: dict[str, str] | None = None, *,
+                quiet: bool = False) -> tuple[set[str], bool]:
     """``(nets, resolvable)`` — the nets ONE ``net_traces:`` record's copper can
     carry, resolved LIVE by the planner's OWN resolver (``_item_net_name``), never
     by a second copy.
@@ -180,6 +185,11 @@ def record_nets(adapter, nt: NetTrace,
     REGISTRY tier knows its copper by uuid and needs no net at all. ``nets`` may
     be empty (a record whose items carry no net at all); the caller treats that as
     "nothing to compare" and does not skip either.
+
+    ``quiet=True`` — this question is asked of EVERY record for ONE read, so the
+    role search's ``role_narrowing`` lines go to DEBUG: the live "before" was
+    2 184 of them for one click (part 2 of plan_2026_10_08_narrowing_net_traces_cost,
+    the доделка). The caller that plans for real writes them at INFO as always.
     """
     nets: set[str] = set()
     resolvable = True
@@ -190,7 +200,8 @@ def record_nets(adapter, nt: NetTrace,
     items = list(getattr(nt, "tracks", None) or ()) + list(getattr(nt, "vias", None) or ())
     for item in items:
         try:
-            name = _item_net_name(adapter, nt, item, sheet_names or {}, label)
+            name = _item_net_name(adapter, nt, item, sheet_names or {}, label,
+                                  quiet=quiet)
         except Exception:  # noqa: BLE001 — an unresolvable chain is a normal answer
             resolvable = False
             continue

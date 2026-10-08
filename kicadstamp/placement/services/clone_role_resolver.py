@@ -896,7 +896,8 @@ def _current_generation(adapter, chosen: Footprint, snapshot, label: str,
 
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
                               anchor_cluster: str | None, sheet_names: dict[str, str],
-                              label: str, *, snapshot=None) -> Footprint:
+                              label: str, *, snapshot=None,
+                              quiet: bool = False) -> Footprint:
     """
     Resolves ANY anchor component by anchor_role (Role field on the board,
     NOT a cell role — this is different: here we search for the anchor itself
@@ -931,7 +932,13 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     when the role is genuinely ambiguous, i.e. when 2+ candidates survive the
     sheet narrowing — and the returned object comes from the adapter's CURRENT
     generation. `None` (the default, and what apply/CLI/MCP pass) = the sweep,
-    byte for byte."""
+    byte for byte.
+
+    quiet (part 2 of plan_2026_10_08_narrowing_net_traces_cost) — handed straight
+    to the narrowing cascade, which then logs its steps at DEBUG. Asked for by a
+    caller whose question is a DRY, per-record comparison (the mixed-selection
+    read resolves the net of EVERY net_traces record: thousands of INFO lines for
+    one click); the redraw passes nothing and writes exactly as before."""
     candidates = _role_candidates(adapter, anchor_role, snapshot)
 
     if not candidates:
@@ -945,6 +952,7 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
         candidates, adapter, selected_refs,
         anchor_sheet, anchor_cluster,
         sheet_names, label, anchor_role,
+        quiet=quiet,
     )
 
     if len(narrowed) == 1:

@@ -90,6 +90,8 @@ def _narrow_by_sheet_cluster_selection(
     sheet_names: dict[str, str],
     label: str,
     role_str: str,
+    *,
+    quiet: bool = False,
 ) -> list:
     """3-level narrowing cascade shared by _narrow_ambiguous_candidates and
     resolve_footprint_by_role.
@@ -99,16 +101,24 @@ def _narrow_by_sheet_cluster_selection(
       2. anchor_cluster — filter by cluster_prefix_match.
       3. selected_refs — filter intersection with current board selection.
 
+    ``quiet`` — an EXPLICIT request from a caller whose question is a dry, per
+    record comparison (the mixed-selection read resolves the net of EVERY
+    ``net_traces`` record, so these lines used to number in the thousands for ONE
+    click — part 2 of plan_2026_10_08_narrowing_net_traces_cost): the steps then
+    log at DEBUG instead of INFO. Never global state — the REDRAW passes nothing
+    and writes exactly as before.
+
     Returns the (possibly narrowed) list — same list if no narrowing applied.
     """
     narrowed = list(candidates)
+    log = logger.debug if quiet else logger.info
 
     if anchor_sheet and len(narrowed) > 1:
         by_sheet = narrow_candidates_by_sheet(narrowed, anchor_sheet, sheet_names)
         if len(by_sheet) < len(narrowed):
-            logger.info(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by anchor_sheet {sheet!r}")
-                        .format(label=label, role_str=role_str, count=len(narrowed),
-                                narrowed=len(by_sheet), sheet=anchor_sheet))
+            log(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by anchor_sheet {sheet!r}")
+                .format(label=label, role_str=role_str, count=len(narrowed),
+                        narrowed=len(by_sheet), sheet=anchor_sheet))
             narrowed = by_sheet
 
     if anchor_cluster and len(narrowed) > 1:
@@ -117,17 +127,17 @@ def _narrow_by_sheet_cluster_selection(
                          adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '',
                          anchor_cluster)]
         if by_cluster and len(by_cluster) < len(narrowed):
-            logger.info(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by anchor_cluster {cluster!r}")
-                        .format(label=label, role_str=role_str, count=len(narrowed),
-                                narrowed=len(by_cluster), cluster=anchor_cluster))
+            log(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by anchor_cluster {cluster!r}")
+                .format(label=label, role_str=role_str, count=len(narrowed),
+                        narrowed=len(by_cluster), cluster=anchor_cluster))
             narrowed = by_cluster
 
     if len(narrowed) > 1 and selected_refs:
         by_selection = [fp for fp in narrowed if fp.ref in selected_refs]
         if by_selection and len(by_selection) < len(narrowed):
-            logger.info(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by current selection")
-                        .format(label=label, role_str=role_str, count=len(narrowed),
-                                narrowed=len(by_selection)))
+            log(_("[{label}] role {role_str!r}: {count} candidates narrowed to {narrowed} by current selection")
+                .format(label=label, role_str=role_str, count=len(narrowed),
+                        narrowed=len(by_selection)))
             narrowed = by_selection
 
     return narrowed

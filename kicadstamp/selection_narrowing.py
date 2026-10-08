@@ -526,7 +526,11 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     for nt in net_traces or ():
         name = str(getattr(nt, "net", "?"))
         if filterable:
-            nets, resolvable = record_nets(adapter, nt, sheet_names)
+            # quiet=True (доделка 2 of plan_2026_10_08_narrowing_net_traces_cost):
+            # this question is asked of EVERY record for ONE read, and the role
+            # search's `role_narrowing` lines were 2 184 of the live Log for one
+            # click. DEBUG here; the redraw keeps them at INFO.
+            nets, resolvable = record_nets(adapter, nt, sheet_names, quiet=True)
             if resolvable and nets and not (nets & wanted):
                 skipped += 1
                 continue
