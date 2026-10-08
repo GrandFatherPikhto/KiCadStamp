@@ -947,11 +947,14 @@ class CellDock(QWidget):
         always written to the project root file (2026-08-21, plan
         flatten_and_single_file_gui), so the write target IS the root. The
         Nested cells tab's Cell combo stays sourced from the WHOLE include
-        graph (a nested cell routinely lives in a different file)."""
+        graph (a nested cell routinely lives in a different file).
+
+        The board buttons are re-judged here too (2г, п.1)."""
         self._root_path = path
         self._path = path
         names = collect_all_cell_names(path) if path is not None else []
         set_combo_items(self.nested_cell_combo, names)
+        self._update_refresh_enabled()
 
     def set_board_selection(self, items, selected) -> None:
         """The live selection tick (DockHub.set_board_selection fan-out) — the
@@ -1749,16 +1752,13 @@ class CellDock(QWidget):
         loaded (Import needs the same clean role match as Refresh, see
         build_import_plan). CellDock receives no per-selection feed (only
         push_snapshot's role lists), so an EMPTY board selection is not gated
-        here — the worker reports it as a clear error at click time instead.
-
-        A cell nobody places and nobody gives an entity to has no instance at
-        all (2в, п.5) — the buttons are off for it, like the page's board ones.
-
+        here — the worker reports it as a clear error at click time instead. A
+        cell nobody places and nobody gives an entity to has no instance at all
+        (2в, п.5) — the buttons are off for it, like the page's board ones.
         Presence: `connection.is_connected`, never the door — docs/board_door.md §2."""
         connection = getattr(self._main_window, "connection", None)
         connected = bool(getattr(connection, "is_connected", False))
-        enabled = (connected and bool(self._components)
-                   and not unplaced_without_entity(self))
+        enabled = connected and bool(self._components) and not unplaced_without_entity(self)
         self.refresh_geometry_button.setEnabled(enabled)
         self.import_vias_tracks_button.setEnabled(enabled)
         self.subtract_copper_button.setEnabled(enabled)

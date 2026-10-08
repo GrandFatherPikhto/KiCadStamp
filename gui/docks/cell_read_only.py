@@ -18,6 +18,8 @@ nothing about cells, entities or the tree, only about "this page is read-only".
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt6.QtWidgets import QLabel, QTabWidget
 
 from kicadstamp.i18n import _
@@ -67,19 +69,26 @@ class ReadOnlyGate:
         if self._read_only:
             self._disable_buttons()
 
-    def reapply(self) -> None:
-        """Run the remembered rule again — for a REFILL that did not come through
+    def reapply(self, read_only: Optional[bool] = None) -> None:
+        """Run the rule again — for a REFILL that did not come through
         `load_entry` (2в, п.6: `set_root_path` reloads the form too, and its own
         `_reload_form` re-enables every board button).
 
+        `read_only` (2г, п.1) is the RECOMPUTED flag the page hands in: the page
+        asks the part-1 index afresh on every refill, so creating an entity on an
+        orphan lifts the read-only state without a special case. None = use the
+        remembered one. A no-op before the first `apply`.
+
         The gate keeps what it was last applied with, so the page needs no second
-        flag of its own and the rule still lives in ONE place. A no-op before the
-        first `apply` (nothing to remember) and on a read-write page."""
-        if self._tabs is None or not self._read_only:
+        flag of its own and the rule still lives in ONE place."""
+        if self._tabs is None:
             return
-        self._tabs.setEnabled(False)
-        self.note.setVisible(True)
-        self._disable_buttons()
+        if read_only is not None:
+            self._read_only = bool(read_only)
+        self._tabs.setEnabled(not self._read_only)
+        self.note.setVisible(self._read_only)
+        if self._read_only:
+            self._disable_buttons()
 
     def _disable_buttons(self) -> None:
         for button in self._board_buttons:

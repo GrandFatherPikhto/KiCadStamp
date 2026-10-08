@@ -510,6 +510,52 @@ def test_click_on_unused_cell_opens_the_cell_page_read_only(
             f"{name} вернулась после смены корня"
 
 
+def test_creating_an_entity_lifts_the_read_only_page(real_main_window, tmp_path,
+                                                    monkeypatch):
+    """2г, п.1 (живой дефект Дениса «сирота → Create entity»): «только чтение» —
+    не запомненный при открытии флаг, а ПЕРЕСЧИТАННЫЙ из индекса части 1 ответ.
+    Сущность, созданная настоящим путём (пункт меню ячейки → форма → refresh +
+    graph_changed), возвращает вкладки, убирает подсказку и меняет ответ для
+    CellDock; удалённая — возвращает всё обратно."""
+    import gui.docks.create_entity as create_entity_mod
+    from gui.entity_doors import unplaced_without_entity
+    from tests.gui.create_entity_helpers import (accepted_real_form,
+                                                 create_entity_action)
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    open_project(hub, root)
+    cell = find_child(category(file_item(hub.config_tree_dock.tree, root), "cells"), "c")
+
+    hub.config_tree_dock._on_clicked(cell, 0)
+    hub.cells_dock.load_entry("c", root)
+    view = hub.cell_anchor_view
+    assert not view._tabs.isEnabled(), "сирота открыта только для чтения"
+    assert not view._read_only_gate.note.isHidden()
+    assert unplaced_without_entity(hub.cells_dock) is True
+
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        accepted_real_form(name="e1", cluster="CL"))
+    create_entity_action(hub.config_tree_dock, cell, monkeypatch).trigger()
+
+    assert view._tabs.isEnabled(), "после создания сущности страница правимая"
+    assert view._read_only_gate.note.isHidden()
+    assert unplaced_without_entity(hub.cells_dock) is False, \
+        "CellDock судит по тому же пересчитанному ответу"
+
+    # …и обратно: сущности нет (конфиг перезаписан) — страница снова только для
+    # чтения тем же пересчётом. Порядок как у настоящего удаления (и создания):
+    # СНАЧАЛА дерево перечитывает граф и свой индекс, потом graph_changed — иначе
+    # страница спросила бы УСТАРЕВШИЙ индекс (и правильно бы не поверила).
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    hub.config_tree_dock.refresh()
+    hub.config_tree_dock.graph_changed.emit()
+
+    assert not view._tabs.isEnabled(), "без сущности страница снова только для чтения"
+    assert not view._read_only_gate.note.isHidden()
+    assert unplaced_without_entity(hub.cells_dock) is True
+
+
 def test_click_on_cell_with_entity_opens_the_cell_page_editable(
         real_main_window, tmp_path):
     """Обратная клетка: ячейка С сущностью открывается как прежде — правимой,

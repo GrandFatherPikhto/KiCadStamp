@@ -112,6 +112,7 @@ from ._common import (
     set_combo_items,
     show_message,
 )
+from ..entity_doors import read_only_cell
 from .cell_instance_mixin import CellInstanceMixin, parse_refs_field
 from .cell_read_only import ReadOnlyGate
 from .cell_refs_tab import RefsTabWidget
@@ -1106,13 +1107,13 @@ class CellAnchorView(CellInstanceMixin, QWidget):
             self.cleanup()
         self._cell_name = name
         self._file_path = Path(file_path) if file_path is not None else None
+        # The DOOR's flag: the fallback for a page with no index (2г, п.1).
+        self._open_read_only = bool(read_only)
         self.open_cell(opened_from)
         self._prefill_cell_context()
-        # 2б, п.3 + 2в, п.6: the board buttons go to the gate explicitly — a cell
-        # nobody places must have them OFF — and the gate is applied BEFORE the
-        # form renders, because `_reload_form` re-enables them by its own rules
-        # and its tail re-applies this rule (`reapply`). One owner for every
-        # refill, including the one `set_root_path` runs.
+        # 2б, п.3 + 2в, п.6: the board buttons go to the gate explicitly, BEFORE
+        # the form renders — `_reload_form` re-enables them by its own rules and
+        # its tail re-applies this rule (`reapply`), ONE owner per refill.
         self._read_only_gate.apply(self._tabs, read_only, (
             self._read_selection_button, self._fill_selection_button,
             self._set_anchor_button, self._clear_anchor_button,
@@ -1417,11 +1418,10 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         # working row, including the enable/disable of the three fields it drives,
         # after every setEnabled above).
         self.reload_instance()
-        # 2в, п.6 — and LAST OF ALL, the read-only rule: EVERY refill re-enables the
-        # buttons by its own rules (the root change refills the form too, and the
-        # mixin above drives the Fill button), so the ONE gate that owns the rule
-        # applies it again here — after every other setEnabled.
-        self._read_only_gate.reapply()
+        # 2в, п.6 + 2г, п.1 — LAST OF ALL: the read-only answer is ASKED AFRESH
+        # (creating an entity on an orphan lifts it right here), and every button
+        # the rules above just re-enabled goes back off through that ONE gate.
+        self._read_only_gate.reapply(read_only_cell(self, self._open_read_only))
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()
