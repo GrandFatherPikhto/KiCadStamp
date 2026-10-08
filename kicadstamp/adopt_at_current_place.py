@@ -63,9 +63,17 @@ class AdoptionReport:
     ``instances`` — how many rigid instances were actually examined;
     ``skipped_not_rigid`` / ``no_frame`` — instances the pass could not measure
     (the behaviour is unchanged for them); ``ambiguous`` — a live item two records
-    (or two live items one record) claimed: taken by no one."""
+    (or two live items one record) claimed: taken by no one.
+
+    ``bound`` — ``((kind, key, live_item), ...)``: the very pairs this pass
+    decided on (``adopted`` is its length). A READ-ONLY consumer then has the
+    answer without running the calculation a second time — «Select cell» takes
+    its copper from here (part Б of plan_2026_10_08_narrowing_net_traces_cost),
+    so the current-place rule stays in ONE place. Carried on the dry run too, so
+    it costs a dry run nothing to expose it."""
 
     adopted: int = 0
+    bound: tuple = ()
     vias: int = 0
     tracks: int = 0
     instances: int = 0
@@ -300,16 +308,19 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
                            .format(uuid=uuid, count=len(claims),
                                    keys=", ".join(sorted(key for _kind, key in claims))))
 
+    bound: list = []
     for (kind, key), item in key_to_item.items():
         if len(uuid_to_keys.get(getattr(item, "uuid", None), ())) > 1:
             continue
         if write:
             regs[kind].adopt_live(key, _entry_from_live(kind, item))
         report.adopted += 1
+        bound.append((kind, key, item))
         if kind == "via":
             report.vias += 1
         else:
             report.tracks += 1
+    report.bound = tuple(bound)
 
     if report.adopted:
         logger.info(_("Adopt at current place: {count} record(s) bound to their live "

@@ -210,6 +210,29 @@ def _run(adapter, cell, clone, tmp_path, *, write=True, via_entries=None,
     return report, via_reg, trk_reg
 
 
+# ── part Б of plan_2026_10_08_narrowing_net_traces_cost: the report CARRIES
+#    the copper it bound, so a read-only consumer does not recalculate it ──────
+
+def test_the_report_carries_the_bound_copper_of_both_kinds(gate, tmp_path):
+    """`report.bound` = the (kind, key, live item) pairs the pass decided on — the
+    via AND the track of the record, at their CURRENT place. «Select cell» selects
+    exactly this copper (part Б), so the current-place rule stays in ONE place.
+
+    Mutation: stop collecting the pairs and the consumer has nothing to select."""
+    cell = _cell()
+    clone = _clone()
+    adapter = _adapter(cell, vias=[_live_via("uv", *FPGA_LIVE)],
+                       tracks=[_live_track("ut", *FPGA_LIVE, 11.0, 10.0)])
+
+    report, _, _ = _run(adapter, cell, clone, tmp_path)
+
+    assert report.adopted == 2
+    assert sorted(kind for kind, _key, _item in report.bound) == ["track", "via"]
+    assert {item.uuid for _kind, _key, item in report.bound} == {"uv", "ut"}
+    assert all(key for _kind, key, _item in report.bound), \
+        "every bound pair names the record's registry key"
+
+
 # ── the rules of the plan's cell table ────────────────────────────────────────
 
 def test_empty_registry_adopts_the_copper_at_its_current_place(gate, tmp_path):

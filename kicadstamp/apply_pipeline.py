@@ -593,6 +593,13 @@ class ApplyPipeline:
         # the CLI layer prints and a future GUI panel could render. The
         # library itself never prints to stdout; it only produces this.
         self.dry_run_report: list[str] | None = None
+        # The dry run's at-current-place adoption (AdoptionReport), with the
+        # (kind, key, live item) pairs it decided on. «Select cell» selects
+        # exactly that copper, so the CURRENT-place rule stays in ONE place and
+        # is never recalculated (part Б of plan_2026_10_08_narrowing_net_traces_
+        # cost). None until _dry_run() runs — the real run does not store it
+        # (nothing reads it there).
+        self.at_current_place = None
         # Imprint placement plans (plan_2026_09_05_scheme_list.md §4) —
         # built in _resolve_order over the FULL cfg, executed by _execute and
         # reported by _dry_run. [] when there are no imprint Entities.
@@ -775,6 +782,11 @@ class ApplyPipeline:
             self.adapter, self.cfg, self.items, registry, track_registry,
             write=False, sheet_names=self.sheet_names,
             position_overrides=self.position_overrides)
+        # Kept for the read-only consumer («Select cell»): the pass just decided
+        # which live copper belongs to this run's records AT ITS CURRENT PLACE —
+        # that IS what "select what the instance has on the board right now"
+        # means, so it is handed over instead of being computed again.
+        self.at_current_place = adoption
         moves = self.planned_moves
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")

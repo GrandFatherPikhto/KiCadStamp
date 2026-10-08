@@ -240,6 +240,30 @@ def test_a_shifted_cluster_leaves_no_copper_at_the_old_place(tmp_path):
     assert entries[_record_key(clone, cfg)].uuid == moved[0].uuid
 
 
+def test_the_dry_run_hands_the_bound_copper_over(tmp_path):
+    """Part Б of plan_2026_10_08_narrowing_net_traces_cost: the dry run KEEPS its
+    adoption report as ``pipeline.at_current_place``, with the (kind, key, item)
+    it decided on — that is what «Select cell» then selects, so the CURRENT-place
+    rule is never run a second time. The registry files stay untouched (it is a
+    dry run: the report only reports).
+
+    Mutation: stop storing it and the consumer falls back to the PLANNED place —
+    exactly the live defect (0 by geometry after a read, copper on the board)."""
+    pipeline, clone, cfg = _pipeline(tmp_path, dry_run=True)
+    before = _registry_bytes(tmp_path)
+
+    with patch("kicadstamp.apply_pipeline.BatchExecutor", _FakeBatchExecutor):
+        pipeline._dry_run()
+
+    adoption = pipeline.at_current_place
+    assert adoption is not None and adoption.adopted == 1
+    kind, key, item = adoption.bound[0]
+    assert kind == "via"
+    assert key == _record_key(clone, cfg)
+    assert item.uuid == "v_old", "the LIVE item at its CURRENT place"
+    assert _registry_bytes(tmp_path) == before
+
+
 def test_the_dry_run_counts_would_adopt_and_writes_nothing(tmp_path):
     """1а-2: the SAME wiring in the dry branch — the report says «would adopt 1
     record(s)» and neither registry file is touched. Mutation N2 «the dry run
