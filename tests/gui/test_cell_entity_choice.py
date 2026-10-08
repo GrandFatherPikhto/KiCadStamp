@@ -35,6 +35,7 @@ from gui.cell_entity_choice import (
     explicit_kwargs,
     manual_address,
     not_the_entity_line,
+    read_instance,
     remembered_last_entity,
     remember_last_entity,
     remember_working_instance,
@@ -318,6 +319,46 @@ def test_the_manual_row_clears_the_working_instance():
 
     assert working_instance(root, CELL) is None
     assert settings.state.get(WORKING_INSTANCE_KEY) == {}
+
+
+def test_a_read_uses_the_entity_the_page_is_on():
+    """п.1: читатель (CellDock) зовёт read_instance ОДИН раз и получает экземпляр
+    страницы — адрес сущности вместе с её (кластер, лист) и refs."""
+    root = Path("/tmp/root.sexp")
+    remember_working_instance(root, CELL, entity_address(
+        _entity("ch1", cluster="DAC_BUF", sheet="Channel_1",
+                refs={"R_IN": "C43"})))
+
+    read = read_instance(root, CELL)
+
+    assert read.is_pinned
+    assert read.address.entity_name == "ch1"
+    assert (read.cluster, read.sheet) == ("DAC_BUF", "Channel_1")
+    assert read.refs == {"R_IN": "C43"}
+
+
+def test_a_read_on_a_manual_cell_falls_back_to_the_remembered_pair():
+    """«Manual…» (или ячейка, которой страница не занималась): читатель получает
+    запомненный контекст и опознанные refs — как до части 2."""
+    root = Path("/tmp/root.sexp")
+    remember_cell_instance(root, CELL, SimpleNamespace(
+        cluster="OLD_CLUSTER", sheet="Channel_0", role_to_ref={"R": "C43"}))
+
+    read = read_instance(root, CELL)
+
+    assert not read.is_pinned and read.address is None
+    assert (read.cluster, read.sheet) == ("OLD_CLUSTER", "Channel_0")
+    assert read.refs == {"R": "C43"}
+
+
+def test_a_read_with_nothing_remembered_is_empty():
+    """Ничего не помним — читатель идёт читать с пустым экземпляром (и получает
+    тот же отказ, что и раньше), а не падает."""
+    read = read_instance(Path("/tmp/root.sexp"), CELL)
+    assert not read.is_pinned
+    assert (read.address, read.cluster, read.sheet, read.refs) == \
+        (None, None, None, None)
+    assert read_instance(None, CELL).refs is None
 
 
 def test_a_malformed_working_instance_reads_as_nothing():

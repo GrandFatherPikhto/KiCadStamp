@@ -37,6 +37,7 @@ from kicadstamp.i18n import _
 from kicadstamp.selection_narrowing import record_address_matches
 
 from . import settings
+from .cell_edit_context import remembered_cell_edit_context, remembered_cell_refs
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ __all__ = [
     "build_choices", "default_index", "explicit_kwargs",
     "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
     "write_applies_line", "remember_last_entity", "remembered_last_entity",
-    "remember_working_instance", "working_instance",
+    "remember_working_instance", "working_instance", "ReadInstance",
+    "read_instance",
 ]
 
 # The three kinds of an address row. "Manual…" is a row too: it is not "no
@@ -321,6 +323,44 @@ def remember_last_entity(root_path, cell_name, entity_name) -> None:
     except Exception:  # noqa: BLE001 — a state write must never break a pick
         logger.warning("Failed to remember the last entity of %r — state write "
                        "skipped", cell_name)
+
+
+@dataclasses.dataclass(frozen=True)
+class ReadInstance:
+    """What ONE board read of a cell must use as its instance.
+
+    `address` is the cell page's row when an ENTITY is in force (the read is then
+    PINNED to it: see `address_matches_selection` / `not_the_entity_line`), None on
+    the "Manual…" row. (cluster, sheet, refs) are the values every reader takes —
+    the entity's own when it has one, else the cell's remembered ones."""
+    address: Optional[InstanceAddress] = None
+    cluster: Optional[str] = None
+    sheet: Optional[str] = None
+    refs: Optional[dict] = None
+
+    @property
+    def is_pinned(self) -> bool:
+        return self.address is not None
+
+
+def read_instance(root_path, cell_name) -> ReadInstance:
+    """The ONE call a board READ of `cell_name` makes to learn its instance.
+
+    The cell page's "Entity" dropdown has the last word (п.1): with an entity
+    chosen its own (cluster, sheet) and its `refs:` pins ARE the instance, read
+    from the working-instance store AT THE MOMENT OF USE. Otherwise — the
+    "Manual…" row, or a cell the page was never used on — the cell's remembered
+    context and its identified refs answer, exactly as they did before part 2.
+
+    Never raises: an empty state is the everyday case, and the caller then reads
+    with nothing remembered (the same refusal it always had)."""
+    address = working_instance(root_path, cell_name)
+    if address is not None and address.cluster:
+        return ReadInstance(address=address, cluster=address.cluster,
+                            sheet=address.sheet, refs=address.refs or None)
+    cluster, sheet = remembered_cell_edit_context(root_path, cell_name)
+    return ReadInstance(cluster=cluster, sheet=sheet,
+                        refs=remembered_cell_refs(root_path, cell_name))
 
 
 def remember_working_instance(root_path, cell_name, address) -> None:
