@@ -49,7 +49,7 @@ __all__ = [
     "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
     "write_applies_line", "remember_last_entity", "remembered_last_entity",
     "remember_working_instance", "working_instance", "ReadInstance",
-    "read_instance",
+    "read_instance", "pin_working_instance",
 ]
 
 # The three kinds of an address row. "Manual…" is a row too: it is not "no
@@ -314,6 +314,36 @@ def write_applies_line(cell_name, address) -> str:
              "— the change applies to every entity of the cell").format(
         cell=cell_name, entity=address.entity_name, cluster=address.cluster,
         sheet=address.sheet if address.sheet else _("(no sheet)"))
+
+
+def pin_working_instance(root_path, cell_name, entity_name, index=None) -> bool:
+    """Make the entity a DOOR came from the cell's working instance (2б, п.4).
+
+    Returns True when the record was published. The door (a board item of an
+    ENTITY leaf) knows the name it came from and NOTHING else the page needs, so
+    the name is resolved back into an ADDRESS through the part-1 index
+    (`gui/docks/entity_index.entity_named` — the ONE index, never a second walk).
+
+    A name that no longer resolves CLEARS the record instead of leaving a
+    DIFFERENT entity in it: `read_instance` answers from that store AT THE MOMENT
+    OF USE, so a stale row would silently read another channel — the very defect
+    п.4 exists for. Cleared, the door's own explicit (cluster, sheet) is in
+    charge, exactly as before part 2.
+
+    Without an index the caller has nothing to resolve with: nothing is written
+    (False) — never a guess."""
+    if root_path is None or not cell_name or not entity_name:
+        return False
+    row = None
+    if index is not None:
+        ref = index.entity_named(entity_name)
+        if ref is not None:
+            row = entity_address(ref.data)
+    if row is None or not (row.cluster or row.refs):
+        remember_working_instance(root_path, cell_name, None)
+        return False
+    remember_working_instance(root_path, cell_name, row)
+    return True
 
 
 def remember_last_entity(root_path, cell_name, entity_name) -> None:

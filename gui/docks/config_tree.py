@@ -252,22 +252,35 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # context menu's "Select cell" — highlight the placed instance's board
     # components PLUS the copper the registries recorded for this cell at that
     # instance; the SAME function the CellDock button runs (one for every door).
-    cell_select_requested = pyqtSignal(str, object, object, object)
+    #
+    # The FIFTH field (2б, п.4) is the NAME of the entity the item was clicked
+    # under — None on a CELL leaf. A board item of an ENTITY leaf must make THAT
+    # entity the working instance before its action reads the board, or the
+    # action would silently read whatever entity the cell page was last on
+    # (`cell_working_instance`, read at the moment of use).
+    cell_select_requested = pyqtSignal(str, object, object, object, object)
     # СЦ-1 (plan_2026_10_05_select_cell_split): the context menu's "Select cell
     # components" — the instance's board components ONLY. Same four-arg shape and
     # the SAME instance resolver; only the recorded copper is left out.
-    cell_select_components_requested = pyqtSignal(str, object, object, object)
+    cell_select_components_requested = pyqtSignal(str, object, object, object,
+                                                  object)
     # 2026-10-05 (plan_2026_10_05_select_enclosed_copper): the context menu's
     # "Select enclosed copper" — the WHOLE instance: its components PLUS the
     # copper enclosed by them (a connected piece touching an instance pad and NO
     # foreign pad). Same four-arg shape (name, file_path, cluster, sheet); the
     # instance is resolved by DockHub with the "Select cell" rules.
-    cell_select_enclosed_requested = pyqtSignal(str, object, object, object)
+    cell_select_enclosed_requested = pyqtSignal(str, object, object, object,
+                                                object)
     # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread): the "Разнос"
     # tab's two TREE doors — the SAME four-arg shape as cell_select_requested
     # (name, file_path, cluster, sheet). The instance is resolved by DockHub with
     # the "Select cell" rules, never a second scheme.
-    cell_explode_requested = pyqtSignal(str, object, object, object)
+    cell_explode_requested = pyqtSignal(str, object, object, object, object)
+    # 2б, п.4: the ENTITY leaf's own "Edit cell..." — (cell name, file_path,
+    # entity name). It opens the cell PAGE on THAT entity (opened_from), which
+    # is the only thing that makes "open this entity's page" mean this entity:
+    # the page would otherwise land on the last/first entity of the cell.
+    cell_anchor_entity_requested = pyqtSignal(str, object, str)
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
@@ -1520,21 +1533,35 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                     handled_orphan = True
                 elif isinstance(entity, dict) and entity.get("cell"):
                     # СЦ-1: three items in order — components, cell, enclosed.
+                    # 2б, п.4: the ENTITY's own "Edit cell..." — the page opens
+                    # ON this entity (`opened_from`), never on the cell's
+                    # last/first one. The item name matches the cell menu's, and
+                    # the signal is its own because this door opens the PAGE
+                    # (anchor/dropdown), not CellDock's dialog.
+                    entity_edit_action = menu.addAction(_("Edit cell..."))
+                    entity_edit_action.setObjectName("edit_cell_for_entity_action")
+                    entity_edit_action.triggered.connect(
+                        lambda checked=False, n=entity.get("cell"),
+                        e=entity.get("name"), f=file_path:
+                        self.cell_anchor_entity_requested.emit(n, f, e))
                     components_action = menu.addAction(_("Select cell components"))
                     components_action.setObjectName("select_cell_components_action")
                     components_action.triggered.connect(
                         lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"):
+                        c=entity.get("cluster"), s=entity.get("sheet"),
+                        e=entity.get("name"):
                         # Н5б: file_path=None — the ENTITY's file must never
                         # become the cell's save target; CellDock resolves the
                         # cell's OWN file from the config.
-                        self.cell_select_components_requested.emit(n, None, c, s))
+                        self.cell_select_components_requested.emit(n, None, c, s,
+                                                                   e))
                     select_action = menu.addAction(_("Select cell"))
                     select_action.setObjectName("select_cell_action")
                     select_action.triggered.connect(
                         lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"):
-                        self.cell_select_requested.emit(n, None, c, s))
+                        c=entity.get("cluster"), s=entity.get("sheet"),
+                        e=entity.get("name"):
+                        self.cell_select_requested.emit(n, None, c, s, e))
                     # 2026-10-05: the SAME explicit instance, selecting the whole
                     # enclosed copper too. The objectName is for the guard (the
                     # label is translated, so the guard reads the name).
@@ -1542,14 +1569,16 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                     enclosed_action.setObjectName("select_enclosed_copper_action")
                     enclosed_action.triggered.connect(
                         lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"):
-                        self.cell_select_enclosed_requested.emit(n, None, c, s))
+                        c=entity.get("cluster"), s=entity.get("sheet"),
+                        e=entity.get("name"):
+                        self.cell_select_enclosed_requested.emit(n, None, c, s, e))
                     # Р2: the entity door of the "Разнос" tab — same explicit
                     # (cluster, sheet), so no guessing.
                     menu.addAction(_("Explode…")).triggered.connect(
                         lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"):
-                        self.cell_explode_requested.emit(n, None, c, s))
+                        c=entity.get("cluster"), s=entity.get("sheet"),
+                        e=entity.get("name"):
+                        self.cell_explode_requested.emit(n, None, c, s, e))
             if section == "cells":
                 # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
                 # menu.md Т1): the ONE item that gives an EXISTING cell an

@@ -124,6 +124,25 @@ class EntityIndex:
         ref = table.get(name)
         return ref.uuid if ref is not None else None
 
+    def entity_named(self, name) -> Optional["EntityRef"]:
+        """The `entities:` record with that NAME, from the same raw graph.
+
+        An entity NAME is unique across the WHOLE include graph (that is what
+        `gui/docks/rename.py`'s collect_entities enforces), so ONE lookup by
+        name serves every door — which is why 2б, п.4 can carry the name in a
+        signal and get the record (and its cluster/sheet/refs) back here,
+        through the SAME part-1 index the tree draws entities with. None when
+        the name is gone (an entity renamed or removed since the tree was
+        drawn): the caller then refuses to guess."""
+        if not name:
+            return None
+        for table in (self.entities_by_cell, self.entities_by_imprint):
+            for refs in table.values():
+                for ref in refs:
+                    if ref.name == name:
+                        return ref
+        return None
+
 
 def _iter_nodes(root: IncludeTreeNode) -> Iterator[IncludeTreeNode]:
     """Every file node of the include: graph, root first, then children

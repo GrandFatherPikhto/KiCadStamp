@@ -696,10 +696,11 @@ def test_every_select_point_sends_the_instance_of_its_own_source(
     """Доделка 1а, п.6 — ПОВЕДЕНЧЕСКАЯ клетка на каждый пункт «Select …» из
     обоих меню: 3 пункта × 2 источника одной таблицей.
 
-    Пункт ЯЧЕЙКИ шлёт (имя, файл СВОЕГО узла, None, None): экземпляр выбирается
-    потом, по контексту. Пункт СУЩНОСТИ шлёт (cell, None, cluster, sheet) —
-    файл None (файл сущности не должен стать целью записи ячейки), а экземпляр
-    берётся из записи сущности.
+    Пункт ЯЧЕЙКИ шлёт (имя, файл СВОЕГО узла, None, None, None): экземпляр
+    выбирается потом, по контексту. Пункт СУЩНОСТИ шлёт (cell, None, cluster,
+    sheet, имя СуЩНОСТИ) — файл None (файл сущности не должен стать целью записи
+    ячейки), экземпляр берётся из записи сущности, а пятое поле (2б, п.4) —
+    ИМЯ этой сущности, которым дверь публикует рабочий экземпляр.
 
     Прежние сторожа читали ТЕКСТ исходника, поэтому соседний пункт с тем же
     хвостом их удовлетворял; здесь ловится СИГНАЛ.
@@ -726,11 +727,97 @@ def test_every_select_point_sends_the_instance_of_its_own_source(
     action.trigger()
 
     assert len(seen) == 1, seen
-    name, file_arg, cluster, sheet = seen[0]
+    name, file_arg, cluster, sheet, entity = seen[0]
     assert name == "c"
     if source == "cell":
         assert Path(file_arg).resolve() == root.resolve()
         assert (cluster, sheet) == (None, None)
+        assert entity is None, "у пункта ЯЧЕЙКИ пришпиливать нечего"
     else:
         assert file_arg is None, "файл сущности не должен стать целью записи"
         assert (cluster, sheet) == ("CL", "S1")
+        assert entity == "e1", "дверь сущности называет СВОЮ сущность (2б, п.4)"
+
+
+def _signal_recorder(dock, signal_name):
+    """Collect every payload a dock emits on `signal_name` (a list the guard
+    reads afterwards) — the menu is driven by a real QAction, so the guard sees
+    what the tree really sends, not what its source text says."""
+    seen: list = []
+    getattr(dock, signal_name).connect(lambda *a: seen.append(a))
+    return seen
+
+
+def test_the_entity_leaf_opens_the_cell_page_on_that_entity(
+        main_window, tmp_path, monkeypatch):
+    """2б, п.4: у листа-сущности ОДИН пункт «Edit cell...», и он называет эту
+    сущность — страница открывается НА НЕЙ (`opened_from`), а не на последней
+    или первой сущности ячейки. У листа ЯЧЕЙКИ такого пункта нет: дверь ячейки
+    экземпляр не называет."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "S1"},
+                                     {"name": "e2", "cell": "c",
+                                      "cluster": "CL2", "sheet": "S2"}]})
+    dock = _dock(main_window, root)
+    cells = category(file_item(dock.tree, root), "cells")
+    seen = _signal_recorder(dock, "cell_anchor_entity_requested")
+
+    actions = context_menu_actions(dock, find_child(find_child(cells, "c"),
+                                                    "e2"), monkeypatch)
+    action = next((act for _label, act in actions
+                   if act.objectName() == "edit_cell_for_entity_action"), None)
+    assert action is not None, [label for label, _act in actions]
+    action.trigger()
+
+    assert len(seen) == 1, seen
+    name, file_arg, entity = seen[0]
+    assert (name, entity) == ("c", "e2")
+    assert Path(file_arg).resolve() == root.resolve()
+
+    cell_actions = context_menu_actions(dock, find_child(cells, "c"), monkeypatch)
+    assert not any(act.objectName() == "edit_cell_for_entity_action"
+                   for _label, act in cell_actions), \
+        "пункт «на этой сущности» бывает только у листа-сущности"
+
+
+def test_the_entity_door_publishes_that_entity_as_the_working_instance(tmp_path):
+    """2б, п.4 (мутация «выбор по последней»): дверь сущности пишет СВОЮ
+    сущность в ОДНО хранилище рабочего экземпляра, поэтому действие, которое
+    идёт следом, читает её канал — а не тот, на котором страница стояла
+    последней (`read_instance` отвечает из хранилища в момент использования)."""
+    from types import SimpleNamespace
+    from gui.cell_entity_choice import read_instance, working_instance
+    from gui.dock_hub import _pin_door_instance
+    from gui.docks.entity_index import build_entity_index
+    from kicadstamp.config.includes import walk_include_tree
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL1", "sheet": "S1"},
+                                     {"name": "e2", "cell": "c",
+                                      "cluster": "CL2", "sheet": "S2"}]})
+    index = build_entity_index(walk_include_tree(str(root)))
+    hub = SimpleNamespace(
+        config_tree_dock=SimpleNamespace(_entity_index=index),
+        root_metadata_dock=SimpleNamespace(root_path=root))
+
+    # the cell page was last on e1 (a pick, or an earlier door) …
+    _pin_door_instance(hub, "c", "e1")
+    assert read_instance(root, "c").cluster == "CL1"
+
+    # … and now the door of e2 fires: the store follows the DOOR, not the page.
+    _pin_door_instance(hub, "c", "e2")
+    row = working_instance(root, "c")
+    assert row is not None and row.entity_name == "e2"
+    assert read_instance(root, "c").cluster == "CL2"
+
+    # A name the graph no longer knows clears the record — the door's own
+    # explicit (cluster, sheet) is then in charge, never a stale entity.
+    _pin_door_instance(hub, "c", "gone")
+    assert working_instance(root, "c") is None
+
+    # A CELL leaf names no entity: nothing is written at all.
+    _pin_door_instance(hub, "c", None)
+    assert working_instance(root, "c") is None

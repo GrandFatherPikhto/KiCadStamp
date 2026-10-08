@@ -262,25 +262,25 @@ class EntityTreeMixin:
         components_action.setObjectName("select_cell_components_action")
         components_action.triggered.connect(
             lambda: self.cell_select_components_requested.emit(
-                old_name, file_path, None, None))
+                old_name, file_path, None, None, None))
         # Н5: highlight what a read would read (instance + own copper).
         select_action = menu.addAction(_("Select cell"))
         select_action.setObjectName("select_cell_action")
         select_action.triggered.connect(
             lambda: self.cell_select_requested.emit(
-                old_name, file_path, None, None))
+                old_name, file_path, None, None, None))
         # 2026-10-05: the whole enclosed copper of this cell's instance
         # (components + the copper between them, no foreign pad).
         enclosed_action = menu.addAction(_("Select enclosed copper"))
         enclosed_action.setObjectName("select_enclosed_copper_action")
         enclosed_action.triggered.connect(
             lambda: self.cell_select_enclosed_requested.emit(
-                old_name, file_path, None, None))
+                old_name, file_path, None, None, None))
         # Р2: the cell door of the "Разнос" tab — the instance is
         # resolved by DockHub with the "Select cell" rules.
         menu.addAction(_("Explode…")).triggered.connect(
             lambda: self.cell_explode_requested.emit(
-                old_name, file_path, None, None))
+                old_name, file_path, None, None, None))
         # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
         # reads with the layer dialog in front. The FAST items above stay
         # one-click (no window, no board read for the layer set); these

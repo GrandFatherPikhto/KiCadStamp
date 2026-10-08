@@ -265,7 +265,9 @@ def test_tree_item_emits_the_signal():
     # properties are unchanged, so the guard reads BOTH sources.
     src = inspect.getsource(ct) + inspect.getsource(et)
     assert "self.cell_select_requested.emit(" in src
-    assert "old_name, file_path, None, None))" in src
+    # 2б, п.4: the FOURTH field stayed the instance, a FIFTH (the entity name)
+    # was added — a cell leaf sends None there (nothing to pin).
+    assert "old_name, file_path, None, None, None))" in src
 
 
 # ── Н5-2: an explicit instance is never overridden by the remembered sheet ──
@@ -358,8 +360,12 @@ def test_entity_item_sends_its_own_instance():
     import inspect
     import gui.docks.config_tree as ct
     src = inspect.getsource(ct)
-    assert 'c=entity.get("cluster"), s=entity.get("sheet"):' in src
-    assert "self.cell_select_requested.emit(n, None, c, s)" in src
+    assert 'c=entity.get("cluster"), s=entity.get("sheet"),' in src
+    # 2б, п.4: the item ALSO sends the entity NAME (its fifth field) — that is
+    # what makes the action read THIS channel instead of the last one the page
+    # was on.
+    assert 'e=entity.get("name"):' in src
+    assert "self.cell_select_requested.emit(n, None, c, s, e)" in src
 
 
 def _write_include_config(tmp_path):
