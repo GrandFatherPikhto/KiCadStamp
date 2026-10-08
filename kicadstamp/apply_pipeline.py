@@ -58,7 +58,8 @@ from .registry import (PlacementRegistry, registry_paths_for_config,
                        TrackRegistry, default_operation_log_dir_for_config,
                        filter_existing_tracks, filter_existing_vias,
                        adopt_matching_unowned)
-from .adopt_at_current_place import adopt_cell_copper_at_current_place
+from .adopt_at_current_place import (adopt_cell_copper_at_current_place,
+                                     dry_run_adoption)
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -593,12 +594,9 @@ class ApplyPipeline:
         # the CLI layer prints and a future GUI panel could render. The
         # library itself never prints to stdout; it only produces this.
         self.dry_run_report: list[str] | None = None
-        # The dry run's at-current-place adoption (AdoptionReport), with the
-        # (kind, key, live item) pairs it decided on. «Select cell» selects
-        # exactly that copper, so the CURRENT-place rule stays in ONE place and
-        # is never recalculated (part Б of plan_2026_10_08_narrowing_net_traces_
-        # cost). None until _dry_run() runs — the real run does not store it
-        # (nothing reads it there).
+        # The dry run's at-current-place adoption (AdoptionReport, part Б of
+        # plan_2026_10_08_narrowing_net_traces_cost) — «Select cell» reads its
+        # .bound. None until _dry_run() runs (the real run does not store it).
         self.at_current_place = None
         # Imprint placement plans (plan_2026_09_05_scheme_list.md §4) —
         # built in _resolve_order over the FULL cfg, executed by _execute and
@@ -774,27 +772,17 @@ class ApplyPipeline:
         # is unchanged). The divergence is honest and documented in the report
         # below, same as the existing "planned from the CURRENT board" note.
         vias, tracks = self.plan_copper()
-        # At-current-place adoption, DRY (write=False): the SAME pass a real run
-        # runs before its first move. It reads the board and the registry files
-        # and writes NOTHING — the registry files stay byte-for-byte unchanged.
+        # At-current-place adoption, DRY (write=False) — the SAME pass a real run
+        # runs before its first move, and its report's own wording (part Б).
         registry, track_registry = self._open_registries()
-        adoption = adopt_cell_copper_at_current_place(
+        self.at_current_place, adoption_lines = dry_run_adoption(
             self.adapter, self.cfg, self.items, registry, track_registry,
-            write=False, sheet_names=self.sheet_names,
-            position_overrides=self.position_overrides)
-        # Kept for the read-only consumer («Select cell»): the pass just decided
-        # which live copper belongs to this run's records AT ITS CURRENT PLACE —
-        # that IS what "select what the instance has on the board right now"
-        # means, so it is handed over instead of being computed again.
-        self.at_current_place = adoption
+            sheet_names=self.sheet_names, position_overrides=self.position_overrides)
         moves = self.planned_moves
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
         lines.append(_("Order: {order}").format(order=" -> ".join(it.label for it in self.items)))
-        if adoption.adopted:
-            lines.append(_("Adopt at current place: would adopt {count} record(s) "
-                           "(a real run writes the registry)")
-                         .format(count=adoption.adopted))
+        lines.extend(adoption_lines)
         if coordinate_moves:
             lines.append(_("Coordinate placements (Phase 0, before the order above):"))
             for m in coordinate_moves:

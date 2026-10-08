@@ -51,7 +51,8 @@ from .i18n import _
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AdoptionReport", "adopt_cell_copper_at_current_place"]
+__all__ = ["AdoptionReport", "adopt_cell_copper_at_current_place",
+           "dry_run_adoption"]
 
 
 @dataclass
@@ -327,3 +328,24 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
                       "copper ({vias} via(s), {tracks} track(s))")
                     .format(count=report.adopted, vias=report.vias, tracks=report.tracks))
     return report
+
+
+def dry_run_adoption(adapter, cfg, items, via_reg, track_reg, *, sheet_names=None,
+                     position_overrides=None) -> tuple[AdoptionReport, list[str]]:
+    """The DRY run's at-current-place pass: the SAME call a real run makes with
+    ``write=False`` (every record is decided and counted, nothing is saved), plus
+    the report's OWN lines — so the wording of this pass lives with the pass and
+    ``apply_pipeline`` keeps wiring (rule 45; part Б of
+    plan_2026_10_08_narrowing_net_traces_cost).
+
+    Returns ``(report, lines)``: the caller keeps the report (the read-only
+    «Select cell» takes the copper this pass decided on from
+    ``AdoptionReport.bound``, never by recalculating it) and appends ``lines`` to
+    its dry-run report."""
+    report = adopt_cell_copper_at_current_place(
+        adapter, cfg, items, via_reg, track_reg, write=False,
+        sheet_names=sheet_names, position_overrides=position_overrides)
+    if not report.adopted:
+        return report, []
+    return report, [_("Adopt at current place: would adopt {count} record(s) "
+                      "(a real run writes the registry)").format(count=report.adopted)]
