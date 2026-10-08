@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QStyle
 
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import (ConfigTreeDock, _CELL_PLACED, _CELL_UNUSED,
@@ -52,6 +53,18 @@ def _has_category(item, section) -> bool:
 
 def _mark(leaf):
     return leaf.data(0, _ROLE_CELL_MARK)
+
+
+def _icon_image(item):
+    """The item's icon AS PIXELS — the only honest way to say WHICH standard
+    icon sits on it: a QIcon is not comparable, and `isNull()` says only "some"."""
+    return item.icon(0).pixmap(16).toImage()
+
+
+def _standard_image(dock, standard):
+    """The same pixels for a QStyle.StandardPixmap, from the SAME style the dock
+    draws with — a second style() call would compare two different themes."""
+    return dock.style().standardIcon(standard).pixmap(16).toImage()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -138,7 +151,9 @@ def test_unused_cell_without_entity_is_marked(main_window, tmp_path):
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
 
     assert _mark(cell) == _CELL_UNUSED
-    assert not cell.icon(0).isNull(), "у пометки должен быть значок"
+    assert _icon_image(cell) == _standard_image(
+        dock, QStyle.StandardPixmap.SP_MessageBoxWarning), (
+        "жёлтый «!» — именно Warning: само наличие значка ничего не значит")
     assert "is not placed" in cell.toolTip(0)
 
 
@@ -153,6 +168,9 @@ def test_cell_placed_without_entity_is_marked_as_placed(main_window, tmp_path):
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
 
     assert _mark(cell) == _CELL_PLACED
+    assert _icon_image(cell) == _standard_image(
+        dock, QStyle.StandardPixmap.SP_MessageBoxInformation), (
+        "синее «i» — именно Information")
     tip = cell.toolTip(0)
     assert "placed by" in tip and "ch1" in tip, tip
 
@@ -610,7 +628,10 @@ def test_an_orphan_entity_carries_a_mark_not_only_a_hint(main_window, tmp_path):
     dock = _dock(main_window, root)
     leaf = find_child(category(file_item(dock.tree, root), "entities"), "e1")
 
-    assert not leaf.icon(0).isNull(), "у сироты должен быть значок"
+    assert _icon_image(leaf) == _standard_image(
+        dock, QStyle.StandardPixmap.SP_MessageBoxCritical), (
+        "красный значок — именно Critical: висячая ссылка в формате 3 роняет "
+        "загрузку графа, и подмена на Warning обязана краснеть")
     assert leaf.toolTip(0), "и подсказка — обе половины п.3"
 
 
