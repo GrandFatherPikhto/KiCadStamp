@@ -19070,6 +19070,16 @@ msgstr "Размещённый экземпляр этой ячейки: каж�
 msgid "With an Entity chosen, Sheet/Cluster/refs are its address and are read-only here — edit them in the entity's own form. “Manual…” hands the three fields back to you."
 msgstr "С выбранной сущностью лист/кластер/refs — её адрес, и здесь они только для чтения: правьте их в форме сущности. «Manual…» возвращает эти три поля вам."
 
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "the selection is not entity {entity!r} — nothing read"
+msgstr "выделение — не сущность {entity!r} — ничего не прочитано"
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) — the change applies to every entity of the cell"
+msgstr "ячейка {cell!r} обновлена из сущности {entity!r} ({cluster} на {sheet}) — изменение применится ко всем сущностям ячейки"
+
 #: gui/docks/config_tree.py
 #, python-brace-format
 msgid "{kind}: {name}"

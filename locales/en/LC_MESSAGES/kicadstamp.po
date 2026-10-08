@@ -18156,10 +18156,20 @@ msgstr ""
 #: gui/docks/cell_anchor_view.py
 msgid "The placed instance of this cell: every action of this page uses the address of the chosen Entity. “Manual…” keeps the hand-typed Sheet/Cluster/refs."
 msgstr ""
-
 #: gui/docks/cell_anchor_view.py
 msgid "With an Entity chosen, Sheet/Cluster/refs are its address and are read-only here — edit them in the entity's own form. “Manual…” hands the three fields back to you."
 msgstr ""
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "the selection is not entity {entity!r} — nothing read"
+msgstr ""
+
+#: gui/cell_entity_choice.py
+#, python-brace-format
+msgid "cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) — the change applies to every entity of the cell"
+msgstr ""
+
 
 #: gui/docks/config_tree.py
 #, python-brace-format

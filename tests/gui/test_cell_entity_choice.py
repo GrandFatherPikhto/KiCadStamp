@@ -27,14 +27,17 @@ from gui.cell_entity_choice import (
     MANUAL,
     SOURCE_ENTITY,
     SOURCE_SPOKE,
+    address_matches_selection,
     build_choices,
     default_index,
     entity_address,
     explicit_kwargs,
     manual_address,
+    not_the_entity_line,
     remembered_last_entity,
     remember_last_entity,
     spoke_address,
+    write_applies_line,
 )
 from gui.docks.entity_index import build_entity_index
 from kicadstamp.config.includes import walk_include_tree
@@ -254,3 +257,44 @@ def test_the_explicit_instance_does_not_carry_a_missing_sheet():
     """Экземпляр без листа не выдумывает лист — ключа просто нет."""
     row = entity_address(_entity("ch1", cluster="DAC_BUF"))
     assert explicit_kwargs(row) == {"cluster": "DAC_BUF"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Жёсткая привязка чтения к выбранной сущности (п.5) и строка записи (п.6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_a_read_pinned_to_an_entity_matches_its_own_instance_only():
+    """п.5: чтение, привязанное к сущности, узнаёт СВОЙ экземпляр по адресу — и
+    не узнаёт чужой (правило адреса одно, selection_narrowing)."""
+    row = entity_address(_entity("ch1", cluster="DAC_BUF", sheet="Channel_1"))
+    assert address_matches_selection(row, "DAC_BUF", "Channel_1")
+    # The board tag may REFINE the config's (the one prefix rule, not a second).
+    assert address_matches_selection(row, "DAC_BUF/IC2", None)
+    assert not address_matches_selection(row, "OTHER", None)
+    assert not address_matches_selection(row, "DAC_BUF", "Channel_2")
+
+
+def test_a_stale_or_non_entity_row_matches_nothing():
+    """Строка без адреса («Manual…», сущность без кластера) ни с чем не
+    совпадает — привязываться не к чему."""
+    assert not address_matches_selection(manual_address(), "DAC_BUF", None)
+    assert not address_matches_selection(entity_address(_entity("bare")),
+                                         "DAC_BUF", None)
+    assert not address_matches_selection(None, "DAC_BUF", None)
+    assert not_the_entity_line("ch1") == \
+        "the selection is not entity 'ch1' — nothing read"
+
+
+def test_a_write_under_an_entity_says_it_applies_to_every_entity():
+    """п.6: пишется ЯЧЕЙКА — и Лог говорит это прямо, называя экземпляр, от
+    которого пришла правка."""
+    row = entity_address(_entity("ch1", cluster="DAC_BUF", sheet="Channel_1"))
+    assert write_applies_line("dac_buf", row) == (
+        "cell 'dac_buf' updated from entity 'ch1' (DAC_BUF on Channel_1) — "
+        "the change applies to every entity of the cell")
+    raw = entity_address(_entity("bare"))
+    assert write_applies_line("dac_buf", raw) == (
+        "cell 'dac_buf' updated from entity 'bare' (None on (no sheet)) — "
+        "the change applies to every entity of the cell")
+    assert write_applies_line("dac_buf", manual_address()) == ""
+    assert write_applies_line("dac_buf", None) == ""

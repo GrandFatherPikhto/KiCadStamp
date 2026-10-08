@@ -93,11 +93,13 @@ from ..cell_edit_context import (
     remembered_cell_refs,
 )
 from ..cell_entity_choice import (
+    address_matches_selection,
     build_choices,
-    default_index,
     entity_addresses,
+    not_the_entity_line,
     remembered_last_entity,
     remember_last_entity,
+    write_applies_line,
 )
 from ..cell_identification import (
     KIND_SPOKE,
@@ -1660,7 +1662,19 @@ class CellAnchorView(QWidget):
                   "marker at the desired point, then press “Read position”."),
                 _WARN_STYLE, logger)
             return
-        # This read takes the instance FROM the board selection — that is the
+        # п.5: while an ENTITY row is in force the read is PINNED to it — a
+        # selection that belongs to ANOTHER instance is refused with a red line,
+        # never read silently into this cell. An untagged selection (no cluster
+        # field at all) still passes: tagging a fresh pair is exactly what this
+        # button is for, and the entity is what the pair will belong to.
+        entity_row = self._entity_gate.row()
+        if entity_row is not None and read["cluster"] \
+                and not address_matches_selection(entity_row, read["cluster"],
+                                                  None):
+            show_message(not_the_entity_line(entity_row.entity_name),
+                         _ERROR_STYLE, logger)
+            return
+        # The read takes the instance FROM the board selection — that is the
         # manual path, so the dropdown goes to "Manual…" BEFORE the Cluster is
         # written: with an entity row the three fields are display only.
         self._entity_gate.select_manual()
@@ -2025,6 +2039,12 @@ class CellAnchorView(QWidget):
         show_message(_("Cell {name!r}: {desc} stored — placed instances shift "
                        "on the next Redraw/Apply.")
                      .format(name=self._cell_name, desc=desc), _SUCCESS_STYLE, logger)
+        # п.6: the write went to the CELL's file — the ONE record every entity of
+        # this cell stands on — so say out loud that it reaches them all.
+        entity_row = self._entity_gate.row()
+        if entity_row is not None:
+            show_message(write_applies_line(self._cell_name, entity_row),
+                         _SUCCESS_STYLE, logger)
         self.saved.emit()
         self._reload_form()
 

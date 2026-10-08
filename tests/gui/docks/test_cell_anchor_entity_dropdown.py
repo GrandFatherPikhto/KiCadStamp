@@ -10,7 +10,9 @@
 Имена функций описывают СВОЙСТВО (правило 37), номер пункта плана — в докстринге.
 """
 from pathlib import Path
+from types import SimpleNamespace
 
+import gui.docks.cell_anchor_view as view_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
@@ -25,12 +27,10 @@ from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.config.sexp_format import dict_to_sexp
 
 CELL = "dac_buf"
-CELL_UUID = "00000000-0000-0000-0000-0000000000a1"
 
 
 def _entity(name, cluster=None, sheet=None, refs=None) -> dict:
-    rec = {"name": name, "uuid": f"ent-{name}",
-           "cell": CELL, "cell_uuid": CELL_UUID}
+    rec = {"name": name, "cell": CELL}
     if cluster is not None:
         rec["cluster"] = cluster
     if sheet is not None:
@@ -42,11 +42,17 @@ def _entity(name, cluster=None, sheet=None, refs=None) -> dict:
 
 def _root(tmp_path: Path, entities=()):
     """One root file with this cell and `entities:` — plus the part-1 index over
-    it, exactly the object the Config tree would hand over."""
+    it, exactly the object the Config tree would hand over.
+
+    Authoring it as FORMAT 2 is deliberate (the same shape tests/gui/
+    create_entity_helpers.write_config uses): the reader LIFTS it to 3 and mints
+    the uuids, so the index links the entity by uuid — and, unlike a format-3
+    file, it can be WRITTEN BACK by the guards below without the GUI's active
+    graph root."""
     root = tmp_path / "root.sexp"
-    data = {"cells": {CELL: {"uuid": CELL_UUID, "components": [{"role": "R"}]}},
+    data = {"cells": {CELL: {"components": [{"role": "R"}]}},
             "entities": list(entities)}
-    root.write_text(dict_to_sexp(data, format_number=3), encoding="utf-8")
+    root.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
     return root, build_entity_index(walk_include_tree(str(root)))
 
 
@@ -225,6 +231,58 @@ def test_choosing_an_entity_never_writes_the_cells_remembered_context(
 # ═══════════════════════════════════════════════════════════════════════════
 # Проводка дока дерева (п.1: индекс — ОДИН)
 # ═══════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Привязка к выбранной сущности: запись говорит, чтение отказывает (п.5/п.6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_a_write_under_an_entity_tells_the_user_it_applies_to_every_entity(
+        main_window, tmp_path, monkeypatch):
+    """п.6: запись уходит в ЯЧЕЙКУ (один на все экземпляры) — и Лог говорит это
+    прямо, называя сущность, от которой пришла правка."""
+    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0")])
+    # A format-3 write resolves reference uuids against the ACTIVE graph root
+    # (kicadstamp.config_working_set — the GUI raises it when a project opens);
+    # the reader has already LIFTED this file to format 3 on disk, so a guard that
+    # writes must raise it too. monkeypatch puts it back afterwards.
+    import kicadstamp.config_working_set as working_set
+    monkeypatch.setattr(working_set, "_active_graph_root", root)
+    view = _view(main_window, root, index)
+    lines = []
+    monkeypatch.setattr(view_mod, "show_message",
+                        lambda text, *a, **k: lines.append(str(text)))
+
+    view._write_entry(view._current_entry(), "Set as anchor")
+
+    assert any("applies to every entity of the cell" in line for line in lines), \
+        lines
+    assert any("from entity 'ch0'" in line for line in lines), lines
+
+
+def test_a_read_of_another_instance_is_refused_while_an_entity_is_chosen(
+        main_window, tmp_path, monkeypatch):
+    """п.5: с выбранной сущностью чтение привязано к ней — выделение ДРУГОГО
+    экземпляра даёт красную строку, и в поля ничего не попадает."""
+    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0")])
+    view = _view(main_window, root, index)
+    # The worker reads the SELECTION off the adapter first, and only then the
+    # (stubbed) reader runs — so the fake board still has to answer that one call.
+    main_window.connection.board = SimpleNamespace(
+        adapter=SimpleNamespace(get_selected_items=lambda: []))
+    monkeypatch.setattr(view_mod, "read_anchor_source",
+                        lambda *a, **k: {"kind": "footprint", "cluster": "OTHER",
+                                         "role": "R", "pad": None})
+    lines = []
+    monkeypatch.setattr(view_mod, "show_message",
+                        lambda text, *a, **k: lines.append(str(text)))
+
+    view._on_read_from_selection()
+
+    assert lines == ["the selection is not entity 'ch0' — nothing read"], lines
+    assert view._cluster_combo.currentText() == "DAC_BUF"   # untouched
+    assert view._role_combo.currentText() == ""             # nothing read in
+    assert view._entity_picker.current_address().entity_name == "ch0"
+
 
 def test_the_hub_hands_the_page_the_trees_entity_index(real_main_window):
     """Проводка: страница берёт индекс у дока дерева — своего обхода графа у неё

@@ -34,6 +34,7 @@ import logging
 from typing import Optional
 
 from kicadstamp.i18n import _
+from kicadstamp.selection_narrowing import record_address_matches
 
 from . import settings
 
@@ -43,6 +44,7 @@ __all__ = [
     "MANUAL", "SOURCE_ENTITY", "SOURCE_SPOKE", "LAST_ENTITY_KEY",
     "InstanceAddress", "entity_address", "manual_address", "spoke_address",
     "build_choices", "default_index", "explicit_kwargs",
+    "address_matches_selection", "not_the_entity_line", "write_applies_line",
     "remember_last_entity", "remembered_last_entity",
 ]
 
@@ -235,6 +237,44 @@ def explicit_kwargs(address, *, refs=None) -> dict:
     if pinned:
         out["refs"] = dict(pinned)
     return out
+
+
+def address_matches_selection(address, cluster, sheet) -> bool:
+    """True when (cluster, sheet) — as READ OFF the board selection — is the
+    address of `address` (п.5).
+
+    The comparison is the ONE product rule
+    (kicadstamp.selection_narrowing.record_address_matches: cluster by prefix,
+    sheet only when both sides carry one) — never a second rule written here. A
+    row without a cluster (an entity that is not placed) matches nothing: it names
+    no instance to read."""
+    if address is None or address.is_manual or not address.cluster:
+        return False
+    return record_address_matches((address.cluster, address.sheet),
+                                  (cluster, sheet))
+
+
+def not_the_entity_line(entity_name) -> str:
+    """The refusal of a board read that is pinned to an entity row while the
+    SELECTION belongs to another instance (п.5) — a red line, never a silent
+    read of someone else's pair."""
+    return _("the selection is not entity {entity!r} — nothing read").format(
+        entity=entity_name)
+
+
+def write_applies_line(cell_name, address) -> str:
+    """The Log line of a WRITE made while an ENTITY row is in force (п.6).
+
+    The write goes to the CELL's file — the one record every entity of that cell
+    stands on — so the change reaches them all. That is exactly what a user must
+    be told out loud, once, in the wording the plan fixed; the line is empty on
+    the "Manual…" row (nothing was said about an entity there)."""
+    if address is None or address.is_manual:
+        return ""
+    return _("cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) "
+             "— the change applies to every entity of the cell").format(
+        cell=cell_name, entity=address.entity_name, cluster=address.cluster,
+        sheet=address.sheet if address.sheet else _("(no sheet)"))
 
 
 def remember_last_entity(root_path, cell_name, entity_name) -> None:
