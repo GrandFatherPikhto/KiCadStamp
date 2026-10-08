@@ -358,6 +358,12 @@ class DockHub:
         # made here only becomes visible there when that copy re-reads the file.
         # Two hooks, two owners — never one callback doing both by luck.
         self.cell_anchor_view.on_overrides_written = self._on_overrides_written
+        # Part 2 (п.1): the cell page's "Entity" dropdown asks the Config tree for
+        # the ONE entity index of part 1 — that dock already walks the graph on
+        # every refresh, and a second walker is exactly what the index module
+        # exists to prevent.
+        self.cell_anchor_view.entity_index_provider = \
+            lambda: getattr(self.config_tree_dock, "_entity_index", None)
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,

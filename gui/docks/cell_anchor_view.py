@@ -92,6 +92,13 @@ from ..cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
+from ..cell_entity_choice import (
+    build_choices,
+    default_index,
+    entity_addresses,
+    remembered_last_entity,
+    remember_last_entity,
+)
 from ..cell_identification import (
     KIND_SPOKE,
     SelectionRecord,
@@ -113,6 +120,7 @@ from ._common import (
     set_combo_items,
     show_message,
 )
+from .cell_entity_picker import CellInstanceGate, EntityPicker, InstanceFields
 from .cell_read_only import ReadOnlyGate
 from .cell_refs_tab import RefsTabWidget
 from .live_position import (
@@ -730,6 +738,17 @@ class CellAnchorView(QWidget):
         # Р3а-0: the "Explode" tab, added by DockHub (it owns the guard). The tab
         # is TOLD the cell and the working (Cluster, Sheet) — it has no lists.
         self._explode_page = None
+        # Part 2 (Денис, 08.10): the INSTANCE this page works with is chosen in
+        # the "Entity" dropdown, not typed into three fields. The rows come from
+        # the ONE entity index of part 1; DockHub supplies this provider, since
+        # the Config tree has already walked the graph (no second walk here).
+        # A PUBLIC hook on purpose, like on_board_written above it.
+        self.entity_index_provider = None
+        # The entity the page was OPENED from (its "Edit cell…" / click / menu),
+        # if any — the dropdown's first choice (п.4). The REST of part 2's state
+        # (which row is in force, whether a pick is writing the fields) lives in
+        # the gate _build_ui builds, next to the widget it belongs to.
+        self._opened_from_entity: Optional[str] = None
         self._build_ui()
         self._reload_form()
 
@@ -781,6 +800,21 @@ class CellAnchorView(QWidget):
         # this page stays the one-button, one-line one it was.
         ident_box = QGroupBox(_("Identified instance"))
         ident_form = QFormLayout(ident_box)
+        # п.1: the dropdown of this cell's instance ADDRESSES — its entities
+        # (part-1 index), its chain spokes (п.2а) and "Manual…" last. Choosing a
+        # row makes it the instance for every tab and for the CellDock.
+        self._entity_picker = EntityPicker()
+        self._entity_picker.setToolTip(
+            _("The placed instance of this cell: every action of this page uses "
+              "the address of the chosen Entity. “Manual…” keeps the "
+              "hand-typed Sheet/Cluster/refs."))
+        ident_form.addRow(_("Entity:"), self._entity_picker)
+        entity_note = QLabel(_("With an Entity chosen, Sheet/Cluster/refs are "
+                               "its address and are read-only here — edit them "
+                               "in the entity's own form. “Manual…” hands the "
+                               "three fields back to you."))
+        entity_note.setWordWrap(True)
+        ident_form.addRow(entity_note)
         ident_row = QHBoxLayout()
         self._fill_selection_button = QPushButton(_("Fill from selection"))
         self._fill_selection_button.setToolTip(
@@ -921,6 +955,18 @@ class CellAnchorView(QWidget):
         self._name_edit.editingFinished.connect(self._on_identity_edited)
         self._comment_edit.editingFinished.connect(self._on_identity_edited)
         self._tabs.currentChanged.connect(self._on_tab_changed)
+        # Part 2 (п.1): the dropdown's rule. Built LAST — the gate drives all four
+        # widgets of the instance (the two working-context combos, the refs field
+        # and the identification button), and all four exist by now.
+        self._entity_gate = CellInstanceGate(
+            self._entity_picker,
+            InstanceFields(self._cluster_combo, self._sheet_combo,
+                           self._refs_edit, self._fill_selection_button),
+            choices=self._address_choices, last_entity=self._remembered_entity,
+            remember_pick=self._remember_entity_pick,
+            on_applied=self._after_instance_applied)
+        self._entity_picker.address_chosen.connect(
+            lambda _row: self._entity_gate.choose())
 
     def _on_tab_changed(self, _index: int) -> None:
         """A tab switch re-renders the form (as before) and re-tells the
@@ -1125,8 +1171,14 @@ class CellAnchorView(QWidget):
         "do not write what is already there" is what keeps reopening a cell from
         silently forgetting its pair. A GENUINE change (the user picks another
         Cluster/Sheet, or an identification moves to another instance) still
-        writes, and still erases."""
-        if self._loading or self._cell_name is None:
+        writes, and still erases.
+
+        A dropdown PICK is not such a change (part 2, п.4): the instance comes
+        from an entity and the gate says so — without that flag the combos the
+        pick writes would be read as a manual edit and would erase exactly the
+        identified refs the pick exists to respect."""
+        if self._loading or self._entity_gate.is_applying() \
+                or self._cell_name is None:
             return
         cluster = self._cluster_combo.currentText().strip()
         if not cluster:
@@ -1138,7 +1190,8 @@ class CellAnchorView(QWidget):
         remember_cell_edit_context(
             self._root_path, self._cell_name, cluster, sheet)
 
-    def load_entry(self, name: str, file_path, read_only: bool = False) -> None:
+    def load_entry(self, name: str, file_path, read_only: bool = False,
+                   opened_from: Optional[str] = None) -> None:
         """Open the requested cell for anchor editing — (name, owning file),
         the same shape as the Config tree's cell_edit_requested. Reads the
         entry live and fills the form (safe to re-open on a changed file).
@@ -1149,11 +1202,21 @@ class CellAnchorView(QWidget):
 
         Phase E: the remembered (Cluster, Sheet) context is applied BEFORE the
         form renders, so the Role combo opens already narrowed to the last
-        cluster this cell was worked in — no click on the board required."""
+        cluster this cell was worked in — no click on the board required.
+
+        Part 2 (п.4): `opened_from` is the NAME of the entity this open CAME from
+        (its "Edit cell…" / click / menu item, when it has one) — the dropdown
+        then starts on it."""
         if name != self._cell_name and self._cell_name is not None:
             self.cleanup()
         self._cell_name = name
         self._file_path = Path(file_path) if file_path is not None else None
+        # The PREVIOUS cell's rows must not survive into this open (the refill
+        # keeps the current row when it is still in the list, and a same-named
+        # entity of another cell would be "kept" by that rule), and the row to
+        # open on is this open's own (п.4).
+        self._entity_gate.set_opened_from(opened_from)
+        self._entity_gate.clear()
         self._prefill_cell_context()
         self._reload_form()
         self._sync_explode_context()
@@ -1237,6 +1300,52 @@ class CellAnchorView(QWidget):
         known = {self._sheet_combo.itemText(i)
                  for i in range(self._sheet_combo.count())}
         return bool(known) and sheet not in known
+
+    # ── Part 2: WHICH instance this page works with (п.1) ──────────────────
+    # The rule itself lives in gui/docks/cell_entity_picker.py (CellInstanceGate)
+    # and the address list in gui/cell_entity_choice.py; here is the wiring only:
+    # what the rows are, what the page can answer, and the one reader every action
+    # of the page goes through.
+
+    def _address_choices(self) -> list:
+        """This cell's instance ADDRESSES in the plan's order (п.1 / п.2а): its
+        entities from the ONE part-1 index, then its chain spokes, then
+        "Manual…" last. No project or no cell — nothing to choose."""
+        if self._root_path is None or self._cell_name is None:
+            return []
+        index = self.entity_index_provider() if self.entity_index_provider \
+            else None
+        entry = self._current_entry() or {}
+        return build_choices(entity_addresses(index, entry.get("uuid")))
+
+    def _remembered_entity(self) -> Optional[str]:
+        """The entity NAME this cell was last worked with (п.4)."""
+        return remembered_last_entity(self._root_path, self._cell_name)
+
+    def _remember_entity_pick(self, name: Optional[str]) -> None:
+        """Remember the picked entity BY NAME under its own state key (п.4) — and
+        never through remember_cell_edit_context, whose write erases the cell's
+        identified refs. A no-op when the name is already the remembered one, so
+        a tab switch (which re-applies the same row) never rewrites the state."""
+        if not name or self._root_path is None or self._cell_name is None:
+            return
+        if self._remembered_entity() != name:
+            remember_last_entity(self._root_path, self._cell_name, name)
+
+    def _after_instance_applied(self) -> None:
+        """The gate wrote the working fields — reload what depends on them (the
+        refs line and the Name/Comment identity block)."""
+        self._reload_refs_field()
+        self._reload_identity()
+
+    def _active_refs(self) -> Optional[dict]:
+        """The refs of the WORKING INSTANCE (п.5): the picked entity's own pins,
+        else — on the "Manual…" row — the remembered identification of this cell.
+        ONE reader for every action of the page, so none can quietly fall back to
+        the remembered pair behind an entity the user chose."""
+        if self._entity_gate.is_manual():
+            return self._remembered_refs()
+        return self._entity_gate.active_refs()
 
     # ── Overlay keys (the map itself is owned by gui/overlay_markers) ─────
 
@@ -1424,6 +1533,7 @@ class CellAnchorView(QWidget):
                       self._remove_marker_button, self._show_bbox_button,
                       self._hide_bbox_button, self._remove_overlay_button):
                 b.setEnabled(False)
+            self._entity_gate.clear()
             self._sync_refs_tab()
             return
 
@@ -1436,6 +1546,7 @@ class CellAnchorView(QWidget):
             self._clear_anchor_button.setEnabled(False)
             self._read_selection_button.setEnabled(False)
             self._fill_selection_button.setEnabled(False)
+            self._entity_gate.clear()
             self._sync_refs_tab()
             return
 
@@ -1468,6 +1579,10 @@ class CellAnchorView(QWidget):
         # roles come from this cell's entry, its board columns from the page's
         # snapshot — never from the board (door rule 6).
         self._sync_refs_tab()
+        # LAST, so it has the final word on the instance: the dropdown is refilled
+        # from the current graph and the working row re-applied — including the
+        # enable/disable of the three fields it drives, after every setEnabled above.
+        self._entity_gate.reload()
 
     def _fill_role_choices(self, roles: list, cluster: str) -> None:
         cluster = cluster or self._cluster_combo.currentText().strip()
@@ -1545,6 +1660,10 @@ class CellAnchorView(QWidget):
                   "marker at the desired point, then press “Read position”."),
                 _WARN_STYLE, logger)
             return
+        # This read takes the instance FROM the board selection — that is the
+        # manual path, so the dropdown goes to "Manual…" BEFORE the Cluster is
+        # written: with an entity row the three fields are display only.
+        self._entity_gate.select_manual()
         if read["cluster"]:
             self._cluster_combo.setCurrentText(read["cluster"])
             # Phase E: "Read from selection" brought a fresh Cluster — update
@@ -1664,9 +1783,11 @@ class CellAnchorView(QWidget):
                 if c.get("role")]
 
     def _reload_refs_field(self) -> None:
-        """Show the remembered refs (display only, never a write). The tooltip
-        carries the role -> refdes mapping the bare "C43, C44" cannot express."""
-        refs = self._remembered_refs() or {}
+        """Show the refs of the WORKING instance (display only, never a write):
+        the picked entity's own pins, else the remembered identification of this
+        cell. The tooltip carries the role -> refdes mapping the bare "C43, C44"
+        cannot express."""
+        refs = self._active_refs() or {}
         roles = self._cell_role_order()
         self._refs_edit.setText(refs_field_text(refs, roles))
         self._refs_edit.setToolTip(refs_tooltip(refs, roles))
@@ -1726,6 +1847,13 @@ class CellAnchorView(QWidget):
         GUI already has (no board read on the UI thread) and pass them through the
         SAME identification rules as the button, so a typo is refused in the Log
         and the refs are NOT remembered."""
+        # With an ENTITY row the field is display only (п.1): the entity's own
+        # `refs:` pins ARE the instance, and they are edited in the entity's own
+        # form. The guard sits on top of the disabled field on purpose — a
+        # programmatic editingFinished must not re-identify the cell behind the
+        # chosen row.
+        if not self._entity_gate.is_manual():
+            return
         if self._loading or self._cell_name is None or self._root_path is None:
             return
         ctx = self._identification_context()
@@ -1823,6 +1951,8 @@ class CellAnchorView(QWidget):
                 _("the cluster has no component for these role(s) of the cell: "
                   "{roles} — they stay unpinned until a pair is tagged")
                 .format(roles=", ".join(absent)), _WARN_STYLE, logger)
+        # An identification IS a manual instance (п.2) — the dropdown must say so.
+        self._entity_gate.select_manual()
         self._reload_form()
 
     def _on_set_component_anchor(self) -> None:
@@ -1924,7 +2054,7 @@ class CellAnchorView(QWidget):
             return None
         cluster = self._cluster_combo.currentText().strip()
         sheet = self._sheet_combo.currentText().strip()
-        if not cluster and not self._remembered_refs():
+        if not cluster and not self._active_refs():
             show_message(_("Marker: pick the working Cluster first (Source "
                            "tab)."), _WARN_STYLE, logger)
             return None
@@ -1994,7 +2124,7 @@ class CellAnchorView(QWidget):
         self._active_op = start_long_op(
             self._connection, widgets, fn, on_success, on_error,
             adapter, cell, cluster, sheet, sheet_names, *extra_args,
-            self._remembered_refs())
+            self._active_refs())
 
     def _dispatch_draw(self, worker_fn, key, ok, on_error):
         """Dispatch a DRAW overlay op for `key` — the worker receives the key

@@ -18153,6 +18153,14 @@ msgstr ""
 msgid "{chain} — pad {pad}"
 msgstr ""
 
+#: gui/docks/cell_anchor_view.py
+msgid "The placed instance of this cell: every action of this page uses the address of the chosen Entity. “Manual…” keeps the hand-typed Sheet/Cluster/refs."
+msgstr ""
+
+#: gui/docks/cell_anchor_view.py
+msgid "With an Entity chosen, Sheet/Cluster/refs are its address and are read-only here — edit them in the entity's own form. “Manual…” hands the three fields back to you."
+msgstr ""
+
 #: gui/docks/config_tree.py
 #, python-brace-format
 msgid "{kind}: {name}"

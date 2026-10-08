@@ -19062,6 +19062,14 @@ msgstr "{name} — не размещена"
 msgid "{chain} — pad {pad}"
 msgstr "{chain} — пад {pad}"
 
+#: gui/docks/cell_anchor_view.py
+msgid "The placed instance of this cell: every action of this page uses the address of the chosen Entity. “Manual…” keeps the hand-typed Sheet/Cluster/refs."
+msgstr "Размещённый экземпляр этой ячейки: каждое действие страницы берёт адрес выбранной сущности. «Manual…» оставляет поля лист/кластер/refs, введённые вручную."
+
+#: gui/docks/cell_anchor_view.py
+msgid "With an Entity chosen, Sheet/Cluster/refs are its address and are read-only here — edit them in the entity's own form. “Manual…” hands the three fields back to you."
+msgstr "С выбранной сущностью лист/кластер/refs — её адрес, и здесь они только для чтения: правьте их в форме сущности. «Manual…» возвращает эти три поля вам."
+
 #: gui/docks/config_tree.py
 #, python-brace-format
 msgid "{kind}: {name}"
