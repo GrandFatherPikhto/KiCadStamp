@@ -136,6 +136,37 @@ def _via_key(nt):
     return net_trace_registry_key(nt, 0)
 
 
+# ── одна итоговая строка Лога (А3) ─────────────────────────────────────────
+
+def test_one_summary_line_names_what_was_checked_and_skipped(gate, tmp_path,
+                                                            caplog):
+    """А3: ONE INFO line per walk — how many records were checked, how many the
+    net filter saved, and how many own selected copper (records, not pieces).
+
+    Mutation: drop the line, or report the pieces instead of the records, and
+    this cell fails (the selection owns exactly ONE record here)."""
+    import logging
+
+    _write_registries(tmp_path)
+    cfg = _cfg([_record("NT1", net="NET1"), _record("NT2", net="NET2"),
+                _record("NT3", net="NET3")])
+    anchor = _fp("U1", "FPGA", None, 10.0, 10.0)
+    adapter = _board(footprints_extra=[anchor])
+    adapter._fields["U1"] = ("FPGA", None)
+    selected_via = _via("sel-v", net="NET2", x_mm=10.0, y_mm=10.0)
+    adapter._vias = [selected_via]
+
+    with caplog.at_level(logging.INFO):
+        _narrow(tmp_path, adapter, cfg, vias=[selected_via], tracks=[])
+
+    lines = [r.getMessage() for r in caplog.records
+             if "own selected copper" in r.getMessage()]
+    assert len(lines) == 1, lines
+    assert "1 record(s) checked" in lines[0], lines
+    assert "2 skipped by net" in lines[0], lines
+    assert "1 own selected copper" in lines[0], lines
+
+
 # ── разрешитель цепей — планировщика ────────────────────────────────────────
 
 def test_record_nets_uses_the_planners_own_resolver(gate):

@@ -39,12 +39,15 @@ record-identifying part is a UUID (plan_2026_10_02_uuid_format_2_to_3).
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .cluster_matching import cluster_prefix_match
 from .i18n import _
 from .registry import record_key_part
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "CopperSubtraction",
@@ -519,12 +522,15 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     wanted = {str(getattr(item, "net_name", "") or "") for item in items or ()}
     filterable = bool(wanted) and "" not in wanted
     wanted.discard("")
+    checked = skipped = 0
     for nt in net_traces or ():
         name = str(getattr(nt, "net", "?"))
         if filterable:
             nets, resolvable = record_nets(adapter, nt, sheet_names)
             if resolvable and nets and not (nets & wanted):
+                skipped += 1
                 continue
+        checked += 1
         try:
             matched = find_live_copper(adapter, nt, via_registry=vreg,
                                        track_registry=treg,
@@ -560,6 +566,14 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
                 exp = piece.expectation
                 owned[uuid] = NetTraceTransfer(
                     identity=identity, kind=str(exp.kind), index=int(exp.index))
+    if checked or skipped:
+        # А3 (plan_2026_10_08_narrowing_net_traces_cost): ONE итог line per walk.
+        # `skipped` is the part the net filter (А2) saved; `owners` counts the
+        # RECORDS that own selected copper, not the pieces.
+        logger.info(_("net_traces: {checked} record(s) checked ({skipped} skipped by "
+                      "net), {owners} own selected copper")
+                    .format(checked=checked, skipped=skipped,
+                            owners=len({tr.identity for tr in owned.values()})))
     return owned, notes
 
 
