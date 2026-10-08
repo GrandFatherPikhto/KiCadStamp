@@ -67,9 +67,12 @@ class _FakeAdapter:
 
 
 class _FakeConnection:
-    """Only what the opener touches: the shared-socket token."""
-    def __init__(self, busy=False):
+    """Only what the opener touches: the shared-socket token AND the presence
+    answer — часть 3, п.7: with no adapter handed over the opener asks the
+    CONNECTION whether there is anything to read at all."""
+    def __init__(self, busy=False, connected=False):
         self.long_op_active = busy
+        self.is_connected = connected
 
 
 def _selection_track(layer):
@@ -164,10 +167,36 @@ def test_refused_while_another_operation_holds_the_socket(monkeypatch):
     assert done == []
 
 
-def test_no_adapter_means_nothing_is_started(monkeypatch):
+def test_no_adapter_and_no_connection_means_nothing_is_started(monkeypatch):
+    """With no adapter handed over the presence answer is the CONNECTION's: a
+    connection that is not there starts nothing at all."""
     call = _record_start(monkeypatch, layers=[])
-    assert open_cell_layers_dialog(None, _FakeConnection(), None, [], [].append) is None
+    assert open_cell_layers_dialog(None, _FakeConnection(connected=False), None,
+                                   [], [].append) is None
     assert call == {}
+
+
+def test_no_adapter_is_taken_off_the_connection_inside_the_worker(monkeypatch):
+    """часть 3, п.7: a LIVE connection with no adapter handed over still starts the
+    read — and the adapter is then resolved INSIDE the worker, so the UI thread
+    never touches a board handle."""
+    from types import SimpleNamespace
+
+    adapter = _FakeAdapter(_FakeBoard())
+    connection = SimpleNamespace(is_connected=True, long_op_active=False,
+                                 board=SimpleNamespace(adapter=adapter))
+    call = _record_start(monkeypatch, layers=[])
+    _record_dialog(monkeypatch)
+
+    done = []
+    controller = open_cell_layers_dialog(None, connection, None, [],
+                                         lambda *a: done.append(a))
+
+    assert controller == "controller"
+    assert call["fn"] is cell_layers_mod._fetch_copper_layers_of
+    assert call["args"] == (connection,), call
+    assert [copper.copper_name for copper in call["fn"](*call["args"])] == [
+        "F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
 
 
 # ── phase 1 -> phase 2 -> the read ──────────────────────────────────────────

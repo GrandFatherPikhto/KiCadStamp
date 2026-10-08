@@ -4,7 +4,6 @@ shrink. Rewritten by `python tools/door_lint.py --update-baseline`."""
 SUSPECTS = {
     'gui/dock_hub.py': 6,
     'gui/docks/cell_anchor_view.py': 2,
-    'gui/docks/cell_editor.py': 3,
     'gui/docks/cell_refs_tab.py': 1,
     'gui/docks/chain.py': 1,
     'gui/docks/configurator.py': 1,

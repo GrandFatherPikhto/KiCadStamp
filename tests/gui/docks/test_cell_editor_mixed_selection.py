@@ -140,7 +140,7 @@ def _make_dock(main_window, tmp_path, data=None):
 
 def _payload(dock, board):
     return {
-        "board": board,
+        "connection": SimpleNamespace(board=board),
         "components": list(dock._components),
         "vias": list(dock._vias),
         "tracks": list(dock._tracks),

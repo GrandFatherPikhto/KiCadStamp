@@ -1033,8 +1033,11 @@ def test_run_refresh_geometry_refreshes_the_board_first(main_window, tmp_path):
     class _Board:
         adapter = _Adapter()
 
+    # часть 3, п.7: the payload carries the CONNECTION — the worker takes the
+    # adapter off it (`adapter_of`), never off a UI-thread handle.
     result = dock._run_refresh_geometry(
-        {"board": _Board(), "components": [], "vias": [], "tracks": []})
+        {"connection": SimpleNamespace(board=_Board()), "components": [],
+         "vias": [], "tracks": []})
 
     assert calls == ["refresh", "select"]
     assert "error" in result      # the empty payload is a role problem, not ours
@@ -1085,7 +1088,7 @@ def test_refresh_geometry_apply_updates_geometry_keeps_other_fields(main_window,
                         lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks)})
     assert "plan" in result
     dock._finish_refresh_geometry(result)
@@ -1152,7 +1155,7 @@ def test_refresh_geometry_validation_error_logs_red_tables_untouched(
                         lambda text, style="": messages.append((text, style)))
 
     result = dock._run_refresh_geometry(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks)})
     assert "error" in result
     dock._finish_refresh_geometry(result)
@@ -1347,7 +1350,7 @@ def test_import_apply_appends_new_records_keeps_existing(main_window, tmp_path,
     monkeypatch.setattr(cell_editor_mod, "_ImportPreviewDialog", _AcceptDialog)
 
     result = dock._run_import_vias_tracks(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks)})
     assert "plan" in result
     plan = result["plan"]
@@ -1409,7 +1412,7 @@ def test_import_validation_error_logs_red_tables_untouched(
                         lambda text, style="": messages.append((text, style)))
 
     result = dock._run_import_vias_tracks(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks)})
     assert "error" in result
     dock._finish_import_vias_tracks(result)
@@ -1452,7 +1455,7 @@ def test_refresh_additive_appends_new_copper_and_updates_existing(
                         lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks)})
     assert "plan" in result
     plan = result["plan"]
@@ -1949,7 +1952,7 @@ def test_refresh_with_all_layers_keeps_the_old_behaviour(main_window, tmp_path):
          _refresh_dto_via("GND", 10.5, 11.5),
          _dto_track_on(BoardLayer.BL_B_Cu, "NEW_NET", 10.0, 14.0, 11.0, 14.0)],
         roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
-    base = {"board": board, "components": list(dock._components),
+    base = {"connection": SimpleNamespace(board=board), "components": list(dock._components),
             "vias": list(dock._vias), "tracks": list(dock._tracks),
             "cell_layer": "F.Cu"}
 
@@ -1979,7 +1982,7 @@ def test_refresh_unchecked_layer_is_not_read_at_all(main_window, tmp_path):
         roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
 
     result = dock._run_refresh_geometry(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks),
          "cell_layer": "F.Cu", "layers": {"F.Cu"}})
 
@@ -2006,7 +2009,7 @@ def test_refresh_removes_the_records_of_an_unchecked_layer(main_window, tmp_path
                         lambda text, style="": messages.append(text))
 
     result = dock._run_refresh_geometry(
-        {"board": board, "components": list(dock._components),
+        {"connection": SimpleNamespace(board=board), "components": list(dock._components),
          "vias": list(dock._vias), "tracks": list(dock._tracks),
          "cell_layer": "F.Cu", "layers": {"F.Cu"}})
     assert "error" not in result
@@ -2036,7 +2039,7 @@ def test_import_with_an_unchecked_layer_never_adds_that_layer(main_window, tmp_p
          _dto_track_on(BoardLayer.BL_F_Cu, "NEW_NET", 10.0, 14.0, 11.0, 14.0),
          _dto_track_on(BoardLayer.BL_B_Cu, "NEW_NET", 10.0, 16.0, 11.0, 16.0)],
         roles={"R-ORIG": "ORIG", "R-CAP": "CAP"})
-    base = {"board": board, "components": list(dock._components),
+    base = {"connection": SimpleNamespace(board=board), "components": list(dock._components),
             "vias": list(dock._vias), "tracks": list(dock._tracks),
             "cell_layer": "F.Cu"}
 
@@ -2182,7 +2185,7 @@ def _two_layer_selection_board(board_cls=None):
 
 
 def _refresh_payload(dock, board, **extra):
-    payload = {"board": board, "components": list(dock._components),
+    payload = {"connection": SimpleNamespace(board=board), "components": list(dock._components),
                "vias": list(dock._vias), "tracks": list(dock._tracks),
                "cell_layer": "F.Cu"}
     payload.update(extra)

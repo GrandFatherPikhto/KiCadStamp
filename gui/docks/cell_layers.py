@@ -55,6 +55,7 @@ from ..board_layers import (
     skipped_empty_layers,
 )
 from ..worker import socket_busy, start_long_op
+from .explode_page import adapter_of
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,15 @@ def _fetch_copper_layers(adapter):
     return enabled_copper_layers(adapter)
 
 
+def _fetch_copper_layers_of(connection):
+    """The same read when the caller handed no adapter (часть 3, п.7).
+
+    The adapter is taken off the CONNECTION HERE, on the worker thread — the UI
+    thread only asks `is_connected`. Same rule as every other door
+    (`gui/docks/explode_page.adapter_of`), never a second implementation."""
+    return _fetch_copper_layers(adapter_of(connection))
+
+
 def _ask_for_layers(parent, copper_layers, selection_items, on_ok) -> None:
     """Phase 2 (UI thread, phase 1 already finished): ask, and only on OK
     remember the user's own choice and continue with the read.
@@ -176,10 +186,16 @@ def open_cell_layers_dialog(parent, connection, adapter, selection_items, on_ok,
     `start_long_op` on a held token is exactly the race the token check below
     protects the FIRST phase from.
 
+    `adapter=None` (часть 3, п.7) means the caller handed only the CONNECTION:
+    the adapter is then resolved inside the worker (`_fetch_copper_layers_of`), so
+    no board handle is taken on the UI thread. With no live connection there is
+    nothing to read, and nothing is started — the same refusal the old
+    "no adapter" check made, asked of the connection instead of a handle.
+
     Returns the LongOpController, or None when nothing was started (no board, or
     another operation holds the shared socket — then nothing is shown at all,
     P.3.3)."""
-    if adapter is None:
+    if adapter is None and not getattr(connection, "is_connected", False):
         return None
     if socket_busy(connection):
         # P.3.3: start_long_op would NOT refuse here, and the other operation's
@@ -187,12 +203,14 @@ def open_cell_layers_dialog(parent, connection, adapter, selection_items, on_ok,
         logger.info("Cell layers dialog refused: another long operation already "
                     "holds the shared kipy socket")
         return None
+    fetch, fetch_args = ((_fetch_copper_layers_of, (connection,)) if adapter is None
+                         else (_fetch_copper_layers, (adapter,)))
     return start_long_op(
-        connection, widgets, _fetch_copper_layers,
+        connection, widgets, fetch,
         lambda copper_layers: _ask_for_layers(
             parent, copper_layers, selection_items, on_ok),
         on_error if on_error is not None else _log_layer_read_failure,
-        adapter, busy_text=_("reading layers"))
+        *fetch_args, busy_text=_("reading layers"))
 
 
 def _log_layer_read_failure(message: str) -> None:

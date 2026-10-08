@@ -114,6 +114,7 @@ from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
 from ..cell_entity_choice import instance_for_read, read_instance
+from .explode_page import adapter_of
 from ..entity_doors import unplaced_without_entity
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
@@ -1819,9 +1820,10 @@ class CellDock(QWidget):
         thread."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
-        board = getattr(connection, "board", None) if connection is not None else None
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        if adapter is None:
+        # Door contract (gui/connection.py §2): a PRESENCE question is asked of
+        # the CONNECTION, and the ADAPTER is taken by the WORKER off the
+        # connection (`adapter_of`, часть 3, п.7) — never a board handle here.
+        if connection is None or not getattr(connection, "is_connected", False):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         if not self._components:
@@ -1849,7 +1851,8 @@ class CellDock(QWidget):
         # it returns are the SAME dict objects, so Apply lands on the loaded
         # lists regardless of list identity.
         payload = {
-            "board": board,
+            # The worker resolves the adapter off THIS connection itself (§2).
+            "connection": connection,
             # Door contract: the worker's own pipeline reads THIS connection's
             # timeout, never a constant.
             "timeout_ms": worker_timeout_ms(connection),
@@ -1918,15 +1921,15 @@ class CellDock(QWidget):
         action cannot be started twice), and the dialog itself is modal, so the
         second phase cannot be started from under it either."""
         connection = getattr(self._main_window, "connection", None)
-        board = getattr(connection, "board", None) if connection is not None else None
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        if adapter is None:
+        if connection is None or not getattr(connection, "is_connected", False):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         if self._active_op is not None:
             return
         open_cell_layers_dialog(
-            self, connection, adapter, self._selection_items, run_read,
+            # `adapter=None`: the dialog's own worker takes it off the connection
+            # (часть 3, п.7) — no board handle on this thread.
+            self, connection, None, self._selection_items, run_read,
             widgets=(self.refresh_geometry_button, self.import_vias_tracks_button),
             on_error=self._on_layers_read_failed)
 
@@ -1982,7 +1985,7 @@ class CellDock(QWidget):
         format_fatal_error text shown verbatim in a QMessageBox)."""
         selection_lines: list = []
         try:
-            adapter = payload["board"].adapter
+            adapter = adapter_of(payload["connection"])
             # K.1 (2026-09-10, plan stale_board_snapshot): a LIVE read must see
             # the live board — the GUI's poll tick is a no-op while connected,
             # and build_refresh_plan resolves roles/fields through
@@ -2337,9 +2340,8 @@ class CellDock(QWidget):
         thread."""
         self._show_message("")
         connection = getattr(self._main_window, "connection", None)
-        board = getattr(connection, "board", None) if connection is not None else None
-        adapter = getattr(board, "adapter", None) if board is not None else None
-        if adapter is None:
+        # Same presence rule and same worker-taken adapter as the refresh read.
+        if connection is None or not getattr(connection, "is_connected", False):
             self._show_message(_("Connect to KiCad first."), _ERROR_STYLE)
             return
         if not self._components:
@@ -2368,7 +2370,8 @@ class CellDock(QWidget):
         # new records are brand-new dicts to APPEND on Apply (existing records
         # are untouched by construction).
         payload = {
-            "board": board,
+            # The worker resolves the adapter off THIS connection itself (§2).
+            "connection": connection,
             # Same timeout rule as the refresh read (door contract).
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(self._components),
@@ -2411,7 +2414,7 @@ class CellDock(QWidget):
         Returns {"plan": ImportPlan} or {"error": ...} (a ValidationError's
         format_fatal_error text shown verbatim in a QMessageBox)."""
         try:
-            adapter = payload["board"].adapter
+            adapter = adapter_of(payload["connection"])
             # K.1: the same live-read rule as _run_refresh_geometry — the import
             # plan resolves the selected roles' fields (and net_from_role)
             # against adapter.get_footprints().
