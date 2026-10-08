@@ -35,6 +35,7 @@ from kicadstamp.exceptions import (
 from kicadstamp.i18n import _
 from kicadstamp.utils.file_cache import cached_file_read, invalidate_graph_path, invalidate_path
 from .config_working_set import WORKING_SET
+from .config_stage_report import is_staged_write, write_report_line  # noqa: F401 — re-export
 
 logger = logging.getLogger(__name__)
 
@@ -362,47 +363,12 @@ def _write_data(path: Path, data: dict) -> None:
     write_config_file(path, data)
 
 
-def is_staged_write(path) -> bool:
-    """True ⇔ this file's new content went into the WORKING SET, not to disk.
-
-    The GUI keeps every edit in the working set while a project is open and writes
-    the files only on the global Save (config_working_set.py), so a writer CANNOT
-    know from its own return value whether the bytes reached the disk."""
-    return bool(WORKING_SET.enabled
-                and WORKING_SET.is_staged(str(Path(path).resolve())))
-
-
-def write_report_line(physical: str, subject: str, path, *, created: bool) -> str:
-    """THE wording rule of a config write's outcome (part В of
-    plan_2026_10_08_narrowing_net_traces_cost).
-
-    `physical` is the dock's own sentence for a REAL write ("Wrote 'x' in <file>"
-    / "Overwrote 'x' in <file>") — returned unchanged, so the CLI paths and every
-    existing wording stay as they are. While the working set holds the change the
-    SAME rule says so instead, because "Overwrote ... in <file>" was a lie there:
-    the user read it as "saved" while the file's mtime never moved (the live
-    19:40:39 line, right before Denis asked "похоже, ничего не записывается"):
-
-      * ``created=True``  -> "Staged new <subject> — not saved yet (File → Save)";
-      * ``created=False`` -> "Staged changes to <subject> — not saved yet
-        (File → Save)".
-
-    `subject` is the identity the caller already names (its quoted form, e.g.
-    ``'dac0'``). ONE place decides, so no dock can drift from another."""
-    if not is_staged_write(path):
-        return physical
-    return (_("Staged new {subject} — not saved yet (File → Save)") if created
-            else _("Staged changes to {subject} — not saved yet (File → Save)")
-            ).format(subject=subject)
-
-
 # Public aliases — these two are consumed across the gui/ package boundary
 # (gui/docks/_common.py re-exports them to every dock), and the documented
 # rule is "gui must not import the private names" (config/__init__.py). The
 # underscore-prefixed originals stay for the internal callers in this file
 # (merge_write/add_list_entry/...); the public name is what crosses packages.
-read_data = _read_data
-write_data = _write_data
+read_data, write_data = _read_data, _write_data
 
 
 def merge_write(path: Path, new_data: dict, section: Optional[str] = None) -> bool:
