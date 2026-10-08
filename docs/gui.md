@@ -532,6 +532,24 @@ items: **Point to cell...** / **Point to imprint...** (which writes `cell`/`cell
 `imprint`/`imprint_uuid` into the entity's OWN file, then the entity moves under the target) and
 **Delete entity**.
 
+Since 2026-10-08 (часть 3 of the same plan) the **board actions live only where their address is
+visible**. The ENTITY leaf carries them — **Update from selection...**, **Add selected copper...**,
+**Subtract selected copper...** and both **(choose layers)** legs, next to Edit cell / Select cell
+components / Select cell / Select enclosed copper / Explode — and every item names ITS entity
+(`(cell, None, cluster, sheet, entity name)`); the door resolves the name into the entity's own
+`refs`/cluster/sheet and hands that address to the action as an ARGUMENT, so nothing reads the
+"remembered" instance behind the user's back. The write still lands in the CELL's file (the record
+every entity of that cell stands on) and the Log says so («applies to every entity»).
+
+A **cell leaf carries no board item at all** — no "if there is only one entity" exception: a cell
+name is not an instance. Its menu keeps Edit cell, Cell anchor, Copy placement from cell…, plus
+Rename/Delete, and the entityless cell keeps Create entity. **CellDock is a map editor**: the six
+board buttons (Refresh geometry, Add copper, Subtract copper, Select cell components, Select cell,
+Explode) are gone with their connection gate — the same workers are driven from the entity leaf and
+from the cell page's dropdown, which is the one place the instance is on screen. Tools → Config →
+"Update cell from selection..." / "Add selected copper..." act on the selected ENTITY leaf; on a cell
+leaf they log «pick an entity of cell '...'» and read nothing.
+
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
   (`cell:`/`anchor_point:`) anywhere in the whole include: graph, not just the file it's declared in.
