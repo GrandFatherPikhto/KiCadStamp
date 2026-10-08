@@ -22,6 +22,15 @@ The rules mirror ``upgrade_on_disk.py`` (its points 3-6), pinned by cells in
    ``format_version.read_version`` (no JSON parse on every open).
 6. Nothing is written while the GUI working set holds unsaved changes.
 
+Д2 (plan_2026_10_08_remove_spokes): the SPOKE copper keys (``pad:<pad>|…``) are
+DETACHED — dropped from the registry, never mapped. ``pad:`` is the anchor_id
+built ONLY by ``manual_position_calculator.compute_raw_positions`` (``anchor_id =
+f"pad:{spoke.pad}"``), so the predicate is the code that BUILDS the key, not a
+guess. Dropping the entry leaves the board copper unowned (it stays on the board,
+adoptable by the cell that now describes it) where a KEPT entry would be pruned
+by reconcile on the next apply — deleting the copper. Schema 2 (uuid keys, spokes
+still attached) is lifted too, by the detach alone.
+
 What changes in a key is ONLY the record-identifying NAME parts (plan §6,
 Р-У5.1/Р-У5.2): ``name:<name>`` -> ``name:<uuid>``, ``point:<name>:ox:oy`` ->
 ``point:<uuid>:ox:oy``, ``thermal:<name>`` -> ``thermal:<uuid>``,
@@ -53,7 +62,7 @@ import re
 import threading
 from pathlib import Path
 
-from ..persistence import REGISTRY_SCHEMA_VERSION
+from ..persistence import REGISTRY_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION_FORMAT3
 from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
@@ -65,9 +74,32 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-# The schema a format-3 registry carries. Kept NEXT TO the persistence module's
-# format-2 value (REGISTRY_SCHEMA_VERSION = 1) so the two cannot drift.
-TARGET_SCHEMA_VERSION = 2
+# The schema a format-3 registry carries. Taken from the persistence module's
+# constant (REGISTRY_SCHEMA_VERSION_FORMAT3) so the reader, the writer and this
+# lift can never drift: 3 = UUID keys with the SPOKE copper keys detached (Д2).
+TARGET_SCHEMA_VERSION = REGISTRY_SCHEMA_VERSION_FORMAT3
+
+# The PREVIOUS format-3 schema (У5.4): UUID keys, but the spoke copper keys
+# (``pad:<pad>|…``) were still attached. A registry at this schema still needs
+# the Д2 detach — reconcile would prune those keys and delete their copper.
+_UUID_KEY_SCHEMA_VERSION = 2
+
+# The anchor_id prefix of a SPOKE copper key (Д2). ``pad:<pad>`` is built ONLY by
+# ``manual_position_calculator.compute_raw_positions`` (``anchor_id =
+# f"pad:{spoke.pad}"``), so every four-part key whose anchor_id starts with this
+# prefix is spoke copper — decided by the code that BUILDS the keys, not by a
+# guess (plan Ч1.1, Ч0 inventory).
+_SPOKE_ANCHOR_PREFIX = "pad:"
+
+
+def _is_spoke_key(key: str) -> bool:
+    """True for a registry key whose copper belongs to a SPOKE (Д2).
+
+    ``make_registry_key`` always builds a four-part key
+    (``anchor_id|template_name|role|index``); a malformed key is not one we own,
+    so it is left alone — exactly as ``map_registry_key`` leaves it."""
+    parts = key.split("|")
+    return len(parts) == 4 and parts[0].startswith(_SPOKE_ANCHOR_PREFIX)
 
 # The literal net-trace/cell template_name that is NOT a record: a thermal via
 # array's keys carry it verbatim (Р-У5.1) and it must survive the lift.
@@ -251,7 +283,10 @@ def _map_anchor_id(anchor_id: str, idx: _NameIndex) -> tuple[str | None, str | N
     if anchor_id.startswith("net:"):
         return _map_flat(anchor_id, "net:", idx.net)
     if anchor_id.startswith(("pad:", "anchor:", "role:")):
-        return anchor_id, None          # physics — never touched
+        # physics — never touched. (The SWEEP detaches `pad:` keys before it gets
+        # here — Д2 — so this branch keeps a `pad:` key shape-stable for the
+        # direct callers/cells of map_registry_key.)
+        return anchor_id, None
     return None, "unknown"              # not a key we own (e.g. imprint:)
 
 
@@ -287,7 +322,9 @@ def map_registry_key(key: str, idx: _NameIndex) -> tuple[str, str | None]:
 # ── the sweep ───────────────────────────────────────────────────────────────
 
 def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
-    """Lift the via and track registries of ``config_path`` from schema 1 to 2.
+    """Lift the via and track registries of ``config_path`` to the current
+    schema (``TARGET_SCHEMA_VERSION``): map name keys to uuids (schema 1) and
+    DETACH the spoke copper keys (schema 1 and 2 — Д2).
 
     Returns the files written (empty when nothing needed lifting). Refuses a
     registry NEWER than this build BEFORE the first write (pre-pass); a failed
@@ -334,10 +371,26 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
     idx = _build_index(cfg)
     lifted: list[Path] = []
     for path in paths:
-        if schemas[path] != REGISTRY_SCHEMA_VERSION:
-            # None (absent/unreadable) and the target schema are both no-ops;
-            # schema 1 is what this sweep has to lift.
+        schema = schemas[path]
+        if schema is None or schema == TARGET_SCHEMA_VERSION:
+            # Absent/unreadable and the target schema are both no-ops.
             continue
+        if schema not in (REGISTRY_SCHEMA_VERSION, _UUID_KEY_SCHEMA_VERSION):
+            # Unreachable: the pre-pass refuses anything NEWER than the target.
+            continue
+        # Schema 1 (name keys) is mapped to uuids; schema 2 is already
+        # uuid-keyed and only needs the spoke detach. Both end at the target.
+        name_keyed = schema == REGISTRY_SCHEMA_VERSION
+        # Д2 SAFETY (finding, 09.10.2026) — never detach the spoke keys while the
+        # config STILL PLANS that copper. The detach exists because no plan
+        # produces a spoke key any more (chains are gone); a config that still
+        # carries a non-empty `chains:` DOES plan it, so detaching the entry would
+        # make the next apply CREATE the copper again — DUPLICATES on the board.
+        # With chains present the spoke keys are therefore LEFT ATTACHED, i.e. the
+        # pre-Д2 behaviour (mapped, kept, reconciled as before). Once Д1's load
+        # refusal lands no loadable config has chains and this guard is inert; it
+        # is what makes Д2 safe to land on its own, and it is pinned by a cell.
+        detach_spokes = not (getattr(cfg, "chains", None) or [])
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
@@ -345,8 +398,17 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             entries = {k: v for k, v in raw.items() if k != "schema_version"}
             new_entries: dict = {}
             problems: list[tuple[str, str]] = []
+            detached: list[str] = []
             for key, value in entries.items():
-                new_key, problem = map_registry_key(key, idx)
+                # Д2: a spoke key is DETACHED — dropped, never mapped, so the
+                # board copper it named is left unowned instead of being pruned
+                # away on the next apply — UNLESS the config still plans it (see
+                # detach_spokes above).
+                if detach_spokes and _is_spoke_key(key):
+                    detached.append(key)
+                    continue
+                new_key, problem = (map_registry_key(key, idx) if name_keyed
+                                    else (key, None))
                 if problem is not None:
                     if problem != "unknown":
                         problems.append((key, problem))
@@ -383,6 +445,13 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 "is left as it is; the next open will try again"
                 .format(path=path, error=e))
             continue
+        if detached:
+            logger.warning(
+                "registry {path}: {count} spoke copper key(s) DETACHED — the "
+                "copper stays on the board, unowned (adoptable by the cell that "
+                "now describes it); the entries were dropped: {keys}".format(
+                    path=path, count=len(detached),
+                    keys=", ".join(sorted(detached))))
         if problems:
             logger.warning(
                 "registry {path}: {count} key(s) are NOT lifted — the record name "
@@ -394,7 +463,7 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
         logger.warning(
             "registry {path}: schema {old} is outdated, lifted to {new}. The "
             "previous version is saved: {backup}"
-            .format(path=path, old=REGISTRY_SCHEMA_VERSION,
+            .format(path=path, old=schema,
                     new=TARGET_SCHEMA_VERSION, backup=backup))
         lifted.append(path)
     return lifted

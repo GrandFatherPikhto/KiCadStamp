@@ -45,6 +45,21 @@ def identity_value(name: str, uuid: str | None) -> str:
     return uuid if current_format() >= 3 else name
 
 
+def registry_schema() -> int:
+    """The registry schema the CURRENT format gate EXPECTS — the same number the
+    product's writer stamps (``registry._registry_schema_version_for_write``).
+
+    3 under format 3 (Д2 — the spoke copper keys are detached), 1 in format 2.
+    EVERY fixture that writes a registry by hand must use this instead of a
+    literal, so the number can never drift from the product again (it silently
+    did when Д2 raised the format-3 schema from 2 to 3)."""
+    from kicadstamp.config.format_version import current_format
+    from kicadstamp.persistence import (REGISTRY_SCHEMA_VERSION,
+                                        REGISTRY_SCHEMA_VERSION_FORMAT3)
+    return (REGISTRY_SCHEMA_VERSION_FORMAT3 if current_format() >= 3
+            else REGISTRY_SCHEMA_VERSION)
+
+
 def without_identity(value):
     """Deep copy with every uuid / ``*_uuid`` key and the ``folders`` table
     dropped (У3.5 К3, row 8 helper).

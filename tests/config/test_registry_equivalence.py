@@ -5,8 +5,9 @@ survives the format-2 -> format-3 transition untouched.
 For one key FORM at a time: a format-2 config is applied to a fake board (real
 planners, real registries: copper created, the registry filled with NAME keys) →
 the SAME graph is rewritten as format 3 (the У2 stub ``mint_format3``) and
-re-loaded (``load_config`` lifts the registry schema 1 -> 2, name keys ->
-uuid keys) → the SAME form is planned again and reconciled: ``to_create`` and
+re-loaded (``load_config`` lifts the registry schema 1 -> 3, name keys ->
+uuid keys, the spoke copper keys detached) → the SAME form is planned again and
+reconciled: ``to_create`` and
 ``to_delete`` are BOTH empty and not a single board UUID changed. A registry
 whose keys did NOT lift would report every command as "create" and the old
 (name-keyed) entries as "prune" — i.e. delete + recreate all of this form's
@@ -14,10 +15,15 @@ copper, which is exactly what this cell forbids.
 
 Parameterized over every form the У5.0 inventory lists, so one broken form
 cannot hide the others: ``name:`` of a tree Entity, ``name:`` of an absolute
-clone_placement, ``point:``, ``role:``, ``anchor:``, ``thermal:``, ``net:``,
-``pad:`` (a chain spoke), a nested ``…/nested``, the two ``tree_instances``
-copies of ONE entity (DIFFERENT keys), and the ``sheet_templates`` copies at one
-sheet and at several.
+clone_placement, ``point:``, ``role:``, ``anchor:``, ``thermal:``, ``net:``, a
+nested ``…/nested``, the two ``tree_instances`` copies of ONE entity (DIFFERENT
+keys), and the ``sheet_templates`` copies at one sheet and at several.
+
+The spoke form (``pad:``) was REMOVED with the mechanism (Д1,
+plan_2026_10_08_remove_spokes): a non-empty ``chains:`` is now refused at load,
+and the Д2 lift detaches the spoke keys, so "N -> 3 keeps the copper
+untouched" no longer holds for that form — by design (the copper is left
+unowned, to be adopted by the cell that now describes it).
 
 The apply is the REGISTRY path only (reconcile + create + ``record_created``):
 the positional pre-check is an independent mechanism for UNREGISTERED copper and
@@ -40,12 +46,10 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.net_trace_planner import plan_net_traces
+from kicadstamp.persistence import REGISTRY_SCHEMA_VERSION_FORMAT3
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import (
     ClonePositionCalculator,
-)
-from kicadstamp.placement.services.manual_position_calculator import (
-    ManualPositionCalculator,
 )
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
@@ -137,8 +141,6 @@ def _data() -> dict:
              "anchor_point": "P1"},
             {"name": "cnest", "cluster": "cnest", "cell": "lvl1", "xy": [0.0, 0.0]},
         ],
-        "chains": [{"net": "GND", "name": "ch1", "anchor_ref": "U1",
-                    "spokes": [{"pad": "1", "cell": "leaf"}]}],
         "thermal_via_arrays": [{"name": "tva1", "anchor_ref": "U1", "pad": "1",
                                 "net": "GND", "rows": 1, "cols": 1, "margin_mm": 0.0,
                                 "pattern": "grid", "drill_mm": 0.3, "diameter_mm": 0.6}],
@@ -203,10 +205,6 @@ def _commands(form, cfg, adapter):
         return _clone_cmds(cfg, adapter, _clones_named(cfg, {"S4_csheet2", "S5_csheet2"}))
     if form == "thermal":
         return ViaPlanner(adapter, cfg).plan_vias([], []), []
-    if form == "pad":
-        _p, vias, tracks = ManualPositionCalculator(adapter, cfg).compute_raw_positions(
-            list(cfg.chains))
-        return vias, tracks
     if form == "net":
         vias, tracks = plan_net_traces(adapter, list(cfg.net_traces))
         return vias, tracks
@@ -214,7 +212,7 @@ def _commands(form, cfg, adapter):
 
 
 _FORMS = ["name_entity", "name_clone", "point", "role", "anchor", "thermal",
-          "net", "pad", "nested", "tree_instance", "sheet_single", "sheet_multi"]
+          "net", "nested", "tree_instance", "sheet_single", "sheet_multi"]
 
 
 # ── the registry-path apply (reconcile + create + record) ───────────────────
@@ -433,8 +431,10 @@ def test_explicit_registry_paths_are_lifted_and_equivalent(tmp_path, monkeypatch
                     encoding="utf-8")
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
     cfg3, _ = load_config(str(root))       # lifts the EXPLICIT files
-    assert json.loads(Path(via2).read_text(encoding="utf-8"))["schema_version"] == 2
-    assert json.loads(Path(trk2).read_text(encoding="utf-8"))["schema_version"] == 2
+    assert (json.loads(Path(via2).read_text(encoding="utf-8"))["schema_version"]
+            == REGISTRY_SCHEMA_VERSION_FORMAT3)
+    assert (json.loads(Path(trk2).read_text(encoding="utf-8"))["schema_version"]
+            == REGISTRY_SCHEMA_VERSION_FORMAT3)
 
     vias3, tracks3 = _commands("name_clone", cfg3, adapter)
     v_create, v_delete, t_create, t_delete = _apply(adapter, cfg3, root, vias3, tracks3)
@@ -475,9 +475,10 @@ def test_an_unlifted_track_registry_is_a_fatal_when_nothing_masks_it(
     root.write_text(dict_to_sexp(mint_format3(_data()), format_number=3),
                     encoding="utf-8")
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
-    cfg3, _ = load_config(str(root))                     # lifts both to schema 2
+    cfg3, _ = load_config(str(root))              # lifts both to the current schema
     via_path, trk_path = _registry_paths(cfg3, root)
-    assert json.loads(Path(via_path).read_text(encoding="utf-8"))["schema_version"] == 2
+    assert (json.loads(Path(via_path).read_text(encoding="utf-8"))["schema_version"]
+            == REGISTRY_SCHEMA_VERSION_FORMAT3)
 
     # ONE failed write: the track registry stays UNLIFTED (no `schema_version`
     # — the legacy schema-1-by-convention form the reader must still refuse).

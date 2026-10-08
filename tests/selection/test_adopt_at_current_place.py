@@ -39,7 +39,7 @@ from kicadstamp.placement.services.clone_position_calculator import (
     clone_registry_identity,
 )
 from kicadstamp.registry import PlacementRegistry, TrackRegistry, make_registry_key
-from tests.fakes.format3 import det_uuid
+from tests.fakes.format3 import det_uuid, registry_schema
 
 CELL = "dac_buf"
 CLUSTER = "DAC_BUF"
@@ -179,7 +179,7 @@ def _track_entry(uuid, x1, y1, x2, y2):
 
 
 def _schema() -> int:
-    return 2 if format_version.current_format() >= 3 else 1
+    return registry_schema()
 
 
 def _write_registry(path, entries):

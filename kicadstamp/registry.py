@@ -159,11 +159,14 @@ def _registry_schema_versions() -> tuple[int, ...]:
 
     Format 2 (the product today): only schema 1 — byte-identical behaviour.
 
-    Format 3: ONLY schema 2 (the uuid-keyed registry the on-disk lift writes,
-    kicadstamp/config/registry_upgrade.py). Schema 1 must NOT be read under the
-    gate — see :func:`_refuse_unlifted_registry` (Н3): a name-keyed registry
-    against a uuid-keyed plan is the mix Р-У5.7 forbids, and reading it deletes
-    the profile's copper. This used to accept {1, 2} on the argument that a
+    Format 3: ONLY schema 3 (the uuid-keyed registry, spoke keys detached, that
+    the on-disk lift writes — kicadstamp/config/registry_upgrade.py). Schema 1
+    must NOT be read under the gate — see :func:`_refuse_unlifted_registry`
+    (Н3): a name-keyed registry against a uuid-keyed plan is the mix Р-У5.7
+    forbids, and reading it deletes the profile's copper. Schema 2 (Д2) is
+    refused too: it is uuid-keyed, but it still carries the SPOKE keys
+    (``pad:<pad>|…``), which no longer appear in any plan — reconcile would prune
+    them and delete the copper. This used to accept {1, 2} on the argument that a
     failed lift (read-only registry directory) must stay readable; that traded
     a loud fatal for silent copper deletion, the wrong way around."""
     from .config.format_version import current_format
@@ -173,8 +176,8 @@ def _registry_schema_versions() -> tuple[int, ...]:
 
 
 def _refuse_unlifted_registry(raw: dict, path: str) -> None:
-    """Н3 (У5.4 rework): under the format-3 gate, a registry that has NOT been
-    lifted to the uuid-keyed schema is a FATAL — checked BEFORE the lenient
+    """Н3 (У5.4 rework) + Д2: under the format-3 gate, a registry that has NOT
+    been lifted to the CURRENT schema is a FATAL — checked BEFORE the lenient
     entry parse, and therefore before ``reconcile`` and before any deletion.
 
     Why a fatal, not a lenient read. Under the gate the plan carries UUID keys
@@ -192,21 +195,32 @@ def _refuse_unlifted_registry(raw: dict, path: str) -> None:
 
     A file with NO ``schema_version`` is the pre-2026-08-25 legacy form —
     schema 1 by convention (``check_schema_version``) — and is refused too.
+
+    Д2 (plan_2026_10_08_remove_spokes) widens this from "not uuid-keyed" to
+    "older than the current schema": a schema-2 registry (uuid-keyed, spoke keys
+    still attached) is refused as well, because reading it would let reconcile
+    prune the detached-elsewhere spoke copper and delete it.
+
+    A NON-integer ``schema_version`` is left to ``check_schema_version`` (a
+    plain ``ValueError``), keeping its message and behaviour unchanged.
     """
     from .config.format_version import current_format
     if current_format() < 3:
         return
     version = raw.get("schema_version")
-    if version is None or version == REGISTRY_SCHEMA_VERSION:
+    older = (isinstance(version, int) and not isinstance(version, bool)
+             and version < REGISTRY_SCHEMA_VERSION_FORMAT3)
+    if version is None or older:
         raise ValidationError(_(
-            "The copper registry {path} was not lifted to UUID keys — apply "
-            "stopped, the board was not touched; reopen the profile (the lift "
-            "runs on open) or check that the registry directory is writable"
+            "The copper registry {path} was not lifted to the current schema "
+            "(spoke copper keys detached) — apply stopped, the board was not "
+            "touched; reopen the profile (the lift runs on open) or check that "
+            "the registry directory is writable"
         ).format(path=str(path)))
 
 
 def _registry_schema_version_for_write() -> int:
-    """The schema a freshly written registry gets: 2 under the format-3 gate, 1
+    """The schema a freshly written registry gets: 3 under the format-3 gate, 1
     in format 2 (so the product's registry files stay byte-identical today)."""
     from .config.format_version import current_format
     return (REGISTRY_SCHEMA_VERSION_FORMAT3 if current_format() >= 3

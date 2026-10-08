@@ -27,7 +27,6 @@ import pytest
 import kicadstamp.net_trace_planner as planner_mod
 from kicadstamp.config import NetTrace, TemplateTrack, TemplateVia
 from kicadstamp.config import format_version
-from kicadstamp.config.format_version import current_format
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
@@ -35,7 +34,7 @@ from kicadstamp.net_trace_planner import (
     TRACK, VIA, find_live_copper, match_net_trace_pieces, net_trace_registry_key,
     read_live_copper,
 )
-from tests.fakes.format3 import det_uuid
+from tests.fakes.format3 import det_uuid, registry_schema
 
 
 @pytest.fixture(params=(2, 3), ids=("format2", "format3"))
@@ -141,7 +140,7 @@ def _config_path(tmp_path):
 def _write_registries(tmp_path, via_entries=None, track_entries=None):
     """The two registry files the narrowing loads (`load_registry_entries`), in
     the schema the format gate expects."""
-    schema = 2 if current_format() >= 3 else 1
+    schema = registry_schema()
     (tmp_path / "registry").mkdir(exist_ok=True)
     (tmp_path / "registry" / "config.registry.json").write_text(
         json.dumps({"schema_version": schema, **(via_entries or {})}),

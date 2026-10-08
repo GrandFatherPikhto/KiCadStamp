@@ -21,7 +21,13 @@ REGISTRY_SCHEMA_VERSION = 1
 # (kicadstamp/config/registry_upgrade.py) agree on ONE source of truth. Do NOT
 # raise REGISTRY_SCHEMA_VERSION itself: in format 2 (CURRENT_FORMAT = 2, the
 # product today) the registry files must stay byte-identical, schema 1 included.
-REGISTRY_SCHEMA_VERSION_FORMAT3 = 2
+#
+# 3 (Д2, plan_2026_10_08_remove_spokes): the schema in which the SPOKE copper
+# keys (``pad:<pad>|…``) are DETACHED — dropped from the registry so the board
+# copper they named is left unowned instead of being pruned away on the next
+# apply. Schema 2 (У5.4) was already UUID-keyed but still carried those keys, so
+# it is lifted to 3 by the detach alone.
+REGISTRY_SCHEMA_VERSION_FORMAT3 = 3
 OPERATION_LOG_SCHEMA_VERSION = 1
 
 
@@ -33,9 +39,10 @@ def check_schema_version(version, expected, path, kind: str) -> None:
     when the field is absent, i.e. a legacy pre-2026-08-25 file — accepted).
     ``expected`` — a single supported version (the usual case, and what every
     caller but the format-3 registry passes), or an iterable of supported
-    versions: the registry reader under the format-3 gate accepts BOTH the
-    not-yet-lifted schema 1 (a write failure can leave it there) and the lifted
-    schema 2. ``path``/``kind`` — used only to build the error message.
+    versions: the registry reader under the format-3 gate accepts only the
+    lifted schema 3; anything older is refused by ``_refuse_unlifted_registry``
+    before this is reached. ``path``/``kind`` — used only to build the error
+    message.
 
     Raises :class:`ValueError` on a version this build does not understand:
     silently proceeding would mis-parse entries and corrupt the board, so a

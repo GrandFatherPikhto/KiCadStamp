@@ -67,6 +67,7 @@ from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.net_trace_planner import plan_net_traces
+from kicadstamp.persistence import REGISTRY_SCHEMA_VERSION_FORMAT3
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import (
     ClonePositionCalculator,
@@ -450,8 +451,9 @@ def test_a_format2_graph_lifted_on_open_keeps_the_second_apply_empty(
     cfg3, _ = load_config(str(root))
     assert read_version(root) == 3 and read_version(sub) == 3, (
         "load_config did not lift the graph on disk")
-    assert _schema(via_path) == 2 and _schema(trk_path) == 2, (
-        "load_config did not lift both registries to schema 2")
+    assert (_schema(via_path) == REGISTRY_SCHEMA_VERSION_FORMAT3
+            and _schema(trk_path) == REGISTRY_SCHEMA_VERSION_FORMAT3), (
+        "load_config did not lift both registries to the current schema")
     _assert_registry_keys_are_uuids(cfg3, via_path, trk_path)
 
     vias3, tracks3 = _all_commands(cfg3, adapter)

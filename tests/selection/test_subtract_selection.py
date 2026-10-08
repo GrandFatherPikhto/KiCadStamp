@@ -33,6 +33,7 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
 from kicadstamp.registry import make_registry_key, record_key_part
 from kicadstamp.subtract_selection import matched_instance_labels, plan_subtraction
+from tests.fakes.format3 import registry_schema
 
 CELL = "dac_buf"
 CELL_IDENTITY = record_key_part(CELL, "uuid-cell")
@@ -165,10 +166,12 @@ class _Adapter:
 def _write_registries(tmp_path, via_entries, track_entries):
     (tmp_path / "registry").mkdir(exist_ok=True)
     (tmp_path / "registry" / "config.registry.json").write_text(
-        json.dumps({"schema_version": 2, **via_entries}), encoding="utf-8")
+        json.dumps({"schema_version": registry_schema(), **via_entries}),
+        encoding="utf-8")
     (tmp_path / "tracks").mkdir(exist_ok=True)
     (tmp_path / "tracks" / "config.tracks.registry.json").write_text(
-        json.dumps({"schema_version": 2, **track_entries}), encoding="utf-8")
+        json.dumps({"schema_version": registry_schema(), **track_entries}),
+        encoding="utf-8")
 
 
 def _config_path(tmp_path):

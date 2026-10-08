@@ -16,7 +16,6 @@ import pytest
 
 from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.config import format_version
-from kicadstamp.config.format_version import current_format
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
@@ -29,7 +28,7 @@ from kicadstamp.selection_narrowing import (
     group_selection,
     subtract_foreign_copper,
 )
-from tests.fakes.format3 import det_uuid, identity_value
+from tests.fakes.format3 import det_uuid, identity_value, registry_schema
 
 
 @pytest.fixture(params=(2, 3), ids=("format2", "format3"))
@@ -289,7 +288,7 @@ class _Adapter:
 
 
 def _write_registries(tmp_path, via_entries, track_entries):
-    schema = 2 if current_format() >= 3 else 1
+    schema = registry_schema()
     (tmp_path / "registry").mkdir()
     (tmp_path / "registry" / "config.registry.json").write_text(
         json.dumps({"schema_version": schema, **via_entries}), encoding="utf-8")

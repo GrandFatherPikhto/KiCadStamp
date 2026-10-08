@@ -18,14 +18,13 @@ import gui.worker as worker_mod
 import kicadstamp.adapter_factory as adapter_factory_mod
 
 from kicadstamp.config import format_version
-from kicadstamp.config.format_version import current_format
 from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
                                   SPOKE_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.registry import make_registry_key, record_key_part
-from tests.fakes.format3 import det_uuid
+from tests.fakes.format3 import det_uuid, registry_schema
 
 
 @pytest.fixture(params=(2, 3), ids=("format2", "format3"))
@@ -114,7 +113,7 @@ def _slot(role, along, across):
 
 
 def _write_via_registry(tmp_path, via_entries):
-    schema = 2 if current_format() >= 3 else 1
+    schema = registry_schema()
     (tmp_path / "registry").mkdir(exist_ok=True)
     (tmp_path / "registry" / "config.registry.json").write_text(
         json.dumps({"schema_version": schema, **via_entries}), encoding="utf-8")

@@ -1,8 +1,15 @@
 # tests/placement/test_registry_upgrade_on_disk.py
-"""У5.4 (plan §6, Р-У5.1/Р-У5.5/Р-У5.6): lifting the copper REGISTRIES from
-schema 1 (name-keyed) to schema 2 (uuid-keyed) when a format-3 profile opens.
+"""У5.4 (plan §6, Р-У5.1/Р-У5.5/Р-У5.6) + Д2 (plan_2026_10_08_remove_spokes):
+lifting the copper REGISTRIES to the current UUID-keyed schema when a format-3
+profile opens.
 
-Two axes, one table each (rule 35):
+The lift ends at schema 3 (``ru.TARGET_SCHEMA_VERSION``): schema 1 (name-keyed)
+is mapped to uuids, and the SPOKE keys (``pad:<pad>|…``) are DETACHED — dropped
+from the registry so the board copper they named is left unowned instead of being
+pruned away on the next apply. Schema 2 (already uuid-keyed, but still carrying
+the spoke keys) is lifted too, by the detach alone.
+
+Three axes, one table each (rule 35):
 
 - the KEY TABLE — ``map_registry_key`` over every form the У5.0 inventory lists
   (``name:`` entity / clone, ``point:``, ``role:``, ``anchor:``, ``thermal:``,
@@ -14,7 +21,11 @@ Two axes, one table each (rule 35):
 - the SWEEP — ``.bak`` keeps the previous bytes; a repeat open touches nothing
   (no write, no parse — one os.stat); a NEWER schema refuses before the first
   write; the working set stands the sweep down; both registry files are lifted;
-  without the format-3 gate nothing is written at all.
+  without the format-3 gate nothing is written at all;
+- Д2 — the spoke keys (the ONLY ``pad:`` anchor_id builder in the product is
+  ``manual_position_calculator.compute_raw_positions``: ``anchor_id =
+  f"pad:{spoke.pad}"``) are DROPPED, never mapped; and the read gate now refuses
+  a schema-2 registry too, because it still carries those keys.
 
 This module imports ``kicadstamp.config`` first, which populates the module
 graph and would MASK a reintroduced ``registry -> placement.commands ->
@@ -41,8 +52,8 @@ from kicadstamp.config.registry_upgrade import _build_index, map_registry_key
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.registry import (load_registry, load_track_registry,
-                                 registries_empty_for)
+from kicadstamp.registry import (PlacementRegistry, load_registry,
+                                 load_track_registry, registries_empty_for)
 from kicadstamp.utils.paths import (registry_path_for_config,
                                     track_registry_path_for_config)
 from tests.fakes.format3 import det_uuid, format3, mint_format3  # noqa: F401
@@ -241,8 +252,9 @@ def _config_data() -> dict:
              "anchor_point": "P1"},
             {"cluster": "cnest", "name": "cnest", "cell": "lvl1", "xy": [0.0, 0.0]},
         ],
-        "chains": [{"net": "GND", "name": "ch1", "anchor_point": "P1",
-                    "spokes": [{"pad": "1", "cell": "leaf"}]}],
+        # NO ``chains`` section: Д1 (plan_2026_10_08_remove_spokes) refuses a
+        # non-empty one at load, and the Д2 cells below name a spoke KEY in the
+        # registry directly — the config no longer has to carry a chain for it.
         "thermal_via_arrays": [{"name": "tva1", "anchor_ref": "U1", "pad": "1",
                                 "net": "GND", "rows": 1, "cols": 1, "margin_mm": 0.0,
                                 "pattern": "grid", "drill_mm": 0.3, "diameter_mm": 0.6}],
@@ -274,6 +286,13 @@ _TRK_OLD = {
 
 
 def _expect_mapped() -> tuple[dict, dict]:
+    """The lifted registries: the record-identifying NAME parts are uuids, and
+    every SPOKE key (``pad:<pad>|…``) is GONE — DETACHED (Д2), not mapped.
+
+    Dropping it is what leaves the board copper it used to own alone: reconcile
+    sees no entry, so there is nothing to prune. A kept entry WOULD be pruned on
+    the next apply, deleting the copper from the board.
+    """
     E, leaf = det_uuid("entities:E"), det_uuid("cells:leaf")
     tva1 = det_uuid("thermal_via_arrays:tva1")
     cabs = det_uuid("clone_placements:cabs")
@@ -289,7 +308,7 @@ def _expect_mapped() -> tuple[dict, dict]:
         f"point:{P1}:0.0000:0.0000|{leaf}|__spoke__|0": _TRK,
         f"anchor:U1::0.0000:0.0000|{leaf}|__spoke__|0": _TRK,
         f"role:FPGA:FPGA:FPGA::0.0000:0.0000|{leaf}|__spoke__|0": _TRK,
-        f"pad:1|{leaf}|__spoke__|0": _TRK,
+        # NO ``pad:1|…`` entry: the spoke key is detached, never carried over.
     }
     return via_new, trk_new
 
@@ -334,6 +353,9 @@ def test_the_sweep_maps_both_files_and_keeps_the_previous_bytes(tmp_path, format
     assert trk_after["schema_version"] == ru.TARGET_SCHEMA_VERSION
     assert {k: v for k, v in via_after.items() if k != "schema_version"} == via_new
     assert {k: v for k, v in trk_after.items() if k != "schema_version"} == trk_new
+    # Д2: the spoke key of the rig's track registry is DETACHED, not mapped.
+    assert "pad:1|leaf|__spoke__|0" not in trk_after
+    assert not any(k.startswith("pad:") for k in trk_after if k != "schema_version")
 
     # .bak keeps the PREVIOUS bytes, both files.
     via_baks = list(Path(via).parent.glob("*.bak.*"))
@@ -457,12 +479,24 @@ def test_format2_still_reads_a_schema1_registry(tmp_path, format2):
     assert set(entries) == {"pad:1|leaf|__spoke__|0"}
 
 
-def test_format3_reads_a_schema2_registry(tmp_path, format3):  # noqa: F811
-    """Under the gate the LIFTED schema 2 (what the sweep writes) reads fine."""
+def test_format3_reads_a_schema3_registry(tmp_path, format3):  # noqa: F811
+    """Under the gate the LIFTED schema 3 (what the sweep writes) reads fine."""
+    p = tmp_path / "via.registry.json"
+    _write_registry(str(p), {"name:uuid-x|uuid-leaf|__spoke__|0": _VIA}, schema=3)
+    entries = load_registry(str(p))
+    assert set(entries) == {"name:uuid-x|uuid-leaf|__spoke__|0"}
+
+
+def test_format3_refuses_a_schema2_registry(tmp_path, format3):  # noqa: F811
+    """Д2: the gate now refuses a schema-2 registry TOO. It is uuid-keyed, so it
+    would parse — but it still carries the spoke keys, and reading it would let
+    reconcile prune their copper and delete it from the board. The lift runs on
+    every open, so reaching here means it did not: a loud stop, not a silent
+    deletion (the same reasoning as the schema-1 refusal)."""
     p = tmp_path / "via.registry.json"
     _write_registry(str(p), {"pad:1|leaf|__spoke__|0": _VIA}, schema=2)
-    entries = load_registry(str(p))
-    assert set(entries) == {"pad:1|leaf|__spoke__|0"}
+    with pytest.raises(ValidationError, match="not lifted"):
+        load_registry(str(p))
 
 
 def test_format3_refuses_a_schema1_registry(tmp_path, format3):  # noqa: F811
@@ -590,3 +624,180 @@ def test_a_registry_backup_that_cannot_be_taken_refuses_the_lift(
     assert Path(trk).read_text(encoding="utf-8") == trk_before
     assert list(Path(via).parent.glob("*.bak.*")) == []
     assert list(Path(trk).parent.glob("*.bak.*")) == []
+
+
+# ── Д2 (plan_2026_10_08_remove_spokes): DETACH the spoke copper ──────────────
+#
+# The spoke keys (``pad:<pad>|…``) are dropped from the registry on the lift, so
+# the board copper they named is left UNOWNED instead of being pruned away on the
+# next apply. The predicate is the anchor PREFIX, decided by the code that BUILDS
+# the keys (``manual_position_calculator.compute_raw_positions``: ``anchor_id =
+# f"pad:{spoke.pad}"`` — the only ``pad:`` anchor_id builder in the product), not
+# by a guess about the role part or the chain.
+
+
+class _BoardSpy:
+    """A board double that RECORDS every deletion the caller performs — the
+    witness that the detach leaves the copper alone (zero deletions) where a kept
+    entry would hand the board one deletion."""
+
+    def __init__(self, live_vias=()):
+        self._live = list(live_vias)
+        self.deleted: list[str] = []
+
+    def get_vias(self):
+        return list(self._live)
+
+    def get_tracks(self):
+        return []
+
+    def remove_by_id(self, uuid_str):
+        self.deleted.append(uuid_str)
+        return True
+
+
+def test_a_spoke_key_left_in_the_registry_would_be_pruned(tmp_path, format3):  # noqa: F811
+    """The WITNESS that makes the detach load-bearing: an UN-detached spoke entry
+    (what the sweep would leave if it KEPT it) IS pruned — the board double gets a
+    deletion. Without this, "the entry is gone" would not by itself mean "the
+    copper is safe". The next cell shows the lift prevents exactly this."""
+    root = _write_graph(tmp_path)
+    via = registry_path_for_config(str(root))
+    # schema 3 = "already lifted", so the sweep stands down and the entry stays —
+    # i.e. the world BEFORE the Д2 detach (a schema-2 registry kept its spokes).
+    _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=3)
+    spy = _BoardSpy()
+    reg = PlacementRegistry(spy, via)
+    _, to_delete = reg.reconcile([], known_anchor_ids={"name:uuid-cabs"})
+    for uuid in to_delete:
+        spy.remove_by_id(uuid)
+    assert to_delete == ["u-via"], "an un-detached spoke entry IS pruned"
+    assert spy.deleted == ["u-via"]
+
+
+def test_the_spoke_key_is_detached_so_the_board_copper_is_left_alone(
+        tmp_path, format3):  # noqa: F811
+    """Д2: the lift drops the spoke key and stamps schema 3; the board double then
+    gets ZERO deletions over the same board, and the `.bak` keeps the old bytes."""
+    root = _write_graph(tmp_path)
+    via = registry_path_for_config(str(root))
+    _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA})
+    old_bytes = Path(via).read_text(encoding="utf-8")
+
+    load_config(str(root))
+
+    after = _read(via)
+    assert after["schema_version"] == ru.TARGET_SCHEMA_VERSION
+    assert "pad:17|leaf|__spoke__|0" not in after, "the spoke key was detached"
+
+    baks = list(Path(via).parent.glob("*.bak.*"))
+    assert len(baks) == 1
+    assert baks[0].read_text(encoding="utf-8") == old_bytes
+
+    spy = _BoardSpy()
+    reg = PlacementRegistry(spy, via)
+    _, to_delete = reg.reconcile([], known_anchor_ids={"name:uuid-cabs"})
+    for uuid in to_delete:
+        spy.remove_by_id(uuid)
+    assert to_delete == []
+    assert spy.deleted == [], "the detached copper was NOT deleted from the board"
+
+
+def test_the_detach_takes_only_the_pad_keys(tmp_path, format3):  # noqa: F811
+    """Only a ``pad:`` anchor_id is a spoke key. Every OTHER key of the rig's
+    track registry survives (mapped to uuids), so its copper stays owned and is
+    NOT pruned. A detach that took ``name:``/``point:``/… too would delete that
+    copper — exactly the mutation «отвязка удаляет медь»."""
+    root, _via, trk = _setup(tmp_path)
+    load_config(str(root))
+
+    trk_after = _read(trk)
+    keys = [k for k in trk_after if k != "schema_version"]
+    assert "pad:1|leaf|__spoke__|0" not in trk_after
+    assert len(keys) == len(_TRK_OLD) - 1, "exactly the one spoke key went"
+    for key in keys:
+        assert not key.split("|")[0].startswith("pad:")
+        assert key.split("|")[0].startswith(
+            ("name:", "point:", "anchor:", "role:", "net:", "thermal:"))
+
+
+def test_a_schema2_registry_lifts_by_detaching_only(tmp_path, format3):  # noqa: F811
+    """A schema-2 registry is ALREADY uuid-keyed (У5.4 lifted it) — the Д2 lift
+    only DETACHES the spoke keys; the uuid keys are carried byte-identically."""
+    root = _write_graph(tmp_path)
+    via = registry_path_for_config(str(root))
+    E, leaf = det_uuid("entities:E"), det_uuid("cells:leaf")
+    kept = f"name:{E}|{leaf}|__spoke__|0"
+    _write_registry(via, {kept: _VIA, "pad:17|leaf|__spoke__|0": _VIA}, schema=2)
+
+    load_config(str(root))
+
+    after = _read(via)
+    assert after["schema_version"] == ru.TARGET_SCHEMA_VERSION
+    assert kept in after, "the uuid key is carried, not re-mapped"
+    assert "pad:17|leaf|__spoke__|0" not in after
+
+
+def test_the_detach_leaves_a_cell_key_carrying_the_spoke_literal(
+        tmp_path, format3):  # noqa: F811
+    """Plan «НЕ УДАЛЯТЬ» 1: ``__spoke__`` is the CELL-level role placeholder in
+    every registry key — NOT a spoke-only marker. A ``name:`` key carrying it is
+    mapped (name parts -> uuids) and survives; the detach keys on the ``pad:``
+    ANCHOR, never on the literal."""
+    root, via, _trk = _setup(tmp_path)
+    _write_registry(via, {"name:cabs|leaf|__spoke__|0": _VIA})
+
+    load_config(str(root))
+
+    cabs, leaf = det_uuid("clone_placements:cabs"), det_uuid("cells:leaf")
+    after = _read(via)
+    assert f"name:{cabs}|{leaf}|__spoke__|0" in after, (
+        "a cell-copper key with the __spoke__ literal survives the detach")
+
+
+def _with_a_chain(data: dict) -> dict:
+    """``data`` plus a non-empty ``chains:`` — a config that STILL plans spoke
+    copper (nothing refuses it yet: Д1's load refusal is a separate step)."""
+    data = json.loads(json.dumps(data))          # deep copy
+    data["chains"] = [{"net": "GND", "name": "ch1", "anchor_ref": "U1",
+                       "spokes": [{"pad": "17", "cell": "leaf"}]}]
+    return data
+
+
+def test_spoke_keys_are_kept_while_the_config_still_plans_them(
+        tmp_path, format3):  # noqa: F811
+    """Д2 SAFETY: a config that still carries `chains:` PLANS the spoke copper, so
+    detaching its registry entry would make the next apply CREATE that copper
+    again — DUPLICATES on the board. With chains present the lift leaves the spoke
+    keys ATTACHED (the pre-Д2 behaviour) and only raises the schema.
+
+    This guard is what makes Д2 safe to land before Д1 (the load refusal for a
+    non-empty chains:), which would otherwise be a prerequisite."""
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(mint_format3(_with_a_chain(_config_data())),
+                                 format_number=3), encoding="utf-8")
+    via = registry_path_for_config(str(root))
+    # schema 2 (already uuid-keyed): the ONLY change the lift may make is the
+    # detach, so a kept key is unambiguous evidence the guard fired.
+    _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
+
+    load_config(str(root))
+
+    after = _read(via)
+    assert after["schema_version"] == ru.TARGET_SCHEMA_VERSION
+    assert "pad:17|leaf|__spoke__|0" in after, (
+        "a spoke key the config still plans must NOT be detached")
+
+
+def test_the_cell_level_role_placeholder_literal_is_unchanged():
+    """Plan «НЕ УДАЛЯТЬ» 1: the VALUE of the placeholder must never change (a
+    change is a registry migration — all ~1900 of Denis's keys carry it).
+
+    Hard-coded on purpose: the cell compares the BUILT key against the LITERAL,
+    so a mutation that renames the constant dies here."""
+    from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+    from kicadstamp.registry import make_registry_key
+
+    assert SPOKE_LEVEL_ROLE_PLACEHOLDER == "__spoke__"
+    assert make_registry_key("name:x", "cell", None, 0) == "name:x|cell|__spoke__|0"
+    assert make_registry_key("name:x", "cell", "R1", 2) == "name:x|cell|R1|2"

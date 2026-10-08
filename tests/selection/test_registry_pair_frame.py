@@ -47,7 +47,7 @@ from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
 from kicadstamp.registry import make_registry_key, record_key_part
-from tests.fakes.format3 import det_uuid
+from tests.fakes.format3 import det_uuid, registry_schema
 
 CELL = "dac_buf"
 CLUSTER = "DAC_BUF"
@@ -156,7 +156,7 @@ def _registries(tmp_path, via_entries, track_entries):
     """The two registry files `registry_paths_for_config` derives from the
     config's stem — with the schema the ACTIVE format gate reads (the registry
     reader refuses the other one, which is the point of the gate)."""
-    schema = 2 if format_version.current_format() >= 3 else 1
+    schema = registry_schema()
     (tmp_path / "registry").mkdir(exist_ok=True)
     (tmp_path / "tracks").mkdir(exist_ok=True)
     (tmp_path / "registry" / "config.registry.json").write_text(

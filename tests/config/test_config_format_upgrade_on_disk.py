@@ -29,7 +29,7 @@ neighbour):
 - JSON      — the JSON side is lifted by the same sweep;
 - К4        — a REAL open (product's own constant, no `format3` fixture) lifts a
               format-2 graph on disk with a `.bak` AND the copper registries to
-              schema 2.
+              the current schema.
 """
 import json
 import logging
@@ -47,6 +47,7 @@ from kicadstamp.config.upgrade_on_disk import upgrade_graph_on_disk
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.config_writer import merge_write
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.persistence import REGISTRY_SCHEMA_VERSION_FORMAT3
 
 # Ф2.0: depth-independent (tests/paths.py) — this file moves in Ф2 while
 # tests/fixtures/ does not.
@@ -476,12 +477,12 @@ def test_unsaved_changes_in_the_working_set_stop_the_upgrade(tmp_path, monkeypat
 # WITHOUT the `format3` fixture: after the flip the fixture is a no-op, so only
 # a cell reading the product's own constant can notice a drift (Денис 04.10.2026).
 
-def test_opening_a_format_2_graph_lifts_it_on_disk_and_the_registries_to_schema_2(
+def test_opening_a_format_2_graph_lifts_it_on_disk_and_the_registries_to_schema_3(
         tmp_path):
     """К4: the product's OWN open path — `load_config` -> `upgrade_graph_on_disk`
     -> `upgrade_registries_on_disk` — lifts a format-2 graph file ON DISK to the
     current format, keeping the previous bytes in a `.bak`, and lifts the copper
-    registries to schema 2."""
+    registries to the current schema (3)."""
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp(
         {"cells": {"leaf": {}}, "entities": [{"name": "E", "cell": "leaf"}],
@@ -503,8 +504,9 @@ def test_opening_a_format_2_graph_lifts_it_on_disk_and_the_registries_to_schema_
     assert read_version(root) == CURRENT_FORMAT
     assert list(tmp_path.glob("root.sexp.bak.*")), "the previous bytes are kept"
     for p in (via, trk):
-        assert json.loads(p.read_text(encoding="utf-8"))["schema_version"] == 2, (
-            f"{p.name} was not lifted to schema 2")
+        assert (json.loads(p.read_text(encoding="utf-8"))["schema_version"]
+                == REGISTRY_SCHEMA_VERSION_FORMAT3), (
+            f"{p.name} was not lifted to the current schema")
     # the NAME-keyed entries really were rewritten to uuid keys
     assert "name:E|leaf|__spoke__|0" not in via.read_text(encoding="utf-8")
     assert "pad:1|leaf|__spoke__|0" not in trk.read_text(encoding="utf-8")
