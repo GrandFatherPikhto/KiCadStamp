@@ -882,8 +882,12 @@ def test_the_cell_docks_board_buttons_are_off_when_nothing_places_the_cell(
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]},
-                                  "d": {"components": [{"role": "R"}]}},
-                        "entities": [{"name": "e1", "cell": "c"}]})
+                                  "d": {"components": [{"role": "R"}]},
+                                  "s": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c"}],
+                        "chains": [{"name": "ch", "net": "N1",
+                                    "anchor_ref": "R1",
+                                    "spokes": [{"pad": "1", "cell": "s"}]}]})
     open_project(hub, root)
     real_main_window.connection.board = SimpleNamespace(adapter=object())
 
@@ -899,6 +903,13 @@ def test_the_cell_docks_board_buttons_are_off_when_nothing_places_the_cell(
     dock._update_refresh_enabled()
     assert dock.refresh_geometry_button.isEnabled(), \
         "у ячейки с сущностью кнопки платы на месте"
+
+    # Claude's C8: a cell placed by a CHAIN SPOKE (no entity at all) HAS an
+    # instance — its buttons stay on. "No entity" alone must never gate them.
+    dock.load_entry("s", root)
+    dock._update_refresh_enabled()
+    assert dock.refresh_geometry_button.isEnabled(), \
+        "ячейку ставит спица — кнопки платы включены"
 
 
 def test_the_edit_cell_item_reaches_the_page_through_the_hub(real_main_window,
