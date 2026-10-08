@@ -359,7 +359,11 @@ def test_entity_item_sends_its_own_instance():
     file_path (the entity's file must never become the cell's save target)."""
     import inspect
     import gui.docks.config_tree as ct
-    src = inspect.getsource(ct)
+    import gui.docks.entity_tree as et
+    # The entity leaf's menu block moved to the entity-tree mixin (rule 45: the
+    # config tree is a giant and only shrinks) — the properties are unchanged,
+    # so the guard reads BOTH sources, exactly like the cells: item above.
+    src = inspect.getsource(ct) + inspect.getsource(et)
     assert 'c=entity.get("cluster"), s=entity.get("sheet"),' in src
     # 2б, п.4: the item ALSO sends the entity NAME (its fifth field) — that is
     # what makes the action read THIS channel instead of the last one the page

@@ -315,6 +315,76 @@ class EntityTreeMixin:
             self._on_delete(f, "entities", e.get("name")))
         menu.addSeparator()
 
+    def add_entity_menu(self, menu, item, file_path) -> bool:
+        """The ENTITY leaf's menu block (СЦ-1, and 2б, п.4 grew it).
+
+        Returns True when the leaf is an ORPHAN (3а): that one can only be
+        re-pointed or deleted and must not get the generic Rename/Delete pair.
+
+        Moved out of the context-menu builder in gui/docks/config_tree.py (rule
+        45: that file is a giant and only shrinks) — the same move part 1 made
+        for the CELL menu (`_add_cell_menu_items`).
+
+        Every BOARD item names the entity it was clicked under (2б, п.4): the
+        door publishes it as the cell's working instance before the action runs,
+        so the action cannot read another channel than the one the user clicked
+        under — and the ENTITY's own "Edit cell..." opens the cell PAGE on it."""
+        leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
+        entity = leaf_data[2] if leaf_data is not None else None
+        if item.data(0, _ROLE_ORPHAN):
+            # 3а: an entity whose cell/imprint is missing can only be
+            # re-pointed or deleted — nothing else can be read from it.
+            self._add_orphan_menu(menu, entity, file_path)
+            return True
+        if isinstance(entity, dict) and entity.get("cell"):
+            # СЦ-1: three items in order — components, cell, enclosed.
+            # 2б, п.4: the ENTITY's own "Edit cell..." — the page opens ON this
+            # entity (`opened_from`), never on the cell's last/first one. The
+            # item name matches the cell menu's, and the signal is its own
+            # because this door opens the PAGE (anchor/dropdown), not CellDock's
+            # dialog.
+            entity_edit_action = menu.addAction(_("Edit cell..."))
+            entity_edit_action.setObjectName("edit_cell_for_entity_action")
+            entity_edit_action.triggered.connect(
+                lambda checked=False, n=entity.get("cell"),
+                e=entity.get("name"), f=file_path:
+                self.cell_anchor_entity_requested.emit(n, f, e))
+            components_action = menu.addAction(_("Select cell components"))
+            components_action.setObjectName("select_cell_components_action")
+            components_action.triggered.connect(
+                lambda checked=False, n=entity.get("cell"),
+                c=entity.get("cluster"), s=entity.get("sheet"),
+                e=entity.get("name"):
+                # Н5б: file_path=None — the ENTITY's file must never become the
+                # cell's save target; CellDock resolves the cell's OWN file from
+                # the config.
+                self.cell_select_components_requested.emit(n, None, c, s, e))
+            select_action = menu.addAction(_("Select cell"))
+            select_action.setObjectName("select_cell_action")
+            select_action.triggered.connect(
+                lambda checked=False, n=entity.get("cell"),
+                c=entity.get("cluster"), s=entity.get("sheet"),
+                e=entity.get("name"):
+                self.cell_select_requested.emit(n, None, c, s, e))
+            # 2026-10-05: the SAME explicit instance, selecting the whole
+            # enclosed copper too. The objectName is for the guard (the label is
+            # translated, so the guard reads the name).
+            enclosed_action = menu.addAction(_("Select enclosed copper"))
+            enclosed_action.setObjectName("select_enclosed_copper_action")
+            enclosed_action.triggered.connect(
+                lambda checked=False, n=entity.get("cell"),
+                c=entity.get("cluster"), s=entity.get("sheet"),
+                e=entity.get("name"):
+                self.cell_select_enclosed_requested.emit(n, None, c, s, e))
+            # Р2: the entity door of the "Разнос" tab — same explicit
+            # (cluster, sheet), so no guessing.
+            menu.addAction(_("Explode…")).triggered.connect(
+                lambda checked=False, n=entity.get("cell"),
+                c=entity.get("cluster"), s=entity.get("sheet"),
+                e=entity.get("name"):
+                self.cell_explode_requested.emit(n, None, c, s, e))
+        return False
+
     def _on_point_entity(self, entity: dict, file_path: Path) -> None:
         """Re-point an orphan at a graph cell/imprint, writing BOTH the name
         and its uuid into the entity's OWN file (3а).

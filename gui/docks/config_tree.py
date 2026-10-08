@@ -1524,61 +1524,14 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                         lambda checked=False, p=payload, f=file_path:
                         self.imprint_resource_requested.emit(p, f))
             if section == "entities":
-                leaf_data = item.data(0, Qt.ItemDataRole.UserRole)
-                entity = leaf_data[2] if leaf_data is not None else None
-                if item.data(0, _ROLE_ORPHAN):
-                    # 3а: an entity whose cell/imprint is missing can only be
-                    # re-pointed or deleted — nothing else can be read from it.
-                    self._add_orphan_menu(menu, entity, file_path)
+                # The entity leaf's menu block lives in the entity-tree mixin
+                # (add_entity_menu) with the rest of the entity/cell plumbing —
+                # part 1 moved the CELL menu there for the same reason, and rule
+                # 45 says this file only shrinks. True = the leaf was an ORPHAN:
+                # it carries its own pair and gets none of the generic actions
+                # below.
+                if self.add_entity_menu(menu, item, file_path):
                     handled_orphan = True
-                elif isinstance(entity, dict) and entity.get("cell"):
-                    # СЦ-1: three items in order — components, cell, enclosed.
-                    # 2б, п.4: the ENTITY's own "Edit cell..." — the page opens
-                    # ON this entity (`opened_from`), never on the cell's
-                    # last/first one. The item name matches the cell menu's, and
-                    # the signal is its own because this door opens the PAGE
-                    # (anchor/dropdown), not CellDock's dialog.
-                    entity_edit_action = menu.addAction(_("Edit cell..."))
-                    entity_edit_action.setObjectName("edit_cell_for_entity_action")
-                    entity_edit_action.triggered.connect(
-                        lambda checked=False, n=entity.get("cell"),
-                        e=entity.get("name"), f=file_path:
-                        self.cell_anchor_entity_requested.emit(n, f, e))
-                    components_action = menu.addAction(_("Select cell components"))
-                    components_action.setObjectName("select_cell_components_action")
-                    components_action.triggered.connect(
-                        lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"),
-                        e=entity.get("name"):
-                        # Н5б: file_path=None — the ENTITY's file must never
-                        # become the cell's save target; CellDock resolves the
-                        # cell's OWN file from the config.
-                        self.cell_select_components_requested.emit(n, None, c, s,
-                                                                   e))
-                    select_action = menu.addAction(_("Select cell"))
-                    select_action.setObjectName("select_cell_action")
-                    select_action.triggered.connect(
-                        lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"),
-                        e=entity.get("name"):
-                        self.cell_select_requested.emit(n, None, c, s, e))
-                    # 2026-10-05: the SAME explicit instance, selecting the whole
-                    # enclosed copper too. The objectName is for the guard (the
-                    # label is translated, so the guard reads the name).
-                    enclosed_action = menu.addAction(_("Select enclosed copper"))
-                    enclosed_action.setObjectName("select_enclosed_copper_action")
-                    enclosed_action.triggered.connect(
-                        lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"),
-                        e=entity.get("name"):
-                        self.cell_select_enclosed_requested.emit(n, None, c, s, e))
-                    # Р2: the entity door of the "Разнос" tab — same explicit
-                    # (cluster, sheet), so no guessing.
-                    menu.addAction(_("Explode…")).triggered.connect(
-                        lambda checked=False, n=entity.get("cell"),
-                        c=entity.get("cluster"), s=entity.get("sheet"),
-                        e=entity.get("name"):
-                        self.cell_explode_requested.emit(n, None, c, s, e))
             if section == "cells":
                 # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
                 # menu.md Т1): the ONE item that gives an EXISTING cell an
