@@ -297,6 +297,57 @@ def test_the_plan_itself_is_quiet_only_when_asked(gate, caplog):
     assert len(loud_planned) == 1, loud_planned
 
 
+def test_the_filter_asks_its_per_record_question_quietly(gate, tmp_path, caplog):
+    """C4 of Claude's acceptance: the FILTER's own question is the quiet one.
+
+    `_net_trace_owned` asks `record_nets` of EVERY record, so K records must not
+    mean K INFO lines — the live batch the доделка measured was 458 of them for
+    ONE click, written right between the board read and the «73 skipped by net»
+    line. Only THIS call site is watched here: a cell that calls `record_nets`
+    itself cannot see the filter losing its `quiet=True`.
+
+    Mutation: drop `quiet=True` at that call and the lines come back with K."""
+    _write_registries(tmp_path)
+    records = [_named_record(f"NT{i}") for i in range(1, 6)]
+    cfg = _cfg(records)
+    adapter = _board_with_anchor()
+
+    with caplog.at_level(logging.DEBUG):
+        prelude = _narrow(tmp_path, adapter, cfg, vias=[_via("sel-v", net="OTHER")],
+                          tracks=[])
+        info_steps = _narrowing_lines(caplog.records, logging.INFO)
+        info_planned = _record_lines(caplog.records, logging.INFO, "net_traces entry")
+        debug_steps = _narrowing_lines(caplog.records, logging.DEBUG)
+
+    assert prelude is not None and prelude.refusal is None
+    assert info_steps == [] and info_planned == []
+    assert len(debug_steps) >= 5, debug_steps
+
+
+def test_the_read_only_matcher_plans_its_records_quietly(gate, caplog):
+    """C6 of Claude's acceptance: the MATCHER's own plan is quiet.
+
+    `find_live_copper` is a read-only door — it plans the record only to compare
+    geometry, so its per-record «… planned» line is not news either (the live
+    batch had 458 of them in INFO).
+
+    Mutation: drop `quiet=True` in the matcher's call and the line is INFO again."""
+    from kicadstamp.net_trace_planner import find_live_copper, read_live_copper
+
+    adapter = _board_with_anchor()
+    nt = _record("NT1", net="NET1")          # literal nets: the plan really runs
+    reg = SimpleNamespace(entries={})
+
+    with caplog.at_level(logging.DEBUG):
+        find_live_copper(adapter, nt, via_registry=reg, track_registry=reg,
+                         sheet_names=_SHEETS, live=read_live_copper(adapter))
+        info_planned = _record_lines(caplog.records, logging.INFO, "net_traces entry")
+        debug_planned = _record_lines(caplog.records, logging.DEBUG, "net_traces entry")
+
+    assert info_planned == []
+    assert len(debug_planned) == 1, debug_planned
+
+
 def test_the_copper_identify_door_does_not_flood_the_log(gate, caplog):
     """«Whose copper is this?» asks EVERY record the same dry question, so its
     per-record lines are not news — they go to DEBUG, and the answer stands.
