@@ -101,6 +101,12 @@ class MixedPrelude:
     # Р3: the pieces handed from a net_traces record to the cell (empty unless the
     # read ran in explode-transfer mode) — plain data for the apply step.
     transfers: tuple = ()
+    # Г (plan_2026_10_08_narrowing_net_traces_cost): WHAT this read subtracted and
+    # WHY, split by kind — ((record identity, count), ...). The read-outcome line
+    # names them ("another record's copper" / "inter-node copper"), so the skip
+    # reasons are data, not a text the caller would have to parse.
+    subtracted_records: tuple = ()
+    subtracted_net_traces: tuple = ()
 
 
 def _component_roles(components) -> set:
@@ -131,14 +137,23 @@ def _transfer_lines(transfers) -> list:
     return out
 
 
-def _subtraction_line(parts) -> Optional[str]:
-    """One Log line naming every unit of foreign copper subtracted (registry
-    records + unregistered net_traces records)."""
+def _merged_report(parts) -> dict:
+    """{label -> count} over the subtraction reports of `parts` — ONE merge, used
+    by both the Log line and the read-outcome's reason counts."""
     merged: dict[str, int] = {}
     for sub in parts:
         for label, count in sub.report:
             merged[label] = merged.get(label, 0) + count
-    total = sum(len(sub.removed) for sub in parts)
+    return merged
+
+
+def _subtraction_line(registry: dict, net_traces: dict) -> Optional[str]:
+    """One Log line naming every unit of foreign copper subtracted (registry
+    records + unregistered net_traces records)."""
+    merged = dict(registry)
+    for label, count in (net_traces or {}).items():
+        merged[label] = merged.get(label, 0) + count
+    total = sum(merged.values())
     if not merged:
         return None
     records = ", ".join(f"{label}: {count}"
@@ -365,8 +380,12 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         # (Н4), never handed over. Say it, never skip it silently.
         lines.append((_("the instance being read is not the exploded one — "
                         "the inter-cluster copper was subtracted"), WARN))
-    subtraction = _subtraction_line(
-        [sub_v, sub_t] if transfer_ok else [sub_v, sub_t, net_v, net_t])
+    # Г: the subtracted copper, split by WHY (the read-outcome line counts each
+    # kind separately). A transferred piece is NOT subtracted, so the net_traces
+    # report is empty on that path.
+    registry_report = _merged_report([sub_v, sub_t])
+    net_report = _merged_report([] if transfer_ok else [net_v, net_t])
+    subtraction = _subtraction_line(registry_report, net_report)
     if subtraction:
         lines.append((subtraction, SUCCESS))
 
@@ -378,4 +397,6 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         kept_copper=list(kept_v) + list(kept_t),
         chosen_address=(chosen_cluster, chosen_sheet),
         log_lines=lines,
-        transfers=transfers)
+        transfers=transfers,
+        subtracted_records=tuple(sorted(registry_report.items())),
+        subtracted_net_traces=tuple(sorted(net_report.items())))

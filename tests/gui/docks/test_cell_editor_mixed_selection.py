@@ -285,3 +285,81 @@ def test_import_reconciles_a_new_role(main_window, tmp_path):
 
     assert "plan" in result, result
     assert len(board.selected_calls) == 1
+
+
+# ── part Г of plan_2026_10_08_narrowing_net_traces_cost: the read SAYS what it
+#    took out of the selection, and the selection BECOMES exactly that ────────
+
+def test_the_read_line_names_what_it_read_and_what_it_skipped(main_window, tmp_path):
+    """5 selected (2 + 2 components, 1 via), 3 read: the line accounts for the
+    difference and names the reason — the OTHER CLUSTER's two components."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    board = _MixedBoard()
+
+    result = dock._run_refresh_geometry(_payload(dock, board))
+
+    assert result["read_line"] == (
+        "read 3 of 5 selected item(s); skipped 2: another cluster — 2"), \
+        result.get("read_line")
+    assert _refs(board.selected_calls[0]) == ["C1", "C2", "v-unreg"]
+
+
+class _OffLayerBoard:
+    """DAC_BUF's instance plus a track on B.Cu, which this read does not read."""
+
+    def __init__(self):
+        self.selected = [
+            _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "s1")),
+            _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "s2")),
+        ]
+        self.track_read = Track(uuid="t-fcu", net_name=None,
+                                start=Vector2.from_xy_mm(10.0, 11.0),
+                                end=Vector2.from_xy_mm(11.0, 11.0),
+                                width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+        self.track_off = Track(uuid="t-bcu", net_name=None,
+                               start=Vector2.from_xy_mm(20.0, 21.0),
+                               end=Vector2.from_xy_mm(21.0, 21.0),
+                               width_mm=0.25, layer=BoardLayer.BL_B_Cu)
+        self.selected_all = list(self.selected) + [self.track_read,
+                                                   self.track_off]
+        self.selected_calls = []
+        self.adapter = _adapter(self)
+
+
+def test_a_track_on_a_layer_that_is_not_read_drops_out_of_the_selection(
+        main_window, tmp_path):
+    """«не взятое из выделения пропадает из него»: a track on a layer this read
+    does not read was selected and is NOT read — so it is gone from the selection
+    the read leaves behind, and the line says «layer off»."""
+    dock, _ = _make_dock(main_window, tmp_path)
+    board = _OffLayerBoard()
+    payload = _payload(dock, board)
+    payload["layers"] = ["F.Cu"]
+
+    result = dock._run_refresh_geometry(payload)
+
+    assert "plan" in result, result
+    selected = {getattr(i, "uuid", None) for i in board.selected_calls[0]}
+    assert "t-bcu" not in selected, "the off-layer track must leave the selection"
+    assert "t-fcu" in selected
+    assert "layer off — 1" in result["read_line"], result["read_line"]
+
+
+def test_a_read_that_refuses_never_touches_the_selection(main_window, tmp_path):
+    """A refusal (the read is pinned to an ENTITY row while the selection is
+    another address) builds nothing — and the board selection is left exactly as
+    the user had it: mutating it would destroy the very selection he is about to
+    fix by hand."""
+    from gui.cell_entity_choice import InstanceAddress
+
+    dock, _ = _make_dock(main_window, tmp_path)
+    board = _MixedBoard()
+    payload = _payload(dock, board)
+    payload["expected_entity"] = InstanceAddress(
+        source="entity", label="dac0", cluster="OTHER_BANK", entity_name="dac0")
+
+    result = dock._run_refresh_geometry(payload)
+
+    assert result.get("selection_refusal"), result
+    assert board.selected_calls == [], "a refused read must not touch the selection"
+    assert result.get("read_line") is None, "a refusal has no read to report"

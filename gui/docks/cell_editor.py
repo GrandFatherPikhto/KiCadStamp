@@ -117,6 +117,7 @@ from ..cell_entity_choice import instance_for_read, read_instance
 from .explode_page import adapter_of
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
+from ..read_outcome import read_outcome
 from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
@@ -1987,14 +1988,20 @@ class CellDock(QWidget):
             # and it would run BEFORE the plan is applied on the UI thread: a plan
             # refusal in between would leave the piece owned by nobody. The worker
             # only CARRIES the transfers over (plain data).
-            # Plan item 3: after the plan is built, select on the board the
-            # chosen instance's components AND all the copper that entered the
-            # read — the user sees what was read and can fix the selection by
-            # hand, then read again (a clean selection follows the ordinary path).
-            if prelude is not None:
+            # Plan item 3 + Г (plan_2026_10_08_narrowing_net_traces_cost): the
+            # read REPLACES the board selection with exactly what it took — the
+            # plan's own inputs — and says in ONE line what it skipped and why.
+            # The SAME rule on BOTH paths: a whole-selection read drops a track on
+            # a layer it does not read just the same (prelude is None there).
+            # `read_outcome` owns the item list AND the wording (one place).
+            outcome = read_outcome(
+                footprints=footprints, vias=vias, raw_tracks=raw_tracks,
+                plan_footprints=plan_footprints, plan_vias=plan_vias,
+                plan_tracks=plan_tracks, prelude=prelude,
+                layer_report=layer_read)
+            if outcome.replaced:
                 try:
-                    adapter.select_items(list(prelude.instance_footprints)
-                                         + list(prelude.kept_copper))
+                    adapter.select_items(list(outcome.items))
                 except Exception:  # noqa: BLE001 — a selection write is best-effort
                     logger.exception("select-after-read failed")
         except ValidationError as e:
@@ -2005,6 +2012,7 @@ class CellDock(QWidget):
             return {"error": str(e), "selection_lines": selection_lines}
         return {"plan": plan, "layer_report": layer_read,
                 "selection_lines": selection_lines,
+                "read_line": outcome.line,
                 "transfers": tuple(prelude.transfers) if prelude is not None else ()}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
@@ -2031,6 +2039,10 @@ class CellDock(QWidget):
         # Э4/Э5: the layer report goes FIRST and unconditionally — a read without
         # a dialog has no other place to say which layers it looked at.
         self._report_layer_read(result.get("layer_report"))
+        # Г: and then the ONE line of the read itself — what it took out of the
+        # selection and what it left behind, and why.
+        if result.get("read_line"):
+            self._show_message(result["read_line"], _SUCCESS_STYLE)
         plan = result["plan"]
         # A no-op plan (the selection already matches) is reported and NOT run
         # through _apply_refresh_plan — no pointless autostage write.
@@ -2356,16 +2368,25 @@ class CellDock(QWidget):
                 reconcile_components=prelude is not None)
             # С-1 п.2: Import stays purely ADDITIVE — it never deletes; the strict,
             # deleting path is Refresh's alone (build_refresh_plan(remove_missing=True)).
-            if prelude is not None:
+            # Г: the same rule as the Refresh read (one module, one wording):
+            # the selection BECOMES what this read took, and the Log gets the one
+            # line saying how many of the selected items were read and why the
+            # rest were not. Here the consequence is only "not added" — nothing is
+            # ever removed by an Import.
+            outcome = read_outcome(
+                footprints=footprints, vias=vias, raw_tracks=raw_tracks,
+                plan_footprints=plan_footprints, plan_vias=plan_vias,
+                plan_tracks=plan_tracks, prelude=prelude,
+                layer_report=layer_read)
+            if outcome.replaced:
                 try:
-                    adapter.select_items(list(prelude.instance_footprints)
-                                         + list(prelude.kept_copper))
+                    adapter.select_items(list(outcome.items))
                 except Exception:  # noqa: BLE001 — a selection write is best-effort
                     logger.exception("select-after-read failed")
         except ValidationError as e:
             return {"error": str(e)}
         return {"plan": plan, "layer_report": layer_read,
-                "selection_lines": selection_lines}
+                "selection_lines": selection_lines, "read_line": outcome.line}
 
     def _finish_import_vias_tracks(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): a plan error is shown as a warning with
@@ -2387,6 +2408,8 @@ class CellDock(QWidget):
         # "Nothing to import" branch, so a read that found nothing still says
         # which layers it looked at.
         self._report_layer_read(result.get("layer_report"))
+        if result.get("read_line"):
+            self._show_message(result["read_line"], _SUCCESS_STYLE)
         plan = result["plan"]
         rows = import_preview_rows(plan)
         if not rows:
