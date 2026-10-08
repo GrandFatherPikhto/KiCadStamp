@@ -1110,7 +1110,15 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self._prefill_cell_context()
         self._reload_form()
         self._sync_explode_context()
-        self._read_only_gate.apply(self._tabs, read_only)
+        # 2б, п.3: the board buttons go to the gate explicitly — a cell nobody
+        # places must have them OFF, and that must be their own state, not a
+        # side effect of the tab widget being disabled.
+        self._read_only_gate.apply(self._tabs, read_only, (
+            self._read_selection_button, self._fill_selection_button,
+            self._set_anchor_button, self._clear_anchor_button,
+            self._place_marker_button, self._show_bbox_button,
+            self._read_marker_button, self._remove_marker_button,
+            self._hide_bbox_button, self._remove_overlay_button))
 
     # ── Phase E: remembered (Cluster, Sheet) context ──────────────────────
 

@@ -35,11 +35,28 @@ class ReadOnlyGate:
         self.note.setVisible(False)
         layout.addWidget(self.note)
 
-    def apply(self, tabs: QTabWidget, read_only: bool) -> None:
+    def apply(self, tabs: QTabWidget, read_only: bool,
+              board_buttons: tuple = ()) -> None:
         """Show/restore the editable page for the current open.
 
         A read-only open disables the tabs (nothing stages) and shows the hint;
-        any other open restores both. Never touches anything else on the page —
-        what is INSIDE the tabs is the tabs' business."""
+        any other open restores both.
+
+        `board_buttons` (2б, п.3): a read-only open ALSO turns the page's board
+        buttons off EXPLICITLY. They live inside the tabs, so switching the tab
+        off already takes them away — but a guard that watched only the tab
+        widget would be green for the wrong reason, and the rule Denis asked for
+        is "these buttons are OFF for a cell nobody places" (a cell with no
+        entity and no placer is a drawing: there is no instance to read).
+
+        Only DISABLING happens here. On a normal open the page has just set every
+        button by its own rules (`_reload_form` runs immediately before this
+        call, and this gate is applied last on purpose), so re-enabling anything
+        here would undo a deliberate off (a marker that is not on the board, a
+        cell with no components)."""
         tabs.setEnabled(not read_only)
         self.note.setVisible(read_only)
+        if read_only:
+            for button in board_buttons:
+                if button is not None:
+                    button.setEnabled(False)

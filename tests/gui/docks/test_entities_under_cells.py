@@ -454,10 +454,33 @@ def test_placed_cell_without_entity_keeps_the_full_menu(
         assert expected in labels, (expected, labels)
 
 
+# 2б, п.3: the page's board buttons, by THEIR OWN names.
+#
+# `isEnabled()` alone is NOT enough: a disabled ANCESTOR (the tab widget) makes
+# every child read as disabled, so a guard on it would be green for the wrong
+# reason — exactly what Denis refused ("сторож, зелёный чужим эффектом, не
+# годится"). Qt marks the widget that was disabled BY ITS OWN CALL with
+# WA_ForceDisabled, which stays False when only the parent is off, so the second
+# half of the guard reads THAT flag — and the mutation "the gate no longer
+# touches the buttons" turns it red.
+_BOARD_BUTTONS = ("_read_selection_button", "_fill_selection_button",
+                  "_set_anchor_button", "_clear_anchor_button",
+                  "_place_marker_button", "_show_bbox_button",
+                  "_read_marker_button", "_remove_marker_button",
+                  "_hide_bbox_button", "_remove_overlay_button")
+# The buttons the PAGE itself turns ON for a valid cell (`_reload_form`): for
+# them "off" has ONE explanation — the gate.
+_PAGE_ENABLED_BUTTONS = ("_read_selection_button", "_fill_selection_button",
+                         "_set_anchor_button", "_clear_anchor_button",
+                         "_place_marker_button", "_show_bbox_button")
+
+
 def test_click_on_unused_cell_opens_the_cell_page_read_only(
         real_main_window, tmp_path):
-    """3б: щелчок по неиспользуемой ячейке открывает страницу ячейки ТОЛЬКО
-    ДЛЯ ЧТЕНИЯ — поля недоступны, видна строка-подсказка."""
+    """3б + 2б, п.3: щелчок по неиспользуемой ячейке открывает страницу ячейки
+    ТОЛЬКО ДЛЯ ЧТЕНИЯ — поля недоступны, видна строка-подсказка, и КНОПКИ ПЛАТЫ
+    выключены САМИ (одна точка гейта), а не только «вся вкладка»."""
+    from PyQt6.QtCore import Qt
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
@@ -469,11 +492,18 @@ def test_click_on_unused_cell_opens_the_cell_page_read_only(
     view = hub.cell_anchor_view
     assert not view._tabs.isEnabled(), "поля должны быть недоступны"
     assert not view._read_only_gate.note.isHidden()
+    for name in _BOARD_BUTTONS:
+        assert not getattr(view, name).isEnabled(), name
+    for name in _PAGE_ENABLED_BUTTONS:
+        assert getattr(view, name).testAttribute(
+            Qt.WidgetAttribute.WA_ForceDisabled), \
+            f"{name} выключена НЕ гейтом — сторож был бы зелёным чужим эффектом"
 
 
 def test_click_on_cell_with_entity_opens_the_cell_page_editable(
         real_main_window, tmp_path):
-    """Обратная клетка: ячейка С сущностью открывается как прежде — правимой."""
+    """Обратная клетка: ячейка С сущностью открывается как прежде — правимой,
+    и кнопки платы гейт НЕ трогает (их включает сама страница по своим правилам)."""
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
@@ -486,6 +516,7 @@ def test_click_on_cell_with_entity_opens_the_cell_page_editable(
     view = hub.cell_anchor_view
     assert view._tabs.isEnabled()
     assert view._read_only_gate.note.isHidden()
+    assert view._read_selection_button.isEnabled()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
