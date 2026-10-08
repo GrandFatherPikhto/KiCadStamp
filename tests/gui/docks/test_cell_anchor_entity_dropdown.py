@@ -20,6 +20,7 @@ from gui.cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
+import gui.docks.cell_instance_mixin as mixin_mod
 from gui.cell_entity_choice import (
     LAST_ENTITY_KEY,
     remembered_last_entity,
@@ -77,6 +78,22 @@ class _Ident:
         self.cluster = cluster
         self.sheet = sheet
         self.role_to_ref = role_to_ref
+
+
+def _capture_messages(monkeypatch) -> list:
+    """Collect every message the PAGE emits.
+
+    Two modules emit them now (rule 45): the giant for its own actions and the
+    instance MIXIN for the instance ones. Both are patched — a guard that watched
+    only one would silently stop seeing half of them."""
+    lines: list = []
+
+    def _sink(text, *args, **kwargs):
+        lines.append(str(text))
+
+    monkeypatch.setattr(view_mod, "show_message", _sink)
+    monkeypatch.setattr(mixin_mod, "show_message", _sink)
+    return lines
 
 
 def _labels(view) -> list:
@@ -204,10 +221,10 @@ def test_the_working_instance_is_the_entitys_not_the_cells_remembered_refs(
 
     view = _view(main_window, root, index)
 
-    assert view._active_refs() == {"R_OUT": "C44"}
+    assert view.active_refs() == {"R_OUT": "C44"}
     assert view._refs_edit.text() == "C44"
     _pick(view, "Manual…")
-    assert view._active_refs() == {"R": "C43"}
+    assert view.active_refs() == {"R": "C43"}
     assert view._refs_edit.text() == "C43"
 
 
@@ -252,9 +269,7 @@ def test_a_write_under_an_entity_tells_the_user_it_applies_to_every_entity(
     import kicadstamp.config_working_set as working_set
     monkeypatch.setattr(working_set, "_active_graph_root", root)
     view = _view(main_window, root, index)
-    lines = []
-    monkeypatch.setattr(view_mod, "show_message",
-                        lambda text, *a, **k: lines.append(str(text)))
+    lines = _capture_messages(monkeypatch)
 
     view._write_entry(view._current_entry(), "Set as anchor")
 
@@ -276,9 +291,7 @@ def test_a_read_of_another_instance_is_refused_while_an_entity_is_chosen(
     monkeypatch.setattr(view_mod, "read_anchor_source",
                         lambda *a, **k: {"kind": "footprint", "cluster": "OTHER",
                                          "role": "R", "pad": None})
-    lines = []
-    monkeypatch.setattr(view_mod, "show_message",
-                        lambda text, *a, **k: lines.append(str(text)))
+    lines = _capture_messages(monkeypatch)
 
     view._on_read_from_selection()
 
