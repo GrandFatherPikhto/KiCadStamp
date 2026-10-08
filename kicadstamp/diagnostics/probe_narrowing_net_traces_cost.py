@@ -9,7 +9,8 @@
 служит «до/после» для частей А (одно чтение на сужение, фильтр по цепям),
 Б («Select cell» по текущему месту) и Д (одно действие = одно чтение конфига).
 
-ДВА РЕЖИМА (оба ничего не пишут в продукт и не трогают ``profiles/``):
+ТРИ РЕЖИМА (все три ничего не пишут в продукт и не трогают ОРИГИНАЛ в
+``profiles/``):
 
 1. Счётчики за одно сужение::
 
@@ -47,6 +48,23 @@
    physical proximity``), ``Loading config``, «upgrade on disk skipped». Это «до»
    для частей А и Д; после правки тот же режим по свежему логу даёт «после».
 
+3. Работа против вентиляции за ОДНО обновление доков (Д1′, ``--fanout``)::
+
+       .venv/bin/python kicadstamp/diagnostics/probe_narrowing_net_traces_cost.py \
+           --config profiles/3ch-awg-tia-v103/config.sexp --fanout [--runs 5]
+
+   Разбор шага 1 ошибся ДВАЖДЫ, и этот режим считает то, что чинит часть Д:
+   кэш обхода УЖЕ есть, глубокой копии ``Config`` на попадании нет, а
+   «32 строки skipped» — это INFO на каждый вызов ``load_config``, не работа.
+   Поэтому здесь считаются ВЫЗОВЫ публичных имён (вентиляция) ПРОТИВ промахов
+   кэшей ``cached_graph_result``/``cached_file_read`` (работа: тело кэша/loader
+   реально исполнилось). Копия профиля — РЯДОМ с оригиналом
+   (``profiles/<имя>-dcopy``, правило 34, без временных каталогов); копия
+   Дениса ``…-copy`` НЕ трогается, оригинал не открывается даже на чтение, а
+   GUI-настройки уводятся в свой файл внутри копии. Плюс ``upgrade on disk
+   skipped`` по видам и время одного обновления в мс на грязном и чистом
+   рабочем наборе (медиана из ``--runs`` прогонов, правило 39).
+
 Зонд — инструмент приёмки, не продукт: его никто не импортирует.
 """
 from __future__ import annotations
@@ -69,6 +87,9 @@ class Counters:
     def __init__(self) -> None:
         self.calls: Counter = Counter()
         self.info_by_logger: Counter = Counter()
+        # Off during the TIMING runs: the wrappers' own cost (a
+        # traceback.extract_stack() per call) must not pollute the wall time.
+        self.active: bool = True
 
     def add(self, name: str, amount: int = 1) -> None:
         self.calls[name] += amount
@@ -412,38 +433,165 @@ def _counting(real, counters, name):
     import traceback
 
     def _wrapped(*args, **kwargs):
-        counters.add(name)
-        frames = [f for f in traceback.extract_stack()[:-1]
-                  if f.filename != real.__code__.co_filename]
-        if frames:
-            f = frames[-1]
-            counters.add(f"{name} <- {Path(f.filename).name}:{f.lineno} {f.name}")
+        if counters.active:
+            counters.add(name)
+            frames = [f for f in traceback.extract_stack()[:-1]
+                      if f.filename != real.__code__.co_filename]
+            if frames:
+                f = frames[-1]
+                counters.add(f"{name} <- {Path(f.filename).name}:{f.lineno} {f.name}")
         return real(*args, **kwargs)
 
     _wrapped.__name__ = real.__name__
     return _wrapped
 
 
-def run_fanout(args) -> int:
-    """Сколько раз за ОДНО обновление интерфейса после записи (как его соединяет
-    DockHub: `ConfigTreeDock.refresh()` + `graph_changed.emit()`) зовутся
-    ``load_config`` / ``walk_include_tree`` / ``collect_section_entries`` — и КТО
-    зовёт (одна строка стека на место вызова).
+def _sibling_copy(config_path: Path) -> Path:
+    """Return the config path inside ``<profile>-dcopy``: a copy NEXT TO the
+    original (rule 34 — no temporary directories; the copy is removed by the
+    caller, so nothing of ours is left in ``profiles/``).
 
-    Платы здесь не нужно: обновление доков после записи плату не читает. Профиль
-    КОПИРУЕТСЯ во временный каталог (тот же `_copy_profile`), рабочий набор
-    делается ГРЯЗНЫМ — это и есть живая ситуация Дениса: правка в памяти, на диск
-    не записана."""
+    Same depth on purpose: the profile's ``include:``/``schematic_files:``
+    references resolve from the config directory, so a copy placed elsewhere
+    would break them. ``profiles/<name>-copy`` is DENIS's copy and is NEVER
+    touched; our own scratch suffix is ``-dcopy``. The original is not opened,
+    not even for reading."""
+    profile = config_path.resolve().parent
+    if profile.name.endswith("-dcopy"):
+        return config_path.resolve()      # already a scratch copy — do not nest
+    dest = profile.parent / (profile.name + "-dcopy")
+    if dest.exists():
+        shutil.rmtree(dest)               # our own scratch name — refresh it
+    shutil.copytree(profile, dest, symlinks=True,
+                    ignore=shutil.ignore_patterns(
+                        "logs", "*.bak*", "*.bad", ".history",
+                        "*.sync-conflict-*"))
+    return dest / config_path.name
+
+
+def _count_graph_misses(real, counters: Counters):
+    """Wrap ``cached_graph_result``: count CALLS and MISSES. A miss is the
+    compute body actually running — the WORK; a call without a miss is a hit,
+    which is exactly what step 1 counted and wrongly reported as a traversal
+    (the ЧД2 error: the public wrapper is called, the body is not)."""
+    def _wrapped(kind, root_path, compute_fn):
+        if counters.active:
+            counters.add(f"call cached_graph_result[{kind}]")
+
+            def _compute():
+                counters.add(f"miss cached_graph_result[{kind}]")
+                return compute_fn()
+        else:
+            _compute = compute_fn
+        return real(kind, root_path, _compute)
+
+    _wrapped.__name__ = real.__name__
+    return _wrapped
+
+
+def _count_file_misses(real, counters: Counters):
+    """Wrap ``cached_file_read``: count CALLS and MISSES (the loader actually
+    ran = a real parse). A dirty file is served from the working set BEFORE the
+    cache (file_cache.py's staged branch), so no parse happens there and no miss
+    is recorded — the mechanics Д1′ has to name."""
+    def _wrapped(path, loader):
+        if counters.active:
+            counters.add("call cached_file_read")
+
+            def _load(p):
+                counters.add("miss cached_file_read")
+                counters.add(f"miss cached_file_read {Path(p).name}")
+                return loader(p)
+        else:
+            _load = loader
+        return real(path, _load)
+
+    _wrapped.__name__ = real.__name__
+    return _wrapped
+
+
+class _WindowCounter(logging.Handler):
+    """INFO records written ONLY inside the measured window: per logger
+    (ventilation) and the two ``upgrade on disk skipped`` kinds (format /
+    registry schema). The ``active`` gate keeps the warm-up and the clean runs
+    out of the dirty numbers."""
+
+    def __init__(self, counters: Counters) -> None:
+        super().__init__(level=logging.INFO)
+        self._counters = counters
+        self.active = False
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D102
+        if not self.active or record.levelno != logging.INFO:
+            return
+        self._counters.info_by_logger[record.name] += 1
+        msg = record.getMessage()
+        if "format upgrade on disk skipped" in msg:
+            self._counters.add("skipped[format]")
+        elif "registry schema upgrade on disk skipped" in msg:
+            self._counters.add("skipped[registry schema]")
+
+
+def _one_refresh(window) -> None:
+    """Exactly what DockHub does after a write: the graph dock re-reads itself
+    through its public ``refresh()``, then ``graph_changed`` wakes
+    ``_refresh_graph_dependent_choices`` (the real signal path, gui/dock_hub.py)."""
+    window.config_tree_dock.refresh()
+    window.config_tree_dock.graph_changed.emit()
+
+
+def run_fanout(args) -> int:
+    """WORK, not ventilation, for ONE UI refresh after a write.
+
+    Builds a real ``MainWindow`` offscreen on a COPY of the profile, makes the
+    working set dirty, then repeats what DockHub does after a write
+    (``ConfigTreeDock.refresh()`` + ``graph_changed.emit()``). Reports, for that
+    one refresh:
+      * ventilation — calls of the public wrappers (what step 1 counted);
+      * work — MISSES of ``cached_graph_result`` per kind and of
+        ``cached_file_read`` (a miss is a real traversal/parse);
+      * the two ``upgrade on disk skipped`` INFO kinds;
+      * the wall time per refresh (median of >= 5 runs) on a DIRTY and a CLEAN
+        working set.
+
+    No board is needed: a post-write refresh reads no copper. GUI settings are
+    redirected into a scratch file inside the copy AND ``last_root_file`` points
+    at the copy, so the real ``MainWindow`` restore never opens Denis's live
+    profile (rules 28/34)."""
     import copy
+    import json
     import os
+    import statistics
+    import time
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PyQt6.QtWidgets import QApplication
 
     counters = Counters()
-    root, temp_root = _copy_profile(Path(args.config))
+    window_counter = _WindowCounter(counters)
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(window_counter)
+
+    root = _sibling_copy(Path(args.config))
+    copy_root = root.resolve().parent
+    original_settings_path = None
     try:
         app = QApplication.instance() or QApplication([])
+
+        # Redirect GUI settings into the copy AND aim last_root_file at the copy:
+        # MainWindow -> DockHub -> RootMetadataDock._restore_last_root() opens the
+        # SAVED root during construction, and that root must be OUR copy, never
+        # Denis's live profile (the original is not opened even for reading).
+        from gui import settings as gui_settings
+
+        original_settings_path = gui_settings.SETTINGS_PATH
+        scratch_settings = copy_root / "probe_gui_state.json"
+        scratch_settings.write_text(
+            json.dumps({"last_root_file": str(root)}), encoding="utf-8")
+        gui_settings.SETTINGS_PATH = scratch_settings
+
         from gui.main_window import MainWindow
 
         window = MainWindow(timeout_ms=10, verbose=False)
@@ -452,20 +600,17 @@ def run_fanout(args) -> int:
         patched: list = []
         real_fns: list = []
         try:
-            window.root_metadata_dock.set_root_file(Path(root))
-
-            # ГРЯЗНЫЙ рабочий набор: правка уходит в память, файл не тронут.
             from kicadstamp.config_working_set import WORKING_SET
             from kicadstamp.config_writer import _read_data
-            data = copy.deepcopy(_read_data(Path(root)))
-            data["_probe_marker"] = "dirty"
-            WORKING_SET.enabled = True
-            WORKING_SET.stage_write(Path(root), data)
-
+            from kicadstamp.utils import file_cache as fc
             from kicadstamp.config import includes as includes_mod
             from kicadstamp.config import loader as loader_mod
             from gui.docks import rename as rename_mod
 
+            # Ventilation: the public wrappers step 1 counted, each with a
+            # one-line caller (from _counting). collect_section_entries has NO
+            # cache of its own (gui/docks/rename.py) — it reads through the
+            # cached traversal and the mtime file cache, so it is ventilation.
             for real, name in ((loader_mod.load_config, "load_config"),
                                (includes_mod.walk_include_tree, "walk_include_tree"),
                                (rename_mod.collect_section_entries,
@@ -473,12 +618,71 @@ def run_fanout(args) -> int:
                 real_fns.append(real)
                 patched.extend(_patch_everywhere(
                     real, _counting(real, counters, name)))
+            # Work: misses of the two caches (bodies/loaders actually run).
+            for real, wrapper in (
+                    (fc.cached_graph_result,
+                     _count_graph_misses(fc.cached_graph_result, counters)),
+                    (fc.cached_file_read,
+                     _count_file_misses(fc.cached_file_read, counters))):
+                real_fns.append(real)
+                patched.extend(_patch_everywhere(real, wrapper))
 
-            window.config_tree_dock.refresh()
-            window.config_tree_dock.graph_changed.emit()
+            WORKING_SET.enabled = True
+
+            # Warm-up (uncounted): one refresh on the clean set, caches warm.
+            _one_refresh(window)
+
+            # CLEAN: empty working set, warm caches — the pure ventilation cost.
+            WORKING_SET.clear()
+            clean_ms = []
+            for _ in range(args.runs):
+                t0 = time.perf_counter()
+                _one_refresh(window)
+                clean_ms.append((time.perf_counter() - t0) * 1000.0)
+
+            # DIRTY: the edit lands in the working set and stage_write DROPS the
+            # graph entry (config_working_set.py) — the FIRST read after it is a
+            # real miss, every later read is a hit. This IS Denis's live case.
+            data = copy.deepcopy(_read_data(Path(root)))
+            data["_probe_marker"] = "dirty"
+            WORKING_SET.stage_write(Path(root), data)
+
+            # Counted window: exactly ONE refresh on the dirty set, as the FIRST
+            # read after the write (the live action then does a SECOND such pass).
+            counters.calls.clear()
+            counters.info_by_logger.clear()
+            window_counter.active = True
+            try:
+                _one_refresh(window)
+            finally:
+                window_counter.active = False
+            counted = dict(counters.calls)
+            counted_info = dict(counters.info_by_logger)
+
+            # Timing without the counters: their own cost (a stack walk per call)
+            # must not be part of the wall time.
+            counters.active = False
+
+            # CLEAN timing: empty working set, warm caches — the pure
+            # ventilation cost of one refresh.
+            WORKING_SET.clear()
+            clean_ms = []
+            for _ in range(args.runs):
+                t0 = time.perf_counter()
+                _one_refresh(window)
+                clean_ms.append((time.perf_counter() - t0) * 1000.0)
+
+            # DIRTY timing: re-drop the graph entry before every run, so each
+            # sample is one real rebuild + the hits.
+            dirty_ms = []
+            for _ in range(args.runs):
+                WORKING_SET.stage_write(Path(root), data)
+                t0 = time.perf_counter()
+                _one_refresh(window)
+                dirty_ms.append((time.perf_counter() - t0) * 1000.0)
         finally:
-            # Возврат подменённых имён — по одному модулю за раз, в обратном
-            # порядке: в модуле мог оказаться и наш же счётчик.
+            # Restore the patched names one module at a time, in reverse order:
+            # a module could hold our own counter too.
             for mod, name in reversed(patched):
                 for real in real_fns:
                     if real.__name__ == name:
@@ -487,27 +691,79 @@ def run_fanout(args) -> int:
             window._selection_timer.stop()
             window._poll_worker.stop()
             window.log_dock.remove_handler()
-        print(f"профиль: {args.config}")
-        print(f"копия:   {root}")
+
+        calls = counted
+        info_by_logger = counted_info
+        print(f"профиль (копия): {root}")
         print(f"рабочий набор грязный: {WORKING_SET.is_dirty()}")
+        print(f"прогонов на состояние: {args.runs}")
         print()
-        for line in counters.report():
-            print(line)
+        print("ВЕНТИЛЯЦИЯ — вызовы публичных имён за ОДНО обновление:")
+        for name in ("load_config", "walk_include_tree",
+                     "collect_section_entries"):
+            print(f"  {name:<34} {calls.get(name, 0)}")
+        for kind in ("load_config", "walk_include_tree"):
+            print(f"  {'cached_graph_result[' + kind + ']':<34} "
+                  f"{calls.get('call cached_graph_result[' + kind + ']', 0)}")
+        print(f"  {'cached_file_read':<34} "
+              f"{calls.get('call cached_file_read', 0)}")
+        print()
+        print("РАБОТА — настоящие разборы (промахи кэшей) за ОДНО обновление:")
+        for kind in ("load_config", "walk_include_tree"):
+            print(f"  {'cached_graph_result[' + kind + ']':<34} "
+                  f"{calls.get('miss cached_graph_result[' + kind + ']', 0)}")
+        print(f"  {'cached_file_read (разборов файлов)':<34} "
+              f"{calls.get('miss cached_file_read', 0)}")
+        for name in sorted(calls):
+            if name.startswith("miss cached_file_read "):
+                print(f"      {name[len('miss cached_file_read '):]:<28} "
+                      f"{calls[name]}")
+        print()
+        print("«upgrade on disk skipped» за ОДНО обновление (грязный набор):")
+        print(f"  {'формат':<34} {calls.get('skipped[format]', 0)}")
+        print(f"  {'схема реестра':<34} "
+              f"{calls.get('skipped[registry schema]', 0)}")
+        if info_by_logger:
+            print()
+            print("INFO-строк по логгерам (вентиляция Лога):")
+            for name in sorted(info_by_logger):
+                print(f"  {name:<45} {info_by_logger[name]}")
+        caller_lines = [(k, v) for k, v in sorted(calls.items()) if " <- " in k]
+        if caller_lines:
+            print()
+            print("кто зовёт публичные имена:")
+            for key, value in caller_lines:
+                print(f"  {key:<70} {value}")
+        print()
+        print(f"ВРЕМЯ ОДНОГО ОБНОВЛЕНИЯ, мс (медиана из {args.runs} прогонов):")
+        print(f"  набор ГРЯЗНЫЙ: {statistics.median(dirty_ms):8.1f}   "
+              f"прогоны: {[round(x, 1) for x in dirty_ms]}")
+        print(f"  набор ЧИСТЫЙ:  {statistics.median(clean_ms):8.1f}   "
+              f"прогоны: {[round(x, 1) for x in clean_ms]}")
         return 0
     finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
+        if original_settings_path is not None:
+            from gui import settings as gui_settings
+
+            gui_settings.SETTINGS_PATH = original_settings_path
+        root_logger.removeHandler(window_counter)
+        root_logger.setLevel(previous_level)
+        shutil.rmtree(copy_root, ignore_errors=True)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Замер п.0: чтения меди и чтения конфига на одно нажатие")
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--config", help="живой профиль (копируется во временный)")
+    source.add_argument("--config", help="живой профиль (режим 1 — копия во "
+                                         "временный; режим 3 — копия рядом)")
     source.add_argument("--log", help="живой actions.log для потокового разбора")
     # Режим, а не источник: --fanout идёт ВМЕСТЕ с --config.
     parser.add_argument("--fanout", action="store_true",
-                        help="режим 3: сколько чтений конфига за одно обновление — "
-                             "вместе с --config")
+                        help="режим 3: работа против вентиляции за одно "
+                             "обновление (вместе с --config)")
+    parser.add_argument("--runs", type=int, default=5,
+                        help="режим 3: прогонов на состояние для медианы (>=5)")
     parser.add_argument("--cell", default=None, help="ячейка экземпляра замера")
     parser.add_argument("--entity", default="fpga_vccio_139",
                         help="сущность экземпляра замера (cluster/sheet из неё)")
