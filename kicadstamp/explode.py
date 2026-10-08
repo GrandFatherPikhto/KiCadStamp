@@ -52,7 +52,8 @@ from .explode_connectivity import (
     pad_areas as _pad_areas,
 )
 from .i18n import _
-from .net_trace_planner import find_live_copper, net_trace_registry_key
+from .net_trace_planner import (find_live_copper, net_trace_registry_key,
+                               read_live_copper)
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .registry import load_registry_entries, record_key_part
 from .selection_narrowing import (
@@ -303,18 +304,24 @@ def _nt_rows(cfg, adapter, sheet_names, instance_refs, classes, via_entries,
 
     vreg, treg = _Reg(via_entries), _Reg(track_entries)
     out = []
-    for nt in getattr(cfg, "net_traces", ()) or ():
+    records = list(getattr(cfg, "net_traces", ()) or ())
+    # А1 (plan_2026_10_08_narrowing_net_traces_cost): ONE read of the board's
+    # copper for the whole table — the loop below matches every record against
+    # the SAME board, and used to read it once per record.
+    live = read_live_copper(adapter) if records else None
+    for nt in records:
         if not _record_touches_cell(adapter, nt, sheet_names, instance_refs,
                                     cell_address, via_entries, track_entries,
                                     classes):
             continue
         name = str(net_trace_effective_name(nt))
         try:
-            live = find_live_copper(adapter, nt, via_registry=vreg,
-                                    track_registry=treg, sheet_names=sheet_names)
+            found = find_live_copper(adapter, nt, via_registry=vreg,
+                                     track_registry=treg, sheet_names=sheet_names,
+                                     live=live)
         except Exception:  # noqa: BLE001 — a read must never crash the plan
             continue
-        pieces = [p.live for p in getattr(live, "pieces", ()) if p.live]
+        pieces = [p.live for p in getattr(found, "pieces", ()) if p.live]
         if not pieces:
             continue
         for item in pieces:

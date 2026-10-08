@@ -314,11 +314,31 @@ class LiveCopper:
         return sum(1 for p in self.pieces if p.tier == TIER_GEOMETRY)
 
 
+def read_live_copper(adapter) -> dict:
+    """``{VIA: [...], TRACK: [...]}`` — ONE read of the board's copper, for a
+    caller that has to match MANY records against the SAME board.
+
+    Read once per OPERATION, never per record: a narrowing that walks every
+    ``net_traces`` record used to read the whole board (219 vias / 1256 tracks
+    in the live profile) once per record — 292 such reads for ONE click
+    (finding of plan_2026_10_08_narrowing_net_traces_cost, part А1). The shape
+    is a plain dict, so it crosses a pure/module boundary as DATA and a test
+    double can hand its own.
+    """
+    return {VIA: list(adapter.get_vias()), TRACK: list(adapter.get_tracks())}
+
+
 def match_net_trace_pieces(adapter, expectations: list[Expectation], *,
-                           via_registry, track_registry) -> list[MatchedCopper]:
+                           via_registry, track_registry,
+                           live: dict | None = None) -> list[MatchedCopper]:
     """THE single read-only matching half shared by adopt_net_trace_copper and
     find_live_copper (plan Э1). WRITES NOTHING — not the registries, not the
     board, not the config.
+
+    ``live`` — the board copper ALREADY read (``read_live_copper``); when None
+    the board is read here, exactly as before, so every existing caller keeps
+    its behaviour byte for byte. A caller matching MANY records passes its ONE
+    read instead (part А1 of plan_2026_10_08_narrowing_net_traces_cost).
 
     Strict tier order (design §12, plan P.2):
       1. REGISTRY — the key's stored uuid, resolved against the live board;
@@ -333,8 +353,8 @@ def match_net_trace_pieces(adapter, expectations: list[Expectation], *,
     if not expectations:
         return []
 
-    live_vias = adapter.get_vias()
-    live_tracks = adapter.get_tracks()
+    live = read_live_copper(adapter) if live is None else live
+    live_vias, live_tracks = live[VIA], live[TRACK]
     live_by_kind = {
         VIA: {v.uuid: v for v in live_vias},
         TRACK: {t.uuid: t for t in live_tracks},
@@ -379,7 +399,8 @@ def match_net_trace_pieces(adapter, expectations: list[Expectation], *,
 
 
 def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
-                     sheet_names: dict[str, str] | None = None) -> LiveCopper:
+                     sheet_names: dict[str, str] | None = None,
+                     live: dict | None = None) -> LiveCopper:
     """READ-ONLY: find the live board copper of ONE `net_traces:` record.
 
     Plan `plan_2026_09_12_select_copper_by_record` Э1/Э2. Tier 1 (registry uuid)
@@ -430,7 +451,7 @@ def find_live_copper(adapter, nt: NetTrace, *, via_registry, track_registry,
 
     pieces = match_net_trace_pieces(adapter, expectations,
                                     via_registry=via_registry,
-                                    track_registry=track_registry)
+                                    track_registry=track_registry, live=live)
     return LiveCopper(nt=nt, identity=identity, pieces=pieces, reason=reason)
 
 
@@ -505,5 +526,6 @@ __all__ = [
     "net_trace_anchor_id",
     "net_trace_registry_key",
     "plan_net_traces",
+    "read_live_copper",
     "resolve_live_anchor",
 ]

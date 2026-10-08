@@ -56,6 +56,7 @@ __all__ = [
     "group_selection",
     "is_own_key",
     "journal_is_the_read_instance",
+    "read_net_trace_owned",
     "subtract_foreign_copper",
     "subtract_net_trace_copper",
 ]
@@ -478,7 +479,7 @@ class NetTraceTransfer:
 
 
 def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
-                     sheet_names=None):
+                     sheet_names=None, live=None):
     """(owned, notes): for each selected copper uuid a LIVE ``net_traces:`` record
     owns, its ``NetTraceTransfer`` (identity + kind + index); plus the yellow notes
     about records whose copper could not be matched.
@@ -487,7 +488,13 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     and the transfer (Р3) — a piece is never matched twice. The match reuses
     ``net_trace_planner.find_live_copper`` (the SAME calculation the redraw uses,
     via ``plan_net_traces``), never a second copy; the two registry objects are
-    thin ``{key: entry}`` shims, so nothing is written."""
+    thin ``{key: entry}`` shims, so nothing is written.
+
+    ``live`` — the board copper ALREADY read (``net_trace_planner.read_live_copper``):
+    the scan no longer reads the whole board once per record (part А1 of
+    plan_2026_10_08_narrowing_net_traces_cost — it used to be 292 full reads for
+    ONE click). A caller that must filter BOTH kinds passes the union of its
+    items and its ONE read through :func:`read_net_trace_owned`."""
     from .net_trace_planner import find_live_copper
 
     class _Entries:
@@ -500,29 +507,30 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     for nt in net_traces or ():
         name = str(getattr(nt, "net", "?"))
         try:
-            live = find_live_copper(adapter, nt, via_registry=vreg,
-                                    track_registry=treg,
-                                    sheet_names=sheet_names or {})
+            matched = find_live_copper(adapter, nt, via_registry=vreg,
+                                       track_registry=treg,
+                                       sheet_names=sheet_names or {},
+                                       live=live)
         except Exception as e:  # noqa: BLE001 — a read must never crash the narrow
             notes.append(_("net_traces {net!r}: cannot match its copper ({error})")
                          .format(net=name, error=" ".join(str(e).split())))
             continue
-        if getattr(live, "reason", None):
+        if getattr(matched, "reason", None):
             # Ф3 + м2: only an UNRESOLVED anchor is worth a line. A retired/skip
             # record legitimately plans nothing (retired: not placed at all;
             # skip: its registry-known copper is still subtracted below) and
             # must NOT add a line per read.
             if not (getattr(nt, "retired", False) or getattr(nt, "skip", False)):
                 notes.append(_("net_traces {net!r}: {reason} — it was not subtracted")
-                             .format(net=getattr(live, "identity", None) or name,
-                                     reason=live.reason))
-        identity = getattr(live, "identity", None) or name
-        pieces = getattr(live, "pieces", None)
+                             .format(net=getattr(matched, "identity", None) or name,
+                                     reason=matched.reason))
+        identity = getattr(matched, "identity", None) or name
+        pieces = getattr(matched, "pieces", None)
         if pieces is None:
             # A test double may expose only `found` (the subtraction needs no
             # kind/index); the transfer always gets real pieces from
             # find_live_copper, which is where the piece number comes from.
-            for item in getattr(live, "found", ()) or ():
+            for item in getattr(matched, "found", ()) or ():
                 uuid = getattr(item, "uuid", None)
                 if uuid:
                     owned[uuid] = NetTraceTransfer(identity, "", -1)
@@ -536,32 +544,67 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     return owned, notes
 
 
-def subtract_net_trace_copper(items, net_traces, adapter, *,
-                              via_entries, track_entries, sheet_names=None
-                              ) -> CopperSubtraction:
-    """Н4 п.5а: remove the selected copper that matches a LIVE ``net_traces:``
-    record's planned copper — even when the registry does not know it yet."""
-    owned, notes = _net_trace_owned(items, net_traces, adapter,
-                                    via_entries=via_entries,
-                                    track_entries=track_entries,
-                                    sheet_names=sheet_names)
+def read_net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
+                         sheet_names=None, live=None) -> tuple[dict, tuple]:
+    """``(owned, notes)`` of ONE walk of the ``net_traces`` records — for a caller
+    that must filter TWO lists (the selected vias AND the selected tracks).
+
+    The walk does not depend on WHICH list is being filtered (it is the same
+    records and the same two registry files), so a caller computing it once and
+    handing the map to both halves is what makes "the board's copper is read
+    once" true (part А1 of plan_2026_10_08_narrowing_net_traces_cost). The notes
+    come with it, so the yellow line of an unresolvable record is printed ONCE —
+    it used to be printed twice (the scan ran for vias and again for tracks).
+
+    ``items`` — the UNION of every list the caller is about to filter.
+    ``live`` — the ONE board read (``net_trace_planner.read_live_copper``)."""
+    return _net_trace_owned(items, net_traces, adapter,
+                            via_entries=via_entries,
+                            track_entries=track_entries,
+                            sheet_names=sheet_names, live=live)
+
+
+def _split_owned(items, owned) -> tuple[list, list]:
+    """``(kept, owned_items)`` of ONE selected copper list against a ready
+    ownership map — the ONE filter both public functions below apply."""
     kept: list = []
-    removed: list = []
-    report: dict[str, int] = {}
+    taken: list = []
     for item in items or ():
-        tr = owned.get(getattr(item, "uuid", None))
-        if tr is None:
+        if owned.get(getattr(item, "uuid", None)) is None:
             kept.append(item)
         else:
-            removed.append(item)
-            report[tr.identity] = report.get(tr.identity, 0) + 1
+            taken.append(item)
+    return kept, taken
+
+
+def subtract_net_trace_copper(items, net_traces, adapter, *,
+                              via_entries, track_entries, sheet_names=None,
+                              live=None, owned=None,
+                              notes=None) -> CopperSubtraction:
+    """Н4 п.5а: remove the selected copper that matches a LIVE ``net_traces:``
+    record's planned copper — even when the registry does not know it yet.
+
+    ``owned``/``notes`` — a ready ownership map and the notes that came with it
+    (:func:`read_net_trace_owned`), for a caller filtering a second list too;
+    without them the walk runs here exactly as before."""
+    if owned is None:
+        owned, notes = _net_trace_owned(items, net_traces, adapter,
+                                        via_entries=via_entries,
+                                        track_entries=track_entries,
+                                        sheet_names=sheet_names, live=live)
+    kept, removed = _split_owned(items, owned)
+    report: dict[str, int] = {}
+    for item in removed:
+        tr = owned[getattr(item, "uuid", None)]
+        report[tr.identity] = report.get(tr.identity, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
                              report=tuple(sorted(report.items())),
-                             notes=tuple(notes))
+                             notes=tuple(notes or ()))
 
 
 def net_trace_transfers(items, net_traces, adapter, *,
-                        via_entries, track_entries, sheet_names=None) -> tuple:
+                        via_entries, track_entries, sheet_names=None,
+                        live=None, owned=None, notes=None) -> tuple:
     """Р3: the (kept, transfers, notes) split — the selected copper a LIVE
     ``net_traces:`` record owns STAYS in the read (it becomes the cell's new
     copper) and each piece is named for the ownership transfer; everything else is
@@ -573,17 +616,20 @@ def net_trace_transfers(items, net_traces, adapter, *,
     the cell gains NO record for the piece, ``apply_transfers`` still takes it away
     from the ``net_traces`` record, and the redraw then owns nothing: exactly the
     "two owners / no owner" damage the transfer exists to avoid. The first version
-    put the piece ONLY into ``transfers``, so the transfer silently dropped it."""
-    owned, notes = _net_trace_owned(items, net_traces, adapter,
-                                    via_entries=via_entries,
-                                    track_entries=track_entries,
-                                    sheet_names=sheet_names)
-    kept: list = []
+    put the piece ONLY into ``transfers``, so the transfer silently dropped it.
+
+    ``owned``/``notes`` — a ready ownership map (see :func:`read_net_trace_owned`),
+    for a caller that filters the other kind as well."""
+    if owned is None:
+        owned, notes = _net_trace_owned(items, net_traces, adapter,
+                                        via_entries=via_entries,
+                                        track_entries=track_entries,
+                                        sheet_names=sheet_names, live=live)
+    kept: list = list(items or ())
     transfers: list[NetTraceTransfer] = []
-    for item in items or ():
+    for item in kept:
         tr = owned.get(getattr(item, "uuid", None))
-        kept.append(item)                      # the piece STAYS in the read...
         if tr is not None:
             transfers.append(tr)               # ...and is named for the transfer
-    return kept, tuple(transfers), notes
+    return kept, tuple(transfers), tuple(notes or ())
  

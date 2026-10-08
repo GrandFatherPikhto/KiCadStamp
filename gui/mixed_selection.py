@@ -54,6 +54,7 @@ from kicadstamp.selection_narrowing import (
     group_selection,
     journal_is_the_read_instance,
     net_trace_transfers,
+    read_net_trace_owned,
     subtract_foreign_copper,
     subtract_net_trace_copper,
 )
@@ -288,32 +289,52 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                                     chosen_address, chosen_refs)
     net_traces = getattr(cfg, "net_traces", None)
     net_v = net_t = None
+    # А1 (plan_2026_10_08_narrowing_net_traces_cost): the board's copper is read
+    # ONCE for the whole narrowing and the ownership map is computed ONCE, then
+    # handed to BOTH lists. It used to be read (and the whole net_traces list
+    # walked) twice per kind — once for the vias, once for the tracks — i.e. 292
+    # full board reads for ONE click in the live profile. The walk does not
+    # depend on which list is being filtered (same records, same two registry
+    # files), so one map serves both.
+    from kicadstamp.net_trace_planner import read_live_copper
+
+    live = read_live_copper(adapter) if net_traces else None
+    owned, net_notes = read_net_trace_owned(
+        list(sub_v.kept) + list(sub_t.kept), net_traces, adapter,
+        via_entries=via_entries, track_entries=track_entries,
+        sheet_names=sheet_names, live=live)
     if transfer_ok:
         # Р3: the copper a LIVE net_traces record owns STAYS in the read (it
         # becomes the cell's new copper) and is named for the ownership transfer
         # (kicadstamp/explode_transfer.py) at apply time. Everything else — other
         # cells, chains, thermal arrays — is subtracted exactly as usual.
+        # NOTE: never name the discarded notes `_` here — the i18n helper IS `_`
+        # in this module, and a local binding of that name shadows it for the
+        # WHOLE function (measured: UnboundLocalError three lines below). The
+        # notes travel in `net_notes`, computed once above.
         kept_v, tr_v, notes_v = net_trace_transfers(
             list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names)
+            track_entries=track_entries, sheet_names=sheet_names,
+            owned=owned, notes=net_notes)
         kept_t, tr_t, notes_t = net_trace_transfers(
             list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names)
+            track_entries=track_entries, sheet_names=sheet_names,
+            owned=owned, notes=net_notes)
         transfers = tuple(tr_v) + tuple(tr_t)
-        net_notes = list(notes_v) + list(notes_t)
     else:
         # Н4 п.5а: inter-cluster copper recorded in `net_traces:` but NOT yet in
         # the registry is subtracted too (the hole: extract writes the record, the
         # registry learns the uuids only at redraw).
         net_v = subtract_net_trace_copper(
             list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names)
+            track_entries=track_entries, sheet_names=sheet_names,
+            owned=owned, notes=net_notes)
         net_t = subtract_net_trace_copper(
             list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names)
+            track_entries=track_entries, sheet_names=sheet_names,
+            owned=owned, notes=net_notes)
         kept_v, kept_t = list(net_v.kept), list(net_t.kept)
         transfers = ()
-        net_notes = list(net_v.notes) + list(net_t.notes)
 
     # С-1 (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06): the read
     # is STRICTLY the selection, decided by ``build_refresh_plan(remove_missing=
