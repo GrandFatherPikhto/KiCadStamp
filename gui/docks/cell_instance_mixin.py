@@ -308,13 +308,27 @@ class CellInstanceMixin:
     def _address_choices(self) -> list:
         """This cell's instance ADDRESSES in the plan's order (п.1 / п.2а): its
         entities from the ONE part-1 index, then its chain spokes, then
-        "Manual…" last. No project or no cell — nothing to choose."""
+        "Manual…" last. No project or no cell — nothing to choose.
+
+        п.3: a cell that has NO entity AND that NOTHING places has nothing to
+        choose at all — not even "Manual…". Its board actions are the read-only
+        gate's business ("create an entity to edit this cell"), and an empty
+        dropdown is what says so here, instead of an "Manual…" row that would
+        invite the user into fields nothing can read.
+
+        Without the index (no provider) the page knows nothing about the graph
+        and keeps "Manual…": that is every test that builds a bare page, and the
+        behaviour before part 2."""
         if self._root_path is None or self._cell_name is None:
             return []
         index = self.entity_index_provider() if self.entity_index_provider \
             else None
         entry = self._current_entry() or {}
-        return build_choices(entity_addresses(index, entry.get("uuid")))
+        uuid = entry.get("uuid")
+        entities = entity_addresses(index, uuid)
+        if not entities and index is not None and not index.placed_by_cell(uuid):
+            return []
+        return build_choices(entities)
 
     def _remembered_entity(self) -> Optional[str]:
         """The entity NAME this cell was last worked with (п.4)."""

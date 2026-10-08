@@ -45,18 +45,27 @@ def _entity(name, cluster=None, sheet=None, refs=None) -> dict:
     return rec
 
 
-def _root(tmp_path: Path, entities=()):
-    """One root file with this cell and `entities:` — plus the part-1 index over
-    it, exactly the object the Config tree would hand over.
+def _root(tmp_path: Path, entities=(), spokes=()):
+    """One root file with this cell, its `entities:` and the chain spokes that
+    place it — plus the part-1 index over it, exactly the object the Config tree
+    would hand over.
+
+    `spokes` is [(chain name, pad)]: the spokes are grouped into their chains, so
+    the index sees the same shape a real config has.
 
     Authoring it as FORMAT 2 is deliberate (the same shape tests/gui/
     create_entity_helpers.write_config uses): the reader LIFTS it to 3 and mints
     the uuids, so the index links the entity by uuid — and, unlike a format-3
     file, it can be WRITTEN BACK by the guards below without the GUI's active
     graph root."""
+    chains: dict = {}
+    for chain_name, pad in spokes:
+        chains.setdefault(chain_name, {
+            "name": chain_name, "net": f"N{len(chains)}", "spokes": []},
+        )["spokes"].append({"pad": pad, "cell": CELL})
     root = tmp_path / "root.sexp"
     data = {"cells": {CELL: {"components": [{"role": "R"}]}},
-            "entities": list(entities)}
+            "entities": list(entities), "chains": list(chains.values())}
     root.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
     return root, build_entity_index(walk_include_tree(str(root)))
 
@@ -191,11 +200,11 @@ def test_the_page_reopens_on_the_last_entity_chosen_for_the_cell(main_window,
     assert again._entity_picker.current_address().entity_name == "ch1"
 
 
-def test_a_cell_without_entities_keeps_the_three_fields_editable(main_window,
-                                                                 tmp_path):
-    """п.2: ячейка без сущностей — единственный пункт «Manual…», выбран по
-    умолчанию: поведение как до части 2 (поля правятся, refs из контекста)."""
-    root, index = _root(tmp_path, [])
+def test_a_cell_placed_by_a_spoke_keeps_manual_and_its_fields(main_window,
+                                                              tmp_path):
+    """п.2: ячейку ставит СПИЦА (сущностей нет) — единственный пункт «Manual…»,
+    выбран по умолчанию: поведение спиц как сегодня, ничего не ломаем."""
+    root, index = _root(tmp_path, [], spokes=[("MCU Vdd", "A1")])
     remember_cell_instance(root, CELL, _Ident("DAC_BUF", "Channel_0",
                                               {"R": "C43"}))
     view = _view(main_window, root, index)
@@ -203,6 +212,17 @@ def test_a_cell_without_entities_keeps_the_three_fields_editable(main_window,
     assert view._entity_picker.current_address().is_manual
     assert view._cluster_combo.isEnabled()
     assert view._refs_edit.text() == "C43"
+
+
+def test_a_cell_nobody_places_has_nothing_to_choose(main_window, tmp_path):
+    """п.3: ячейку не ставит НИКТО и сущностей у неё нет — выпадашка ПУСТА, даже
+    «Manual…» не предлагается: работать с такой ячейкой на плате нечем, и это
+    состояние отдано режиму «только чтение» части 1 («create an entity…»), а не
+    полям, которые всё равно ничего не прочитают."""
+    root, index = _root(tmp_path, [])
+    view = _view(main_window, root, index)
+    assert _labels(view) == []
+    assert view._entity_picker.current_address() is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
