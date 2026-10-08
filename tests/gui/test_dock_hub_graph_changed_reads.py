@@ -129,15 +129,27 @@ def test_one_update_after_a_write_rebuilds_the_graph_at_most_once(
         hub.config_tree_dock.refresh()
         hub.config_tree_dock.graph_changed.emit()
 
-        assert len(rebuilds_load) >= 1, (
+        # EXACTLY one rebuild of each kind: WORKING_SET.stage_write calls
+        # invalidate_graph_path (kicadstamp/config_working_set.py:104), which drops
+        # BOTH graph-entry kinds for this path (kicadstamp/utils/file_cache.py:298-299),
+        # so the first read of each kind after the edit is a guaranteed miss and every
+        # later one is a hit.
+        assert len(rebuilds_load) == 1, (
             "the real graph_changed -> _refresh_graph_dependent_choices path "
             "read the graph not at all — the watcher would prove nothing")
-        assert len(rebuilds_load) <= 1, f"load_config rebuilt {len(rebuilds_load)}x"
-        assert len(rebuilds_walk) <= 1, f"walk_include_tree rebuilt {len(rebuilds_walk)}x"
+        assert len(rebuilds_walk) == 1, f"walk_include_tree rebuilt {len(rebuilds_walk)}x"
 
         infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-        assert sum("format upgrade on disk skipped" in m for m in infos) <= 1, infos
-        assert sum("registry schema upgrade on disk skipped" in m for m in infos) <= 1, infos
+        # EXACTLY one: no read happens between stage_write and caplog.clear(), so the
+        # first read inside refresh() opens the dirty epoch; note_skip_report then
+        # emits the INFO line once and DEBUG afterwards.
+        assert sum("format upgrade on disk skipped" in m for m in infos) == 1, infos
+        # EXACTLY one for the same epoch reason, NOT because the fixture is on an old
+        # format: the sweep refuses to write under a BUILD gate, `if current_format() < 3`
+        # (kicadstamp/config/registry_upgrade.py:296; CURRENT_FORMAT = 3 at
+        # kicadstamp/config/format_version.py:72), and the fixture is already minted at
+        # current_format() — no fixture change is needed.
+        assert sum("registry schema upgrade on disk skipped" in m for m in infos) == 1, infos
     finally:
         _teardown(hub)
 

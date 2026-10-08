@@ -50,6 +50,15 @@ MUTATIONS = [
      '        # A new dirty epoch: the "skipped" line must be reportable again.',
      '        # A new dirty epoch: the "skipped" line must be reportable AGAIN.',
      "survive", UPDATES, ()),
+    # 3 — the walk kind keeps its pre-write result: _drop_graph_entry refuses to
+    # drop "walk_include_tree" (key is (kind, root), so key[0] is the kind), so the
+    # staleness cell's rebuilds_walk == 1 fails — the walk serves the PRE-edit
+    # graph instead of being rebuilt.
+    ("M3 the walk kind is not rebuilt after a write",
+     "kicadstamp/utils/file_cache.py",
+     "    entry = _graph_cache.pop(key, None)",
+     '    entry = (_graph_cache.pop(key, None) if key[0] != "walk_include_tree" else None)',
+     "die", UPDATES, ()),
 ]
 
 
