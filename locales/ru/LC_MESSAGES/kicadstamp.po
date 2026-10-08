@@ -19038,6 +19038,16 @@ msgstr "размещение клона"
 msgid "nested placement in cell"
 msgstr "вложенное размещение в ячейке"
 
+#: gui/docks/entity_tree.py
+#, python-brace-format
+msgid "cell {name!r} is placed by chain(s) {names}"
+msgstr "ячейку {name!r} ставят цепочки: {names}"
+
+#: gui/docks/entity_tree.py
+#, python-brace-format
+msgid "{name} ({count})"
+msgstr "{name} ({count})"
+
 #: gui/cell_entity_choice.py
 msgid "Manual…"
 msgstr "Вручную…"

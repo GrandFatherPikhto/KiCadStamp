@@ -512,10 +512,11 @@ def test_a_diamond_include_shows_the_entity_and_the_placer_once(
         main_window, tmp_path):
     """Доделка 1а, п.1 (дерево) — файл, подключённый двумя ветками, не должен
     давать ДВУХ одинаковых листьев под одной ячейкой и не должен повторять
-    одного постановщика в подсказке «placed by».
+    одного постановщика в подсказке «placed by» (часть 2, п.2а: ячейку ставят
+    только спицы — «is placed by chain(s) ch», и свойство то же).
 
     Мутация: снять пропуск по `node.path` из `_iter_nodes` — этот сторож
-    краснеет (два листа `e1`; «spoke of chain: ch» в подсказке дважды)."""
+    краснеет (два листа `e1`; цепочка в подсказке дважды)."""
     root = _diamond_root(tmp_path)
     dock = _dock(main_window, root)
     cells = category(file_item(dock.tree, tmp_path / "shared.sexp"), "cells")
@@ -525,7 +526,7 @@ def test_a_diamond_include_shows_the_entity_and_the_placer_once(
         "под ячейкой — ОДИН лист сущности; два значит, что файл собран дважды")
 
     placed = find_child(cells, "c2")
-    assert placed.toolTip(0).count("spoke of chain: ch") == 1, placed.toolTip(0)
+    assert placed.toolTip(0).count("chain(s) ch") == 1, placed.toolTip(0)
 
 
 def test_the_selection_of_an_entity_from_another_file_survives_refresh(
@@ -601,7 +602,10 @@ def test_the_placed_by_hint_names_each_placer_once(main_window, tmp_path):
     называет постановщика ОДИН раз, с числом. На живом профиле
     `mcu_pwr_bank` это читалось как «spoke of chain: MCU Vdd» трижды.
 
-    Мутация: убрать группировку из `_placed_by_text` — сторож краснеет."""
+    Часть 2 (п.2а) сменила СЛОВА подсказки для такой ячейки: её ставит спица, и
+    «no entity» в ней не при чём — теперь «is placed by chain(s) MCU Vdd (3)».
+    Свойство, ради которого сторож написан, то же: одна цепочка — одно упоминание,
+    и число на виду (мутация «снять группировку по имени» — краснеет)."""
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
                         "chains": [{"name": "MCU Vdd", "net": "N",
@@ -611,8 +615,49 @@ def test_the_placed_by_hint_names_each_placer_once(main_window, tmp_path):
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
 
     tooltip = cell.toolTip(0)
-    assert tooltip.count("spoke of chain") == 1, tooltip
+    assert tooltip.count("MCU Vdd") == 1, tooltip
     assert "(3)" in tooltip, tooltip
+
+
+def test_a_cell_placed_only_by_chains_names_the_chains(main_window, tmp_path):
+    """п.2а: ячейку ставят ТОЛЬКО спицы — подсказка говорит «is placed by
+    chain(s)», без «has no entity»: спица — законный адрес экземпляра, и слово
+    «сирота» к такой ячейке не относится (жёлтый «!» тоже остаётся незанятым)."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "chains": [
+                            {"name": "MCU Vdd", "net": "N1",
+                             "spokes": [{"pad": "A1", "cell": "c"},
+                                        {"pad": "A2", "cell": "c"}]},
+                            {"name": "FPGA PWR", "net": "N2",
+                             "spokes": [{"pad": "B1", "cell": "c"}]}]})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+
+    assert _mark(cell) == _CELL_PLACED
+    assert _icon_image(cell) == _standard_image(
+        dock, QStyle.StandardPixmap.SP_MessageBoxInformation)
+    tip = cell.toolTip(0)
+    assert "is placed by chain(s)" in tip, tip
+    assert "MCU Vdd (2)" in tip and "FPGA PWR" in tip, tip
+    assert "has no entity" not in tip, tip
+
+
+def test_a_cell_placed_by_anything_but_chains_keeps_the_no_entity_wording(
+        main_window, tmp_path):
+    """Смешанный случай: помимо спицы ячейку ставит clone_placement — тут
+    «no entity» и есть суть, и подсказка называет ВИДЫ постановщиков, как в части 1."""
+    from gui.docks.entity_index import PLACED_BY_CLONE, PlacedBy
+
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
+    dock = _dock(main_window, root)
+
+    hint = dock._placed_hint("c", [
+        PlacedBy("spoke", "chains", {"name": "MCU Vdd"}),
+        PlacedBy(PLACED_BY_CLONE, "clone_placements", {"cluster": "CL"})])
+
+    assert "has no entity" in hint and "spoke of chain" in hint, hint
 
 
 def test_an_orphan_entity_carries_a_mark_not_only_a_hint(main_window, tmp_path):

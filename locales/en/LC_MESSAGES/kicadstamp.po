@@ -18129,6 +18129,16 @@ msgstr ""
 msgid "nested placement in cell"
 msgstr ""
 
+#: gui/docks/entity_tree.py
+#, python-brace-format
+msgid "cell {name!r} is placed by chain(s) {names}"
+msgstr ""
+
+#: gui/docks/entity_tree.py
+#, python-brace-format
+msgid "{name} ({count})"
+msgstr ""
+
 #: gui/cell_entity_choice.py
 msgid "Manual…"
 msgstr ""
