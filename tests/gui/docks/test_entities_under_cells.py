@@ -448,9 +448,8 @@ def test_click_on_unused_cell_opens_the_cell_page_read_only(
     hub.config_tree_dock._on_clicked(leaf, 0)
 
     view = hub.cell_anchor_view
-    assert view._read_only is True
     assert not view._tabs.isEnabled(), "поля должны быть недоступны"
-    assert not view._read_only_note.isHidden()
+    assert not view._read_only_gate.note.isHidden()
 
 
 def test_click_on_cell_with_entity_opens_the_cell_page_editable(
@@ -466,8 +465,8 @@ def test_click_on_cell_with_entity_opens_the_cell_page_editable(
     hub.config_tree_dock._on_clicked(cell, 0)
 
     view = hub.cell_anchor_view
-    assert view._read_only is False
     assert view._tabs.isEnabled()
+    assert view._read_only_gate.note.isHidden()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

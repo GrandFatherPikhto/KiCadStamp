@@ -113,6 +113,7 @@ from ._common import (
     set_combo_items,
     show_message,
 )
+from .cell_read_only import ReadOnlyGate
 from .cell_refs_tab import RefsTabWidget
 from .live_position import (
     _live_cluster_frame,
@@ -729,10 +730,6 @@ class CellAnchorView(QWidget):
         # Р3а-0: the "Explode" tab, added by DockHub (it owns the guard). The tab
         # is TOLD the cell and the working (Cluster, Sheet) — it has no lists.
         self._explode_page = None
-        # 3б (plan_2026_10_05_entities_under_cells): a cell with NO entity is a
-        # drawing and opens READ-ONLY. Set by load_entry(read_only=...).
-        self._read_only = False
-
         self._build_ui()
         self._reload_form()
 
@@ -746,12 +743,7 @@ class CellAnchorView(QWidget):
         self._title.setWordWrap(True)
         layout.addWidget(self._title)
 
-        # 3б: the read-only hint — a cell without an entity cannot be edited
-        # until one is created for it. Hidden unless load_entry() asked for it.
-        self._read_only_note = QLabel(_("create an entity to edit this cell"))
-        self._read_only_note.setWordWrap(True)
-        self._read_only_note.setVisible(False)
-        layout.addWidget(self._read_only_note)
+        self._read_only_gate = ReadOnlyGate(layout)
 
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
@@ -1146,14 +1138,6 @@ class CellAnchorView(QWidget):
         remember_cell_edit_context(
             self._root_path, self._cell_name, cluster, sheet)
 
-    def _apply_read_only(self) -> None:
-        """3б: enable/disable the editable page for the current cell. A cell
-        WITHOUT an entity is shown for READING only (fields disabled, nothing
-        stages); any other cell is fully editable. Called after every load so a
-        later read-write open restores the page."""
-        self._tabs.setEnabled(not self._read_only)
-        self._read_only_note.setVisible(self._read_only)
-
     def load_entry(self, name: str, file_path, read_only: bool = False) -> None:
         """Open the requested cell for anchor editing — (name, owning file),
         the same shape as the Config tree's cell_edit_requested. Reads the
@@ -1170,11 +1154,10 @@ class CellAnchorView(QWidget):
             self.cleanup()
         self._cell_name = name
         self._file_path = Path(file_path) if file_path is not None else None
-        self._read_only = read_only
         self._prefill_cell_context()
         self._reload_form()
         self._sync_explode_context()
-        self._apply_read_only()
+        self._read_only_gate.apply(self._tabs, read_only)
 
     # ── Phase E: remembered (Cluster, Sheet) context ──────────────────────
 
