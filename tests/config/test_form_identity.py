@@ -7,9 +7,13 @@ Qt-free: these cells build a Config in Python and call the rule directly. The
 dock-level half (the five redraw paths) lives in
 tests/gui/docks/test_form_identity_redraw.py.
 """
+from types import SimpleNamespace
+
 import pytest
 
-from kicadstamp.config.form_identity import FormReferenceMissing, identify, section_uuids
+from kicadstamp.config.form_identity import (FormReferenceMissing, identify,
+                                             node_ref_uuid, section_uuids)
+from kicadstamp.config.format3 import _F3_NODE_KIND_TARGET
 from kicadstamp.config.models import (Cell, Chain, Config, ManualSpoke,
                                       ThermalViaArrayConfig)
 from kicadstamp.config.points import Point
@@ -100,3 +104,66 @@ def test_a_target_without_a_uuid_carries_nothing_and_is_not_a_refusal():
     out = identify({"name": "tva1", "pad": "1", "anchor_point": "p1"},
                    "thermal_via_arrays", cfg=cfg)
     assert out.get("anchor_point_uuid") is None
+
+
+# ── node_ref_uuid: the ref_uuid a TREE NODE must carry ─────────────────────
+
+# One record per section `_F3_NODE_KIND_TARGET` can point at: (name, uuid).
+# Plain objects on purpose — the rule reads ONLY `.name`/`.uuid` (a dict section
+# is keyed by the name), which is exactly what the loader fills a loaded Config
+# with (`section_uuids`).
+_RECORDS = {
+    "entities": ("E1", "U-ENT"),
+    "clone_placements": ("CP1", "U-CP"),
+    "chains": ("CH1", "U-CHAIN"),
+    "coordinate_placements": ("K1", "U-COORD"),
+    "net_traces": ("NT1", "U-NT"),
+    "points": ("P1", "U-POINT"),
+}
+
+
+def _node_cfg() -> Config:
+    lists = {section: [SimpleNamespace(name=name, uuid=uuid)]
+             for section, (name, uuid) in _RECORDS.items() if section != "points"}
+    point_name, point_uuid = _RECORDS["points"]
+    return Config(points={point_name: SimpleNamespace(uuid=point_uuid)}, **lists)
+
+
+def test_every_kind_target_section_has_a_record_in_this_rig():
+    """Rule 35: the cell below walks the ONE table, so a NEW kind/section added
+    to `_F3_NODE_KIND_TARGET` must not quietly skip the rig."""
+    assert set(_F3_NODE_KIND_TARGET.values()) <= set(_RECORDS)
+
+
+@pytest.mark.parametrize("kind", sorted(_F3_NODE_KIND_TARGET))
+def test_node_ref_uuid_resolves_every_record_kind(kind):
+    """A node's `ref_uuid` is the uuid of the record its NEW ref names, resolved
+    through the SAME table the loader and the writer stamp walk."""
+    section = _F3_NODE_KIND_TARGET[kind]
+    name, uuid = _RECORDS[section]
+    assert node_ref_uuid(_node_cfg(), kind, name) == uuid
+
+
+@pytest.mark.parametrize("kind", ["module", "mount", "copper", "component",
+                                  "external", None])
+def test_node_ref_uuid_is_none_for_a_kind_without_a_record(kind):
+    """A kind that references no record carries NO uuid — and the caller must
+    CLEAR a stale one (the loader fatals on it beside a local kind)."""
+    assert node_ref_uuid(_node_cfg(), kind, "anything") is None
+
+
+def test_node_ref_uuid_refuses_a_ref_naming_no_record():
+    """The refusal the writer would reach only at write time — here at Apply, so
+    a mistyped Ref cannot silently roll the node back on the next load."""
+    with pytest.raises(FormReferenceMissing) as e:
+        node_ref_uuid(_node_cfg(), "placement", "typo")
+    assert "typo" in str(e.value)
+    assert "entities" in str(e.value)
+
+
+def test_node_ref_uuid_resolves_a_target_without_a_uuid_to_none():
+    """A format-2 graph (or a fake) may hold the record WITHOUT a uuid: the name
+    resolves, there is simply nothing to carry across."""
+    cfg = _node_cfg()
+    cfg.entities = [SimpleNamespace(name="E1", uuid=None)]
+    assert node_ref_uuid(cfg, "placement", "E1") is None

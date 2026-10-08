@@ -7266,6 +7266,20 @@ def test_move_to_removes_by_identity_not_by_value_equality(
 # to…", has to end on the SAME numbers. If the two paths ever drift apart
 # again, THESE tests are the ones that must fail.
 
+def _two_path_dock(main_window, tmp_path):
+    """The §Э4 rig config: GRAMMAR_TREES plus the Entity the hand-built re-hang
+    tree's `R_MOVED` (kind "placement") names.
+
+    2026-10-08 (§п.3 of plan_2026_10_08_tree_node_ref_apply): a node of a
+    RECORD-backed kind must name a record of its own section, or the Apply
+    refuses — the same convention GRAMMAR_TREES already documents for its clone
+    node. The trees themselves stay HAND-BUILT (the cells below pin the re-hang
+    geometry, not the config)."""
+    data = {**GRAMMAR_TREES,
+            "entities": [{"name": "R_MOVED", "cell": "c_out_cell"}]}
+    return _dock_with(main_window, tmp_path, data)
+
+
 def _two_path_tree():
     """One move-node shape drivable through both paths: two mount nodes (the
     form's only re-hang targets) and the node to move, top level to begin with."""
@@ -7325,7 +7339,7 @@ def test_both_re_hang_paths_store_the_same_hand_computed_offset(
     — or forgets that the stored rotation is relative to the base — fails here
     whichever path it is: 10 + 12 = 22 = 30 + (-8), and the 10° board angle
     stays 10° (stored as -80° against the 90° base)."""
-    dock, _root = _dock_with(main_window, tmp_path)
+    dock, _root = _two_path_dock(main_window, tmp_path)
     monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
     tree, mount_a, mount_b, moved = _two_path_tree()
     _pose_stub(monkeypatch, _two_path_bases(mount_a, mount_b))
@@ -7343,7 +7357,7 @@ def test_the_two_paths_agree_bit_for_bit(main_window, tmp_path, monkeypatch):
     """§Э4: not "close enough" — the SAME re-hang through both paths has to end
     on bit-identical numbers. The menu rounds through the same _snap_mm the
     offset widget does precisely so this holds."""
-    dock, _root = _dock_with(main_window, tmp_path)
+    dock, _root = _two_path_dock(main_window, tmp_path)
     monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
 
     tree_form, mount_a_f, mount_b_f, moved_f = _two_path_tree()
@@ -7404,7 +7418,7 @@ def test_both_paths_keep_a_polar_node_polar(main_window, tmp_path, monkeypatch):
         raise AssertionError(f"unexpected base {parent!r}")
 
     for via in ("form", "menu"):
-        dock, _root = _dock_with(main_window, tmp_path)
+        dock, _root = _two_path_dock(main_window, tmp_path)
         monkeypatch.setattr(dock, "_rebuild_tabs", lambda: None)
         tree, mount_a, mount_b, moved = _two_path_tree()
         moved.xy = None

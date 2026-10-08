@@ -692,6 +692,29 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+**UPDATE 2026-10-08 (plan `plan_2026_10_08_tree_node_ref_apply.md`, «Решение по п.3»):** a node's
+**Apply** checks, BEFORE touching anything, everything the next config LOAD (and the writer stamp)
+would refuse, and refuses with the LOADER's own text in the Log plus a red line under the form —
+never a modal, and the node keeps its ref:
+
+* the node's `ref_uuid` must be the uuid of the record its **new** `ref` names (resolved in the
+  cfg the dock already holds, so a record created in this very session resolves too); a ref naming
+  NO record of its section refuses the Apply — under format 3 the writer stamp would otherwise roll
+  the old name back on the very write, and the edit would be silently undone;
+* a kind that references no record at all (`mount` / `module` / `copper` / `component`, `external`,
+  an unset kind) CLEARS the uuid instead: the loader fatals on a `ref_uuid` beside a local kind, so
+  leaving a stale one would write an unreadable config;
+* the WHOLE forest is run through the loader's OWN rules (`trees.tree_from_dict`) with ONE shared
+  "already has a node" set, so a ref another tree already carries is refused too — the ref combo
+  offers free-typed text, so its "(used)" hints are a hint, not a guard;
+* a Ref edit moves the tree's **pivot-ref** and **(self) anchor** with the renamed node (one INFO
+  line in the Log): they name a NODE of the tree, and refusing there would punish an ordinary
+  rename.
+
+The node's row is re-keyed and repainted in place in the same Apply, so the tree text follows
+immediately instead of after a GUI restart, and the form's own "already used" set is refreshed (the
+edit just freed one ref and took another).
+
 **UPDATE 2026-09-11 (plan_2026_09_11_tree_settings_form):** the root row's form is now the TREE
 SETTINGS form — the anchor editor PLUS a **Tree settings** group carrying the tree's own inner point
 (the "suspension point") and its own angle. The suspension point is a 3-way choice: **Tree origin

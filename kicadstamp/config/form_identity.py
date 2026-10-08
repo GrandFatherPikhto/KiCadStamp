@@ -29,6 +29,14 @@ that the caller MUST reuse on Save (pass it in as `draft_uuid`): otherwise the
 preview places copper under one key while Save writes another and the next apply
 prunes the preview's copper as foreign.
 
+`node_ref_uuid` is the SAME rule for a TREE NODE: a node's `ref` is a name hint
+beside an authoritative `ref_uuid` (the `_F3_NODE_KIND_TARGET` kinds), and a Ref
+edit in the node form must move that uuid with the name — otherwise the writer
+stamp (and the loader's `_normalize_format3_refs`) puts the OLD name back and the
+edit is silently rolled back. A kind that references NO record carries no uuid at
+all, and the caller must CLEAR a stale one: the loader fatals on a `ref_uuid`
+beside a local kind (`trees._LOCAL_REF_KINDS`).
+
 Qt-free; it never touches the board.
 """
 from __future__ import annotations
@@ -40,7 +48,7 @@ from uuid import uuid4
 from ..exceptions import ValidationError
 from ..i18n import _
 
-__all__ = ["FormReferenceMissing", "section_uuids", "identify"]
+__all__ = ["FormReferenceMissing", "section_uuids", "identify", "node_ref_uuid"]
 
 
 class FormReferenceMissing(ValidationError):
@@ -74,6 +82,40 @@ def section_uuids(cfg, section: str) -> dict:
         if name is not None:
             out[str(name)] = getattr(rec, "uuid", None)
     return out
+
+
+def node_ref_uuid(cfg, kind, ref):
+    """The `ref_uuid` a TREE NODE of `kind` naming the record `ref` must carry,
+    or None when that kind references no record at all.
+
+    The section comes from the ONE table `format3._F3_NODE_KIND_TARGET` (the same
+    table the loader's normalization AND the writer stamp walk, so a new form
+    cannot enter one and be missed by the other) and the name -> uuid map from
+    `section_uuids` (the same key the writer stamp resolves a new reference by).
+
+      * a kind WITH a record section (`placement` / `clone` / `coordinate` /
+        `net_trace` / `point` / `chain` / `rule`): the uuid of the record `ref`
+        names. A `ref` naming NO record of that section raises
+        `FormReferenceMissing` — the refusal the writer would reach only at write
+        time, here at Apply;
+      * any other kind (`module` / `mount` / `copper` / `component`, `external`,
+        an unset "auto" kind): None. The caller MUST apply that (clear a stale
+        uuid): the loader fatals on a `ref_uuid` beside a local kind
+        (`trees._LOCAL_REF_KINDS`).
+
+    A target record with no uuid (a format-2 graph, a test fake) resolves to
+    None: the name is real, there is simply no uuid to carry across."""
+    from .format3 import _F3_NODE_KIND_TARGET  # lazy: same reason as _resolve_references
+
+    section = _F3_NODE_KIND_TARGET.get(kind)
+    if section is None:
+        return None
+    names = section_uuids(cfg, section)
+    if str(ref) not in names:
+        raise FormReferenceMissing(_(
+            "format 3: tree node {name!r} names no existing {target} record")
+            .format(name=ref, target=section))
+    return names[str(ref)] or None
 
 
 def _own_uuid(cfg, section: str, identity, identity_of, remembered_uuid,

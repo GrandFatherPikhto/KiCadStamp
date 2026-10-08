@@ -78,7 +78,7 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import defer_while_socket_busy, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
-from .trees_node_row import copy_node_onto, refresh_node_row
+from .trees_node_row import apply_node_form
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
                             run_identify_copper_worker,
@@ -5356,33 +5356,17 @@ class NodeFormWidget(QWidget):
         return True
 
     def apply(self) -> bool:
-        """Phase B Apply (plan §1.3): validate the form and write the fields
-        onto the EDITED node in place — explicit, does NOT close anything (the
-        caller owns the button row; edits are explicit actions and the config
-        still reaches disk only through the caller's Save). Returns True when
-        applied. Resets _touched (design §9.4) on success.
+        """Phase B Apply (plan §1.3): validate the form and write it onto the
+        EDITED node in place — explicit, does NOT close anything (the caller owns
+        the button row; edits are explicit actions and the config still reaches
+        disk only through the caller's Save). Returns True when applied.
 
-        Э1 (plan_2026_09_12_node_dialog_usability): a changed Parent combo
-        re-hangs the node as part of the same Apply — see _apply_parent_change,
-        which runs first and may refuse the whole operation."""
-        if self._existing is None:
-            return False
-        built = self.build_node()
-        if built is None:
-            return False  # build_node already warned
-        if not self._apply_parent_change():
-            return False
-        old_ref = self._existing.ref
-        copy_node_onto(self._existing, built)
-        if self._dock is not None:
-            self._dock._mark_dirty()
-            # The row is a SEPARATE object keyed by the node's ref — move its
-            # registry key to the new ref and repaint it through the render's
-            # own routine (no _rebuild_tabs: it would tear this form down).
-            refresh_node_row(self._dock, self._tree, self._existing, old_ref)
-        self._touched = False
-        self.apply_status_label.setText(_("Applied — keep editing or Redraw."))
-        return True
+        The BODY lives in `trees_node_row.apply_node_form` (this file is a giant
+        and may only shrink): the order — the new ref's `ref_uuid` + the loader's
+        own rules over the whole forest, THEN the re-hang (Э1), the copy, the
+        tree-level cascade and the row update — is documented there and is the
+        reason a refusal leaves the node and the tree untouched."""
+        return apply_node_form(self)
 
     def redraw(self) -> None:
         """Phase B Redraw (plan §1.3): apply() first, then place the node's

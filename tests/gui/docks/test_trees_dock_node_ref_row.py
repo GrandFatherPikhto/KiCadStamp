@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import QTreeWidget
 
 from gui.docks.trees_dock import NodeFormWidget, TreesDock
 
+from tests.fakes.format3 import det_uuid, format3  # noqa: F401 — pytest fixture
 from tests.fakes.write_later import write_later
 
 
@@ -51,6 +52,10 @@ def _row_rig(tmp_path, monkeypatch):
 # never resolved against the config, so a minimal root config loads and an
 # Apply needs no records, no board and no clone/points sections.
 TREES = {
+    # The kind-change cell below switches B to kind "point": a node of a
+    # record-backed kind must name a record of ITS section (§п.3 of
+    # plan_2026_10_08_tree_node_ref_apply), so the rig carries one.
+    "points": {"B": {"anchor_ref": "IC1"}},
     "trees": [
         {"name": "t", "anchor": {"origin": True},
          "nodes": [
@@ -148,3 +153,346 @@ def test_node_form_ref_change_when_no_board_keeps_child_rows(main_window,
 
     assert dock._node_items["A_CHILD"] is child_item
     assert child_item.parent() is item             # still the renamed parent's
+
+
+# ── format 3: a Ref edit must carry the node's ref_uuid with it ─────────────
+#
+# Under format 3 a tree node's `ref` is a NAME HINT beside an authoritative
+# `ref_uuid` (see config/format3._F3_NODE_KIND_TARGET). `build_node()` builds a
+# TreeNode WITHOUT a uuid and `copy_node_onto` copies none either, so a Ref edit
+# left the OLD record's uuid beside the NEW name — and the writer stamp (and the
+# loader's `_normalize_format3_refs`) then put the OLD name back: the edit was
+# silently ROLLED BACK, and only a GUI restart "fixed" it (Denis, 08.10).
+#
+# The cell below witnesses that rollback end to end: the file is written as
+# format 2 and LIFTED by the real open path (the lift mints every record's uuid
+# AND the node's `ref_uuid`), a Ref edit is Applied, and the FILE is read back —
+# first raw (no cache: exactly what got written), then through `load_config`.
+
+FMT3_TREES = {
+    "cells": {"c": {"components": [], "vias": [], "tracks": []}},
+    "entities": [{"name": "E1", "cell": "c", "cluster": "C1"},
+                 {"name": "E2", "cell": "c", "cluster": "C2"}],
+    "trees": [
+        {"name": "t", "anchor": {"origin": True},
+         "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 0.0]}]},
+    ],
+}
+
+
+def _fmt3_dock(main_window, tmp_path, data=None):
+    """A dock on a format-2 file the loader LIFTS to format 3 — the real open
+    path, so the node carries the identity a saved format-3 graph has."""
+    from kicadstamp.config import format_version
+    from kicadstamp.config.sexp_format import dict_to_sexp
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    assert format_version.current_format() == 3, "the format-3 rig must pin 3"
+    root = tmp_path / "fmt3_root.sexp"
+    write_later(root, dict_to_sexp(data if data is not None else FMT3_TREES,
+                                   format_number=2))
+    set_active_graph_root(root)
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    assert dock._cfg is not None, "the throwaway root config did not load"
+    return dock, root
+
+
+def _node_shot(root, tree_index=0, node_index=0) -> dict:
+    """The node as WRITTEN, from a raw read of the file (no reader cache): the
+    bytes the next open will see. `ref_uuid`/`kind` are dropped when default."""
+    from kicadstamp.config.sexp_format import sexp_to_dict
+
+    data = sexp_to_dict(root.read_text(encoding="utf-8")) or {}
+    return data["trees"][tree_index]["nodes"][node_index]
+
+
+def test_node_ref_change_moves_the_ref_uuid(main_window, tmp_path, format3):
+    """(а) Ref edit -> Apply: the node's `ref_uuid` follows the NEW record, so
+    the next open reads the node as NEW.
+
+    RED before the fix — the stale uuid made the writer stamp (and the loader's
+    normalization) name the OLD record again: the edit was silently rolled
+    back."""
+    from kicadstamp.config import load_config
+    from kicadstamp.utils.file_cache import invalidate_graph_path, invalidate_path
+
+    dock, root = _fmt3_dock(main_window, tmp_path)
+    node = dock._cfg.trees[0].nodes[0]
+    assert node.ref == "E1"
+    assert node.ref_uuid == det_uuid("entities:E1")   # the lift's identity
+
+    _widget, _item, form = _open_form(dock, "E1")
+    index = form.ref_combo.findText("E2")
+    assert index >= 0, "the Ref combo must offer the other Entity"
+    form.ref_combo.setCurrentIndex(index)
+    assert form.apply() is True
+
+    written = _node_shot(root)
+    assert (written["ref"], written["ref_uuid"]) == ("E2", det_uuid("entities:E2"))
+
+    invalidate_path(root)
+    invalidate_graph_path(root)
+    reloaded, _ctx = load_config(str(root))
+    after = reloaded.trees[0].nodes[0]
+    assert (after.ref, after.ref_uuid) == ("E2", det_uuid("entities:E2"))
+
+
+# ── the §п.3 rules: ref_uuid, the tree-level cascade, the loader probe ──────
+#
+# The rig below is the same format-2-lifted-to-3 file, richer: five Entities
+# (E3 / E5 name no node — they are the free targets a rename moves TO), one
+# Mount node, a plain non-handle node E4, and a SECOND tree (`t2`, node E2)
+# whose only job is to make a ref taken ELSEWHERE visible to the forest probe.
+
+def _rig_data(**t1_extra):
+    """The tree under test (`t1`) with `t1_extra` merged into it, plus `t2`."""
+    t1 = {"name": "t1", "anchor": {"origin": True},
+          "nodes": [{"ref": "E1", "kind": "placement", "xy": [1.0, 0.0]},
+                    {"ref": "E4", "kind": "placement", "xy": [2.0, 0.0]},
+                    {"ref": "M1", "kind": "mount", "xy": [0.0, 0.0],
+                     "anchor": {"role": "FPGA"}}]}
+    t1.update(t1_extra)
+    return {
+        "cells": {"c": {"components": [], "vias": [], "tracks": []}},
+        "entities": [{"name": name, "cell": "c", "cluster": name}
+                     for name in ("E1", "E2", "E3", "E4", "E5")],
+        # A record of ANOTHER section, so a cell can pin that a kind change moves
+        # the Ref (and the uuid) into the NEW section.
+        "clone_placements": [{"name": "CP1", "cluster": "CP1", "cell": "c",
+                              "xy": [0.0, 0.0]}],
+        "trees": [t1, {"name": "t2", "anchor": {"origin": True},
+                       "nodes": [{"ref": "E2", "kind": "placement",
+                                  "xy": [0.0, 0.0]}]}],
+    }
+
+
+def _rich_dock(main_window, tmp_path, **t1_extra):
+    return _fmt3_dock(main_window, tmp_path, _rig_data(**t1_extra))
+
+
+def _reload(root):
+    """The config the NEXT OPEN reads — cache dropped first (the Apply's write may
+    land on the same mtime tick as the rig's own read)."""
+    from kicadstamp.config import load_config
+    from kicadstamp.utils.file_cache import invalidate_graph_path, invalidate_path
+
+    invalidate_path(root)
+    invalidate_graph_path(root)
+    cfg, _ctx = load_config(str(root))
+    return cfg
+
+
+def test_a_ref_naming_no_record_refuses_the_apply(main_window, tmp_path, format3,
+                                                  caplog):
+    """(б) A Ref no record of the section carries -> the Apply REFUSES: red line
+    under the form and in the Log, the node keeps its ref and its uuid, and
+    nothing reaches the file (the writer stamp would otherwise put the old name
+    back on the next save/load)."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E1")
+    node = form._existing
+    before = (node.ref, node.ref_uuid, root.read_text(encoding="utf-8"))
+
+    form.ref_combo.setEditText("GHOST")
+    with caplog.at_level("ERROR"):
+        assert form.apply() is False
+
+    assert (node.ref, node.ref_uuid) == before[:2]
+    assert "names no existing entities record" in caplog.text
+    assert "the node keeps 'E1'" in caplog.text
+    assert root.read_text(encoding="utf-8") == before[2]   # nothing written
+    assert "GHOST" in form.apply_status_label.text()        # the red line
+    assert dock._dirty is False
+
+
+def test_renaming_the_handle_moves_the_pivot_ref(main_window, tmp_path, format3,
+                                                 caplog):
+    """(в) The tree's pivot-ref names a NODE: renaming that node moves it along,
+    and the next open reads a config that still names the moved handle. One INFO
+    line says so; the row keeps its (handle) mark."""
+    from kicadstamp.link_trees import link_trees
+
+    dock, root = _rich_dock(main_window, tmp_path, pivot_ref="E1")
+    tree = dock._trees[0]
+    _widget, item, form = _open_form(dock, "E1")
+    assert "(handle)" in item.text(0)
+
+    form.ref_combo.setCurrentText("E5")
+    with caplog.at_level("INFO"):
+        assert form.apply() is True
+
+    assert tree.pivot_ref == "E5"                    # the cascade
+    assert "'E1' → 'E5'" in caplog.text and "pivot ref follows" in caplog.text
+    assert "(handle)" in item.text(0)                # the mark followed the row
+    link_trees(dock._cfg, dock._trees)               # and the forest still links
+    reloaded = _reload(root)
+    assert reloaded.trees[0].pivot_ref == "E5"       # the next open agrees
+
+
+def test_renaming_the_handle_moves_the_self_anchor(main_window, tmp_path,
+                                                   format3, caplog):
+    """(г) The same for the tree's (self) anchor: it names a node of THIS tree."""
+    from kicadstamp.link_trees import link_trees
+
+    data = _rig_data()
+    data["trees"][0]["anchor"] = {"self": {"ref": "E1"}}
+    dock, root = _fmt3_dock(main_window, tmp_path, data)
+    tree = dock._trees[0]
+    _widget, item, form = _open_form(dock, "E1")
+
+    form.ref_combo.setCurrentText("E5")
+    with caplog.at_level("INFO"):
+        assert form.apply() is True
+
+    assert tree.anchor.self_ref == "E5"
+    assert "'E1' → 'E5'" in caplog.text and "self anchor follows" in caplog.text
+    assert "(handle)" not in item.text(0)            # no pivot-ref in this tree
+    link_trees(dock._cfg, dock._trees)
+    assert _reload(root).trees[0].anchor.self_ref == "E5"
+
+
+def test_switching_a_node_to_a_record_free_kind_clears_the_ref_uuid(
+        main_window, tmp_path, format3):
+    """(д) Kind "placement" -> "mount": the node references NO record any more, so
+    its `ref_uuid` must be CLEARED — the loader fatals on a uuid beside a local
+    kind (trees._LOCAL_REF_KINDS), so leaving it would write an unreadable
+    config."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E4")
+    node = form._existing
+    assert node.ref_uuid                            # the lift gave it one
+
+    index = form.kind_combo.findData("mount")
+    assert index >= 0
+    form.kind_combo.setCurrentIndex(index)
+    # A kind change repopulates the Ref combo, and a mount node has no placeable
+    # candidates — the typed ref has to come back.
+    form.ref_combo.setEditText("E4")
+    form.mount_anchor_widget.load(mode="anchor", role="FPGA")
+    assert form.apply() is True
+
+    written = _node_shot(root, node_index=1)        # E4 is the second node of t1
+    assert written["kind"] == "mount"
+    assert "ref_uuid" not in written                # cleared, not carried
+    reloaded = _reload(root)                        # ... and the file loads
+    assert reloaded.trees[0].nodes[1].kind == "mount"
+    assert reloaded.trees[0].nodes[1].ref_uuid is None
+
+
+def test_a_handle_that_changes_its_kind_is_refused_by_the_loader_rule(
+        main_window, tmp_path, format3, caplog):
+    """(е) The tree's pivot-ref must stay a RECORD-BACKED node: switching that
+    node's kind to a local one (mount) would make the next load a fatal. The
+    Apply runs the LOADER's own rule and refuses with its text — the node and the
+    tree are untouched.
+
+    The other half (re-hanging the handle UNDER a mount through the Parent combo)
+    cannot even be driven: `_node_parent_candidates` never offers a mount row for
+    the tree's pivot-ref, and `_reparent_node` refuses it — the same predicate, no
+    second copy."""
+    dock, root = _rich_dock(main_window, tmp_path, pivot_ref="E1")
+    _widget, _item, form = _open_form(dock, "E1")
+    node = form._existing
+    before = (node.kind, node.ref, node.ref_uuid)
+
+    index = form.kind_combo.findData("mount")
+    form.kind_combo.setCurrentIndex(index)
+    form.ref_combo.setEditText("E1")     # the kind change cleared the combo
+    form.mount_anchor_widget.load(mode="anchor", role="FPGA")
+    with caplog.at_level("ERROR"):
+        assert form.apply() is False
+
+    assert (node.kind, node.ref, node.ref_uuid) == before   # nothing touched
+    assert "record-backed node" in caplog.text              # the loader's text
+    assert dock._dirty is False
+    assert dock._trees[0].pivot_ref == "E1"
+
+
+def test_a_record_to_record_kind_change_moves_the_section(main_window, tmp_path,
+                                                          format3):
+    """(ж) A plain kind change of a non-handle node (placement -> clone) is legal:
+    the Ref moves to a record of the NEW section and the uuid follows it there —
+    the ORDINARY case the new rules must not block."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E4")
+
+    index = form.kind_combo.findData("clone")
+    form.kind_combo.setCurrentIndex(index)
+    form.ref_combo.setEditText("CP1")     # the kind change repopulated the combo
+    assert form.apply() is True
+
+    written = _node_shot(root, node_index=1)
+    assert (written["kind"], written["ref"]) == ("clone", "CP1")
+    assert written["ref_uuid"] == det_uuid("clone_placements:CP1")
+    reloaded = _reload(root)
+    assert reloaded.trees[0].nodes[1].ref == "CP1"
+
+
+def test_the_ref_checker_is_not_stale_after_an_apply(main_window, tmp_path,
+                                                     format3):
+    """Т5: the form's "used refs" set is captured when it OPENS, so after a rename
+    the freed old ref must not still count as taken — otherwise a perfectly legal
+    second edit is refused (and the "(used)" hint lies). The set is refreshed from
+    the dock on every successful Apply."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E4")
+
+    form.ref_combo.setCurrentText("E5")
+    assert form.apply() is True
+    assert form._existing.ref == "E5"
+
+    form.ref_combo.setCurrentText("E4")   # free again — nothing holds it
+    assert form.apply() is True
+    assert form._existing.ref == "E4"
+    assert _node_shot(root, node_index=1)["ref"] == "E4"
+
+
+def test_a_ref_taken_in_another_tree_is_refused_by_the_forest_probe(
+        main_window, tmp_path, format3, caplog):
+    """(з) The loader bars ONE ref from appearing in two nodes of the file — and
+    it is only visible with a SHARED `seen_refs` across the forest. The form's own
+    "used" set was captured when it opened, so a ref another tree takes AFTERWARDS
+    slips past it: the probe must catch it, or the Apply writes a config the next
+    open refuses."""
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E1")     # the form is OPEN now
+    node = form._existing
+    before = root.read_text(encoding="utf-8")
+
+    # Another dock/editor renames t2's own node to E3 — after this form opened,
+    # so this form's `_used_refs` cannot know about it (the real app has one form
+    # per tree and both are live).
+    t2 = next(t for t in dock._trees if t.name == "t2")
+    t2.nodes[0].ref = "E3"
+
+    form.ref_combo.setCurrentText("E3")
+    with caplog.at_level("ERROR"):
+        assert form.apply() is False
+
+    assert node.ref == "E1"                           # nothing touched
+    assert "already has a node" in caplog.text
+    assert root.read_text(encoding="utf-8") == before  # nothing written
+
+
+def test_an_entity_staged_in_this_session_resolves_at_apply(main_window, tmp_path,
+                                                            format3):
+    """(и) The name -> uuid map comes from the cfg the dock ALREADY holds (it is
+    refreshed on graph_changed), never from a fresh read: an Entity created in
+    this session and sitting in the working set must resolve — and the node takes
+    ITS uuid."""
+    from kicadstamp.config_writer import read_data, write_data
+
+    dock, root = _rich_dock(main_window, tmp_path)
+    data = read_data(root)
+    data["entities"].append({"name": "E_NEW", "cell": "c", "uuid": "U-NEW"})
+    write_data(root, data)                            # the product's write path
+    dock.refresh_ref_candidates()                     # the dock re-reads the root
+
+    _widget, _item, form = _open_form(dock, "E1")
+    form.ref_combo.setCurrentText("E_NEW")
+    assert form.apply() is True
+
+    written = _node_shot(root)
+    assert (written["ref"], written["ref_uuid"]) == ("E_NEW", "U-NEW")
+    assert _reload(root).trees[0].nodes[0].ref == "E_NEW"
