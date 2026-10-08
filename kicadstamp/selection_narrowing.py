@@ -495,7 +495,7 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     plan_2026_10_08_narrowing_net_traces_cost — it used to be 292 full reads for
     ONE click). A caller that must filter BOTH kinds passes the union of its
     items and its ONE read through :func:`read_net_trace_owned`."""
-    from .net_trace_planner import find_live_copper
+    from .net_trace_planner import find_live_copper, record_nets
 
     class _Entries:
         def __init__(self, entries):
@@ -504,8 +504,27 @@ def _net_trace_owned(items, net_traces, adapter, *, via_entries, track_entries,
     vreg, treg = _Entries(via_entries or {}), _Entries(track_entries or {})
     owned: dict[str, NetTraceTransfer] = {}
     notes: list[str] = []
+    # А2 (plan_2026_10_08_narrowing_net_traces_cost): a record can own a selected
+    # piece ONLY on one of its nets, so records of other nets are skipped BEFORE
+    # find_live_copper (which is what planned, and logged, every record of the
+    # project for a one-cell read). The nets come from the planner's OWN resolver
+    # (`record_nets` -> `_item_net_name`), never from a second copy.
+    #
+    # Two cases switch the filter OFF, and both are honest: a selected piece with
+    # NO net at all — the record it belongs to cannot be told apart by net, and
+    # dropping it would silently stop subtracting copper the registry knows — and
+    # a selection with no copper at all, where there is nothing to compare (the
+    # walk then only collects the notes; skipping THAT work is the DOOR's job, see
+    # gui/mixed_selection).
+    wanted = {str(getattr(item, "net_name", "") or "") for item in items or ()}
+    filterable = bool(wanted) and "" not in wanted
+    wanted.discard("")
     for nt in net_traces or ():
         name = str(getattr(nt, "net", "?"))
+        if filterable:
+            nets, resolvable = record_nets(adapter, nt, sheet_names)
+            if resolvable and nets and not (nets & wanted):
+                continue
         try:
             matched = find_live_copper(adapter, nt, via_registry=vreg,
                                        track_registry=treg,

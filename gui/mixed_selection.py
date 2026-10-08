@@ -298,11 +298,17 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # files), so one map serves both.
     from kicadstamp.net_trace_planner import read_live_copper
 
-    live = read_live_copper(adapter) if net_traces else None
-    owned, net_notes = read_net_trace_owned(
-        list(sub_v.kept) + list(sub_t.kept), net_traces, adapter,
-        via_entries=via_entries, track_entries=track_entries,
-        sheet_names=sheet_names, live=live)
+    kept_all = list(sub_v.kept) + list(sub_t.kept)
+    if net_traces and kept_all:
+        owned, net_notes = read_net_trace_owned(
+            kept_all, net_traces, adapter, via_entries=via_entries,
+            track_entries=track_entries, sheet_names=sheet_names,
+            live=read_live_copper(adapter))
+    else:
+        # А2: a selection with NO copper cannot be owned by any record — the walk
+        # (and the board read) is skipped entirely instead of planning every
+        # record of the project.
+        owned, net_notes = {}, ()
     if transfer_ok:
         # Р3: the copper a LIVE net_traces record owns STAYS in the read (it
         # becomes the cell's new copper) and is named for the ownership transfer

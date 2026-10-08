@@ -165,6 +165,40 @@ def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
                                  {role: fp.ref}, adapter)
 
 
+def record_nets(adapter, nt: NetTrace,
+                sheet_names: dict[str, str] | None = None) -> tuple[set[str], bool]:
+    """``(nets, resolvable)`` — the nets ONE ``net_traces:`` record's copper can
+    carry, resolved LIVE by the planner's OWN resolver (``_item_net_name``), never
+    by a second copy.
+
+    Part А2 of plan_2026_10_08_narrowing_net_traces_cost: a record can own a piece
+    of the selection ONLY on one of its nets, so a record of another net can be
+    skipped BEFORE it is planned (planning it was the whole cost — one full board
+    read and a handful of Log lines per record). ``resolvable`` False means at
+    least one item's net could NOT be resolved live (a ``net_from_role`` this
+    instance has no role for): the caller must then NOT skip the record — its
+    REGISTRY tier knows its copper by uuid and needs no net at all. ``nets`` may
+    be empty (a record whose items carry no net at all); the caller treats that as
+    "nothing to compare" and does not skip either.
+    """
+    nets: set[str] = set()
+    resolvable = True
+    label = _("net_traces entry (net {net!r})").format(net=nt.net)
+    # getattr: a real NetTrace always carries both lists, a test double may not —
+    # a record whose items are not visible here is then simply not filtered (see
+    # the "nets" contract above), never dropped.
+    items = list(getattr(nt, "tracks", None) or ()) + list(getattr(nt, "vias", None) or ())
+    for item in items:
+        try:
+            name = _item_net_name(adapter, nt, item, sheet_names or {}, label)
+        except Exception:  # noqa: BLE001 — an unresolvable chain is a normal answer
+            resolvable = False
+            continue
+        if name:
+            nets.add(str(name))
+    return nets, resolvable
+
+
 def plan_net_traces(adapter, net_traces: list[NetTrace],
                     sheet_names: dict[str, str] | None = None,
                     ) -> tuple[list[ViaCommand], list[TrackCommand]]:
@@ -527,5 +561,6 @@ __all__ = [
     "net_trace_registry_key",
     "plan_net_traces",
     "read_live_copper",
+    "record_nets",
     "resolve_live_anchor",
 ]
