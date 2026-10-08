@@ -28,6 +28,11 @@ WHAT IS BEING PROVEN (the cells live in tests/gui/ and tests/selection/):
        channel the page was LAST on)
   * M9 the gate stops disabling the board buttons (2б, п.3 — the guard reads
        Qt's WA_ForceDisabled, so it cannot be satisfied by the tab being off)
+  * M10 the door stops moving the OPEN page (2в, п.2 — the page keeps its own
+       dropdown, so it would read the entity it was last on)
+  * M11 the read-only rule is not re-applied after a refill (2в, п.6 — a root
+       change hands the buttons back)
+  * M12 the CellDock stops gating on "nothing places this cell" (2в, п.5)
   * K1 a cosmetic comment -> MUST survive
 
 NOT here on purpose:
@@ -53,7 +58,12 @@ MIXIN = "gui/docks/cell_instance_mixin.py"
 MIXED = "gui/mixed_selection.py"
 HUB = "gui/dock_hub.py"
 READ_ONLY = "gui/docks/cell_read_only.py"
+EDITOR = "gui/docks/cell_editor.py"
+# The 2в rules live outside the giants they serve.
+DOORS = "gui/entity_doors.py"
+ANCHOR = "gui/docks/cell_anchor_view.py"
 TREE_TEST = ["test_entities_under_cells.py"]
+DROP_TEST = ["test_cell_anchor_entity_dropdown.py"]
 
 MUTATIONS = [
     # 1 — the working instance is ignored: the reader falls back to whatever the
@@ -101,20 +111,49 @@ MUTATIONS = [
      "    if not isinstance(raw, dict):\n        return {}  # MUTATION\n",
      "die", CHOICE_TEST + DROP_TEST, ()),
     # 8 — the door stops publishing the entity it came from: the action that
-    # follows reads whatever entity the page was last on (2б, п.4).
-    ("M8 the door does not publish its entity", HUB,
-     "    pin_working_instance(root, name, entity, index)\n",
-     "    pass  # MUTATION\n",
+    # follows reads whatever entity the page was last on (2б, п.4). The rule
+    # lives in gui/entity_doors.py since 2в, п.1 — the mutation follows it.
+    ("M8 the door does not publish its entity", DOORS,
+     "    return pin_working_instance(root, cell_name, entity_name, index)\n",
+     "    return False  # MUTATION\n",
      "die", TREE_TEST, ()),
     # 9 — the gate stops disabling the board buttons: they are then only off
     # because their tab is off — the green-for-the-wrong-reason guard Denis
-    # refused (2б, п.3).
+    # refused (2б, п.3). 2в, п.6 factored the disable into _disable_buttons.
     ("M9 the gate leaves the board buttons alone", READ_ONLY,
-     "        if read_only:\n"
-     "            for button in board_buttons:\n"
-     "                if button is not None:\n"
-     "                    button.setEnabled(False)\n",
+     "    def _disable_buttons(self) -> None:\n"
+     "        for button in self._board_buttons:\n"
+     "            if button is not None:\n"
+     "                button.setEnabled(False)\n",
+     "    def _disable_buttons(self) -> None:\n"
      "        pass  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 10 — the door stops moving the OPEN page (2в, п.2): the page keeps its own
+    # dropdown, so it reads the entity it was last on while the store says the
+    # door's — the divergence this item exists to close.
+    ("M10 the door does not move the open page", DOORS,
+     "    view = getattr(hub, \"cell_anchor_view\", None)\n"
+     "    if getattr(view, \"_cell_name\", None) == cell_name:\n"
+     "        if view.show_entity_instance(entity_name):\n"
+     "            return True\n",
+     "    pass  # MUTATION\n",
+     "die", DROP_TEST, ()),
+    # 11 — the gate stops re-applying its rule after a refill (2в, п.6): a root
+    # change refills the form, which re-enables the buttons by its own rules.
+    ("M11 the read-only rule is not re-applied after a refill", ANCHOR,
+     "        # 2в, п.6 — and LAST OF ALL, the read-only rule: EVERY refill re-enables the\n"
+     "        # buttons by its own rules (the root change refills the form too, and the\n"
+     "        # mixin above drives the Fill button), so the ONE gate that owns the rule\n"
+     "        # applies it again here — after every other setEnabled.\n"
+     "        self._read_only_gate.reapply()\n",
+     "        pass  # MUTATION\n",
+     "die", TREE_TEST, ()),
+    # 12 — the CellDock stops judging "nothing places this cell" (2в, п.5): its
+    # board buttons come back for a cell that has no instance to read.
+    ("M12 the CellDock ignores that nothing places the cell", EDITOR,
+     "        enabled = (connected and bool(self._components)\n"
+     "                   and not unplaced_without_entity(self))\n",
+     "        enabled = connected and bool(self._components)  # MUTATION\n",
      "die", TREE_TEST, ()),
     # K1 — a cosmetic comment changes nothing: MUST survive.
     ("K1 a cosmetic comment", CHOICE,
