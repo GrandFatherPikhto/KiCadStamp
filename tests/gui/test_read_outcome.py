@@ -17,7 +17,7 @@ not silently CLEAR it (``replaced`` False).
 """
 from types import SimpleNamespace
 
-from gui.read_outcome import read_outcome
+from gui.read_outcome import read_outcome, replace_selection
 
 
 def _prelude(records=(), net_traces=()):
@@ -117,3 +117,47 @@ def test_a_read_of_nothing_builds_nothing(tmp_path=None):
     assert outcome.line == ""
     assert outcome.items == ()
     assert outcome.replaced is False
+
+
+class _SelectionSpy:
+    """The ONE board touch of a read: what it hands to ``adapter.select_items``."""
+
+    def __init__(self):
+        self.calls = []
+
+    def select_items(self, items):
+        self.calls.append(list(items))
+
+
+def test_a_read_of_nothing_does_not_touch_the_board_selection():
+    """C3 of Claude's acceptance: an explicit action that took NOTHING must not
+    CLEAR the board selection — the write is the read's own, and it happens only
+    when the read has something to select back.
+
+    Mutation: ``if outcome.replaced`` -> always, and the spy records a call with
+    an empty list: the user's selection is wiped by a read that took nothing."""
+    adapter = _SelectionSpy()
+
+    outcome = replace_selection(
+        adapter, footprints=[], vias=[], raw_tracks=[],
+        plan_footprints=[], plan_vias=[], plan_tracks=[],
+        prelude=None, layer_report=_layer_report())
+
+    assert outcome.replaced is False
+    assert adapter.calls == []
+
+
+def test_a_read_that_took_something_writes_exactly_its_items():
+    """The positive half of the same rule — without it a mutation that never
+    writes at all (``if False``) would look green."""
+    adapter = _SelectionSpy()
+    mine = _fp("C1")
+    kept = _item("v1")
+
+    outcome = replace_selection(
+        adapter, footprints=[mine], vias=[kept], raw_tracks=[],
+        plan_footprints=[mine], plan_vias=[kept], plan_tracks=[],
+        prelude=None, layer_report=_layer_report())
+
+    assert outcome.items == (mine, kept)
+    assert adapter.calls == [[mine, kept]]

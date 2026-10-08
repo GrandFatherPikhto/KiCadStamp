@@ -14,6 +14,8 @@ project for a ONE-cell read). The cells below pin:
   * the nets come from the planner's own resolver (``record_nets`` ->
     ``_item_net_name``), so the filter can never disagree with the plan.
 """
+import logging
+
 import pytest
 
 import kicadstamp.net_trace_planner as planner_mod
@@ -177,3 +179,112 @@ def test_record_nets_uses_the_planners_own_resolver(gate):
     nets, resolvable = record_nets(adapter, nt, {})
     assert (nets, resolvable) == ({"NET1"}, True)
     assert adapter.reads == [0, 0]
+
+
+# ── доделка 2: сухое сопоставление не топит Лог строками сужения ────────────
+
+def _two_channel_board():
+    """A board with TWO footprints of the SAME role on two sheets: the record's
+    ``net_from_role`` search then has candidates to narrow (Channel_0 vs
+    Channel_1) — exactly the step whose INFO lines Denis saw in the thousands.
+
+    The sheet chain carries the component's OWN uuid LAST (resolve_sheet_path_names
+    drops it — the same shape the adapter hands over)."""
+    ch0 = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0, ("ch0", "u-c1"))
+    ch1 = _fp("C2", "DA", "DAC_BUF", 0.0, 0.0, ("ch1", "u-c2"))
+    return _CountingAdapter({"C1": ("DA", "DAC_BUF"), "C2": ("DA", "DAC_BUF")},
+                            footprints=[ch0, ch1])
+
+
+def _named_record(name):
+    """ONE record whose via names its chain by ROLE (the live shape): the net is
+    resolved live through the narrowing cascade, so every question about this
+    record walks the cascade."""
+    nt = _record(name, net="NOT_SEEN")
+    nt.anchor_sheet = "Channel_0"
+    nt.vias[0].net = None
+    nt.vias[0].net_from_role = "DA"
+    return nt
+
+
+_SHEETS = {"ch0": "Channel_0", "ch1": "Channel_1"}
+
+
+def _narrowing_lines(records, level):
+    return [r.getMessage() for r in records if r.levelno == level
+            and "narrowed" in r.getMessage()]
+
+
+def test_the_dry_net_question_does_not_grow_the_log_with_k(gate, caplog):
+    """Доделка 2 of plan_2026_10_08_narrowing_net_traces_cost: ONE read asks
+    ``record_nets`` of EVERY record, so K records must not mean K (or more) INFO
+    lines — the live "before" was 2 184 of them for one click. The steps still
+    RUN, at DEBUG.
+
+    Mutation: drop ``quiet=True`` (from `record_nets` or from its caller) and the
+    INFO lines come back with K."""
+    adapter = _two_channel_board()
+    records = [_named_record(f"NT{i}") for i in range(1, 6)]
+
+    with caplog.at_level(logging.DEBUG):
+        for nt in records:
+            record_nets(adapter, nt, _SHEETS, quiet=True)
+        five = _narrowing_lines(caplog.records, logging.INFO)
+        steps = _narrowing_lines(caplog.records, logging.DEBUG)
+        caplog.clear()
+        record_nets(adapter, records[0], _SHEETS, quiet=True)
+        one = _narrowing_lines(caplog.records, logging.INFO)
+
+    assert five == one == [], (
+        "the number of INFO lines must not grow with the number of records")
+    assert len(steps) >= 5, (
+        f"the narrowing must still run (at DEBUG), saw {steps!r}")
+
+
+def test_the_same_question_without_quiet_still_writes_info(gate, caplog):
+    """The other half of the rule: the REDRAW's planning passes nothing, so its
+    narrowing lines stay at INFO exactly as before — quiet is a parameter of one
+    caller, never a global switch."""
+    adapter = _two_channel_board()
+
+    with caplog.at_level(logging.INFO):
+        record_nets(adapter, _named_record("NT1"), _SHEETS)
+
+    assert _narrowing_lines(caplog.records, logging.INFO), \
+        "planning for real must keep saying what it narrowed"
+
+
+def test_a_record_with_one_unresolvable_piece_is_not_dropped(gate):
+    """C1 of Claude's acceptance — the honest cell the earlier one could not be:
+    ONE piece's net does not resolve, the OTHER piece's net is NOT the selected
+    one. That record must STILL not be dropped — its registry tier knows its
+    copper by uuid and needs no net at all — so its selected piece IS claimed.
+
+    The older cell (``test_a_record_with_an_unresolvable_net_is_not_dropped``)
+    was blind twice over: with a SINGLE unresolvable item the nets set is EMPTY,
+    so "nothing to compare" kept the record for an unrelated reason; and its
+    assertion («the via left the read») also holds when the record is SKIPPED,
+    because the registry pass («another record's copper») subtracts that copper
+    on its own, before the walk. This cell asks the walk ITSELF, so the mutation
+    «unresolvable counts as resolved» leaves nothing claimed."""
+    from kicadstamp.registry import RegistryEntry
+    from kicadstamp.selection_narrowing import read_net_trace_owned
+
+    nt = _record("NT1", net="NET1")
+    nt.vias[0].net_from_role = "GONE_ROLE"    # this piece: no such role anywhere
+    nt.vias[0].net = None
+    nt.tracks[0].net = "NET1"                 # the other piece: another net
+    selected_via = _via("sel-v", net="OTHER")
+    adapter = _board()
+    adapter._vias = [selected_via]
+    entries = {_via_key(nt): RegistryEntry(
+        uuid="sel-v", x_mm=0.0, y_mm=0.0, net="OTHER",
+        drill_mm=0.3, diameter_mm=0.6)}
+
+    owned, _notes = read_net_trace_owned(
+        [selected_via], [nt, _record("NT2", net="NET2")], adapter,
+        via_entries=entries, track_entries={})
+
+    assert list(owned) == ["sel-v"], (
+        "the record with the unresolvable piece must still be checked: its "
+        "registry tier claims the piece by uuid")
