@@ -112,6 +112,12 @@ class EntityTreeMixin:
         for ref in orphans:
             leaf = self._entity_leaf(section_item, ref)
             leaf.setData(0, _ROLE_ORPHAN, True)
+            # п.5: the orphan carries a MARK, not only a hint (п.3 of the plan
+            # asks for both, like the cell marks). Critical on purpose: a
+            # dangling reference is what makes format 3 refuse to load the whole
+            # graph — heavier than "this cell is nowhere placed" (warning).
+            leaf.setIcon(0, self.style().standardIcon(
+                QStyle.StandardPixmap.SP_MessageBoxCritical))
             self._append_tooltip(leaf, self._orphan_hint(ref))
 
     def _orphan_hint(self, ref) -> str:
@@ -160,13 +166,26 @@ class EntityTreeMixin:
 
     def _placed_by_text(self, placed) -> str:
         """The {what} token of a placed-but-entityless cell hint — the owner
-        display name resolved through the ONE effective-name rule."""
-        parts = []
+        display name resolved through the ONE effective-name rule.
+
+        ONE placer is ONE mention, with its count (доделка 1а, п.4): a chain
+        whose three spokes place the same cell used to read "spoke of chain:
+        MCU Vdd, spoke of chain: MCU Vdd, spoke of chain: MCU Vdd" on the live
+        profile, which says nothing the single mention with "(3)" does not. The
+        order is the order the index found them in, so the hint is stable."""
+        counts: dict = {}
         for pb in placed:
             owner = (pb.owner_name if pb.owner_name is not None
                      else entry_effective_name(pb.section, pb.owner))
-            parts.append(_("{kind}: {name}").format(
-                kind=_PLACED_BY_LABEL.get(pb.kind, pb.kind), name=owner))
+            key = (_PLACED_BY_LABEL.get(pb.kind, pb.kind), owner)
+            counts[key] = counts.get(key, 0) + 1
+        parts = []
+        for (kind, owner), count in counts.items():
+            if count > 1:
+                parts.append(_("{kind}: {name} ({count})").format(
+                    kind=kind, name=owner, count=count))
+            else:
+                parts.append(_("{kind}: {name}").format(kind=kind, name=owner))
         return ", ".join(parts)
 
     @staticmethod

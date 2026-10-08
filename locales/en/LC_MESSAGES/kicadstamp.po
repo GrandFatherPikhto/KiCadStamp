@@ -18134,6 +18134,10 @@ msgstr ""
 msgid "{kind}: {name}"
 msgstr ""
 
+#, python-brace-format
+msgid "{kind}: {name} ({count})"
+msgstr ""
+
 #: gui/docks/config_tree.py
 msgid "refers to no cell or imprint — point it at one"
 msgstr ""

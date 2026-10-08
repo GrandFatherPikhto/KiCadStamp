@@ -19043,6 +19043,10 @@ msgstr "вложенное размещение в ячейке"
 msgid "{kind}: {name}"
 msgstr "{kind}: {name}"
 
+#, python-brace-format
+msgid "{kind}: {name} ({count})"
+msgstr "{kind}: {name} ({count})"
+
 #: gui/docks/config_tree.py
 msgid "refers to no cell or imprint — point it at one"
 msgstr "не ссылается ни на ячейку, ни на импринт — укажите цель"

@@ -19,6 +19,7 @@
 """
 from pathlib import Path
 
+import pytest
 from PyQt6.QtCore import Qt
 
 import gui.docks.config_tree as config_tree_mod
@@ -571,3 +572,99 @@ def test_the_selection_picks_its_own_file_among_same_named_entities(
     assert len(selected) == 1, [i.text(0) for i in selected]
     own = Path(selected[0].data(0, _ROLE_OWN_FILE)[0]).resolve()
     assert own == second.resolve()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Доделка 1а: подсказка без повторов, значок сироты, пункты меню (п.4–п.6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_the_placed_by_hint_names_each_placer_once(main_window, tmp_path):
+    """Доделка 1а, п.4 — три спицы ОДНОЙ цепочки ставят одну ячейку: подсказка
+    называет постановщика ОДИН раз, с числом. На живом профиле
+    `mcu_pwr_bank` это читалось как «spoke of chain: MCU Vdd» трижды.
+
+    Мутация: убрать группировку из `_placed_by_text` — сторож краснеет."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "chains": [{"name": "MCU Vdd", "net": "N",
+                                    "spokes": [{"pad": str(n), "cell": "c"}
+                                               for n in (1, 2, 3)]}]})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+
+    tooltip = cell.toolTip(0)
+    assert tooltip.count("spoke of chain") == 1, tooltip
+    assert "(3)" in tooltip, tooltip
+
+
+def test_an_orphan_entity_carries_a_mark_not_only_a_hint(main_window, tmp_path):
+    """Доделка 1а, п.5 — у сироты-сущности была ТОЛЬКО подсказка, а п.3 задания
+    требует и пометку, как у пометок ячеек. Значок — Critical: висячая ссылка
+    в формате 3 не даёт загрузиться всему графу, это тяжелее «ячейка нигде не
+    стоит» (warning).
+
+    Мутация: снять `setIcon` в `_add_orphan_entities` — сторож краснеет."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "missing"}]})
+    dock = _dock(main_window, root)
+    leaf = find_child(category(file_item(dock.tree, root), "entities"), "e1")
+
+    assert not leaf.icon(0).isNull(), "у сироты должен быть значок"
+    assert leaf.toolTip(0), "и подсказка — обе половины п.3"
+
+
+# Пункт меню × его сигнал: одна таблица на оба источника (п.6).
+_MENU_POINTS = (
+    ("select_cell_components_action", "cell_select_components_requested"),
+    ("select_cell_action", "cell_select_requested"),
+    ("select_enclosed_copper_action", "cell_select_enclosed_requested"),
+)
+
+
+@pytest.mark.parametrize("source", ["cell", "entity"])
+@pytest.mark.parametrize("action_name,signal_name", _MENU_POINTS,
+                         ids=[point[0] for point in _MENU_POINTS])
+def test_every_select_point_sends_the_instance_of_its_own_source(
+        main_window, tmp_path, monkeypatch, source, action_name, signal_name):
+    """Доделка 1а, п.6 — ПОВЕДЕНЧЕСКАЯ клетка на каждый пункт «Select …» из
+    обоих меню: 3 пункта × 2 источника одной таблицей.
+
+    Пункт ЯЧЕЙКИ шлёт (имя, файл СВОЕГО узла, None, None): экземпляр выбирается
+    потом, по контексту. Пункт СУЩНОСТИ шлёт (cell, None, cluster, sheet) —
+    файл None (файл сущности не должен стать целью записи ячейки), а экземпляр
+    берётся из записи сущности.
+
+    Прежние сторожа читали ТЕКСТ исходника, поэтому соседний пункт с тем же
+    хвостом их удовлетворял; здесь ловится СИГНАЛ.
+
+    Мутация: `lambda: None` у пункта ячейки (`entity_tree.py`) или `c=None,
+    s=None` у пункта сущности (`config_tree.py`) — краснеет строка именно этого
+    пункта."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "S1"}]})
+    dock = _dock(main_window, root)
+    cells = category(file_item(dock.tree, root), "cells")
+    if source == "cell":
+        item = find_child(cells, "c")
+    else:
+        item = find_child(find_child(cells, "c"), "e1")
+
+    seen: list = []
+    getattr(dock, signal_name).connect(lambda *a: seen.append(a))
+    action = next(
+        act for _label, act in context_menu_actions(dock, item, monkeypatch)
+        if act.objectName() == action_name)
+    action.trigger()
+
+    assert len(seen) == 1, seen
+    name, file_arg, cluster, sheet = seen[0]
+    assert name == "c"
+    if source == "cell":
+        assert Path(file_arg).resolve() == root.resolve()
+        assert (cluster, sheet) == (None, None)
+    else:
+        assert file_arg is None, "файл сущности не должен стать целью записи"
+        assert (cluster, sheet) == ("CL", "S1")
