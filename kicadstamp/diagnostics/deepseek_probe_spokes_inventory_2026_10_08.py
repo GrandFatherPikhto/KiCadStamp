@@ -3,44 +3,41 @@
 """Ч0 inventory probe for the "remove spokes and chains" plan
 (plan_2026_10_08_remove_spokes.md, section Ч0).
 
-READ-ONLY. This probe never opens a live profile and never writes anything:
-it walks the source tree, finds every line that mentions a spoke / chain, and
-classifies each such LINE into one of three classes:
+READ-ONLY. It never opens a live profile and never writes anything: it walks the
+source tree and classifies every mention by the SYMBOL it names, never by the
+word — the first version of this probe keyed on the WORD "chain", which
+mis-classified whole files (`kicadstamp/tree_position.py` was reported as "21
+delete lines", while only its `kind == "chain"` branches belong to the feature
+and the rest is the RESOLUTION chain (`chain = visited | {…}`) and
+`resolve_point_chain` — a different meaning that stays). Reworked 2026-10-08 per
+the plan's "Сверка Ч0".
 
-  * delete  — the mention really is a spoke / chain-of-spokes (``chains:``,
-              ``Chain``, ``ManualSpoke``, ``spoke_pad``, ``SOURCE_SPOKE``,
-              "Add Spoke" / "Extract Spoke" / "placed by chain", ...);
-  * edit    — the file is MIXED: the spoke half goes, the rest stays (a file
-              that has both ``delete`` and ``allow`` lines rolls up to edit);
-  * allow   — either a member of the plan's "НЕ УДАЛЯТЬ" list (the
-              ``SPOKE_LEVEL_ROLE_PLACEHOLDER`` name and its value ``__spoke__``
-              in registry keys, ``geometry/spoke_layout.py``, ``ComponentPool``
-              / ``component_resolver`` / ``manual_position_calculator``,
-              ``thermal_via_arrays:``, the via ``offset_*`` fields) or the word
-              "chain" used in ANOTHER sense (sheet-name chain, ``include:``
-              import chain, anchor / point / tree chain).
+The unit of classification is a LINE, and a line is what it NAMES:
 
-The word "chain" is heavily overloaded in this codebase (chained points,
-chained includes, anchor chains, "the chain would loop"), so the probe NEVER
-deletes a bare "chain" word: a "chain" line is only a spoke-chain when it
-carries an explicit spoke-chain marker (``chains:``, a quoted ``"chains"``,
-``.chains``, ``chain_dock``, ``chain_effective_name``, "placed by chain", the
-``Chain`` symbol, the ``rules:`` / ``Rule`` alias, ...). Everything else is
-reported as ``allow`` with reason "other meaning".
+  * delete — the line names a spoke/chain SYMBOL (`ManualSpoke`, `SOURCE_SPOKE`,
+    `spoke_pad`, `apply_spoke_geometry`, `Chain`, the `chains:` section key, the
+    `rules:` / `Rule` alias, the tree NODE KINDS `chain` / legacy `rule`, "Add
+    chain", "placed by chain", "chain dict/list/form/row/leaf", ...);
+  * allow  — the line names a KEPT symbol (the registry role placeholder name
+    `SPOKE_LEVEL_ROLE_PLACEHOLDER` and its FROZEN value `__spoke__`; the cell via
+    `offset_along_mm` / `offset_across_mm`; the `spoke_layout` geometry
+    primitives) or uses "chain" in another sense (sheet-name chain, `include:`
+    import chain, anchor / point / dependency chain, "the chain would loop").
 
-The classification is a heuristic first pass and it is DELIBERATELY noisy: the
-report prints the matching line text next to every class so a human (Claude,
-before Ч1) can audit and overrule. Nothing here is a fix — Ч0 only counts.
+A FILE is then `delete` (its basename encodes the feature: spoke / chain /
+convert_rules_to_chains), `edit` (a mixed file: the spoke symbols go, the rest
+stays) or `allow`.
 
 The probe also emits:
-  * a SYMBOL / importer table (``Chain``, ``ManualSpoke``, ``chains``,
-    the ``rules`` alias, ``Rule``, ``spoke_pad``, ``SOURCE_SPOKE``,
-    ``apply_spoke_geometry``, ``SPOKE_LEVEL_ROLE_PLACEHOLDER``) — where each
-    symbol is defined and who imports it;
-  * the TESTS split: files that become meaningless once spokes go (delete)
-    versus files where spokes are just ONE parameter among others (edit);
-  * the CONFLICTS with "НЕ УДАЛЯТЬ": a kept-mechanism file that also carries
-    delete-class spoke code, where removal must be surgical.
+  * the SYMBOL -> verdict table, and for every delete/edit FILE the SYMBOLS and
+    the LINES it loses (a list, never a count of "delete lines");
+  * the tree NODE KINDS `chain` / `rule` (Ч0 п.2): every place the kind is a
+    literal, a table entry or a branch, plus the Д1 statement — the load must
+    refuse a TREE NODE of that kind too, not only a non-empty `chains:`;
+  * the `spoke_layout` decision (Ч0 п.3): the module keeps its primitives, the
+    `apply_spoke_geometry` + `ManualSpoke` half goes, the test file's going cells
+    are listed with the geometric PROPERTY each held and the best remaining cell
+    by name keywords, so "property -> cell" can be finished in Ч4.
 
 Run:  .venv/bin/python -m kicadstamp.diagnostics.deepseek_probe_spokes_inventory_2026_10_08
 or:   .venv/bin/python kicadstamp/diagnostics/deepseek_probe_spokes_inventory_2026_10_08.py
@@ -74,60 +71,82 @@ _SCOPES = (
 _EXTRA_FILES = ("README.md", "README_ru.md")
 _SKIP_DIRS = {"__pycache__", ".venv", ".git", "profiles", ".mypy_cache"}
 
-# --- detection regexes -----------------------------------------------------
-_RE_SPOKE = re.compile(r"spoke", re.I)
-_RE_CHAIN = re.compile(r"chain", re.I)  # any chain-family token, then refined
-
-# A "chain" line really IS a spoke-chain only when one of these markers is
-# present. Kept narrow on purpose (see the module docstring).
-_RE_CHAIN_SPOKE = re.compile(
-    r"chains?\s*:|[\"']chains?[\"']|\.chains\b|chains\s*=|"
-    r"chain_dock|chains_nav|chain_effective_name|collect_chains_by_net|"
-    r"placed by chain|add chain|chain's|chain\(s\)|chain\s+#|"
-    r"chain dict|chain list|chain form|chain row|chain leaf|chain_dict|"
-    r"chain_net|chain_name|upsert_list_entry|net's chains|"
-    r"chains? of (cell|spoke)",
-    re.I,
+# --- the SYMBOL RULES (ordered: the first match decides) --------------------
+# Each rule is (label, regex, verdict). The verdict is "delete" (the symbol goes
+# with the feature) or "allow" (a KEPT symbol, or another meaning of the word).
+#
+# The ALLOW rules that guard a FROZEN VALUE (`__spoke__`), a cell-format field
+# (`offset_*_mm`) and the kept geometry module come FIRST on purpose: an import
+# of `apply_spoke_geometry` from `spoke_layout` names both, and the import line
+# must still read "delete" — so the module rule is checked only when no delete
+# symbol matched (see `_classify_line`).
+_FROZEN_ALLOW = (
+    ("registry role placeholder (name renameable, VALUE frozen)",
+     r"SPOKE_LEVEL_ROLE_PLACEHOLDER|__spoke__"),
+    ("cell via offset_*_mm fields (cell format, not spokes)",
+     r"offset_along_mm|offset_across_mm"),
 )
-# The "chain" word used in a NON-spoke sense — kept to the three senses the
-# plan names (sheet-name chain, include:/import chain, anchor chain) plus the
-# verb forms "chained/chaining". Everything else defaults to "spoke-chain",
-# because the plan's own final grep for the product is `spoke|ManualSpoke|\bchains?\b`.
-_RE_CHAIN_OTHER = re.compile(
-    r"chained|chaining|anchor[ -]?chain|include[ :]+chain|import[ :]+chain|"
-    r"chain (?:loops?|would loop)|sheet[ -]?name chain|point[ -]?chain|"
-    r"entity[ -]?anchor|tree[ -]?anchor|link chain|dependency chain|"
-    r"цепочк[аиу] (якор|имён|имен|импорт|лист)",
-    re.I,
+_KEPT_GEOM = ("spoke_layout geometry primitives (along/across, rotation)",
+              r"spoke_layout")
+_SYMBOL_RULES = (
+    ("ManualSpoke (dataclass)", r"ManualSpoke"),
+    ("SOURCE_SPOKE / cell spoke rows", r"SOURCE_SPOKE|spoke_rows|source_spoke"),
+    ("spoke pad / spoke pad edit", r"spoke_pad|spoke_pad_edit"),
+    ("apply_spoke_geometry", r"apply_spoke_geometry"),
+    ("spoke extraction / redraw feature",
+     r"spoke_extraction|spoke_extract|extract_spoke|spoke_redraw"),
+    ("Chain (dataclass)", r"\bChain\b"),
+    ("chains: section key / .chains / chains=",
+     r"chains?\s*:|\.chains\b|[\"']chains[\"']|chains\s*="),
+    ("chain dock / navigator / identity",
+     r"chain_dock|chains_nav|chain_effective_name|collect_chains_by_net|"
+     r"chain_dict|chain_net|chain_name|chain_doc"),
+    ("rules: / Rule alias", r"rules\s*:|[\"']rules[\"']|\.rules\b|rules\s*=|Rule\b"),
+    ("tree node kind chain / legacy rule (Ч0 п.2)",
+     r"_F3_NODE_KIND_TARGET|LEGACY_KINDS|\bKINDS\b|"
+     r"kind\s*==\s*[\"'](?:chain|rule)[\"']|"
+     r"[\"'](?:chain|rule)[\"']\s*:\s*[\"']chains?[\"']|"
+     r"\bkind\b[^\n]*[\"'](?:chain|rule)[\"']"),
+    ("chain in a UI / menu phrase",
+     r"placed by chain|add chain|chain's|chain\(s\)|chain dict|chain list|"
+     r"chain form|chain row|chain leaf|chain #|chains? of (?:cell|spoke)"),
 )
-_RE_CHAIN_SYM = re.compile(r"\bChain\b")          # the dataclass symbol
-_RE_RULE_ALIAS = re.compile(r"rules\s*:|[\"']rules[\"']|\.rules\b|rules\s*=|Rule\b")
-
-# Spoke-only symbols that must go with the feature.
-_RE_SPOKE_ONLY = re.compile(
-    r"ManualSpoke|SOURCE_SPOKE|spoke_pad|apply_spoke_geometry|"
-    r"spoke_extraction|spoke_extract|extract_spoke|spoke_redraw|spoke_pad_edit",
+_OTHER_CHAIN = (
+    ("other meaning of 'chain' (sheet-name / include / anchor / point chain)",
+     r"chained|chaining|anchor[ -]?chain|include[ :]+chain|import[ :]+chain|"
+     r"chain (?:loops?|would loop)|sheet[ -]?name chain|point[ -]?chain|"
+     r"link chain|dependency chain|resolve_point_chain|цепочк"),
 )
-# Kept-mechanism symbols (from "НЕ УДАЛЯТЬ"): a line that mixes these with a
-# spoke-only symbol is exactly the kind of surgical edit the plan warns about.
-_RE_KEPT_SYM = re.compile(
-    r"spoke_layout|ComponentPool|component_pool|component_resolver|"
-    r"manual_position_calculator|cell_frame|tree_position|\bplanner\b|"
-    r"thermal_via|clone_geometry|cell_anchor|anchor_graph",
-)
+_RE_ANY = re.compile(r"spoke|chain", re.I)
 
-# "НЕ УДАЛЯТЬ" allow patterns.
-_RE_PLACEHOLDER = re.compile(r"SPOKE_LEVEL_ROLE_PLACEHOLDER|__spoke__")
-_RE_VIA_OFFSET = re.compile(r"offset_along_mm|offset_across_mm")
-_RE_GEOM_MODULE = re.compile(r"spoke_layout")
 
-# Files the plan explicitly keeps WHOLE (geometry primitives, placeholder value).
-# NOTE: commented out on purpose for spoke_layout.py — the plan keeps the module
-# but it still imports ManualSpoke, so it is a CONFLICT, not a clean allow. The
-# probe lets the line rules decide and flags the conflict instead.
-_WHOLE_FILE_ALLOW = set()
+def _classify_line(line: str):
+    """(class, reason) for one line, or None when it is not a mention at all."""
+    if not _RE_ANY.search(line):
+        return None
+    for reason, pattern in _FROZEN_ALLOW:
+        if re.search(pattern, line, re.I):
+            return ("allow", reason)
+    for label, pattern in _SYMBOL_RULES:
+        if re.search(pattern, line):
+            return ("delete", label)
+    reason, pattern = _KEPT_GEOM
+    if re.search(pattern, line, re.I):
+        return ("allow", reason)
+    for reason, pattern in _OTHER_CHAIN:
+        if re.search(pattern, line, re.I):
+            return ("allow", reason)
+    # A mention that names NO known symbol: report it as allow, so it is visible
+    # for audit and NEVER silently counted as a deletion.
+    return ("allow", "mentions spoke/chain but names no symbol in the table")
 
-# Text files scanned inside techdocs/map (skip images/binaries).
+
+def _spoke_symbols_in(line: str) -> list[str]:
+    """The delete-class SYMBOLS this line names (for the per-file symbol list)."""
+    return [label for label, pattern in _SYMBOL_RULES if re.search(pattern, line)]
+
+
+# --- file walk -------------------------------------------------------------
 _TEXT_SUFFIXES = {".py", ".md", ".po", ".txt", ".pot"}
 
 
@@ -167,58 +186,11 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
-def _classify_line(line: str) -> tuple[str, str] | None:
-    """Return (class, reason) for one line, or None when it is not a mention.
-
-    Classes: "delete" / "allow" (an "allow" line inside a file that also has
-    "delete" lines makes the FILE "edit"; a file of only "allow" lines is
-    "allow")."""
-    has_spoke = bool(_RE_SPOKE.search(line))
-    has_chain = bool(_RE_CHAIN.search(line))
-    if not (has_spoke or has_chain):
-        return None
-
-    # 2. registry role placeholder (name is renameable, VALUE is frozen).
-    if _RE_PLACEHOLDER.search(line):
-        return ("allow", "registry role placeholder (name renameable, value frozen)")
-
-    # 3. cell via offset fields — part of the cell format, not spokes.
-    if _RE_VIA_OFFSET.search(line):
-        return ("allow", "cell via offset_*_mm fields (format, not spokes)")
-
-    spoke_only = bool(_RE_SPOKE_ONLY.search(line))
-    kept_sym = bool(_RE_KEPT_SYM.search(line))
-
-    if has_spoke:
-        # 4. geometry module kept whole — but only when nothing spoke-only is
-        #    on the same line; mixing is a surgical edit (conflict).
-        if _RE_GEOM_MODULE.search(line) and not spoke_only:
-            return ("allow", "kept geometry module spoke_layout (rotation/axes)")
-        if spoke_only:
-            if kept_sym:
-                return ("edit", "spoke-only symbol on a kept-mechanism line (surgical)")
-            return ("delete", "spoke-only symbol")
-        if "spoke" in line.lower():
-            return ("delete", "bare 'spoke' mention")
-
-    # 5. chain handling. A bare "chain" defaults to the spoke-chain meaning
-    #    (that is what the plan's final product grep looks for); only the three
-    #    explicit other senses flip it to allow.
-    if has_chain:
-        if _RE_CHAIN_SYM.search(line) or _RE_RULE_ALIAS.search(line):
-            return ("delete", "Chain symbol / rules alias")
-        if _RE_CHAIN_SPOKE.search(line):
-            return ("delete", "spoke-chain marker")
-        if _RE_CHAIN_OTHER.search(line):
-            return ("allow", "other meaning of 'chain' (sheet-name/include/anchor chain)")
-        return ("delete", "bare 'chain'/'chains' — matches the spoke feature grep")
-    return None
-
-
 def _scan():
-    """Return (records, files_by_scope, scannable)."""
+    """(records, files_by_scope, sources) — sources caches each file's lines."""
     records: list[dict] = []
     files_by_scope: Counter = Counter()
+    sources: dict[str, list[str]] = {}
     for scope, path in _iter_files():
         files_by_scope[scope] += 1
         try:
@@ -226,7 +198,9 @@ def _scan():
         except OSError:
             continue
         rel = _rel(path)
-        for lineno, raw in enumerate(text.splitlines(), start=1):
+        lines = text.splitlines()
+        sources[rel] = lines
+        for lineno, raw in enumerate(lines, start=1):
             res = _classify_line(raw)
             if res is None:
                 continue
@@ -234,28 +208,28 @@ def _scan():
             records.append({
                 "path": rel, "scope": scope, "line": lineno,
                 "cls": cls, "reason": reason, "text": raw.strip(),
+                "symbols": _spoke_symbols_in(raw),
             })
-    return records, files_by_scope
+    return records, files_by_scope, sources
 
 
 # --- symbol table ----------------------------------------------------------
+# The SYMBOLS the plan's final grep must explain, each with the other spellings
+# a reader will look for. `_SYMBOLS` keeps the ORIGINAL names (the plan's list)
+# and adds the two tree-node KINDS of Ч0 п.2.
 _SYMBOLS = (
     "Chain", "ManualSpoke", "chains", "rules", "Rule",
     "spoke_pad", "SOURCE_SPOKE", "apply_spoke_geometry",
     "SPOKE_LEVEL_ROLE_PLACEHOLDER",
+    "LEGACY_KINDS", "_F3_NODE_KIND_TARGET",
 )
 _RE_IMPORT = re.compile(r"^\s*(?:from\s+\S+\s+import|import)\b")
 
 
-def _symbol_table():
-    """{symbol: {"defs": [(path, line, text)], "importers": [...]}}"""
+def _symbol_table(sources: dict[str, list[str]]):
+    """{symbol: {"defs": [(path, line, text)], "importers": [path]}}."""
     table = {s: {"defs": [], "importers": []} for s in _SYMBOLS}
-    for _scope, path in _iter_files():
-        rel = _rel(path)
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
+    for rel, lines in sources.items():
         for i, raw in enumerate(lines, start=1):
             stripped = raw.strip()
             for sym in _SYMBOLS:
@@ -265,7 +239,7 @@ def _symbol_table():
                 if re.match(rf"(class|def)\s+{re.escape(sym)}\b", stripped) or \
                    re.match(rf"{re.escape(sym)}\s*[:=]", stripped):
                     table[sym]["defs"].append((rel, i, stripped))
-                if _RE_IMPORT.match(raw) and word.search(raw):
+                if _RE_IMPORT.match(raw):
                     table[sym]["importers"].append(rel)
     return table
 
@@ -274,21 +248,30 @@ def _symbol_table():
 # whole file goes; any other file that merely contains delete-class lines is
 # MIXED (the spoke half goes, the rest stays) -> "edit".
 _RE_FEATURE_NAME = re.compile(r"spoke|chain|rules[_-]?to[_-]?chains|convert_rules", re.I)
-# The plan keeps these WHOLE ("НЕ УДАЛЯТЬ"): the geometry primitives, the
-# regression test for them, and the registry placeholder constant. NOTE that
-# spoke_layout.py still imports ManualSpoke — that is reported as a CONFLICT
-# rather than hidden behind this override.
-_KEEP_WHOLE = {
-    "kicadstamp/geometry/spoke_layout.py",
-    "tests/geometry/test_spoke_layout.py",
-    "kicadstamp/constants.py",
-}
+# Files the plan keeps WHOLE. `spoke_layout.py` and its test are NOT here: Ч0 п.3
+# decided the module stays with its PRIMITIVES while `apply_spoke_geometry` /
+# `ManualSpoke` go and the docstring is rewritten — an EDIT, not an allow.
+_KEEP_WHOLE = {"kicadstamp/constants.py"}
 
+
+# `_EDIT_NOT_DELETE` (defined with the spoke_layout paths below) holds the two
+# files whose NAME encodes the feature but which KEEP a half: the geometry
+# PRIMITIVES (module) and their primitive-level cells (test). Ч0 п.3 decides
+# they are EDITS, not whole-file deletions — whatever their basename says.
 
 def _file_class_of(path: str, counts: Counter) -> str:
-    has_delete = counts["delete"] > 0
+    """delete | edit | allow for ONE file, from its LINE classes.
+
+    A file whose name encodes the feature goes whole; any other file with
+    delete-class lines is MIXED (the spoke half goes, the rest stays). A file
+    whose lines are all `allow` stays `allow` even when one of them names a
+    delete-class symbol — the report lists that symbol in the file's row, so the
+    case is visible for audit instead of being promoted to "edit" silently."""
     if path in _KEEP_WHOLE:
         return "allow"
+    has_delete = counts["delete"] > 0
+    if has_delete and path in _EDIT_NOT_DELETE:
+        return "edit"
     base = path.rsplit("/", 1)[-1]
     if has_delete and _RE_FEATURE_NAME.search(base):
         return "delete"
@@ -306,7 +289,6 @@ _KNOWN_DEAD_TESTS = (
 )
 # Kept-mechanism files that must NOT be deleted wholesale.
 _KEPT_MECHANISM = (
-    "kicadstamp/geometry/spoke_layout.py",
     "kicadstamp/placement/services/component_pool.py",
     "kicadstamp/placement/services/component_resolver.py",
     "kicadstamp/placement/services/manual_position_calculator.py",
@@ -321,20 +303,125 @@ _KEPT_MECHANISM = (
     "kicadstamp/apply_pipeline.py",
     "kicadstamp/config/models.py",
     "kicadstamp/author.py",
-    "tests/geometry/test_spoke_layout.py",
 )
+_SPOKE_LAYOUT = "kicadstamp/geometry/spoke_layout.py"
+_SPOKE_LAYOUT_TEST = "tests/geometry/test_spoke_layout.py"
+# The two files whose name encodes the feature but which keep a PRIMITIVE half
+# (Ч0 п.3): `spoke_layout.py` keeps `local_to_absolute` / `rotate_local_offset` /
+# the via-track resolution / `SpokeLayout`, and its test keeps the primitive-level
+# cells. `apply_spoke_geometry` + the `ManualSpoke` import go, the docstring is
+# rewritten — an EDIT.
+_EDIT_NOT_DELETE = {_SPOKE_LAYOUT, _SPOKE_LAYOUT_TEST}
+# The geometric PROPERTY keywords the plan's table (Ч0 п.3) must account for.
+_PROPERTY_KEYWORDS = (
+    "rotation", "offset", "polar", "radius", "angle", "layer", "net",
+    "mirror", "track", "via", "along", "across", "zero", "origin", "anchor",
+)
+_STOP_WORDS = {
+    "test", "the", "a", "an", "is", "of", "and", "to", "from", "with", "not",
+    "in", "on", "for", "gives", "matches", "same", "different", "when", "unset",
+    "does", "be", "are", "its", "own", "each", "keeps", "kept", "list", "empty",
+}
+_RE_TEST_DEF = re.compile(r"^\s*def (test_\w+)\s*\(")
+
+
+def _cells(lines: list[str]) -> list[tuple[str, int, str]]:
+    """(cell name, line, docstring first line) for every test_ function."""
+    out: list[tuple[str, int, str]] = []
+    for i, raw in enumerate(lines, start=1):
+        m = _RE_TEST_DEF.match(raw)
+        if not m:
+            continue
+        doc = ""
+        for follow in lines[i:i + 4]:
+            s = follow.strip()
+            if s.startswith('"""') or s.startswith("'''"):
+                doc = s.strip("\"'").strip()
+                break
+        out.append((m.group(1), i, doc))
+    return out
+
+
+def _keywords(name: str) -> set[str]:
+    return {w for w in name.split("_")
+            if w not in _STOP_WORDS and len(w) > 2}
+
+
+def _best_cell_match(keywords: set[str], cells, skip: set[str]):
+    """(cell name, overlap) of the best remaining cell by name keywords."""
+    best = ("—", 0)
+    for name, _line, _doc in cells:
+        if name in skip:
+            continue
+        overlap = len(keywords & _keywords(name))
+        if overlap > best[1]:
+            best = (name, overlap)
+    return best
+
+
+def _spoke_layout_section(lines: list[str], all_cells) -> list[str]:
+    """The Ч0 п.3 table: every going cell, the property it held, its coverage."""
+    out: list[str] = []
+    cells = _cells(lines)
+    going: list[tuple[str, int, str]] = []
+    staying: set[str] = set()
+    for i, raw in enumerate(lines, start=1):
+        if _RE_TEST_DEF.match(raw):
+            current = _RE_TEST_DEF.match(raw).group(1)
+            # a cell "goes" when apply_spoke_geometry appears in its body
+            body_end = len(lines)
+            for j in range(i, len(lines)):
+                if j > i and _RE_TEST_DEF.match(lines[j]):
+                    body_end = j
+                    break
+            body = "\n".join(lines[i - 1:body_end])
+            if "apply_spoke_geometry" in body:
+                doc = next((d for n, _l, d in cells if n == current), "")
+                going.append((current, i, doc))
+            else:
+                staying.add(current)
+    out.append("Going cells (they call `apply_spoke_geometry`, which is removed) "
+               "and the property each one held:\n\n")
+    out.append("| going cell | line | property (from the cell name) | "
+               "best remaining cell IN THIS FILE | overlap |\n|---|---|---|---|---|\n")
+    for name, line, _doc in going:
+        kws = _keywords(name)
+        props = ", ".join(sorted(kws & set(_PROPERTY_KEYWORDS))) or "(none)"
+        match, overlap = _best_cell_match(kws, cells, skip={n for n, _l, _d in going})
+        out.append(f"| `{name}` | {line} | {props} | `{match}` | {overlap} |\n")
+    out.append("\nRemaining cells in this file (the primitives that STAY):\n\n")
+    for name, line, doc in cells:
+        if name in staying:
+            out.append(f"- `{name}`:{line} — {doc}\n")
+    out.append("\nCells outside this file that share at least TWO name keywords "
+               "with a going cell (the property is covered elsewhere in the "
+               "suite) — the plan's Ч0 п.3 asks for exactly this mapping:\n\n")
+    out.append("| going cell | elsewhere | overlap |\n|---|---|---|\n")
+    for name, _line, _doc in going:
+        kws = _keywords(name)
+        best = ("—", 0)
+        for other_path, other_lines in all_cells.items():
+            if other_path == _SPOKE_LAYOUT_TEST:
+                continue
+            for other, _l, _d in other_lines:
+                overlap = len(kws & _keywords(other))
+                if overlap > best[1]:
+                    best = (f"{other_path}::{other}", overlap)
+        out.append(f"| `{name}` | `{best[0]}` | {best[1]} |\n")
+    return out
 
 
 def main() -> int:
-    records, files_by_scope = _scan()
+    records, files_by_scope, sources = _scan()
 
     by_file: dict[str, Counter] = defaultdict(Counter)
+    file_symbols: dict[str, set[str]] = defaultdict(set)
     for r in records:
         by_file[r["path"]][r["cls"]] += 1
+        for sym in r["symbols"]:
+            file_symbols[r["path"]].add(sym)
 
-    file_class: dict[str, str] = {
-        p: _file_class_of(p, c) for p, c in by_file.items()
-    }
+    file_class: dict[str, str] = {p: _file_class_of(p, c) for p, c in by_file.items()}
     class_files: dict[str, list[str]] = defaultdict(list)
     class_mentions: Counter = Counter()
     for r in records:
@@ -344,10 +431,10 @@ def main() -> int:
 
     out = sys.stdout.write
     out("# Ч0 spoke / chain inventory (plan_2026_10_08_remove_spokes.md)\n\n")
-    out("Read-only probe. Unit = one matching source LINE. FILE class: a file whose "
-        "name encodes the feature (spoke / chain) is `delete`; any other file with "
-        "delete-class lines is `edit` (mixed — the spoke half goes, the rest stays); "
-        "a file with only allow lines is `allow`.\n\n")
+    out("Read-only probe, REWORKED 2026-10-08 per the plan's \"Сверка Ч0\": a line is "
+        "classified by the SYMBOL it names (never by the word \"chain\"), and a "
+        "mixed FILE is reported with the SYMBOLS it loses — not with a count of "
+        "\"delete lines\".\n\n")
 
     out("## Scope scanned\n\n")
     out("| scope | files scanned |\n|---|---|\n")
@@ -356,19 +443,53 @@ def main() -> int:
     out(f"\nTotal matching lines: **{len(records)}** across "
         f"**{len(by_file)}** files.\n\n")
 
-    out("## Totals by class\n\n")
-    out("| class | files | mentions (lines) |\n|---|---|---|\n")
-    for cls in ("delete", "edit", "allow"):
-        out(f"| {cls} | {len(class_files.get(cls, []))} | {class_mentions[cls]} |\n")
+    out("## Class by symbol\n\n")
+    by_symbol: Counter = Counter()
+    for r in records:
+        if r["symbols"]:
+            for sym in r["symbols"]:
+                by_symbol[sym] += 1
+    out("| symbol (delete class) | lines naming it |\n|---|---|\n")
+    for sym, n in by_symbol.most_common():
+        out(f"| `{sym}` | {n} |\n")
     out("\n")
 
+    out("## Totals by file class\n\n")
+    out("A file's class is the rollup: `delete` / `edit` (mixed) / `allow`. The "
+        "line counts below are summed over the files of that class, so an `edit` "
+        "file's delete lines are counted HERE, not as a separate line class.\n\n")
+    out("| file class | files | delete lines | allow lines |\n|---|---|---|---|\n")
+    for cls in ("delete", "edit", "allow"):
+        files = class_files.get(cls, [])
+        d = sum(by_file[p]["delete"] for p in files)
+        a = sum(by_file[p]["allow"] for p in files)
+        out(f"| {cls} | {len(files)} | {d} | {a} |\n")
+    out(f"\nLine classes as classified: delete {class_mentions['delete']}, "
+        f"allow {class_mentions['allow']}.\n\n")
+
     out("## TOP files by mention count\n\n")
-    out("| file | delete | edit | allow | total | class |\n|---|---|---|---|---|---|\n")
+    out("| file | delete | allow | total | class |\n|---|---|---|---|---|\n")
     for p, c in sorted(by_file.items(),
                        key=lambda kv: (-sum(kv[1].values()), kv[0]))[:30]:
-        tot = sum(c.values())
-        out(f"| {p} | {c['delete']} | {c['edit']} | {c['allow']} | {tot} | "
+        out(f"| {p} | {c['delete']} | {c['allow']} | {sum(c.values())} | "
             f"{file_class[p]} |\n")
+    out("\n")
+
+    out("## Files with delete-class lines, BY SYMBOL\n\n")
+    out("One row per symbol per file — this is the list Ч1–Ч3 work from, so it "
+        "names what goes, not how many lines matched.\n\n")
+    out("| file | class | symbol that goes | first line |\n|---|---|---|---|\n")
+    for p in sorted(by_file, key=lambda p: (-by_file[p]["delete"], p)):
+        if not by_file[p]["delete"]:
+            continue
+        first: dict[str, int] = {}
+        for r in records:
+            if r["path"] != p or r["cls"] != "delete":
+                continue
+            for sym in r["symbols"]:
+                first.setdefault(sym, r["line"])
+        for sym in sorted(first):
+            out(f"| {p} | {file_class[p]} | `{sym}` | {first[sym]} |\n")
     out("\n")
 
     out("## Files by class\n\n")
@@ -376,15 +497,38 @@ def main() -> int:
         files = sorted(class_files.get(cls, []),
                        key=lambda p: (-sum(by_file[p].values()), p))
         out(f"### {cls} ({len(files)} files)\n\n")
-        out("| file | scope | delete | allow |\n|---|---|---|---|\n")
+        out("| file | scope | delete | allow | symbols |\n|---|---|---|---|---|\n")
         for p in files:
             c = by_file[p]
-            out(f"| {p} | {_scope_of(p)} | {c['delete']} | {c['allow']} |\n")
+            syms = ", ".join(f"`{s}`" for s in sorted(file_symbols.get(p, set())))
+            out(f"| {p} | {_scope_of(p)} | {c['delete']} | {c['allow']} | "
+                f"{syms or '—'} |\n")
         out("\n")
+
+    out("## Tree node kinds `chain` / `rule` (Ч0 п.2)\n\n")
+    out("The first probe missed these: a tree NODE of kind `chain` (and the "
+        "legacy `rule`) is part of the feature, and **Д1 must refuse the LOAD on "
+        "such a node too** — a red line naming the tree and the node's ref — not "
+        "only on a non-empty `chains:` / `rules:` section. Denis's live config has "
+        "0 nodes of these kinds (module 3, mount 15, net_trace 63, placement 36), "
+        "so the refusal costs nothing today.\n\n")
+    out("| file:line | text |\n|---|---|\n")
+    kind_re = _SYMBOL_RULES[9][1]        # the "tree node kind chain / rule" rule
+    kind_hits = [(p, r["line"], r["text"])
+                 for p, lines in sources.items()
+                 for r in records
+                 if r["path"] == p and re.search(kind_re, lines[r["line"] - 1])]
+    seen_hits: set[tuple[str, int]] = set()
+    for p, line, text in sorted(kind_hits):
+        if (p, line) in seen_hits:
+            continue
+        seen_hits.add((p, line))
+        out(f"| `{p}:{line}` | `{text.replace('|', chr(92) + '|')}` |\n")
+    out("\n")
 
     # --- symbol table ---
     out("## Symbol / importer table\n\n")
-    table = _symbol_table()
+    table = _symbol_table(sources)
     for sym in _SYMBOLS:
         info = table[sym]
         out(f"### `{sym}`\n\n")
@@ -401,8 +545,39 @@ def main() -> int:
             out(f"- {imp}\n")
         out("\n")
 
+    # --- spoke_layout decision (Ч0 п.3) ---
+    out("## `spoke_layout` decision (Ч0 п.3)\n\n")
+    out("**The module stays with its PRIMITIVES**: `local_to_absolute`, "
+        "`rotate_local_offset`, the via/track resolution, the `SpokeLayout` "
+        "container (used by `clone_geometry`) and the along/across axes. "
+        "**`apply_spoke_geometry` and the `ManualSpoke` import go**, and the "
+        "module docstring is rewritten without \"spoke cell\". Renames of the "
+        "module and of `SpokeLayout` are NOT part of this work.\n\n")
+    layout_lines = sources.get(_SPOKE_LAYOUT, [])
+    going_here = [(r["line"], r["text"]) for r in records
+                  if r["path"] == _SPOKE_LAYOUT and r["cls"] == "delete"]
+    out(f"Lines of `{_SPOKE_LAYOUT}` that go ({len(going_here)}):\n\n")
+    if going_here:
+        out("| line | text |\n|---|---|\n")
+        for line, text in going_here:
+            out(f"| {line} | `{text.replace('|', chr(92) + '|')}` |\n")
+    else:
+        out("_none_\n")
+    out("\n")
+    test_lines = sources.get(_SPOKE_LAYOUT_TEST, [])
+    if test_lines:
+        all_cells = {p: _cells(lines) for p, lines in sources.items()
+                     if p.startswith("tests/")}
+        out(f"### `{_SPOKE_LAYOUT_TEST}` — property -> cell (Ч4 finishes this)\n\n")
+        out("The file KEEPS its primitive-level cells and loses the "
+            "`apply_spoke_geometry` ones; the table below names the property each "
+            "going cell held and the best remaining cell by name keywords "
+            "(a heuristic first pass — audit it, then carry the mapping into the "
+            "Ч4 report).\n\n")
+        out("".join(_spoke_layout_section(test_lines, all_cells)))
+
     # --- tests split ---
-    out("## Tests\n\n")
+    out("\n## Tests\n\n")
     test_delete, test_edit = [], []
     for p, cls in file_class.items():
         if not p.startswith("tests/"):
@@ -421,40 +596,32 @@ def main() -> int:
     out(f"\nPlan-named dead tests the probe did NOT see as pure delete (audit): "
         f"{named_hits or 'none'}\n\n")
     out("### (b) spokes are only ONE parameter — edit, do not delete\n\n")
-    out("| test file | mentions | delete | allow |\n|---|---|---|---|\n")
+    out("| test file | mentions | delete | allow | symbols that go |\n|---|---|---|---|---|\n")
     for p in sorted(test_edit):
         c = by_file[p]
-        out(f"| {p} | {sum(c.values())} | {c['delete']} | {c['allow']} |\n")
+        syms = "; ".join(sorted(file_symbols.get(p, set())))
+        out(f"| {p} | {sum(c.values())} | {c['delete']} | {c['allow']} | "
+            f"{syms or '—'} |\n")
     out("\n")
 
     # --- conflicts ---
     out("## Conflicts with the plan's \"НЕ УДАЛЯТЬ\" list\n\n")
-    out("A kept-mechanism file that also carries delete-class spoke code: removing "
+    out("A kept-mechanism file that also names a delete-class symbol: removing "
         "the spokes here is surgical, the module/frame/planner half stays.\n\n")
-    out("| kept file | delete lines | allow lines | note |\n|---|---|---|---|\n")
+    out("| kept file | delete lines | allow lines | symbols that go |\n|---|---|---|---|\n")
     for keep in _KEPT_MECHANISM:
         c = by_file.get(keep)
         if c and c["delete"]:
-            out(f"| {keep} | {c['delete']} | {c['allow']} | keep mechanism, drop spoke branch |\n")
-    out("\n")
-    out("Lines that mix a kept-mechanism symbol with a spoke-only symbol:\n\n")
-    mixed = [r for r in records if r["cls"] == "edit"]
-    if mixed:
-        out("| file:line | text |\n|---|---|\n")
-        for r in sorted(mixed, key=lambda r: (r["path"], r["line"]))[:40]:
-            txt = r["text"].replace("|", "\\|")
-            out(f"| `{r['path']}:{r['line']}` | `{txt}` |\n")
-    else:
-        out("_none_\n")
+            syms = "; ".join(sorted(file_symbols.get(keep, set())))
+            out(f"| {keep} | {c['delete']} | {c['allow']} | {syms} |\n")
     out("\n")
 
     # --- cross-check ---
     out("## Cross-check\n\n")
     out(f"- probe matching lines: {len(records)}\n")
     out(f"- files with at least one mention: {len(by_file)}\n")
-    out("- compare against `grep -riE \"spoke|chains?\"` per scope; any gap means "
-        "a file the walker did not reach.\n")
-
+    out("- every line the probe leaves as `allow` names a KEPT symbol or another "
+        "sense of \"chain\" — the audit list is the `allow` sections above.\n")
     return 0
 
 
