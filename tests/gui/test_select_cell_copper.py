@@ -355,17 +355,17 @@ def test_components_worker_selects_components_only(monkeypatch, tmp_path):
 
 # ── (е) menu: three items in order, by objectName ──────────────────────────
 
-def test_menu_has_three_items_in_order():
+def test_menu_has_the_three_items_in_order():
     import inspect
     import gui.docks.config_tree as ct
     import gui.docks.entity_tree as et
-    # The cells: block lives in the entity-tree mixin since 2026-10-08, the
-    # entities: block still in the giant; together they hold the three items
-    # twice (cells + entities).
+    # часть 3, п.3: the three items live ONLY on the ENTITY leaf now (a cell leaf
+    # carries no board item — its own guard lives in test_entities_under_cells),
+    # so the source holds them ONCE.
     src = inspect.getsource(ct) + inspect.getsource(et)
-    assert src.count("select_cell_components_action") == 2  # cells + entities
-    assert src.count('"select_cell_action"') == 2
-    assert src.count("select_enclosed_copper_action") == 2
+    assert src.count("select_cell_components_action") == 1  # the entity menu
+    assert src.count('"select_cell_action"') == 1
+    assert src.count("select_enclosed_copper_action") == 1
     i_comp = src.index("select_cell_components_action")
     i_cell = src.index('"select_cell_action"')
     i_enc = src.index("select_enclosed_copper_action")

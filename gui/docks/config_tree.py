@@ -233,10 +233,8 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # plan cell_geometry_refresh) — CellDock listens via its
     # refresh_from_selection_requested() entry point: load the requested cell
     # (when not already the one open) and run the geometry refresh from the
-    # current board selection.
-    #
-    # часть 3, п.2: same five fields as cell_select_requested — an ENTITY leaf's
-    # item names its entity, a CELL leaf passes None for the last three.
+    # current board selection; часть 3, п.2: the same five fields as
+    # cell_select_requested — an ENTITY leaf names its entity, a CELL leaf None.
     cell_refresh_requested = pyqtSignal(str, object, object, object, object)
     # Fired by the context menu's "Import from selection..." (2026-09-03,
     # plan fpga_oscill_missing_copper_and_cell_import §B.3) — CellDock
@@ -287,8 +285,7 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the SAME two reads with
     # the LAYER DIALOG in front — Denis asked for a second "re-read" entry
     # ("одно без диалога, другое — с диалогом") and both from here AND from
-    # Tools → Config. Same five-field payload (часть 3, п.2); DockHub passes
-    # choose_layers=True down to the one CellDock entry point of each read.
+    # Tools → Config; same five-field payload (часть 3, п.2), choose_layers=True.
     cell_refresh_layers_requested = pyqtSignal(str, object, object, object, object)
     cell_import_layers_requested = pyqtSignal(str, object, object, object, object)
     # Fired by the context menu's "Copy placement from cell..." (2026-09-06,

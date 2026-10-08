@@ -437,10 +437,12 @@ def test_unused_cell_menu_is_only_create_entity_and_delete(
         assert forbidden not in labels, (forbidden, labels)
 
 
-def test_placed_cell_without_entity_keeps_the_full_menu(
+def test_a_placed_cell_without_entity_keeps_only_the_cell_items(
         main_window, tmp_path, monkeypatch):
-    """3б: ячейка, поставленная спицей БЕЗ сущности, работает как сегодня —
-    правится, имеет прежние пункты (чтобы не сломать живые спицы)."""
+    """3б (вторая половина) + часть 3, п.3: ячейка, поставленная спицей БЕЗ
+    сущности, по-прежнему правится и удаляется (живые спицы не ломаем), но
+    ПУНКТОВ ПЛАТЫ у листа ячейки нет НИ У КОГО — без исключения «одна
+    сущность»: адрес экземпляра живёт под листом сущности, где он назван."""
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
                         "chains": [{"name": "ch1", "net": "N",
@@ -449,9 +451,14 @@ def test_placed_cell_without_entity_keeps_the_full_menu(
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
     labels = [label for label, _ in context_menu_actions(dock, cell, monkeypatch)]
 
-    for expected in ("Create entity", "Edit cell...", "Update from selection...",
-                     "Rename...", "Delete..."):
+    for expected in ("Create entity", "Edit cell...", "Cell anchor...",
+                     "Copy placement from cell...", "Rename...", "Delete..."):
         assert expected in labels, (expected, labels)
+    for forbidden in ("Update from selection...", "Add selected copper...",
+                      "Subtract selected copper...", "Select cell",
+                      "Select cell components", "Select enclosed copper",
+                      "Explode…"):
+        assert forbidden not in labels, (forbidden, labels)
 
 
 # 2б, п.3: the page's board buttons, by THEIR OWN names.
@@ -780,25 +787,20 @@ _MENU_POINTS = (
 )
 
 
-@pytest.mark.parametrize("source", ["cell", "entity"])
 @pytest.mark.parametrize("action_name,signal_name", _MENU_POINTS,
                          ids=[point[0] for point in _MENU_POINTS])
 def test_every_select_point_sends_the_instance_of_its_own_source(
-        main_window, tmp_path, monkeypatch, source, action_name, signal_name):
-    """Доделка 1а, п.6 — ПОВЕДЕНЧЕСКАЯ клетка на каждый пункт «Select …» из
-    обоих меню: 3 пункта × 2 источника одной таблицей.
+        main_window, tmp_path, monkeypatch, action_name, signal_name):
+    """Доделка 1а, п.6 — ПОВЕДЕНЧЕСКАЯ клетка на каждый пункт «Select …».
 
-    Пункт ЯЧЕЙКИ шлёт (имя, файл СВОЕГО узла, None, None, None): экземпляр
-    выбирается потом, по контексту. Пункт СУЩНОСТИ шлёт (cell, None, cluster,
-    sheet, имя СуЩНОСТИ) — файл None (файл сущности не должен стать целью записи
-    ячейки), экземпляр берётся из записи сущности, а пятое поле (2б, п.4) —
-    ИМЯ этой сущности, которым дверь публикует рабочий экземпляр.
+    часть 3, п.3: пункт живёт только под листом СУЩНОСТИ (у листа ячейки нет
+    ни одного — см. клетку ниже), поэтому источник теперь один. Пункт шлёт
+    (cell, None, cluster, sheet, имя сущности): файл None (Н5б — файл сущности
+    не должен стать целью записи ячейки), экземпляр берётся из записи сущности,
+    а пятое поле (2б, п.4) — ИМЯ этой сущности, которым дверь публикует рабочий
+    экземпляр.
 
-    Прежние сторожа читали ТЕКСТ исходника, поэтому соседний пункт с тем же
-    хвостом их удовлетворял; здесь ловится СИГНАЛ.
-
-    Мутация: `lambda: None` у пункта ячейки (`entity_tree.py`) или `c=None,
-    s=None` у пункта сущности (`config_tree.py`) — краснеет строка именно этого
+    Мутация: `c=None, s=None` у пункта сущности — краснеет строка именно этого
     пункта."""
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
@@ -806,10 +808,7 @@ def test_every_select_point_sends_the_instance_of_its_own_source(
                                       "cluster": "CL", "sheet": "S1"}]})
     dock = _dock(main_window, root)
     cells = category(file_item(dock.tree, root), "cells")
-    if source == "cell":
-        item = find_child(cells, "c")
-    else:
-        item = find_child(find_child(cells, "c"), "e1")
+    item = find_child(find_child(cells, "c"), "e1")
 
     seen: list = []
     getattr(dock, signal_name).connect(lambda *a: seen.append(a))
@@ -821,14 +820,28 @@ def test_every_select_point_sends_the_instance_of_its_own_source(
     assert len(seen) == 1, seen
     name, file_arg, cluster, sheet, entity = seen[0]
     assert name == "c"
-    if source == "cell":
-        assert Path(file_arg).resolve() == root.resolve()
-        assert (cluster, sheet) == (None, None)
-        assert entity is None, "у пункта ЯЧЕЙКИ пришпиливать нечего"
-    else:
-        assert file_arg is None, "файл сущности не должен стать целью записи"
-        assert (cluster, sheet) == ("CL", "S1")
-        assert entity == "e1", "дверь сущности называет СВОЮ сущность (2б, п.4)"
+    assert file_arg is None, "файл сущности не должен стать целью записи"
+    assert (cluster, sheet) == ("CL", "S1")
+    assert entity == "e1", "дверь сущности называет СВОЮ сущность (2б, п.4)"
+
+
+@pytest.mark.parametrize("action_name", [point[0] for point in _MENU_POINTS],
+                         ids=[point[0] for point in _MENU_POINTS])
+def test_a_cell_leaf_carries_no_board_point(main_window, tmp_path, monkeypatch,
+                                            action_name):
+    """часть 3, п.3: у листа ЯЧЕЙКИ нет ни одного пункта платы — без исключения
+    «если сущность одна». Адрес экземпляра живёт под листом сущности, где он
+    назван; лист ячейки держит только Edit cell / Cell anchor / Copy placement."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "S1"}]})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
+    names = {act.objectName()
+             for _label, act in context_menu_actions(dock, cell, monkeypatch)}
+
+    assert action_name not in names, (action_name, sorted(names))
 
 
 def _signal_recorder(dock, signal_name):

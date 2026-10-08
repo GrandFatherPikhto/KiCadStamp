@@ -453,10 +453,10 @@ def test_edit_cell_emits_name_and_file(main_window, tmp_path):
 
 def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkeypatch):
     """"Update from selection..." (context menu, 2026-09-03, plan
-    cell_geometry_refresh) — the cell leaf's context action emits
-    cell_refresh_requested with the SAME (name, file_path) as "Edit cell...",
-    so CellDock can load the right cell and refresh its geometry. The cell
-    carries an entity (3б): an entityless cell no longer shows paid items."""
+    cell_geometry_refresh) — since часть 3, п.3 the item lives on the ENTITY
+    leaf: it emits cell_refresh_requested with the CELL's name and
+    file_path=None (Н5б — the entity's own file must never become the cell's
+    save target) plus THAT entity's address. A cell leaf has no such item."""
     root = tmp_path / "root.sexp"
     _write(root, CELL_WITH_ENTITY)
 
@@ -464,28 +464,24 @@ def test_update_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     dock.set_root_file(root)
 
     requested = []
-    # часть 3, п.2: the signal carries the entity fields too — (name, file_path,
-    # cluster, sheet, entity). A CELL leaf names NO entity; that is pinned here
-    # instead of only the first two fields.
     dock.cell_refresh_requested.connect(
         lambda name, path, cluster, sheet, entity:
         requested.append((name, path, cluster, sheet, entity)))
 
-    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    cell_leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf = _find(cell_leaf, "one_role_e")
     actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
     assert "Update from selection..." in actions
     actions["Update from selection..."].trigger()
 
-    assert requested == [("one_role", root.resolve(), None, None, None)]
+    assert requested == [("one_role", None, None, None, "one_role_e")]
 
 
 def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkeypatch):
     """"Add selected copper..." (context menu, 2026-09-03, plan
-    fpga_oscill_missing_copper_and_cell_import §B.3) — the cell leaf's context
-    action emits cell_import_requested with the SAME (name, file_path) shape as
-    "Update from selection...", so CellDock can load the right cell and
-    backfill NEW via/track records (the additive counterpart of refresh). The
-    cell carries an entity (3б)."""
+    fpga_oscill_missing_copper_and_cell_import §B.3) — since часть 3, п.3 the
+    item lives on the ENTITY leaf, with the same shape as "Update from
+    selection..." above: the CELL's name, file_path=None and THAT entity."""
     root = tmp_path / "root.sexp"
     _write(root, CELL_WITH_ENTITY)
 
@@ -493,17 +489,17 @@ def test_import_from_selection_emits_name_and_file(main_window, tmp_path, monkey
     dock.set_root_file(root)
 
     requested = []
-    # часть 3, п.2: same five-field shape as above; a CELL leaf names no entity.
     dock.cell_import_requested.connect(
         lambda name, path, cluster, sheet, entity:
         requested.append((name, path, cluster, sheet, entity)))
 
-    leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    cell_leaf = _find(dock.tree.topLevelItem(0), "Cells").child(0)
+    leaf = _find(cell_leaf, "one_role_e")
     actions = dict(_context_menu_actions(dock, leaf, monkeypatch))
     assert "Add selected copper..." in actions
     actions["Add selected copper..."].trigger()
 
-    assert requested == [("one_role", root.resolve(), None, None, None)]
+    assert requested == [("one_role", None, None, None, "one_role_e")]
 
 
 def test_rename_action_present_for_a_leaf_absent_for_a_category(main_window, tmp_path):

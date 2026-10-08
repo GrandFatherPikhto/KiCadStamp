@@ -275,6 +275,34 @@ def test_the_entity_leaf_carries_the_board_items_with_its_own_address(
         assert args == ("c", None, "CL2", "S2", "e2"), (name, args)
 
 
+def test_a_cell_leaf_carries_no_board_item_at_all(real_main_window, tmp_path,
+                                                monkeypatch):
+    """часть 3, п.3: ни одного пункта платы на листе ЯЧЕЙКИ — без исключения
+    «если сущность одна». Адрес берут только там, где он ВИДЕН: под листом
+    сущности (имя в пункте) или выпадашкой страницы."""
+    from tests.gui.create_entity_helpers import (category, context_menu_actions,
+                                                file_item, find_child,
+                                                open_project)
+
+    root = tmp_path / "root.sexp"
+    _config_with_two_entities(root)
+    hub = real_main_window._dock_hub
+    open_project(hub, root)
+
+    tree = hub.config_tree_dock.tree
+    cell = find_child(category(file_item(tree, root), "cells"), "c")
+    actions = context_menu_actions(hub.config_tree_dock, cell, monkeypatch)
+    names = {act.objectName() for _label, act in actions}
+
+    for name in _ENTITY_BOARD_ITEMS + ("select_cell_components_action",
+                                       "select_cell_action",
+                                       "select_enclosed_copper_action"):
+        assert name not in names, (name, sorted(names))
+    labels = [label for label, _act in actions]
+    assert "Update from selection..." not in labels, labels
+    assert "Explode…" not in labels, labels
+
+
 def test_the_board_item_of_an_entity_leaf_reaches_the_dock_with_the_address(
         real_main_window, tmp_path, monkeypatch):
     """Сквозь проводку: пункт листа сущности → сигнал → делегат хаба → адрес ЭТОЙ

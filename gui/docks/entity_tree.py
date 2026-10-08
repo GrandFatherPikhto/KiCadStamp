@@ -229,9 +229,14 @@ class EntityTreeMixin:
     # ── Cell / orphan context-menu blocks ──────────────────────────────────
 
     def _add_cell_menu_items(self, menu, old_name, file_path) -> None:
-        """The cell's own menu block (Edit cell / anchor / the paid actions),
-        shared by a PLACED cell without an entity and a cell WITH one. NOT
-        shown for an UNUSED cell with no entity (3б)."""
+        """The cell's own menu block: Edit cell / anchor / Copy placement.
+
+        часть 3, п.3: the BOARD items are NOT here any more. A cell leaf
+        names no instance, so a board action on it worked an address the user
+        could not see (the working-instance store) — they live on the ENTITY
+        leaf now, which names its entity in the item itself. ONE rule, no
+        "if there is only one entity" exception. Rename / Delete come from the
+        generic block; "Create entity" is the entityless cell's own item (3б)."""
         menu.addAction(_("Edit cell...")).triggered.connect(
             lambda: self.cell_edit_requested.emit(old_name, file_path))
         # 2026-09-09 (Phase C of plan_2026_09_09_cell_anchor_v2_
@@ -239,65 +244,6 @@ class EntityTreeMixin:
         # (Component/Marker tabs) as a Config right-QView page.
         menu.addAction(_("Cell anchor...")).triggered.connect(
             lambda: self.cell_anchor_requested.emit(old_name, file_path))
-        # 2026-09-03 (plan cell_geometry_refresh): refresh an existing
-        # cell's geometry from the current board selection — the
-        # one-click path Denis originally looked for ("как перечитать
-        # cell") without first opening CellDock and hunting for the
-        # button. Same (name, file_path) shape as cell_edit_requested.
-        menu.addAction(_("Update from selection...")).triggered.connect(
-            lambda: self.cell_refresh_requested.emit(
-                old_name, file_path, None, None, None))
-        # 2026-09-03 (plan fpga_oscill_missing_copper_and_cell_import
-        # §B.3): the ADDITIVE counterpart of the item above — import
-        # live via/track copper the cell's current records don't
-        # describe as NEW records (Refresh cannot ADD a record; Import
-        # cannot MODIFY one — they complement, never overlap).
-        menu.addAction(_("Add selected copper...")).triggered.connect(
-            lambda: self.cell_import_requested.emit(
-                old_name, file_path, None, None, None))
-        # С-2: the third action over the records — REMOVE the ones the
-        # CURRENT selection names (copper only).
-        menu.addAction(_("Subtract selected copper...")).triggered.connect(
-            lambda: self.cell_subtract_requested.emit(
-                old_name, file_path, None, None, None))
-        # СЦ-1: three items in order — components, cell, enclosed.
-        components_action = menu.addAction(_("Select cell components"))
-        components_action.setObjectName("select_cell_components_action")
-        components_action.triggered.connect(
-            lambda: self.cell_select_components_requested.emit(
-                old_name, file_path, None, None, None))
-        # Н5: highlight what a read would read (instance + own copper).
-        select_action = menu.addAction(_("Select cell"))
-        select_action.setObjectName("select_cell_action")
-        select_action.triggered.connect(
-            lambda: self.cell_select_requested.emit(
-                old_name, file_path, None, None, None))
-        # 2026-10-05: the whole enclosed copper of this cell's instance
-        # (components + the copper between them, no foreign pad).
-        enclosed_action = menu.addAction(_("Select enclosed copper"))
-        enclosed_action.setObjectName("select_enclosed_copper_action")
-        enclosed_action.triggered.connect(
-            lambda: self.cell_select_enclosed_requested.emit(
-                old_name, file_path, None, None, None))
-        # Р2: the cell door of the "Разнос" tab — the instance is
-        # resolved by DockHub with the "Select cell" rules.
-        menu.addAction(_("Explode…")).triggered.connect(
-            lambda: self.cell_explode_requested.emit(
-                old_name, file_path, None, None, None))
-        # Э4 (2026-09-12, plan_2026_09_12_cell_layer_dialog): the same two
-        # reads with the layer dialog in front. The FAST items above stay
-        # one-click (no window, no board read for the layer set); these
-        # ask FIRST which layers to read.
-        menu.addAction(
-            _("Update from selection (choose layers)...")
-        ).triggered.connect(
-            lambda: self.cell_refresh_layers_requested.emit(
-                old_name, file_path, None, None, None))
-        menu.addAction(
-            _("Add selected copper (choose layers)...")
-        ).triggered.connect(
-            lambda: self.cell_import_layers_requested.emit(
-                old_name, file_path, None, None, None))
         # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE
         # sibling — copy another cell's placement (component geometry +
         # vias/tracks) into this one; the donor is picked from a minimal

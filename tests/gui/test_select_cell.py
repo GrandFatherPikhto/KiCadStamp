@@ -256,18 +256,18 @@ def test_hub_delegate_calls_the_shared_entry():
 # ── C3: the tree's cells: item emits the signal ─────────────────────────────
 
 def test_tree_item_emits_the_signal():
-    """C3 (structural): the cells: context-menu item emits cell_select_requested
-    (the label is translated, so the guard reads the EMIT, not the caption)."""
+    """C3 (structural): the context-menu item emits cell_select_requested (the
+    label is translated, so the guard reads the EMIT, not the caption).
+
+    часть 3, п.3: the ENTITY leaf is the ONLY sender now — a cell leaf carries no
+    board item at all (its behavioural guard lives in
+    tests/gui/docks/test_entities_under_cells.py)."""
     import inspect
-    import gui.docks.config_tree as ct
     import gui.docks.entity_tree as et
-    # The cells: menu block moved to the entity-tree mixin (2026-10-08); the
-    # properties are unchanged, so the guard reads BOTH sources.
-    src = inspect.getsource(ct) + inspect.getsource(et)
+    src = inspect.getsource(et)
     assert "self.cell_select_requested.emit(" in src
-    # 2б, п.4: the FOURTH field stayed the instance, a FIFTH (the entity name)
-    # was added — a cell leaf sends None there (nothing to pin).
-    assert "old_name, file_path, None, None, None))" in src
+    # 2б, п.4: the FOURTH field is the instance, the FIFTH the entity NAME.
+    assert "self.cell_select_requested.emit(n, None, c, s, e)" in src
 
 
 # ── Н5-2: an explicit instance is never overridden by the remembered sheet ──

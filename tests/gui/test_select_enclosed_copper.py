@@ -95,17 +95,16 @@ def _instance_board():
 
 # ── M1 — the Cells leaf carries the item and emits its (name, file, None, None) ─
 
-def test_cells_leaf_has_the_item_and_emits_the_rule_instance(
+def test_a_cells_leaf_carries_no_select_enclosed_item(
         real_main_window, tmp_path, monkeypatch):
-    """M1: on a Cells leaf there is exactly ONE ``select_enclosed_copper_action``
-    (objectName, not a translated label) and triggering it emits
-    ``cell_select_enclosed_requested(name, file_path, None, None)`` — the
-    instance is resolved downstream by the shared "Select cell" rule."""
+    """M1 (часть 3, п.3): a Cells leaf carries NO ``select_enclosed_copper_action``
+    at all — a cell leaf names no instance, so the item lives on the ENTITY leaf,
+    where M2 below pins that it sends that entity's own (cluster, sheet).
+
+    The cell still carries an entity on purpose: the absence is the rule, not a
+    side effect of an entityless cell."""
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
-    # The cell carries an entity (3б): an ENTITYLESS cell is a read-only
-    # drawing whose menu keeps only "Create entity" + "Delete…", so the paid
-    # select item lives on a cell with an entity.
     write_config(root, {"cells": {"dac_buf": {"components": [{"role": "R"}]}},
                         "entities": [{"name": "dac0", "cell": "dac_buf"}]})
     open_project(hub, root)
@@ -116,15 +115,7 @@ def test_cells_leaf_has_the_item_and_emits_the_rule_instance(
     actions = context_menu_actions(hub.config_tree_dock, leaf, monkeypatch)
     matching = [act for _label, act in actions
                 if act.objectName() == "select_enclosed_copper_action"]
-    assert len(matching) == 1, (
-        "the Cells menu must carry exactly one select_enclosed_copper_action; "
-        "seen: " + repr([label for label, _ in actions]))
-
-    emitted = []
-    hub.config_tree_dock.cell_select_enclosed_requested.connect(
-        lambda n, f, c, s: emitted.append((n, c, s)))
-    matching[0].trigger()
-    assert emitted and emitted[0] == ("dac_buf", None, None), emitted
+    assert matching == [], [label for label, _ in actions]
 
 
 # ── M2 — the Entities leaf sends its OWN explicit (cluster, sheet) ────────────
