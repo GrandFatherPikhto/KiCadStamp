@@ -349,7 +349,10 @@ def test_a_read_of_another_instance_is_refused_while_an_entity_is_chosen(
 
     view._on_read_from_selection()
 
-    assert lines == ["the selection is not entity 'ch0' — nothing read"], lines
+    # часть 3, п.6: the refusal names the selection's own address too; this read
+    # carries a cluster and no sheet, so the sheet half says so.
+    assert lines == ["the selection is OTHER / (no sheet), not entity 'ch0' — "
+                     "nothing read"], lines
     assert view._cluster_combo.currentText() == "DAC_BUF"   # untouched
     assert view._role_combo.currentText() == ""             # nothing read in
     assert view._entity_picker.current_address().entity_name == "ch0"

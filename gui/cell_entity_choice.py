@@ -312,11 +312,18 @@ def cannot_verify_line(address) -> str:
         entity=getattr(address, "entity_name", None))
 
 
-def not_the_entity_line(entity_name) -> str:
-    """The refusal of a board read that is pinned to an entity row while the
-    SELECTION belongs to another instance (п.5) — a red line, never a silent
-    read of someone else's pair."""
-    return _("the selection is not entity {entity!r} — nothing read").format(
+def not_the_entity_line(entity_name, cluster, sheet) -> str:
+    """The refusal of a board read pinned to an entity row while the SELECTION
+    belongs to another instance (п.5) — a red line, never a silent read of
+    someone else's pair.
+
+    часть 3, п.6: it names BOTH addresses — what the SELECTION is (the cluster and
+    sheet the narrowing itself read off the board) and WHICH entity was expected.
+    The old wording named the entity alone, so the user could not see what the
+    selection had been taken for."""
+    return _("the selection is {cluster} / {sheet}, not entity {entity!r} — "
+             "nothing read").format(
+        cluster=cluster, sheet=sheet if sheet else _("(no sheet)"),
         entity=entity_name)
 
 

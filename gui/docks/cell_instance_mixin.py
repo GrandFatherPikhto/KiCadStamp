@@ -222,9 +222,15 @@ class CellInstanceMixin:
         row = self._entity_gate.row()
         if row is None or not read.get("cluster"):
             return False
-        if address_matches_selection(row, read["cluster"], None):
+        if address_matches_selection(row, read["cluster"], read.get("sheet")):
             return False
-        show_message(not_the_entity_line(row.entity_name), ERROR_STYLE, logger)
+        # часть 3, п.6: the refusal names BOTH addresses — the selection's own
+        # (what the reader resolved off the board) and the entity that was
+        # expected. The page's read carries no sheet, so it says "(no sheet)"
+        # there rather than guessing one.
+        show_message(not_the_entity_line(row.entity_name, read["cluster"],
+                                         read.get("sheet")),
+                     ERROR_STYLE, logger)
         return True
 
     def announce_cell_write(self) -> None:

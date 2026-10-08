@@ -215,11 +215,15 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     own_key = choice.chosen_key
     if expected_address is not None and expected_address.cluster:
         own_cluster = own_key[0] if own_key else None
+        own_sheet = own_key[1] if own_key else None
         if own_cluster and not address_matches_selection(
-                expected_address, own_cluster, own_key[1] if own_key else None):
+                expected_address, own_cluster, own_sheet):
             # The selection names ANOTHER instance — nothing is read from it.
+            # часть 3, п.6: the refusal names BOTH addresses — what the selection
+            # IS (cluster/sheet, as read here) and which ENTITY was expected.
             return _refusal_preamble(
-                not_the_entity_line(expected_address.entity_name),
+                not_the_entity_line(expected_address.entity_name,
+                                    own_cluster, own_sheet),
                 footprints, vias, tracks)
         if not own_cluster:
             unverified_line = cannot_verify_line(expected_address)

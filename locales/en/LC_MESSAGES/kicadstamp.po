@@ -18172,7 +18172,7 @@ msgstr ""
 
 #: gui/cell_entity_choice.py
 #, python-brace-format
-msgid "the selection is not entity {entity!r} — nothing read"
+msgid "the selection is {cluster} / {sheet}, not entity {entity!r} — nothing read"
 msgstr ""
 
 #: gui/cell_entity_choice.py

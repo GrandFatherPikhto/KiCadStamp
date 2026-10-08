@@ -19082,8 +19082,8 @@ msgstr "С выбранной сущностью лист/кластер/refs �
 
 #: gui/cell_entity_choice.py
 #, python-brace-format
-msgid "the selection is not entity {entity!r} — nothing read"
-msgstr "выделение — не сущность {entity!r} — ничего не прочитано"
+msgid "the selection is {cluster} / {sheet}, not entity {entity!r} — nothing read"
+msgstr "выделение — {cluster} / {sheet}, а не сущность {entity!r} — ничего не прочитано"
 
 #: gui/cell_entity_choice.py
 #, python-brace-format

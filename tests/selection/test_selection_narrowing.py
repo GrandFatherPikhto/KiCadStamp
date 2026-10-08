@@ -447,8 +447,11 @@ def test_a_selection_of_another_instance_is_refused_for_a_pinned_read(
         remembered_cluster="DAC_BUF", expected_address=pinned)
 
     assert prelude is not None
+    # часть 3, п.6: the refusal names BOTH addresses — the selection's own
+    # (DAC_BUF / Channel_1: that is what the narrowing read off the selection)
+    # and the entity that was expected.
     assert prelude.refusal == \
-        "the selection is not entity 'ch0' — nothing read"
+        "the selection is DAC_BUF / Channel_1, not entity 'ch0' — nothing read"
     assert not prelude.log_lines, "отказ — это отказ, а не жёлтая строка"
 
 

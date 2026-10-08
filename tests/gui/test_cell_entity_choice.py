@@ -306,8 +306,11 @@ def test_a_stale_or_non_entity_row_matches_nothing():
     assert not address_matches_selection(entity_address(_entity("bare")),
                                          "DAC_BUF", None)
     assert not address_matches_selection(None, "DAC_BUF", None)
-    assert not_the_entity_line("ch1") == \
-        "the selection is not entity 'ch1' — nothing read"
+    # часть 3, п.6: both addresses are named — the selection's and the entity's.
+    assert not_the_entity_line("ch1", "DAC_BUF", "Channel_1") == \
+        "the selection is DAC_BUF / Channel_1, not entity 'ch1' — nothing read"
+    assert not_the_entity_line("ch1", "DAC_BUF", None) == \
+        "the selection is DAC_BUF / (no sheet), not entity 'ch1' — nothing read"
 
 
 def test_the_working_instance_is_stored_and_read_back_as_the_same_address():
