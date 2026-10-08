@@ -2536,7 +2536,10 @@ answers about the CURRENT place.** Four things changed together (plan
   own anything selected — its net is not among the selected copper's nets — is not
   planned at all. A selection with no copper never reads the board. The Log gets ONE
   summary line: "net_traces: N record(s) checked (K skipped by net), M own selected
-  copper" instead of a line per record.
+  copper" instead of a line per record, and the role-narrowing lines of that dry,
+  per-record question ("… narrowed to N by anchor_sheet/anchor_cluster") moved to
+  DEBUG — asked of EVERY record, they numbered 2 184 lines for ONE click in the live
+  log. A real redraw still writes them at INFO.
 * **the read REPLACES the selection with exactly what it took** (both doors:
   **Update from selection...** and **Add selected copper...**), and says so in one
   line: "read N of M selected item(s); skipped K: <reason — count; ...>" with the
