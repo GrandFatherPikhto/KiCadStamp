@@ -223,6 +223,29 @@ def test_a_registry_pair_away_from_the_plan_is_selected_and_named(gate, tmp_path
     assert "away from the planned place" in plan.line, plan.line
 
 
+def test_the_registry_only_path_takes_the_away_pair_too(gate, tmp_path):
+    """Б1 on the OTHER code path: the REGISTRY-ONLY map 「Select cell」 runs when a
+    tree read planned nothing (`select_cell_targets`, the map `no_planned_copper_
+    targets` delegates to) passes ``place_check=False`` as well. That is the LIVE
+    case — the instance was edited and never redrawn, so its own recorded copper
+    stands where the plan does not put it, and the strict check gave exactly
+    «0 selected» with the copper on the board.
+
+    Mutation: drop ``place_check=False`` from ``select_cell_targets`` and the pair
+    is refused again — 0 selected, while the board carries it."""
+    from gui.select_cell import select_cell_targets
+
+    cfg, config_path, adapter, key = _setup(tmp_path, [_via("v_own", 5.0, 5.0)])
+    _write_via_registry(tmp_path, {key: _via_entry("v_own", 0.0, 0.0)})
+
+    plan = select_cell_targets(adapter, cfg, str(config_path), "dac_buf",
+                               "DAC_BUF", None, {}, own_refs=["C1"])
+
+    assert [getattr(i, "uuid", None) for i in plan.copper] == ["v_own"]
+    assert plan.copper_by_registry == 1 and plan.copper_missing == 0
+    assert "away from the planned place" in plan.line, plan.line
+
+
 def test_the_strict_map_still_refuses_what_the_select_map_takes(gate, tmp_path):
     """The SUBTRACT door is untouched (rule 33): the SAME rig read with the map's
     default `place_check=True` refuses the away pair — a removal must never claim

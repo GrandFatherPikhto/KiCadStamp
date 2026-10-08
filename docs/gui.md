@@ -2524,6 +2524,50 @@ are counted in one "not records of cell X — ignored" line. Every removed recor
 `- track …`) followed by "subtracted N record(s) — Save to write the change": like Refresh the change is
 staged and needs Save, and the registries are only read.
 
+**Behaviour change (2026-10-08): a read is cheap, says what it took, and Select cell
+answers about the CURRENT place.** Four things changed together (plan
+`plan_2026_10_08_narrowing_net_traces_cost`, parts А–Г):
+
+* **one board read per read.** "Update from selection" used to walk every `net_traces:`
+  record of the project and read the WHOLE board (219 vias / 1256 tracks in the live
+  profile) once per record — measured on 08.10: 73 records → 292 board reads and
+  215 350 items for ONE click. The board's copper is now read once, the ownership map
+  is computed once and shared by both kinds (via and track), and a record that cannot
+  own anything selected — its net is not among the selected copper's nets — is not
+  planned at all. A selection with no copper never reads the board. The Log gets ONE
+  summary line: "net_traces: N record(s) checked (K skipped by net), M own selected
+  copper" instead of a line per record.
+* **the read REPLACES the selection with exactly what it took** (both doors:
+  **Update from selection...** and **Add selected copper...**), and says so in one
+  line: "read N of M selected item(s); skipped K: <reason — count; ...>" with the
+  reasons named — another cluster, another record's copper, inter-node copper, layer
+  off. A track on a layer that is not read leaves the selection: it was not read. A
+  REFUSED read (another instance, an unresolved anchor) touches the selection at all
+  — the user is about to fix it by hand, and clearing it would destroy it.
+* **Select cell answers about the CURRENT place.** It highlights the copper the
+  instance's records own WHEREVER the copper stands — the registry KEY proves the
+  ownership, and the distance from the planned place is NAMED ("N registry pair(s)
+  sit away from the planned place — selected anyway"), never a refusal — plus the
+  copper the redraw's own at-current-place pass found (that pass already runs inside
+  every read-only pipeline; its result is now handed over instead of being thrown
+  away). That is the live 08.10 case: right after a read that was never redrawn,
+  "Select cell" reported 0 copper while the board carried it. One line names the
+  distance: "the instance stands X mm away from where the tree places it". A command
+  whose key that pass bound is no longer reported as "recorded but not on the board"
+  — its copper IS on the board, at the current place.
+  NOTE the deliberate asymmetry with **Subtract selected copper**: subtraction
+  REMOVES copper, so it keeps the strict place check (a pair that does not sit where
+  the record puts it is never subtracted); SELECTING is harmless, so it may take such
+  a pair. "You can subtract exactly what Select cell would highlight" still holds for
+  every pair that really sits where the record puts it.
+* **a write says whether it reached the FILE.** While the working set holds the change
+  (a project is open and no File → Save has run) the Log says "Staged new <name> —
+  not saved yet (File → Save)" or "Staged changes to <name> — not saved yet (File →
+  Save)" instead of "Wrote … in <file>" / "Overwrote … in <file>", which claimed the
+  file had been written while its mtime never moved (the live line Denis read at
+  19:40:39). "Wrote/Overwrote … in <file>" appears ONLY on a real write to disk. The
+  CLI (extract/apply) has no working set and is unchanged.
+
 **Behaviour change (2026-10-04/05): a MIXED selection is no longer a refusal.** Selecting the edited
 cluster together with the clusters standing next to it (on the live board DAC_BUF sits flush against
 the PIFs) used to fail on the first foreign Role. Now **Update from selection...** / **Add selected
