@@ -455,6 +455,52 @@ def test_a_selection_of_another_instance_is_refused_for_a_pinned_read(
     assert not prelude.log_lines, "отказ — это отказ, а не жёлтая строка"
 
 
+def test_the_refusal_names_the_selections_own_entity_of_the_cell(gate, tmp_path):
+    """доделка 3а, п.1: выделение принадлежит ДРУГОЙ сущности ТОЙ ЖЕ ячейки —
+    отказ называет эту сущность (найдена через отношение «сущности ячейки» части 1
+    тем же правилом адреса), а не оставляет человека с чужой парой.
+
+    Тег Cluster на плате ЗДЕСЬ уточняет конфиговый (``FPGA_VCCIO_139/CH0`` против
+    ``FPGA_VCCIO_139``): сущность обязана находиться правилом адреса
+    (``record_address_matches`` — кластер по префиксу), а не равенством строк, иначе
+    строка вернулась бы к прежнему виду (см. мутацию M3)."""
+    from gui.cell_entity_choice import entity_address
+    from gui.mixed_selection import narrow_mixed_selection
+
+    config_path = tmp_path / "config.sexp"
+    config_path.write_text("", encoding="utf-8")
+    _write_registries(tmp_path, {}, {})
+    cfg = _Cfg(
+        cells={"fpga_pwr_spoke": _Rec(uuid=det_uuid("cells:fpga_pwr_spoke"))},
+        entities=[
+            _Rec(name="fpga_vccio_93_fpga",
+                 uuid=det_uuid("entities:fpga_vccio_93_fpga"),
+                 cell="fpga_pwr_spoke", cluster="FPGA_VCCIO_93", sheet="FPGA"),
+            _Rec(name="fpga_vccio_139",
+                 uuid=det_uuid("entities:fpga_vccio_139"),
+                 cell="fpga_pwr_spoke", cluster="FPGA_VCCIO_139", sheet="FPGA"),
+        ])
+    adapter = _Adapter({"C1": ("C_BYPASS", "FPGA_VCCIO_139/CH0"),
+                        "C2": ("C_BULK", "FPGA_VCCIO_139/CH0")})
+    selection = [_FpRef2("C1", ("fpga", "a")), _FpRef2("C2", ("fpga", "b"))]
+    # The door points at the FIRST entity; the selection is the SECOND one's.
+    pinned = entity_address({"name": "fpga_vccio_93_fpga",
+                             "cluster": "FPGA_VCCIO_93", "sheet": "FPGA"})
+
+    prelude = narrow_mixed_selection(
+        config_path=str(config_path), adapter=adapter, footprints=selection,
+        vias=[], tracks=[], cfg=cfg, sheet_names={"fpga": "FPGA"},
+        cell_name="fpga_pwr_spoke", cell_roles={"C_BYPASS", "C_BULK"},
+        remembered_cluster="FPGA_VCCIO_93", expected_address=pinned)
+
+    assert prelude is not None
+    assert prelude.refusal == (
+        "the selection is FPGA_VCCIO_139/CH0 / FPGA — entity 'fpga_vccio_139' of "
+        "this cell, not 'fpga_vccio_93_fpga'; use the item under 'fpga_vccio_139' "
+        "— nothing read")
+    assert not prelude.log_lines, "отказ — это отказ, а не жёлтая строка"
+
+
 def test_a_selection_of_the_pinned_instance_reads_it_without_a_warning(
         gate, tmp_path):
     """Та же привязка, но выделение — СВОЙ экземпляр: читается он, и никакой

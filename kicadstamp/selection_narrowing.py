@@ -54,6 +54,7 @@ __all__ = [
     "FootprintInfo",
     "InstanceChoice",
     "cell_clusters",
+    "cell_entity_naming_address",
     "cell_record_addresses",
     "choose_instance",
     "group_selection",
@@ -179,6 +180,33 @@ def cell_record_addresses(cfg, cell_name: str | None
         identity = record_key_part(name, getattr(c, "uuid", None))
         out[identity] = (getattr(c, "cluster", None), getattr(c, "sheet", None))
     return out
+
+
+def cell_entity_naming_address(cfg, cell_name: str | None,
+                               cluster, sheet) -> str | None:
+    """The NAME of this cell's ENTITY whose ``(cluster, sheet)`` address names the
+    instance the SELECTION was taken for (доделка 3а, п.1).
+
+    This is the part-1 "entities under the cell" relation, read from the LOADED
+    config (``load_config`` materializes ``tree_instances`` / ``sheet_templates``
+    copies into ``entities``, so no second walk of the graph is needed) and
+    compared by the ONE address rule (``record_address_matches``: cluster by
+    prefix, sheet only when both carry one). It lets a refusal point the user at
+    the entity leaf that DOES own the selection instead of leaving them with the
+    wrong pair. None when no entity of the cell stands at that address — the
+    caller then keeps its ordinary wording."""
+    if not cell_name or not cluster:
+        return None
+    for e in getattr(cfg, "entities", None) or ():
+        if getattr(e, "cell", None) != cell_name:
+            continue
+        if not getattr(e, "cluster", None):
+            continue
+        if record_address_matches(
+                (getattr(e, "cluster", None), getattr(e, "sheet", None)),
+                (cluster, sheet)):
+            return str(getattr(e, "name", "") or "") or None
+    return None
 
 
 # ── grouping ────────────────────────────────────────────────────────────────

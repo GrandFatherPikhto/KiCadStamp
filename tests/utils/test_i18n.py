@@ -53,6 +53,37 @@ RU_DUP_EXCEPTIONS_FILE = ROOT / "tests" / "ru_duplicate_msgstr_exceptions.jsonl"
 SHIPPED_DIRS = (ROOT / "kicadstamp", ROOT / "gui", ROOT / "mcp_server")
 
 
+@pytest.fixture(autouse=True)
+def _restore_gettext_after_each_test():
+    """Undo the PROCESS-GLOBAL state setup_i18n() installs, after every test.
+
+    setup_i18n() does `translation.install()` — it rebinds `kicadstamp.i18n._`
+    AND `builtins._` for the whole process, and it is NOT undone by the
+    `monkeypatch.setenv` calls these tests use. Left behind, the last test's
+    language leaks into whatever module is imported LATER in the same worker:
+    a module binds `_` at import time (`from kicadstamp.i18n import _`), so a
+    `gui.*` module first imported after an RU test would answer in Russian —
+    making every later English-asserting test order-dependent under `-n auto`
+    (rule 42; measured: `tests/utils/test_i18n.py` + `tests/selection/`
+    together left a worker in RU and the refusal cell came back translated).
+    tests/conftest.py forces English ONCE at collection; this fixture keeps
+    that invariant for the rest of the run. Purely a restore of two saved
+    references — it changes no assertion."""
+    import builtins
+
+    import kicadstamp.i18n as i18n_module
+
+    saved_global = i18n_module._
+    saved_builtin = getattr(builtins, "_", None)
+    yield
+    i18n_module._ = saved_global
+    if saved_builtin is None:
+        if hasattr(builtins, "_"):
+            del builtins._
+    else:
+        builtins._ = saved_builtin
+
+
 class TestDetectLanguagePrecedence:
     """LANGUAGE > LC_ALL > LC_MESSAGES > LANG, default English."""
 

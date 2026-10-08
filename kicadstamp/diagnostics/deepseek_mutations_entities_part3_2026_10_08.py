@@ -66,11 +66,16 @@ MUTATIONS = [
      "        # 2026-09-06 (plan copy_placement_from_cell): the OFFLINE\n",
      "die", PART3_TEST, []),
     # 3 — the refusal names the entity alone (часть 3, п.6): the user cannot see
-    # what the selection was taken for.
+    # what the selection was taken for. (The call grew the selection's own entity
+    # in доделка 3а, п.1; the anchor follows the product, the semantic is the same.)
     ("M3 the refusal forgets the selection's address", MIXED,
-     "                not_the_entity_line(expected_address.entity_name,\n"
-     "                                    own_cluster, own_sheet),\n",
-     "                not_the_entity_line(expected_address.entity_name, \"\", \"\"),\n",
+     "                not_the_entity_line(\n"
+     "                    expected_address.entity_name, own_cluster, own_sheet,\n"
+     "                    cell_entity_naming_address(cfg, cell_name, own_cluster,\n"
+     "                                               own_sheet)),\n",
+     "                not_the_entity_line(\n"
+     "                    expected_address.entity_name, \"\", \"\",\n"
+     "                    cell_entity_naming_address(cfg, cell_name, \"\", \"\")),\n",
      "die", SEL_TEST, ()),
     # 4 — presence is asked of the board HANDLE again (часть 3, п.7): the live
     # 08.10 log carried an ERROR on every read because of exactly this.

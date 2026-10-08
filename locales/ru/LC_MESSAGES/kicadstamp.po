@@ -97,6 +97,15 @@ msgstr ""
 "выделение — {cluster} / {sheet}, а не сущность {entity!r} — ничего не "
 "прочитано"
 
+#: gui/cell_entity_choice.py:333
+#, python-brace-format
+msgid ""
+"the selection is {cluster} / {sheet} — entity {selection!r} of this cell, "
+"not {entity!r}; use the item under {selection!r} — nothing read"
+msgstr ""
+"выделение — {cluster} / {sheet}: сущность {selection!r} этой ячейки, а не "
+"{entity!r}; выберите пункт под {selection!r} — ничего не прочитано"
+
 #: gui/cell_entity_choice.py:339
 #, python-brace-format
 msgid ""

@@ -49,6 +49,7 @@ from kicadstamp.registry import (
 from kicadstamp.selection_narrowing import (
     FootprintInfo,
     cell_clusters,
+    cell_entity_naming_address,
     cell_record_addresses,
     choose_instance,
     group_selection,
@@ -237,9 +238,15 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
             # The selection names ANOTHER instance — nothing is read from it.
             # часть 3, п.6: the refusal names BOTH addresses — what the selection
             # IS (cluster/sheet, as read here) and which ENTITY was expected.
+            # доделка 3а, п.1: and when the selection's own address names an
+            # entity of the SAME cell, that entity is named too (found through the
+            # part-1 entities-of-the-cell relation, by the ONE address rule) — the
+            # user is told which leaf to use instead of the wrong pair.
             return _refusal_preamble(
-                not_the_entity_line(expected_address.entity_name,
-                                    own_cluster, own_sheet),
+                not_the_entity_line(
+                    expected_address.entity_name, own_cluster, own_sheet,
+                    cell_entity_naming_address(cfg, cell_name, own_cluster,
+                                               own_sheet)),
                 footprints, vias, tracks)
         if not own_cluster:
             unverified_line = cannot_verify_line(expected_address)
