@@ -224,3 +224,37 @@ def test_format2_graph_is_lifted_before_the_index_reads_it(tmp_path):
     target = next(iter(idx.cells_by_name.values()))
     assert target.uuid
     assert [r.name for r in idx.entities_for_cell(target.uuid)] == ["e1"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Ромб include: файл собирается ОДИН раз (доделка 1а, п.1)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_a_diamond_include_is_collected_once(tmp_path):
+    """Доделка 1а, п.1 — ромб include:. `walk_include_tree` строит ОТДЕЛЬНЫЙ
+    узел на каждый вход в файл, поэтому `shared.sexp` достижим и через
+    `a.sexp`, и через `b.sexp`. Без дедупа по пути его записи собирались бы
+    дважды: сущность двоилась бы под своей ячейкой, а один и тот же
+    постановщик попадал бы в «placed by» два раза.
+
+    Ячейки и импринты двоения не показывали (их таблицы собираются
+    `setdefault`), а СПИСКИ `entities` — да: ровно поэтому дедуп нужен обходу,
+    а не таблицам.
+
+    Мутация: снять пропуск по `node.path` из `_iter_nodes` — этот сторож
+    краснеет (сущность и постановщик придут по два раза)."""
+    _write(tmp_path / "shared.sexp", {
+        "cells": {"c_a": _cell(CELL_A)},
+        "entities": [_entity("e1", cell="c_a", cell_uuid=CELL_A)],
+        "chains": [{"name": "ch", "net": "N",
+                    "spokes": [{"pad": "1", "cell": "c_a", "cell_uuid": CELL_A}]}],
+    })
+    _write(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
+    _write(tmp_path / "b.sexp", {"include": ["shared.sexp"]})
+    root = tmp_path / "root.sexp"
+    _write(root, {"include": ["a.sexp", "b.sexp"]})
+
+    idx = build_entity_index(walk_include_tree(str(root)))
+
+    assert [r.name for r in idx.entities_for_cell(CELL_A)] == ["e1"]
+    assert len(idx.placed_by_cell(CELL_A)) == 1

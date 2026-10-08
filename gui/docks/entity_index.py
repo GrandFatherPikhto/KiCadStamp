@@ -127,11 +127,21 @@ class EntityIndex:
 
 def _iter_nodes(root: IncludeTreeNode) -> Iterator[IncludeTreeNode]:
     """Every file node of the include: graph, root first, then children
-    depth-first — ONE traversal, no merge (a diamond is visited twice here,
-    exactly as walk_include_tree shows it; the index dedups by identity)."""
+    depth-first — ONE traversal, no merge, and each FILE once.
+
+    A diamond (one file reached through two branches) is where this matters:
+    `walk_include_tree` builds a SEPARATE node object per entry, so without the
+    by-path skip the file's records would be collected once per entry — the
+    entity shown twice under its cell and one "placed by" per entry (доделка 1а,
+    п.1). Cells and imprints only LOOKED deduped: their tables are built with
+    `setdefault`, which is no defence for a list like `entities`."""
+    seen: set = set()
     stack = [root]
     while stack:
         node = stack.pop()
+        if node.path in seen:
+            continue
+        seen.add(node.path)
         yield node
         stack.extend(reversed(node.children))
 

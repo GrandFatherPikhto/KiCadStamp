@@ -468,3 +468,107 @@ def test_click_on_cell_with_entity_opens_the_cell_page_editable(
     view = hub.cell_anchor_view
     assert view._read_only is False
     assert view._tabs.isEnabled()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Доделка 1а: ромб include: и выделение из другого файла (п.1, п.2)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _diamond_root(tmp_path) -> Path:
+    """root → a, b, и ОБА подключают shared.sexp: одна и та же запись
+    достижима двумя ветками — тот самый ромб."""
+    write_config(tmp_path / "shared.sexp",
+                 {"cells": {"c": {"components": [{"role": "R"}]},
+                            "c2": {"components": [{"role": "R"}]}},
+                  "entities": [{"name": "e1", "cell": "c"}],
+                  "chains": [{"name": "ch", "net": "N",
+                              "spokes": [{"pad": "1", "cell": "c2"}]}]})
+    write_config(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
+    write_config(tmp_path / "b.sexp", {"include": ["shared.sexp"]})
+    root = tmp_path / "root.sexp"
+    write_config(root, {"include": ["a.sexp", "b.sexp"]})
+    return root
+
+
+def test_a_diamond_include_shows_the_entity_and_the_placer_once(
+        main_window, tmp_path):
+    """Доделка 1а, п.1 (дерево) — файл, подключённый двумя ветками, не должен
+    давать ДВУХ одинаковых листьев под одной ячейкой и не должен повторять
+    одного постановщика в подсказке «placed by».
+
+    Мутация: снять пропуск по `node.path` из `_iter_nodes` — этот сторож
+    краснеет (два листа `e1`; «spoke of chain: ch» в подсказке дважды)."""
+    root = _diamond_root(tmp_path)
+    dock = _dock(main_window, root)
+    cells = category(file_item(dock.tree, tmp_path / "shared.sexp"), "cells")
+
+    with_entity = find_child(cells, "c")
+    assert with_entity.childCount() == 1, (
+        "под ячейкой — ОДИН лист сущности; два значит, что файл собран дважды")
+
+    placed = find_child(cells, "c2")
+    assert placed.toolTip(0).count("spoke of chain: ch") == 1, placed.toolTip(0)
+
+
+def test_the_selection_of_an_entity_from_another_file_survives_refresh(
+        main_window, tmp_path):
+    """Доделка 1а, п.2 — сущность показана под ячейкой из ДРУГОГО файла, и её
+    выделение обязано пережить `refresh()`: дерево перестраивается с нуля, а
+    лист живёт под чужим файловым узлом.
+
+    Идентичность листа берётся из СВОЕГО файла сущности (`_ROLE_OWN_FILE`), а
+    не из файла видимого предка — иначе после перестройки лист не нашёлся бы.
+
+    Мутация: в `_item_identity` взять файл родителя вместо `_ROLE_OWN_FILE` —
+    этот сторож краснеет (выделение не восстановилось)."""
+    write_config(tmp_path / "a.sexp",
+                 {"cells": {"c": {"components": [{"role": "R"}]}}})
+    entity_file = tmp_path / "b.sexp"
+    write_config(entity_file, {"entities": [{"name": "e1", "cell": "c"}]})
+    root = tmp_path / "root.sexp"
+    write_config(root, {"include": ["a.sexp", "b.sexp"]})
+
+    dock = _dock(main_window, root)
+    cell = find_child(
+        category(file_item(dock.tree, tmp_path / "a.sexp"), "cells"), "c")
+    find_child(cell, "e1").setSelected(True)
+
+    dock.refresh()
+
+    selected = dock.tree.selectedItems()
+    assert len(selected) == 1, [i.text(0) for i in selected]
+    own = Path(selected[0].data(0, _ROLE_OWN_FILE)[0]).resolve()
+    assert own == entity_file.resolve()
+
+
+def test_the_selection_picks_its_own_file_among_same_named_entities(
+        main_window, tmp_path):
+    """Доделка 1а, п.2, второй случай — две сущности с ОДНИМ ИМЕНЕМ в разных
+    файлах под одной ячейкой: файл в идентичности листа различает их, поэтому
+    после `refresh()` выделена ТА ЖЕ (ровно одна), а не обе.
+
+    Мутация: в `_item_identity` взять файл родителя — обе сущности получают
+    одну идентичность, и выделенными окажутся обе (сторож краснеет)."""
+    write_config(tmp_path / "a.sexp",
+                 {"cells": {"c": {"components": [{"role": "R"}]}},
+                  "entities": [{"name": "e", "cell": "c"}]})
+    second = tmp_path / "b.sexp"
+    write_config(second, {"entities": [{"name": "e", "cell": "c"}]})
+    root = tmp_path / "root.sexp"
+    write_config(root, {"include": ["a.sexp", "b.sexp"]})
+
+    dock = _dock(main_window, root)
+    cell = find_child(
+        category(file_item(dock.tree, tmp_path / "a.sexp"), "cells"), "c")
+    leaves = [cell.child(i) for i in range(cell.childCount())]
+    wanted = next(leaf for leaf in leaves
+                  if Path(leaf.data(0, _ROLE_OWN_FILE)[0]).resolve()
+                  == second.resolve())
+    wanted.setSelected(True)
+
+    dock.refresh()
+
+    selected = dock.tree.selectedItems()
+    assert len(selected) == 1, [i.text(0) for i in selected]
+    own = Path(selected[0].data(0, _ROLE_OWN_FILE)[0]).resolve()
+    assert own == second.resolve()
