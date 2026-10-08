@@ -198,9 +198,14 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
     feet = own_instance_context(adapter, cfg, cell_name, cluster, sheet,
                                 sheet_names=sheet_names, own_refs=own_refs)
     footprints = feet[0]
+    # place_check=False (part Б1 of plan_2026_10_08_narrowing_net_traces_cost):
+    # «Select cell» answers "what does this instance have on the board NOW", so a
+    # pair the KEY owns is taken WHEREVER the copper stands — the instance that
+    # was never redrawn still shows its recorded copper. The subtract door keeps
+    # the strict check (registry_record_copper_map's default).
     record_map = registry_record_copper_map(
         adapter, config_path, cfg, cell_name, cluster, sheet,
-        sheet_names=sheet_names, own_refs=own_refs)
+        sheet_names=sheet_names, own_refs=own_refs, place_check=False)
 
     # A fake/older adapter may not expose the copper reads; "no copper" is then
     # the honest answer (the components are still selected).
@@ -218,14 +223,13 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
     # Everything the registry offered and this map did NOT take: copper that is
     # simply not on the board (named, never an error), plus whatever the place
     # check / the ORPHAN rule refused (named by the notes below).
-    missing = max(0, record_map.entries_total - len(record_map.by_record)
-                  - record_map.disagreed - record_map.orphan_keys)
+    missing = record_map.missing_from_board
 
     notes = tuple(not_checked_reasons(
-        not_rigid=record_map.not_rigid,
-        frame_residual_mm=record_map.frame_residual_mm,
-        disagreed=record_map.disagreed,
-        orphan_keys=record_map.orphan_keys))
+        not_rigid=False, frame_residual_mm=record_map.frame_residual_mm,
+        disagreed=0, orphan_keys=record_map.orphan_keys,
+        away_from_place=record_map.disagreed,
+        place_unverified=record_map.not_rigid))
     line = _("selected: {components} component(s), {vias} via(s), "
              "{tracks} track(s) — {cell} on {sheet}").format(
         components=len(footprints), vias=_count_kind(copper, "via"),
@@ -355,10 +359,13 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
         if not accept_planned_match(reg, m):
             # The registry's uuid pointed at copper that is NOT where THIS record
             # plans its own (a shifted `index` — rule 1 of
-            # plan_2026_10_07_registry_pair_frame_check): not checked, and never
-            # highlighted as this cell's copper.
+            # plan_2026_10_07_registry_pair_frame_check). «Select cell» takes it
+            # ANYWAY (part Б1 of plan_2026_10_08_narrowing_net_traces_cost): the
+            # KEY proves the ownership, and highlighting is harmless — that is
+            # exactly the live case, where the instance was edited and never
+            # redrawn, so its recorded copper stands where the plan does not put
+            # it. It is COUNTED and named, never silently dropped.
             refused += 1
-            continue
         uuid = getattr(m.live, "uuid", None)
         if uuid is not None and uuid in seen:
             continue
@@ -371,8 +378,8 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
         copper.append(m.live)
 
     notes = tuple(not_checked_reasons(
-        not_rigid=False, frame_residual_mm=None, disagreed=refused,
-        orphan_keys=0))
+        not_rigid=False, frame_residual_mm=None, disagreed=0,
+        orphan_keys=0, away_from_place=refused))
     line = _("Select cell: {components} component(s); copper — {by_registry} by "
              "registry, {by_geometry} by geometry; recorded but not on the board "
              "— {missing}").format(

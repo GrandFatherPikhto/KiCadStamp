@@ -129,6 +129,10 @@ class RecordCopperMap:
 
     by_record: dict = field(default_factory=dict)
     planned: int = 0
+    # Own keys whose STORED uuid is not on the board at all — the exact "the
+    # registry remembers N more, not on the board" count, independent of how many
+    # pairs the place check took or refused (the two doors differ there, Б1).
+    missing_from_board: int = 0
     source: str = "dry_run"
     without_registry: int = 0
     disagreed: int = 0
@@ -264,15 +268,36 @@ def pair_agrees_with_record(points, live_item, frame, tol_mm) -> bool:
 
 
 def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
-                        disagreed: int, orphan_keys: int) -> list:
+                        disagreed: int, orphan_keys: int,
+                        away_from_place: int = 0,
+                        place_unverified: bool = False) -> list:
     """The honest reasons a pair the registry OFFERED was not accepted, as
     translated fragments — ONE wording for the doors that report them («Subtract
     selected copper»'s Log lines and «Select cell»'s own line), so the same
     refusal can never be described two different ways.
 
     Empty when everything the registry offered was either accepted or simply not
-    on the board (the latter is a count of its own, not a refusal)."""
+    on the board (the latter is a count of its own, not a refusal).
+
+    ``away_from_place`` / ``place_unverified`` are the SELECT door's two facts
+    (part Б1 of plan_2026_10_08_narrowing_net_traces_cost): it takes a pair by
+    the KEY'S ownership WHEREVER the copper stands, so a pair away from the
+    planned place is taken anyway and only NAMED, and a place that could not be
+    checked is named as such. The subtract door never passes them — its refusal
+    wording (`disagreed` / `not_rigid`) stays exactly as it was."""
     out: list = []
+    if place_unverified:
+        if frame_residual_mm is None:
+            out.append(_("the place of the registry pair(s) was not checked by "
+                         "the cell frame — selected by registry ownership"))
+        else:
+            out.append(_("the place of the registry pair(s) was not checked by "
+                         "the cell frame (worst deviation {deviation} mm) — "
+                         "selected by registry ownership")
+                       .format(deviation=f"{frame_residual_mm:.3f}"))
+    if away_from_place:
+        out.append(_("{count} registry pair(s) sit away from the planned place "
+                     "— selected anyway").format(count=away_from_place))
     if not_rigid:
         if frame_residual_mm is None:
             out.append(_("the live cluster has no usable cell frame — registry "
@@ -425,7 +450,8 @@ def record_copper_map_for(adapter, config_path: str,
 
 def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
                                cluster, sheet, own_refs=None,
-                               sheet_names=None) -> RecordCopperMap:
+                               sheet_names=None, place_check: bool = True
+                               ) -> RecordCopperMap:
     """The «registry only» map of ONE instance — the fallback for a REFUSED tree.
 
     For every registry key ``is_own_key`` accepts for this instance, the record
@@ -450,6 +476,17 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
     ``without_registry`` counts this cell's records the registry has no key for,
     ``entries_total`` how many own keys were examined, ``disagreed`` the pairs the
     registry offered that do not sit where the record puts them.
+
+    ``place_check`` (part Б1 of plan_2026_10_08_narrowing_net_traces_cost) is the
+    DIFFERENCE between the two doors that read this map:
+
+      * ``True`` (default, «Subtract selected copper») — a pair is accepted only
+        when it sits where the record puts it: the subtraction REMOVES copper, so
+        a pair the frame cannot place must never be claimed;
+      * ``False`` («Select cell») — the KEY proves the ownership, and SELECTING is
+        harmless: a pair away from the planned place is taken and only COUNTED
+        (``disagreed``, reported by the caller as a note), so an instance that was
+        never redrawn still shows the copper the registry recorded for it.
 
     READ-ONLY: reads the two registry files and the board, writes nothing. The
     drift guard, the redraw plan and the config are not touched."""
@@ -476,32 +513,41 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
         origin_role=getattr(cell, "anchor_role", None))
     residual = None if frame is None else frame.residual_mm
     if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:
-        # No frame / no rigid frame: not one pair can be checked by place, so
-        # none is claimed — the caller prints the reason, never a lie.
-        return RecordCopperMap(by_record={}, planned=0, source="registry",
-                               without_registry=without_registry,
-                               entries_total=len(entries), not_rigid=True,
-                               frame_residual_mm=residual)
+        if place_check:
+            # No frame / no rigid frame: not one pair can be checked by place, so
+            # none is claimed — the caller prints the reason, never a lie.
+            return RecordCopperMap(by_record={}, planned=0, source="registry",
+                                   without_registry=without_registry,
+                                   entries_total=len(entries), not_rigid=True,
+                                   frame_residual_mm=residual)
+        # The SELECT door takes the pairs by their KEY: without a trustworthy
+        # frame the place is simply not part of the answer (``not_rigid`` carries
+        # that fact to the caller's note).
+        frame = None
 
     by_record: dict = {}
-    disagreed = orphan = 0
+    disagreed = orphan = gone = 0
     for kind, role_part, index, uuid in entries:
         live_item = by_uuid[kind].get(uuid)
         if live_item is None:
-            continue                     # the copper is gone — never claimed
+            gone += 1                    # the copper is gone — never claimed
+            continue
         points = record_points(cell, kind, role_part, index)
         if points is None:
             orphan += 1                  # an ORPHAN key is never a pair
             continue
-        if not pair_agrees_with_record(points, live_item, frame,
-                                       RIGID_TOLERANCE_MM):
+        if frame is not None and not pair_agrees_with_record(
+                points, live_item, frame, RIGID_TOLERANCE_MM):
             disagreed += 1               # not where the record puts the copper
-            continue
+            if place_check:
+                continue                 # the STRICT door never claims it
+            # The select door keeps it: the key owns it (see the docstring).
         by_record[(kind, role_part, index)] = uuid
     return RecordCopperMap(by_record=by_record, planned=len(by_record),
                            source="registry", without_registry=without_registry,
                            entries_total=len(entries), disagreed=disagreed,
-                           orphan_keys=orphan, frame_residual_mm=residual)
+                           orphan_keys=orphan, not_rigid=frame is None,
+                           frame_residual_mm=residual, missing_from_board=gone)
 
 
 def _map_for(adapter, config_path: str, cell_identity: Optional[str],

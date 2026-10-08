@@ -194,6 +194,50 @@ def test_stale_registry_falls_back_to_geometry(gate, tmp_path):
     assert "by geometry" in plan.line
 
 
+# ── (Б1) пара реестра НЕ там, где план: выделяется и называется ─────────────
+
+def test_a_registry_pair_away_from_the_plan_is_selected_and_named(gate, tmp_path):
+    """Б1 of plan_2026_10_08_narrowing_net_traces_cost, the LIVE case: the instance
+    was edited and never redrawn, so its recorded copper stands where the plan does
+    NOT put it. «Select cell» takes the pair by the KEY (the instance's own record
+    says the copper is its) and only NAMES the distance — it used to refuse it,
+    which is exactly «copper — 0 by registry, 0 by geometry» with the copper on
+    the board.
+
+    Mutation: put the place check back in front of the selection and this cell
+    reports 0 selected / 1 recorded-but-absent."""
+    cfg, config_path, adapter, key = _setup(tmp_path, [_via("v_own", 5.0, 5.0)])
+    _write_via_registry(tmp_path, {key: _via_entry("v_own", 0.0, 0.0)})
+
+    plan = _core(adapter, cfg, config_path, [_planned_via(key)])
+
+    assert [getattr(i, "uuid", None) for i in plan.copper] == ["v_own"]
+    assert plan.copper_by_registry == 1 and plan.copper_by_geometry == 0
+    assert plan.copper_missing == 0
+    assert "away from the planned place" in plan.line, plan.line
+
+
+def test_the_strict_map_still_refuses_what_the_select_map_takes(gate, tmp_path):
+    """The SUBTRACT door is untouched (rule 33): the SAME rig read with the map's
+    default `place_check=True` refuses the away pair — a removal must never claim
+    copper the frame cannot place. Only «Select cell» passes place_check=False."""
+    from kicadstamp.absent_copper_prune import registry_record_copper_map
+
+    cfg, config_path, adapter, key = _setup(tmp_path, [_via("v_own", 5.0, 5.0)])
+    _write_via_registry(tmp_path, {key: _via_entry("v_own", 0.0, 0.0)})
+
+    strict = registry_record_copper_map(adapter, str(config_path), cfg,
+                                        "dac_buf", "DAC_BUF", None)
+    lenient = registry_record_copper_map(adapter, str(config_path), cfg,
+                                         "dac_buf", "DAC_BUF", None,
+                                         place_check=False)
+
+    assert strict.by_record == {} and strict.entries_total == 1
+    assert strict.disagreed == 1
+    assert lenient.by_record and lenient.disagreed == 1
+    assert lenient.missing_from_board == 0
+
+
 # ── (г) foreign-by-registry is never selected ──────────────────────────────
 
 def test_foreign_registered_item_is_not_taken(gate, tmp_path):
