@@ -216,3 +216,89 @@ def test_the_subtract_flow_takes_the_address_over_the_store(
     wiring.open()
     assert (captured[-1]["cluster"], captured[-1]["sheet"]) == ("CL1", "S1"), \
         "без адреса — поля хранилища, как было"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# п.1: пункты платы на листе СУЩНОСТИ, каждый называет свою сущность
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ENTITY_BOARD_ITEMS = ("refresh_from_selection_action",
+                       "import_from_selection_action",
+                       "subtract_selection_action",
+                       "refresh_from_selection_layers_action",
+                       "import_from_selection_layers_action")
+
+
+def _entity_leaf(hub, root, cell_name, entity_name):
+    from tests.gui.create_entity_helpers import (category, file_item,
+                                                find_child)
+
+    tree = hub.config_tree_dock.tree
+    cell_leaf = find_child(category(file_item(tree, root), "cells"), cell_name)
+    return find_child(cell_leaf, entity_name)
+
+
+def test_the_entity_leaf_carries_the_board_items_with_its_own_address(
+        real_main_window, tmp_path, monkeypatch):
+    """п.1: лист сущности несёт ВЕСЬ набор платы — три быстрых пункта и два
+    «(choose layers)» — и каждый называет ЭТУ сущность: (cell, None, cluster,
+    sheet, имя). Форма та же, что у Select ×3 (2б, п.4)."""
+    from tests.gui.create_entity_helpers import context_menu_actions, open_project
+
+    root = tmp_path / "root.sexp"
+    _config_with_two_entities(root)
+    hub = real_main_window._dock_hub
+    open_project(hub, root)
+
+    actions = context_menu_actions(hub.config_tree_dock,
+                                   _entity_leaf(hub, root, "c", "e2"), monkeypatch)
+    by_name = {act.objectName(): act for _label, act in actions if act.objectName()}
+    for name in _ENTITY_BOARD_ITEMS:
+        assert name in by_name, sorted(by_name)
+
+    seen = []
+    for signal_name in ("cell_refresh_requested", "cell_import_requested",
+                        "cell_subtract_requested",
+                        "cell_refresh_layers_requested",
+                        "cell_import_layers_requested"):
+        getattr(hub.config_tree_dock, signal_name).connect(
+            lambda *a, n=signal_name: seen.append((n, a)))
+
+    for name in _ENTITY_BOARD_ITEMS:
+        by_name[name].trigger()
+
+    assert [name for name, _a in seen] == [
+        "cell_refresh_requested", "cell_import_requested",
+        "cell_subtract_requested", "cell_refresh_layers_requested",
+        "cell_import_layers_requested"]
+    for name, args in seen:
+        assert args == ("c", None, "CL2", "S2", "e2"), (name, args)
+
+
+def test_the_board_item_of_an_entity_leaf_reaches_the_dock_with_the_address(
+        real_main_window, tmp_path, monkeypatch):
+    """Сквозь проводку: пункт листа сущности → сигнал → делегат хаба → адрес ЭТОЙ
+    сущности в АРГУМЕНТЕ действия (живой случай: хранилище стоит на e1)."""
+    from gui.cell_entity_choice import remember_working_instance
+    from tests.gui.create_entity_helpers import context_menu_actions, open_project
+
+    root = tmp_path / "root.sexp"
+    _config_with_two_entities(root)
+    hub = real_main_window._dock_hub
+    open_project(hub, root)
+    remember_working_instance(root, "c", entity_address(dict(_E1)))
+
+    captured = []
+    monkeypatch.setattr(
+        hub.cells_dock, "refresh_from_selection_requested",
+        lambda *a, **kw: captured.append((a, kw)))
+    actions = dict(context_menu_actions(
+        hub.config_tree_dock, _entity_leaf(hub, root, "c", "e2"), monkeypatch))
+
+    actions["Update from selection..."].trigger()
+
+    assert captured, "the item reached no dock entry point"
+    _args, kwargs = captured[0]
+    row = kwargs.get("expected_address")
+    assert row is not None and row.entity_name == "e2", kwargs
+    assert (row.cluster, row.sheet) == ("CL2", "S2"), kwargs

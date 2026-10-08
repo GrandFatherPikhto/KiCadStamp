@@ -354,6 +354,13 @@ class EntityTreeMixin:
                 lambda checked=False, n=entity.get("cell"),
                 e=entity.get("name"), f=file_path:
                 self.cell_anchor_entity_requested.emit(n, f, e))
+            # часть 3, п.1: the BOARD items of the entity leaf — the same set the
+            # cell leaf used to carry (and loses in п.3), in the SAME order, each
+            # naming THIS entity. The write still lands in the CELL's file
+            # (`file_path=None` — Н5б: the entity's own file must never become the
+            # cell's save target), and the door resolves the name into an address
+            # (`gui/entity_doors.door_address`) instead of reading the store.
+            self._add_entity_board_items(menu, entity)
             components_action = menu.addAction(_("Select cell components"))
             components_action.setObjectName("select_cell_components_action")
             components_action.triggered.connect(
@@ -388,7 +395,57 @@ class EntityTreeMixin:
                 c=entity.get("cluster"), s=entity.get("sheet"),
                 e=entity.get("name"):
                 self.cell_explode_requested.emit(n, None, c, s, e))
+            # часть 3, п.1: the same two reads with the LAYER DIALOG in front,
+            # exactly like the cell menu's pair.
+            self._add_entity_board_layer_items(menu, entity)
         return False
+
+    def _add_entity_board_items(self, menu, entity: dict) -> None:
+        """The three fast board items of an ENTITY leaf (часть 3, п.1).
+
+        ONE builder for the three, and ONE shape: every item emits the cell's
+        name, `None` for the file (the CELL's own file is resolved by CellDock —
+        Н5б) and the ENTITY's own (cluster, sheet, name). The name is what makes
+        the read work THIS entity (`gui/entity_doors.door_address`); the item
+        reads nothing itself."""
+        args = self._entity_board_args(entity)
+        for object_name, label, signal in (
+                ("refresh_from_selection_action", _("Update from selection..."),
+                 self.cell_refresh_requested),
+                ("import_from_selection_action", _("Add selected copper..."),
+                 self.cell_import_requested),
+                ("subtract_selection_action", _("Subtract selected copper..."),
+                 self.cell_subtract_requested)):
+            action = menu.addAction(label)
+            action.setObjectName(object_name)
+            action.triggered.connect(
+                lambda checked=False, s=signal, a=args: s.emit(*a))
+
+    def _add_entity_board_layer_items(self, menu, entity: dict) -> None:
+        """The two "(choose layers)…" legs of the same reads (часть 3, п.1) —
+        the dialog decides the layer set, the read is the very same one."""
+        args = self._entity_board_args(entity)
+        for object_name, label, signal in (
+                ("refresh_from_selection_layers_action",
+                 _("Update from selection (choose layers)..."),
+                 self.cell_refresh_layers_requested),
+                ("import_from_selection_layers_action",
+                 _("Add selected copper (choose layers)..."),
+                 self.cell_import_layers_requested)):
+            action = menu.addAction(label)
+            action.setObjectName(object_name)
+            action.triggered.connect(
+                lambda checked=False, s=signal, a=args: s.emit(*a))
+
+    @staticmethod
+    def _entity_board_args(entity: dict) -> tuple:
+        """The argument list every board item of an ENTITY leaf emits.
+
+        ONE tuple, built in ONE place: (cell, file_path=None, cluster, sheet,
+        entity name). A second copy of this shape is how a door would start
+        reading another channel — the very defect часть 3 closes."""
+        return (entity.get("cell"), None, entity.get("cluster"),
+                entity.get("sheet"), entity.get("name"))
 
     def _on_point_entity(self, entity: dict, file_path: Path) -> None:
         """Re-point an orphan at a graph cell/imprint, writing BOTH the name
