@@ -510,5 +510,46 @@ def test_opening_a_format_2_graph_lifts_it_on_disk_and_the_registries_to_schema_
     assert "pad:1|leaf|__spoke__|0" not in trk.read_text(encoding="utf-8")
 
 
+# ── Д2′: the "skipped" line reports once per ACTION, not once per call ─────
+
+def test_the_skipped_line_is_reported_once_per_dirty_epoch(tmp_path, monkeypatch, caplog):
+    """Д2′: with the working set dirty BOTH sweeps stand down, but their INFO
+    line must be written once per dirty EPOCH — not once per call. A live
+    «Update from selection» calls `load_config` 16 times (two UI refreshes of 8),
+    which used to put 32 identical lines in the Log — the number Денис reported.
+    The text and msgid NEVER change: the later reports simply go to DEBUG, so
+    the line is still there for anyone who raises the level."""
+    from kicadstamp.config.registry_upgrade import upgrade_registries_on_disk
+
+    root = tmp_path / "root.sexp"
+    root.write_text(_old_text({"cells": {"c1": {}}}), encoding="utf-8")
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    WORKING_SET.stage_write(root, {"cells": {"c1": {}, "c2": {}}})   # dirty epoch
+
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(8):          # one UI refresh: 8 load_config calls
+            upgrade_graph_on_disk(root)
+            upgrade_registries_on_disk(root, None)
+
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    formats = [m for m in infos if "format upgrade on disk skipped" in m]
+    registries = [m for m in infos if "registry schema upgrade on disk skipped" in m]
+    assert len(formats) == 1, infos
+    assert len(registries) == 1, infos
+    # ...and the other 7 reports of each kind are DEBUG, not lost
+    debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert sum("format upgrade on disk skipped" in m for m in debugs) == 7
+    assert sum("registry schema upgrade on disk skipped" in m for m in debugs) == 7
+
+    # Save/Discard re-arms: the NEXT action reports once again
+    WORKING_SET.clear()
+    WORKING_SET.stage_write(root, {"cells": {"c3": {}}})
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        upgrade_graph_on_disk(root)
+        upgrade_registries_on_disk(root, None)
+    assert sum(r.levelno == logging.INFO for r in caplog.records) == 2, caplog.text
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-q"]))

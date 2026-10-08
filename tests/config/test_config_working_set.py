@@ -318,3 +318,32 @@ def test_flush_writes_nothing_when_the_newer_file_sorts_last(tmp_path, monkeypat
     assert "a_edited" not in a.read_text(encoding="utf-8"), (
         "no partial Save: the FIRST file stays untouched too")
     assert z.read_text(encoding="utf-8") == newer
+
+
+# ── Д2′: the "upgrade on disk skipped" line reports ONCE per dirty epoch ───
+
+def test_note_skip_report_is_true_once_per_dirty_epoch(tmp_path, monkeypatch):
+    """Д2′: the link the two upgrade sweeps ask before they log their "skipped"
+    INFO line. True on the FIRST report of a kind, False until the epoch ends.
+    A `stage_write` must NOT re-arm it (a whole action is ONE dirty epoch — the
+    live «Update from selection» stages many files, then refreshes twice), while
+    `clear()` (Save via flush, Discard, a root switch/close) must, so the next
+    action reports again. Each kind has its OWN slot."""
+    path = tmp_path / "cfg.sexp"
+    _write_sexp(path, {"cells": {"c1": {}}})
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    merge_write(path, {"cells": {"c2": {}}}, section="cells")   # dirty epoch
+
+    assert WORKING_SET.note_skip_report("format") is True
+    assert WORKING_SET.note_skip_report("format") is False, "same epoch, one report"
+    assert WORKING_SET.note_skip_report("registry schema") is True, "its own slot"
+    assert WORKING_SET.note_skip_report("registry schema") is False
+
+    # another staged edit is the SAME epoch — still not reported again
+    merge_write(path, {"cells": {"c3": {}}}, section="cells")
+    assert WORKING_SET.note_skip_report("format") is False
+
+    # Save/Discard starts a new epoch and re-arms the report
+    WORKING_SET.clear()
+    assert WORKING_SET.note_skip_report("format") is True
+    assert WORKING_SET.note_skip_report("registry schema") is True

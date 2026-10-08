@@ -299,8 +299,15 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
     from ..config_working_set import WORKING_SET  # lazy — out of the import-light path
 
     if WORKING_SET.is_dirty():
-        logger.info(
+        # Д2′: the SAME text, but INFO only on the FIRST report of THIS kind in
+        # the current dirty epoch (note_skip_report; the working set resets it in
+        # clear()/flush) — one line per ACTION, DEBUG afterwards.
+        message = (
             "registry schema upgrade on disk skipped: the working set holds unsaved changes")
+        if WORKING_SET.note_skip_report("registry schema"):
+            logger.info(message)
+        else:
+            logger.debug(message)
         return []
 
     # Н3: the SAME explicit-vs-default decision as apply_pipeline — an explicit

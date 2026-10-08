@@ -71,6 +71,10 @@ class ConfigWorkingSet:
         # Whether staging is active. OFF by default — CLI and pre-existing unit
         # tests never turn it on, so helpers write physically as before.
         self.enabled: bool = False
+        # kinds whose "skipped" INFO line was already reported in the CURRENT
+        # dirty epoch (see note_skip_report) — reset by clear(), never by a
+        # plain stage_write, so Save/Discard re-arm it.
+        self._skip_reported: set = set()
         self._listeners: List[Callable[[], None]] = []
 
     # ── read side (used by cached_file_read / _read_data) ─────────────────
@@ -123,6 +127,25 @@ class ConfigWorkingSet:
     def is_dirty(self) -> bool:
         return bool(self._staged or self._deleted)
 
+    def note_skip_report(self, kind: str) -> bool:
+        """True only the FIRST time this `kind` is reported while the working
+        set is dirty; every later call in the SAME dirty epoch gets False.
+
+        Д2′ (2026-10-08): the two upgrade sweeps stand down with an INFO line
+        whenever the working set holds unsaved changes — once per `load_config`
+        call, i.e. 16 times per «Update from selection» (the live 32 lines). The
+        line is WANTED, but once per ACTION: the caller logs INFO on the first
+        True and DEBUG afterwards, so `msgid` and text never change. The state
+        lives HERE, next to the epoch its meaning depends on: `clear()` (Save via
+        flush, Discard, a root switch/close) resets it, while `stage_write`
+        deliberately does NOT — so the whole dirty epoch reports once. Not gated
+        on `enabled`: only the dirty path asks at all (a clean set takes the warm
+        `os.stat` path and never reaches here)."""
+        if kind in self._skip_reported:
+            return False
+        self._skip_reported.add(kind)
+        return True
+
     def clear(self) -> None:
         """Drop the whole working set (Discard, or a root switch/close). Does
         NOT touch disk; cache invalidation is done by the next physical read
@@ -131,6 +154,8 @@ class ConfigWorkingSet:
         self._staged.clear()
         self._new.clear()
         self._deleted.clear()
+        # A new dirty epoch: the "skipped" line must be reportable again.
+        self._skip_reported.clear()
         if changed:
             self._notify()
 

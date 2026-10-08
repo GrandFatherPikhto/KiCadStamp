@@ -105,7 +105,15 @@ def upgrade_graph_on_disk(root: str | Path) -> list[Path]:
         # У3: the staged content is not on disk yet, so lifting the disk file
         # would write a state the user has not saved. That file keeps its older
         # number until the Save, which lifts it through the one writer.
-        logger.info(_("format upgrade on disk skipped: the working set holds unsaved changes"))
+        # Д2′: the SAME message and msgid, but INFO only on the FIRST report of
+        # THIS kind in the current dirty epoch (note_skip_report) — one line per
+        # ACTION instead of one per load_config call (the live 32 lines); DEBUG
+        # afterwards. The working set resets the epoch in clear()/flush.
+        message = _("format upgrade on disk skipped: the working set holds unsaved changes")
+        if WORKING_SET.note_skip_report("format"):
+            logger.info(message)
+        else:
+            logger.debug(message)
         return []
 
     files = _graph_files(root)
