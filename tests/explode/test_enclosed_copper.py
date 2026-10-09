@@ -212,6 +212,62 @@ def test_a_carved_piece_that_empties_is_not_taken_whole():
     assert result.pieces == 0 and result.pruned == 0
 
 
+# ── C14..C16 — the degenerate pad-entry stub (Д1 of the carve plan) ──────────
+
+def test_a_degenerate_stub_at_a_foreign_pad_lets_the_carve_finish():
+    """C14 (Д1) — the live DAC2 case: a 13 µm stub ``st`` lies WHOLLY inside the
+    capsule of ``bc`` (both its ends "touch" that ONE neighbour) and reaches the
+    foreign pad F, while ``bc``'s far end is held by ``st`` — the pair holds each
+    other up and the carve would remove NOTHING (removed 0), so the re-check sees
+    the foreign pad and nothing is taken. The ≤1-neighbour rule makes ``st`` hang,
+    which exposes ``bc``'s far end, then ``ab`` survives. Mutation: "the
+    ≤1-neighbour rule for a track is removed" dies here (nothing would be taken)."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u2", "R2", "FPGA", 2.0, 0.0),
+                    fp("u9", "R9", "DAC", 4.0, 0.0)],
+        tracks=[track("ab", F_CU, 0.0, 0.0, 2.0, 0.0),
+                track("bc", F_CU, 2.0, 0.0, 4.0, 0.0),
+                track("st", F_CU, 3.94, 0.0, 3.95, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 2.0, 0.0)],
+              "u9": [pad("1", 4.0, 0.0)]})
+    result = enclosed_copper(board, board.get_footprints()[:2])
+    assert _copper(result) == {"ab"}
+    assert "bc" not in _copper(result) and "st" not in _copper(result)
+    assert result.carved == 1 and result.pieces == 1 and result.pruned == 2
+
+
+def test_a_degenerate_stub_at_an_instance_pad_is_kept():
+    """C15 (Д1) — the SAME stub, but inside an INSTANCE pad: the instance pad is
+    an ANCHOR, so the stub is NOT dangling and the piece is taken whole (the
+    mirror of B1: a via inside an instance pad holds the piece). Mutation: "the
+    no-instance-pad leg of the ≤1-neighbour rule is dropped" dies here."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u2", "R2", "FPGA", 2.0, 0.0)],
+        tracks=[track("ab", F_CU, 0.0, 0.0, 2.0, 0.0),
+                track("st", F_CU, 0.04, 0.0, 0.05, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 2.0, 0.0)]})
+    result = enclosed_copper(board, board.get_footprints())
+    assert _copper(result) == {"ab", "st"}
+    assert result.pruned == 0 and result.pieces == 1
+
+
+def test_a_mid_chain_track_touching_one_neighbour_and_a_pad_is_kept():
+    """C16 (Д1) — a normal A — t1 — t2 — B chain: each track has ONE neighbour but
+    touches its OWN instance pad, so neither is dangling (the pad leg of the
+    rule). Mutation: "the ≤1-neighbour rule ignores the instance pad" dies here."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u2", "R2", "FPGA", 2.0, 0.0)],
+        tracks=[track("t1", F_CU, 0.0, 0.0, 1.0, 0.0),
+                track("t2", F_CU, 1.0, 0.0, 2.0, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 2.0, 0.0)]})
+    result = enclosed_copper(board, board.get_footprints())
+    assert _copper(result) == {"t1", "t2"}
+    assert result.pruned == 0 and result.pieces == 1
+
+
 # ── C4 — a piece with no pads at all is NOT taken ───────────────────────────
 
 def test_a_piece_touching_no_instance_pad_is_not_a_candidate():

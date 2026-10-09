@@ -22,7 +22,8 @@ re-checked". So:
     because the plan's ``keep_whole_when_emptied`` flag was measured REDUNDANT
     and dropped — the re-check alone holds the property, so the flag had no
     killable row and no home in the code);
-  * C1–C4 are the carve's own rows.
+  * C1–C4 are the carve's own rows; C5 is Д1 (the single-neighbour rule for a
+    track — the degenerate pad-entry stub the live DAC2 case found).
 
 A C-row's docstring (in the cell it kills) names the mutation; this list is the
 same mapping in the rig's own terms.
@@ -143,6 +144,10 @@ ROWS = [
      "            kept, removed = prune_dangling(piece.items, instance_pads)",
      "            # foreign pad BETWEEN two instance pads (A — F — B).\n"
      "            kept, removed = list(piece.items), 0  # MUTATION: no carve",
+     "die", G, ()),
+    ("C5 the single-neighbour rule for a track is removed (Д1)", CONN,
+     "    if len(neighbours) != 1:",
+     "    if True:  # MUTATION",
      "die", G, ()),
     ("K1 cosmetic comment (control)", CORE,
      "MIN_INSTANCE_PADS = 2",

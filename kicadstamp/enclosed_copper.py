@@ -170,10 +170,13 @@ def enclosed_copper(adapter, instance_fps,
     dropped. The board is read through the adapter (the worker's own adapter).
 
     A piece reaching a foreign pad is CARVED, not dropped whole: prune it against
-    the instance pads only (an EMPTY result is not taken — ``keep_whole_when_
-    emptied=False``), then re-check the remainder with the same rule. Nothing
-    here re-implements connectivity — ``copper_pieces`` / ``prune_dangling`` /
-    ``foreign_labels`` / ``cell_pads`` are the only judges of touching."""
+    the instance pads only, then re-check the remainder with the SAME rule. That
+    re-check is the ONE guard — it drops a remainder that still touches a foreign
+    pad, whether the foreign pad is BETWEEN two instance pads (A — F — B) or the
+    pruning handed the piece back WHOLE under its С2-3 leg (nothing left but the
+    copper reaching the foreign pad). Nothing here re-implements connectivity —
+    ``copper_pieces`` / ``prune_dangling`` / ``foreign_labels`` / ``cell_pads``
+    are the only judges of touching."""
     instance_fps = list(instance_fps or ())
     if not instance_fps:
         return EnclosedResult()

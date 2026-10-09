@@ -20,7 +20,18 @@ Run with KiCad open on the board:
     .venv/bin/python kicadstamp/diagnostics/deepseek_probe_enclosed_carve_2026_10_09.py
 
 ``--config`` overrides the profile (default ``profiles/3ch-awg-tia-v103/config.sexp``);
-``--dac-sheet`` repeats to pick the DAC_BUF instances (default ``Channel_0``).
+``--dac-sheet`` repeats to pick the DAC_BUF instances (default ALL THREE channels).
+
+Acceptance expectations by uuid prefix (plan_2026_10_09_enclosed_copper_carve,
+live check 09.10; Д1 added the DAC2 case):
+
+  * DAC1_SPI_CS — taken ``c64c5494`` / ``88193b64`` / ``aecebfea``;
+    NOT taken ``ad7ca755`` / ``3eb0e0b1`` / ``f86b3167``;
+  * DAC2_SPI_CS — taken ``36a66808`` / ``ecce6069`` / ``821679b5`` /
+    ``7123cf6c`` / ``03b94286``; NOT taken ``c44f77e4`` / ``1af8f3a4`` /
+    ``89041254`` (the 13 µm pad-entry stub);
+  * DAC0_SPI_CS — taken ``cdb10b1e`` / ``0fef37d1`` / ``bc8289f7``;
+    NOT taken ``b8956fd5`` / ``53b13050`` / ``79698328``.
 """
 from __future__ import annotations
 
@@ -81,10 +92,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="enclosed-copper carve probe (read-only)")
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG))
     parser.add_argument("--dac-sheet", action="append", default=None,
-                        help="DAC_BUF sheet (repeatable); default Channel_0")
+                        help="DAC_BUF sheet (repeatable); default all three "
+                             "channels (Channel_0..2)")
     args = parser.parse_args()
 
-    dac_sheets = args.dac_sheet or ["Channel_0"]
+    dac_sheets = args.dac_sheet or ["Channel_0", "Channel_1", "Channel_2"]
     print(f"profile: {args.config}")
     cfg, ctx = load_config(args.config)
     sheet_names = dict(getattr(ctx, "sheet_names", None) or {})

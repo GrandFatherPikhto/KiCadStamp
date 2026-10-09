@@ -501,13 +501,54 @@ def _end_touches(point, half, item, layer, alive, cell_pads) -> bool:
     return False
 
 
-def _track_dangles(track, alive, cell_pads) -> bool:
-    """A track HANGS when at least one of its ENDS touches neither another
-    remaining element of the piece nor an instance pad."""
+def _track_neighbours(track, alive) -> list:
+    """The OTHER elements of the piece a track touches (shape-wise) — the track
+    mirror of ``_via_dangles``'s neighbour count."""
     half = item_half(track)
-    return not (
+    return [other for other in alive if other is not track
+            and copper_touch(track, other, half, item_half(other))]
+
+
+def _end_touches_neighbour(point, half, neighbour, layer) -> bool:
+    """A track END touches a SPECIFIC copper neighbour: a via is through, a track
+    only on the SAME layer. This is the strict neighbour-only touch the Д1 rule
+    needs — the pad / cross-layer touches belong to the per-end rule alone, so
+    ``_end_touches_item``'s nuances stay observable."""
+    if isinstance(neighbour, Via):
+        return _point_touches_item(point, half, neighbour)
+    if neighbour.layer != layer:
+        return False
+    return _point_touches_item(point, half, neighbour)
+
+
+def _track_dangles(track, alive, cell_pads) -> bool:
+    """A track HANGS when an END touches neither another remaining element nor an
+    instance pad (the T-junction rule — EITHER end, kept), OR when it has exactly
+    ONE copper neighbour, NO instance pad, and BOTH its ends lie on that SAME
+    neighbour (Д1 of ``plan_2026_10_09_enclosed_copper_carve``). The second leg is
+    the track mirror of the via rule and catches the degenerate stub KiCad leaves
+    at a pad ENTRY — a few µm of copper lying WHOLLY inside a neighbour's capsule,
+    so BOTH its ends "touch" that one neighbour and nothing else holds it up;
+    without the leg the pair holds each other up and the foreign branch never
+    prunes (the live DAC2 case: a 13 µm stub at IC4 holding ``1af8f3a4``, removed
+    0, nothing taken). It is deliberately STRICTER than "≤1 neighbour": a track
+    whose end is held by a pad of another layer or a track of another layer must
+    still fall to the per-end rule, so those two primitives stay pinned."""
+    half = item_half(track)
+    both_ends_held = (
         _end_touches(track.start, half, track, track.layer, alive, cell_pads)
         and _end_touches(track.end, half, track, track.layer, alive, cell_pads))
+    if not both_ends_held:
+        return True
+    for area, layers, _name in cell_pads:
+        if _touches_pad(track, half, area, layers):
+            return False
+    neighbours = _track_neighbours(track, alive)
+    if len(neighbours) != 1:
+        return False
+    sole = neighbours[0]
+    return (_end_touches_neighbour(track.start, half, sole, track.layer)
+            and _end_touches_neighbour(track.end, half, sole, track.layer))
 
 
 def _via_dangles(via, alive, cell_pads) -> bool:
@@ -539,10 +580,13 @@ def prune_dangling(items, cell_pads) -> tuple:
     есть висячие дорожки… а они ну никак не относятся к "закрытой меди"»).
 
     Iterative leaf pruning to a fixed point: a TRACK with an END touching neither
-    another remaining element nor an instance pad; a VIA touching at most one
-    remaining element and no instance pad. Remove, repeat; what remains is taken.
-    Touch is by SHAPE through ``copper_connect`` / ``PadArea`` ONLY, never by
-    point coincidence.
+    another remaining element nor an instance pad, OR touching at most ONE other
+    element and no instance pad (Д1 — the degenerate pad-entry stub lying wholly
+    inside its neighbour's capsule); a VIA touching at most one remaining element
+    and no instance pad. Remove, repeat; what remains is taken. Touch is by SHAPE
+    through ``copper_connect`` / ``PadArea`` ONLY, never by point coincidence.
+    The only caller is ``enclosed_copper`` — the "Разнос" never prunes, so Д1
+    leaves it untouched.
 
     ``cell_pads`` = [(PadArea, copper_layers, name)] of the instance's pads.
     Returns ``(kept_items, removed_count)``.
