@@ -209,6 +209,56 @@ def test_cell_choices_keeps_the_current_cell_even_when_it_does_not_fit(
     assert choices.others == (), "текущая ячейка не считается «другой»"
 
 
+class _Index:
+    """The RAW part-1 index a DANGLING graph still carries (names + uuids)."""
+
+    def __init__(self, names):
+        self._names = list(names)
+
+    def names_for(self, section):
+        return list(self._names) if section == "cells" else []
+
+    def target_uuid(self, section, name):
+        return None
+
+
+def test_cell_choices_without_a_snapshot_is_unchecked_not_read_only(tmp_path):
+    """Денис, 09.10.2026: НЕТ снимка — это «подбор не проверялся», а НЕ сирота:
+    комбобокс раскрывает все ячейки, но read-only НЕ включается (табы платы
+    живы), иначе отключение KiCad гасило бы страницу."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]}}})
+    choices = cell_choices(root, None, {"cluster": "CL", "sheet": "Ch0"})
+    assert choices.state == "unchecked"
+    assert choices.orphan is True and choices.read_only is False
+    assert {c.name for c in choices.candidates} == {"c_ok"}
+
+
+def test_cell_choices_a_snapshot_without_the_instance_is_a_board_orphan(tmp_path):
+    """Снимок ЕСТЬ, но экземпляра сущности в нём нет — сирота по ПЛАТЕ: read-only
+    включается (адрес читать не с чего), и комбобокс раскрывает все ячейки."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]}}})
+    choices = cell_choices(root, [_Sel("R1", "OTHER")],
+                           {"cluster": "CL", "sheet": "Ch0"})
+    assert choices.state == "orphan_board"
+    assert choices.orphan is True and choices.read_only is True
+    assert {c.name for c in choices.candidates} == {"c_ok"}
+
+
+def test_cell_choices_a_dangling_graph_is_a_graph_orphan(tmp_path):
+    """Граф болтается (сущность называет несуществующую ячейку, load_config
+    фатален) — сирота по ГРАФУ: read-only, а ячейки приходят из сырого индекса."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "MISSING"}]})
+    choices = cell_choices(root, None, {"cluster": "CL", "sheet": "Ch0"},
+                           _Index(["c_ok"]))
+    assert choices.state == "orphan_graph"
+    assert choices.read_only is True
+    assert {c.name for c in choices.candidates} == {"c_ok"}
+
+
 # ── Шим старого модуля ───────────────────────────────────────────────────
 
 def test_the_old_module_names_the_same_page_object():

@@ -139,10 +139,17 @@ def cell_choices(root_path, snapshot, entity, index=None) -> CellChoices:
     The rows are the FITTING cells plus the entity's CURRENT cell (always offered,
     marked; when it does not fit its row says so); every other non-fitting cell is
     NOT a row, only counted in ``others`` (Денис, 09.10.2026 — "зачем этот
-    огромный список со всеми целлами?"). An ORPHAN — a dangling graph (cfg is
-    None) or nothing of the instance on the board — cannot be checked at all:
-    then EVERY cell is offered, fit not checked (that is how an orphan is fixed),
-    and there is nothing to count.
+    огромный список со всеми целлами?").
+
+    When the fit CANNOT be checked, EVERY cell is offered (fit not checked — that
+    is how an orphan is fixed) and ``CellChoices.state`` names WHY, so the ENTITY
+    page's read-only rule can tell the two orphans from "never checked" (Денис,
+    09.10.2026):
+
+      * dangling graph (cfg is None)         -> ``"orphan_graph"``;
+      * a snapshot that lacks the instance   -> ``"orphan_board"``;
+      * NO snapshot at all (not connected)   -> ``"unchecked"`` — this one is NOT
+        an orphan: nothing was asked, so nothing is known about the board.
 
     `snapshot` is the LAST PUSHED board snapshot (``connection.snapshot``); the
     sheet chains are resolved through the config, exactly as the door does, but NO
@@ -159,8 +166,14 @@ def cell_choices(root_path, snapshot, entity, index=None) -> CellChoices:
     cluster = (entity or {}).get("cluster")
     sheet = (entity or {}).get("sheet")
     instance = instance_parts(parts, cluster, sheet) if cluster else []
-    if cfg is None or not instance:
-        return CellChoices(candidates=tuple(all_cells_rows(cells)), orphan=True)
+    if cfg is None:
+        return CellChoices(candidates=tuple(all_cells_rows(cells)),
+                           state="orphan_graph")
+    if not instance:
+        # A snapshot that simply LACKS this instance = the board does not carry
+        # it (a board orphan); no snapshot at all = "cannot judge" (not read-only).
+        state = "orphan_board" if snapshot else "unchecked"
+        return CellChoices(candidates=tuple(all_cells_rows(cells)), state=state)
     return choose_cells(instance, cells, (entity or {}).get("cell"))
 
 

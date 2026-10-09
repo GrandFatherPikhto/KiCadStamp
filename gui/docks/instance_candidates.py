@@ -163,13 +163,41 @@ class CellChoices:
     the entity's CURRENT cell (always, even when it does not fit — then it carries
     ``current=True`` and the row says so). ``others`` — the cells that do not fit
     and are NOT the current one; they are NOT listed, only counted (the picker's
-    one grey line and its tooltip). ``orphan`` — the fit could not be checked at
-    all (no snapshot / dangling graph / no instance on the board): then
-    ``candidates`` is EVERY cell, fit not checked, and ``others`` is empty.
+    one grey line and its tooltip).
+
+    ``state`` — WHY the fit is what it is; the ENTITY page's read-only rule needs
+    the two orphans kept APART from "the fit was never checked" (Денис,
+    09.10.2026):
+
+      * ``"checked"``      — a snapshot carried the instance; the rows are exact;
+      * ``"orphan_graph"`` — the graph itself dangles (cfg is None): the entity's
+        cell is NOWHERE, so it is an orphan;
+      * ``"orphan_board"`` — the graph is fine but the board does not carry the
+        entity's instance: an orphan too;
+      * ``"unchecked"``    — there was NO snapshot at all (not connected / not
+        pushed yet): "cannot judge", NOT an orphan.
+
+    In the last three ``candidates`` is EVERY cell, fit not checked (that is how an
+    orphan is fixed) and ``others`` is empty. The combobox reveals every cell in
+    ALL four; only :attr:`read_only` differs.
     """
     candidates: tuple = ()
-    orphan: bool = False
     others: tuple = ()
+    state: str = "checked"
+
+    @property
+    def orphan(self) -> bool:
+        """The fit was never checked (the last three states) — every cell is
+        offered. Kept as the pickers' "this open did not check the fit" flag."""
+        return self.state != "checked"
+
+    @property
+    def read_only(self) -> bool:
+        """True when the entity's instance is KNOWABLY absent — a dangling graph
+        or a board that does not carry it. NOT for "unchecked": a missing snapshot
+        says nothing about the instance, so the board tabs stay usable (the trap
+        Денис named on 09.10.2026)."""
+        return self.state in ("orphan_graph", "orphan_board")
 
 
 def role_mismatch_reason(instance_roles: Counter,
