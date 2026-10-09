@@ -184,18 +184,6 @@ def capture_hub_messages(monkeypatch) -> list:
     return messages
 
 
-def capture_warnings(monkeypatch) -> list:
-    """Перехват QMessageBox.warning — он модальный и в offscreen-прогоне иначе
-    просто повис бы. Тот же приём, что в tests/gui/test_extract_cluster_dialog.
-    py::test_empty_name_rejected_without_accept: пишем текст и отдаём Ok."""
-    warnings: list = []
-    monkeypatch.setattr(
-        create_entity_mod.QMessageBox, "warning",
-        lambda *a, **k: warnings.append(a[2])
-        or create_entity_mod.QMessageBox.StandardButton.Ok)
-    return warnings
-
-
 # ── Настоящая форма ─────────────────────────────────────────────────────
 
 # Форма НАСТОЯЩАЯ, зафиксированная на импорте модуля: подмены из соседних
@@ -216,16 +204,21 @@ def instance_line(cluster, sheet) -> str:
     return INSTANCE_LABEL_SEP.join(parts)
 
 
-def accepted_real_form(*, name=None, cluster=None, sheet=None):
+def accepted_real_form(*, name=None, cluster=None, sheet=None, record=None):
     """Класс НАСТОЯЩЕЙ формы, которая «нажала OK». По умолчанию поля остаются
-    такими, как их построил диалог (имя — имя источника, выпадашка пуста;
-    переданное сюда — то, что человек напечатал. accept() вызывается
-    по-настоящему, поэтому валидация имени внутри диалога тоже отрабатывает —
-    это не обход формы, а её принятие без показа окна.
+    такими, как их построил диалог (имя — имя источника / производное от
+    экземпляра, выпадашка пуста); переданное сюда — то, что человек напечатал.
+    accept() вызывается по-настоящему, поэтому гейт имени внутри диалога тоже
+    отрабатывает — это не обход формы, а её принятие без показа окна.
 
     Для ЯЧЕЙКИ cluster и sheet задают ОДНУ строку-экземпляр (Т3.1: два поля
     свёрнуты в одну выпадашку); для ОТПЕЧАТКА кластера нет вовсе (Т2а), и
-    передача его — ошибка сторожа."""
+    передача его — ошибка сторожа.
+
+    `record` — необязательный список, в который кладётся `(result(),
+    <текст красной строки имени>)` ПОСЛЕ accept(): так слой меню видит, что
+    отказ случился из-за имени (Т3.2), а не из-за отмены, — QMessageBox у формы
+    больше нет."""
     class _AcceptedRealForm(RealCreateEntityDialog):
         def exec(self):
             if name is not None:
@@ -242,7 +235,9 @@ def accepted_real_form(*, name=None, cluster=None, sheet=None):
                     assert self._sheet_combo is not None, (
                         "у отпечатка обязана быть выпадашка Sheet")
                     self._sheet_combo.setEditText(sheet)
-            self.accept()  # the user's OK: validation still runs
+            self.accept()  # the user's OK: the gate still runs
+            if record is not None:
+                record.append((self.result(), self._name_hint.text()))
             return self.result()
 
     return _AcceptedRealForm
@@ -250,7 +245,7 @@ def accepted_real_form(*, name=None, cluster=None, sheet=None):
 
 __all__ = [
     "RealCreateEntityDialog", "accepted_real_form", "capture_hub_messages",
-    "capture_warnings", "category", "context_menu_actions",
+    "category", "context_menu_actions",
     "create_entity_action", "entities_of", "file_item", "find_child",
     "instance_line", "load_config_data", "minimal_cells", "minimal_imprint",
     "names_of", "open_project", "write_config",

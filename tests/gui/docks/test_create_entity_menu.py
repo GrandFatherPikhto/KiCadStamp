@@ -54,7 +54,6 @@ from tests.gui.create_entity_helpers import (
     RealCreateEntityDialog,
     accepted_real_form,
     capture_hub_messages,
-    capture_warnings,
     category,
     context_menu_actions,
     create_entity_action,
@@ -655,8 +654,11 @@ def test_a_typed_cluster_through_the_real_form_reaches_the_record(
 
     action.trigger()
 
+    # Т3.2: с набранным кластером имя по умолчанию следует за экземпляром —
+    # CH1 -> "ch1" (правило add_entities.default_entity_names), поэтому запись
+    # называется "ch1"; предмет сторожа — КЛАСТЕР, и он доехал как есть.
     assert without_identity(entities_of(root)) == [
-        {"name": "my_cell", "cell": "my_cell", "cluster": "CH1"}], (
+        {"name": "ch1", "cell": "my_cell", "cluster": "CH1"}], (
         "то, что человек напечатал в поле Cluster, обязано доехать до записи "
         "как есть — иначе сущность нельзя клонировать по кластеру, и никто об "
         "этом не скажет; сейчас: " + repr(entities_of(root)))
@@ -825,8 +827,9 @@ def test_a_manual_pair_not_on_the_board_is_written_through_the_real_form(
 
     action.trigger()
 
+    # Т3.2: имя по умолчанию следует за набранной парой — CL_X -> "cl_x".
     assert without_identity(entities_of(root)) == [
-        {"name": "my_cell", "cell": "my_cell", "cluster": "CL_X",
+        {"name": "cl_x", "cell": "my_cell", "cluster": "CL_X",
          "sheet": "Ch9"}], (
         "ручная пара не с платы обязана записаться (жёлтая строка — не запрет); "
         "сейчас: " + repr(entities_of(root)))
@@ -838,12 +841,9 @@ def test_an_empty_name_through_the_real_form_writes_nothing(
     и хаб не пишет НИЧЕГО.
 
     Контроль против ложной зелени: отменённый диалог дал бы ровно то же
-    «ничего не записано», поэтому зелёный сторож держится ещё и на непустом
-    списке предупреждений. Отмена молчит, гейт имени — говорит.
-
-    Мутация М4 (пропускать пустое имя) роняет сторож: форма принялась бы, и
-    хаб записал бы запись с пустым именем — своего второго гейта на имя у него
-    нет (name_exists_in_list_section("") на пустом конфиге даёт False).
+    «ничего не записано», поэтому зелёный сторож держится ещё и на КРАСНОЙ
+    строке формы (Т3.2: QMessageBox у формы больше нет — отказ говорит красной
+    строкой и выключенной кнопкой OK). Отмена молчит, гейт имени — говорит.
     """
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
@@ -856,15 +856,15 @@ def test_an_empty_name_through_the_real_form_writes_nothing(
         find_child(category(file_item(hub.config_tree_dock.tree, root),
                             "cells"), "my_cell"),
         monkeypatch)
-    warnings = capture_warnings(monkeypatch)
+    record = []
     monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
-                        accepted_real_form(name=""))
+                        accepted_real_form(name="", record=record))
 
     action.trigger()
 
     assert root.read_bytes() == before, (
-        "пустое имя не имеет права доехать до конфига (мутация М4); сейчас: "
+        "пустое имя не имеет права доехать до конфига; сейчас: "
         + repr(entities_of(root)))
-    assert warnings, (
-        "человеку обязано быть сказано, что имени нет — иначе «ничего не "
-        "записано» неотличимо от отмены")
+    assert record and record[0][1], (
+        "форма обязана сказать КРАСНОЙ строкой, что имени нет — иначе «ничего "
+        "не записано» неотличимо от отмены")

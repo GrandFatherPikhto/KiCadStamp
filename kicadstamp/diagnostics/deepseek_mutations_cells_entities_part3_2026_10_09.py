@@ -66,6 +66,11 @@ MUTATIONS = [
      "        if len(self._free) == 1:\n",
      "        if self._free:  # MUTATION\n",
      "die", FORM, ()),
+    ("M5 имя по умолчанию затирает правленое", DIALOG_MOD,
+     "        if self._instance_combo is None or self._name_edited:\n"
+     "            return\n",
+     "        if False:  # MUTATION\n            return\n",
+     "die", FORM, ()),
     ("K1 cosmetic comment (control)", DIALOG_MOD,
      "        self._candidates = list(candidates or ())",
      "        self._candidates = list(candidates or ())  # control",

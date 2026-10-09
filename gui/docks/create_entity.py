@@ -2,16 +2,18 @@
 """
 CreateEntityDialog — the small form behind the Config tree's context-menu
 item "Create entity" (plan_2026_09_20_create_entity_menu.md, Т1/Т2/Т2а;
-reworked in plan_2026_10_09_cells_and_entities, part 3, Т3.1).
+reworked in plan_2026_10_09_cells_and_entities, part 3, Т3.1/Т3.2).
 
 ONE dialog serves both sources — a cells: leaf ("cell") and an imprints: leaf
 ("imprint"):
 
-  - Name — pre-filled with the source's own name, editable. Uniqueness per
-    include graph is enforced twice: here against the caller-supplied set
-    (cheap, immediate feedback) and again by the caller with the graph in
-    hand (С4, authoritative — the graph may have changed while the dialog was
-    open, and this dialog owns no filesystem access).
+  - Name — pre-filled, editable. T3.2: uniqueness per include graph is enforced
+    WITHOUT a QMessageBox (rule 43): a conflict paints a RED line in the dialog
+    and disables OK, exactly like gui/docks/add_entities.py. The default name
+    FOLLOWS the chosen instance (its cluster slug, via the project's ONE
+    default-name rule, add_entities.default_entity_names) until the user edits
+    the field; once edited it is never overwritten. For an imprint the default
+    is the record's own name (as it always was).
   - Instance — cells: ONLY (Т3.1). A single EDITABLE combobox carries the whole
     (Cluster, sheet) pair as one line "CLUSTER — sheet", because two
     independent boxes would let the user pick a pair that is not on the board.
@@ -44,28 +46,32 @@ entity without a board is legitimate, Т4/С7), the combobox stays empty and
 editable, and the YELLOW line says "no board snapshot — fit not checked".
 
 Style is copied from the neighbouring dialogs, NOT invented here (Т2а): the
-restore/persist size pair, a QFormLayout, a QDialogButtonBox.
+restore/persist size pair, a QFormLayout, a QDialogButtonBox, and — Т3.2 — the
+red-hint-line-and-OK-gate shape of gui/docks/add_entities.py.
 """
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                             QLabel, QLineEdit, QMessageBox, QVBoxLayout)
+                             QLabel, QLineEdit, QVBoxLayout)
 
 from kicadstamp.i18n import _
 
 from ..ui_utils import persist_dialog_size, restore_dialog_size
+from .add_entities import default_entity_names
 from .instance_candidates import (
     INSTANCE_LABEL_SEP, instances_others_line, instances_others_tooltip,
     parse_instance_label)
 
 # The grey used for the "taken" rows and the counter line, and the yellow of the
 # fit warning — copied from the neighbouring pickers (change_cell.py), where the
-# same three roles are painted the same way.
+# same roles are painted the same way; the red is add_entities.py's own name
+# conflict colour (Т3.2).
 _GREY = QColor("#888888")
 _YELLOW_QSS = "color: #a60;"
 _GREY_QSS = "color: #888888;"
+_RED_QSS = "color: #a00000;"
 
 
 class CreateEntityDialog(QDialog):
@@ -74,9 +80,9 @@ class CreateEntityDialog(QDialog):
     project follows (see instances_dialog.py).
 
     source_kind — "cell" or "imprint"; source_name — the leaf's own name, used
-    as the default of Name; existing_names — every entities: name already used
-    somewhere in the include: graph (the caller collects them; this dialog has
-    no filesystem access).
+    as the default of Name when there is no instance to derive one from;
+    existing_names — every entities: name already used somewhere in the include:
+    graph (the caller collects them; this dialog has no filesystem access).
 
     candidates — the cell's instances as ``instance_candidates`` records (both
     fitting and not, taken flagged); ignored for an imprint. sheet_names — the
@@ -90,15 +96,23 @@ class CreateEntityDialog(QDialog):
                  snapshot_available: bool = False):
         super().__init__(parent)
         self._source_kind = source_kind
+        self._source_name = str(source_name or "")
         self._existing_names = set(existing_names or ())
         self._snapshot_available = bool(snapshot_available)
         self._candidates = list(candidates or ())
         # The fitting instances, split into the FREE rows (selectable) and the
         # TAKEN ones (greyed, non-selectable); the NON-fitting ones are not rows
         # at all, only the count in the grey line.
-        self._free = [c for c in self._candidates if c.fits and not c.taken]
-        self._taken = [c for c in self._candidates if c.fits and c.taken]
+        self._fitting = [c for c in self._candidates if c.fits]
+        self._free = [c for c in self._fitting if not c.taken]
+        self._taken = [c for c in self._fitting if c.taken]
         self._others = [c for c in self._candidates if not c.fits]
+        # {candidate -> default name}, the project's ONE rule (Т3.2).
+        self._defaults = default_entity_names(self._fitting)
+        # The name field is only ever overwritten while the user has NOT typed
+        # into it (Т3.2: "правил — не трогать"). textEdited fires on the user
+        # alone, never on a programmatic setText.
+        self._name_edited = False
 
         self.setWindowTitle(_("Create entity"))
         self.setMinimumWidth(420)
@@ -113,7 +127,7 @@ class CreateEntityDialog(QDialog):
         form = QFormLayout()
 
         # ── Name ────────────────────────────────────────────────────────
-        self._name_edit = QLineEdit(str(source_name or ""))
+        self._name_edit = QLineEdit(self._source_name)
         # Object names are stable handles for tests/automation — the VISIBLE
         # labels are translated (see gui/docks/instances_dialog.py's own
         # inherit_anchor_button for the same convention).
@@ -161,11 +175,19 @@ class CreateEntityDialog(QDialog):
         self._others_label.setStyleSheet(_GREY_QSS)
         layout.addWidget(self._others_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                                   | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        # The RED name line — an empty / already-used name. A GATE, unlike the
+        # fit line: OK is disabled while it is shown (Т3.2, no QMessageBox).
+        self._name_hint = QLabel("")
+        self._name_hint.setObjectName("create_entity_name_hint")
+        self._name_hint.setWordWrap(True)
+        self._name_hint.setStyleSheet(_RED_QSS)
+        layout.addWidget(self._name_hint)
+
+        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                         | QDialogButtonBox.StandardButton.Cancel)
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
 
         if self._instance_combo is not None:
             self._fill_instances()
@@ -173,12 +195,21 @@ class CreateEntityDialog(QDialog):
             self._others_label.setToolTip(
                 instances_others_tooltip(self._others))
             self._others_label.setVisible(bool(self._others))
-            self._refresh_fit_warning()
             self._instance_combo.currentTextChanged.connect(
-                lambda *_: self._refresh_fit_warning())
+                self._on_instance_changed)
         else:
             self._others_label.setVisible(False)
             self._fit_warning.setVisible(False)
+
+        # The red line follows EVERY text change — a programmatic setText
+        # included, so the gate is visible without an accept; textEdited is the
+        # USER-only signal that freezes the derived default name (Т3.2).
+        self._name_edit.textChanged.connect(lambda *_: self._revalidate())
+        self._name_edit.textEdited.connect(self._on_name_edited)
+
+        self._apply_default_name()
+        self._refresh_fit_warning()
+        self._revalidate()
 
     # ── Rows ────────────────────────────────────────────────────────────
 
@@ -211,6 +242,46 @@ class CreateEntityDialog(QDialog):
             label=cand.label, sep=INSTANCE_LABEL_SEP,
             already=_("already: {name}").format(name=cand.entity_name))
 
+    # ── Instance → fit warning and default name ─────────────────────────
+
+    def _current_pair(self):
+        """The (Cluster, sheet) the instance combobox currently spells — the
+        ONE split of a hand-typed line (parse_instance_label)."""
+        if self._instance_combo is None:
+            return None, None
+        return parse_instance_label(self._instance_combo.currentText())
+
+    def _on_instance_changed(self, *_args) -> None:
+        self._apply_default_name()
+        self._refresh_fit_warning()
+        self._revalidate()
+
+    def _apply_default_name(self) -> None:
+        """Derive the Name from the chosen instance — UNTIL the user types into
+        it (Т3.2). The imprint branch never touches it (its default is the
+        record's own name)."""
+        if self._instance_combo is None or self._name_edited:
+            return
+        cluster, sheet = self._current_pair()
+        self._name_edit.setText(self._default_name_for(cluster, sheet))
+
+    def _default_name_for(self, cluster, sheet) -> str:
+        """The ONE default-name rule (add_entities.default_entity_names): the
+        Cluster tag in lower case, plus the sheet when the SAME cluster stands
+        on several sheets of the fitting set. With no cluster at all the source's
+        own name is kept (the previous pre-fill)."""
+        if not cluster:
+            return self._source_name
+        base = None
+        for cand in self._fitting:
+            if cand.cluster == cluster and cand.sheet == sheet:
+                base = self._defaults.get(cand)
+                break
+        if not base:
+            from .tree_from_selection import cluster_cell_name
+            base = cluster_cell_name(cluster)
+        return base
+
     def _refresh_fit_warning(self) -> None:
         """Show the YELLOW line while the typed pair was NOT checked: no
         snapshot at all ("no board snapshot"), or a pair that is not among the
@@ -235,13 +306,6 @@ class CreateEntityDialog(QDialog):
             self._fit_warning.setText(_("not on the board — fit not checked"))
             self._fit_warning.setVisible(True)
 
-    def _current_pair(self):
-        """The (Cluster, sheet) the instance combobox currently spells — the
-        ONE split of a hand-typed line (parse_instance_label)."""
-        if self._instance_combo is None:
-            return None, None
-        return parse_instance_label(self._instance_combo.currentText())
-
     # ── Result ──────────────────────────────────────────────────────────
 
     def result_data(self):
@@ -263,27 +327,35 @@ class CreateEntityDialog(QDialog):
                 sheet = self._sheet_combo.currentText().strip() or None
         return name, cluster, sheet
 
-    # ── Validation ──────────────────────────────────────────────────────
+    # ── Validation (red line + OK gate; no QMessageBox, rule 43) ─────────
 
-    def _validate(self) -> bool:
-        """Both gates are MESSAGES, nothing fails silently: an empty name, and
-        a name already carried by another entities: record (С4 — the caller
-        re-checks against the graph once the dialog is closed; this check is
-        the immediate one, on the set it was handed)."""
-        name, _cluster, _sheet = self.result_data()
+    def _name_problem(self) -> str:
+        """The reason the name cannot be written — empty, or already carried by
+        another entities: record (С4: the caller re-checks against the graph
+        once the dialog is closed; this is the immediate one)."""
+        name = self._name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, self.windowTitle(),
-                                _("Name is required."))
-            return False
+            return _("Name is required.")
         if name in self._existing_names:
-            QMessageBox.warning(
-                self, self.windowTitle(),
-                _("An entity named {name!r} already exists.").format(name=name))
-            return False
-        return True
+            return _("An entity named {name!r} already exists.").format(name=name)
+        return ""
+
+    def _revalidate(self) -> None:
+        problem = self._name_problem()
+        self._name_hint.setText(problem)
+        self._name_hint.setVisible(bool(problem))
+        ok = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok.setEnabled(not problem)
+
+    def _on_name_edited(self, _text: str) -> None:
+        # The user took the name into their own hands: stop deriving it (Т3.2).
+        self._name_edited = True
+        self._revalidate()
 
     def accept(self) -> None:
-        """OK — commit point (Т3.1: the fit warning is a hint, never a gate, so
-        it is not consulted here; the name gates still are)."""
-        if self._validate():
+        """OK — commit point. Gated on the name alone: the fit warning is a
+        hint, never a gate (Т3.1), but an empty / taken name disables OK and the
+        red line says why (Т3.2)."""
+        self._revalidate()
+        if self._buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled():
             super().accept()

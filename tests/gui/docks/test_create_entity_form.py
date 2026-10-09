@@ -48,7 +48,6 @@ from kicadstamp.i18n import _
 
 from tests.gui.create_entity_helpers import (
     RealCreateEntityDialog,
-    capture_warnings,
     instance_line,
 )
 
@@ -92,9 +91,8 @@ def test_the_cell_pair_survives_the_one_combobox(main_window, typed, cluster,
         "бы не тот путь")
     dlg._instance_combo.setEditText(typed)
 
-    name, got_cluster, got_sheet = dlg.result_data()
+    _name, got_cluster, got_sheet = dlg.result_data()
 
-    assert name == "my_cell"
     assert (got_cluster, got_sheet) == (cluster, sheet), (
         f"набрано {typed!r} → ждали ({cluster!r}, {sheet!r}), получили "
         f"({got_cluster!r}, {got_sheet!r})")
@@ -300,9 +298,9 @@ def test_without_a_snapshot_the_dialog_opens_with_the_yellow_line(main_window):
 # ═══════════════════════════════════════════════════════════════════════════
 #
 # ЗАМЕР, А НЕ РАССУЖДЕНИЕ. У имени нет токена `or None`: `name =
-# self._name_edit.text().strip()`. Пустое имя держит гейт `if not name:` в
-# _validate, и вопрос звучит так: не выходит ли пустое имя из формы при
-# КАКОМ-НИБУДЬ порядке действий. Наружу ведёт ровно одна дверь — accept().
+# self._name_edit.text().strip()`. Пустое имя держит гейт `_name_problem`, и
+# вопрос звучит так: не выходит ли пустое имя из формы при КАКОМ-НИБУДЬ
+# порядке действий. Наружу ведёт ровно одна дверь — accept().
 
 EMPTY_NAME_ORDERS = [
     ("имя стёрто и оставлено пустым", "cell", "my_cell", [("name", "")]),
@@ -330,13 +328,12 @@ def _form_after(parent, source_kind, source_name, actions):
     "kind,source,actions",
     [(k, s, a) for _label, k, s, a in EMPTY_NAME_ORDERS],
     ids=[label for label, _k, _s, _a in EMPTY_NAME_ORDERS])
-def test_an_empty_name_never_leaves_the_form(main_window, monkeypatch, kind,
-                                             source, actions):
+def test_an_empty_name_never_leaves_the_form(main_window, kind, source,
+                                             actions):
     """Т3/С4: пустое имя не уходит из формы НИ ПРИ КАКОМ порядке действий.
     Проверка идёт через настоящий accept() и подтверждается тремя вещами
-    сразу: диалог не принят, человеку СКАЗАНО почему, и форма не выдумала имя
-    сама."""
-    warnings = capture_warnings(monkeypatch)
+    сразу: диалог не принят, человеку СКАЗАНО почему (КРАСНАЯ строка, Т3.2 —
+    QMessageBox у формы больше нет), и форма не выдумала имя сама."""
     dlg = _form_after(main_window, kind, source, actions)
 
     dlg.accept()
@@ -344,7 +341,7 @@ def test_an_empty_name_never_leaves_the_form(main_window, monkeypatch, kind,
     assert dlg.result() != QDialog.DialogCode.Accepted, (
         f"порядок действий {actions!r}: форма приняла пустое имя; "
         f"result_data() = {dlg.result_data()!r}")
-    assert warnings, (
+    assert dlg._name_hint.text(), (
         "отказ обязан ГОВОРИТЬ, что имени нет: молчащая кнопка — это «не "
         f"работает», а не «введите имя»; порядок действий {actions!r}")
     assert dlg.result_data()[0] == "", (
@@ -354,7 +351,7 @@ def test_an_empty_name_never_leaves_the_form(main_window, monkeypatch, kind,
 
 def test_a_filled_name_is_accepted(main_window):
     """КОНТРОЛЬ против ложной зелени сторожа пустого имени: без него все его
-    случаи были бы зелёными и в том случае, если бы _validate отказывал ВСЕГДА
+    случаи были бы зелёными и в том случае, если бы гейт отказывал ВСЕГДА
     («кнопка никогда не работает»). Непустое имя — принимается."""
     dlg = _form_after(main_window, "cell", "my_cell", [])
 
@@ -366,18 +363,110 @@ def test_a_filled_name_is_accepted(main_window):
     assert dlg.result_data()[0] == "my_cell"
 
 
-def test_the_ok_button_refuses_an_empty_name(main_window, monkeypatch):
+def test_the_ok_button_refuses_an_empty_name(main_window):
     """Не только прямой accept(): кнопка OK идёт тем же путём — сигнал accepted
-    → self.accept() → _validate. Здесь по ней КЛИКАЮТ, как человек."""
-    warnings = capture_warnings(monkeypatch)
+    → self.accept() → гейт. Здесь по ней КЛИКАЮТ, как человек. Т3.2: гейт не
+    только отказывает, он ВЫКЛЮЧАЕТ саму кнопку."""
     dlg = _form_after(main_window, "cell", "my_cell", [("name", "")])
     ok = dlg.findChild(QDialogButtonBox).button(
         QDialogButtonBox.StandardButton.Ok)
     assert ok is not None, "у формы обязана быть кнопка OK"
+    assert not ok.isEnabled(), "пустое имя обязано выключить кнопку OK (Т3.2)"
 
     ok.click()
 
     assert dlg.result() != QDialog.DialogCode.Accepted, (
-        "кнопка OK обязана идти через accept()/_validate, а не закрывать "
-        "диалог напрямую — иначе пустое имя выходит из формы мимо гейта")
-    assert warnings, "человеку обязано быть сказано, что имени нет"
+        "кнопка OK не имеет права закрывать диалог напрямую — иначе пустое "
+        "имя выходит из формы мимо гейта")
+    assert dlg._name_hint.text(), (
+        "человеку обязано быть сказано КРАСНОЙ строкой, что имени нет")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Т3.2: красная строка имени + OK выключен; QMessageBox из формы уходит
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_an_empty_name_paints_the_red_line_and_disables_ok(main_window):
+    """Т3.2: пустое имя — КРАСНАЯ строка В диалоге и OK выключен (как в
+    add_entities.py), а не QMessageBox поверх диалога (правило 43)."""
+    dlg = _form_after(main_window, "cell", "my_cell", [("name", "")])
+    assert dlg._name_hint.text() == _("Name is required.")
+    assert dlg._name_hint.isVisibleTo(dlg)
+    ok = dlg.findChild(QDialogButtonBox).button(
+        QDialogButtonBox.StandardButton.Ok)
+    assert not ok.isEnabled()
+
+
+def test_a_taken_name_paints_the_red_line_and_create_entity_has_no_messagebox(
+        main_window):
+    """Т3.2: занятое имя — тоже КРАСНАЯ строка и OK выключен; и в
+    create_entity.py не осталось QMessageBox вовсе (ни импорта, ни вызова)."""
+    import inspect
+
+    import gui.docks.create_entity as create_entity_mod
+
+    dlg = RealCreateEntityDialog(main_window, "cell", "my_cell",
+                                 ["taken_name"])
+    dlg._name_edit.setText("taken_name")
+
+    assert dlg._name_hint.text() == _(
+        "An entity named {name!r} already exists.").format(name="taken_name")
+    ok = dlg.findChild(QDialogButtonBox).button(
+        QDialogButtonBox.StandardButton.Ok)
+    assert not ok.isEnabled()
+
+    assert not hasattr(create_entity_mod, "QMessageBox"), (
+        "QMessageBox обязан уйти из create_entity.py (Т3.2, правило 43)")
+    source = inspect.getsource(create_entity_mod)
+    assert "QMessageBox(" not in source and "QMessageBox." not in source, (
+        "create_entity.py не имеет права ВЫЗЫВАТЬ QMessageBox (Т3.2)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Т3.2: имя по умолчанию — правило add_entities, пока имя не правлено
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_the_default_name_follows_the_selection_until_edited(main_window):
+    """Клетка плана Т3.2: пока имя НЕ правлено, оно следует за выбранным
+    экземпляром (его кластер в нижнем регистре); как только человек его
+    поправил — не затирается сменой экземпляра."""
+    a = _cand("FPGA_VCCIO_1", "Ch0")
+    b = _cand("DAC_BUF", "Ch1")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[a, b], snapshot_available=True)
+
+    dlg._instance_combo.setCurrentIndex(0)   # FPGA_VCCIO_1
+    assert dlg._name_edit.text() == "fpga_vccio_1"
+    dlg._instance_combo.setCurrentIndex(1)   # DAC_BUF
+    assert dlg._name_edit.text() == "dac_buf", (
+        "пока имя не правлено, оно следует за выбором")
+
+    dlg._name_edit.setText("custom")
+    # the user typed: textEdited is the user-only signal (a setText never emits
+    # it) — emitting it here proves the WIRING, not just the flag.
+    dlg._name_edit.textEdited.emit("custom")
+    dlg._instance_combo.setCurrentIndex(0)
+    assert dlg._name_edit.text() == "custom", (
+        "правленое имя не имеет права затираться сменой экземпляра")
+
+
+def test_the_default_name_carries_the_sheet_when_the_cluster_repeats(
+        main_window):
+    """Т3.2: один и тот же кластер на ДВУХ листах — имя по умолчанию несёт
+    лист (`<кластер>_<лист>`), иначе две сущности получили бы одно имя."""
+    a = _cand("DAC_BUF", "Channel_0")
+    b = _cand("DAC_BUF", "Channel_1")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[a, b], snapshot_available=True)
+
+    dlg._instance_combo.setCurrentIndex(0)
+    assert dlg._name_edit.text() == "dac_buf_channel_0"
+    dlg._instance_combo.setCurrentIndex(1)
+    assert dlg._name_edit.text() == "dac_buf_channel_1"
+
+
+def test_an_imprint_keeps_the_record_name_as_default(main_window):
+    """Т3.2: у отпечатка имя по умолчанию — имя записи отпечатка (как было;
+    выпадашка листа его не трогает)."""
+    dlg = _form(main_window, "imprint", "amp", sheet_names=["Channel_0"])
+    assert dlg._name_edit.text() == "amp"
