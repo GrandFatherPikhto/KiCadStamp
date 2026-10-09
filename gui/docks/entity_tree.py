@@ -274,18 +274,35 @@ class EntityTreeMixin:
 
     def _add_orphan_menu(self, menu, entity, file_path) -> None:
         """3а: an entity whose cell/imprint is nowhere in the graph has nothing
-        else to read — it can only be RE-POINTED or deleted."""
+        else to read — it can only be RE-POINTED or deleted.
+
+        Денис, часть 2 (09.10.2026): for a CELL entity the re-pointing item IS
+        "Change cell…", the same item a healthy cell entity carries — one item,
+        not two. An imprint entity has no cell to change, so it keeps "Point to
+        imprint…" (the only re-pointing that means anything for it)."""
         if not isinstance(entity, dict):
             return
-        label = (_("Point to imprint…") if entity.get("imprint") is not None
-                 else _("Point to cell…"))
-        menu.addAction(label).triggered.connect(
-            lambda checked=False, e=entity, f=file_path:
-            self._on_point_entity(e, f))
+        if entity.get("imprint") is None:
+            self._add_change_cell_item(menu, entity, file_path)
+        else:
+            menu.addAction(_("Point to imprint…")).triggered.connect(
+                lambda checked=False, e=entity, f=file_path:
+                self._on_point_entity(e, f))
         menu.addAction(_("Delete entity")).triggered.connect(
             lambda checked=False, e=entity, f=file_path:
             self._on_delete(f, "entities", e.get("name")))
         menu.addSeparator()
+
+    def _add_change_cell_item(self, menu, entity, file_path) -> None:
+        """The ONE "Change cell…" item (part 2) — on a healthy cell entity and
+        on a cell orphan alike (no second item). It only EMITS: the flow owns the
+        cell list (cell_candidates), the dialog and the write. The objectName is
+        the guard's handle, never the translated label."""
+        action = menu.addAction(_("Change cell…"))
+        action.setObjectName("change_cell_action")
+        action.triggered.connect(
+            lambda checked=False, e=entity, f=file_path:
+            self.change_cell_requested.emit(e, f))
 
     def add_entity_menu(self, menu, item, file_path) -> bool:
         """The ENTITY leaf's menu block (СЦ-1, and 2б, п.4 grew it).
@@ -315,6 +332,7 @@ class EntityTreeMixin:
             # item name matches the cell menu's, and the signal is its own
             # because this door opens the PAGE (anchor/dropdown), not CellDock's
             # dialog.
+            self._add_change_cell_item(menu, entity, file_path)
             entity_edit_action = menu.addAction(_("Edit cell..."))
             entity_edit_action.setObjectName("edit_cell_for_entity_action")
             entity_edit_action.triggered.connect(

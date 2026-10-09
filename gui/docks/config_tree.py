@@ -313,6 +313,10 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # one entities: record per CHECKED instance of the cell, written in ONE
     # working-set edit. The payload is (source_name, file_path).
     add_entities_requested = pyqtSignal(str, object)
+    # Fired by "Change cell…" (plan_2026_10_09_cells_and_entities, part 2) on a
+    # CELL entity — healthy or orphan. The payload is (entity record, its own
+    # file path); the flow builds the cell list and writes cell + cell_uuid.
+    change_cell_requested = pyqtSignal(object, object)
     # Fired when a Clone placement leaf is clicked — PlacerDock listens to
     # load it back into the form.
     placement_picked = pyqtSignal(object)
