@@ -1384,28 +1384,24 @@ msgid ""
 msgstr ""
 
 #: gui/read_outcome.py:74
-#, fuzzy
 msgid "another cluster"
-msgstr "Anchor cluster:"
+msgstr ""
 
 #: gui/read_outcome.py:76
 msgid "another record's copper"
 msgstr ""
 
 #: gui/read_outcome.py:78
-#, fuzzy
 msgid "inter-node copper"
-msgstr "Reread inter-node copper"
+msgstr ""
 
 #: gui/read_outcome.py:80
-#, fuzzy
 msgid "layer off"
-msgstr "Layer:"
+msgstr ""
 
 #: gui/read_outcome.py:83
-#, fuzzy
 msgid "not read"
-msgstr "client created"
+msgstr ""
 
 #: gui/read_outcome.py:125
 #, python-brace-format
@@ -18486,3 +18482,71 @@ msgstr "Total spokes: {count}"
 #~ msgid "Select this cell's instance with its recorded copper"
 #~ msgstr ""
 
+
+#: gui/docks/add_entities.py
+msgid "Add entities"
+msgstr ""
+
+#: gui/docks/entity_tree.py
+msgid "Add entities…"
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "All"
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "Check the instances to add."
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "Name {name!r} is used twice in the list."
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "No cell {name!r} in the config."
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "No instance of the board fits cell {cell!r}."
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "Nothing to add — every checked instance was already accounted for."
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "State"
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "already: {name}"
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "entities: in {path} is not a list — refusing to touch it"
+msgstr ""
+
+#: gui/docks/instance_candidates.py
+msgid "role {role} ×{got} for {want} slots"
+msgstr ""
+
+#: gui/docks/instance_candidates.py
+msgid "role {role}: {got} of {want}"
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "{count} checked instance(s) were skipped — already accounted for."
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "{count} entities added to cell {cell}"
+msgstr ""
+
+#: gui/docks/add_entities.py
+msgid "{count} instances lack roles"
+msgstr ""
+
+#: gui/docks/add_entities_flow.py
+msgid "{fit} instances fit cell {cell}, {taken} taken, {lack} lack roles"
+msgstr ""

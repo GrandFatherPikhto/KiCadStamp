@@ -19480,3 +19480,71 @@ msgstr "Всего спиц: {count}"
 #~ msgid "Select this cell's instance with its recorded copper"
 #~ msgstr "Выделить экземпляр ячейки вместе с записанной медью"
 
+
+#: gui/docks/add_entities.py
+msgid "Add entities"
+msgstr "Добавить сущности"
+
+#: gui/docks/entity_tree.py
+msgid "Add entities…"
+msgstr "Добавить сущности…"
+
+#: gui/docks/add_entities.py
+msgid "All"
+msgstr "Все"
+
+#: gui/docks/add_entities.py
+msgid "Check the instances to add."
+msgstr "Отметьте экземпляры для добавления."
+
+#: gui/docks/add_entities.py
+msgid "Name {name!r} is used twice in the list."
+msgstr "Имя {name!r} встречается в списке дважды."
+
+#: gui/docks/add_entities_flow.py
+msgid "No cell {name!r} in the config."
+msgstr "В конфиге нет ячейки {name!r}."
+
+#: gui/docks/add_entities_flow.py
+msgid "No instance of the board fits cell {cell!r}."
+msgstr "Ни один экземпляр платы не подходит ячейке {cell!r}."
+
+#: gui/docks/add_entities_flow.py
+msgid "Nothing to add — every checked instance was already accounted for."
+msgstr "Добавлять нечего — все отмеченные экземпляры уже учтены."
+
+#: gui/docks/add_entities.py
+msgid "State"
+msgstr "Состояние"
+
+#: gui/docks/add_entities.py
+msgid "already: {name}"
+msgstr "уже есть: {name}"
+
+#: gui/docks/add_entities_flow.py
+msgid "entities: in {path} is not a list — refusing to touch it"
+msgstr "entities: в {path} — не список, отказываюсь трогать"
+
+#: gui/docks/instance_candidates.py
+msgid "role {role} ×{got} for {want} slots"
+msgstr "роль {role} ×{got} на {want} слотов"
+
+#: gui/docks/instance_candidates.py
+msgid "role {role}: {got} of {want}"
+msgstr "роль {role}: {got} из {want}"
+
+#: gui/docks/add_entities_flow.py
+msgid "{count} checked instance(s) were skipped — already accounted for."
+msgstr "Пропущено отмеченных экземпляров: {count} — уже учтены."
+
+#: gui/docks/add_entities_flow.py
+msgid "{count} entities added to cell {cell}"
+msgstr "В ячейку {cell} добавлено сущностей: {count}"
+
+#: gui/docks/add_entities.py
+msgid "{count} instances lack roles"
+msgstr "Экземпляров без нужных ролей: {count}"
+
+#: gui/docks/add_entities_flow.py
+msgid "{fit} instances fit cell {cell}, {taken} taken, {lack} lack roles"
+msgstr "Ячейке {cell} подходят экземпляров: {fit}, занято: {taken}, без ролей: {lack}"
