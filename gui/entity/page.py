@@ -32,7 +32,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QComboBox, QFormLayout, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QListWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.config import load_config, load_entity
 from kicadstamp.config.aliases import read_entity_field
@@ -89,7 +89,17 @@ class EntityPage(QWidget):
         heading.addWidget(self.name_label, 1)
         layout.addLayout(heading)
 
-        form = QFormLayout()
+        # The page is TABBED (step 2 of plan_2026_10_09_entity_page): "Справка" +
+        # the Cell combobox first, "Размещения" second; the board-touching tabs
+        # DockHub hands in ("Explode" now, Refs/Anchor in steps 3-4) are added by
+        # add_explode_tab. "Справка" stays index 0, so it is the visible one.
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("entity_page_tabs")
+        layout.addWidget(self.tabs)
+
+        # ── Tab 1 — "Справка": identity + the Cell combobox ──────────────────
+        guide = QWidget()
+        form = QFormLayout(guide)
         self.comment_edit = QLineEdit()
         self.comment_edit.setPlaceholderText(_("optional free-form note"))
         self.comment_edit.editingFinished.connect(self._on_comment_commit)
@@ -126,16 +136,25 @@ class EntityPage(QWidget):
         form.addRow(_("Sheet:"), self.sheet_label)
         self.cluster_label = QLabel("—")
         form.addRow(_("Cluster:"), self.cluster_label)
-        layout.addLayout(form)
+        self.tabs.addTab(guide, _("Reference"))
 
-        layout.addWidget(QLabel(_("Placements (trees):")))
+        # ── Tab 2 — "Размещения" ─────────────────────────────────────────────
+        placements = QWidget()
+        placements_layout = QVBoxLayout(placements)
+        placements_layout.setContentsMargins(4, 4, 4, 4)
+        placements_layout.addWidget(QLabel(_("Placements (trees):")))
         self.placements_list = QListWidget()
         self.placements_list.setMaximumHeight(140)
         self.placements_list.itemClicked.connect(self._on_placement_clicked)
-        layout.addWidget(self.placements_list)
+        placements_layout.addWidget(self.placements_list)
         self.placements_hint = QLabel("")
         self.placements_hint.setWordWrap(True)
-        layout.addWidget(self.placements_hint)
+        placements_layout.addWidget(self.placements_hint)
+        placements_layout.addStretch(1)
+        self.tabs.addTab(placements, _("Placements"))
+
+        # The board-touching tabs DockHub hands in (the "Explode" page now).
+        self._explode_page = None
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
@@ -213,6 +232,7 @@ class EntityPage(QWidget):
         self.cluster_label.setText(str(raw.get("cluster") or "—"))
         self._fill_cell_combo()
         self._load_placements(name)
+        self._sync_explode_context()
 
     def _fill_cell_combo(self) -> None:
         """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
@@ -262,6 +282,32 @@ class EntityPage(QWidget):
         apply_cell_change(hub, self._entity_data, self._entity_file, chosen)
         if self._current_name:
             self.load_entity(self._current_name)
+
+    # ── The "Explode" tab (step 2 of plan_2026_10_09_entity_page) ───────────
+    def add_explode_tab(self, widget) -> None:
+        """DockHub hands the ONE ExplodePage over; the page ONLY adds it — the tab
+        itself lives in gui/docks/explode_page.py. The address it is told comes
+        from the loaded entity RECORD (see _sync_explode_context), never from a
+        dropdown."""
+        self._explode_page = widget
+        self.tabs.addTab(widget, _("Explode"))
+        self._sync_explode_context()
+
+    def select_explode_tab(self) -> None:
+        """Bring the "Explode" tab to the front — the door's last step."""
+        if self._explode_page is not None:
+            self.tabs.setCurrentWidget(self._explode_page)
+
+    def _sync_explode_context(self) -> None:
+        """Tell the "Explode" tab the ENTITY's address: its cell, its (cluster,
+        sheet) and its OWN file — read from the record. An empty form (nothing
+        loaded) clears the context."""
+        if self._explode_page is None:
+            return
+        raw = self._entity_data or {}
+        self._explode_page.set_context(
+            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),
+            self._entity_file)
 
     def _load_entity_dict(self, name: str) -> Optional[Tuple[Dict[str, Any], Optional[Path]]]:
         """(raw entities: dict, file) for `name` — same graph-wide lookup as

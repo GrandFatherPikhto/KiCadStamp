@@ -301,13 +301,14 @@ class DockHub:
             self.cell_anchor_view)
         # "Разнос" (Р2/Р3а-0, plan_2026_10_05_explode_r2_r3_tab_and_reread): the
         # ExplodeGuard holds the "clusters are exploded" state — read from the
-        # JOURNAL on disk — and installs the worker gate. Since Р3а-0 ExplodePage
-        # is the FIFTH tab of the CELL page (CellAnchorView), so it is told the
-        # cell and its instance BY THE PAGE and keeps no lists of its own. Both
+        # JOURNAL on disk — and installs the worker gate. Step 2 of
+        # plan_2026_10_09_entity_page moved ExplodePage from the CELL page to the
+        # ENTITY page: the address is visible THERE, so the tab is told the cell
+        # and its instance BY THE ENTITY PAGE and keeps no lists of its own. Both
         # are one-per-window (the guard is the ONE owner of the lock).
         self.explode_guard = ExplodeGuard(main_window)
         self.explode_page = ExplodePage(main_window, self.explode_guard)
-        self.cell_anchor_view.add_explode_tab(self.explode_page)
+        self.entity_dock.add_explode_tab(self.explode_page)
         self.explode_guard.changed.connect(self._apply_explode_lock)
         # Д8 (Р3а-6): the FLOW of «Разнос» lives in ONE place —
         # gui/explode_wiring.py. Below, the hub keeps one-line delegates (the
@@ -996,10 +997,11 @@ class DockHub:
         # whole enclosed copper (components + the copper between them).
         self.config_tree_dock.cell_select_enclosed_requested.connect(
             self._select_enclosed_copper_from_tree)
-        # Р2: the two Config-tree doors and the CellDock button of the "Разнос"
-        # tab all land in the ONE opener (instance resolved like "Select cell").
-        self.config_tree_dock.cell_explode_requested.connect(self._open_explode)
-        self.cells_dock.explode_requested.connect(self._open_explode)
+        # Р2 + step 2 of plan_2026_10_09_entity_page: the ONE «Разнос» door is the
+        # ENTITY leaf — the board is touched only where the address is visible
+        # (the ENTITY name is the key; the tab lives on the ENTITY page). The old
+        # CellDock door is GONE: CellDock is a map and never touches the board.
+        self.config_tree_dock.entity_explode_requested.connect(self._open_explode)
         # 2026-09-06 (plan copy_placement_from_cell): the context menu's "Copy
         # placement from cell..." — the OFFLINE cell-to-cell placement copy
         # onto the requested cell (donor picked from a minimal role-set-fitted

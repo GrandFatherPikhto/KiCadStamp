@@ -19,6 +19,8 @@ editor).
   * M4  текущая ячейка не выбрана (pos всегда 0)            -> чужая текущая
   * M5  неподходящие снова в списке (choose_cells)          -> чужие в списке
   * M6  текущая ячейка не помечена (current=False)          -> текущей нет
+  * M7  open_tab снова открывает страницу ЯЧЕЙКИ             -> не та страница
+  * M8  адрес Explode не от сущности (cluster=None)         -> чужой адрес
   * K1  cosmetic comment (control)                          -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -48,10 +50,12 @@ PART2 = ["test_change_cell.py", "test_entities_under_cells.py"]
 # The cells that actually exercise a non-fitting OTHER cell (the combo page and
 # the pure rule) — PART2 alone has no such cell, so M5 would survive there.
 CHOICE = ["test_instance_candidates.py", "test_entity_page_cell_combo.py"]
+EXPLODE = ["test_explode_page.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
 PURE = "gui/docks/instance_candidates.py"
+WIRING = "gui/explode_wiring.py"
 
 MUTATIONS = [
     ("M1 комбобокс пишет мимо apply_cell_change", PAGE,
@@ -83,6 +87,14 @@ MUTATIONS = [
      "                             reason=reason, current=(cell.name == current))\n",
      "                             reason=reason, current=False)  # MUTATION\n",
      "die", COMBO, ()),
+    ("M7 open_tab снова открывает страницу ячейки", WIRING,
+     "            hub.config_tree_dock.show_page(entity_page)\n",
+     "            hub.config_tree_dock.show_page(hub._cell_anchor_page)  # MUTATION\n",
+     "die", EXPLODE, ()),
+    ("M8 адрес Explode не от сущности", PAGE,
+     '            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),\n',
+     '            raw.get("cell"), None, raw.get("sheet"),  # MUTATION\n',
+     "die", EXPLODE, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "        self._cell_orphan = choices.orphan\n",
      "        self._cell_orphan = choices.orphan  # control\n",

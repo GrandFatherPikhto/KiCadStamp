@@ -55,15 +55,41 @@ def _sync_start_long_op(monkeypatch):
     monkeypatch.setattr(page_mod, "start_long_op", _sync)
 
 
+# Step 2 of plan_2026_10_09_entity_page: the "Explode" tab lives on the ENTITY
+# page, so the door keys on an ENTITY and the address comes from its RECORD.
+_ENTITY = "amp"
+_CELL = "dac_buf"
+_CLUSTER = "DAC_BUF"
+_SHEET = "Channel_0"
+_CONFIG = {
+    "cells": {_CELL: {"components": [{"role": "R"}]}},
+    "entities": [{"name": _ENTITY, "cell": _CELL, "cluster": _CLUSTER,
+                  "sheet": _SHEET}],
+}
+
+
+def _write_root(path):
+    from kicadstamp.config.sexp_format import dict_to_sexp
+    path.write_text(dict_to_sexp(_CONFIG, format_number=2), encoding="utf-8")
+    return path
+
+
+def _open_via_door(hub, entity=_ENTITY, cell=_CELL, cluster=_CLUSTER,
+                   sheet=_SHEET):
+    """The ONE door, called the way the ENTITY leaf's "Explode…" item does."""
+    hub._open_explode(cell, None, cluster, sheet, entity)
+
+
 @pytest.fixture
 def ex(real_main_window, monkeypatch, tmp_path):
-    """A real MainWindow on a fake board, a throwaway config root, the worker
-    stubs and a SYNCHRONOUS page start_long_op; the global gate is taken down."""
+    """A real MainWindow on a fake board, a throwaway config root holding ONE
+    entity, the worker stubs and a SYNCHRONOUS page start_long_op; the global gate
+    is taken down."""
     w = real_main_window
     w.connection.board = SimpleNamespace(adapter=object())
-    root = tmp_path / "config.sexp"
-    root.write_text("", encoding="utf-8")
+    root = _write_root(tmp_path / "config.sexp")
     w._dock_hub.root_metadata_dock._path = root
+    w._dock_hub.entity_dock.set_root_path(root)
     monkeypatch.setattr(w._dock_hub, "refresh_snapshot_and_push",
                         lambda *a, **k: None)
     _sync_start_long_op(monkeypatch)
@@ -96,52 +122,42 @@ def _patch_cfg(monkeypatch, cfg):
 
 
 def test_the_page_hands_its_file_to_the_tab(ex):
-    """Р3а-1 (приёмка): the CELL page hands the tab the cell's OWNING FILE — the
-    door into the tab must not have to ask anyone else for it."""
+    """Р3а-1 (приёмка): the ENTITY page hands the tab the entity's OWNING FILE —
+    the door into the tab must not have to ask anyone else for it."""
     hub = ex._dock_hub
-    view = hub.cell_anchor_view
-    view._file_path = "/tmp/page.sexp"
-    view._sync_explode_context()
+    page = hub.entity_dock
+    page._entity_data = {"name": _ENTITY, "cell": _CELL}
+    page._entity_file = "/tmp/page.sexp"
+    page._sync_explode_context()
     assert hub.explode_page._file_path == "/tmp/page.sexp"
 
 
-def test_the_door_does_not_reload_the_same_cell(ex, monkeypatch):
-    """Р3а-1 (приёмка): opening the SAME cell by name must NOT reload the cell
-    window (a reload drops unsaved input — the page-merge rule)."""
+def test_the_door_does_not_reload_the_same_entity(ex, monkeypatch):
+    """Р3а-1 (приёмка): opening the SAME entity by name must NOT reload the page
+    (a reload drops unsaved input — the page-merge rule)."""
     hub = ex._dock_hub
-    view = hub.cell_anchor_view
-    view._cell_name = "dac_buf"
-    view._file_path = "/tmp/own.sexp"
+    _open_via_door(hub)                      # load the entity once
     loads = []
-    monkeypatch.setattr(view, "load_entry",
-                        lambda name, fp=None: loads.append((name, fp)))
-    hub._open_explode("dac_buf")
-    assert loads == []                       # same cell, file already known
+    monkeypatch.setattr(hub.entity_dock, "load_entity",
+                        lambda name: loads.append(name))
+    _open_via_door(hub)                      # same entity — no reload
+    assert loads == []
 
 
 # ── doors ───────────────────────────────────────────────────────────────────
 
-def test_entity_door_opens_the_cell_page_on_the_explode_tab(ex, monkeypatch):
-    """Р3а-0: the door opens the CELL page on the requested cell, puts the
-    entity's address into the page's working context and selects the Explode tab."""
+def test_entity_door_opens_the_entity_page_on_the_explode_tab(ex, monkeypatch):
+    """Step 2: the door opens the ENTITY page on the requested entity and selects
+    the Explode tab; the tab's address comes from the entity RECORD."""
     _stub_plan(monkeypatch)
     hub = ex._dock_hub
-    hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")
-    view = hub.cell_anchor_view
+    _open_via_door(hub)
     page = hub.explode_page
-    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
-    assert view._tabs.currentWidget() is page
+    assert hub.config_tree_dock.current_right_page_index() == hub._entity_page
+    assert hub.entity_dock.tabs.currentWidget() is page
+    assert hub.entity_dock._current_name == _ENTITY
     assert (page._cell_name, page._cluster, page._sheet) == (
         "dac_buf", "DAC_BUF", "Channel_0")
-
-
-def test_cell_dock_button_emits_the_door_signal(ex):
-    seen = []
-    ex._dock_hub.cells_dock.explode_requested.connect(lambda *a: seen.append(a))
-    dock = ex._dock_hub.cells_dock
-    dock.name_edit.setText("dac_buf")
-    dock._on_explode()
-    assert seen == [("dac_buf", None, None, None)]
 
 
 # ── ticks / table ───────────────────────────────────────────────────────────
@@ -150,7 +166,7 @@ def test_a_single_untick_reaches_the_plan_as_an_override(ex, monkeypatch):
     captured = {}
     _stub_plan(monkeypatch, captured=captured, plan=_plan((_piece("u1"),)))
     hub = ex._dock_hub
-    hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")
+    _open_via_door(hub)
     assert hub.explode_page._plan is not None
     row = hub.explode_page.tree.topLevelItem(0).child(0)
     row.setCheckState(0, Qt.CheckState.Unchecked)
@@ -162,7 +178,7 @@ def test_ticks_are_not_checkable_after_explode(ex, monkeypatch):
     monkeypatch.setattr(page_mod, "explode_worker", lambda connection, plan: [])
     _stub_state(monkeypatch, ("has", _JOURNAL))     # the journal now exists
     hub = ex._dock_hub
-    hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")
+    _open_via_door(hub)
     row = hub.explode_page.tree.topLevelItem(0).child(0)
     assert row.flags() & Qt.ItemFlag.ItemIsUserCheckable
     hub.explode_page._explode()
@@ -174,7 +190,7 @@ def test_ticks_are_not_checkable_after_explode(ex, monkeypatch):
 def test_a_tee_row_is_highlighted_yellow(ex, monkeypatch):
     _stub_plan(monkeypatch, plan=_plan((_piece("u1", touches="tee"),)))
     hub = ex._dock_hub
-    hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")
+    _open_via_door(hub)
     row = hub.explode_page.tree.topLevelItem(0).child(0)
     assert row.background(0).color() == QColor(255, 250, 205)
 
@@ -182,20 +198,18 @@ def test_a_tee_row_is_highlighted_yellow(ex, monkeypatch):
 # ── lock (Р2а-1: the page must stay USABLE) ─────────────────────────────────
 
 def test_exploded_locks_the_page_context_and_the_strips(ex):
-    """Р3а-0: while exploded the CELL page's tab strip (the other four tabs), its
-    (Cluster, Sheet) context, the Config tree and the window's tab strip are
-    disabled; the right view is pinned to the cell page, whose Explode tab is
-    current and usable (isEnabled accounts for ancestors — Р2а-1)."""
+    """Step 2: while exploded the ENTITY page's tab strip (the other tabs), the
+    Config tree and the window's tab strip are disabled; the right view is pinned
+    to the ENTITY page, whose Explode tab is current and usable (isEnabled
+    accounts for ancestors — Р2а-1)."""
     hub = ex._dock_hub
-    view = hub.cell_anchor_view
+    page = hub.entity_dock
     hub.explode_guard.set_from_journal(_JOURNAL)
     assert not hub.left_tabs.tabBar().isEnabled()
-    assert not view._tabs.tabBar().isEnabled()
-    assert not view._cluster_combo.isEnabled()
-    assert not view._sheet_combo.isEnabled()
+    assert not page.tabs.tabBar().isEnabled()
     assert not hub.config_tree_dock.tree.isEnabled()
-    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
-    assert view._tabs.currentWidget() is hub.explode_page
+    assert hub.config_tree_dock.current_right_page_index() == hub._entity_page
+    assert page.tabs.currentWidget() is hub.explode_page
     assert hub.explode_page.isEnabled()
     assert hub.explode_page.restore_button.isEnabled()
 
@@ -219,19 +233,19 @@ def test_gate_refuses_board_ops_unless_allowed(ex, monkeypatch):
 # ── state (Р2а-2: no board read on the UI thread) ───────────────────────────
 
 def test_restart_with_a_journal_opens_exploded(ex, monkeypatch):
-    """Р3а-0: a restart with a live journal shows the CELL page (with the
-    journal's cell and instance in its context) on the Explode tab, and the lock
-    is up."""
+    """Step 2: a restart with a live journal shows the ENTITY page on the Explode
+    tab with the JOURNAL's address (read purely from the journal — the entity
+    record may not even be loadable), and the lock is up."""
     hub = ex._dock_hub
-    view = hub.cell_anchor_view
+    page = hub.explode_page
     _stub_state(monkeypatch, ("has", _JOURNAL))
     hub.refresh_explode_state()
     assert hub.explode_guard.active
-    assert hub.explode_page.exploded_from_journal
-    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
-    assert view._tabs.currentWidget() is hub.explode_page
-    assert view._cluster_combo.currentText() == "DAC_BUF"
-    assert view._sheet_combo.currentText() == "Channel_0"
+    assert page.exploded_from_journal
+    assert hub.config_tree_dock.current_right_page_index() == hub._entity_page
+    assert hub.entity_dock.tabs.currentWidget() is page
+    assert (page._cell_name, page._cluster, page._sheet) == (
+        "dac_buf", "DAC_BUF", "Channel_0")
 
 
 def test_no_journal_for_a_known_board_clears_the_lock(ex, monkeypatch):
@@ -309,10 +323,8 @@ def test_a_failed_automatic_state_read_is_quiet(ex, monkeypatch, caplog):
     (and never a dropped lock) every connect on a busy socket would otherwise
     print."""
     hub = ex._dock_hub
-    # Р3а-0: the lock now OPENS the journal's cell page, and the fixture's config
-    # is empty — that (legitimate) "cell not found" ERROR line is not what this
-    # cell is about, so the page load is stubbed out BEFORE the lock goes up.
-    monkeypatch.setattr(hub.cell_anchor_view, "load_entry", lambda *a, **k: None)
+    # Step 2: the lock now shows the journal's address on the ENTITY page's
+    # Explode tab (no record load, so no "cell not found" line).
     hub.explode_guard.set_from_journal(_JOURNAL)
     assert hub.explode_guard.active
 
@@ -411,45 +423,17 @@ def test_exit_return_and_exit_does_not_close_on_failure(ex, monkeypatch):
 
 # ── Р2а-3: one instance rule for BOTH doors ─────────────────────────────────
 
-def test_both_doors_use_the_same_resolver(ex, monkeypatch, tmp_path):
-    from gui.select_cell import resolve_action_instance
-    from gui.cell_edit_context import remember_cell_edit_context
+def test_the_door_takes_its_address_from_the_entity_record(ex, monkeypatch):
+    """Step 2: the door keys on the ENTITY and the tab takes its address from the
+    entity RECORD — not from a resolver and not from the working-instance store.
+    Rоняет мутацию «адрес Explode не от сущности»."""
     _stub_plan(monkeypatch)
     hub = ex._dock_hub
-    root = hub.root_metadata_dock.root_path
-    cfg = SimpleNamespace(entities=[SimpleNamespace(cell="dac_buf", cluster="A",
-                                                    sheet=None),
-                                    SimpleNamespace(cell="dac_buf", cluster="B",
-                                                    sheet="S")],
-                          clone_placements=[])
-    # No memory + two records -> "choose" with BOTH candidates.
-    choice = resolve_action_instance(cfg, root, "dac_buf")
-    assert choice.kind == "choose"
-    assert {c for c, _s in choice.candidates} == {"A", "B"}
-    # The remembered context wins for BOTH doors.
-    remember_cell_edit_context(root, "dac_buf", "B", "S")
-    assert resolve_action_instance(cfg, root, "dac_buf").kind == "remembered"
-    hub._open_explode("dac_buf")              # no explicit cluster
-    assert (hub.explode_page._cluster, hub.explode_page._sheet) == ("B", "S")
-
-
-def test_multiple_records_without_memory_show_the_pick_submenu(ex, monkeypatch):
-    """Р3а-0: a cell placed by SEVERAL records with no remembered context — the
-    door asks ONCE (the shared submenu); its answer becomes the page's context."""
-    from gui import select_cell as select_cell_mod
-    _stub_plan(monkeypatch)
-    hub = ex._dock_hub
-    cfg = SimpleNamespace(cells={}, entities=[
-        SimpleNamespace(cell="dac_buf", cluster="A", sheet=None),
-        SimpleNamespace(cell="dac_buf", cluster="B", sheet="S")],
-        clone_placements=[])
-    _patch_cfg(monkeypatch, cfg)
-    picked = []
-    monkeypatch.setattr(select_cell_mod, "pick_instance",
-                        lambda parent, candidates, on_pick: picked.append(
-                            tuple(candidates)))
-    hub._open_explode("dac_buf")
-    assert picked and {c for c, _s in picked[0]} == {"A", "B"}
+    _open_via_door(hub)
+    page = hub.explode_page
+    assert (page._cell_name, page._cluster, page._sheet) == (
+        "dac_buf", "DAC_BUF", "Channel_0")
+    assert page._file_path == hub.entity_dock._entity_file
 
 
 # ── Р2а-2 DOOR: no UI-thread board read on any path ─────────────────────────
@@ -469,9 +453,9 @@ def test_no_ui_thread_board_read_on_any_path(real_main_window, monkeypatch,
     conn = BoardConnection()
     conn.board = SimpleNamespace(adapter=object())   # setter; getter is guarded
     w.connection = conn
-    root = tmp_path / "config.sexp"
-    root.write_text("", encoding="utf-8")
+    root = _write_root(tmp_path / "config.sexp")
     w._dock_hub.root_metadata_dock._path = root
+    w._dock_hub.entity_dock.set_root_path(root)
     monkeypatch.setattr(w._dock_hub, "refresh_snapshot_and_push",
                         lambda *a, **k: None)
 
@@ -491,7 +475,7 @@ def test_no_ui_thread_board_read_on_any_path(real_main_window, monkeypatch,
     monkeypatch.setattr(conn_mod, "ui_thread_read_refusal", conn_mod.UI_READ_RAISE)
 
     hub = w._dock_hub
-    hub._open_explode("dac_buf", None, "DAC_BUF", "Channel_0")   # open + recalc
+    _open_via_door(hub)                     # open + recalc
     page = hub.explode_page
     page._explode()
     page._on_row_clicked(page.tree.topLevelItem(0).child(0), 0)
@@ -674,22 +658,21 @@ def test_transfer_enabled_is_the_shared_address_rule(ex):
 # ── Р2в: the permanent tab and its two lists ────────────────────────────────
 
 def test_the_explode_tab_is_permanent(ex):
-    """Р3а-0: "Explode" is a tab of the CELL page (next to Source / Refs / Role
-    anchor / Marker anchor) — it exists without any menu door, and the window's
-    tab strip is back to its three tabs."""
+    """Step 2: "Explode" is a tab of the ENTITY page — it exists without any menu
+    door, and the window's tab strip is still its three tabs."""
     hub = ex._dock_hub
-    view = hub.cell_anchor_view
-    assert view._tabs.indexOf(hub.explode_page) != -1
-    assert view._tabs.tabText(view._tabs.indexOf(hub.explode_page)) == "Explode"
+    page = hub.entity_dock
+    assert page.tabs.indexOf(hub.explode_page) != -1
+    assert page.tabs.tabText(page.tabs.indexOf(hub.explode_page)) == "Explode"
     assert hub.left_tabs.count() == 3
 
 
-def test_the_tab_takes_its_cell_from_the_page(ex, monkeypatch):
-    """Р3а-0: the tab has NO cell list — the CELL page tells it which cell is open
-    (`_on_cell_picked` -> `load_entry` -> `_sync_explode_context`)."""
+def test_the_tab_takes_its_cell_from_the_entity_page(ex, monkeypatch):
+    """Step 2: the tab has NO cell list — the ENTITY page tells it which cell the
+    loaded entity stands on (load_entity -> _sync_explode_context)."""
     _stub_plan(monkeypatch, plan=_plan((_piece("u1"),)))
     hub = ex._dock_hub
-    hub._on_cell_picked("dac_buf")
+    hub._load_entity_page(_ENTITY)
     assert hub.explode_page._cell_name == "dac_buf"
 
 
@@ -755,7 +738,7 @@ def test_no_ui_thread_board_read_when_the_page_context_changes(
     hub = w._dock_hub
     page = hub.explode_page
     page.set_root_path(root)
-    hub.cell_anchor_view.set_working_context("DAC_BUF", "Channel_0")
+    hub.entity_dock._sync_explode_context()   # the page hands the address over
     page.set_context("dac_buf", "DAC_BUF", "Channel_0")
     hub.explode_guard.detach()
     worker_mod.set_long_op_gate(None)

@@ -19541,6 +19541,18 @@ msgstr "текущая, не подходит:"
 msgid "{count} other cells do not fit"
 msgstr "ещё не подходят ячеек: {count}"
 
+#: gui/entity/page.py
+msgid "Reference"
+msgstr "Справка"
+
+#: gui/entity/page.py
+msgid "Placements"
+msgstr "Размещения"
+
+#: gui/explode_wiring.py
+msgid "The Explode tab lives on an entity — open it from an entity leaf."
+msgstr "Вкладка «Разнос» живёт на сущности — откройте её с листа сущности."
+
 #: gui/docks/add_entities_flow.py
 msgid "{count} checked instance(s) were skipped — already accounted for."
 msgstr "Пропущено отмеченных экземпляров: {count} — уже учтены."

@@ -689,9 +689,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self.on_overrides_written = None
         # The store of the project currently open (Т5) — loaded in set_root_path.
         self._overrides = None
-        # Р3а-0: the "Explode" tab, added by DockHub (it owns the guard). The tab
-        # is TOLD the cell and the working (Cluster, Sheet) — it has no lists.
-        self._explode_page = None
         # Part 2 (Денис, 08.10) — WHICH instance this page works with. The state,
         # the box and the rule live in gui/docks/cell_instance_mixin.py (the page
         # keeps the wiring: rule 45, a giant only shrinks).
@@ -866,47 +863,8 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self._comment_edit.editingFinished.connect(self._on_identity_edited)
         self._tabs.currentChanged.connect(self._on_tab_changed)
     def _on_tab_changed(self, _index: int) -> None:
-        """A tab switch re-renders the form (as before) and re-tells the
-        "Explode" tab (Р3а-0) which cell and instance the page now works on."""
+        """A tab switch re-renders the form (as before)."""
         self._reload_form()
-        self._sync_explode_context()
-
-    # ── Р3а-0: the "Explode" tab ───────────────────────────────────────────
-    def add_explode_tab(self, widget) -> None:
-        """DockHub hands the ONE ExplodePage over; the page ONLY adds it — the tab
-        itself lives in gui/docks/explode_page.py (Д8)."""
-        self._explode_page = widget
-        self._tabs.addTab(widget, _("Explode"))
-        self._sync_explode_context()
-
-    def select_explode_tab(self) -> None:
-        """Bring the "Explode" tab to the front — the door's last step."""
-        if self._explode_page is not None:
-            self._tabs.setCurrentWidget(self._explode_page)
-
-    def set_working_context(self, cluster, sheet) -> None:
-        """Р3а-0: a door (an entity's address) puts its (Cluster, Sheet) into the
-        page's working context. NOT persisted as a remembered preference — the
-        door says what to explode, not what the user last worked in."""
-        self._loading = True
-        try:
-            self._cluster_combo.setCurrentText(cluster or "")
-            self._sheet_combo.setCurrentText(sheet or "")
-        finally:
-            self._loading = False
-        self._sync_explode_context()
-
-    def _sync_explode_context(self) -> None:
-        """Tell the "Explode" tab the page's identity: the OPEN cell, the working
-        (Cluster, Sheet) and the cell's OWNING FILE (Р3а-0a — the "Re-read" door
-        needs it). The one place the tab's context comes from."""
-        if self._explode_page is None:
-            return
-        self._explode_page.set_context(
-            self._cell_name,
-            self._cluster_combo.currentText().strip() or None,
-            self._sheet_combo.currentText().strip() or None,
-            self._file_path)
 
     @staticmethod
     def _template_scope_note() -> QLabel:
@@ -1121,7 +1079,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
             self._read_marker_button, self._remove_marker_button,
             self._hide_bbox_button, self._remove_overlay_button))
         self._reload_form()
-        self._sync_explode_context()
 
     # ── Phase E: remembered (Cluster, Sheet) context ──────────────────────
 

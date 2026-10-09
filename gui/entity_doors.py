@@ -148,10 +148,13 @@ def select_enclosed_copper_from_tree(hub, name, file_path=None, cluster=None,
 def open_explode(hub, name, file_path=None, cluster=None, sheet=None,
                  entity=None) -> None:
     """Д8 (Р3а-6): the flow lives in gui/explode_wiring.py — the delegate the
-    menus and the cells call. `entity` (2б, п.4) is the entity the item came
-    from, None for a CELL leaf or the CellDock's own button."""
+    menus and the cells call. The tab lives on the ENTITY page (step 2 of
+    plan_2026_10_09_entity_page), so the ENTITY `entity` is the key: the page is
+    opened ON it and the address is read from that entity's record. A door without
+    an entity is refused by `open_tab` (there is none left — the CELL leaf has no
+    Explode item, and the CellDock button is gone)."""
     pin_door_instance(hub, name, entity)
-    hub.explode_wiring.open_tab(name, file_path, cluster, sheet)
+    hub.explode_wiring.open_tab(entity, file_path)
 
 
 def _address_kwargs(hub, cluster, sheet, entity) -> dict:

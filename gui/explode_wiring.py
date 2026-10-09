@@ -95,54 +95,36 @@ class ExplodeWiring:
         self._hub = hub
 
     # ── doors ───────────────────────────────────────────────────────────────
-    def open_tab(self, name, file_path=None, cluster=None, sheet=None) -> None:
+    def open_tab(self, entity, file_path=None) -> None:
         """The ONE opener of the "Explode" tab, for every door.
 
-        The instance is chosen by the SAME resolver "Select cell" uses
-        (gui/select_cell.resolve_action_instance). The tab has no lists of its own
-        (Р3а-0), so a cell placed by SEVERAL records asks ONCE, through the SHARED
-        submenu, and the answer becomes the page's context. No second copy of the
-        rule (Р2а-3)."""
+        The tab lives on the ENTITY page (step 2 of plan_2026_10_09_entity_page):
+        the door carries the ENTITY NAME, the page is opened ON that entity, and
+        the address (cell, cluster, sheet) — plus the entity's OWN file — is read
+        from the entity RECORD by the page itself (Денис, 09.10.2026: the board is
+        touched only where the address is visible). No instance resolver and no
+        cell lists here."""
         hub = self._hub
-        if not name:
+        if not entity:
+            show_message(_("The Explode tab lives on an entity — open it from an "
+                           "entity leaf."), _ERROR_STYLE, logger)
             return
         root = hub.root_metadata_dock.root_path
         if root is None:
             show_message(_("Set the project root first."), _ERROR_STYLE, logger)
             return
-        if cluster is None:
-            from .select_cell import pick_instance, resolve_action_instance
-            choice = resolve_action_instance(
-                load_cfg(root), root, name, None, None, None)
-            if choice.kind in ("explicit", "remembered", "single"):
-                cluster, sheet = choice.cluster, choice.sheet
-            elif choice.kind == "choose":
-                pick_instance(
-                    hub.main_window, choice.candidates,
-                    lambda c, s: self.open_tab(name, file_path, c, s))
-                return
-            else:                                # "none" / "no-record"
-                if choice.message:
-                    show_message(choice.message, _ERROR_STYLE, logger)
-                return
-        # The tab lives on the CELL page — open the page on the requested cell
-        # (exactly like a single click in the Config tree) and only then tell it
-        # which instance to work in.
         hub.explode_page.set_root_path(root)
-        anchor_page = getattr(hub, "_cell_anchor_page", None)
-        if anchor_page is not None:
-            hub._focus_config_tree_dock()
-            hub.config_tree_dock.show_page(anchor_page)
-            view = hub.cell_anchor_view
-            # The SAME cell by name is NOT reloaded (that would drop unsaved input;
-            # the page-merge rule, gui/dock_hub.py::_on_cell_picked) — only a
-            # missing file for it is filled in.
-            if (getattr(view, "_cell_name", None) != name
-                    or (file_path is not None and view._file_path is None)):
-                view.load_entry(name, file_path)
-        if cluster is not None:
-            hub.cell_anchor_view.set_working_context(cluster, sheet)
-        hub.cell_anchor_view.select_explode_tab()
+        hub._focus_config_tree_dock()
+        entity_page = getattr(hub, "_entity_page", None)
+        if entity_page is not None:
+            hub.config_tree_dock.show_page(entity_page)
+        # The SAME entity by name is NOT reloaded (that would drop unsaved input);
+        # load_entity feeds the Explode tab its address via _sync_explode_context.
+        if getattr(hub.entity_dock, "_current_name", None) != entity:
+            hub.entity_dock.load_entity(entity)
+        else:
+            hub.entity_dock._sync_explode_context()
+        hub.entity_dock.select_explode_tab()
 
     def reread(self, name, file_path=None) -> None:
         """The "Explode" tab's "Re-read cell from selection" — the SAME read the
@@ -173,43 +155,40 @@ class ExplodeWiring:
     # ── the lock (РЗ7) ──────────────────────────────────────────────────────
     def apply_lock(self, active: bool) -> None:
         """While the clusters are exploded the user must not leave the Explode tab
-        nor change WHO is exploded — the CELL page's own tab strip (the other four
-        tabs), its (Cluster, Sheet) working context, the Config tree (a different
-        cell) and the window's tab strip are disabled, and the Config right view is
-        pinned to the cell page (a switch away is rolled back in
-        ``_on_config_right_page_changed``). The Explode tab and its buttons stay
-        usable: ``isEnabled`` accounts for ancestors (Р2а-1, measured offscreen)."""
+        nor change WHO is exploded — the ENTITY page's own tab strip (the other
+        tabs), the Config tree (a different entity) and the window's tab strip are
+        disabled, and the Config right view is pinned to the ENTITY page (a switch
+        away is rolled back in ``_on_config_right_page_changed``). The Explode tab
+        and its buttons stay usable: ``isEnabled`` accounts for ancestors (Р2а-1,
+        measured offscreen)."""
         hub = self._hub
         unlocked = not active
         hub.left_tabs.tabBar().setEnabled(unlocked)
         hub.config_tree_dock.tree.setEnabled(unlocked)
-        view = hub.cell_anchor_view
-        view._tabs.tabBar().setEnabled(unlocked)
-        view._cluster_combo.setEnabled(unlocked)
-        view._sheet_combo.setEnabled(unlocked)
+        hub.entity_dock.tabs.tabBar().setEnabled(unlocked)
         if active:
-            hub.config_tree_dock.set_current_page(hub._cell_anchor_page)
-            # Post-crash / restart (Р3а-0 п.5): open the JOURNAL's cell and put its
-            # (cluster, sheet) into the page's context, so the user sees exactly who
-            # is exploded.
+            hub.config_tree_dock.set_current_page(hub._entity_page)
+            # Post-crash / restart (Р3а-0 п.5): show the JOURNAL's address so the
+            # user sees exactly who is exploded. Read purely from the journal — the
+            # entity record may not even be loadable in this state.
             journal = hub.explode_guard.journal or {}
             cell = journal.get("cell")
             if cell:
-                if getattr(view, "_cell_name", None) != cell:
-                    view.load_entry(cell, None)
-                view.set_working_context(journal.get("cluster"),
-                                         journal.get("sheet"))
-            view.select_explode_tab()
+                hub.explode_page.set_root_path(hub.root_metadata_dock.root_path)
+                hub.explode_page.set_context(
+                    cell, journal.get("cluster"), journal.get("sheet"), None)
+            hub.entity_dock.select_explode_tab()
 
     def pin_right_page(self, index: int) -> bool:
         """The Config right-QView switch attempted while exploded: name it and roll
-        the view back to the cell page. True = it was pinned (the caller returns)."""
+        the view back to the ENTITY page. True = it was pinned (the caller
+        returns)."""
         hub = self._hub
-        if not hub.explode_guard.active or index == hub._cell_anchor_page:
+        if not hub.explode_guard.active or index == hub._entity_page:
             return False
         show_message(_("Clusters are exploded — press \"Put back\" first "
                        "(the \"Explode\" tab)."), _WARN_STYLE, logger)
-        hub.config_tree_dock.set_current_page(hub._cell_anchor_page)
+        hub.config_tree_dock.set_current_page(hub._entity_page)
         return True
 
     # ── the state (Р2б) ─────────────────────────────────────────────────────

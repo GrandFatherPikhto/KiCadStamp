@@ -269,11 +269,13 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # instance is resolved by DockHub with the "Select cell" rules.
     cell_select_enclosed_requested = pyqtSignal(str, object, object, object,
                                                 object)
-    # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread): the "Разнос"
-    # tab's two TREE doors — the SAME four-arg shape as cell_select_requested
-    # (name, file_path, cluster, sheet). The instance is resolved by DockHub with
-    # the "Select cell" rules, never a second scheme.
-    cell_explode_requested = pyqtSignal(str, object, object, object, object)
+    # Р2 (2026-10-05, plan_2026_10_05_explode_r2_r3_tab_and_reread; RENAMED in
+    # plan_2026_10_09_entity_page step 2): the ENTITY leaf's "Explode…" door.
+    # The tab now lives on the ENTITY page, so the key is the ENTITY name — the
+    # five-arg shape is (cell, file_path, cluster, sheet, ENTITY), and the address
+    # (cell, cluster, sheet) is read from the entity's own record (Денис,
+    # 09.10.2026: the board is touched only where the address is visible).
+    entity_explode_requested = pyqtSignal(str, object, object, object, object)
     # 2б, п.4: the ENTITY leaf's own "Edit cell..." — (cell name, file_path,
     # entity name). It opens the cell PAGE on THAT entity (opened_from), which
     # is the only thing that makes "open this entity's page" mean this entity:

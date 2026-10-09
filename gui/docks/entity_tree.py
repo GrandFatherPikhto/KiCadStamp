@@ -373,13 +373,14 @@ class EntityTreeMixin:
                 c=entity.get("cluster"), s=entity.get("sheet"),
                 e=entity.get("name"):
                 self.cell_select_enclosed_requested.emit(n, None, c, s, e))
-            # Р2: the entity door of the "Разнос" tab — same explicit
-            # (cluster, sheet), so no guessing.
+            # Р2 + step 2 of plan_2026_10_09_entity_page: the entity door of the
+            # "Разнос" tab. The ENTITY name is the key — the tab lives on the
+            # ENTITY page, and the address comes from the entity's own record.
             menu.addAction(_("Explode…")).triggered.connect(
                 lambda checked=False, n=entity.get("cell"),
                 c=entity.get("cluster"), s=entity.get("sheet"),
                 e=entity.get("name"):
-                self.cell_explode_requested.emit(n, None, c, s, e))
+                self.entity_explode_requested.emit(n, None, c, s, e))
             # часть 3, п.1: the same two reads with the LAYER DIALOG in front,
             # exactly like the cell menu's pair.
             self._add_entity_board_layer_items(menu, entity)
