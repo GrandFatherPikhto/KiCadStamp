@@ -74,6 +74,28 @@ def all_cells_rows(cells) -> list:
             for c in cells]
 
 
+def cell_role_order(components) -> list:
+    """A cell's OWN component roles in the cell's own order — ONE entry per slot,
+    so multiplicity is the list itself (the order the Refs table and its tooltips
+    follow, never the alphabet). `components` is a loaded Cell's slot list OR the
+    raw ``components:`` list of a cell entry (objects and dicts are both read).
+
+    THE one place the "a cell's roles, in the cell's order" rule lives: the CELL
+    page's Refs line (gui/docks/cell_instance_mixin._cell_role_order), the
+    CELL-SPEC picker (change_cell_flow._resolve_cells) and the ENTITY page's Refs
+    tab (gui/entity/page._cell_roles) all call it — the roles a picker offers and
+    the roles a table tags can never disagree. Deliberately ORDERED with
+    multiplicity, unlike tree_from_selection.cell_component_roles (a SET, for the
+    "does the cluster resolve every role" question)."""
+    out: list = []
+    for slot in components or ():
+        role = slot.get("role") if isinstance(slot, dict) \
+            else getattr(slot, "role", None)
+        if role:
+            out.append(role)
+    return out
+
+
 def old_layout_copper_count(cfg, config_path, entity) -> int:
     """The copper pieces THIS entity owns under the cell it stands on NOW.
 
@@ -120,9 +142,10 @@ def _resolve_cells(root_path, index=None):
     except (ValidationError, OSError):
         cfg, ctx = None, None
     if cfg is not None:
-        cells = [CellSpec(name=name, uuid=getattr(cell, "uuid", None),
-                          roles=tuple(c.role for c in
-                                      (getattr(cell, "components", None) or ())))
+        cells = [CellSpec(
+                     name=name, uuid=getattr(cell, "uuid", None),
+                     roles=tuple(cell_role_order(
+                         getattr(cell, "components", None) or ())))
                  for name, cell in (getattr(cfg, "cells", None) or {}).items()]
     else:
         names = index.names_for("cells") if index is not None else []

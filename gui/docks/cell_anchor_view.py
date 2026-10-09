@@ -96,10 +96,6 @@ from ..cell_identification import (
     SelectionRecord,
     identify_cell_instance,
 )
-from kicadstamp.field_overrides import load_field_overrides
-from kicadstamp.utils.paths import overrides_path_for_config
-
-from ..role_table_model import records_from_items
 from ..worker import socket_busy, start_long_op
 from ._cell_identity import CellIdentityWidget
 from ._common import (
@@ -115,7 +111,6 @@ from ._common import (
 from ..entity_doors import read_only_cell
 from .cell_instance_mixin import CellInstanceMixin, parse_refs_field
 from .cell_read_only import ReadOnlyGate
-from .cell_refs_tab import RefsTabWidget
 from .live_position import (
     _live_cluster_frame,
     _reference_slot,
@@ -677,18 +672,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         # widget only asks it for KEY presence (never a uuid), and every draw
         # goes through the owner's idempotent ensure_* operations.
         self._overlay = overlay_markers.owner
-        # The "Refs" tab's write reaches the board (2026-09-17, stage 2 of the
-        # spoke work). DockHub wires this to MainWindow.request_refresh — the
-        # same out-of-cycle refresh hook the Role/Cluster tree and fieldstool
-        # carry, without which a written Role stays invisible to Pending changes
-        # until the user clicks Refresh.
-        self.on_board_written = None
-        # Fired when the Refs tab RECORDS into the project's override store (Т5):
-        # the store changed, so every other holder of it must re-read the file.
-        # Separate from on_board_written, which is about the BOARD changing.
-        self.on_overrides_written = None
-        # The store of the project currently open (Т5) — loaded in set_root_path.
-        self._overrides = None
         # Part 2 (Денис, 08.10) — WHICH instance this page works with. The state,
         # the box and the rule live in gui/docks/cell_instance_mixin.py (the page
         # keeps the wiring: rule 45, a giant only shrinks).
@@ -749,16 +732,9 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         source_layout.addStretch(1)
         self._tabs.addTab(source_page, _("Source"))
 
-        # ── Tab 2 — Refs: the role table (2026-09-17, stage 2 of the spoke ────
-        # work). Its own page, deliberately NOT a section of Source: the table
-        # would crowd the one-button identification block, and the 12" Linux
-        # screen has no room for both. This is the tool for the moment the roles
-        # do not exist yet — a pair is routed and THEN tagged — see the module
-        # docstring of gui/docks/cell_refs_tab.py.
-        self._refs_tab = RefsTabWidget(self._main_window,
-                                       connection=self._connection)
-        self._refs_tab.on_board_written = self._on_refs_written
-        self._tabs.addTab(self._refs_tab, _("Refs"))
+        # The "Refs" tab moved to the ENTITY page in step 3 of
+        # plan_2026_10_09_entity_page (the address is visible there): this page no
+        # longer owns a Refs table at all.
 
         # ── Tab 2 — Role anchor (the old "Component" tab) ─────────────────
         comp_page = QWidget()
@@ -896,14 +872,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
             self._snapshot = []      # a stale snapshot belongs to the old root
         self._root_path = path
         self._sheet_names = {}
-        # The project's OVERRIDE STORE rides along (plan_2026_09_18_field_overrides_
-        # store Т5): it hangs off the CONFIG file, so this is the one place that
-        # knows both it and the Refs tab. A missing file is an EMPTY store — the
-        # pre-store world exactly (Т7). Nothing is written here, ever: this page
-        # only reads what the store says, so a project switch can never keep the
-        # previous project's records.
-        self._overrides = (load_field_overrides(
-            overrides_path_for_config(str(path))) if path is not None else None)
         if path is not None:
             try:
                 _cfg, ctx = load_config(str(path))
@@ -933,9 +901,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self._refill_cluster_choices()
         if self._cell_name is not None:
             self._reload_form()
-        # A different project means a different gui_state.json scope for the
-        # Refs table too (the saved table is keyed by root AND cell).
-        self._sync_refs_tab()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Feed the live-board snapshot into the working-context Cluster combo
@@ -965,9 +930,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         else:
             self._resolved_snapshot = list(self._snapshot)
         self._refill_cluster_choices()
-        # The Refs tab's board columns and cluster suggestions come from the
-        # same snapshot — fed here, never read from the board by the tab itself.
-        self._sync_refs_tab()
 
     def _refill_cluster_choices(self) -> None:
         """Refill the Cluster combo from the sheet-resolved snapshot, narrowed by
@@ -1326,7 +1288,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
                       self._hide_bbox_button, self._remove_overlay_button):
                 b.setEnabled(False)
             self.clear_instance()
-            self._sync_refs_tab()
             return
 
         self._title.setText(_("Cell {name!r}").format(name=self._cell_name))
@@ -1339,7 +1300,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
             self._read_selection_button.setEnabled(False)
             self._fill_selection_button.setEnabled(False)
             self.clear_instance()
-            self._sync_refs_tab()
             return
 
         roles = sorted({c.get("role") for c in entry.get("components", [])
@@ -1367,10 +1327,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         self._hide_bbox_button.setEnabled(has_bbox)
         self._remove_overlay_button.setEnabled(has_marker or has_bbox)
         self._refresh_overlay_layer_note()
-        # The Refs tab follows the same form reload as every other page: its
-        # roles come from this cell's entry, its board columns from the page's
-        # snapshot — never from the board (door rule 6).
-        self._sync_refs_tab()
         # LAST, so it has the final word on the instance (the mixin re-applies the
         # working row, including the enable/disable of the three fields it drives,
         # after every setEnabled above).
@@ -1521,59 +1477,6 @@ class CellAnchorView(CellInstanceMixin, QWidget):
             cluster=getattr(s, "cluster", None),
             sheet=tuple(getattr(s, "sheet", None) or ())) for s in snapshot]
 
-    # ── The "Refs" tab: the page's half of the wiring (2026-09-17, stage 2) ─
-
-    def _refs_snapshot_records(self) -> list:
-        """The page's own snapshot as role-table records — the SHEET-RESOLVED
-        copy when it carries raw handles (a live Board's own chains are all-None
-        until refresh_known_roles re-resolves them). The tab needs the two
-        field-existence flags, which SelectionRecord does not carry, so the
-        records come from the Selected items themselves."""
-        return records_from_items(self._resolved_snapshot or self._board_snapshot())
-
-    def _sync_refs_tab(self) -> None:
-        """Hand the "Refs" tab the context this page already holds — the root,
-        the cell, the cell's own roles and the board snapshot.
-
-        UI thread only, and only data already read (door rules 3 and 6): the tab
-        answers "what does the board say about this row" from the snapshot the
-        page was fed, so no board access is needed to render it. A moved cell /
-        root rebuilds its rows (the tab's own rule: saved table, else the
-        identified refs, else empty); any other call only re-reads the board
-        columns."""
-        roles = self._cell_role_order() if self._cell_name else []
-        self._refs_tab.set_context(
-            self._root_path, self._cell_name, roles,
-            self._refs_snapshot_records(), sheet_names=self._sheet_names,
-            overrides=self._overrides)
-
-    def reload_overrides(self) -> None:
-        """Re-read the project's override store from its FILE and hand the fresh
-        copy to the Refs tab (Т5).
-
-        The stop for "another pane recorded": our own object was loaded when the
-        project opened, and the file is the truth — re-loading here is what makes
-        a record made in the fieldstool pane visible in THIS table without
-        reopening the project. A no-op without a project (nothing to re-read)."""
-        if self._root_path is None:
-            return
-        self._overrides = load_field_overrides(
-            overrides_path_for_config(str(self._root_path)))
-        self._refs_tab.set_overrides(self._overrides)
-
-    def _on_refs_written(self) -> None:
-        """The "Refs" tab RECORDED values in the project's override store (Т5):
-        rebuild this page from the current entry and hand the news on. Two hooks,
-        because two different owners must react: `on_overrides_written` (DockHub
-        wires it to re-reading that store wherever another pane holds a copy) and
-        `on_board_written` (MainWindow.request_refresh — nothing on the board
-        changed, but Pending changes must be recomputed)."""
-        self._reload_form()
-        if self.on_overrides_written:
-            self.on_overrides_written()
-        if self.on_board_written:
-            self.on_board_written()
-
     def _on_fill_from_selection(self) -> None:
         """Button action: identify ONE instance of this cell from the board
         selection (П3.1 — the selection is read in the WORKER, the pure
@@ -1696,10 +1599,11 @@ class CellAnchorView(CellInstanceMixin, QWidget):
         finally:
             self._loading = False
         remember_cell_instance(self._root_path, self._cell_name, ident)
-        # Show the identified pair on the Refs tab as a table — but only into an
-        # empty one (Р2): a table the user filled in is theirs, and the
-        # identification knows nothing about it.
-        self._refs_tab.fill_from_refs(ident.role_to_ref)
+        # The immediate prefill of the "Refs" table is GONE with the tab (step 3 of
+        # plan_2026_10_09_entity_page): the re-identification still saves the pair
+        # through remember_cell_instance, and the Entity page's Refs tab picks the
+        # saved refs up through _restore_rows when it next opens. "Source" itself
+        # goes in step 5.
         if ident.kind == KIND_SPOKE:
             role, occurrences = ident.repeated_roles[0] if ident.repeated_roles \
                 else ("?", 0)

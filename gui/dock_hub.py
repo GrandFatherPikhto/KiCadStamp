@@ -62,6 +62,7 @@ from .docks.cell_anchor_view import (
     CellAnchorView,
     cleanup_all_overlays_sync,
 )
+from .docks.cell_refs_tab import RefsTabWidget
 from .docks.cell_editor import CellDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
@@ -314,7 +315,14 @@ class DockHub:
         # gui/explode_wiring.py. Below, the hub keeps one-line delegates (the
         # menus, the guard's signal and the cells call those names).
         self.explode_wiring = ExplodeWiring(self)
-        # The cell editor's "Refs" tab RECORDS Role/Cluster into the project's
+        # The "Refs" tab (step 3 of plan_2026_10_09_entity_page): the ONE
+        # RefsTabWidget the CELL page used to own moves to the ENTITY page — the
+        # address (the entity's cell) is visible there, so the role table follows
+        # the ENTITY. Built once here and handed over; the tab keeps its own
+        # worker discipline unchanged (gui/docks/cell_refs_tab.py).
+        self.refs_tab = RefsTabWidget(main_window, connection=connection)
+        self.entity_dock.add_refs_tab(self.refs_tab)
+        # The entity page's "Refs" tab RECORDS Role/Cluster into the project's
         # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
         # before that it wrote them onto the board, which is why the hook below
         # kept its old name), so it needs the same out-of-cycle refresh hook the
@@ -322,12 +330,12 @@ class DockHub:
         # refreshes once connected, and without this the write would stay
         # invisible to Pending changes until a manual Refresh. request_refresh is
         # resolved earlier in this same __init__.
-        self.cell_anchor_view.on_board_written = request_refresh
+        self.entity_dock.on_board_written = request_refresh
         # ... and the STORE half of the same news: the fieldstool window holds its
         # OWN copy of that store (it is what the Pending diff reads), so a record
         # made here only becomes visible there when that copy re-reads the file.
         # Two hooks, two owners — never one callback doing both by luck.
-        self.cell_anchor_view.on_overrides_written = self._on_overrides_written
+        self.entity_dock.on_overrides_written = self._on_overrides_written
         # Part 2 (п.1) + 2в, п.5: BOTH readers of "who places this cell" — the
         # page's dropdown and the CellDock's buttons — take the ONE entity index
         # from the Config tree dock (a second walker is what that module exists
@@ -1211,6 +1219,10 @@ class DockHub:
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.cells_dock.refresh_known_roles(snapshot)
         self.cell_anchor_view.refresh_known_roles(snapshot)
+        # ... and the ENTITY page's "Refs" tab, fed the same whole-board snapshot
+        # (step 3 of plan_2026_10_09_entity_page) — the tab reads its board columns
+        # from this copy, never from the board.
+        self.entity_dock.refresh_known_roles(snapshot)
 
     def refresh_snapshot_and_push(self, on_ready=None) -> None:
         """THE one "rebuild the board snapshot, then distribute the fresh
@@ -3044,8 +3056,11 @@ class DockHub:
         user must see next."""
         self._safe_call("fieldstool window override reload",
                         self.fieldstool_dock.window.reload_overrides)
-        self._safe_call("cell editor override reload",
-                        self.cell_anchor_view.reload_overrides)
+        # Step 3 of plan_2026_10_09_entity_page: the store copy and its "Refs"
+        # table moved from the cell page to the ENTITY page — this stop follows
+        # them (the same "whoever holds a copy re-reads it" rule).
+        self._safe_call("entity page override reload",
+                        self.entity_dock.reload_overrides)
         # The imprint page's Roles tab holds a copy of the same store (Д2,
         # 2026-09-20): without this reload a record made in the cell editor would
         # not show up there, and vice versa.

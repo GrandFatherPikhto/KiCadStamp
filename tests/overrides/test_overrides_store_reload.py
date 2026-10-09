@@ -145,14 +145,15 @@ class _DistributionSpy:
         self.order = []      # "reload" / "lists" / "rows", in the order called
 
 
-def _event_hub(connection, window=None, cell_editor=None, imprint_page=None):
+def _event_hub(connection, window=None, entity_page=None, imprint_page=None):
     """A DockHub-shaped stub the REAL _on_overrides_written runs against.
 
-    SIX attributes are all that method reaches — the fieldstool window, the cell
-    editor, the imprint page's Roles tab (2026-09-20, Д2), the poll adapter's
-    reload seam, and (since plan_2026_09_24_reload_store_snapshot §4) the two
-    distribution stops — so no Qt dock (and no QApplication) is needed to
-    exercise it. The stub carries its own recorders on `hub.spy`.
+    SIX attributes are all that method reaches — the fieldstool window, the ENTITY
+    page (step 3 of plan_2026_10_09_entity_page moved the store copy and its "Refs"
+    table there from the cell page), the imprint page's Roles tab (2026-09-20, Д2),
+    the poll adapter's reload seam, and (since plan_2026_09_24_reload_store_
+    snapshot §4) the two distribution stops — so no Qt dock (and no QApplication)
+    is needed to exercise it. The stub carries its own recorders on `hub.spy`.
 
     The reload seam is wrapped, not replaced: the real connection.reload_store
     still runs, and only its POSITION in the order is recorded — that is the
@@ -176,7 +177,7 @@ def _event_hub(connection, window=None, cell_editor=None, imprint_page=None):
     hub = SimpleNamespace(
         fieldstool_dock=SimpleNamespace(
             window=window if window is not None else _Holder()),
-        cell_anchor_view=cell_editor if cell_editor is not None else _Holder(),
+        entity_dock=entity_page if entity_page is not None else _Holder(),
         imprint_dock=imprint_page if imprint_page is not None else _Holder(),
         _connection=connection,
         _reload_poll_store=_reload if reload_store is not None else None,
@@ -250,8 +251,8 @@ def test_c1_the_poll_adapter_hears_a_write_made_by_another_holder(tmp_path):
     other.set(UUID_R1, "R1", ROLE_FIELD_NAME, "R_WRITTEN", SOURCE_CELL_TABLE)
     other.save()
 
-    window, cell_editor = _Holder(), _Holder()
-    _event_hub(connection, window, cell_editor)._on_overrides_written()
+    window, entity_page = _Holder(), _Holder()
+    _event_hub(connection, window, entity_page)._on_overrides_written()
 
     assert adapter.get_field_value(footprint, ROLE_FIELD_NAME) == "R_WRITTEN", (
         "the poll adapter still serves the store it was bound to BEFORE the "
@@ -259,7 +260,7 @@ def test_c1_the_poll_adapter_hears_a_write_made_by_another_holder(tmp_path):
         "show the board's roles (С25 broken again)")
     assert adapter.store.get(UUID_R1, ROLE_FIELD_NAME) == "R_WRITTEN"
     # The two holders that were already on the list are still on it.
-    assert (window.reloads, cell_editor.reloads) == (1, 1)
+    assert (window.reloads, entity_page.reloads) == (1, 1)
 
 
 # ── С2: the same event, the other direction (Т6's "forget") ───────────────
@@ -496,7 +497,10 @@ def _store_holders():
 #: records into the same store).
 STORE_HOLDERS = {
     "gui/fieldstool_window.py:MainWindow",
-    "gui/docks/cell_anchor_view.py:CellAnchorView",
+    # Step 3 of plan_2026_10_09_entity_page: the store copy and the "Refs" table
+    # moved from the cell page (gui/docks/cell_anchor_view.py, no longer a holder)
+    # to the entity page.
+    "gui/entity/page.py:EntityPage",
     "gui/docks/cell_refs_tab.py:RefsTabWidget",
     "gui/docks/imprint_refs_tab.py:ImprintRefsTab",
     "gui/docks/pending.py:PendingChangesDock",
@@ -505,7 +509,7 @@ STORE_HOLDERS = {
 #: The stops of the write event, spelled as the source spells them.
 EVENT_STOPS = {
     "self.fieldstool_dock.window.reload_overrides",
-    "self.cell_anchor_view.reload_overrides",
+    "self.entity_dock.reload_overrides",
     "self.imprint_dock.reload_overrides",
     "self._reload_poll_store",
 }

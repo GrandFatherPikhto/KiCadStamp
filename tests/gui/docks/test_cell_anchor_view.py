@@ -1019,19 +1019,20 @@ def _view_with_placements(main_window, tmp_path, placements):
     return view, target
 
 
-def test_merged_page_has_source_refs_and_two_anchor_tabs(main_window, tmp_path):
-    """The merged page: Source, Role anchor, Marker anchor — and NO
+def test_merged_page_has_source_and_two_anchor_tabs(main_window, tmp_path):
+    """The merged CELL page: Source, Role anchor, Marker anchor — and NO
     "Placement" tab (positions live in the trees; a tab here would create a
     duplicate top-level record shadowing the tree — the mine the plan warns
     about).
 
-    Since 2026-09-17 (stage 2 of the spoke work) the "Refs" role table sits
-    SECOND, right after Source: it is the page's own tool for the moment the
-    roles do not exist yet (a pair is routed first and tagged afterwards), so it
-    lives here rather than in a dock of its own (design Р4)."""
+    Step 3 of plan_2026_10_09_entity_page: the "Refs" role table MOVED to the
+    ENTITY page (the address is visible there), so it is deliberately GONE from
+    this page now — its new home is guarded by tests/gui/docks/
+    test_entity_page_refs_tab.py."""
     view, _ = _make_view(main_window, tmp_path)
     titles = [view._tabs.tabText(i) for i in range(view._tabs.count())]
-    assert titles == ["Source", "Refs", "Role anchor", "Marker anchor"]
+    assert titles == ["Source", "Role anchor", "Marker anchor"]
+    assert "Refs" not in titles
 
 
 def test_identity_block_is_the_shared_widget_in_both_pages(real_main_window):

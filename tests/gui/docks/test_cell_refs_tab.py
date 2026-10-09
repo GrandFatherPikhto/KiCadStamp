@@ -35,6 +35,7 @@ import gui.docks.cell_refs_tab as tab_mod
 from gui import settings
 from gui.cell_identification import SelectionRecord, identify_cell_instance
 from gui.cell_edit_context import (
+    remember_cell_instance,
     remember_role_table,
     remembered_cell_refs,
     remembered_role_table,
@@ -769,6 +770,26 @@ def _cell_data():
         "vias": [], "tracks": [], "clone_placements": []}}}
 
 
+def _entity_cell_data():
+    """The same cell, plus the Entity that names it — step 3 moved the Refs tab to
+    the ENTITY page, whose address is the entity's cell."""
+    data = _cell_data()
+    data["entities"] = [{"name": "E1", "cell": "cell1"}]
+    return data
+
+
+def _entity_page(main_window, root):
+    """An EntityPage wired to the ONE Refs tab exactly as DockHub wires it:
+    set_root_path first, add_refs_tab after."""
+    from gui.entity.page import EntityPage
+    page = EntityPage(main_window)
+    page.set_root_path(root)
+    tab = RefsTabWidget(main_window, connection=main_window.connection,
+                        parent=main_window)
+    page.add_refs_tab(tab)
+    return page
+
+
 class _RecordingAdapter(_FakeAdapter):
     """A spy that RECORDS calls instead of raising: a raising spy would make a
     guard pass for the wrong reason (a swallowed exception looks like "no call"
@@ -778,10 +799,12 @@ class _RecordingAdapter(_FakeAdapter):
         super().__init__(footprints, selected)
 
 
-def test_c10_opening_the_editor_restores_the_table_without_reading_the_board(
+def test_c10_opening_the_entity_page_restores_the_table_without_reading_the_board(
         main_window, tmp_path):
+    """Step 3 of plan_2026_10_09_entity_page: the Refs table is restored on the
+    ENTITY page, and opening it reads NOTHING from the board."""
     root = tmp_path / "root.sexp"
-    _write(root, _cell_data())
+    _write(root, _entity_cell_data())
     remember_role_table(root, "cell1", {
         "cluster": "FPGA_PWR_BANK",
         "rows": [{"ref": "C74", "role": "C_BULK", "cluster": "FPGA_PWR_BANK"}],
@@ -789,60 +812,75 @@ def test_c10_opening_the_editor_restores_the_table_without_reading_the_board(
     adapter = _RecordingAdapter()
     main_window.connection.board = SimpleNamespace(adapter=adapter)
 
-    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
-    view = CellAnchorView(main_window, connection=main_window.connection,
-                          parent=main_window)
-    view.set_root_path(root)
-    view.load_entry("cell1", root)
+    page = _entity_page(main_window, root)
+    page.load_entity("E1")
 
     assert adapter.calls == [], f"the UI thread read the board: {adapter.calls}"
-    assert view._refs_tab.row_refs() == ["C74"]
-    assert view._refs_tab.rows[0].role == "C_BULK"
-    assert view._refs_tab.rows[0].cluster == "FPGA_PWR_BANK"
+    assert page._refs_tab.row_refs() == ["C74"]
+    assert page._refs_tab.rows[0].role == "C_BULK"
+    assert page._refs_tab.rows[0].cluster == "FPGA_PWR_BANK"
+
+
+def test_identification_reaches_the_entity_page_on_its_next_open(
+        main_window, tmp_path):
+    """Condition 2 of the step-3 fork (Денис, 09.10.2026): identification on the
+    CELL page saves the pair through remember_cell_instance, and the ENTITY page's
+    Refs tab shows those refs on its next open — no board read, and WITHOUT the old
+    immediate prefill ("Source" itself goes in step 5)."""
+    root = tmp_path / "root.sexp"
+    _write(root, _entity_cell_data())
+    remember_cell_instance(root, "cell1", SimpleNamespace(
+        cluster="FPGA_PWR_BANK", sheet="FPGA",
+        role_to_ref={"C_BULK": "C74", "C_BYPASS": "C58"}))
+    adapter = _RecordingAdapter()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+
+    page = _entity_page(main_window, root)
+    page.load_entity("E1")
+
+    assert adapter.calls == [], f"the UI thread read the board: {adapter.calls}"
+    assert page._refs_tab.row_refs() == ["C74", "C58"]
 
 
 def test_c2k_fill_from_selection_fills_an_empty_table_and_never_a_filled_one(
-        main_window, tmp_path):
-    """Р2: "Fill from selection" on the Source tab fills the Refs table from the
-    identified pair ONLY when the table is empty — a table the user has already
-    typed into is theirs."""
+        main_window):
+    """Р2, retained by step 3: the fill puts an identified pair into an EMPTY Refs
+    table and NEVER overwrites a table the user typed into. Driven at the WIDGET,
+    because the cell page no longer prefills it — the pair reaches the entity page
+    through the saved instance instead (see the cell above)."""
+    tab = _tab(main_window, records=_records(("C74", "C_BULK", "FPGA_PWR_BANK"),
+                                             ("C58", "C_BYPASS", "FPGA_PWR_BANK")))
+    tab.clear_rows()                 # the empty table the prefill requires
+
+    tab.fill_from_refs({"C_BULK": "C74", "C_BYPASS": "C58"})
+    assert tab.row_refs() == ["C74", "C58"]
+
+    _role_combo(tab, 0).setCurrentText("C_BYPASS")
+    tab.fill_from_refs({"C_BULK": "C99"})
+
+    assert tab.row_refs() == ["C74", "C58"]      # not overwritten
+    assert tab.rows[0].role == "C_BYPASS"
+
+
+def test_the_refs_tab_moved_to_the_entity_page(main_window, tmp_path):
+    """Step 3 of plan_2026_10_09_entity_page: the ONE Refs tab is on the ENTITY
+    page, and the CELL page no longer carries one (mutation «the tab stayed on the
+    cell page» / «two tabs»)."""
     root = tmp_path / "root.sexp"
-    _write(root, _cell_data())
+    _write(root, _entity_cell_data())
+
+    page = _entity_page(main_window, root)
+    assert "Refs" in [page.tabs.tabText(i) for i in range(page.tabs.count())]
+
     # parent=main_window ON PURPOSE — see the note in the _tab helper above.
     view = CellAnchorView(main_window, connection=main_window.connection,
                           parent=main_window)
     view.set_root_path(root)
     view.load_entry("cell1", root)
-    view.refresh_known_roles([
-        SimpleNamespace(ref="C74", role="C_BULK", cluster="FPGA_PWR_BANK",
-                        sheet=["FPGA"]),
-        SimpleNamespace(ref="C58", role="C_BYPASS", cluster="FPGA_PWR_BANK",
-                        sheet=["FPGA"]),
-    ])
-    ident = SimpleNamespace(cluster="FPGA_PWR_BANK", sheet="FPGA",
-                            role_to_ref={"C_BULK": "C74", "C_BYPASS": "C58"})
-
-    view._refs_tab.fill_from_refs(ident.role_to_ref)
-    assert view._refs_tab.row_refs() == ["C74", "C58"]
-
-    _role_combo(view._refs_tab, 0).setCurrentText("C_BYPASS")
-    view._refs_tab.fill_from_refs({"C_BULK": "C99"})
-
-    assert view._refs_tab.row_refs() == ["C74", "C58"]      # not overwritten
-    assert view._refs_tab.rows[0].role == "C_BYPASS"
-
-
-def test_the_tab_is_the_second_tab_of_the_editor(main_window, tmp_path):
-    root = tmp_path / "root.sexp"
-    _write(root, _cell_data())
-    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
-    view = CellAnchorView(main_window, connection=main_window.connection,
-                          parent=main_window)
-    view.set_root_path(root)
-    view.load_entry("cell1", root)
-
-    titles = [view._tabs.tabText(i) for i in range(view._tabs.count())]
-    assert titles[:2] == ["Source", "Refs"]
+    cell_titles = [view._tabs.tabText(i) for i in range(view._tabs.count())]
+    assert "Refs" not in cell_titles, (
+        "the cell page still carries a Refs tab — the table lives on the entity "
+        "page now")
 
 
 class _FailingSelectionAdapter(_FakeAdapter):

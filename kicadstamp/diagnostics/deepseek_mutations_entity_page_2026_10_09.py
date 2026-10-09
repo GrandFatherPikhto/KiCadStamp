@@ -1,7 +1,8 @@
 # kicadstamp/diagnostics/deepseek_mutations_entity_page_2026_10_09.py
-"""Acceptance mutations for plan_2026_10_09_entity_page.md, ШАГ 1
+"""Acceptance mutations for plan_2026_10_09_entity_page.md, ШАГИ 1-3
 (страница сущности: перенос в gui/entity/page.py + комбобокс ячейки на потоке
-change_cell_flow), 2026-10-09.
+change_cell_flow; ШАГ 2 — Explode на странице сущности; ШАГ 3 — таб «Refs» со
+страницы ячейки на страницу сущности), 2026-10-09.
 
 Grown from deepseek_mutations_cells_entities_part1_2026_10_09.py (rule 38): the
 SAME machinery — basename-resolved tests under tests/, `_drop_pyc` for the
@@ -21,7 +22,13 @@ editor).
   * M6  текущая ячейка не помечена (current=False)          -> текущей нет
   * M7  open_tab снова открывает страницу ЯЧЕЙКИ             -> не та страница
   * M8  адрес Explode не от сущности (cluster=None)         -> чужой адрес
+  * M9  таб Refs не добавлен на страницу сущности           -> таба нет
+  * M10 адрес Refs не от ячейки ЗАПИСИ (cell=None)          -> ролей нет
+  * M11 записи снимка не доходят до таба                    -> колонки пусты
+  * M12 stop reload_overrides не перецелен                  -> чужая копия
+  * M13 хук записи таба не поднят                           -> владельцы молчат
   * K1  cosmetic comment (control)                          -> MUST survive
+  * K2  cosmetic comment в _sync_refs_tab (control)         -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
 `KICADSTAMP_ACCEPT_ROOT`. An optional row-name prefix filter takes the rest of
@@ -51,11 +58,18 @@ PART2 = ["test_change_cell.py", "test_entities_under_cells.py"]
 # the pure rule) — PART2 alone has no such cell, so M5 would survive there.
 CHOICE = ["test_instance_candidates.py", "test_entity_page_cell_combo.py"]
 EXPLODE = ["test_explode_page.py"]
+# ШАГ 3: the Refs table's own guards plus the dashboard that pins the whole hub
+# wiring; the store inventory is derived from the source (test_overrides_store_
+# reload.py) and driven end to end (test_overrides_store_reload_gui.py).
+REFS = ["test_entity_page_refs_tab.py", "test_cell_refs_tab.py"]
+REFS_WIRED = ["test_entity_page_refs_tab.py", "test_phase3_wiring.py"]
+STORE_CHAIN = ["test_overrides_store_reload.py", "test_overrides_store_reload_gui.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
 PURE = "gui/docks/instance_candidates.py"
 WIRING = "gui/explode_wiring.py"
+HUB = "gui/dock_hub.py"
 
 MUTATIONS = [
     ("M1 комбобокс пишет мимо apply_cell_change", PAGE,
@@ -95,10 +109,34 @@ MUTATIONS = [
      '            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),\n',
      '            raw.get("cell"), None, raw.get("sheet"),  # MUTATION\n',
      "die", EXPLODE, ()),
+    ("M9 таб Refs не добавлен на страницу сущности", PAGE,
+     '        self.tabs.addTab(widget, _("Refs"))\n',
+     "        pass  # MUTATION: the tab is never added\n",
+     "die", REFS, ()),
+    ("M10 адрес Refs не от ячейки ЗАПИСИ", PAGE,
+     "        cell_name = (self._entity_data or {}).get(\"cell\")\n",
+     "        cell_name = None  # MUTATION\n",
+     "die", REFS, ()),
+    ("M11 записи снимка не доходят до таба", PAGE,
+     "        return records_from_items(self._resolved_snapshot or self._board_snapshot())\n",
+     "        return records_from_items([])  # MUTATION\n",
+     "die", REFS_WIRED, ()),
+    ("M12 stop reload_overrides не перецелен", HUB,
+     "                        self.entity_dock.reload_overrides)\n",
+     "                        self.fieldstool_dock.window.reload_overrides)  # MUTATION\n",
+     "die", STORE_CHAIN, ()),
+    ("M13 хук записи таба не поднят", PAGE,
+     "        widget.on_overrides_written = self._on_refs_written\n",
+     "        pass  # MUTATION: the store-write half is not wired\n",
+     "die", REFS, ()),
     ("K1 cosmetic comment (control)", PAGE,
      "        self._cell_orphan = choices.orphan\n",
      "        self._cell_orphan = choices.orphan  # control\n",
      "survive", COMBO, ()),
+    ("K2 cosmetic comment в _sync_refs_tab (control)", PAGE,
+     "        if self._refs_tab is None:\n",
+     "        if self._refs_tab is None:  # control\n",
+     "survive", REFS, ()),
 ]
 
 

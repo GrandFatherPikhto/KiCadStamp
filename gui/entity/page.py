@@ -18,6 +18,12 @@ Shows the Entity RECORD, not its placement:
     designed for N once the rule is relaxed to per-tree uniqueness (§8.1).
     Clicking a placement jumps to that tree in TreesDock.
 
+The board-touching TABS the entity owns (the address is visible HERE, so the tabs
+came over from the Cell page): "Explode" (step 2) and "Refs" (step 3) — the latter
+the ONE RefsTabWidget, handed in by DockHub through add_refs_tab and fed the
+ENTITY's cell (roles of the WHOLE cell, Р2), this page's snapshot and the project's
+override store. Anchor joins in step 4.
+
 Deliberately NOT shown: Retired/Skip and the electrical overrides
 (nets/net_overrides/refs) — electrical editing stays in the Tools "Edit
 template" dock (kept in the Tools menu, design §8.3). Positioning/anchor of
@@ -38,14 +44,18 @@ from kicadstamp.config import load_config, load_entity
 from kicadstamp.config.aliases import read_entity_field
 from kicadstamp.config_writer import read_data, upsert_entity
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.field_overrides import load_field_overrides
 from kicadstamp.i18n import _
+from kicadstamp.utils.paths import overrides_path_for_config
 
 from ..docks._common import (ERROR_STYLE as _ERROR_STYLE,
                              SUCCESS_STYLE as _SUCCESS_STYLE)
-from ..docks.change_cell_flow import apply_cell_change, cell_choices
+from ..docks.change_cell_flow import (apply_cell_change, cell_choices,
+                                      cell_role_order)
 from ..docks.instance_candidates import (cell_row_label, others_line,
                                          others_tooltip)
 from ..docks.rename import find_list_entry_file
+from ..role_table_model import records_from_items
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +89,21 @@ class EntityPage(QWidget):
         # Whether the combobox offers every cell because the fit was never
         # checked (no snapshot / dangling graph / orphan instance).
         self._cell_orphan = True
+        # The board snapshot this page was last fed (refresh_known_roles) and its
+        # SHEET-RESOLVED twin — the Refs tab's board columns come from here, never
+        # from a board read on the UI thread (door rule 31).
+        self._snapshot: list = []
+        self._resolved_snapshot: list = []
+        # The config's {uuid: name} sheet map and the project's OVERRIDE STORE
+        # (both hang off the root; loaded in set_root_path) — the Refs tab is fed
+        # them so its "differs" marks and Role hints follow the project.
+        self._sheet_names: dict = {}
+        self._overrides = None
+        # The two write events the Refs tab raises reach these hooks; DockHub owns
+        # the wiring (each to its OWN owner — the store one and the board one,
+        # never one callback standing in for the other).
+        self.on_board_written = None
+        self.on_overrides_written = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -91,8 +116,9 @@ class EntityPage(QWidget):
 
         # The page is TABBED (step 2 of plan_2026_10_09_entity_page): "Справка" +
         # the Cell combobox first, "Размещения" second; the board-touching tabs
-        # DockHub hands in ("Explode" now, Refs/Anchor in steps 3-4) are added by
-        # add_explode_tab. "Справка" stays index 0, so it is the visible one.
+        # DockHub hands in ("Explode", "Refs" now, "Anchor" in step 4) are added by
+        # add_explode_tab / add_refs_tab. "Справка" stays index 0, so it is the one
+        # visible on open.
         self.tabs = QTabWidget()
         self.tabs.setObjectName("entity_page_tabs")
         layout.addWidget(self.tabs)
@@ -153,8 +179,10 @@ class EntityPage(QWidget):
         placements_layout.addStretch(1)
         self.tabs.addTab(placements, _("Placements"))
 
-        # The board-touching tabs DockHub hands in (the "Explode" page now).
+        # The board-touching tabs DockHub hands in (the "Explode" page and, since
+        # step 3 of plan_2026_10_09_entity_page, the ONE "Refs" tab).
         self._explode_page = None
+        self._refs_tab = None
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
@@ -164,13 +192,28 @@ class EntityPage(QWidget):
     # ── Root / load ─────────────────────────────────────────────────────────
 
     def set_root_path(self, path: Optional[Path]) -> None:
-        """Wired to RootMetadataDock's root_changed — clears the form (the
-        record may have moved/vanished with the new root)."""
+        """Wired to RootMetadataDock's root_changed — clears the form (the record
+        may have moved/vanished with the new root) and re-scopes the Refs tab: a
+        different project means different cell roles, a different sheet map and a
+        different override store."""
         self._root_path = path
         self._entity_data = {}
         self._entity_file = None
         self._current_name = None
         self._clear_form()
+        self._snapshot = []
+        self._resolved_snapshot = []
+        self._sheet_names = {}
+        self._overrides = (load_field_overrides(overrides_path_for_config(str(path)))
+                           if path is not None else None)
+        if path is not None:
+            try:
+                _cfg, ctx = load_config(str(path))
+            except (ValidationError, OSError):
+                ctx = None
+            if ctx is not None:
+                self._sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
+        self._sync_refs_tab()
 
     def _hub(self):
         """The DockHub behind the window (None in a bare widget test) — the
@@ -233,6 +276,7 @@ class EntityPage(QWidget):
         self._fill_cell_combo()
         self._load_placements(name)
         self._sync_explode_context()
+        self._sync_refs_tab()
 
     def _fill_cell_combo(self) -> None:
         """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
@@ -308,6 +352,106 @@ class EntityPage(QWidget):
         self._explode_page.set_context(
             raw.get("cell"), raw.get("cluster"), raw.get("sheet"),
             self._entity_file)
+
+    # ── The "Refs" tab (step 3 of plan_2026_10_09_entity_page) ──────────────
+    def add_refs_tab(self, widget) -> None:
+        """DockHub hands the ONE RefsTabWidget over (the same widget the CELL page
+        used to own); the page ONLY adds it and syncs it. The address it is told is
+        the loaded entity RECORD's cell, never a dropdown (Р2: the roles are the
+        roles of the WHOLE cell, shared by every entity of it)."""
+        self._refs_tab = widget
+        # BOTH of the tab's write events land in the page's own handler: a STORE
+        # record fires on_overrides_written and a BOARD write fires on_board_written
+        # (gui/docks/cell_refs_tab.py). The CELL page wired only the board half,
+        # which left a store write unnotified — the move fixes that, and DockHub
+        # then routes each page hook to its OWN owner.
+        widget.on_overrides_written = self._on_refs_written
+        widget.on_board_written = self._on_refs_written
+        self.tabs.addTab(widget, _("Refs"))
+        self._sync_refs_tab()
+
+    def refresh_known_roles(self, snapshot) -> None:
+        """Feed the Refs tab the live-board snapshot (wired into
+        DockHub.push_snapshot like every other dock's own refresh_known_roles).
+        The snapshot is STORED and re-resolved against the cached config sheet map
+        — a live Board's own .sheet is all-None — and the tab then reads its board
+        columns from THIS page's copy, never from the board (door rule 31)."""
+        self._snapshot = list(snapshot or [])
+        if self._sheet_names and all(hasattr(s, "fp") for s in self._snapshot):
+            from ..docks.imprint import snapshot_with_resolved_sheets
+            self._resolved_snapshot = snapshot_with_resolved_sheets(
+                self._snapshot, self._sheet_names)
+        else:
+            # No sheet map, or a synthetic snapshot without the raw .fp handle
+            # (some guards) — nothing to re-resolve, use it as-is.
+            self._resolved_snapshot = list(self._snapshot)
+        self._sync_refs_tab()
+
+    def reload_overrides(self) -> None:
+        """Re-read the project's override store from its FILE and hand the fresh
+        copy to the Refs tab. The stop for "another pane recorded": our object was
+        loaded when the project opened, and the file is the truth — a no-op without
+        a project."""
+        if self._root_path is None:
+            return
+        self._overrides = load_field_overrides(
+            overrides_path_for_config(str(self._root_path)))
+        if self._refs_tab is not None:
+            self._refs_tab.set_overrides(self._overrides)
+
+    def _on_refs_written(self) -> None:
+        """The Refs tab wrote (a store record or a board write): hand the news to
+        the page's two hooks, each with its OWN owner — on_overrides_written
+        (DockHub re-reads that store wherever another pane holds a copy) and
+        on_board_written (MainWindow.request_refresh, so Pending changes is
+        recomputed). Deliberately NO form reload: unlike the cell page, an entity
+        RECORD is not touched by a Role/Cluster write."""
+        if self.on_overrides_written:
+            self.on_overrides_written()
+        if self.on_board_written:
+            self.on_board_written()
+
+    def _sync_refs_tab(self) -> None:
+        """Hand the "Refs" tab the context this page holds — the root, the ENTITY's
+        cell (roles of the WHOLE cell, Р2), the board snapshot and the override
+        store. UI thread only, and only data already read: the tab answers "what
+        does the board say about this row" from the snapshot this page was fed, so
+        no board access is needed to render it."""
+        if self._refs_tab is None:
+            return
+        cell_name = (self._entity_data or {}).get("cell")
+        self._refs_tab.set_context(
+            self._root_path, cell_name, self._cell_roles(cell_name),
+            self._refs_records(), sheet_names=self._sheet_names,
+            overrides=self._overrides)
+
+    def _refs_records(self) -> list:
+        """This page's own snapshot as role-table records — the SHEET-RESOLVED
+        copy when it carries raw handles (the tab needs the two field-existence
+        flags, which a bare SelectionRecord does not carry)."""
+        return records_from_items(self._resolved_snapshot or self._board_snapshot())
+
+    def _board_snapshot(self) -> list:
+        """The last PUSHED whole-board snapshot (connection.snapshot) — the copy
+        the GUI already holds, never a board read on the UI thread."""
+        return getattr(getattr(self._main_window, "connection", None),
+                       "snapshot", None) or []
+
+    def _cell_roles(self, cell_name: Optional[str]) -> list:
+        """The roles of the ENTITY's cell in the cell's own order (Р2) — the ONE
+        owner change_cell_flow.cell_role_order, read off the loaded graph. A missing
+        cell or a dangling graph offers no role hints (the tab then says the fit was
+        not checked), never a board read."""
+        if not cell_name or self._root_path is None:
+            return []
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError):
+            return []
+        cell = (getattr(cfg, "cells", None) or {}).get(cell_name)
+        if cell is None:
+            return []
+        return cell_role_order(getattr(cell, "components", None) or ())
 
     def _load_entity_dict(self, name: str) -> Optional[Tuple[Dict[str, Any], Optional[Path]]]:
         """(raw entities: dict, file) for `name` — same graph-wide lookup as

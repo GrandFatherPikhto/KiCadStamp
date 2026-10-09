@@ -1275,11 +1275,17 @@ def test_push_snapshot_feeds_cell_anchor_view(real_main_window, monkeypatch):
     received = []
     monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
                         lambda snapshot: received.append(snapshot))
+    # Step 3 of plan_2026_10_09_entity_page: the ENTITY page's "Refs" tab is fed on
+    # the same tick (its board columns come from this copy, never the board).
+    received_entity = []
+    monkeypatch.setattr(hub.entity_dock, "refresh_known_roles",
+                        lambda snapshot: received_entity.append(snapshot))
 
     snapshot = [SimpleNamespace(cluster="PIF_3V3_VDD", role="C1")]
     hub.push_snapshot(snapshot, [], [])
 
     assert received == [snapshot]
+    assert received_entity == [snapshot]
 
 
 def test_extract_cluster_existing_entity_reuse_writes_nothing(
@@ -1988,6 +1994,10 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     # combo is populated from the live snapshot on the same tick.
     monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
                         lambda s: pushed.setdefault("anchor_roles", []).append(s))
+    # entity_dock (step 3 of plan_2026_10_09_entity_page) — the entity page's
+    # "Refs" tab is fed the live snapshot on the same tick.
+    monkeypatch.setattr(hub.entity_dock, "refresh_known_roles",
+                        lambda s: pushed.setdefault("entity_roles", []).append(s))
 
     # The NET lists are the worker-collected names, not a board handle
     # (plan_2026_09_13_ui_thread_net_reads Э2) — three docks share one list,
@@ -2001,6 +2011,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["points_roles"] == [snapshot]
     assert pushed["cells_roles"] == [snapshot]
     assert pushed["anchor_roles"] == [snapshot]
+    assert pushed["entity_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
     assert pushed["net_trace_nets"] == [copper_net_names]
     assert pushed["tools_nets"] == [net_names]
