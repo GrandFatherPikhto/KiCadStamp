@@ -130,10 +130,6 @@ _REHANG_BUSY_TEXT = _(
 _KIND_TAGS = {
     "clone": _("clone"),
     "placement": _("placement"),
-    "chain": _("chain"),
-    # Legacy kind alias (2026-09-01 Rule -> Chain rename): a tree node still
-    # carrying kind "rule" shows the chain tag too.
-    "rule": _("chain"),
     "coordinate": _("coordinate"),
     "point": _("point"),
     "external": _("external"),
@@ -180,8 +176,7 @@ _KIND_TAGS = {
 # effective name IS the node's ref, so `--only <node name>` resolves it — no
 # special case needed here at all.
 _REDRAWABLE_NODE_KINDS = frozenset(
-    {"placement", "clone", "chain", "rule", "coordinate", "net_trace", "module",
-     "component"})
+    {"placement", "clone", "coordinate", "net_trace", "module", "component"})
 
 # Node kinds that carry NO coordinates, so the node form neither collects nor
 # asks for any (2026-09-16, plan_2026_09_16_copper_node_order_and_container
@@ -946,7 +941,7 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     A note on the historic path: `resolve_base_live_position` /
     `resolve_base_rotation_deg` stay on THIS module's names, so the existing
     tests' monkeypatches of them keep driving the pass-through kinds (clone/
-    chain/coordinate/point/external/rule)."""
+    coordinate/point/external)."""
     child_record, _is_external = (None, False) if component_address is not None \
         else _resolve_probe_ref(cfg, ref, kind)
 
@@ -1391,7 +1386,7 @@ class TreesDock(QWidget):
             # on the left (widget(0), so _tree_widget_of_page finds it), and ONE
             # form panel on the right (widget(1)). The panel is a QStackedWidget
             # used as a single-visible-page container (the project's master-detail
-            # idiom, as in ChainDock/ConfigTreeDock): there is NO Anchor|Node tab
+            # idiom, as in ConfigTreeDock): there is NO Anchor|Node tab
             # bar any more — WHICH form is shown follows the SELECTION (Z.3.2),
             # never a tab the user has to pick. The content is filled lazily for
             # the active page (Z.3.4, `_panel_built`); the placeholder page below
@@ -2088,7 +2083,7 @@ class TreesDock(QWidget):
     # Each tree page (Z.3.1) is a QSplitter: the tree on the left (widget(0)),
     # ONE form panel on the right (widget(1)) — a QStackedWidget used as a
     # single-visible-page container (the project's master-detail idiom, as in
-    # ChainDock/ConfigTreeDock). There is NO Anchor|Node tab bar: WHICH form is
+    # ConfigTreeDock). There is NO Anchor|Node tab bar: WHICH form is
     # shown follows the SELECTION (Z.3.2), so the panel is re-filled on a tree
     # switch (new tree) and on a selection change (which node/root row). The
     # forms are built LAZILY for the ACTIVE page only — candidates are collected
@@ -6659,9 +6654,6 @@ class AnchorFormWidget(QWidget):
     use, just as a plain QWidget."""
     _KIND_LABELS = {
         "placement": _("Entity"),
-        "chain": _("Chain"),
-        # Legacy kind alias (2026-09-01 Rule -> Chain rename).
-        "rule": _("Chain"),
         "coordinate": _("Coordinate"),
         "point": _("Point"),
         "clone": _("Clone"),

@@ -759,23 +759,20 @@ class TestNetTrace:
                            match="anchor sheet|not in net_traces"):
             load_config(str(p))
 
-    def test_non_net_trace_kinds_stay_fatal(self, tmp_path):
-        """Regression: only net_trace is lifted out of the v1 kind ban —
-        a module node inside a template is still a fatal (the existing
-        test_non_placement_node_kind_is_fatal covers 'module' via node_kind;
-        this pins the same for 'chain' beside a valid net_trace node)."""
+    def test_retired_node_kind_stays_fatal(self, tmp_path):
+        """Regression: only net_trace is lifted out of the v1 kind ban — a node
+        of a kind that no longer exists (chain) inside a template is still a
+        fatal (the existing test_non_placement_node_kind_is_fatal covers
+        'module' via node_kind; this pins the retired-kind refusal beside a
+        valid net_trace node)."""
         data = _net_trace_template_data(
             [{"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}])
         data["trees"][0]["nodes"].append(
             {"ref": "other", "kind": "chain", "xy": [3.0, 4.0]})
         p = _write(tmp_path, "t.sexp", data)
-        # Refusal check: format 2 "unsupported node kind 'chain'"; format 3
-        # catches a dangling ref first — either the chain node ("not in chains")
-        # or, since this fixture's net_trace node is a legacy literal-net record
-        # that format 3 mints a name for, that node ("not in net_traces").
-        with pytest.raises(ValidationError,
-                           match="unsupported node kind 'chain'|not in chains"
-                                 "|not in net_traces"):
+        # Д1 (2026-10-10): the retired node kind is refused at the ONE "text ->
+        # dict" point, naming the file, the tree and the node.
+        with pytest.raises(ValidationError, match="retired kind 'chain'"):
             load_config(str(p))
 
 

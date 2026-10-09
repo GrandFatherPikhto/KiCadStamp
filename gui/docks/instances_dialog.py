@@ -42,7 +42,7 @@ _COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR = range(5)
 
 # The record kinds an anchor's (ref ...) mode may name — the same set the
 # AnchorFormWidget's kind filter offers (trees_dock._PLACEABLE_KINDS).
-_ANCHOR_REF_KINDS = ("placement", "chain", "coordinate", "point", "clone")
+_ANCHOR_REF_KINDS = ("placement", "coordinate", "point", "clone")
 
 # Returned by _edit_anchor() when the user cancelled — distinct from None,
 # which means "inherit the template's anchor" (an explicit user choice).

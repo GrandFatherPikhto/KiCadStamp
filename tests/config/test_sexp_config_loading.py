@@ -207,3 +207,35 @@ def test_yaml_config_is_fatal(tmp_path):
     yaml_path = _write(tmp_path, "config.yaml", MINIMAL_YAML)
     with pytest.raises(ValidationError, match="sexp_config_convert.py"):
         load_config(str(yaml_path))
+
+
+def test_retired_tree_node_kind_is_refused_with_file_tree_and_ref(tmp_path):
+    """Д1 (2026-10-10, plan_2026_10_08_remove_spokes): a tree node of a kind
+    that no longer exists (`chain` / legacy `rule`) is refused at the ONE
+    "text -> dict" point (sexp_format.sexp_to_dict), and the message names the
+    FILE, the TREE and the node's REF — never a bare "invalid kind"."""
+    p = tmp_path / "root.sexp"
+    p.write_text(
+        '(kicadstamp-config (version 3)\n'
+        '  (trees (tree (name "t") (anchor (origin))\n'
+        '    (node (ref "CH") (kind chain)))))\n',
+        encoding="utf-8")
+    with pytest.raises(ValidationError) as excinfo:
+        load_config(str(p))
+    msg = str(excinfo.value)
+    assert "retired kind 'chain'" in msg
+    assert str(p) in msg          # the FILE
+    assert "tree 't'" in msg      # the TREE
+    assert "'CH'" in msg          # the node's REF
+
+
+def test_a_valid_tree_node_kind_still_loads(tmp_path):
+    """Control for the cell above: a tree whose node kind still exists loads."""
+    p = tmp_path / "root.sexp"
+    p.write_text(
+        '(kicadstamp-config (version 3)\n'
+        '  (trees (tree (name "t") (anchor (origin))\n'
+        '    (node (ref "U3") (kind external) (xy 1 2)))))\n',
+        encoding="utf-8")
+    cfg, _ctx = load_config(str(p))
+    assert cfg.trees[0].nodes[0].kind == "external"

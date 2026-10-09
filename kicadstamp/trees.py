@@ -27,7 +27,7 @@ Syntactic rules enforced here (fatal via ValidationError):
      a mount/copper ref must still be unique WITHIN its tree and must not
      collide with a positioned node's ref there (see _validate_local_refs)
   3. xy / polar are mutually exclusive, each exactly 2 numbers
-  4. kind, if present, is one of clone/placement/chain/coordinate/net_trace/
+  4. kind, if present, is one of clone/placement/coordinate/net_trace/
      point/external/module/mount/copper (see KINDS)
   5. cycles are impossible by construction (nested s-expr structure)
   6. a nested (anchor (role ...)) is valid ONLY on a kind "mount" node; on any
@@ -100,7 +100,7 @@ if TYPE_CHECKING:
 # redraw and emits its own name into the redraw plan (Э3/Р2) — the placement
 # itself is materialized as a TRANSIENT CoordinatePlacement (zero phase), never
 # written into the config.
-KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point",
+KINDS = ("clone", "placement", "coordinate", "net_trace", "point",
          "external", "module", "mount", "copper", "component")
 
 # Kinds whose ref is a NAME local to the trees file instead of a config record,
@@ -114,12 +114,6 @@ KINDS = ("clone", "placement", "chain", "coordinate", "net_trace", "point",
 # for s-expr, _dict_node for the dict bridge) — a second copy of it is exactly
 # how the two shapes drift apart.
 _LOCAL_REF_KINDS = ("module", "mount", "copper", "component")
-
-# Legacy kind alias for the 2026-09-01 Rule -> Chain rename: tree nodes written
-# with kind "rule" (the old record kind) are still accepted at parse time (a
-# profile saved before the rename may carry them); link_trees maps them to the
-# canonical "chain:" record key prefix (see link_trees._resolve_node_ref).
-LEGACY_KINDS = ("rule",)
 
 _OFFSET_KEYS = ("xy", "polar")
 
@@ -201,7 +195,7 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"chain"/"coordinate"/"point"/"external"/"module"/"mount"/"copper", or None (auto)
+    kind: str | None       # "clone"/"coordinate"/"point"/"external"/"module"/"mount"/"copper"/"component", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
@@ -269,11 +263,17 @@ def _fatal(message: str) -> None:
 
 def _parse_kind(node) -> str | None:
     """node's (kind ...) value, validated against the whitelist. None when
-    the node carries no kind (auto-resolve by name in link_trees)."""
+    the node carries no kind (auto-resolve by name in link_trees).
+
+    The RETIRED kinds (`chain` / legacy `rule`) are still PARSED here — the ONE
+    refusal lives in config/retired_sections (called from sexp_to_dict), so a
+    file that still carries such a node is refused with the file + tree + ref,
+    never as a bare "invalid kind"."""
     raw = atom(node, "kind")
     if raw is None:
         return None
-    if raw not in KINDS and raw not in LEGACY_KINDS:
+    from .config.retired_sections import RETIRED_NODE_KINDS
+    if raw not in KINDS and raw not in RETIRED_NODE_KINDS:
         _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
                .format(ref=atom(node, "ref"), kind=raw, kinds=", ".join(KINDS)))
     return raw
@@ -2096,9 +2096,13 @@ def _dict_node(data: dict, seen_refs: set[str], location: str) -> TreeNode:
     ref_uuid = data.get("ref_uuid")
 
     raw_kind = data.get("kind")
-    if raw_kind is not None and raw_kind not in KINDS and raw_kind not in LEGACY_KINDS:
-        _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
-               .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
+    if raw_kind is not None:
+        # Retired kinds (chain / legacy rule) parse here too — the ONE refusal
+        # is config/retired_sections' (see _parse_kind).
+        from .config.retired_sections import RETIRED_NODE_KINDS
+        if raw_kind not in KINDS and raw_kind not in RETIRED_NODE_KINDS:
+            _fatal(_("node {ref!r}: invalid kind {kind!r} — expected one of {kinds}")
+                   .format(ref=ref, kind=raw_kind, kinds=", ".join(KINDS)))
     # Mirror of the s-expr _parse_node: a module node's ref is a TREE name and a
     # mount/copper node's ref is a local NAME — none of them is a record, so
     # exempt them from the file-wide seen_refs (rule 2) check here too (the same

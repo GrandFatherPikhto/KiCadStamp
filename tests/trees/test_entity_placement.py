@@ -14,7 +14,8 @@ import pytest
 from kipy.board_types import FootprintInstance
 
 from kicadstamp.apply_pipeline import apply_cluster_filter, apply_only_filter
-from kicadstamp.config import Cell, ClonePlacement, Config, Entity, Point, Rule, TemplateComponentSlot
+from kicadstamp.config import (Cell, ClonePlacement, Config, CoordinatePlacement,
+                               Entity, Point, TemplateComponentSlot)
 from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import PlacerError, ValidationError
@@ -521,29 +522,30 @@ def test_real_profile_role_anchor_tree_materializes_at_ic1_live_position():
 
 def _mixed_tree_cfg():
     """The REAL fpga-tree shape (bug #3, 2026-08-30): ONE tree mixes a
-    kind="placement" node (an Entity) with a kind="rule" node (a rules: entry)
-    — a neighbor section of the SAME tree."""
+    kind="placement" node (an Entity) with a kind="coordinate" node (a
+    coordinate_placements: entry) — a neighbor section of the SAME tree."""
     # §0 record identity (Р-У5.7): the pipeline's anchor-id builders refuse a
     # record without a uuid under the format-3 gate; inert under format 2.
     return stamp_config(Config(
         cells={"c": _cell("c")},
         entities=[Entity(name="E1", cell="c", cluster="CH0")],
-        chains=[Rule(name="R1", net="+3V3_VCCIO", spokes=[])],
+        coordinate_placements=[CoordinatePlacement(name="R1", cluster="CH1", role="R")],
         trees=[Tree(name="t", anchor=TreeAnchor(is_origin=True),
                     nodes=[_node(ref="E1", xy=(1.0, 0.0)),
-                           _node(ref="R1", kind="rule", xy=(2.0, 0.0))])],
+                           _node(ref="R1", kind="coordinate", xy=(2.0, 0.0))])],
     ))
 
 
-def test_only_on_placement_narrows_neighbor_rule_section():
+def test_only_on_placement_narrows_neighbor_coordinate_section():
     """Real-profile bug #3 (2026-08-30): --only on a placement node narrows a
-    NEIGHBOR section (rules:) of the SAME tree. Materializing from the narrowed
-    cfg would fatal on the rule node (link_trees "Node ... not found in config")
-    — the OLD apply_pipeline behavior; the fix materializes from the FULL cfg,
-    which resolves the rule node and still yields only the placement."""
+    NEIGHBOR section (coordinate_placements:) of the SAME tree. Materializing
+    from the narrowed cfg would fatal on the coordinate node (link_trees "Node
+    ... not found in config") — the OLD apply_pipeline behavior; the fix
+    materializes from the FULL cfg, which resolves the node and still yields
+    only the placement."""
     cfg = _mixed_tree_cfg()
     narrowed = apply_only_filter(cfg, ["E1"])
-    assert narrowed.rules == []                        # the neighbor section narrowed
+    assert narrowed.coordinate_placements == []        # the neighbor section narrowed
     assert {e.name for e in narrowed.entities} == {"E1"}
     with pytest.raises(ValidationError, match="not found in config"):
         materialize_entity_placements(None, narrowed, {})
@@ -567,8 +569,8 @@ def test_resolve_order_materializes_from_full_cfg_not_only_narrowed():
     pipeline.adapter = None
     pipeline._load_config()
     pipeline._filter_config()
-    # the bug's precondition: the neighbor (rule) section IS narrowed away
-    assert pipeline.cfg.rules == []
+    # the bug's precondition: the neighbor (coordinate) section IS narrowed away
+    assert pipeline.cfg.coordinate_placements == []
     assert pipeline._full_cfg is cfg                   # the full cfg is preserved
     with patch("kicadstamp.apply_pipeline.resolve_execution_order", return_value=[]):
         pipeline._resolve_order()                      # must not fatal

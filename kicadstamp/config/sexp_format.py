@@ -1296,6 +1296,12 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
         else:
             out[key] = _parse_free_field(child, path)
 
+    # Д1 (2026-10-10): a tree node of a retired kind (chain / legacy rule) is
+    # refused HERE — the ONE "text -> dict" point every reader (loader, writer,
+    # on-disk lift, GUI, CLI) passes through. See config/retired_sections.py.
+    from .retired_sections import refuse_retired_node_kinds
+    refuse_retired_node_kinds(out.get("trees"), file_path)
+
     # The number, once, after the whole root is read: the node may sit anywhere
     # (see the docstring), so the lift cannot happen mid-loop.
     version = version_seen[0] if version_seen else 1

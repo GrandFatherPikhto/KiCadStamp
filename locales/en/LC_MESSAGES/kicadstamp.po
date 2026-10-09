@@ -17999,6 +17999,28 @@ msgstr "Generated: {path}"
 msgid "Total spokes: {count}"
 msgstr "Total spokes: {count}"
 
+#: kicadstamp/config/retired_sections.py
+msgid "remove them or open the profile with an older build"
+msgstr "remove them or open the profile with an older build"
+
+#: kicadstamp/config/retired_sections.py
+#, python-brace-format
+msgid ""
+"config {path}: the {label} section is no longer supported "
+"({count} entry/entries: {names})"
+msgstr ""
+"config {path}: the {label} section is no longer supported "
+"({count} entry/entries: {names})"
+
+#: kicadstamp/config/retired_sections.py
+#, python-brace-format
+msgid ""
+"config {path}: tree {tree!r} has a node {ref!r} of the retired kind "
+"{kind!r} ({label})"
+msgstr ""
+"config {path}: tree {tree!r} has a node {ref!r} of the retired kind "
+"{kind!r} ({label})"
+
 #~ msgid "no config record places {cell} — nothing to explode"
 #~ msgstr ""
 

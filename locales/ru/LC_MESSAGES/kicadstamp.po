@@ -18926,6 +18926,28 @@ msgstr "Сгенерировано: {path}"
 msgid "Total spokes: {count}"
 msgstr "Всего спиц: {count}"
 
+#: kicadstamp/config/retired_sections.py
+msgid "remove them or open the profile with an older build"
+msgstr "удалите их или откройте профиль более старой сборкой"
+
+#: kicadstamp/config/retired_sections.py
+#, python-brace-format
+msgid ""
+"config {path}: the {label} section is no longer supported "
+"({count} entry/entries: {names})"
+msgstr ""
+"config {path}: секция {label} больше не поддерживается "
+"({count} записей: {names})"
+
+#: kicadstamp/config/retired_sections.py
+#, python-brace-format
+msgid ""
+"config {path}: tree {tree!r} has a node {ref!r} of the retired kind "
+"{kind!r} ({label})"
+msgstr ""
+"config {path}: в дереве {tree!r} узел {ref!r} снятого вида "
+"{kind!r} ({label})"
+
 #~ msgid "no config record places {cell} — nothing to explode"
 #~ msgstr "ни одна запись конфига не ставит {cell} — разносить нечего"
 

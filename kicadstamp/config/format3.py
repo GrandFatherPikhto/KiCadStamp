@@ -40,7 +40,6 @@ _F3_REF_TARGET = {"cell": "cells", "imprint": "imprints", "anchor_point": "point
 # tree node kind -> the section its `ref_uuid` resolves in (Н2). Local kinds
 # (module/mount/copper/component) and "external" reference no record.
 _F3_NODE_KIND_TARGET = {"placement": "entities", "clone": "clone_placements",
-                        "chain": "chains", "rule": "chains",
                         "coordinate": "coordinate_placements",
                         "net_trace": "net_traces", "point": "points"}
 

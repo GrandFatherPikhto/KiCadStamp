@@ -67,8 +67,12 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # place a component, but owns no config record either: its ref is a local NAME
 # and the component it places is named by its own nested (anchor ...) address,
 # resolved against the live board later — never by a config record lookup here.
-_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module", "mount",
-                                 "copper", "component"}
+# "chain" is kept here even though its node KIND is gone (config/retired_sections,
+# 2026-10-10): the chains: RECORD still exists (removed with the record in Ч3/Б5),
+# so a kind-less node may still auto-resolve to one. A node that names a chain
+# EXPLICITLY is refused earlier, by sexp_to_dict.
+_PLACEABLE_KINDS = (set(KINDS) | {"chain"}) - {"external", "net_trace", "module",
+                                               "mount", "copper", "component"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).
@@ -146,9 +150,8 @@ def _did_you_mean(ref: str, candidates) -> str:
 
 
 def _names_of_kind(by_key: dict[str, Record], kind_key: str) -> list[str]:
-    """Names of every indexed record of ONE canonical kind — the candidate
-    pool for "did you mean" on an explicit-kind lookup ("chain" for a legacy
-    kind "rule", exactly like the lookup above). Reads the existing by_key
+    """Names of every indexed record of ONE kind — the candidate pool for
+    "did you mean" on an explicit-kind lookup. Reads the existing by_key
     index; no second index is built."""
     prefix = f"{kind_key}:"
     return [k[len(prefix):] for k in by_key if k.startswith(prefix)]
@@ -228,17 +231,14 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         return None, False
 
     if node.kind is not None:
-        # Legacy kind "rule" -> canonical "chain:" record key prefix (the
-        # 2026-09-01 Rule -> Chain rename; anchor_graph now emits "chain:").
-        kind_key = "chain" if node.kind == "rule" else node.kind
-        rec = by_key.get(f"{kind_key}:{ref}")
+        rec = by_key.get(f"{node.kind}:{ref}")
         if rec is None:
             # "did you mean" candidates: the OTHER names of this SAME kind —
             # the pool a typo is a misspelling of (live 2026-09-18: a node
             # (ref "mcu") (kind placement) should have named the entity
             # "mcu_mcu", and every sibling node in that tree followed the
             # "<cell>_mcu" pattern).
-            names = _names_of_kind(by_key, kind_key)
+            names = _names_of_kind(by_key, node.kind)
             _fatal(_("{location}node {ref!r} (kind {kind!r}) not found in "
                      "config{suggestion}")
                    .format(location=_location(where), ref=ref, kind=node.kind,

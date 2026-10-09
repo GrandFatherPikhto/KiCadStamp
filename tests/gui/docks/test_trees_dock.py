@@ -955,15 +955,15 @@ def test_anchor_dialog_point_mode_returns_point_anchor(main_window):
 
 def test_anchor_dialog_record_kind_filter_narrows_ref_combo(main_window):
     """Denis 2026-08-31: the Config-record ref combo is narrowed by record
-    kind (Rule -> only rules, etc.). The filter is a picker aid only — the
-    produced TreeAnchor is still a plain ref=name (the grammar has no kind)."""
+    kind (Entity -> only placements, etc.). The filter is a picker aid only —
+    the produced TreeAnchor is still a plain ref=name (the grammar has no kind)."""
     from gui.docks.trees_dock import _AnchorDialog
     candidates = [("clone", "CL_A"), ("clone", "SHARED"),
-                  ("rule", "R_B"), ("rule", "SHARED"),
+                  ("placement", "R_B"), ("placement", "SHARED"),
                   ("coordinate", "COORD_C"), ("point", "PNT_D")]
     dlg = _AnchorDialog(main_window, candidates)
     dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("rule"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     assert _combo_texts(dlg.ref_combo) == ["R_B", "SHARED"]
     dlg.ref_combo.setCurrentText("R_B")
     dlg._accept()
@@ -976,21 +976,21 @@ def test_anchor_dialog_all_kinds_prefixed_collisions(main_window):
     picking a prefixed entry auto-narrows the kind filter."""
     from gui.docks.trees_dock import _AnchorDialog
     candidates = [("clone", "CL_A"), ("clone", "SHARED"),
-                  ("rule", "R_B"), ("rule", "SHARED"),
+                  ("placement", "R_B"), ("placement", "SHARED"),
                   ("coordinate", "COORD_C"), ("point", "PNT_D")]
     dlg = _AnchorDialog(main_window, candidates)
     dlg.mode_combo.setCurrentIndex(dlg.mode_combo.findData("record"))
     assert dlg.kind_combo.currentData() is None  # "All kinds" by default
     assert _combo_texts(dlg.ref_combo) == [
-        "CL_A", "clone:SHARED", "R_B", "rule:SHARED", "COORD_C", "PNT_D",
+        "CL_A", "clone:SHARED", "R_B", "placement:SHARED", "COORD_C", "PNT_D",
     ]
     assert dlg.ref_combo.itemData(0) == (None, "CL_A")
     assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
-    assert dlg.ref_combo.itemData(3) == ("rule", "SHARED")
+    assert dlg.ref_combo.itemData(3) == ("placement", "SHARED")
 
-    collision_idx = _combo_texts(dlg.ref_combo).index("rule:SHARED")
+    collision_idx = _combo_texts(dlg.ref_combo).index("placement:SHARED")
     dlg.ref_combo.setCurrentIndex(collision_idx)
-    assert dlg.kind_combo.currentData() == "rule"   # auto-narrowed
+    assert dlg.kind_combo.currentData() == "placement"   # auto-narrowed
     assert dlg.ref_combo.currentText() == "SHARED"  # clean name
 
 
@@ -1026,10 +1026,10 @@ def test_anchor_dialog_prefills_record_with_kind(main_window):
     kind filter too — so a subsequent Save edits the same record, not a blind
     "All kinds" list."""
     from gui.docks.trees_dock import _AnchorDialog
-    dlg = _AnchorDialog(main_window, [("placement", "FPGA"), ("rule", "R_FB")],
+    dlg = _AnchorDialog(main_window, [("placement", "FPGA"), ("coordinate", "R_FB")],
                         existing=TreeAnchor(ref="R_FB", is_external=False))
     assert dlg.mode_combo.currentData() == "record"
-    assert dlg.kind_combo.currentData() == "rule"
+    assert dlg.kind_combo.currentData() == "coordinate"
     assert dlg.ref_combo.currentText() == "R_FB"
 
 
@@ -2756,25 +2756,24 @@ def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
     assert dock._all_ref_names() == ["CL_A", "SHARED", "R_B", "COORD_C", "PNT_D"]
 
 
-def test_node_dialog_kind_chain_lists_only_chains(main_window, tmp_path):
-    """Kind = chain -> the "Ref:" combo carries ONLY chain names (plain), and
-    build_node() yields an explicitly-typed chain node. (2026-09-01, plan
-    rules_to_chains: kind "rule" -> "chain".)"""
+def test_node_dialog_kind_coordinate_lists_only_coordinates(main_window, tmp_path):
+    """Kind = coordinate -> the "Ref:" combo carries ONLY coordinate names
+    (plain), and build_node() yields an explicitly-typed coordinate node."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("chain"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
 
-    assert _combo_texts(dlg.ref_combo) == ["R_B", "SHARED"]
-    assert dlg.ref_combo.itemData(0) == ("chain", "R_B")
+    assert _combo_texts(dlg.ref_combo) == ["COORD_C"]
+    assert dlg.ref_combo.itemData(0) == ("coordinate", "COORD_C")
 
-    dlg.ref_combo.setCurrentText("R_B")
+    dlg.ref_combo.setCurrentText("COORD_C")
     dlg.offset_widget.x_edit.setText("1.0")
     dlg.offset_widget.y_edit.setText("2.0")
     built = dlg.build_node()
     assert built is not None
-    assert built.ref == "R_B"
-    assert built.kind == "chain"
+    assert built.ref == "COORD_C"
+    assert built.kind == "coordinate"
 
 
 def test_node_dialog_kind_clone_lists_only_clones(main_window, tmp_path):
