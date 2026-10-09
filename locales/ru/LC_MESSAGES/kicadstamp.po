@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-09 18:02+0300\n"
+"POT-Creation-Date: 2026-10-09 20:49+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -219,8 +219,8 @@ msgstr "Отпечатки"
 #: gui/dock_hub.py:2791 gui/docks/add_entities_flow.py:84
 #: gui/docks/cell_editor.py:1643 gui/docks/cell_editor.py:1726
 #: gui/docks/cell_editor.py:2244 gui/docks/cell_editor.py:2551
-#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:176
-#: gui/docks/change_cell_flow.py:215 gui/docks/imprint_place.py:731
+#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:189
+#: gui/docks/change_cell_flow.py:228 gui/docks/imprint_place.py:731
 #: gui/docks/net_trace.py:305 gui/docks/net_trace.py:414
 #: gui/docks/net_trace.py:480 gui/docks/net_trace.py:566
 #: gui/docks/placer.py:1748 gui/docks/placer.py:1758 gui/docks/placer.py:1999
@@ -478,7 +478,7 @@ msgstr "Сущность с именем {name!r} уже существует."
 
 #: gui/dock_hub.py:2858 gui/docks/add_entities_flow.py:177
 #: gui/docks/cell_editor.py:1649 gui/docks/cell_refs_tab.py:1143
-#: gui/docks/change_cell_flow.py:240 gui/docks/create_project_dialog.py:168
+#: gui/docks/change_cell_flow.py:253 gui/docks/create_project_dialog.py:168
 #: gui/docks/net_trace.py:527 gui/docks/placer.py:2493 gui/docks/placer.py:2558
 #: gui/docks/placer.py:2575 gui/docks/placer.py:2613 gui/docks/points.py:895
 #: gui/docks/root_metadata.py:719 gui/docks/root_metadata.py:800
@@ -2841,10 +2841,6 @@ msgstr "скрыт на плате"
 msgid "reading layers"
 msgstr "чтение слоёв"
 
-#: gui/docks/cell_read_only.py:35
-msgid "create an entity to edit this cell"
-msgstr "создайте сущность, чтобы править эту ячейку"
-
 #: gui/docks/cell_refs_tab.py:164
 msgid "nothing is selected on the board — select the components to tag"
 msgstr "на плате ничего не выделено — выделите компоненты для разметки"
@@ -3110,16 +3106,16 @@ msgstr "Сменить ячейку"
 msgid "no instance on the board — fit not checked"
 msgstr "экземпляра на плате нет — подбор не проверялся"
 
-#: gui/docks/change_cell_flow.py:183 gui/docks/change_cell_flow.py:226
+#: gui/docks/change_cell_flow.py:196 gui/docks/change_cell_flow.py:239
 msgid "The config has no cells to point at."
 msgstr "В конфиге нет ячеек, на которые можно указать."
 
-#: gui/docks/change_cell_flow.py:220
+#: gui/docks/change_cell_flow.py:233
 #, python-brace-format
 msgid "entity {name!r} already uses cell {cell!r} — nothing changed"
 msgstr "сущность {name!r} уже стоит на ячейке {cell!r} — ничего не изменилось"
 
-#: gui/docks/change_cell_flow.py:249
+#: gui/docks/change_cell_flow.py:262
 #, python-brace-format
 msgid ""
 "entity {name!r} now uses cell {cell!r} — the next Redraw replaces its "
@@ -3128,7 +3124,7 @@ msgstr ""
 "сущность {name!r} теперь стоит на ячейке {cell!r} — ближайшая перерисовка"
 " заменит её медь ({count} шт. старой раскладки)"
 
-#: gui/docks/change_cell_flow.py:254
+#: gui/docks/change_cell_flow.py:267
 #, python-brace-format
 msgid ""
 "entity {name!r} now uses cell {cell!r} — no copper of the old layout is "
@@ -4962,21 +4958,21 @@ msgstr ""
 "{components}, переходных: {vias}, дорожек: {tracks}. Сущность НЕ "
 "переключена: она по-прежнему указывает на отпечаток."
 
-#: gui/docks/instance_candidates.py:192
+#: gui/docks/instance_candidates.py:220
 #, python-brace-format
 msgid "role {role}: {got} of {want}"
 msgstr "роль {role}: {got} из {want}"
 
-#: gui/docks/instance_candidates.py:195
+#: gui/docks/instance_candidates.py:223
 #, python-brace-format
 msgid "role {role} ×{got} for {want} slots"
 msgstr "роль {role} ×{got} на {want} слотов"
 
-#: gui/docks/instance_candidates.py:301
+#: gui/docks/instance_candidates.py:329
 msgid "current, does not fit:"
 msgstr "текущая, не подходит:"
 
-#: gui/docks/instance_candidates.py:310
+#: gui/docks/instance_candidates.py:338
 #, python-brace-format
 msgid "{count} other cells do not fit"
 msgstr "ещё не подходят ячеек: {count}"
@@ -7857,6 +7853,22 @@ msgstr "Не размещена ни в одном дереве."
 #, python-brace-format
 msgid "{n} placement(s) — click to open the tree"
 msgstr "{n} размещений — клик, чтобы открыть дерево"
+
+#: gui/entity/read_only.py:106
+msgid ""
+"this entity is not saved in the project yet — save it first; the board "
+"tabs stay off until then"
+msgstr ""
+"эта сущность ещё не сохранена в проекте — сначала сохраните её; вкладки "
+"платы будут выключены до этого"
+
+#: gui/entity/read_only.py:109
+msgid "this entity's cell is missing from the project — pick a cell to fix it"
+msgstr "ячейки этой сущности нет в проекте — выберите ячейку, чтобы починить"
+
+#: gui/entity/read_only.py:112
+msgid "this entity's instance is not on the board — pick a fitting cell"
+msgstr "экземпляра этой сущности нет на плате — выберите подходящую ячейку"
 
 #: kicadstamp/absent_copper_prune.py:291
 msgid ""
@@ -19525,4 +19537,7 @@ msgstr "Всего спиц: {count}"
 #~ "ENTITY leaf of the Config tree (a"
 #~ " CELL leaf names no instance)."
 #~ msgstr ""
+
+#~ msgid "create an entity to edit this cell"
+#~ msgstr "создайте сущность, чтобы править эту ячейку"
 

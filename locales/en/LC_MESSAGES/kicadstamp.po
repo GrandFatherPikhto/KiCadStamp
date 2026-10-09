@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-09 18:02+0300\n"
+"POT-Creation-Date: 2026-10-09 20:49+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -184,8 +184,8 @@ msgstr ""
 #: gui/dock_hub.py:2791 gui/docks/add_entities_flow.py:84
 #: gui/docks/cell_editor.py:1643 gui/docks/cell_editor.py:1726
 #: gui/docks/cell_editor.py:2244 gui/docks/cell_editor.py:2551
-#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:176
-#: gui/docks/change_cell_flow.py:215 gui/docks/imprint_place.py:731
+#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:189
+#: gui/docks/change_cell_flow.py:228 gui/docks/imprint_place.py:731
 #: gui/docks/net_trace.py:305 gui/docks/net_trace.py:414
 #: gui/docks/net_trace.py:480 gui/docks/net_trace.py:566
 #: gui/docks/placer.py:1748 gui/docks/placer.py:1758 gui/docks/placer.py:1999
@@ -427,7 +427,7 @@ msgstr ""
 
 #: gui/dock_hub.py:2858 gui/docks/add_entities_flow.py:177
 #: gui/docks/cell_editor.py:1649 gui/docks/cell_refs_tab.py:1143
-#: gui/docks/change_cell_flow.py:240 gui/docks/create_project_dialog.py:168
+#: gui/docks/change_cell_flow.py:253 gui/docks/create_project_dialog.py:168
 #: gui/docks/net_trace.py:527 gui/docks/placer.py:2493 gui/docks/placer.py:2558
 #: gui/docks/placer.py:2575 gui/docks/placer.py:2613 gui/docks/points.py:895
 #: gui/docks/root_metadata.py:719 gui/docks/root_metadata.py:800
@@ -2673,10 +2673,6 @@ msgstr ""
 msgid "reading layers"
 msgstr ""
 
-#: gui/docks/cell_read_only.py:35
-msgid "create an entity to edit this cell"
-msgstr ""
-
 #: gui/docks/cell_refs_tab.py:164
 msgid "nothing is selected on the board — select the components to tag"
 msgstr ""
@@ -2909,23 +2905,23 @@ msgstr ""
 msgid "no instance on the board — fit not checked"
 msgstr ""
 
-#: gui/docks/change_cell_flow.py:183 gui/docks/change_cell_flow.py:226
+#: gui/docks/change_cell_flow.py:196 gui/docks/change_cell_flow.py:239
 msgid "The config has no cells to point at."
 msgstr ""
 
-#: gui/docks/change_cell_flow.py:220
+#: gui/docks/change_cell_flow.py:233
 #, python-brace-format
 msgid "entity {name!r} already uses cell {cell!r} — nothing changed"
 msgstr ""
 
-#: gui/docks/change_cell_flow.py:249
+#: gui/docks/change_cell_flow.py:262
 #, python-brace-format
 msgid ""
 "entity {name!r} now uses cell {cell!r} — the next Redraw replaces its "
 "copper ({count} pieces of the old layout)"
 msgstr ""
 
-#: gui/docks/change_cell_flow.py:254
+#: gui/docks/change_cell_flow.py:267
 #, python-brace-format
 msgid ""
 "entity {name!r} now uses cell {cell!r} — no copper of the old layout is "
@@ -4626,21 +4622,21 @@ msgid ""
 "switched: it still points at the imprint."
 msgstr ""
 
-#: gui/docks/instance_candidates.py:192
+#: gui/docks/instance_candidates.py:220
 #, python-brace-format
 msgid "role {role}: {got} of {want}"
 msgstr ""
 
-#: gui/docks/instance_candidates.py:195
+#: gui/docks/instance_candidates.py:223
 #, python-brace-format
 msgid "role {role} ×{got} for {want} slots"
 msgstr ""
 
-#: gui/docks/instance_candidates.py:301
+#: gui/docks/instance_candidates.py:329
 msgid "current, does not fit:"
 msgstr ""
 
-#: gui/docks/instance_candidates.py:310
+#: gui/docks/instance_candidates.py:338
 #, python-brace-format
 msgid "{count} other cells do not fit"
 msgstr ""
@@ -7337,6 +7333,20 @@ msgstr ""
 #: gui/entity/page.py:543
 #, python-brace-format
 msgid "{n} placement(s) — click to open the tree"
+msgstr ""
+
+#: gui/entity/read_only.py:106
+msgid ""
+"this entity is not saved in the project yet — save it first; the board "
+"tabs stay off until then"
+msgstr ""
+
+#: gui/entity/read_only.py:109
+msgid "this entity's cell is missing from the project — pick a cell to fix it"
+msgstr ""
+
+#: gui/entity/read_only.py:112
+msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr ""
 
 #: kicadstamp/absent_copper_prune.py:291
@@ -18543,5 +18553,8 @@ msgstr "Total spokes: {count}"
 #~ " address — open this from an "
 #~ "ENTITY leaf of the Config tree (a"
 #~ " CELL leaf names no instance)."
+#~ msgstr ""
+
+#~ msgid "create an entity to edit this cell"
 #~ msgstr ""
 

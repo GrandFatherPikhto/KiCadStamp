@@ -14,7 +14,7 @@
 from kicadstamp.diagnostics import deepseek_mutations_entities_1a_2026_10_08 as ds
 
 TREE = "gui/docks/entity_tree.py"
-GATE = "gui/docks/cell_read_only.py"
+GATE = "gui/entity/read_only.py"
 T = ["test_entities_under_cells.py", "test_entity_index.py"]
 
 ROWS = [
