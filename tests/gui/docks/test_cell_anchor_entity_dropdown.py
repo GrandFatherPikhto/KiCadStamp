@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import gui.entity.anchor_tab as anchor_mod
+import gui.entity.anchor_workers as workers_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
@@ -232,12 +233,12 @@ def test_an_entity_without_refs_sends_none_to_the_marker_worker(main_window,
     assert refs is None
 
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", CELL, "marker")
-    assert anchor_mod._ensure_marker_worker(
+    assert workers_mod._ensure_marker_worker(
         _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
         "User.KiCadStamp", refs) is not None
 
     with pytest.raises(ValidationError):
-        anchor_mod._ensure_marker_worker(
+        workers_mod._ensure_marker_worker(
             _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
             "User.KiCadStamp", {})
 

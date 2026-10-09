@@ -33,6 +33,7 @@ from gui.cell_identification import (
     identify_cell_instance,
 )
 from gui.entity import anchor_tab as anchor_mod
+from gui.entity import anchor_workers as workers_mod
 from gui.entity.anchor_tab import AnchorTabWidget
 from gui.docks import live_position
 from gui.docks.cell_anchor_view import CellAnchorView
@@ -498,7 +499,7 @@ def test_c9_all_three_overlay_workers_forward_the_refs(monkeypatch):
         seen.append(role_to_ref)
         raise ValidationError("spy: the frame was reached, stop before the read")
 
-    monkeypatch.setattr(anchor_mod, "_live_cluster_frame", spy)
+    monkeypatch.setattr(workers_mod, "_live_cluster_frame", spy)
     # The marker READER asks the overlay owner where the dragged marker is before
     # it derives the frame — stub that one lookup out.
     monkeypatch.setattr(anchor_mod.overlay_markers.owner, "read_position",
@@ -506,11 +507,11 @@ def test_c9_all_three_overlay_workers_forward_the_refs(monkeypatch):
 
     refs = {BULK: "C69", BYPASS: "C53"}
     workers = (
-        lambda: anchor_mod._ensure_bbox_worker(
+        lambda: workers_mod._ensure_bbox_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", "User.KiCadStamp", refs),
-        lambda: anchor_mod._ensure_marker_worker(
+        lambda: workers_mod._ensure_marker_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", "User.KiCadStamp", refs),
-        lambda: anchor_mod._read_marker_worker(
+        lambda: workers_mod._read_marker_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", refs),
     )
     for worker in workers:

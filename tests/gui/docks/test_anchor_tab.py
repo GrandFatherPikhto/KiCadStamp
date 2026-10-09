@@ -1,7 +1,8 @@
 # tests/gui/docks/test_anchor_tab.py
-"""Tests for gui/entity/anchor_tab.py — the ENTITY page's "Anchor" tab (Role
-anchor + Marker anchor) plus the pure selection/narrowing helpers and the
-overlay workers it now owns.
+"""Tests for gui/entity/anchor_tab.py (the AnchorTabWidget) and
+gui/entity/anchor_workers.py (the pure selection/narrowing helpers, the
+live-cluster-frame overlay workers and the GUI-exit sweep) — the ENTITY page's
+"Anchor" tab (Role anchor + Marker anchor).
 
 Step 4 of plan_2026_10_09_entity_page MOVED the two anchor tabs off the CELL
 page onto the ENTITY page, with a FIXED address (the entity's cell / cluster /
@@ -23,8 +24,9 @@ from types import SimpleNamespace
 import pytest
 
 import gui.entity.anchor_tab as anchor_mod
-from gui.entity.anchor_tab import (
-    AnchorTabWidget,
+import gui.entity.anchor_workers as workers_mod
+from gui.entity.anchor_tab import AnchorTabWidget
+from gui.entity.anchor_workers import (
     find_pad_owner,
     read_anchor_source,
     resolve_clone_context,
@@ -89,7 +91,7 @@ class _FakeAdapter:
 
 def test_read_anchor_source_pad(monkeypatch):
     pad_cls = _dummy_pad_cls()
-    monkeypatch.setattr(anchor_mod, "KipyPad", pad_cls)
+    monkeypatch.setattr(workers_mod, "KipyPad", pad_cls)
     adapter = _FakeAdapter()
     owner = _fp("fp1", "R1", role="C1", cluster="PIF_3V3_VDD")
     adapter.footprints = [owner]
@@ -107,7 +109,7 @@ def test_read_anchor_source_pad(monkeypatch):
 
 
 def test_read_anchor_source_footprint(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "KipyPad", _dummy_pad_cls())
+    monkeypatch.setattr(workers_mod, "KipyPad", _dummy_pad_cls())
     adapter = _FakeAdapter()
     owner = _fp("fp1", "R1")
     adapter.footprints = [owner]
@@ -123,7 +125,7 @@ def test_read_anchor_source_footprint(monkeypatch):
 
 
 def test_read_anchor_source_via_is_marker_case(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "KipyPad", _dummy_pad_cls())
+    monkeypatch.setattr(workers_mod, "KipyPad", _dummy_pad_cls())
     via = Via(uuid="v1", position=Vector2.from_xy(0, 0), net_name=None,
               drill_mm=0.3, diameter_mm=0.6)
     adapter = _FakeAdapter()
@@ -133,7 +135,7 @@ def test_read_anchor_source_via_is_marker_case(monkeypatch):
 
 
 def test_read_anchor_source_nothing_selected_is_fatal(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "KipyPad", _dummy_pad_cls())
+    monkeypatch.setattr(workers_mod, "KipyPad", _dummy_pad_cls())
     adapter = _FakeAdapter()
     with pytest.raises(ValidationError) as ei:
         read_anchor_source(adapter, [], ["C1"], "cell1")
@@ -141,7 +143,7 @@ def test_read_anchor_source_nothing_selected_is_fatal(monkeypatch):
 
 
 def test_read_anchor_source_several_clusters_is_fatal(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "KipyPad", _dummy_pad_cls())
+    monkeypatch.setattr(workers_mod, "KipyPad", _dummy_pad_cls())
     adapter = _FakeAdapter()
     a = _fp("fp1", "R1")
     b = _fp("fp2", "R2")
@@ -159,7 +161,7 @@ def test_read_anchor_source_several_clusters_is_fatal(monkeypatch):
 
 
 def test_read_anchor_source_role_not_in_cell_is_fatal(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "KipyPad", _dummy_pad_cls())
+    monkeypatch.setattr(workers_mod, "KipyPad", _dummy_pad_cls())
     adapter = _FakeAdapter()
     a = _fp("fp1", "R1")
     adapter.footprints = [a]
@@ -204,7 +206,7 @@ def test_roles_for_cluster_falls_back_without_snapshot_or_cluster():
 
 
 def test_resolve_clone_context_none_one_many(monkeypatch):
-    monkeypatch.setattr(anchor_mod, "clone_placement_effective_name",
+    monkeypatch.setattr(workers_mod, "clone_placement_effective_name",
                         lambda cp: cp.name)
     cfg = SimpleNamespace()
     one = SimpleNamespace(name="p1", cell="cell1", cluster="PIF_3V3_VDD",
@@ -289,7 +291,7 @@ def test_frame_refreshes_the_board_before_reading_footprints():
     """K.1: a live read refreshes the board itself, BEFORE the first
     get_footprints()."""
     adapter = _ClusterAdapter(_live_cluster_fps())
-    anchor_mod._live_cluster_frame(adapter, _cell(), "CL", "", {"MCU": "MCU"})
+    workers_mod._live_cluster_frame(adapter, _cell(), "CL", "", {"MCU": "MCU"})
 
     assert adapter.calls[0] == "refresh"
     assert adapter.calls.count("refresh") == 1
@@ -303,7 +305,7 @@ def test_frame_is_built_from_the_refreshed_position():
     moved = _live_fp("IC1", "ORIG", "CL", 500.0, 600.0)
     adapter.on_refresh = lambda a: a._fps.__setitem__(0, moved)
 
-    origin, _rotation, _mirror = anchor_mod._live_cluster_frame(
+    origin, _rotation, _mirror = workers_mod._live_cluster_frame(
         adapter, _cell(), "CL", "", {})
 
     assert origin.x == int(500 * MM) and origin.y == int(600 * MM)
@@ -311,7 +313,7 @@ def test_frame_is_built_from_the_refreshed_position():
 
 def test_frame_comes_from_the_live_cluster_without_any_placement():
     adapter = _ClusterAdapter(_live_cluster_fps())
-    origin, rotation, mirror = anchor_mod._live_cluster_frame(
+    origin, rotation, mirror = workers_mod._live_cluster_frame(
         adapter, _cell(), "CL", "", {"MCU": "MCU"})
     assert origin.x == int(100 * MM) and origin.y == int(200 * MM)
     assert rotation == 0.0
@@ -320,7 +322,7 @@ def test_frame_comes_from_the_live_cluster_without_any_placement():
 
 def test_frame_follows_the_cluster_not_a_placement():
     adapter = _ClusterAdapter([_live_fp("IC1", "ORIG", "CL", 20.0, 30.0)])
-    origin, _rotation, _mirror = anchor_mod._live_cluster_frame(
+    origin, _rotation, _mirror = workers_mod._live_cluster_frame(
         adapter, _cell(), "CL", "", {})
     assert origin.x == int(20 * MM) and origin.y == int(30 * MM)
 
@@ -328,7 +330,7 @@ def test_frame_follows_the_cluster_not_a_placement():
 def test_frame_cluster_not_on_the_board_is_an_honest_error():
     adapter = _ClusterAdapter([_live_fp("IC1", "ORIG", "OTHER", 1.0, 1.0)])
     with pytest.raises(ValidationError) as ei:
-        anchor_mod._live_cluster_frame(adapter, _cell(), "PIF_OA_N2V5", "", {})
+        workers_mod._live_cluster_frame(adapter, _cell(), "PIF_OA_N2V5", "", {})
     title = _fatal_title(str(ei.value))
     assert "not on the live board" in title
     assert "placement" not in title.lower()
@@ -337,7 +339,7 @@ def test_frame_cluster_not_on_the_board_is_an_honest_error():
 def test_frame_role_missing_from_the_cluster_is_an_honest_error():
     adapter = _ClusterAdapter([_live_fp("IC9", "OTHER_ROLE", "CL", 1.0, 1.0)])
     with pytest.raises(ValidationError) as ei:
-        anchor_mod._live_cluster_frame(adapter, _cell(), "CL", "", {})
+        workers_mod._live_cluster_frame(adapter, _cell(), "CL", "", {})
     title = _fatal_title(str(ei.value))
     assert "has no footprint in cluster" in title
     assert "placement" not in title.lower()
@@ -346,13 +348,13 @@ def test_frame_role_missing_from_the_cluster_is_an_honest_error():
 def test_frame_mirror_comes_from_the_live_footprint_side():
     back = _ClusterAdapter(
         [_live_fp("IC1", "ORIG", "CL", 0.0, 0.0, layer=BoardLayer.BL_B_Cu)])
-    _origin, _rotation, mirror = anchor_mod._live_cluster_frame(
+    _origin, _rotation, mirror = workers_mod._live_cluster_frame(
         back, _cell(), "CL", "", {})
     assert mirror is True
 
     front = _ClusterAdapter(
         [_live_fp("IC1", "ORIG", "CL", 0.0, 0.0, layer=BoardLayer.BL_F_Cu)])
-    _origin, _rotation, mirror = anchor_mod._live_cluster_frame(
+    _origin, _rotation, mirror = workers_mod._live_cluster_frame(
         front, _cell(layer="B.Cu"), "CL", "", {})
     assert mirror is True
 
@@ -418,7 +420,7 @@ def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
     cell = _cell()
 
     bbox_key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
-    uuid = anchor_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+    uuid = workers_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
                                           bbox_key, "User.KiCadStamp")
     assert uuid is not None
     assert len(adapter.created) == 1
@@ -430,7 +432,7 @@ def test_bbox_and_marker_are_drawn_over_the_live_cluster(monkeypatch):
 
     adapter.created.clear()
     marker_key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
-    assert anchor_mod._ensure_marker_worker(
+    assert workers_mod._ensure_marker_worker(
         adapter, cell, "CL", "", {}, marker_key,
         "User.KiCadStamp") is not None
 
@@ -444,13 +446,13 @@ def test_ensure_marker_worker_removes_the_previous_marker_first(monkeypatch):
     cell = _cell()
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
 
-    first = anchor_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
+    first = workers_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
                                              key, "User.KiCadStamp")
     assert first is not None
     assert len(adapter.created) == 1
 
     adapter.created.clear()
-    second = anchor_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
+    second = workers_mod._ensure_marker_worker(adapter, cell, "CL", "", {},
                                               key, "User.KiCadStamp")
     assert second is not None and second != first
     assert adapter.removed == [first]
@@ -464,10 +466,10 @@ def test_ensure_bbox_worker_removes_the_previous_bbox_first(monkeypatch):
     cell = _cell()
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
 
-    first = anchor_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+    first = workers_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
                                            key, "User.KiCadStamp")
     adapter.created.clear()
-    second = anchor_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
+    second = workers_mod._ensure_bbox_worker(adapter, cell, "CL", "", {},
                                             key, "User.KiCadStamp")
     assert second is not None and second != first
     assert adapter.removed == [first]
@@ -488,7 +490,7 @@ def test_ensure_worker_survives_a_shape_already_swept():
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
     anchor_mod.settings.state.set(
         anchor_mod.overlay_markers.OVERLAY_MARKERS_KEY, {key: "stale"})
-    assert anchor_mod._ensure_marker_worker(
+    assert workers_mod._ensure_marker_worker(
         adapter, _cell(), "CL", "", {}, key, "User.KiCadStamp") is not None
     assert len(adapter.created) == 1
 
@@ -499,7 +501,7 @@ def test_bbox_worker_reports_the_honest_error(monkeypatch):
     adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "OTHER", 1.0, 1.0)])
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
     with pytest.raises(ValidationError) as ei:
-        anchor_mod._ensure_bbox_worker(adapter, _cell(), "CL", "", {},
+        workers_mod._ensure_bbox_worker(adapter, _cell(), "CL", "", {},
                                        key, "User.KiCadStamp")
     assert "not on the live board" in str(ei.value)
 
@@ -739,7 +741,7 @@ def test_marker_worker_draws_with_settings_layer_and_radius(main_window,
     adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "CL", 100.0, 200.0)])
 
     key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "marker")
-    uuid = anchor_mod._ensure_marker_worker(adapter, cell, "CL", "", [],
+    uuid = workers_mod._ensure_marker_worker(adapter, cell, "CL", "", [],
                                             key, "User.KiCadStamp")
     assert uuid is not None
     circle = adapter.created[0]
@@ -825,7 +827,7 @@ def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp,
         key("/root/b", "cellB", "marker"): "m2",
     })
 
-    anchor_mod.cleanup_all_overlays_sync(main_window.connection, timeout_s=5.0)
+    workers_mod.cleanup_all_overlays_sync(main_window.connection, timeout_s=5.0)
 
     assert sorted(adapter.removed) == ["b1", "m1", "m2"]
     assert anchor_mod.overlay_markers.owner.all_uuids() == []

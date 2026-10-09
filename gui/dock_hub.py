@@ -60,7 +60,8 @@ from .docks.cell_tree_wiring import (connect_cell_tree_actions,
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import CellAnchorView
 from .docks.cell_refs_tab import RefsTabWidget
-from .entity.anchor_tab import AnchorTabWidget, cleanup_all_overlays_sync
+from .entity.anchor_tab import AnchorTabWidget
+from .entity.anchor_workers import cleanup_all_overlays_sync
 from .docks.cell_editor import CellDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
