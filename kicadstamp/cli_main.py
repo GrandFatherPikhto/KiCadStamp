@@ -248,7 +248,7 @@ def main() -> int:
         "override store (our values win over the board; the profile's own "
         "role_cluster_source switch still decides, default: registry). WITHOUT it "
         "the values come from the BOARD, exactly as before.")
-    extract_parser = subparsers.add_parser("extract", help=_("Extract spoke cell from current selection"))
+    extract_parser = subparsers.add_parser("extract", help=_("Extract cell from current selection"))
     extract_parser.add_argument("--config", metavar="FILE", help=_config_help)
     extract_parser.add_argument("--name", help=_("Cell name (key in cells:)"))
     extract_parser.add_argument("--output", help=_("Output .sexp/JSON file"))

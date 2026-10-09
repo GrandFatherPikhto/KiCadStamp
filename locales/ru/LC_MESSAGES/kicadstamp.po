@@ -18948,6 +18948,10 @@ msgstr ""
 "config {path}: в дереве {tree!r} узел {ref!r} снятого вида "
 "{kind!r} ({label})"
 
+#: kicadstamp/cli_main.py
+msgid "Extract cell from current selection"
+msgstr "Извлечь ячейку из текущего выделения"
+
 #~ msgid "no config record places {cell} — nothing to explode"
 #~ msgstr "ни одна запись конфига не ставит {cell} — разносить нечего"
 

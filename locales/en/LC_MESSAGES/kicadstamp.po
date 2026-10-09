@@ -18021,6 +18021,10 @@ msgstr ""
 "config {path}: tree {tree!r} has a node {ref!r} of the retired kind "
 "{kind!r} ({label})"
 
+#: kicadstamp/cli_main.py
+msgid "Extract cell from current selection"
+msgstr "Extract cell from current selection"
+
 #~ msgid "no config record places {cell} — nothing to explode"
 #~ msgstr ""
 

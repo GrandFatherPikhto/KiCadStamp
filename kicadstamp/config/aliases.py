@@ -45,9 +45,10 @@ _SECTION_ALIASES: dict[str, str] = {
 }
 
 # Optional per-alias pointer at the tool that migrates such a file on disk.
-_SECTION_ALIAS_TOOLS: dict[str, str] = {
-    "rules": "tools/convert_rules_to_chains.py",
-}
+# Empty since 2026-10-10: the `rules` migrator (tools/convert_rules_to_chains.py)
+# was removed with the spokes feature; the `rules` alias itself goes in the
+# same Ч3 (Б4).
+_SECTION_ALIAS_TOOLS: dict[str, str] = {}
 
 # Legacy ENTITY record key -> canonical key (2026-09-20 Imprint rename).
 # Single source of truth for BOTH the raw-dict loader (config/entries.py) and

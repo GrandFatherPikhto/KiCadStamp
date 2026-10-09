@@ -685,19 +685,17 @@ _SCAN_SKIP_DIRS = {"diagnostics", "__pycache__"}
 # anything — it reports what the file carries, and Т4 decides whether to write.
 # Lifting there would pay a whole step just to read one int.
 #
-# The three format converters (Т3b) are here for the same reason, and they owe
-# the file the number they read (Denis's caveat 1): convert_rules_to_chains
-# canonicalizes `rules:` -> `chains:`, sexp_config_convert translates between
-# formats, tree_mount_convert converts the TREE GRAMMAR. None of them is a format
-# step, so none may lift the content or stamp the current number — each passes
-# `format_number=<what it read>` to the writer.
+# The two format converters (Т3b) are here for the same reason, and they owe
+# the file the number they read (Denis's caveat 1): sexp_config_convert
+# translates between formats, tree_mount_convert converts the TREE GRAMMAR.
+# Neither is a format step, so neither may lift the content or stamp the current
+# number — each passes `format_number=<what it read>` to the writer.
 _RAW_READERS: set[tuple[str, str]] = {
     # The one raw reader of the ship code: the on-disk probe and the upgrade
     # sweep get their data through it (`parse_raw_file` is the file-level
     # wrapper, `_read_version_uncached` now only adds the newer refusal).
     ("kicadstamp/config/format_version.py", "parse_raw_text"),
     ("kicadstamp/tree_mount_convert.py", "convert_config_file"),
-    ("tools/convert_rules_to_chains.py", "_read_raw"),
     ("tools/sexp_config_convert.py", "_read_dict"),
 }
 
@@ -1098,72 +1096,11 @@ def test_a_refused_extension_leaves_no_bak_behind(tmp_path):
     assert p.read_text(encoding="utf-8") == original
 
 
-# ── Т3b: the raw converters put back the number they READ ──────────────────
+# ── Т3b: the raw converter puts back the number it READ ────────────────────
 # Denis's caveat 1, end to end. A converter reads the file's own bytes and
 # rewrites a file, so it must write the SAME number back — stamping the current
 # one would claim a format upgrade it never performed (harmless at 1 -> 2,
 # corruption at 2 -> 3).
-
-def _legacy_rules_file(tmp_path, name):
-    """The converter's exact input: a file carrying a legacy `rules:` key.
-
-    Built the way the converter's own tests build it (dict_to_sexp), because the
-    grammar of a record is not worth writing by hand — and then the root line is
-    removed when the caller wants format 1, since dict_to_sexp stamps the CURRENT
-    number. Same content, one number older."""
-    p = tmp_path / name
-    p.write_text(dict_to_sexp({"rules": [
-        {"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}]}), encoding="utf-8")
-    return p
-
-
-def test_the_rule_to_chain_converter_keeps_the_number_it_read(tmp_path, pin_format2):
-    from tools.convert_rules_to_chains import convert_file
-
-    p = _legacy_rules_file(tmp_path, "old.sexp")
-    stamped = p.read_text(encoding="utf-8")
-    assert f"  (version {CURRENT_FORMAT})\n" in stamped
-    p.write_text(stamped.replace(f"  (version {CURRENT_FORMAT})\n", ""),
-                 encoding="utf-8")                                  # format 1
-
-    assert convert_file(p) is not None
-
-    text = p.read_text(encoding="utf-8")
-    assert "(chains" in text, "the converter did its job"
-    assert "(version 1)" in text, "the number READ, not the current one"
-    assert f"(version {CURRENT_FORMAT})" not in text
-
-
-def test_the_rule_to_chain_converter_keeps_a_current_number_too(tmp_path, pin_format2):
-    from tools.convert_rules_to_chains import convert_file
-
-    p = _legacy_rules_file(tmp_path, "cur.sexp")                   # current format
-
-    assert convert_file(p) is not None
-
-    text = p.read_text(encoding="utf-8")
-    assert f"(version {CURRENT_FORMAT})" in text
-    assert "(version 1)" not in text
-
-
-def test_the_rule_to_chain_converter_keeps_a_current_json_number(tmp_path, pin_format2):
-    """Y6: the JSON branch of the SAME converter. Every converter cell above is
-    on `.sexp`, so writing a literal `version = 1` instead of the number read
-    survived all of them — while in the field it stamps `"version": 1` over a
-    current-format JSON profile."""
-    p = tmp_path / "legacy.json"
-    p.write_text(json.dumps({"version": CURRENT_FORMAT,
-                             "rules": [{"net": "N", "spokes": []}]},
-                            indent=2), encoding="utf-8")
-
-    from tools.convert_rules_to_chains import convert_file
-
-    assert convert_file(p) is not None
-
-    out = json.loads(p.read_text(encoding="utf-8"))
-    assert "chains" in out, "the converter did its job"
-    assert out["version"] == CURRENT_FORMAT, "the number READ, not a literal 1"
-
 
 def test_the_tree_converter_keeps_the_number_it_read(tmp_path):
     """It converts the tree GRAMMAR, not the format: an old-format file stays
