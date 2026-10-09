@@ -27,11 +27,10 @@ shape here: an earlier version of this dock read one flat file per role
 and didn't walk include: at all, corrected same day, see the handoff
 above).
 
-6 of the 7 recognized sections route into an existing form when LEFT-
+5 of the 6 recognized sections route into an existing form when LEFT-
 clicked (Cells -> PlacerDock.set_selected_cell, Clone placements ->
 PlacerDock.load_placement, Thermal via arrays -> ThermalViaArrayDock.
-load_entry, added 2026-08-03; Rules -> RuleDock.load_entry, added
-2026-08-05) — Clone profiles is the one
+load_entry, added 2026-08-03) — Clone profiles is the one
 section still with no GUI edit form, shown read-only for now, same deliberate
 scope limit as before. Points and Entities are the two DIALOG sections
 since 2026-09-01 (plan plan_2026_09_01_points_dialog.md /
@@ -131,8 +130,8 @@ from .. import settings, config_io
 from ..ui_utils import wrap_in_scroll_area
 from ._common import (add_include, disable_include, display_path,
                       highlight_stylesheet_for, non_includable_keys,
-                      SplitterSizeKeeper, upsert_list_entry)
-from .entity_delete import backup_file, delete_entry, find_references
+                      SplitterSizeKeeper)
+from .entity_delete import delete_entry, find_references
 from .entity_export import ExportItem, export_entries
 from .entity_index import build_entity_index, file_parent_map
 # The entity-tree plumbing (item roles, leaf/marker builders, the orphan and
@@ -150,7 +149,6 @@ logger = logging.getLogger(__name__)
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
 _SECTION_LABELS = {
-    "chains": _("Spokes"),
     "clone_placements": _("Clone placements"),
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),
@@ -183,7 +181,6 @@ _ADD_ACTION_BY_SECTION = {
     "coordinate_placements": (_("Add coordinate placement..."), "add_coordinate_placement_requested"),
     "clone_placements": (_("Add placer..."), "add_placer_requested"),
     "points": (_("Add point..."), "add_point_requested"),
-    "chains": (_("Add chain..."), "add_chain_requested"),
 }
 
 # The comment glyph and the entity-tree item roles (_COMMENT_GLYPH, _ROLE_*,
@@ -202,8 +199,8 @@ def _identity_to_json(ident: tuple) -> list:
 
 def _identity_from_json(raw: list) -> tuple:
     """Inverse of _identity_to_json. Position 1 is ALWAYS a Path in every kind
-    _item_identity returns ("file"/"category"/"leaf"/"anchor"/"chain"/"pad" —
-    verified across all six branches), so it is re-wrapped unconditionally."""
+    _item_identity returns ("file"/"category"/"leaf" — verified across all
+    three branches), so it is re-wrapped unconditionally."""
     return tuple(Path(x) if i == 1 else x for i, x in enumerate(raw))
 
 
@@ -360,56 +357,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # requested -> _start_new_point), rather than writing a raw stub straight
     # to YAML.
     add_point_requested = pyqtSignal(object)
-    # Fired by a DOUBLE click on a chains: CHAIN node (2026-09-01, plan
-    # plan_2026_09_01_rules_to_chains.md) — the payload is the full chain
-    # dict; DockHub opens the chain-edit dialog. A single click on a chain/
-    # pad node does NOTHING (like points/entities after 2026-09-01).
-    chain_edit_requested = pyqtSignal(object)
-    # Fired by a DOUBLE click on a chains: PAD leaf — (chain_dict, pad_index);
-    # DockHub opens the pad-edit dialog for that specific spoke.
-    pad_edit_requested = pyqtSignal(object, int)
-    # Fired by a SINGLE click on a chains: PAD leaf (2026-09-05, design
-    # config_qview_chain_entity_pages §4) — (chain_dict, pad_index); DockHub
-    # opens the spoke editor (ChainDock pad mode) as a Config right-QView page.
-    # The pad is the leaf-level "edit" unit.
-    pad_picked = pyqtSignal(object, int)
-    # Fired by a SINGLE click on a chains: CHAIN node (2026-09-05, design
-    # config_qview_chain_entity_pages §4/§8.2) — the full chain dict; DockHub
-    # shows that chain's PAD list in the Config chains-navigation QView page.
-    chain_picked = pyqtSignal(object)
-    # Fired by a SINGLE click on a chains: ANCHOR node (2026-09-05, design
-    # config_qview_chain_entity_pages §4/§8.2) — (anchor_key, [chain_dicts]);
-    # DockHub shows the anchor's CHAIN list in the chains-navigation QView page.
-    anchor_picked = pyqtSignal(object, object)
-    # Fired by the context menu's "Add chain..." — opens the chain-edit dialog
-    # with a fresh blank form (mirror of add_point_requested).
-    add_chain_requested = pyqtSignal(object)
-    # Fired by the context menu's "Add spoke..." on a chain node — payload is
-    # the chain dict the new pad belongs to; DockHub opens the pad-edit dialog
-    # in add mode.
-    add_pad_requested = pyqtSignal(object)
-    # Fired by the context menu's "Redraw chains..." on a chains: ANCHOR node
-    # (2026-09-01, Denis: "если корневой компонент, то вообще все его спицы")
-    # — payload is the LIST of chain dicts under that anchor; DockHub runs ONE
-    # ApplyPipeline for all of them (chain_dock.redraw_chains), so an anchor's
-    # whole spoke set redraws together.
-    anchor_redraw_requested = pyqtSignal(object)
-    # Fired by the context menu's "Redraw chain" on a chains: CHAIN node
-    # (2026-09-01, plan rules_to_chains) — payload is the chain dict. Moved
-    # OUT of the old RuleDock's button into the tree's context menu (the plan's
-    # "Redraw цепей/падов и Bulk-set Cell переносим в контекстные меню дерева"):
-    # DockHub routes it to the ChainDock redraw machinery (worker-thread
-    # ApplyPipeline run, same as the old _on_redraw_rule).
-    chain_redraw_requested = pyqtSignal(object)
-    # Fired by the context menu's "Redraw spoke" on a chains: PAD leaf —
-    # (chain dict, pad index), isolates exactly that one spoke for redraw.
-    pad_redraw_requested = pyqtSignal(object, int)
-    # Fired by the context menu's "Bulk set Cell for net..." on the Chains
-    # CATEGORY / a chains: CHAIN node — payload is the net to pre-select in
-    # the bulk dialog (or None when unknown); DockHub opens the
-    # BulkSetCellDialog and applies the chosen cell across the whole graph
-    # (moved from the old RuleDock, plan rules_to_chains).
-    bulk_set_cell_requested = pyqtSignal(object)
     # Fired when a net_traces leaf is clicked (2026-08-21, plan net_trace_dock) —
     # same list-section full-dict payload as rule_picked. NetTraceDock.
     # load_entry() listens.
@@ -505,7 +452,7 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
         # G.5: keyboard navigation (arrow keys) moves the CURRENT item without
         # ever emitting itemClicked, so the whole tree's one-click navigation
         # (cells, clone_placements, thermal_via_arrays, coordinate_placements,
-        # points, net_traces, imprints, chain/anchor/pad) used to be
+        # points, net_traces, imprints) used to be
         # mouse-only. currentItemChanged fires for BOTH mouse and keyboard and
         # routes into the same handler. itemClicked stays connected on purpose:
         # currentItemChanged does not fire on a repeat click of the already
@@ -527,9 +474,8 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
         self._collapsed: set = set()
         self._restoring_expand_state = False
         # G.5: suppresses the currentItemChanged navigation while the dock
-        # itself sets the current item programmatically (refresh() rebuild,
-        # select_chains_chain's selection sync) — otherwise those would drag
-        # the Config right page along with them.
+        # itself sets the current item programmatically (refresh() rebuild) —
+        # otherwise that would drag the Config right page along with it.
         self._suppress_current_change = False
         self.tree.itemExpanded.connect(self._on_item_expanded)
         self.tree.itemCollapsed.connect(self._on_item_collapsed)
@@ -697,11 +643,10 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
 
     def _item_identity(self, item: QTreeWidgetItem) -> Optional[tuple]:
         """A rebuild-stable identity for `item`, or None for a kind this can't
-        identify. Walks the parent chain: item's own data alone is not enough
-        for a leaf/category — the owning file's path is needed too (same
+        identify. Walks the parent hierarchy: item's own data alone is not
+        enough for a leaf/category — the owning file's path is needed too (same
         name/section can exist in several files). Kinds built by this tree:
-        file / category / leaf / anchor / chain / pad (the chains: nested
-        nodes from _add_chains_children)."""
+        file / category / leaf."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data is None:
             return None
@@ -725,24 +670,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             name = (label[len(_COMMENT_GLYPH):] if label.startswith(_COMMENT_GLYPH)
                     else label)
             return ("leaf", file_ctx[0], data[1], name)  # (file path, section, name)
-        if kind in ("anchor", "chain", "pad"):
-            # chains: nested node — its owning file is the nearest file node
-            # (anchor -> category -> file / chain -> anchor -> category -> file
-            # / pad -> chain -> anchor -> category -> file).
-            file_item = self._file_context_for_item(item)
-            if file_item is None:
-                return None
-            file_path = file_item[0]
-            if kind == "anchor":
-                return ("anchor", file_path, data[1], data[2])  # anchor key
-            if kind == "chain":
-                chain = data[2]
-                name = entry_effective_name("chains", chain)
-                return ("chain", file_path, data[1], name)
-            # pad — identity is (parent chain effective name, pad index).
-            chain = data[2]
-            chain_name = entry_effective_name("chains", chain)
-            return ("pad", file_path, data[1], chain_name, data[3])
         return None
 
     def _capture_selection(self) -> list:
@@ -1048,20 +975,12 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             # in _on_clicked was unreachable); left-click stays a no-op either
             # way (the plan deliberately doesn't touch _on_clicked).
             section_item.setData(0, Qt.ItemDataRole.UserRole, ("category", section))
-            if section == "chains":
-                # Nested tree (2026-09-01, plan rules_to_chains): category ->
-                # anchor -> chain -> pad leaves. A chain is identified by its
-                # anchor (anchor_ref/anchor_role/anchor_point) and its net; its
-                # pads (ManualSpokes) are LEAVES, not a table. See
-                # _add_chains_children for the node UserRole shapes.
-                self._add_chains_children(section_item, raw)
-                continue
             for name, payload in self._entries(raw, section):
                 # entry's comment marker. NOTE: `payload` is NOT always the
                 # record dict — for the dict-sections (cells/points, keyed by
                 # name) _entries() yields the NAME as payload, so the comment
-                # must come from raw.get(name); list-sections (chains/
-                # clone_placements/...) already yield the full record dict.
+                # must come from raw.get(name); list-sections
+                # (clone_placements/...) already yield the full record dict.
                 entry_data = raw.get(name) if isinstance(raw, dict) else payload
                 comment = entry_data.get('comment') if isinstance(entry_data, dict) else None
                 label = f"{_COMMENT_GLYPH}{name}" if comment else name
@@ -1085,65 +1004,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             self._build_file_item(file_item, child, parent_path=node.path)
 
     @staticmethod
-    def _chain_anchor_key(chain: dict) -> str:
-        """The anchor identity a chain node groups under — anchor_ref /
-        anchor_role / anchor_point (or '?' for a not-yet-valid chain)."""
-        return (chain.get("anchor_ref") or chain.get("anchor_role")
-                or chain.get("anchor_point") or "?")
-
-    @staticmethod
-    def _chain_anchor_label(anchor_key: str) -> str:
-        """Display label of an anchor group node — the anchor key plus a
-        stable prefix so it reads as a grouping header, not a chain."""
-        return f"{_('Anchor')}: {anchor_key}"
-
-    def _add_chains_children(self, section_item, raw) -> None:
-        """chains: category -> anchor -> chain -> pad leaves (2026-09-01, plan
-        plan_2026_09_01_rules_to_chains.md). UserRole shapes:
-          - anchor node: ("anchor", "chains", anchor_key) — grouping only;
-          - chain node: ("chain", "chains", chain_payload) — full chain dict,
-            double-click -> chain_edit_requested;
-          - pad leaf:  ("pad", "chains", chain_payload, pad_index) — full
-            chain dict + index of this spoke, double-click -> pad_edit_requested.
-        Anchors sort by key, chains by effective name, pads by pad number."""
-        anchors: dict[str, QTreeWidgetItem] = {}
-        chains: list[dict] = [c for c in raw if isinstance(c, dict)]
-        for chain in sorted(chains,
-                            key=lambda c: entry_effective_name("chains", c)):
-            anchor_key = self._chain_anchor_key(chain)
-            anchor_item = anchors.get(anchor_key)
-            if anchor_item is None:
-                anchor_item = QTreeWidgetItem(
-                    section_item, [self._chain_anchor_label(anchor_key)])
-                anchor_item.setData(0, Qt.ItemDataRole.UserRole,
-                                    ("anchor", "chains", anchor_key))
-                anchors[anchor_key] = anchor_item
-            name = entry_effective_name("chains", chain)
-            comment = chain.get('comment') if isinstance(chain, dict) else None
-            label = f"{_COMMENT_GLYPH}{name}" if comment else name
-            chain_item = QTreeWidgetItem(anchor_item, [label])
-            chain_item.setData(0, Qt.ItemDataRole.UserRole,
-                               ("chain", "chains", chain))
-            if comment:
-                chain_item.setToolTip(0, comment)
-            # Pads sort by pad number (plan rules_to_chains: "пады по
-            # pad-номеру"), NOT by source order. The tree index in the pad's
-            # UserRole must stay the spoke's INDEX in the chain's spokes: list
-            # (that's what the pad dialog/redraw/delete operate on), so we
-            # sort a list of (index, spoke) pairs, not the dicts themselves.
-            for idx, spoke in sorted(
-                    ((i, s) for i, s in enumerate(chain.get("spokes") or [])
-                     if isinstance(s, dict)),
-                    key=lambda pair: str(pair[1].get("pad", "?"))):
-                pad_label = str(spoke.get("pad", "?"))
-                pad_item = QTreeWidgetItem(chain_item, [pad_label])
-                pad_item.setData(0, Qt.ItemDataRole.UserRole,
-                                 ("pad", "chains", chain, idx))
-                cell = spoke.get("cell")
-                if cell:
-                    pad_item.setToolTip(0, _("cell {cell}").format(cell=cell))
-
-    @staticmethod
     def _add_nested_cell_children(leaf, cell_data: dict) -> None:
         """Composite cells (clone_placements:, Phase 4 recursion) show their
         nested content as read-only child nodes — the "tree" Denis actually
@@ -1164,13 +1024,12 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     def _entries(raw, section):
         """Yields (display name, click payload), sorted by name. Dict
         sections (cells/extract_profiles/...) are keyed by name — the
-        payload is the name itself. List sections (chains/clone_placements/
+        payload is the name itself. List sections (clone_placements/
         thermal_via_arrays/coordinate_placements) carry their own name
         field — the payload is the whole entry, needed by placement_picked
         (load_placement wants the full dict, not just the name). The display
         name comes from rename.py's shared entry_effective_name(section, e):
-        chains: entries may omit name: (falling back to net:), coordinate_
-        placements: may likewise omit name: (falling back to cluster/role) —
+        coordinate_placements: may omit name: (falling back to cluster/role) —
         ONE formula, not a per-section inline copy (2026-08-13 review, bug 4).
 
         Non-empty check, not key-presence — `cluster: null` (or empty
@@ -1209,8 +1068,7 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             currentItemChanged(None, previous); refresh() runs on almost every
             dock's `saved` signal, so this must be a silent no-op;
           * `self._suppress_current_change` — a programmatic setCurrentItem by
-            this dock (refresh() rebuild, select_chains_chain's sync) must not
-            drag the Config right page;
+            this dock (refresh() rebuild) must not drag the Config right page;
           * a MOUSE-driven change is skipped: the accompanying itemClicked
             routes it, and routing both would double-emit file_selected and the
             picked signal."""
@@ -1230,30 +1088,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             return  # clicked a file/category header with no click target
         if data[0] == "category":
             return  # clicked a section header with no click target
-        if data[0] == "chain" and data[1] == "chains":
-            # Single click on a chains: CHAIN node -> the Config chains-nav
-            # QView page shows that chain's PAD list (2026-09-05, design
-            # config_qview_chain_entity_pages §4/§8.2).
-            self.chain_picked.emit(data[2])
-            return
-        if data[0] == "anchor" and data[1] == "chains":
-            # Single click on a chains: ANCHOR node -> the Config chains-nav
-            # QView page shows the anchor's CHAIN list (its chain children).
-            anchor_key = data[2]
-            chains = []
-            for child in range(item.childCount()):
-                child_data = item.child(child).data(0, Qt.ItemDataRole.UserRole)
-                if child_data is not None and child_data[0] == "chain":
-                    chains.append(child_data[2])
-            self.anchor_picked.emit(anchor_key, chains)
-            return
-        if data[0] == "pad":
-            # Single click on a chains: PAD leaf -> the spoke editor as the
-            # Config right-QView page (2026-09-05, design
-            # config_qview_chain_entity_pages §4): pad leaf -> spoke editor.
-            _, _section, chain, pad_index = data
-            self.pad_picked.emit(chain, pad_index)
-            return
         if data[0] != "leaf":
             return
         _kind, section, ref = data
@@ -1298,20 +1132,12 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     def _on_double_clicked(self, item, column) -> None:
         """Double click opens the matching edit dialog:
           - points: leaf -> points_edit_requested;
-          - Entities leaf -> entity_edit_requested;
-          - chains: CHAIN node -> chain_edit_requested (the whole chain dict);
-          - chains: PAD leaf -> pad_edit_requested (chain dict, pad index).
+          - Entities leaf -> entity_edit_requested.
         Any other leaf/file/category keeps its default double-click behavior."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data is None:
             return
         kind = data[0]
-        if kind in ("anchor", "chain", "pad") and data[1] == "chains":
-            if kind == "chain":
-                self.chain_edit_requested.emit(data[2])
-            elif kind == "pad":
-                self.pad_edit_requested.emit(data[2], data[3])
-            return
         if kind != "leaf":
             return
         _kind, section, ref = data
@@ -1341,17 +1167,13 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             return None
         if data[0] in ("leaf", "category"):
             return data[1]
-        if data[0] in ("anchor", "chain", "pad") and data[1] == "chains":
-            return "chains"
         return None
 
     def _rename_target_for_item(self, item) -> Optional[tuple]:
         """(file_path, section, old_name) for a Rename action, or None when
-        `item` is not renameable. Renameable: a regular leaf, and a chains:
-        CHAIN node (its name/net is the --only identity; pads and anchors have
-        no name of their own). The ONE extraction shared by the context menu's
-        "Rename..." and the F2 shortcut (2026-08-25) — the two entry points can
-        never drift apart."""
+        `item` is not renameable. Renameable: a regular leaf. The ONE
+        extraction shared by the context menu's "Rename..." and the F2 shortcut
+        (2026-08-25) — the two entry points can never drift apart."""
         file_ctx = self._file_context_for_item(item)
         if file_ctx is None:
             return None
@@ -1367,14 +1189,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             else:
                 name = item.text(0)
             return file_ctx[0], section, name
-        if leaf_data[0] == "chain":
-            # old_name = the chain's effective name (name or net), rebuilt from
-            # the label the same way _item_identity does (strip the comment
-            # glyph).
-            label = item.text(0)
-            name = (label[len(_COMMENT_GLYPH):] if label.startswith(_COMMENT_GLYPH)
-                    else label)
-            return file_ctx[0], "chains", name
         return None
 
     def _on_context_menu(self, pos) -> None:
@@ -1399,50 +1213,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
             item.setSelected(True)
 
         menu = QMenu(self.tree)
-
-        # Chains: node-specific actions (2026-09-01, plan rules_to_chains) —
-        # the nested tree's per-node context menu. The generic Add block below
-        # (via _add_section_for_item -> "chains") already supplies "Add
-        # chain..." for every chains node (anchor/category get the plan's
-        # "Add chain..."; a chain node gets it too, "add another net under this
-        # anchor"); these are the node kinds' EXTRA actions:
-        #   * chain node -> "Add spoke...", "Redraw chain", "Bulk set Cell...";
-        #   * pad leaf   -> "Redraw spoke", "Delete pad...".
-        node_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if (node_data is not None and node_data[0] in ("anchor", "chain", "pad")
-                and node_data[1] == "chains"):
-            if node_data[0] == "anchor":
-                # Root component (anchor) -> "Redraw chains..." redraws ALL the
-                # chains (all the anchor's spokes) under it in ONE pipeline run
-                # (Denis, 2026-09-01: "если корневой компонент, то вообще все
-                # его спицы").
-                chain_payloads = []
-                for i in range(item.childCount()):
-                    child = item.child(i)
-                    child_data = child.data(0, Qt.ItemDataRole.UserRole)
-                    if child_data is not None and child_data[0] == "chain":
-                        chain_payloads.append(child_data[2])
-                if chain_payloads:
-                    menu.addAction(_("Redraw chains...")).triggered.connect(
-                        lambda checked=False, payloads=chain_payloads:
-                        self.anchor_redraw_requested.emit(payloads))
-                    menu.addSeparator()
-            elif node_data[0] == "chain":
-                chain = node_data[2]
-                menu.addAction(_("Add spoke...")).triggered.connect(
-                    lambda checked=False, c=chain: self.add_pad_requested.emit(c))
-                menu.addAction(_("Redraw chain")).triggered.connect(
-                    lambda checked=False, c=chain: self.chain_redraw_requested.emit(c))
-                net = chain.get("net") if isinstance(chain, dict) else None
-                menu.addAction(_("Bulk set Cell for net...")).triggered.connect(
-                    lambda checked=False, n=net: self.bulk_set_cell_requested.emit(n))
-            elif node_data[0] == "pad":
-                chain, idx = node_data[2], node_data[3]
-                menu.addAction(_("Redraw spoke")).triggered.connect(
-                    lambda checked=False, c=chain, i=idx: self.pad_redraw_requested.emit(c, i))
-                menu.addAction(_("Delete pad...")).triggered.connect(
-                    lambda checked=False, c=chain, i=idx: self._on_delete_pad(file_path, c, i))
-                menu.addSeparator()
 
         # Leaf-only block (Edit cell/Rename/Delete) — the (file_path, section,
         # old_name) triple is extracted by the same _rename_target_for_item the
@@ -1688,79 +1458,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                 files=", ".join(display_path(p) for p in report["cascade_files"]))
         QMessageBox.information(self, _("Deleted"), message)
 
-    def _on_delete_pad(self, file_path: Path, chain: dict, pad_index: int) -> None:
-        """Deletes ONE pad from a chain (context menu on a pad leaf,
-        2026-09-01, plan rules_to_chains). Unlike a whole-chain delete
-        (delete_entry), this loads the chain, drops the spoke at `pad_index`
-        from its spokes:, and rewrites the chain via upsert_list_entry — with
-        a backup_file first, exactly like every other write path here."""
-        spokes = chain.get("spokes") or []
-        if pad_index < 0 or pad_index >= len(spokes):
-            return
-        pad = spokes[pad_index]
-        pad_label = str(pad.get("pad", "?")) if isinstance(pad, dict) else "?"
-        name = entry_effective_name("chains", chain)
-        reply = QMessageBox.question(
-            self, _("Delete pad {pad!r}").format(pad=pad_label),
-            _("Delete pad {pad!r} from chain {name!r} in {file}?").format(
-                pad=pad_label, name=name, file=display_path(file_path)))
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        modified = dict(chain)
-        modified["spokes"] = [s for i, s in enumerate(spokes) if i != pad_index]
-        backup_file(file_path)
-        upsert_list_entry(file_path, "chains", modified,
-                          key_fn=lambda e: entry_effective_name("chains", e))
-        self.refresh()
-        self.graph_changed.emit()
-        QMessageBox.information(
-            self, _("Deleted"),
-            _("Deleted pad {pad!r} from chain {name!r}.").format(
-                pad=pad_label, name=name))
-
-    def selected_chain(self) -> Optional[tuple]:
-        """The currently selected chains: CHAIN node as (file_path, chain_dict),
-        or None when there is no selection or the selection is a different node
-        kind (anchor/pad/file/category/leaf). The Tools menu's "Add spoke..." /
-        "Delete net..." (DockHub.add_spoke/delete_selected_chain) operate on the
-        chain currently selected in the Config tree (2026-09-01, plan
-        rules_to_chains) — this is the ONE extraction of that selection."""
-        for tree_item in self.tree.selectedItems():
-            data = tree_item.data(0, Qt.ItemDataRole.UserRole)
-            if data is not None and data[0] == "chain" and data[1] == "chains":
-                file_ctx = self._file_context_for_item(tree_item)
-                if file_ctx is not None:
-                    return file_ctx[0], data[2]
-        return None
-
-    def select_chains_chain(self, chain: dict) -> None:
-        """Select/expand/scroll to the tree node of the chain whose effective
-        name matches `chain` (2026-09-05, S2b — the QView chains-drill row
-        syncs the Config tree's selection onto that chain node)."""
-        target = entry_effective_name("chains", chain)
-        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
-        while stack:
-            item = stack.pop()
-            data = item.data(0, Qt.ItemDataRole.UserRole)
-            if (data is not None and data[0] == "chain" and data[1] == "chains"
-                    and entry_effective_name("chains", data[2]) == target):
-                parent = item.parent()
-                while parent is not None:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-                # G.5: this is a selection SYNC from another dock, not user
-                # navigation — the currentItemChanged it emits must not drag
-                # the Config right page.
-                self._suppress_current_change = True
-                try:
-                    self.tree.setCurrentItem(item)
-                finally:
-                    self._suppress_current_change = False
-                self.tree.scrollToItem(item)
-                return
-            for child in range(item.childCount()):
-                stack.append(item.child(child))
-
     def selected_imprint(self) -> Optional[tuple]:
         """The currently selected imprints leaf as (file_path, record_dict),
         or None when there is no selection or the selection is a different node
@@ -1778,18 +1475,13 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
         return None
 
     def _selected_export_items(self) -> list:
-        """Currently selected tree leaves/nodes, as ExportItem tuples — file/
-        category headers and chains: anchor groups are ignored (Export only
-        makes sense for actual entries). A chains: CHAIN node exports the whole
-        chain dict (pads included); a chains: PAD leaf exports its parent chain
-        (a pad is not a standalone record — see plan rules_to_chains §3)."""
+        """Currently selected tree leaves, as ExportItem tuples — file/category
+        headers are ignored (Export only makes sense for actual entries)."""
         items = []
         for tree_item in self.tree.selectedItems():
             data = tree_item.data(0, Qt.ItemDataRole.UserRole)
             if data is None or data[0] == "file" or data[0] == "category":
                 continue
-            if data[0] == "anchor":
-                continue  # grouping header, nothing to export
             file_ctx = self._file_context_for_item(tree_item)
             if file_ctx is None:
                 continue
@@ -1797,13 +1489,6 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                 _kind, section, payload = data
                 items.append(ExportItem(source_path=file_ctx[0], section=section,
                                         name=tree_item.text(0), payload=payload))
-            elif data[0] == "chain":
-                items.append(ExportItem(source_path=file_ctx[0], section="chains",
-                                        name=tree_item.text(0), payload=data[2]))
-            elif data[0] == "pad":
-                # Export the parent chain (a pad alone has no standalone record).
-                items.append(ExportItem(source_path=file_ctx[0], section="chains",
-                                        name=tree_item.text(0), payload=data[2]))
         return items
 
     def _on_export(self, items: list) -> None:

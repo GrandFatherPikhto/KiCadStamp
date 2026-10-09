@@ -979,31 +979,7 @@ class DockHub:
         # page (no dialog).
         self.config_tree_dock.points_picked.connect(self._start_edit_point)
         self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
-        # Chains (2026-09-05, design config_qview_chain_entity_pages): the
-        # chain editor lives as the Config dock's right-QView Chain page (no
-        # dialog anymore). A SINGLE click on a chains: PAD leaf opens the spoke
-        # editor (pad_picked); a DOUBLE click on a chain/pad leaf is the same
-        # target (chain_edit_requested/pad_edit_requested); "Add spoke..."
-        # (add_pad_requested) opens the same page in pad mode. The tree's
-        # context menu still drives Redraw chain/spoke and Bulk set Cell
-        # (chain_redraw_requested/pad_redraw_requested/bulk_set_cell_requested)
-        # — those run the ApplyPipeline / bulk write on the same live
-        # chain_dock instance.
-        self.config_tree_dock.chain_edit_requested.connect(self._start_edit_chain)
-        self.config_tree_dock.pad_edit_requested.connect(self._start_edit_pad)
-        self.config_tree_dock.pad_picked.connect(self._start_edit_pad)
-        self.config_tree_dock.add_pad_requested.connect(self._start_new_pad)
-        self.config_tree_dock.chain_redraw_requested.connect(self.chain_dock.redraw_chain)
-        self.config_tree_dock.pad_redraw_requested.connect(self.chain_dock.redraw_pad)
-        self.config_tree_dock.anchor_redraw_requested.connect(self.chain_dock.redraw_chains)
-        self.config_tree_dock.bulk_set_cell_requested.connect(self.chain_dock.bulk_set_cell)
-        # Chains navigation (2026-09-05, design config_qview_chain_entity_pages
-        # §4/§8.2): anchor/chain single clicks -> the chains-nav drill page; a
-        # nav pad row opens the spoke editor; a nav chain row syncs the tree.
-        self.config_tree_dock.chain_picked.connect(self._show_chain_pads)
-        self.config_tree_dock.anchor_picked.connect(self._show_anchor_chains)
         self.chains_nav_dock.open_spoke.connect(self._start_edit_pad)
-        self.chains_nav_dock.reveal_chain.connect(self.config_tree_dock.select_chains_chain)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
         # Imprint (2026-09-06, plan imprint P5): a single click on a
@@ -1167,7 +1143,6 @@ class DockHub:
         self.config_tree_dock.add_coordinate_placement_requested.connect(
             self._show_config_placer)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
-        self.config_tree_dock.add_chain_requested.connect(self._start_new_chain)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
         # _add_included_file/_remove_file) -> every dock's graph-derived

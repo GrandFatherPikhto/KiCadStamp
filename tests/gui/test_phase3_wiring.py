@@ -249,70 +249,6 @@ def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_pat
         window._poll_worker.stop()
 
 
-def test_chain_edit_requested_fills_chain_form_and_shows_qview_page(real_main_window, tmp_path):
-    """ConfigTreeDock -> ChainDock wiring (chain_edit_requested -> _start_edit_
-    chain, 2026-09-05, design config_qview_chain_entity_pages) — a double click
-    on a chains: chain node must reach ChainDock's chain mode end-to-end and
-    show it as the Config dock's Chain right-QView page (no dialog)."""
-    rules_file = tmp_path / "rules.sexp"
-    _write(rules_file, {"chains": [
-        {"net": "+3V3", "anchor_role": "FPGA",
-         "spokes": [{"pad": "17", "cell": "cap_pair"}]},
-    ]})
-    real_main_window.config_tree_dock.set_root_file(rules_file)
-
-    real_main_window.config_tree_dock.chain_edit_requested.emit(
-        {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]})
-
-    assert real_main_window.chain_dock.net_edit.currentText() == "+3V3"
-    assert real_main_window.chain_dock.anchor_role_edit.currentText() == "FPGA"
-    assert real_main_window.chain_dock._chain_entry == {
-        "net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "cap_pair"}]}
-    hub = real_main_window._dock_hub
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
-
-
-def test_chain_saved_refreshes_config_tree_chains(real_main_window, tmp_path):
-    """ChainDock -> ConfigTreeDock wiring (saved -> refresh) — same
-    real-widget-state assertion style as test_points_saved_refreshes_
-    config_tree_points above. The refreshed tree shows the Chains category
-    -> anchor -> chain structure."""
-    rules_file = tmp_path / "rules.sexp"
-    _write(rules_file)
-    real_main_window.config_tree_dock.set_root_file(rules_file)
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    assert root_item.childCount() == 0
-
-    # У3.5: under format 3 a chain's identity is its NAME (the lift mints one
-    # for a nameless record). Give it the net as its name, so the tree labels it
-    # the same way on both formats (source).
-    _write(rules_file, {"chains": [
-        {"net": "+3V3", "name": "+3V3", "anchor_role": "FPGA"}]})
-    real_main_window.chain_dock.saved.emit()
-
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    chains_cat = root_item.child(0)
-    assert chains_cat.text(0) == "Spokes"
-    assert chains_cat.child(0).text(0) == "Anchor: FPGA"
-    assert chains_cat.child(0).child(0).text(0) == "+3V3"
-
-
-def test_add_chain_requested_opens_blank_chain_form_and_shows_qview_page(real_main_window, tmp_path):
-    """ConfigTreeDock's "Add chain..." context-menu action -> ChainDock, same
-    shape as DockHub._start_new_placement/_start_new_point (2026-09-01, plan
-    rules_to_chains; shown as the Config Chain right-QView page since
-    2026-09-05, design config_qview_chain_entity_pages)."""
-    rules_file = tmp_path / "rules.sexp"
-    _write(rules_file)
-    real_main_window.chain_dock.net_edit.setCurrentText("stale")
-
-    real_main_window.config_tree_dock.add_chain_requested.emit(rules_file)
-
-    assert real_main_window.chain_dock.net_edit.currentText() == ""
-    hub = real_main_window._dock_hub
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
-
-
 def test_thermal_via_picked_shows_qview_page_with_entry_loaded(real_main_window, tmp_path):
     """ConfigTreeDock -> ThermalViaArrayDock wiring (thermal_via_picked ->
     _load_thermal_via_page, 2026-09-05 QView move) — clicking a Thermal via
@@ -436,67 +372,6 @@ def test_tools_menu_add_net_shows_chain_qview_page_fresh(real_main_window):
     assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
     assert hub.chain_dock.net_edit.currentText() == ""
     assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._chain_page
-
-
-def test_tools_menu_add_spoke_requires_a_selected_chain(real_main_window, tmp_path):
-    """2026-09-01 (plan rules_to_chains): "Add spoke..." opens the Chain
-    right-QView page in pad mode (2026-09-05, design
-    config_qview_chain_entity_pages), appending to the chain currently selected
-    in the Config tree. Without a selection it just logs a hint — never a
-    crash and never switches the page."""
-    hub = real_main_window._dock_hub
-    hub.add_spoke()
-    # Nothing selected -> no pad editor shown (the chain page stays off).
-    assert hub.config_tree_dock.right_stack.currentIndex() != hub._chain_page
-
-    # With a chains: chain selected, the Chain page opens in pad mode.
-    chain = {"net": "+3V3", "anchor_ref": "U1", "spokes": []}
-    real_main_window.config_tree_dock.selected_chain = lambda: (None, chain)
-
-    hub.add_spoke()
-
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
-    assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._pad_page
-    assert hub.chain_dock._chain_entry == chain
-    assert hub.chain_dock._pad_index is None  # append
-
-
-def test_pad_single_click_shows_spoke_editor_qview_page(real_main_window, tmp_path):
-    """2026-09-05 (design config_qview_chain_entity_pages §4): a SINGLE click on
-    a chains: pad leaf (pad_picked) loads the spoke into ChainDock's pad mode
-    and shows it as the Config dock's Chain right-QView page."""
-    rules_file = tmp_path / "rules.sexp"
-    _write(rules_file, {"chains": [
-        {"net": "+3V3", "anchor_role": "FPGA",
-         "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap"}]}]})
-    real_main_window.config_tree_dock.set_root_file(rules_file)
-
-    hub = real_main_window._dock_hub
-    chain = {"net": "+3V3", "anchor_role": "FPGA",
-             "spokes": [{"pad": "17", "cell": "cap_pair"}, {"pad": "26", "cell": "cap"}]}
-    real_main_window.config_tree_dock.pad_picked.emit(chain, 1)
-
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
-    assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._pad_page
-    assert hub.chain_dock._pad_index == 1
-    assert hub.chain_dock.spoke_pad_edit.text() == "26"
-
-
-def test_chain_single_click_shows_pads_nav_qview_page(real_main_window, tmp_path):
-    """A SINGLE click on a chains: CHAIN node (chain_picked) shows the
-    chains-navigation QView page with that chain's pads (2026-09-05, design
-    config_qview_chain_entity_pages §4/§8.2)."""
-    rules_file = tmp_path / "rules.sexp"
-    _write(rules_file, {"chains": [{"net": "+3V3", "anchor_role": "FPGA",
-                                    "spokes": [{"pad": "17", "cell": "c"}]}]})
-    real_main_window.config_tree_dock.set_root_file(rules_file)
-    hub = real_main_window._dock_hub
-    chain = {"net": "+3V3", "anchor_role": "FPGA", "spokes": [{"pad": "17", "cell": "c"}]}
-    real_main_window.config_tree_dock.chain_picked.emit(chain)
-
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chains_nav_page
-    assert hub.chains_nav_dock.list_widget.count() == 1
-    assert "17" in hub.chains_nav_dock.list_widget.item(0).text()
 
 
 def test_tools_menu_delete_net_removes_selected_chain(real_main_window, tmp_path):
