@@ -54,11 +54,10 @@ class _Rec:
 
 
 class _Cfg:
-    def __init__(self, entities=(), clone_placements=(), cells=None, chains=()):
+    def __init__(self, entities=(), clone_placements=(), cells=None):
         self.entities = list(entities)
         self.clone_placements = list(clone_placements)
         self.cells = cells or {}
-        self.chains = list(chains)
 
 
 class _Adapter:
@@ -373,7 +372,7 @@ def test_registry_files_are_byte_identical(gate, tmp_path):
     assert (via_file.read_bytes(), track_file.read_bytes()) == before
 
 
-# ── record resolver & chain detection (pure) ───────────────────────────────
+# ── record resolver (pure) ─────────────────────────────────────────────────
 
 def test_instance_recording_name_prefers_entity_and_matches_address():
     from gui.select_cell import instance_recording_name
@@ -384,15 +383,6 @@ def test_instance_recording_name_prefers_entity_and_matches_address():
     assert instance_recording_name(cfg, "dac_buf", "DAC_BUF", "Channel_0") == "dac0"
     assert instance_recording_name(cfg, "dac_buf", "DAC_BUF", "Channel_1") == "cl"
     assert instance_recording_name(cfg, "dac_buf", "DAC_BUF", "Channel_9") is None
-
-
-def test_instance_placed_by_chain():
-    from gui.select_cell import instance_placed_by_chain
-    spoke = SimpleNamespace(cell="fpga_pwr_bank", cluster="FPGA_PWR_BANK",
-                            retired=False, skip=False)
-    cfg = _Cfg(chains=[SimpleNamespace(spokes=[spoke])])
-    assert instance_placed_by_chain(cfg, "fpga_pwr_bank", "FPGA_PWR_BANK")
-    assert not instance_placed_by_chain(cfg, "dac_buf", "DAC_BUF")
 
 
 def test_cell_has_recorded_copper():

@@ -20,15 +20,15 @@ NAME from elsewhere in the graph (same CASCADE_FIELD table rename.py
 already uses — cell: and anchor_point:). Unlike rename's cascade, which
 REWRITES the reference to the new name, a delete's cascade REMOVES the
 referencing entry entirely — Denis, 2026-08-05: "Предупреждать. Спросить,
-удалить ли связанные ссылки? Если да, их тоже удалить." A spoke/
-clone_placement/rule/point left pointing at a name that no longer exists
+удалить ли связанные ссылки? Если да, их тоже удалить." A
+clone_placement/point left pointing at a name that no longer exists
 fails to load on the next `apply`/`extract` run anyway, so there is no
 useful "leave it dangling" middle ground.
 
 _prune_file_data() is a generic structural walk (matches any dict that
 carries `field_name: target`, wherever it sits — a top-level list entry
-like a ClonePlacement/Rule/ThermalViaArrayConfig, a nested list entry like
-a Rule's own spokes: or a Cell's own clone_placements:, or a DICT-section
+like a ClonePlacement/ThermalViaArrayConfig, a nested list entry like
+a Cell's own clone_placements:, or a DICT-section
 entry like a Point's own anchor_point: chaining to another point), same
 "walk by key name, not by hardcoded field path" principle as rename.py's
 _rename_field_recursive/rename_references — this is what reaches a nested
@@ -92,7 +92,7 @@ def _prune_lists_recursive(node: Dict[str, Any], field_name: str, target: str,
                            on_match: Callable[[Dict[str, Any]], None]) -> bool:
     """Removes, from any list found anywhere inside `node` (recursively),
     dict items that directly carry `field_name: target` — covers every
-    nested list shape (Rule.spokes, Cell.clone_placements, ...) without
+    nested list shape (Cell.clone_placements, ...) without
     hardcoding a field path per shape, see module docstring."""
     changed = False
     for key, value in list(node.items()):

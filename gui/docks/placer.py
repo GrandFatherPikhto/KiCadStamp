@@ -72,9 +72,9 @@ plan_2026_08_15_sheet_combo_everywhere.md).
 
 anchor_point IS autocompleted (closed 2026-08-06, Denis: "думаю имена
 Points тоже надо делать выпадашкой с именами") — set_root_path(), wired to
-RootMetadataDock's root_changed same as RuleDock's own (gui/docks/
-rules.py), sources the combo from the WHOLE include graph via
-collect_all_point_names(), not just this dock's own target file.
+RootMetadataDock's root_changed like the other docks, sources the combo from
+the WHOLE include graph via collect_all_point_names(), not just this dock's
+own target file.
 
 load_placement() (reverse of _build_entry_dict) lets ConfigTreeDock's Clone
 placements category (gui/docks/config_tree.py — replaced the earlier

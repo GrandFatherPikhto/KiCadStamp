@@ -218,8 +218,8 @@ def configure_searchable(combo: QComboBox) -> None:
 def set_mode_pair_enabled(is_polar: bool, cartesian_widgets, polar_widgets) -> None:
     """Common Cartesian/Polar field-toggle shared by every dock that edits a
     position in either mode (_anchor_origin.py::_update_polar_mode,
-    coordinate_placer.py::_update_row_mode, rules.py::_update_spoke_mode —
-    three near-identical copies consolidated 2026-08-12, Group 3): Cartesian
+    coordinate_placer.py::_update_row_mode —
+    near-identical copies consolidated 2026-08-12, Group 3): Cartesian
     fields enabled only in Cartesian mode, polar fields only in Polar.
     Disabled (not hidden) keeps the row/editor layout stable. Either sequence
     may contain None entries (docks that don't build a given field) — skipped.
@@ -238,8 +238,8 @@ def parse_float_field(edit: QLineEdit) -> Tuple[bool, Optional[float]]:
     set", left for the loader/YAML validation to decide whether it's
     required), only genuinely unparsable text is (False, None). This
     (ok, value) convention replaces the overloaded-None convention the other
-    docks used (where None meant both "empty" AND "invalid" — the cause of
-    the RulesDock "Polar mode needs both Radius and Angle" clobbering the
+    docks used (where None meant both "empty" AND "invalid" — the cause of a
+    "Polar mode needs both Radius and Angle" clobbering the
     real "not a number" error, see plan Group 2 item 5): callers can now
     tell "empty" from "invalid"."""
     text = edit.text().strip()
@@ -569,8 +569,8 @@ class SplitterSizeKeeper(QObject):
 class KeyValueTableEditor(QWidget):
     """One small dict[str, str]-editing block — read-only table + a
     key/value row with Add/update + Remove selected, same "table below,
-    editing goes through the row" discipline as RuleDock's spokes editor/
-    CellDock's per-tab editors, just for a plain string->string mapping
+    editing goes through the row" discipline as CellDock's per-tab editors,
+    just for a plain string->string mapping
     instead of a richer dataclass. Used by PlacerDock's Nets/Net overrides/
     Refs tabs (2026-08-06, Denis: "в пласере точно надо... таблицей (может
     быть даже с изменяемыми полями)") and by the ToolsDock (Entity/Placement

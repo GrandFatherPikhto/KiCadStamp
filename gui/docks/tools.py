@@ -199,7 +199,7 @@ class ToolsDock(QWidget):
 
         The names come from the poll WORKER (Э1/Э2 of
         plan_2026_09_13_ui_thread_net_reads; gui/board_nets.board_net_names,
-        shared with thermal_via/chain instead of one get_all_nets() call per
+        shared with thermal_via instead of one get_all_nets() call per
         dock). This method touches widgets only; an empty list clears the
         choices, which is what an absent board used to mean."""
         self._known_nets = list(net_names or ())

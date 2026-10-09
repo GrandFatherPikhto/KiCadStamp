@@ -19,7 +19,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config.models import (
     clone_placement_effective_name,
     entity_effective_name,
@@ -264,8 +263,8 @@ def instance_recording_name(cfg, cell_name: str, cluster, sheet) -> Optional[str
     owner). The address comparison is the ONE product rule
     (``record_address_matches``: cluster by prefix, sheet only when both carry
     one) — no second comparison here. None when NO record places the cell at
-    that instance (e.g. only a chain spoke does): the caller then skips geometry
-    and reports it, it never guesses."""
+    that instance: the caller then skips geometry and reports it, it never
+    guesses."""
     if not cell_name:
         return None
     chosen = (cluster, sheet)
@@ -282,26 +281,6 @@ def instance_recording_name(cfg, cell_name: str, cluster, sheet) -> Optional[str
                                    getattr(c, "sheet", None)), chosen):
             return clone_placement_effective_name(c)
     return None
-
-
-def instance_placed_by_chain(cfg, cell_name: str, cluster) -> bool:
-    """True when a NON-retired chain spoke places `cell_name` at `cluster`.
-
-    Chains are NOT planned per instance by the "Select cell" read (that is a
-    separate task, «Разнос» Р4-2): a cell placed only by a spoke gets
-    registry-only copper and an honest Log line, never a guessed geometry."""
-    if not cell_name:
-        return False
-    for chain in (getattr(cfg, "chains", ()) or ()):
-        for spoke in (getattr(chain, "spokes", ()) or ()):
-            if getattr(spoke, "cell", None) != cell_name:
-                continue
-            if getattr(spoke, "retired", False) or getattr(spoke, "skip", False):
-                continue
-            if cluster and cluster_prefix_match(
-                    str(getattr(spoke, "cluster", None) or ""), cluster):
-                return True
-    return False
 
 
 def _mm_points(item) -> tuple:

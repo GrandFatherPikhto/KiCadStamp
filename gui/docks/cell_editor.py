@@ -11,9 +11,9 @@ it at all (see techdocs/handoff/handoff_2026_08_06_cell_editor_brainstorm.md):
 select-on-board-and-extract round trip was the only way to add so much as
 one component slot to a cell by hand.
 
-Table + detail-panel-below per category, same proven shape as RuleDock's
-spokes editor — NOT a single tree merging all four kinds into one view
-(considered and rejected: unlike RuleDock's spokes, none of Components/
+Table + detail-panel-below per category — NOT a single tree merging all four
+kinds into one view
+(considered and rejected: none of Components/
 Vias/Tracks/Nested cells share a common set of columns, so one tree would
 mean the detail form below still has to switch shape on selection anyway,
 buying nothing over four tabs). Denis, 2026-08-06: "если у нас вложенные
@@ -58,7 +58,7 @@ only ever writes one or the other depending on the mode picked.
 Deliberate scope cuts for this first pass (Denis, "Го. Прям все три. без
 остановки" — shipped in one sitting, not because these don't matter):
   - TemplateComponentSlot.vias (per-component vias) are NOT editable here —
-    only cell-level Vias (spoke.vias in the resolver, TemplateVia at the
+    only cell-level Vias (the resolver's cell vias, TemplateVia at the
     cell's own top level). A component's own via list still round-trips
     correctly if the cell was created by the extractor and merely tweaked
     here (Save only rewrites what this dock itself builds — see
@@ -71,9 +71,9 @@ Deliberate scope cuts for this first pass (Denis, "Го. Прям все три.
     preserved verbatim if already present (same read-back-and-keep
     mechanism as component vias above) but not editable from this form.
 
-No Redraw/Resolve button — unlike Rule/Point/PlacerDock, a Cell has no
+No Redraw/Resolve button — unlike Point/PlacerDock, a Cell has no
 anchor of its own on the live board; it only ever gets a physical position
-in the context of a ClonePlacement/Rule spoke that references it, so there
+in the context of a ClonePlacement that references it, so there
 is nothing here to preview against KiCad.
 """
 import logging
@@ -2784,8 +2784,8 @@ class CellDock(QWidget):
         writing a raw {"components": []} stub straight to YAML (the exact
         root cause of the Conn_PM5V bug this dock was built to fix — see
         module docstring), same reasoning as PlacerDock.new_placement()/
-        ThermalViaArrayDock.new_thermal_via()/PointsDock.new_point()/
-        RuleDock.new_rule(). The entry is written to the project root file
+        ThermalViaArrayDock.new_thermal_via()/PointsDock.new_point().
+        The entry is written to the project root file
         (2026-08-21), so the passed path is ignored."""
         self._loading = True
         try:

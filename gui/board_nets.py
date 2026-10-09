@@ -22,8 +22,8 @@ thread again (the mutation Э4.4 of the plan guards).
 
 def board_net_names(adapter) -> list:
     """Every NAMED net of the live board (``adapter.get_all_nets()``), sorted
-    and de-duplicated — the list the three "which net is this?" combos want
-    (ThermalViaDock, ChainDock, ToolsDock).
+    and de-duplicated — the list the "which net is this?" combos want
+    (ThermalViaDock, ToolsDock).
 
     Deliberately NOT the list NetTraceDock's picker gets: this one includes
     every net the board knows about, pads and all — see copper_net_names()."""

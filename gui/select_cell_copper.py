@@ -187,14 +187,14 @@ def _run_with_copper(payload: dict) -> dict:
 
 
 def _run_with_copper_registry_only(payload: dict, cfg, sheet_names) -> dict:
-    """No record places the cell (e.g. only a chain spoke): registry-only.
+    """No record places the cell: registry-only.
 
-    Geometry needs the redraw planner's commands for ONE record; a chain is not
-    planned per instance here (that is «Разнос» Р4-2) — so the copper is the
-    registry tier only, and the Log line says so."""
+    Geometry needs the redraw planner's commands for ONE record; with no
+    owning record there is nothing to plan — so the copper is the registry
+    tier only, and the Log line says so."""
     from kicadstamp.adapter_factory import create_board_adapter
 
-    from .select_cell import instance_placed_by_chain, select_cell_targets
+    from .select_cell import select_cell_targets
 
     adapter = None
     try:
@@ -209,17 +209,11 @@ def _run_with_copper_registry_only(payload: dict, cfg, sheet_names) -> dict:
         items = list(plan.footprints) + list(plan.copper)
         if items:
             adapter.select_items(items)
-        chain = instance_placed_by_chain(cfg, payload["cell_name"],
-                                         payload.get("cluster"))
-        line = plan.line
-        if chain:
-            line += " " + _("the cell is placed by a chain — geometry is not "
-                            "searched (registry only)")
         return {"components": len(plan.footprints), "copper": len(plan.copper),
                 "by_registry": plan.copper_by_registry, "by_geometry": 0,
-                "missing": plan.missing_registry, "chain_only": chain,
+                "missing": plan.missing_registry,
                 "cluster": payload.get("cluster"), "sheet": payload.get("sheet"),
-                "line": line}
+                "line": plan.line}
     except Exception as e:  # noqa: BLE001 — reported as a Log line, no modal
         return {"error": str(e)}
     finally:

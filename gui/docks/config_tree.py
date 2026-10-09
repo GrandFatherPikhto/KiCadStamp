@@ -1463,8 +1463,7 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
         or None when there is no selection or the selection is a different node
         kind. The Tools menu's "Imprints -> Reread..." (DockHub.
         reread_imprint) operates on the Imprint record currently
-        selected in the Config tree (2026-09-06, plan imprint §5.3) — the
-        mirror of selected_chain() above for the imprints section."""
+        selected in the Config tree (2026-09-06, plan imprint §5.3)."""
         for tree_item in self.tree.selectedItems():
             data = tree_item.data(0, Qt.ItemDataRole.UserRole)
             if (data is not None and data[0] == "leaf"

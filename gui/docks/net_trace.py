@@ -17,9 +17,9 @@ Reuses (never rewrites):
   - anchor block: AnchorOriginWidget(modes=["anchor"], anchor_fields=
     ["sheet","pad","cluster"]) — NetTrace is anchor-role-only, no ref/xy/point
     alternative
-  - persist: the _persist_rule-style collect -> load_net_trace validation ->
-    upsert_list_entry -> Log flow (rules.py)
-  - redraw: ApplyPipeline with only=[net], the same mechanism RuleDock uses
+  - persist: the collect -> load_net_trace validation ->
+    upsert_list_entry -> Log flow
+  - redraw: ApplyPipeline with only=[net] — the shared redraw mechanism
 
 Geometry (tracks:/vias:) is NEVER edited by the form — machine-written data,
 hand-edited only by re-running Extract (same reason cells: are not hand-edited).
@@ -180,7 +180,7 @@ class NetTraceDock(QWidget):
 
     def refresh_known_roles(self, snapshot) -> None:
         """Role/Cluster combos of the anchor block — from the live-board
-        snapshot, same pattern as RuleDock.refresh_known_roles."""
+        snapshot (the shared refresh_known_roles pattern)."""
         roles = sorted({s.role for s in snapshot if s.role})
         clusters = sorted({s.cluster for s in snapshot if s.cluster})
         self.anchor_widget.set_known_roles(roles, clusters)
@@ -572,7 +572,7 @@ class NetTraceDock(QWidget):
             return None
 
         # Load from the project ROOT, not self._path (the file this record is
-        # saved into) — same reasoning as RuleDock._collect_redraw_inputs.
+        # saved into) — the shared root, not the record's own file.
         config_path = self._root_path if self._root_path is not None else self._path
         try:
             if config_path.exists():
@@ -648,7 +648,7 @@ class NetTraceDock(QWidget):
     # ── Test hook ──────────────────────────────────────────────────────────
 
     def _do_extract(self) -> Dict[str, Any]:
-        """Synchronous Extract — for tests (mirrors RuleDock._do_redraw_*)."""
+        """Synchronous Extract — for tests."""
         board = self._connection.board
         if board is None or self._path is None:
             return {}

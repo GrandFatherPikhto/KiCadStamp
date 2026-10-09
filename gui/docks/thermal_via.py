@@ -44,7 +44,7 @@ mirroring load_clone_placement's existing public/private split).
 
 anchor_point IS autocompleted (added 2026-08-06, Denis: "думаю имена
 Points тоже надо делать выпадашкой с именами") — set_root_path(), wired to
-RootMetadataDock's root_changed same as RuleDock's/PlacerDock's own,
+RootMetadataDock's root_changed like PlacerDock's own,
 sources the combo from the WHOLE include graph via
 collect_all_point_names(), not just this dock's own target file.
 """

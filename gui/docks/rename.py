@@ -23,8 +23,8 @@ every resolver that reads cell:/anchor_point: — see
 techdocs/handoff/ for the full citation table): only cells: and points:
 are ever referenced BY NAME from elsewhere in the graph — cell: (clone_
 placements, nested CellPlacement inside another Cell's components: — the
-recursive-Cell case, ManualSpoke) and anchor_point: (clone_placements,
-rules, thermal_via_arrays, points: chaining to another point).
+recursive-Cell case) and anchor_point: (clone_placements,
+thermal_via_arrays, points: chaining to another point).
 clone_placements/thermal_via_arrays/extract_profiles/rules/clone_profiles
 are never referenced by name from inside the YAML graph at all — only from
 the CLI (`apply --only NAME`, `extract --profile NAME`, `clone-extract
@@ -188,15 +188,15 @@ def name_exists_in_list_section(files: List[Path], section: str, name: str) -> b
 
 def collect_all_point_names(root_path: Path) -> List[str]:
     """Every points: key reachable from root_path via include: — used by
-    gui/docks/rules.py's Point-chain combo (a Rule's own anchor_point can
-    name a point declared in ANY file in the graph, points: resolving
-    globally the same way cells: does — see collect_all_cell_names above,
-    same reasoning). Empty list on any load failure (broken/unsupported
-    root config) — this is combo autocomplete, not validation: a bad root
-    must never raise unhandled out of the rules dock's root_changed slot
-    (2026-08-28, core_yaml_removal — a stale .yaml path in last_root_file
-    used to crash the whole process; same pattern as collect_all_sheet_names
-    below)."""
+    the anchor-point combos of PlacerDock / Thermal via dock (an
+    anchor_point: can name a point declared in ANY file in the graph,
+    points: resolving globally the same way cells: does — see
+    collect_all_cell_names above, same reasoning). Empty list on any load
+    failure (broken/unsupported root config) — this is combo autocomplete,
+    not validation: a bad root must never raise unhandled out of a dock's
+    root_changed slot (2026-08-28, core_yaml_removal — a stale .yaml path in
+    last_root_file used to crash the whole process; same pattern as
+    collect_all_sheet_names below)."""
     try:
         names: set = set()
         for path in collect_graph_files(root_path):
@@ -208,14 +208,13 @@ def collect_all_point_names(root_path: Path) -> List[str]:
 
 def collect_all_cell_names(root_path: Path) -> List[str]:
     """Every cells: key reachable from root_path via include: — used by
-    gui/docks/rules.py's spoke.cell combo (2026-08-05, Denis: "Чтобы
-    назначать разные целлы разным спицам? Да, думаю комбобоксик"). resolve_
-    includes() already treats a cells: key repeated across two files as
-    FATAL (dict sections merge key-by-key), so a plain union here can never
-    silently collide — same reasoning name_exists_in_graph above relies on.
-    Empty list on any load failure (broken/unsupported root config) — this
-    is combo autocomplete, not validation: a bad root must never raise
-    unhandled out of the rules dock's root_changed slot (2026-08-28,
+    the cell combos of PlacerDock and the Cell editor. resolve_includes()
+    already treats a cells: key repeated across two files as FATAL (dict
+    sections merge key-by-key), so a plain union here can never silently
+    collide — same reasoning name_exists_in_graph above relies on. Empty
+    list on any load failure (broken/unsupported root config) — this is
+    combo autocomplete, not validation: a bad root must never raise
+    unhandled out of a dock's root_changed slot (2026-08-28,
     core_yaml_removal — same pattern as collect_all_sheet_names below)."""
     try:
         names: set = set()
@@ -279,50 +278,6 @@ def find_list_entry_file(root_path: Optional[Path], section: str, entry: dict) -
             if isinstance(item, dict) and entry_effective_name(section, item) == identity:
                 return path
     return None
-
-
-def collect_all_chain_nets(root_path: Path) -> List[str]:
-    """Distinct net: values of every chain reachable from root_path via
-    include: — the net picker for Chains' Bulk-set Cell dialog (2026-08-20,
-    plan rule_spoke_fixes stage 3). A net's chains routinely live in DIFFERENT
-    included files, so this walks the whole graph, not just the current
-    file. Empty [] on any load failure (broken/unsupported root config) —
-    display/autocomplete, not validation: a bad root must never crash a Qt
-    slot (2026-08-28, core_yaml_removal — confirmed live: this was the
-    unguarded call that crashed the process when root_changed carried a
-    .yaml path; same pattern as collect_all_sheet_names)."""
-    try:
-        nets: set = set()
-        for path in collect_graph_files(root_path):
-            for chain in (read_data(path).get("chains") or []):
-                if isinstance(chain, dict) and chain.get("net"):
-                    nets.add(chain["net"])
-        return sorted(nets)
-    except (ValidationError, OSError):
-        return []
-
-
-def collect_chains_by_net(root_path: Path, net: str) -> List[tuple]:
-    """Every (file_path, chain_dict) in the include: graph rooted at
-    root_path whose chain's net: equals `net` — what the Bulk-set Cell action
-    must touch: ALL of a net's spokes, even when the chains live in different
-    included files (2026-08-20, plan rule_spoke_fixes stage 3). Empty [] on
-    any load failure (broken/unsupported root config) — same no-crash
-    contract as collect_all_chain_nets (2026-08-28, core_yaml_removal)."""
-    try:
-        result: List[tuple] = []
-        for path in collect_graph_files(root_path):
-            for chain in (read_data(path).get("chains") or []):
-                if isinstance(chain, dict) and chain.get("net") == net:
-                    result.append((path, chain))
-        return result
-    except (ValidationError, OSError):
-        return []
-
-
-# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename.
-collect_all_rule_nets = collect_all_chain_nets
-collect_rules_by_net = collect_chains_by_net
 
 
 def collect_all_sheet_names(root_path: Path) -> List[str]:

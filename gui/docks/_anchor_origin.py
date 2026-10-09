@@ -1,6 +1,6 @@
 # gui/docks/_anchor_origin.py
 """AnchorOriginWidget — the anchor/origin-resolution block copy-pasted
-near-identically across PointsDock, RuleDock, ThermalViaArrayDock and
+near-identically across PointsDock, ThermalViaArrayDock and
 PlacerDock (found live 2026-08-11 reviewing the codebase with Denis: same
 origin_mode_combo + anchor_ref/role/sheet/pad/cluster_edit + point_edit
 widgets, same _on_origin_mode_changed row-visibility toggle, same Ref-xor-
@@ -16,9 +16,8 @@ entry shapes genuinely differ, not just their widget subset:
   - ClonePlacement (PlacerDock) has NO separate shift fields — it reuses
     `xy:` itself to carry the shift in Anchor/Point mode (see placer.py's
     _build_entry_dict). Same UI row, different YAML meaning.
-  - Rule/ThermalViaArrayConfig have no shift concept on their own anchor at
-    all (Rule's shift lives per-spoke; a thermal via array's origin is
-    always the bare anchor).
+  - ThermalViaArrayConfig has no shift concept on its own anchor at all
+    (a thermal via array's origin is always the bare anchor).
 Forcing one shared build() to also decide the OUTPUT key names would have
 meant leaking each model's own YAML shape back into this widget, so build()
 returns a small GENERIC dict (mode + whichever of x/y/ref/role/sheet/pad/

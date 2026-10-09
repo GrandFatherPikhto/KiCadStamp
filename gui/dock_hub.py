@@ -755,14 +755,14 @@ class DockHub:
         # docstring for the full reasoning); root_changed replaces the old
         # root_file_changed as the source every listener below follows,
         # INCLUDING ConfigTreeDock itself now (it only rebuilds its tree,
-        # no longer owns Open/New/Recent). Rules'/Placer's/ThermalVia's own
+        # no longer owns Open/New/Recent). Placer's/ThermalVia's own
         # Cell/Point combos need the WHOLE include graph (see gui/docks/
-        # rules.py's module docstring), which starts from the project's
-        # root, not whatever file each dock's own set_target_file above
-        # points it at.
+        # rename.py's collect_all_cell_names/collect_all_point_names), which
+        # starts from the project's root, not whatever file each dock's own
+        # set_target_file above points it at.
         # EVERY root_changed consumer is guarded through _safe_call: a dock's
         # set_root_path/set_root_file may raise on a BROKEN root config (e.g.
-        # a missing schematic_dir — RulesDock._refresh_sheet_names ->
+        # a missing schematic_dir — a dock's _refresh_sheet_names ->
         # build_sheet_name_map fatals). The GUI must ALWAYS start and stay
         # open: the error is logged (Log dock), the root path stays set, the
         # user fixes the config or picks another via Open/New. Applies to
@@ -1026,8 +1026,8 @@ class DockHub:
         # graph_changed_broadcast): an entity dock's Save can introduce a
         # brand-new NAME directly (e.g. CellDock's "Add cell..." + Save),
         # bypassing the tree entirely, and every OTHER dock's name-derived
-        # combo (RulesDock.spoke_cell_combo, the point-name combos in
-        # ThermalViaArrayDock/RulesDock/PlacerDock, ...) must hear about it
+        # combo (the cell combos, the point-name combos in
+        # ThermalViaArrayDock/PlacerDock, ...) must hear about it
         # — the tree refresh above only updates the TREE's own display.
         self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
@@ -2591,10 +2591,10 @@ class DockHub:
         via ConfigTreeDock's own actions (add/remove a file, rename/delete a
         cell/point/...) or via one of the entity docks' own Save
         creating/renaming an entry directly (e.g. CellDock's "Add cell..." +
-        Save — a brand new cell name that RulesDock.spoke_cell_combo, sourced
+        Save — a brand new cell name that the cell combos, sourced
         from collect_all_cell_names(), would otherwise not see until the
         root is reassigned; symmetrically for PointsDock's Save and every
-        point-name combo in ThermalViaArrayDock/RulesDock/PlacerDock). Every
+        point-name combo in ThermalViaArrayDock/PlacerDock). Every
         dock with a graph-derived combobox must re-fetch its choices, the
         same way it already does on a root-file change (set_root_path is
         safe to call again: it only refreshes combo CHOICES, preserving the

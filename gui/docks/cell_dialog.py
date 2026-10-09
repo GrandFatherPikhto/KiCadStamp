@@ -4,7 +4,7 @@ CellDialog — the Cell editor form (CellDock) as a standalone, non-modal
 dialog (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md).
 
 CellDock was a page inside DetailDock's stack (gui/docks/detail_panel.py)
-since 2026-08-06; following the Points / Tools / Thermal via / Chain dialog
+since 2026-08-06; following the Points / Tools / Thermal via dialog
 precedents the form now lives in a DIALOG opened from the Tools menu
 (Tools -> Config -> "Edit Cell...") and, for editing an EXISTING cell, from
 the Config tree's context menu ("Edit cell..." -> DockHub._edit_cell) — no
