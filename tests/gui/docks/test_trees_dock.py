@@ -46,7 +46,7 @@ from tests.gui.conftest import _pump
 
 @pytest.fixture(autouse=True)
 def _qt_app(qapp):
-    """Р3а-5 (the same fix as test_placer_dock.py / test_extract_spoke_dialog.py):
+    """Р3а-5 (the same fix as test_placer_dock.py / test_points_dock.py):
     cells here build a REAL widget (`_bare_node_dialog()` -> `_NodeDialog`, and the
     node-form windows) and take no other fixture, so a QApplication must exist even
     when one of them runs FIRST in a pytest-xdist worker — the session `qapp`

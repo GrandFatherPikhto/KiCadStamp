@@ -38,7 +38,8 @@ def _qt_app(qapp):
     in a pytest-xdist worker — the session `qapp` otherwise arrives only because
     some sibling cell ran earlier in the process. (A widget with no QApplication
     aborts the whole worker — the 2026-10-05 `test_key_value_table_editor_load_
-    dict_round_trips` core dump; the same fix as test_extract_spoke_dialog.py.)"""
+    dict_round_trips` core dump; the same fix as the other dock cells' own
+    `_qt_app` guard (test_trees_dock.py, test_points_dock.py).)"""
     return qapp
 
 

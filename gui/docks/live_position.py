@@ -416,8 +416,8 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     POSITION still comes from the adapter's CURRENT generation — the resolver reads
     `adapter.get_footprint(ref)`, never the snapshot's frozen `Selected.fp` (whose
     position is as old as the snapshot). Default None = the historical sweep, byte
-    for byte: cell_anchor_view, extract_spoke, tree_from_selection and the
-    diagnostic probes pass nothing and are untouched.
+    for byte: cell_anchor_view, tree_from_selection and the diagnostic probes
+    pass nothing and are untouched.
 
     WHAT THE SNAPSHOT DOES **NOT** REMOVE — corrected in Кl/Кk of the acceptance,
     because a call count is not what the board costs (the real adapter CACHES,
