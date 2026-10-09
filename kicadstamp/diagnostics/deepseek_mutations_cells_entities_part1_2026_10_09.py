@@ -24,6 +24,10 @@ tests/gui/docks/test_add_entities_menu.py (the menu, the handler, the door).
   * M10 неполные не считаются (counter silenced)            -> "K lack roles" lost
   * M11 лист снова не участвует (find_entity_for_source)   -> Channel_0 takes 1/2
   * M12 snapshot_parts без разрешения листов               -> Part.sheet stays ()
+  * -- часть 2 «Change cell…» --
+  * M13 N по всем ключам старой ячейки                     -> чужая медь в N
+  * M14 подбор ячейки не спрашивается (все подходят)       -> серая строка исчезает
+  * M15 Change cell пишет НЕ то поле                        -> cell не сохранён
   * K1  cosmetic comment                                    -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -51,10 +55,12 @@ PY_BIN = _interpreter()
 PURE = ["test_instance_candidates.py"]
 DIALOG = ["test_add_entities_dialog.py"]
 MENU = ["test_add_entities_menu.py"]
+PART2 = ["test_change_cell.py", "test_entities_under_cells.py"]
 
 CAND = "gui/docks/instance_candidates.py"
 DIALOG_MOD = "gui/docks/add_entities.py"
 FLOW = "gui/docks/add_entities_flow.py"
+CHANGE_FLOW = "gui/docks/change_cell_flow.py"
 
 MUTATIONS = [
     ("M1 нижняя граница снята (shortfall)", CAND,
@@ -119,6 +125,21 @@ MUTATIONS = [
      "                                             sheet_names or {})\n",
      "    resolved = list(snapshot or ())  # MUTATION\n",
      "die", PURE, ()),
+    ("M13 N по всем ключам старой ячейки", CHANGE_FLOW,
+     "    return len(own_registry_entries(via_entries, track_entries, identity,\n"
+     "                                    own_addresses, address, refs))\n",
+     "    return sum(1 for k in list(via_entries) + list(track_entries)\n"
+     "               if k.split(\"|\")[1] == identity)  # MUTATION\n",
+     "die", PART2, ()),
+    ("M14 подбор ячейки не спрашивается", CHANGE_FLOW,
+     "        candidates = (all_cells_rows(cells) if orphan\n"
+     "                      else cell_candidates(instance, cells))\n",
+     "        candidates = all_cells_rows(cells)  # MUTATION\n",
+     "die", PART2, ()),
+    ("M15 Change cell пишет НЕ то поле", CHANGE_FLOW,
+     '    updated["cell"] = chosen\n',
+     '    updated["imprint"] = chosen  # MUTATION\n',
+     "die", PART2, ()),
     ("K1 cosmetic comment (control)", CAND,
      "    out: list[InstanceCandidate] = []",
      "    out: list[InstanceCandidate] = []  # control",

@@ -17,12 +17,14 @@
     _and_sends_its_explicit_instance — узел сущности берётся под её ячейкой;
     payload и утверждения не тронуты.
 """
+import logging
 from pathlib import Path
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QStyle
+from PyQt6.QtWidgets import QDialog, QStyle
 
+import gui.docks.change_cell_flow as change_cell_flow
 import gui.docks.config_tree as config_tree_mod
 from gui.docks.config_tree import (ConfigTreeDock, _CELL_PLACED, _CELL_UNUSED,
                                    _ROLE_CELL_MARK, _ROLE_OWN_FILE)
@@ -346,38 +348,71 @@ def _orphan_dock(main_window, tmp_path):
     return dock, root, sub, leaf
 
 
-def test_orphan_menu_is_only_point_and_delete(main_window, tmp_path, monkeypatch):
-    """3а: у сироты — ровно «Point to cell…» и «Delete entity»; ни Rename, ни
-    платных пунктов, ни «Edit cell...»."""
-    dock, _root, _sub, leaf = _orphan_dock(main_window, tmp_path)
-    labels = [label for label, _ in context_menu_actions(dock, leaf, monkeypatch)]
+def _accepting_change(chosen):
+    """Подмена ChangeCellDialog: «приняла» и вернула заданную ячейку."""
+    class _Dialog:
+        def __init__(self, parent, cells, *, orphan=False):
+            self.cells = list(cells)
+            self.orphan = orphan
 
-    assert "Point to cell…" in labels, labels
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def result_data(self):
+            return chosen
+
+    return _Dialog
+
+
+def test_orphan_menu_is_only_change_cell_and_delete(main_window, tmp_path, monkeypatch):
+    """3а + часть 2: у сироты — ровно «Change cell…» (тот же ОДИН пункт, что у
+    здоровой сущности; второго пункта не заводим) и «Delete entity»; ни Rename,
+    ни платных пунктов, ни «Edit cell...»."""
+    dock, _root, _sub, leaf = _orphan_dock(main_window, tmp_path)
+    actions = context_menu_actions(dock, leaf, monkeypatch)
+    labels = [label for label, _ in actions]
+
+    change = [act for _label, act in actions
+              if act.objectName() == "change_cell_action"]
+    assert len(change) == 1, ("нет ровно одного change_cell_action; видели: "
+                              + repr(labels))
     assert "Delete entity" in labels, labels
     for forbidden in ("Rename...", "Delete...", "Select cell",
                       "Select cell components", "Select enclosed copper",
-                      "Explode…", "Edit cell..."):
+                      "Explode…", "Edit cell...", "Point to cell…"):
         assert forbidden not in labels, (forbidden, labels)
 
 
-def test_point_to_cell_writes_name_and_uuid_into_the_entitys_own_file(
-        main_window, tmp_path, monkeypatch):
-    """3а (мутация 6): «Point to cell…» пишет cell И cell_uuid в СВОЙ файл B
-    (uuid — из СЫРОГО индекса, не из load_config), файл A цел; после refresh()
-    сущность уходит под найденную ячейку."""
-    dock, root, sub, leaf = _orphan_dock(main_window, tmp_path)
+def test_change_cell_writes_cell_and_uuid_into_the_entitys_own_file(
+        real_main_window, tmp_path, monkeypatch, caplog):
+    """Часть 2 (перенацеленный 3а-сторож): у сироты по ГРАФУ (ячейка
+    отсутствует — load_config фатален) список ячеек идёт из СЫРОГО индекса, и
+    «Change cell…» пишет cell И cell_uuid в СВОЙ файл B (uuid — из индекса),
+    файл A цел; после refresh() сущность уходит под найденную ячейку, а медь
+    старой раскладки у сироты — N=0 СВОЕЙ строкой."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    sub = tmp_path / "ent_b.sexp"
+    write_config(sub, {"entities": [{"name": "e1", "cell": "god"}]})
+    write_config(root, {"include": ["ent_b.sexp"],
+                        "cells": {"good": {"components": [{"role": "R"}]}}})
+    open_project(hub, root)
+    dock = hub.config_tree_dock
+    leaf = find_child(category(file_item(dock.tree, sub), "entities"), "e1")
     before_a = root.read_bytes()
-    monkeypatch.setattr(
-        config_tree_mod.QInputDialog, "getItem",
-        staticmethod(lambda *a, **k: ("good", True)))
 
-    actions = context_menu_actions(dock, leaf, monkeypatch)
-    point = next(act for label, act in actions if label.startswith("Point to cell"))
+    monkeypatch.setattr(change_cell_flow, "ChangeCellDialog",
+                        _accepting_change("good"))
+    action = next(act for _label, act in context_menu_actions(dock, leaf, monkeypatch)
+                  if act.objectName() == "change_cell_action")
     # The writer's format-3 stamp RESOLVES a new reference by name, so it would
-    # fill the uuid even if the tree forgot it. Disable the stamp here, so this
-    # guard pins the uuid the TREE writes (mutation "writes the name only").
-    with format3_stamp_disabled():
-        point.trigger()
+    # fill the uuid even if the flow forgot it. Disable the stamp, so this guard
+    # pins the uuid the FLOW writes (mutation "writes the name only").
+    with caplog.at_level(logging.INFO), format3_stamp_disabled():
+        action.trigger()
+    assert any("no copper of the old layout is recorded" in r.message
+               for r in caplog.records), \
+        "N=0 обязан быть назван СВОЕЙ строкой, а не молчанием"
 
     entity = _read(sub)["entities"][0]
     assert entity["cell"] == "good"
@@ -392,25 +427,11 @@ def test_point_to_cell_writes_name_and_uuid_into_the_entitys_own_file(
     assert find_child(cell, "e1")
 
 
-def test_point_preselects_the_close_name_hint(main_window, tmp_path, monkeypatch):
-    """3а: в выборе ПРЕДВЫБРАНА подсказка близкого имени (close_name)."""
-    from kicadstamp import config_working_set
-
-    dock, root, _sub, leaf = _orphan_dock(main_window, tmp_path)
-    monkeypatch.setattr(config_working_set, "active_graph_root", lambda: root)
-    seen = {}
-
-    def _get_item(parent, title, label, items, current=0, editable=True, *a, **k):
-        seen["names"] = list(items)
-        seen["current"] = current
-        return ("good", False)  # declined — nothing is written
-
-    monkeypatch.setattr(config_tree_mod.QInputDialog, "getItem",
-                        staticmethod(_get_item))
-    actions = context_menu_actions(dock, leaf, monkeypatch)
-    next(act for label, act in actions if label.startswith("Point to cell")).trigger()
-
-    assert seen["names"][seen["current"]] == "good", seen
+# УДАЛЁН ОСОЗНАННО (09.10.2026, часть 2): сторож предвыбора по близкому имени.
+# Предвыбор был свойством старого QInputDialog; его заменила выпадашка
+# ПОДХОДЯЩИХ ячеек (instance_candidates.cell_candidates), где подсказки близкого
+# имени нет вовсе. Хинт остался только у пути ОТПЕЧАТКА (_on_point_entity). Это не
+# ослабление сторожа, а исчезновение самого поведения (правило 33).
 
 
 # ═══════════════════════════════════════════════════════════════════════════
