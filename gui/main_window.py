@@ -428,7 +428,7 @@ class MainWindow(QMainWindow):
         # The home for Config-related Tools actions: "Edit Cell..." opens the
         # standalone (non-modal) Cell dialog hosting the single live CellDock
         # (the Cell form moved out of the Detail dock's Cells tab into a
-        # dialog — the same move as Points/Tools/Thermal via/Chain before it;
+        # dialog — the same move as Points/Tools/Thermal via before it;
         # see gui/dock_hub.py). "Extract cluster (by selection)" (2026-09-06)
         # is the same flat-Entity extraction the Trees submenu's "Extract
         # cluster..." provides, exposed here too under its Config-y label — ONE
@@ -522,25 +522,6 @@ class MainWindow(QMainWindow):
         self.add_point_action.triggered.connect(
             lambda: self._dock_hub.new_point())
         tools_menu.addAction(self.add_point_action)
-        # Chains (2026-09-01, plan rules_to_chains): "Add net..." opens the
-        # (non-modal) Chain dialog in chain mode with a fresh blank form (same
-        # shape as "Add point..." -> new_point). The menu labels follow the
-        # NET-identity convention Denis chose (net identifies a chain for
-        # --only); "Add spoke..." adds a pad to the currently selected chain
-        # in the Config tree (pad mode); "Delete net..." removes the selected
-        # chain from its file (with the usual timestamped backup).
-        self.add_chain_action = QAction(_("Add net..."), self)
-        self.add_chain_action.triggered.connect(
-            lambda: self._dock_hub.add_chain())
-        tools_menu.addAction(self.add_chain_action)
-        self.add_spoke_action = QAction(_("Add spoke..."), self)
-        self.add_spoke_action.triggered.connect(
-            lambda: self._dock_hub.add_spoke())
-        tools_menu.addAction(self.add_spoke_action)
-        self.delete_chain_action = QAction(_("Delete net..."), self)
-        self.delete_chain_action.triggered.connect(
-            lambda: self._dock_hub.delete_selected_chain())
-        tools_menu.addAction(self.delete_chain_action)
         # "Edit template..." (2026-09-01, plan plan_2026_09_01_tools_dialog_and_
         # entity_roles.md): opens the standalone (non-modal) Tools dialog — the
         # picked Entity's electrical fields (Nets/Net overrides/Refs), same
@@ -646,15 +627,6 @@ class MainWindow(QMainWindow):
     @property
     def points_dock(self):
         return self._dock_hub.points_dock
-
-    @property
-    def chain_dock(self):
-        return self._dock_hub.chain_dock
-
-    @property
-    def rules_dock(self):
-        # Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
-        return self._dock_hub.chain_dock
 
     @property
     def log_dock(self):
@@ -1103,8 +1075,8 @@ class MainWindow(QMainWindow):
         """Worker thread, successful tick only: the net-name lists
         DockHub.push_snapshot hands to the four net-consuming docks.
 
-        Where they come from (Э1): thermal_via/chain/tools want every named net
-        and used to make three identical adapter.get_all_nets() calls; net_trace
+        Where they come from (Э1): thermal_via/tools want every named net and
+        used to make three identical adapter.get_all_nets() calls; net_trace
         wants the nets that carry copper (tracks + vias) and used to make two.
         Both lists are collected once, here, through gui/board_nets.py.
 

@@ -169,8 +169,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
     from gui.docks.cell_dialog import CellDialog
     from gui.docks.cell_editor import CellDock
     from gui.docks.cell_layers import CellLayersDialog
-    from gui.docks.chain import BulkSetCellDialog, ChainDock
-    from gui.docks.chains_nav import ChainsNavDock
     from gui.docks.config_tree import ConfigTreeDock
     from gui.docks.configurator import ConfiguratorDock
     from gui.docks.entity_page import EntityInfoDock
@@ -225,8 +223,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
         ("RoleClusterTreeDock", lambda: RoleClusterTreeDock(window, connection=connection)),
         ("ConfigTreeDock", lambda: ConfigTreeDock(window)),
         ("TreesDock", lambda: TreesDock(window)),
-        ("ChainDock", lambda: ChainDock(window)),
-        ("ChainsNavDock", lambda: ChainsNavDock(window)),
         ("PlacerDock", lambda: PlacerDock(window)),
         ("ThermalViaArrayDock", lambda: ThermalViaArrayDock(window)),
         ("EntityInfoDock", lambda: EntityInfoDock(window)),

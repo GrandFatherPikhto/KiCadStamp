@@ -20,16 +20,14 @@ Cells (rule 35), per the plan's list:
   * thermal via: a brand-new record keeps ONE uuid across Redraw and Save;
   * thermal via: an anchor_point that names no point is refused (Log line);
   * net_trace: saved record keeps its uuid;
-  * clone_placement: saved record keeps its uuid AND cell_uuid;
-  * chain: the tree's chain dict keeps its uuid and its spoke's cell_uuid.
+  * clone_placement: saved record keeps its uuid AND cell_uuid.
 """
 import pytest
 
-from gui.docks.chain import ChainDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.thermal_via import ThermalViaArrayDock
-from kicadstamp.config import load_config, load_chain
+from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.placement.services.via_planner import thermal_anchor_id
 
@@ -234,33 +232,3 @@ def test_coordinate_redraw_keeps_its_uuid_and_anchor_point_uuid(main_window, tmp
     spliced = payload["cfg"].coordinate_placements[-1]
     assert spliced.uuid == saved.uuid
     assert spliced.anchor_point_uuid == saved.anchor_point_uuid
-
-
-# ── chain ──────────────────────────────────────────────────────────────────
-
-def test_chain_redraw_keeps_the_chain_uuid_and_the_spoke_cell_uuid(main_window, tmp_path):
-    """The Config tree hands the chain as a raw dict; the redraw must splice that
-    chain with its own uuid AND resolve each spoke's `cell` to `cell_uuid`."""
-    target = tmp_path / "root.sexp"
-    _write(target, {
-        "cells": {"cap": {"components": [], "vias": [], "tracks": []}},
-        "chains": [{"net": "+3V3", "anchor_role": "FPGA",
-                    "spokes": [{"pad": "17", "cell": "cap"}]}],
-    })
-    dock = ChainDock(main_window)
-    dock.set_root_path(target)
-    cfg = load_config(str(target))[0]
-    saved = cfg.chains[0]
-    cell_uuid = cfg.cells["cap"].uuid
-    # The tree hands the chain as an identity WITHOUT a uuid (the В36 lift minted
-    # its name into the file, so this is exactly what a name-keyed dict carries).
-    chain_dict = {"name": saved.name, "net": "+3V3", "anchor_role": "FPGA",
-                  "spokes": [{"pad": "17", "cell": "cap"}]}
-
-    payload = dock._collect_redraw_payload(
-        [load_chain(chain_dict)], raw_entries=[chain_dict])
-
-    assert payload is not None
-    spliced = payload["cfg"].chains[-1]
-    assert spliced.uuid == saved.uuid
-    assert spliced.spokes[0].cell_uuid == cell_uuid

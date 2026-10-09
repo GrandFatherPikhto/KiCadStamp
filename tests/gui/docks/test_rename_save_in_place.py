@@ -188,30 +188,3 @@ def test_coordinate_placement_rename_saves_in_place(main_window, tmp_path):
     assert [r.get("name") for r in records] == ["cp1_renamed"]
     assert [r["uuid"] for r in records] == [saved.uuid]
     assert [r["anchor_point_uuid"] for r in records] == [saved.anchor_point_uuid]
-
-
-def test_chain_rename_saves_in_place(main_window, tmp_path):
-    from gui.docks.chain import ChainDock
-
-    target = tmp_path / "root.sexp"
-    _seed_fmt2(target, {
-        "cells": {"cap": {"components": [], "vias": [], "tracks": []}},
-        "chains": [{"name": "CH1", "net": "+3V3", "anchor_role": "FPGA",
-                    "spokes": [{"pad": "17", "cell": "cap"}]}],
-    })
-    from kicadstamp.config import load_config
-
-    cfg, _ = load_config(str(target))
-    saved = cfg.chains[0]
-    dock = ChainDock(main_window)
-    dock.set_root_path(target)
-    dock.load_chain({"name": saved.name, "net": saved.net,
-                     "anchor_role": "FPGA", "uuid": saved.uuid,
-                     "spokes": [{"pad": "17", "cell": "cap"}]})
-    dock.name_edit.setText("CH1_renamed")
-
-    dock._persist_chain("")
-
-    records = _section(target, "chains")
-    assert [r.get("name") for r in records] == ["CH1_renamed"]
-    assert [r["uuid"] for r in records] == [saved.uuid]

@@ -225,30 +225,6 @@ def test_add_point_requested_shows_qview_page_blank(real_main_window, tmp_path):
     assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
 
 
-def test_rules_dock_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_path):
-    """Same startup-order bug/fix as test_root_metadata_dock_picks_up_a_
-    root_restored_before_wiring_existed above — RuleDock is the SECOND
-    listener on root_file_changed (its Cell/Point combos need the whole
-    include graph, see gui/docks/rules.py's module docstring), so it needs
-    the exact same explicit sync in DockHub._wire()."""
-    root_file = tmp_path / "root.sexp"
-    _write(root_file, {"cells": {"cap_pair": {}}})
-
-    data = settings.load()
-    data["last_root_file"] = str(root_file)
-    settings.save(data)
-
-    window = MainWindow(timeout_ms=10, verbose=False)
-    try:
-        assert window.rules_dock._root_path == root_file
-        assert "cap_pair" in [window.rules_dock.spoke_cell_combo.itemText(i)
-                              for i in range(window.rules_dock.spoke_cell_combo.count())]
-    finally:
-        window._timer.stop()
-        window._selection_timer.stop()
-        window._poll_worker.stop()
-
-
 def test_thermal_via_picked_shows_qview_page_with_entry_loaded(real_main_window, tmp_path):
     """ConfigTreeDock -> ThermalViaArrayDock wiring (thermal_via_picked ->
     _load_thermal_via_page, 2026-09-05 QView move) — clicking a Thermal via
@@ -355,59 +331,6 @@ def test_tools_menu_add_point_shows_qview_page_fresh(real_main_window):
 
     assert hub.config_tree_dock.right_stack.currentIndex() == hub._points_page
     assert hub.points_dock.name_edit.text() == ""
-
-
-def test_tools_menu_add_net_shows_chain_qview_page_fresh(real_main_window):
-    """2026-09-01 (plan rules_to_chains): the Tools menu's "Add net..." action
-    routes to DockHub.add_chain -> the same fresh blank chain form
-    (_start_new_chain) the Config tree context menu's "Add chain..." provides,
-    shown as the Config Chain right-QView page (2026-09-05, design
-    config_qview_chain_entity_pages). The menu labels a chain by its NET
-    identity (Denis's decision)."""
-    hub = real_main_window._dock_hub
-    hub.chain_dock.net_edit.setCurrentText("stale_net")
-
-    real_main_window.add_chain_action.trigger()
-
-    assert hub.config_tree_dock.right_stack.currentIndex() == hub._chain_page
-    assert hub.chain_dock.net_edit.currentText() == ""
-    assert hub.chain_dock._stack.currentWidget() is hub.chain_dock._chain_page
-
-
-def test_tools_menu_delete_net_removes_selected_chain(real_main_window, tmp_path):
-    """2026-09-01 (plan rules_to_chains): "Delete net..." deletes the chain
-    currently selected in the Config tree via delete_entry (timestamped
-    backup)."""
-    rules_file = tmp_path / "rules.sexp"
-    # У3.5: a chain's identity is its NAME under format 3 (minted by the lift
-    # for a nameless record); name each chain by its net and hand the SAME name
-    # to the delete so the selection and the record agree (source).
-    _write(rules_file, {"chains": [
-        {"net": "+3V3", "name": "+3V3", "anchor_ref": "U1", "spokes": []},
-        {"net": "GND", "name": "GND", "anchor_ref": "U1", "spokes": []},
-    ]})
-    hub = real_main_window._dock_hub
-    hub.config_tree_dock.set_root_file(rules_file)
-    # У3.5 (class (в)): this cell drives the delete through the Config tree, not
-    # the RootMetadata dock, so nothing has set the ACTIVE GRAPH ROOT the
-    # format-3 writer stamp needs — set it to the profile being edited.
-    from kicadstamp.config_working_set import set_active_graph_root
-    set_active_graph_root(rules_file)
-    hub.config_tree_dock.selected_chain = lambda: (
-        rules_file,
-        {"net": "+3V3", "name": "+3V3", "anchor_ref": "U1", "spokes": []})
-
-    real_main_window.delete_chain_action.trigger()
-
-    data = sexp_to_dict(rules_file.read_text(encoding="utf-8"))
-    assert [c["net"] for c in data["chains"]] == ["GND"]
-    # У3.5: delete_entry ALWAYS takes its own timestamped backup. Under the
-    # format-3 gate the write takes one more (the on-disk file is not in the
-    # format about to be written, so write_config_file snapshots it too) — so
-    # exactly ONE backup under format 2, TWO under format 3.
-    from kicadstamp.config.format_version import current_format
-    expected_backups = 2 if current_format() >= 3 else 1
-    assert len(list(tmp_path.glob("rules.sexp.bak.*"))) == expected_backups
 
 
 def test_entity_edit_requested_opens_dialog_with_entry_loaded(real_main_window, tmp_path):
@@ -1038,9 +961,6 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     assert "Settings..." in root_texts
     assert "Place thermal vias..." in root_texts
     assert "Add point..." in root_texts
-    assert "Add net..." in root_texts
-    assert "Add spoke..." in root_texts
-    assert "Delete net..." in root_texts
     assert "Edit template..." in root_texts
 
 
@@ -1340,7 +1260,7 @@ def test_push_snapshot_feeds_cell_anchor_view(real_main_window, monkeypatch):
     hub = real_main_window._dock_hub
     # Stub the sibling docks' refresh handlers — this test is about the wiring.
     for name in ("tree_dock", "placer_dock", "thermal_via_dock", "points_dock",
-                 "chain_dock", "net_trace_dock", "cells_dock", "tools_dock"):
+                 "net_trace_dock", "cells_dock", "tools_dock"):
         dock = getattr(hub, name, None)
         if dock is None:
             continue
@@ -1711,13 +1631,11 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         assert hub.placer_dock is not None
         assert hub.root_metadata_dock is not None
         assert hub.points_dock is not None
-        assert hub.rules_dock is not None
         assert hub.log_dock is not None
 
         hub.config_tree_dock.file_selected.emit(target_file)
         assert hub.placer_dock._cells_path is None
         assert hub.points_dock._path is None
-        assert hub.rules_dock._path is None
     finally:
         _teardown_hub(hub)
 
@@ -1759,27 +1677,6 @@ def test_dock_hub_wires_root_changed_to_config_tree_dock(main_window, tmp_path):
 
         hub.root_metadata_dock.set_root_file(root_file)
         assert hub.config_tree_dock._root_path == root_file
-    finally:
-        _teardown_hub(hub)
-
-
-def test_dock_hub_wires_root_changed_to_rules_dock(main_window, tmp_path):
-    """RuleDock is a listener on root_changed (RootMetadataDock's, moved
-    here 2026-08-11 from ConfigTreeDock's old root_file_changed) — its
-    Cell/Point combos need the whole include graph starting from the
-    project's root."""
-    root_file = tmp_path / "root.sexp"
-    _write(root_file, {"cells": {"cap_pair": {}}})
-
-    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
-    try:
-        assert hub.rules_dock._root_path is None
-
-        hub.root_metadata_dock.root_changed.emit(root_file)
-
-        assert hub.rules_dock._root_path == root_file
-        assert "cap_pair" in [hub.rules_dock.spoke_cell_combo.itemText(i)
-                              for i in range(hub.rules_dock.spoke_cell_combo.count())]
     finally:
         _teardown_hub(hub)
 
@@ -2073,10 +1970,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     # already captured above as pushed["roles"].
     monkeypatch.setattr(hub.points_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("points_roles", []).append(s))
-    monkeypatch.setattr(hub.rules_dock, "refresh_known_roles",
-                        lambda s: pushed.setdefault("rules_roles", []).append(s))
-    monkeypatch.setattr(hub.rules_dock, "refresh_known_nets",
-                        lambda n: pushed.setdefault("rules_nets", []).append(n))
     monkeypatch.setattr(hub.cells_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("cells_roles", []).append(s))
     # net_trace_dock (2026-08-21, plan net_trace_dock) — net picker from the
@@ -2106,8 +1999,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["thermal_roles"] == [snapshot]
     assert pushed["thermal_nets"] == [net_names]
     assert pushed["points_roles"] == [snapshot]
-    assert pushed["rules_roles"] == [snapshot]
-    assert pushed["rules_nets"] == [net_names]  # rules_dock IS chain_dock
     assert pushed["cells_roles"] == [snapshot]
     assert pushed["anchor_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
@@ -2166,13 +2057,13 @@ def _seed_last_root(root: Path) -> None:
 
 def _spy_graph_refresh_targets(hub, monkeypatch):
     """Install call-recording spies on every target of DockHub's
-    _refresh_graph_dependent_choices (the seven entity docks' set_root_path,
+    _refresh_graph_dependent_choices (the six entity docks' set_root_path,
     trees_dock.refresh_ref_candidates — the lightweight TreesDock half — and
     root_metadata_dock.refresh_working_file_choices) — AFTER DockHub is built
     (construction itself calls set_root_path during _wire; the spies must only
     see post-construction calls). Returns {name: [recorded_arg, ...]}."""
     calls = {}
-    for name in ("rules_dock", "placer_dock", "thermal_via_dock", "cells_dock",
+    for name in ("placer_dock", "thermal_via_dock", "cells_dock",
                  "tools_dock", "points_dock"):
         recorded = []
         monkeypatch.setattr(getattr(hub, name), "set_root_path",
@@ -2191,8 +2082,8 @@ def _spy_graph_refresh_targets(hub, monkeypatch):
 
 def test_graph_changed_refreshes_every_dock_with_a_file_combo(main_window, monkeypatch):
     """ConfigTreeDock's graph_changed must re-fetch every dock's graph-derived
-    combo choices — the same handler the seven entity-dock saved signals feed —
-    i.e. set_root_path on all seven entity docks plus
+    combo choices — the same handler the six entity-dock saved signals feed —
+    i.e. set_root_path on all six entity docks plus
     trees_dock.refresh_ref_candidates and
     root_metadata_dock.refresh_working_file_choices, each exactly once per
     emit."""
@@ -2209,7 +2100,7 @@ def test_graph_changed_refreshes_every_dock_with_a_file_combo(main_window, monke
 def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypatch):
     """Second trigger found at plan review: an entity dock's own Save can
     introduce a brand-new NAME directly (e.g. CellDock's "Add cell..." +
-    Save), bypassing the tree entirely — so each of the seven docks' saved
+    Save), bypassing the tree entirely — so each of the six docks' saved
     signal must ALSO fire the graph-dependent refresh, in addition to its
     existing `saved -> config_tree_dock.refresh` wiring (the tree keeps
     updating its own display; the broadcast updates everyone else)."""
@@ -2217,39 +2108,11 @@ def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypa
     try:
         targets = _spy_graph_refresh_targets(hub, monkeypatch)
         for dock_name in ("placer_dock", "thermal_via_dock",
-                          "points_dock", "rules_dock", "cells_dock",
+                          "points_dock", "cells_dock",
                           "tools_dock"):
             getattr(hub, dock_name).saved.emit()
         for name, calls in targets.items():
-            assert len(calls) == 6, f"{name} not refreshed once per dock Save: {calls}"
-    finally:
-        _teardown_hub(hub)
-
-
-def test_new_cell_save_visible_in_rules_spoke_cell_combo(main_window, tmp_path):
-    """The review-found counterpart: a Cell created DIRECTLY in CellDock (via
-    new_cell + a real Save, bypassing the tree — the tree never learns about
-    it from its own actions) must show up in RulesDock.spoke_cell_combo (the
-    whole-graph cell-name combo) immediately. Before the fix it only appeared
-    after switching the root away and back (same failure class as Denis's
-    complaint, different trigger — the entity dock's Save, not a tree action)."""
-    root = tmp_path / "root.sexp"
-    _write(root, {"cells": {}, "rules": []})
-    _seed_last_root(root)
-
-    hub = DockHub(main_window, connection=main_window.connection, verbose=False)
-    try:
-        def combo_texts(combo):
-            return [combo.itemText(i) for i in range(combo.count())]
-        assert "brand_new_cell" not in combo_texts(hub.rules_dock.spoke_cell_combo)
-
-        hub.cells_dock.new_cell(root)
-        hub.cells_dock.name_edit.setText("brand_new_cell")
-        hub.cells_dock.comp_role_edit.setCurrentText("A")
-        hub.cells_dock._on_add_component()
-        hub.cells_dock._on_save()
-
-        assert "brand_new_cell" in combo_texts(hub.rules_dock.spoke_cell_combo)
+            assert len(calls) == 5, f"{name} not refreshed once per dock Save: {calls}"
     finally:
         _teardown_hub(hub)
 

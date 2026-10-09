@@ -7,7 +7,6 @@ import pytest
 from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from gui.docks.cell_editor import CellDock
-from gui.docks.chain import ChainDock
 from gui.docks.net_trace import NetTraceDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
@@ -54,32 +53,6 @@ class TestEditingIncludedEntryWritesBackToItsFile:
 
         assert _load(sub)["points"]["included_point"]["xy"] == [5.0, 0.0]
         assert "points" not in _load(root)
-        load_config(str(root))
-
-    def test_rule(self, main_window, tmp_path):
-        sub = tmp_path / "sub.sexp"
-        # У3.5: under format 3 a chain's identity is its NAME (the lift mints one
-        # for a nameless record); name it by its net so the edit lands on THIS
-        # record and the assert below reads back what was written (source).
-        _write(sub, {"chains": [{"net": "+3V3", "name": "+3V3",
-                                 "anchor_role": "FPGA", "spokes": []}]})
-        root = tmp_path / "root.sexp"
-        _write(root, {"include": ["sub.sexp"]})
-
-        dock = ChainDock(main_window)
-        dock.set_root_path(root)
-        # У3.5 (class (в)): the edit is written into the INCLUDED file; the
-        # format-3 writer stamp resolves references against the ACTIVE GRAPH
-        # ROOT, so it must be the profile this file belongs to.
-        from kicadstamp.config_working_set import set_active_graph_root
-        set_active_graph_root(root)
-        dock.load_chain({"net": "+3V3", "name": "+3V3",
-                         "anchor_role": "FPGA", "spokes": []})
-        dock.retired_checkbox.setChecked(True)
-        dock._on_save()
-
-        assert _load(sub)["chains"][0]["retired"] is True
-        assert "chains" not in _load(root)
         load_config(str(root))
 
     def test_thermal_via(self, main_window, tmp_path):

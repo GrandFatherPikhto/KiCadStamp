@@ -12,16 +12,15 @@ MainWindow re-exposes as thin forwarding properties — needed for the parts
 of the app that still reach a dock directly (notably RoleClusterTreeDock's
 lazy fieldstool lookup and the test suite).
 
-Placer/Root/Rules (placer_dock/root_metadata_dock/rules_dock) are the one
-exception: 2026-08-03 they were merged into ONE QDockWidget, DetailDock
-(gui/docks/detail_panel.py) — its own module docstring covers why (Points/
-Rules added 2026-08-05, same shape). Those attributes are kept as aliases
-straight into DetailDock's stack pages so every existing call site keeps
-working unchanged; they are plain QWidgets now, not QDockWidgets in their own
-right. Since 2026-09-05 (design config_qview_chain_entity_pages) the Config
-dock is a master-detail and its right QView hosts Placer, NetTrace, the Chain
-editor + chains navigation, the Entity page and (same move, QView pages) the
-Points and Thermal via editors — DetailDock and the Points/Thermal/Chain
+Placer/Root (placer_dock/root_metadata_dock) are the one exception: 2026-08-03
+they were merged into ONE QDockWidget, DetailDock (gui/docks/detail_panel.py)
+— its own module docstring covers why (Points added 2026-08-05, same shape).
+Those attributes are kept as aliases straight into DetailDock's stack pages so
+every existing call site keeps working unchanged; they are plain QWidgets now,
+not QDockWidgets in their own right. Since 2026-09-05 (design
+config_qview_chain_entity_pages) the Config dock is a master-detail and its
+right QView hosts Placer, NetTrace, the Entity page and (same move, QView
+pages) the Points and Thermal via editors — DetailDock and the Points/Thermal
 dialog wrappers are gone (a QWidget can only have one parent, so each live
 dock is embedded directly as a Config QView page). tools_dock (2026-09-01,
 plan plan_2026_09_01_tools_dialog_and_entity_roles.md, "Edit template") and
@@ -42,10 +41,8 @@ from PyQt6.QtWidgets import (QDialog, QMessageBox, QSizePolicy, QTabWidget)
 from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
                             WARN_STYLE as _WARN_STYLE, display_path,
                             show_message)
-from .docks.entity_delete import delete_entry
 from .docks.extract_diagnostics import (format_cluster_rejections,
                                         rejections_log_detail)
-from .docks.rename import entry_effective_name
 
 from kicadstamp.cli_common import api_error_message, peek_log_file
 from kicadstamp.config_working_set import WORKING_SET, set_active_graph_root
@@ -64,8 +61,6 @@ from .docks.cell_anchor_view import (
     cleanup_all_overlays_sync,
 )
 from .docks.cell_editor import CellDock
-from .docks.chain import ChainDock
-from .docks.chains_nav import ChainsNavDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
 from .docks.explode_page import ExplodePage, adapter_of
@@ -233,7 +228,7 @@ class DockHub:
         self._selection_raw_items: list = []
         self._selection_footprints: list = []
         # Thermal via (2026-09-05, design config_qview_chain_entity_pages, the
-        # same QView move as Chain/Entity): the single live ThermalViaArrayDock
+        # same QView move as the Entity page): the single live ThermalViaArrayDock
         # is a Config right-QView page (a single click on a thermal_via_arrays
         # leaf opens it) — a QWidget can only have one parent, so the old
         # ThermalViaDialog wrapper is gone. The same instance keeps receiving
@@ -280,40 +275,21 @@ class DockHub:
         # Cell (2026-09-04, plan plan_2026_09_04_celldock_to_dialog.md): the
         # Cell form (CellDock) is a STANDALONE widget hosted in the non-modal
         # CellDialog — the Detail dock has no Cells page anymore (same move as
-        # Thermal via/Points/Tools/Chain). The same single live instance keeps
+        # Thermal via/Points/Tools). The same single live instance keeps
         # receiving the snapshot ticks / set_root_path / saved. The Cells page
         # used to be constructed inside DetailDock and aliased here; it is now
         # built directly, and the cell_edit_requested delegates below open the
         # dialog instead of switching a Detail dock tab.
         self.cells_dock = CellDock(main_window)
         self.cell_dialog = CellDialog(self.cells_dock, main_window)
-        # Chain (2026-09-01 plan rules_to_chains -> 2026-09-05 QView move): the
-        # single live ChainDock is embedded as a Config right-QView page below —
-        # a QWidget can only have one parent, so the old ChainDialog wrapper is
-        # gone. The same instance keeps receiving the snapshot ticks /
-        # set_root_path / saved. Redraw chain/spoke and Bulk set Cell are driven
-        # from the Config tree's context menu.
-        self.chain_dock = ChainDock(main_window)
-        # Backward-compat alias for the 2026-09-01 Rule -> Chain rename — the
-        # old rules_dock name still resolves to the live ChainDock.
-        self.rules_dock = self.chain_dock
-        # A single click on a chains: pad leaf opens the spoke editor here; Add
-        # net/spoke and Edit chain flows show the same page.
-        self._chain_page = self.config_tree_dock.add_right_page(self.chain_dock)
         # Entity (2026-09-05, design config_qview_chain_entity_pages §5): the
         # Config right-QView page shown when an Entities leaf is selected — a
         # read-mostly Entity RECORD editor ("Справка": Name/Cell/Sheet/Cluster
         # read-only, Comment editable; plus the clickable placements list).
         self.entity_dock = EntityInfoDock(main_window)
         self._entity_page = self.config_tree_dock.add_right_page(self.entity_dock)
-        # Chains navigation (2026-09-05, design config_qview_chain_entity_pages
-        # §4/§8.2): a chains: ANCHOR/CHAIN single click shows a clickable drill
-        # list (anchor -> chains -> pads) as another Config QView page; the pad
-        # rows open the spoke editor (ChainDock page).
-        self.chains_nav_dock = ChainsNavDock(main_window)
-        self._chains_nav_page = self.config_tree_dock.add_right_page(self.chains_nav_dock)
         # Points (2026-09-05, design config_qview_chain_entity_pages, the same
-        # QView move as Chain/Entity): the single live PointsDock is a Config
+        # QView move as the Entity page): the single live PointsDock is a Config
         # right-QView page (a single click on a points: leaf opens it) — a
         # QWidget can only have one parent, so the old PointsDialog wrapper is
         # gone. The same instance keeps receiving the snapshot ticks /
@@ -723,12 +699,6 @@ class DockHub:
             self._finish_resource_capture, self._on_resource_op_failed, payload,
             busy_text=_("reading the board"))
 
-    def _show_config_chain(self, *_args) -> None:
-        """Route a chains pick (pad leaf / chain edit / Add net / Add spoke) to
-        the Chain right page of the Config dock (2026-09-05, design
-        config_qview_chain_entity_pages §4)."""
-        self.config_tree_dock.show_page(self._chain_page)
-
     def show_left_page(self, widget) -> None:
         """Bring one of the three central tabs to the front — the replacement
         for the old dock show()/raise_() pair, which cannot work now that the
@@ -758,24 +728,6 @@ class DockHub:
         Entity record into the Entity right-QView page and shows it."""
         self.entity_dock.load_entity(name)
         self._show_config_entity()
-
-    def _show_config_chains_nav(self, *_args) -> None:
-        """Route a chains anchor/chain pick to the chains-navigation right page
-        of the Config dock (2026-09-05, design config_qview_chain_entity_pages
-        §4/§8.2)."""
-        self.config_tree_dock.show_page(self._chains_nav_page)
-
-    def _show_chain_pads(self, chain) -> None:
-        """chains: CHAIN node single click (2026-09-05, S2b) — the chains-nav
-        QView page shows that chain's pads (clickable)."""
-        self.chains_nav_dock.show_chain(chain)
-        self._show_config_chains_nav()
-
-    def _show_anchor_chains(self, anchor_key, chains) -> None:
-        """chains: ANCHOR node single click (2026-09-05, S2b) — the chains-nav
-        QView page shows the anchor's chains (clickable)."""
-        self.chains_nav_dock.show_anchor(anchor_key, chains)
-        self._show_config_chains_nav()
 
     def _wire(self) -> None:
         """Every dock-to-dock connection (real pyqtSignals — a role can
@@ -814,9 +766,6 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "trees_dock.set_root_file",
                     self.trees_dock.set_root_file))
-        self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "chain_dock.set_root_path",
-                    self.chain_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "entity_dock.set_root_path",
                     self.entity_dock.set_root_path))
@@ -979,7 +928,6 @@ class DockHub:
         # page (no dialog).
         self.config_tree_dock.points_picked.connect(self._start_edit_point)
         self.config_tree_dock.points_edit_requested.connect(self._start_edit_point)
-        self.chains_nav_dock.open_spoke.connect(self._start_edit_pad)
         self.config_tree_dock.net_trace_picked.connect(self.net_trace_dock.load_entry)
         self.config_tree_dock.net_trace_picked.connect(self._show_config_net_trace)
         # Imprint (2026-09-06, plan imprint P5): a single click on a
@@ -1068,7 +1016,7 @@ class DockHub:
         # entities: record fills. Config-only: no board access at all (Т4/С7).
         self.config_tree_dock.add_entity_requested.connect(
             self._create_entity_from_tree)
-        # Placer/Thermal via/Extract/Points/Chains -> Config tree: a
+        # Placer/Thermal via/Extract/Points -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
         # reassigning Files. The SAME six signals ALSO feed
@@ -1082,7 +1030,6 @@ class DockHub:
         self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
-        self.chain_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
         # Imprint (2026-09-06, plan imprint P5): a successful Reread
         # Apply rewrites the record — refresh the tree's leaf display.
@@ -1115,7 +1062,6 @@ class DockHub:
         self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
-        self.chain_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
         # Entity page (2026-09-05, design config_qview_chain_entity_pages): a
         # Comment edit refreshes the tree's comment glyph; a placement click
@@ -1125,9 +1071,6 @@ class DockHub:
         # Thermal via and Points are persistent Config right-QView pages
         # (2026-09-05, design config_qview_chain_entity_pages) — no auto-hide on
         # `saved`; the page stays open for iterative tuning (Thermal via Redraw).
-        # The Chain editor is a persistent Config right-QView page (2026-09-05,
-        # design config_qview_chain_entity_pages) — no auto-hide on `saved`: the
-        # page stays open for iterative tuning (Redraw on the current form).
         # Config tree's "Add placer.../Add thermal via pad.../Add point.../
         # Add rule..." context-menu actions -> Placer/Thermal via/Points/
         # Rules: open the form blank, targeting the file the action was
@@ -1235,7 +1178,6 @@ class DockHub:
         # auto-resolve). The other four docks are handed the NAMES the worker
         # read (above); none of them touches an adapter on this path.
         self.thermal_via_dock.refresh_known_nets(net_names)
-        self.chain_dock.refresh_known_nets(net_names)
         self.net_trace_dock.refresh_known_nets(copper_net_names)
         self.tools_dock.refresh_known_nets(net_names)
 
@@ -1267,7 +1209,6 @@ class DockHub:
         self.placer_dock.refresh_known_roles(snapshot)
         self.thermal_via_dock.refresh_known_roles(snapshot)
         self.points_dock.refresh_known_roles(snapshot)
-        self.chain_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.cells_dock.refresh_known_roles(snapshot)
         self.cell_anchor_view.refresh_known_roles(snapshot)
@@ -1486,88 +1427,6 @@ class DockHub:
         blank form as the Config tree context menu's "Add point..." (add_point_
         requested -> _start_new_point)."""
         self._start_new_point(self.root_metadata_dock.root_path)
-
-    def add_chain(self) -> None:
-        """Main menu "Tools -> Add net..." (2026-09-01, plan rules_to_chains)
-        -> the same fresh blank chain form as the Config tree context menu's
-        "Add chain..." (add_chain_requested -> _start_new_chain). The menu
-        labels a chain by its NET identity (Denis's decision)."""
-        self._start_new_chain(self.root_metadata_dock.root_path)
-
-    def add_spoke(self) -> None:
-        """Main menu "Tools -> Add spoke..." (2026-09-01, plan rules_to_chains)
-        -> opens the Chain dialog in pad mode with a fresh blank form, appending
-        to the chain currently SELECTED in the Config tree. Requires a selected
-        chains: CHAIN node — otherwise a message in the Log dock
-        ("Pick a chain in the Config tree first"), mirroring the plan's
-        Add-spoke-requires-selection rule."""
-        chain = self._selected_tree_chain()
-        if chain is None:
-            show_message(_("Pick a chain in the Config tree first."), "", logging.getLogger(__name__))
-            return
-        self._start_new_pad(chain)
-
-    def delete_selected_chain(self) -> None:
-        """Main menu "Tools -> Delete net..." (2026-09-01, plan rules_to_chains)
-        -> deletes the chain currently SELECTED in the Config tree via
-        delete_entry (with the usual timestamped backup). Requires a selected
-        chains: CHAIN node — otherwise a message in the Log dock."""
-        selection = self.config_tree_dock.selected_chain()
-        if selection is None:
-            show_message(_("Pick a chain in the Config tree first."), "", logging.getLogger(__name__))
-            return
-        file_path, chain = selection
-        name = entry_effective_name("chains", chain)
-        report = delete_entry(self.root_metadata_dock.root_path, file_path, "chains", name,
-                              cascade=False)
-        self.config_tree_dock.refresh()
-        self.config_tree_dock.graph_changed.emit()
-        show_message(
-            _("Deleted net {name!r}. Backed up: {backups}.").format(
-                name=name, backups=", ".join(display_path(p) for p in report["backups"])),
-            "", logging.getLogger(__name__))
-
-    def _selected_tree_chain(self):
-        """The currently selected chains: CHAIN node in the Config tree as its
-        chain dict, or None (no selection / a different node kind)."""
-        selection = self.config_tree_dock.selected_chain()
-        if selection is None:
-            return None
-        return selection[1]
-
-    def _start_new_chain(self, file_path) -> None:
-        """ConfigTreeDock's add_chain_requested delegate (2026-09-05, design
-        config_qview_chain_entity_pages) — opens the Config dock's Chain right
-        page in chain mode with a fresh blank form, same reasoning as
-        _start_new_placement above, for ChainDock."""
-        self._focus_config_tree_dock()
-        self.chain_dock.new_chain(file_path)
-        self._show_config_chain()
-
-    def _start_edit_chain(self, entry) -> None:
-        """ConfigTreeDock's chain_edit_requested delegate (double click on a
-        chains: chain node, 2026-09-01, plan rules_to_chains) — loads the
-        chain into the live ChainDock's chain mode and shows it as the Config
-        dock's Chain right page (2026-09-05)."""
-        self.chain_dock.load_chain(entry)
-        self._show_config_chain()
-
-    def _start_edit_pad(self, chain_entry, pad_index) -> None:
-        """ConfigTreeDock's pad_edit_requested / pad_picked delegate (single or
-        double click on a chains: pad leaf, 2026-09-05, design
-        config_qview_chain_entity_pages) — loads that one spoke into the live
-        ChainDock's pad mode and shows it as the Config dock's Chain right
-        page."""
-        self.chain_dock.load_pad(chain_entry, pad_index)
-        self._show_config_chain()
-
-    def _start_new_pad(self, chain_entry) -> None:
-        """ConfigTreeDock's add_pad_requested delegate ("Add spoke..." on a
-        chain node) — shows the Config dock's Chain right page in pad mode with
-        a fresh blank form, appending to the given parent chain."""
-        self._focus_config_tree_dock()
-        self.chain_dock.new_pad(chain_entry, self.root_metadata_dock.root_path)
-        self._show_config_chain()
 
     def _start_new_cell(self, file_path) -> None:
         """ConfigTreeDock's add_cell_requested delegate — same reasoning as
@@ -2753,7 +2612,6 @@ class DockHub:
         from wherever the new file was created, the tree's own action never
         told any other dock)."""
         root_path = self.root_metadata_dock.root_path
-        self.chain_dock.set_root_path(root_path)
         self.placer_dock.set_root_path(root_path)
         self.thermal_via_dock.set_root_path(root_path)
         self.cells_dock.set_root_path(root_path)
@@ -2780,8 +2638,7 @@ class DockHub:
     def _selected_cell_entry_or_report(self):
         """The Config tree's currently selected CELL as (name, file path, entity),
         or None with a Log line already written — the ONE handling the two Tools →
-        Config delegates below share (same idiom as
-        delete_selected_chain/reread_imprint).
+        Config delegates below share (same idiom as reread_imprint).
 
         часть 3, п.5: an ENTITY leaf acts through ITS address (the read resolves
         it from the name, `gui/entity_doors.door_address`); a CELL leaf names no
@@ -3251,7 +3108,6 @@ class DockHub:
         self._safe_call("config_tree_dock.set_root_file",
                         self.config_tree_dock.set_root_file, path)
         self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file, path)
-        self._safe_call("chain_dock.set_root_path", self.chain_dock.set_root_path, path)
         self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path, path)
         self._safe_call("thermal_via_dock.set_root_path",
                         self.thermal_via_dock.set_root_path, path)

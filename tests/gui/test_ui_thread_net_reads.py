@@ -134,7 +134,7 @@ def test_the_net_lists_are_collected_on_the_poll_worker_thread(
         real_main_window, qapp, monkeypatch):
     """Э1, end to end: a real manual Refresh through the real PollWorkerHandle
     reads the adapter OFF the UI thread — and by the time the UI half has run,
-    the four docks show those names without ever asking KiCad themselves."""
+    the three docks show those names without ever asking KiCad themselves."""
     window, connection, board = _connected_window(real_main_window)
     # Overlay housekeeping is a different concern (and its own UI-thread board
     # reference — reported separately); stubbed so the fake adapter is only
@@ -152,7 +152,6 @@ def test_the_net_lists_are_collected_on_the_poll_worker_thread(
 
     hub = window._dock_hub
     assert _combo_items(hub.thermal_via_dock.net_edit) == ["+3V3", "GND"]
-    assert _combo_items(hub.chain_dock.net_edit) == ["+3V3", "GND"]
     assert _combo_items(hub.tools_dock.nets_table.value_edit) == ["+3V3", "GND"]
     assert _combo_items(hub.net_trace_dock.net_edit) == ["/N2", "/N3", "GND"]
 
@@ -173,13 +172,12 @@ def test_a_failed_tick_collects_no_net_names(real_main_window):
 
 # ── Э4.3: the hub hands out lists, not the board ─────────────────────────────
 
-def test_push_snapshot_hands_the_four_docks_lists(real_main_window, monkeypatch):
-    """Э4.3 — every one of the four net consumers receives the COLLECTED list;
+def test_push_snapshot_hands_the_three_docks_lists(real_main_window, monkeypatch):
+    """Э4.3 — every one of the three net consumers receives the COLLECTED list;
     the board handle is not a parameter of push_snapshot any more."""
     hub = real_main_window._dock_hub
     got = {}
     for dock_name, key in (("thermal_via_dock", "thermal_via"),
-                           ("chain_dock", "chain"),
                            ("net_trace_dock", "net_trace"),
                            ("tools_dock", "tools")):
         monkeypatch.setattr(
@@ -190,7 +188,6 @@ def test_push_snapshot_hands_the_four_docks_lists(real_main_window, monkeypatch)
     hub.push_snapshot([], ["+3V3", "GND"], ["GND"])
 
     assert got == {"thermal_via": ["+3V3", "GND"],
-                   "chain": ["+3V3", "GND"],
                    "net_trace": ["GND"],
                    "tools": ["+3V3", "GND"]}
     assert "board" not in inspect.signature(DockHub.push_snapshot).parameters
@@ -205,7 +202,7 @@ def test_refresh_path_never_reads_the_board_from_a_dock(
     raises instead of freezing the window. The combos still get filled, from
     the lists that travelled in the result.
 
-    Mutation: hand the four docks the board again (or let one of them keep its
+    Mutation: hand the three docks the board again (or let one of them keep its
     own adapter read) -> this test fails."""
     window, connection, _board = _connected_window(real_main_window)
     monkeypatch.setattr(window._dock_hub, "reconcile_overlay",
@@ -220,7 +217,6 @@ def test_refresh_path_never_reads_the_board_from_a_dock(
 
     hub = window._dock_hub
     assert _combo_items(hub.thermal_via_dock.net_edit) == ["+3V3", "GND"]
-    assert _combo_items(hub.chain_dock.net_edit) == ["+3V3", "GND"]
     assert _combo_items(hub.tools_dock.nets_table.value_edit) == ["+3V3", "GND"]
     assert _combo_items(hub.net_trace_dock.net_edit) == ["/N2", "/N3", "GND"]
 
@@ -229,17 +225,15 @@ def test_refresh_path_never_reads_the_board_from_a_dock(
 
 def test_empty_list_clears_the_combos_like_a_missing_board(real_main_window):
     """Э4.5 — the tick that could not read a board hands empty lists; every one
-    of the four combos goes empty, with no error and no exception."""
+    of the three combos goes empty, with no error and no exception."""
     hub = real_main_window._dock_hub
 
     hub.push_snapshot([], ["+3V3", "GND"], ["GND"])
-    assert _combo_items(hub.chain_dock.net_edit) == ["+3V3", "GND"]
     assert _combo_items(hub.net_trace_dock.net_edit) == ["GND"]
 
     hub.push_snapshot([], [], [])
 
     assert _combo_items(hub.thermal_via_dock.net_edit) == []
-    assert _combo_items(hub.chain_dock.net_edit) == []
     assert _combo_items(hub.net_trace_dock.net_edit) == []
     assert _combo_items(hub.tools_dock.nets_table.value_edit) == []
     assert _combo_items(hub.tools_dock.nets_table.key_edit) == []

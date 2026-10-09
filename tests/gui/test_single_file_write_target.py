@@ -9,7 +9,6 @@ from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from gui.docks.cell_editor import CellDock
 from gui.docks.placer import PlacerDock
 from gui.docks.points import PointsDock
-from gui.docks.rules import RuleDock
 from gui.docks.thermal_via import ThermalViaArrayDock
 
 
@@ -53,10 +52,6 @@ class TestWriteTargetsFollowRoot:
         placer.set_root_path(root)
         assert placer._cells_path == root
         assert placer._placer_path == root
-
-        rules = RuleDock(main_window)
-        rules.set_root_path(root)
-        assert rules._path == root
 
 
 class TestNewRecordsGoToRootNotTheInclude:

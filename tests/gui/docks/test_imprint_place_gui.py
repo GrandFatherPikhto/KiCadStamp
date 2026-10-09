@@ -754,7 +754,7 @@ def test_dock_hub_place_saved_refreshes_tree_reloads_trees_and_emits_graph_chang
     # The graph_changed broadcast fans out to every graph-derived combo dock;
     # spy them so the assertion below targets the three direct connections.
     targets = {
-        "chain_dock": hub.chain_dock, "placer_dock": hub.placer_dock,
+        "placer_dock": hub.placer_dock,
         "thermal_via_dock": hub.thermal_via_dock, "cells_dock": hub.cells_dock,
         "tools_dock": hub.tools_dock, "entity_dock": hub.entity_dock,
         "points_dock": hub.points_dock,
