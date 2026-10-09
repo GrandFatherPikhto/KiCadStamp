@@ -68,6 +68,7 @@ def run_select_enclosed_copper_worker(payload: dict) -> dict:
             "cluster": payload["cluster"], "sheet": payload.get("sheet"),
             "components": len(instance),
             "pieces": result.pieces,
+            "carved": result.carved,
             "foreign": result.not_taken_foreign,
             "dangling": result.not_taken_dangling,
             "pruned": result.pruned,
@@ -104,11 +105,13 @@ def report_select_enclosed_copper(result: dict) -> None:
         return
     logger.info(_(
         "Selected {cell} on {where}: {components} component(s), {pieces} copper "
-        "piece(s); not taken: {foreign} reaching a foreign pad, {dangling} "
-        "dangling (one pad); trimmed {pruned} hanging element(s)").format(
+        "piece(s) ({carved} cut off at a foreign pad); not taken: {foreign} "
+        "reaching a foreign pad, {dangling} dangling (one pad); trimmed {pruned} "
+        "hanging element(s)").format(
             cell=result.get("cell"), where=where,
             components=result.get("components", 0),
             pieces=result.get("pieces", 0),
+            carved=result.get("carved", 0),
             foreign=result.get("foreign", 0),
             dangling=result.get("dangling", 0),
             pruned=result.get("pruned", 0)))

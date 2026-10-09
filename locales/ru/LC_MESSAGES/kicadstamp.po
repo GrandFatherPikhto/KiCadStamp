@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-09 20:56+0300\n"
+"POT-Creation-Date: 2026-10-09 21:55+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -228,7 +228,7 @@ msgstr "Отпечатки"
 #: gui/docks/points.py:433 gui/docks/points.py:539 gui/docks/points.py:716
 #: gui/docks/points.py:883 gui/docks/profile_import.py:222
 #: gui/docks/thermal_via.py:354 gui/docks/thermal_via.py:474
-#: gui/explode_wiring.py:114 gui/select_enclosed_copper.py:134
+#: gui/explode_wiring.py:114 gui/select_enclosed_copper.py:137
 #: gui/subtract_copper.py:373
 msgid "Set the project root first."
 msgstr "Сначала задайте root проекта."
@@ -239,7 +239,7 @@ msgstr "Сначала задайте root проекта."
 #: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
 #: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
 #: gui/docks/net_trace.py:302 gui/docks/net_trace.py:417
-#: gui/fieldstool_window.py:818 gui/select_enclosed_copper.py:138
+#: gui/fieldstool_window.py:818 gui/select_enclosed_copper.py:141
 #: gui/subtract_copper.py:367
 msgid "Connect to KiCad first."
 msgstr "Сначала подключитесь к KiCad."
@@ -482,7 +482,7 @@ msgstr "Сущность с именем {name!r} уже существует."
 #: gui/docks/net_trace.py:527 gui/docks/placer.py:2493 gui/docks/placer.py:2558
 #: gui/docks/placer.py:2575 gui/docks/placer.py:2613 gui/docks/points.py:895
 #: gui/docks/root_metadata.py:719 gui/docks/root_metadata.py:800
-#: gui/docks/thermal_via.py:485 gui/docks/tools.py:233 gui/entity/page.py:625
+#: gui/docks/thermal_via.py:485 gui/docks/tools.py:233 gui/entity/page.py:654
 #: kicadstamp/extract_writer.py:121
 #, python-brace-format
 msgid "Write failed: {error}"
@@ -1274,7 +1274,7 @@ msgstr ""
 #: gui/entity/address.py:142 gui/entity/address.py:146
 #: gui/mixed_selection.py:122 gui/mixed_selection.py:173
 #: gui/mixed_selection.py:288 gui/select_cell.py:144 gui/select_cell.py:239
-#: gui/select_enclosed_copper.py:86 gui/subtract_copper.py:67
+#: gui/select_enclosed_copper.py:87 gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr "(без листа)"
 
@@ -1454,7 +1454,7 @@ msgstr ""
 "строкам», чтобы разметить одним кластером"
 
 #: gui/docks/cell_editor.py:2573 gui/select_cell.py:127
-#: gui/select_enclosed_copper.py:157
+#: gui/select_enclosed_copper.py:160
 #, python-brace-format
 msgid ""
 "No remembered cluster for cell {name!r} — extract it from a board "
@@ -1465,7 +1465,7 @@ msgstr ""
 "на плате или запомните через «Заполнить по выделению» на странице якоря "
 "ячейки."
 
-#: gui/select_cell.py:142 gui/select_enclosed_copper.py:84
+#: gui/select_cell.py:142 gui/select_enclosed_copper.py:85
 #: gui/subtract_copper.py:65
 #, python-brace-format
 msgid "{cluster} on {sheet}"
@@ -1530,12 +1530,12 @@ msgstr "у рефа {ref} теперь роль {role!r}"
 msgid "the cell is placed by a chain — geometry is not searched (registry only)"
 msgstr "ячейку ставит цепочка — по геометрии не ищется (только реестр)"
 
-#: gui/select_enclosed_copper.py:96 gui/select_enclosed_copper.py:118
+#: gui/select_enclosed_copper.py:97 gui/select_enclosed_copper.py:121
 #, python-brace-format
 msgid "Select enclosed copper failed: {error}"
 msgstr "Не удалось выделить замкнутую медь: {error}"
 
-#: gui/select_enclosed_copper.py:102
+#: gui/select_enclosed_copper.py:103
 #, python-brace-format
 msgid ""
 "No component of cell {cell!r} is on the board for {where} — nothing was "
@@ -1544,18 +1544,20 @@ msgstr ""
 "Ни одного компонента ячейки {cell!r} нет на плате для {where} — ничего не"
 " выделено."
 
-#: gui/select_enclosed_copper.py:106
+#: gui/select_enclosed_copper.py:107
 #, python-brace-format
 msgid ""
 "Selected {cell} on {where}: {components} component(s), {pieces} copper "
-"piece(s); not taken: {foreign} reaching a foreign pad, {dangling} "
-"dangling (one pad); trimmed {pruned} hanging element(s)"
+"piece(s) ({carved} cut off at a foreign pad); not taken: {foreign} "
+"reaching a foreign pad, {dangling} dangling (one pad); trimmed {pruned} "
+"hanging element(s)"
 msgstr ""
 "Выделено {cell} на {where}: {components} компонентов, {pieces} кусков "
-"меди; не взято: к чужим падам {foreign}, тупики (один пад) {dangling}; "
-"отрезано висячих элементов {pruned}"
+"меди ({carved} отрезано у чужого пада); не взято: к чужим падам "
+"{foreign}, тупики (один пад) {dangling}; отрезано висячих элементов "
+"{pruned}"
 
-#: gui/select_enclosed_copper.py:172
+#: gui/select_enclosed_copper.py:175
 msgid "selecting enclosed copper"
 msgstr "выделение замкнутой меди"
 
@@ -4142,7 +4144,7 @@ msgstr "Длина"
 msgid "Touches"
 msgstr "Касается"
 
-#: gui/docks/explode_page.py:196 gui/entity/page.py:382
+#: gui/docks/explode_page.py:196 gui/entity/page.py:406
 msgid "Explode"
 msgstr "Разнести"
 
@@ -4982,7 +4984,7 @@ msgid "Instance name"
 msgstr "Имя копии"
 
 #: gui/docks/instances_dialog.py:154 gui/docks/placer.py:218
-#: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:488
+#: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:517
 msgid "Anchor"
 msgstr "Якорь"
 
@@ -6359,7 +6361,7 @@ msgstr "Ссылки (роль -> поз.обозначение):"
 msgid "Pick an Entity first."
 msgstr "Сначала выберите сущность."
 
-#: gui/docks/tools.py:236 gui/entity/page.py:630
+#: gui/docks/tools.py:236 gui/entity/page.py:659
 #, python-brace-format
 msgid "Wrote entity {name!r} in {path}"
 msgstr "Записана сущность {name!r} в {path}"
@@ -7839,22 +7841,22 @@ msgstr "Размещения"
 msgid "Entity {name!r} not found."
 msgstr "Сущность {name!r} не найдена."
 
-#: gui/entity/page.py:416
+#: gui/entity/page.py:440
 msgid "Refs"
 msgstr "Refs"
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:584
+#: gui/entity/page.py:613
 msgid "Not placed in any tree."
 msgstr "Не размещена ни в одном дереве."
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:587
+#: gui/entity/page.py:616
 #, python-brace-format
 msgid "{n} placement(s) — click to open the tree"
 msgstr "{n} размещений — клик, чтобы открыть дерево"
 
-#: gui/entity/read_only.py:109
+#: gui/entity/read_only.py:87
 msgid ""
 "this entity is not saved in the project yet — save it first; the board "
 "tabs stay off until then"
@@ -7862,11 +7864,11 @@ msgstr ""
 "эта сущность ещё не сохранена в проекте — сначала сохраните её; вкладки "
 "платы будут выключены до этого"
 
-#: gui/entity/read_only.py:112
+#: gui/entity/read_only.py:90
 msgid "this entity's cell is missing from the project — pick a cell to fix it"
 msgstr "ячейки этой сущности нет в проекте — выберите ячейку, чтобы починить"
 
-#: gui/entity/read_only.py:115
+#: gui/entity/read_only.py:93
 msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr "экземпляра этой сущности нет на плате — выберите подходящую ячейку"
 

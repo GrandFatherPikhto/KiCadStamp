@@ -25,8 +25,18 @@ The rule (Qt-free, no board handle of its own):
 * inside a takeable piece the branches that HANG off it are TRIMMED — see
   ``prune_dangling`` below and in ``explode_connectivity`` (С1-2).
 
-A piece that reaches even one foreign pad is NOT taken WHOLE — its "part at the
-cell" is never carved out.
+A piece that reaches a foreign pad is no longer dropped WHOLE: it is CARVED
+(``plan_2026_10_09_enclosed_copper_carve``, Denis 2026-10-09: «выбираю "Select
+enclosed copper", но линия FPGA pin 105 ⇒ R41 pin 1 не выделяется»). The parts
+that reach the foreign pad are cut off exactly like any other dangling branch
+(``prune_dangling`` — an instance pad is the only anchor), and the remainder is
+re-checked with the SAME rule (``copper_pieces`` again): every sub-piece that
+touches ≥ ``MIN_INSTANCE_PADS`` DISTINCT instance pads and NO foreign pad is
+taken. The re-check is the ONE guard of the carve — it catches a piece that
+EMPTIED to nothing but the copper reaching a foreign pad (``prune_dangling``
+returns such a piece whole under its С2-3 leg) as well as a foreign pad BETWEEN
+two instance pads: A — F — B holds both tracks up, so the pruning never sees them
+dangle, yet the remainder still touches F and nothing is taken.
 
 Connectivity is NOT re-invented: ``kicadstamp/explode_connectivity.py``
 (``copper_pieces`` / ``prune_dangling``) over ``geometry/copper_connect``
@@ -39,6 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .constants import CLUSTER_FIELD_NAME
+from .domain.board import Via
 from .explode_connectivity import (
     build_cell_islands,
     cell_pad_areas,
@@ -76,14 +87,22 @@ class EnclosedResult:
     takeable pieces, hanging branches already trimmed) — the ONE list
     ``select_items`` takes.
     ``pieces`` — how many copper pieces were taken.
-    ``not_taken_foreign`` — pieces touching an instance pad AND a foreign pad.
+    ``carved`` — how many pieces were taken PARTIALLY (a CARVE, plan
+        ``plan_2026_10_09_enclosed_copper_carve``): they reached a foreign pad,
+        the foreign-reaching branches were cut off, and at least one remainder
+        piece was taken.
+    ``not_taken_foreign`` — pieces touching an instance pad AND a foreign pad
+        from which NOTHING could be carved (the remainder emptied, fell below
+        ``min_cell_pads``, or still touched a foreign pad — A — F — B).
     ``not_taken_dangling`` — pieces touching an instance pad but FEWER than
         ``min_cell_pads`` of them (a one-pad dead-end under the default 2).
-    ``pruned`` — hanging elements trimmed off the taken pieces (С1-2).
+    ``pruned`` — hanging elements trimmed off the taken pieces (С1-2), plus the
+        elements cut off by a carve that DID take at least one piece.
     """
 
     items: list = field(default_factory=list)
     pieces: int = 0
+    carved: int = 0
     not_taken_foreign: int = 0
     not_taken_dangling: int = 0
     pruned: int = 0
@@ -111,6 +130,36 @@ def _foreign_class_fps(adapter, board_footprints, instance_fps) -> dict:
     return out
 
 
+def _split_copper(items) -> tuple:
+    """``(tracks, vias)`` of a mixed copper list — ``copper_pieces`` wants them
+    apart, and the carve remainder comes back as one mixed list."""
+    return ([it for it in items if not isinstance(it, Via)],
+            [it for it in items if isinstance(it, Via)])
+
+
+def _take_remainder(kept, islands, foreign_pads, min_cell_pads) -> tuple:
+    """The TAKEABLE pieces of a CARVED remainder (plan
+    ``plan_2026_10_09_enclosed_copper_carve``).
+
+    Re-runs the ONE owner (``copper_pieces``) over ``kept`` with the SAME islands
+    and foreign pads, then keeps every sub-piece touching ≥ ``min_cell_pads``
+    DISTINCT instance pads and NO foreign pad. This is the only place a foreign
+    pad BETWEEN two instance pads (A — F — B) is caught: the pruning cannot see
+    it as dangling, but the re-classified remainder still touches F. Returns
+    ``(sub_items, taken_pieces)``."""
+    tracks, vias = _split_copper(kept)
+    taken_items: list = []
+    taken = 0
+    for sub in copper_pieces(tracks, vias, islands, foreign_pads):
+        if foreign_labels(sub.classes):
+            continue
+        if len(cell_pads(sub.classes)) < min_cell_pads:
+            continue
+        taken_items.extend(sub.items)
+        taken += 1
+    return taken_items, taken
+
+
 def enclosed_copper(adapter, instance_fps,
                     min_cell_pads: int = MIN_INSTANCE_PADS) -> EnclosedResult:
     """The copper enclosed by ``instance_fps`` (the components of ONE instance).
@@ -118,7 +167,13 @@ def enclosed_copper(adapter, instance_fps,
     ``instance_fps`` is the board footprints of the (cluster, sheet) instance —
     the caller resolves them with ``resolve_context_footprints`` (the ONE
     instance rule). An empty instance selects nothing, and reports nothing
-    dropped. The board is read through the adapter (the worker's own adapter)."""
+    dropped. The board is read through the adapter (the worker's own adapter).
+
+    A piece reaching a foreign pad is CARVED, not dropped whole: prune it against
+    the instance pads only (an EMPTY result is not taken — ``keep_whole_when_
+    emptied=False``), then re-check the remainder with the same rule. Nothing
+    here re-implements connectivity — ``copper_pieces`` / ``prune_dangling`` /
+    ``foreign_labels`` / ``cell_pads`` are the only judges of touching."""
     instance_fps = list(instance_fps or ())
     if not instance_fps:
         return EnclosedResult()
@@ -138,7 +193,24 @@ def enclosed_copper(adapter, instance_fps,
             # and is not counted (С2-1 — the whole board is NOT the question).
             continue
         if foreign_labels(piece.classes):
-            result.not_taken_foreign += 1
+            # CARVE: the branches that reach the foreign pad are cut off as
+            # dangling (an instance pad is the ONLY anchor), then the remainder
+            # is re-checked with the SAME rule — anything still touching a
+            # foreign pad is NOT taken. That ONE guard covers both the emptied
+            # remnant (``prune_dangling`` hands it back whole under С2-3) and the
+            # foreign pad BETWEEN two instance pads (A — F — B).
+            kept, removed = prune_dangling(piece.items, instance_pads)
+            taken_items, taken = _take_remainder(kept, islands, foreign_pads,
+                                                 min_cell_pads)
+            if not taken:
+                # Nothing survived the re-check. No carve, so no ``pruned``
+                # either — the piece was not taken at all.
+                result.not_taken_foreign += 1
+                continue
+            result.pruned += removed
+            result.carved += 1
+            result.pieces += taken
+            result.items.extend(taken_items)
             continue
         if len(pads_touched) < min_cell_pads:
             result.not_taken_dangling += 1

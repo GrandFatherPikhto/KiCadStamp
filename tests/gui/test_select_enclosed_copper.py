@@ -179,6 +179,7 @@ def test_worker_selects_components_and_copper_in_one_call(tmp_path, monkeypatch)
     assert len(adapter.calls) == 1, "select_items must be called exactly once"
     assert {_uuid(i) for i in adapter.calls[0]} == {"u1", "u2", "t12"}
     assert result["components"] == 2 and result["pieces"] == 1
+    assert result["carved"] == 0
     assert result["dangling"] == 0 and result["pruned"] == 0
     assert adapter.closed is True
 
@@ -203,13 +204,15 @@ def test_worker_reports_an_empty_instance_without_selecting(tmp_path, monkeypatc
 # ── W3 — the reporter writes a LOG LINE, never a dialog ──────────────────────
 
 def test_reporter_writes_the_selection_line(caplog):
-    """W3: success is one Log line naming the counters."""
+    """W3: success is one Log line naming the counters, including the carve one
+    (plan_2026_10_09_enclosed_copper_carve)."""
     with caplog.at_level(logging.INFO, logger=sec_mod.__name__):
         sec_mod.report_select_enclosed_copper(
             {"cell": "fpga", "cluster": "FPGA", "sheet": None,
-             "components": 3, "pieces": 2, "foreign": 4,
+             "components": 3, "pieces": 2, "carved": 7, "foreign": 4,
              "dangling": 5, "pruned": 6})
     assert any("fpga" in r.message and "3" in r.message and "2" in r.message
+               and "7" in r.message and "cut off at a foreign pad" in r.message
                and "5" in r.message and "6" in r.message
                for r in caplog.records)
 

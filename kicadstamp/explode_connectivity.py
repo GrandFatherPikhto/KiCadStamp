@@ -556,7 +556,14 @@ def prune_dangling(items, cell_pads) -> tuple:
     ``min_cell_pads=1`` — also returns whole). A pad-free RING hung by one track
     is NOT eaten either: every one of its own elements touches two neighbours
     inside the ring, so there is no leaf to start from (a rarity, described here,
-    not special-cased)."""
+    not special-cased).
+
+    The CARVE of «Select enclosed copper»
+    (``plan_2026_10_09_enclosed_copper_carve``) deliberately does NOT lean on the
+    empty-piece leg: it re-checks the remainder with ``copper_pieces`` and drops
+    anything still touching a foreign pad, so an emptied piece (returned whole
+    here) is left out there anyway — the flag that would have suppressed this leg
+    was measured to be unobservable (see that plan's acceptance)."""
     alive = list(items)
     removed = 0
     changed = True

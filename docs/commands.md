@@ -393,10 +393,16 @@ cluster/sheet) — in this order:
   reaching only ONE instance pad (a dangling track) is left out, and inside a
   taken piece the branches that hang off it are trimmed off (a stub ending
   nowhere, or in a via; a bare via). A track end 5 µm off a pad is NOT hanging —
-  connectivity is by shape, never by point coincidence. Inter-cluster copper is
-  never taken, not even in part; a piece with no pad at all (a chain of stitching
-  vias) is left out. The one knob, `MIN_INSTANCE_PADS`, is 2 (set it to 1 to also
-  take single-pad dead-ends).
+  connectivity is by shape, never by point coincidence. A piece reaching a pad of
+  another component is CARVED (plan `plan_2026_10_09_enclosed_copper_carve`): the
+  branches that reach the foreign pad are cut off and the remainder is re-checked
+  with the same rule, so the instance's OWN part of an inter-cluster run IS taken
+  while the leg to the foreign cluster is not (a foreign pad sitting BETWEEN two
+  instance pads therefore yields nothing; a chain cut at the foreign pad keeps
+  only its instance-to-instance part). A piece with no pad at all (a chain of
+  stitching vias) is left out. The Log line reports how many pieces were taken
+  this way. The one knob, `MIN_INSTANCE_PADS`, is 2 (set it to 1 to also take
+  single-pad dead-ends).
 
 When the record carries copper but the redraw planner produced no command for it
 (a refused tree, an unrealized record), the line says so honestly and the copper

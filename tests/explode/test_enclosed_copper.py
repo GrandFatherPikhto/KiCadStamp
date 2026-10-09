@@ -5,15 +5,20 @@
 What a connected piece of copper must satisfy to be taken for a cell instance:
 it touches TWO DIFFERENT pads of the instance (С1-1 — a piece reaching only ONE
 pad is a dead-end, «висячая дорожка»), and NO pad of any other component on the
-board. Inside a takeable piece the hanging branches are TRIPPED (С1-2). The board
-is the "Разнос" stand-in (``tests/explode/board.py``), so the SAME
-shape-connectivity owner (``kicadstamp/explode_connectivity.py``) is exercised,
-never a second geometry.
+board. A piece reaching a foreign pad is CARVED, not dropped whole
+(``plan_2026_10_09_enclosed_copper_carve``, Denis 2026-10-09): the foreign-reaching
+branches are cut off as dangling and the remainder is re-checked with the SAME
+rule — the C3 cells below. Inside a takeable piece the hanging branches are
+TRIMMED (С1-2). The board is the "Разнос" stand-in (``tests/explode/board.py``),
+so the SAME shape-connectivity owner (``kicadstamp/explode_connectivity.py``) is
+exercised, never a second geometry.
 
 Numbers in ``tests/explode`` are per the PLAN, not per the file (deepseek.md §37):
 the C-numbers below are «Выбора замкнутой меди», and each test's docstring names
 the mutation it is meant to kill. The C2 cell was REWRITTEN by the plan's author
-in С1 («тупик НЕ берётся»), so this is an author's edit, not a §33 bypass.
+in С1 («тупик НЕ берётся»); C3-c was REWRITTEN the same way by
+``plan_2026_10_09_enclosed_copper_carve`` (the T-branch is now carved, not dropped
+whole) — these are the author's edits, not §33 bypasses.
 """
 from __future__ import annotations
 
@@ -78,11 +83,14 @@ def test_dead_end_is_taken_when_the_threshold_is_one():
     assert result.not_taken_dangling == 0
 
 
-# ── C3 — reaching ANY foreign pad drops the piece WHOLE ─────────────────────
+# ── C3 — a foreign pad: the piece is CARVED, not dropped whole (plan
+#    ``plan_2026_10_09_enclosed_copper_carve``; Denis 2026-10-09) ─────────────
 
-def test_piece_reaching_a_foreign_cluster_pad_is_not_taken():
-    """C3: a piece from the instance to ANOTHER cluster's pad is not taken —
-    inter-cluster copper. Mutation: "a foreign cluster is treated as own"."""
+def test_dead_end_to_a_foreign_pad_is_not_taken():
+    """C3: a stub from ONE instance pad straight to a foreign pad is a dead-end —
+    the carve empties it and an EMPTIED piece is NOT taken (so the old whole-drop
+    rule and the new carve agree here). Mutation: "a foreign cluster is treated as
+    own" / "an emptied carve is returned whole" keeps copper alive."""
     board = ExplodeBoard(
         footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
                     fp("u9", "R9", "DAC", 5.0, 0.0)],
@@ -91,6 +99,7 @@ def test_piece_reaching_a_foreign_cluster_pad_is_not_taken():
     result = enclosed_copper(board, board.get_footprints()[:1])
     assert _copper(result) == set()
     assert result.not_taken_foreign == 1
+    assert result.carved == 0 and result.pieces == 0 and result.pruned == 0
 
 
 def test_piece_reaching_a_component_without_cluster_is_not_taken():
@@ -106,10 +115,12 @@ def test_piece_reaching_a_component_without_cluster_is_not_taken():
     assert result.not_taken_foreign == 1
 
 
-def test_tee_to_a_foreign_pad_drops_the_whole_piece():
-    """C3-c: a T-branch from the instance-to-instance piece onto a foreign pad
-    drops the piece WHOLE — its "part at the cell" is never carved out.
-    Mutation: "a foreign pad on a T-branch is ignored"."""
+def test_tee_to_a_foreign_pad_carves_the_branch():
+    """C3-c REWRITTEN by the plan's author (``plan_2026_10_09_enclosed_copper_
+    carve``, «Новое правило»): the T-branch onto a foreign pad is CUT OFF and the
+    A↔B backbone IS taken — a piece reaching a foreign pad is no longer dropped
+    whole. Mutation: "a foreign pad on a T-branch drops the whole piece" (carve
+    off) dies here."""
     board = ExplodeBoard(
         footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
                     fp("u2", "R2", "FPGA", 5.0, 0.0),
@@ -119,8 +130,10 @@ def test_tee_to_a_foreign_pad_drops_the_whole_piece():
         pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 5.0, 0.0)],
               "u9": [pad("1", 2.5, 3.0)]})
     result = enclosed_copper(board, board.get_footprints()[:2])
-    assert _copper(result) == set()
-    assert result.not_taken_foreign == 1
+    assert _copper(result) == {"cross"}
+    assert result.carved == 1 and result.pieces == 1
+    assert result.pruned == 1
+    assert result.not_taken_foreign == 0
 
 
 def test_copper_between_twins_of_the_same_cell_is_not_taken():
@@ -135,6 +148,68 @@ def test_copper_between_twins_of_the_same_cell_is_not_taken():
     result = enclosed_copper(board, board.get_footprints()[:1])
     assert _copper(result) == set()
     assert result.not_taken_foreign == 1
+
+
+# ── C11..C13 — the carve at the CORE (plan_2026_10_09_enclosed_copper_carve) ─
+
+def test_a_chain_through_a_foreign_pad_is_cut_at_the_foreign_pad():
+    """C11 — Denis' fact: inst A — inst B — foreign C as ONE chain. The carve cuts
+    the B—C leg (its far end rests on a foreign pad, not an anchor), so only A—B
+    is taken. Mutation: "the carve is not done" (A—B not selected) and "the carve
+    drops the whole piece" (B—C still selected) both die here."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u2", "R2", "FPGA", 2.0, 0.0),
+                    fp("u9", "R9", "DAC", 4.0, 0.0)],
+        tracks=[track("ab", F_CU, 0.0, 0.0, 2.0, 0.0),
+                track("bc", F_CU, 2.0, 0.0, 4.0, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 2.0, 0.0)],
+              "u9": [pad("1", 4.0, 0.0)]})
+    result = enclosed_copper(board, board.get_footprints()[:2])
+    assert _copper(result) == {"ab"}
+    assert "bc" not in _copper(result)
+    assert result.carved == 1 and result.pieces == 1 and result.pruned == 1
+    assert result.not_taken_foreign == 0
+
+
+def test_a_foreign_pad_between_two_instance_pads_takes_nothing():
+    """C12 — A — foreign F — B is the ONLY path: neither leg dangles (each is held
+    up by the other and its own pad), so the prune keeps the whole chain — the
+    RE-CHECK is what finds the remainder still touching F. Mutation: "the re-check
+    of the remainder is disabled" lets A—F—B through and dies here."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u9", "R9", "DAC", 2.0, 0.0),
+                    fp("u2", "R2", "FPGA", 4.0, 0.0)],
+        tracks=[track("af", F_CU, 0.0, 0.0, 2.0, 0.0),
+                track("fb", F_CU, 2.0, 0.0, 4.0, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u9": [pad("1", 2.0, 0.0)],
+              "u2": [pad("1", 4.0, 0.0)]})
+    result = enclosed_copper(
+        board, [board.get_footprints()[0], board.get_footprints()[2]])
+    assert _copper(result) == set()
+    assert result.not_taken_foreign == 1 and result.carved == 0
+    assert result.pieces == 0 and result.pruned == 0
+
+
+def test_a_carved_piece_that_empties_is_not_taken_whole():
+    """C13 — the A↔B connection runs through the track BODY (pad A -> THROUGH pad
+    B -> out to a foreign pad C): pruning against the instance pads only empties
+    the track and ``prune_dangling``'s С2-3 leg hands it back WHOLE — yet the
+    re-check re-classifies that remnant and drops it (it still touches C), so no
+    copper reaching C is selected. Mutation: "the re-check's foreign filter is
+    dropped" dies here (the returned remnant would then be taken)."""
+    board = ExplodeBoard(
+        footprints=[fp("u1", "R1", "FPGA", 0.0, 0.0),
+                    fp("u2", "R2", "FPGA", 5.0, 0.0),
+                    fp("u9", "R9", "DAC", 5.4, 0.0)],
+        tracks=[track("through", F_CU, 0.0, 0.0, 5.4, 0.0)],
+        pads={"u1": [pad("1", 0.0, 0.0)], "u2": [pad("1", 5.0, 0.0)],
+              "u9": [pad("1", 5.4, 0.0)]})
+    result = enclosed_copper(board, board.get_footprints()[:2])
+    assert _copper(result) == set()
+    assert result.not_taken_foreign == 1 and result.carved == 0
+    assert result.pieces == 0 and result.pruned == 0
 
 
 # ── C4 — a piece with no pads at all is NOT taken ───────────────────────────
