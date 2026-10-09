@@ -18550,3 +18550,31 @@ msgstr ""
 #: gui/docks/add_entities_flow.py
 msgid "{fit} instances fit cell {cell}, {taken} taken, {lack} lack roles"
 msgstr ""
+
+#: gui/docks/change_cell.py
+msgid "Change cell"
+msgstr ""
+
+#: gui/docks/change_cell.py
+msgid "Change cell…"
+msgstr ""
+
+#: gui/docks/change_cell.py
+msgid "no instance on the board — fit not checked"
+msgstr ""
+
+#: gui/docks/change_cell_flow.py
+msgid "The config has no cells to point at."
+msgstr ""
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} already uses cell {cell!r} — nothing changed"
+msgstr ""
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} now uses cell {cell!r} — no copper of the old layout is recorded"
+msgstr ""
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} now uses cell {cell!r} — the next Redraw replaces its copper ({count} pieces of the old layout)"
+msgstr ""

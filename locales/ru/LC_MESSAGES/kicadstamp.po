@@ -19548,3 +19548,31 @@ msgstr "Экземпляров без нужных ролей: {count}"
 #: gui/docks/add_entities_flow.py
 msgid "{fit} instances fit cell {cell}, {taken} taken, {lack} lack roles"
 msgstr "Ячейке {cell} подходят экземпляров: {fit}, занято: {taken}, без ролей: {lack}"
+
+#: gui/docks/change_cell.py
+msgid "Change cell"
+msgstr "Сменить ячейку"
+
+#: gui/docks/change_cell.py
+msgid "Change cell…"
+msgstr "Сменить ячейку…"
+
+#: gui/docks/change_cell.py
+msgid "no instance on the board — fit not checked"
+msgstr "экземпляра на плате нет — подбор не проверялся"
+
+#: gui/docks/change_cell_flow.py
+msgid "The config has no cells to point at."
+msgstr "В конфиге нет ячеек, на которые можно указать."
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} already uses cell {cell!r} — nothing changed"
+msgstr "сущность {name!r} уже стоит на ячейке {cell!r} — ничего не изменилось"
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} now uses cell {cell!r} — no copper of the old layout is recorded"
+msgstr "сущность {name!r} теперь стоит на ячейке {cell!r} — медь старой раскладки не записана"
+
+#: gui/docks/change_cell_flow.py
+msgid "entity {name!r} now uses cell {cell!r} — the next Redraw replaces its copper ({count} pieces of the old layout)"
+msgstr "сущность {name!r} теперь стоит на ячейке {cell!r} — ближайшая перерисовка заменит её медь ({count} шт. старой раскладки)"
