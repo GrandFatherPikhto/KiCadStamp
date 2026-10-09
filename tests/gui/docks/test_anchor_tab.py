@@ -751,6 +751,39 @@ def test_marker_worker_draws_with_settings_layer_and_radius(main_window,
     assert circle.attributes.stroke.width == int(0.05 * _MM)
 
 
+def test_bbox_worker_draws_with_the_settings_stroke(main_window, tmp_path,
+                                                    monkeypatch):
+    """RESTORED (step 5, fix 2): the BBOX outline width comes from the settings
+    key OVERLAY_BBOX_STROKE_KEY and reaches create_items.
+
+    The step-4 rewrite kept only the MARKER's settings-stroke cell, so the bbox
+    half of the Phase-D property went unguarded (cells 7145 -> 7144) — this is it
+    back. It guards a DIFFERENT key and a different worker from the marker cell
+    beside it (_ensure_bbox_worker -> board_overlay.ensure_bbox), so the marker
+    cell cannot stand in for it."""
+    import gui.board_overlay as bo
+    from kipy.board_types import BoardLayer
+    from kicadstamp.config.models import Cell, TemplateComponentSlot
+    from kicadstamp.utils.units import MM as _MM
+
+    anchor_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    anchor_mod.settings.state.set(bo.OVERLAY_BBOX_STROKE_KEY, 0.22)
+
+    cell = Cell(name="cell1", components=[TemplateComponentSlot(role="ORIG")])
+    adapter = _OverlayAdapter([_live_fp("IC1", "ORIG", "CL", 100.0, 200.0)])
+    monkeypatch.setattr(workers_mod, "cell_content_bbox",
+                        lambda entry: (0.0, 10.0, 0.0, 10.0))
+
+    key = anchor_mod.overlay_markers.cell_anchor_key("/r", "c", "bbox")
+    uuid = workers_mod._ensure_bbox_worker(adapter, cell, "CL", "", [],
+                                           key, "User.KiCadStamp")
+    assert uuid is not None
+    assert len(adapter.created) == 1
+    rect = adapter.created[0]
+    assert rect.layer == BoardLayer.BL_User_5
+    assert rect.attributes.stroke.width == int(0.22 * _MM)
+
+
 def test_persisted_overlay_key_drives_the_button_state(main_window, tmp_path):
     """The Marker buttons are enabled from the owner's KEY presence (the map is
     the single source of truth)."""
