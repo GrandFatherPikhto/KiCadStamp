@@ -591,11 +591,30 @@ Since 2026-09-20 a **cells:** or **imprints:** LEAF also carries **Create entity
 that gives an ALREADY EXISTING cell or imprint record its `entities:` entry. Before it an Entity
 could only be born together with a cell, inside **Extract cluster.../Extract tree...**, so a cell
 made by "Convert to cell" had nothing to place it into (a tree node references an Entity, not a
-cell). One action serves both nodes; only the source field differs: a cell leaf fills `cell:` plus an
-optional Cluster and Sheet, an imprint leaf fills `imprint:` plus an optional Sheet (a `cluster:` on
-an imprint-based Entity is fatal at load — the record is a snapshot and already carries literal refs
-and nets). The record is written to the SAME file the source lives in, so the source and its entity
+cell). The record is written to the SAME file the source lives in, so the source and its entity
 travel between profiles together.
+
+For a **cell** the form offers ONE editable **Instance** combobox spelling the whole `CLUSTER — sheet`
+pair (since 2026-10-09, part 3) — two independent fields could spell a pair the board does not carry.
+The rows are the board's instances of that cell, filtered by the project's ONE fit rule
+(`gui/docks/instance_candidates`): the **free fitting** instances on top; a fitting instance that is
+already an entity is shown GREYED and NOT selectable, as "already: <entity>"; a **non-fitting**
+instance is not a row at all — it is counted in one grey line under the box ("K other instances lack
+roles", reasons in the tooltip). When exactly one free instance fits, it is preselected. The box is
+editable: type a pair by hand, and a pair that is not on the board raises a YELLOW "not on the board —
+fit not checked" line — a warning, never a refusal. The candidates are read from the snapshot the DOOR
+just rebuilt in the worker (the dialog never reads the board on the UI thread); **with KiCad closed
+the form still opens** — an Entity is legitimately made without a board — the box stays empty and
+editable, and the yellow line says "no board snapshot — fit not checked".
+
+An **imprint** has no Cluster field at all (a `cluster:` on an imprint-based Entity is fatal at load —
+the record is a snapshot and already carries literal refs and nets); its Sheet is an editable
+dropdown over the project's own sheet names.
+
+The form carries **no QMessageBox** (rule 43): an empty or already-used entity name paints a RED line
+inside the dialog and disables OK. The **default name follows the chosen instance** — the Cluster tag
+lower-cased, plus the sheet when the same cluster stands on several sheets — until the user edits the
+field; once edited it is never overwritten again (an imprint keeps its record's own name).
 
 **Duplicates are never spawned, and the key is a PAIR:** `(cell, cluster)` for a cell, `(imprint,
 sheet)` for an imprint. When an Entity for that key already exists it WINS: nothing is created and

@@ -14,6 +14,31 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+#: gui/docks/create_entity.py
+msgid "Instance:"
+msgstr "Экземпляр:"
+
+#: gui/docks/create_entity.py
+msgid "CLUSTER — sheet; type one that is not listed"
+msgstr "КЛАСТЕР — лист; набери пару, которой нет в списке"
+
+#: gui/docks/create_entity.py
+msgid "optional — the target sheet of twin-resolution"
+msgstr "необязательно — целевой лист twin-резолва"
+
+#: gui/docks/create_entity.py
+msgid "no board snapshot — fit not checked"
+msgstr "снимка платы нет — подбор не проверялся"
+
+#: gui/docks/create_entity.py
+msgid "not on the board — fit not checked"
+msgstr "пары нет на плате — подбор не проверялся"
+
+#: gui/docks/instance_candidates.py
+#, python-brace-format
+msgid "{count} other instances lack roles"
+msgstr "Ещё экземпляров без нужных ролей: {count}"
+
 #: gui/board_overlay.py:180
 #, python-brace-format
 msgid ""
