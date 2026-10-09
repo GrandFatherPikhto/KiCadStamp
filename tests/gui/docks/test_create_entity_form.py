@@ -168,11 +168,15 @@ def test_a_blank_sheet_on_an_imprint_comes_out_as_none(main_window, typed,
 # Т3.1: строки выпадашки — подбор, а не список наугад
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_free_rows_come_first_and_the_taken_is_grey_and_not_selectable(
+def test_free_rows_come_first_and_the_taken_is_grey_and_disabled(
         main_window):
     """Клетка плана: свободный подходящий экземпляр — строка сверху; ЗАНЯТЫЙ —
-    серый и НЕВЫБИРАЕМЫЙ, с подписью «already: <сущность>» (иначе его можно
-    было бы выбрать и создать второй раз)."""
+    серый и ВЫКЛЮЧЕННЫЙ, с подписью «already: <сущность>» (иначе его можно было
+    бы выбрать и создать второй раз).
+
+    Д1 приёмки части 3: «выключен» (`isEnabled()` False), а не «включён, но без
+    ItemIsSelectable» — включённую строку QComboBox всё равно выбирал стрелками
+    и колесом (проверяется клетками клавиатуры ниже)."""
     free = _cand("FPGA_VCCIO_1", "Ch0")
     taken = _cand("FPGA_VCCIO_4", "Ch1", entity_name="fpga_vccio_4")
     dlg = _form(main_window, "cell", "my_cell",
@@ -185,10 +189,81 @@ def test_free_rows_come_first_and_the_taken_is_grey_and_not_selectable(
 
     model = combo.model()
     taken_item = model.item(1)
-    assert not (taken_item.flags() & Qt.ItemFlag.ItemIsSelectable), (
-        "занятая строка не имеет права выбираться")
+    assert not taken_item.isEnabled(), (
+        "занятая строка обязана быть ВЫКЛЮЧЕНА (Д1): включённую Qt пропускает "
+        "стрелками и колесом, и в запись уходит её подпись")
     assert taken_item.foreground().color() == _GREY, (
         "занятая строка обязана быть серой")
+
+
+# ── Д1: занятая строка не берётся ни стрелками, ни колесом ──────────────────
+
+def _free_and_taken(main_window):
+    """A dialog with ONE free row 'A — Ch0' and ONE taken 'B — Ch0'; the free
+    one is preselected (it is the only free instance)."""
+    free = _cand("A", "Ch0")
+    taken = _cand("B", "Ch0", entity_name="e_b")
+    return (_form(main_window, "cell", "my_cell",
+                  candidates=[free, taken], snapshot_available=True),
+            free, taken)
+
+
+def test_the_arrow_keys_do_not_land_on_the_taken_row(main_window):
+    """Д1 приёмки части 3: занятая строка ВЫКЛЮЧЕНА, поэтому QComboBox
+    пропускает её при навигации стрелками — текущей остаётся свободная «A — Ch0»,
+    и в результат уходит ЕЁ пара, а не «B — Ch0 — already: e_b». На «включённой
+    без ItemIsSelectable» строке стрелка вставала на неё (живой зонд Claude), и в
+    запись уходил лист-мусор."""
+    from PyQt6.QtTest import QTest
+
+    dlg, free, _taken = _free_and_taken(main_window)
+    combo = dlg._instance_combo
+    combo.setFocus()
+    assert combo.currentText() == free.label
+
+    QTest.keyClick(combo, Qt.Key.Key_Down)
+    assert combo.currentText() == free.label, (
+        "стрелка «вниз» встала на занятую строку — она обязана быть выключена "
+        f"(Д1); текущая: {combo.currentText()!r}")
+    assert dlg.result_data()[1:] == ("A", "Ch0")
+
+    QTest.keyClick(combo, Qt.Key.Key_Up)
+    assert combo.currentText() == free.label, (
+        "стрелка «вверх» тоже не имеет права встать на занятую строку (Д1)")
+    assert dlg.result_data()[1:] == ("A", "Ch0")
+
+
+def test_the_wheel_does_not_land_on_the_taken_row(main_window):
+    """Д1: колесо ходит по тем же включённым строкам, что и стрелки, — занятая
+    выключена, значит единственная достижимая остаётся свободная."""
+    from PyQt6.QtCore import QPoint, QPointF
+    from PyQt6.QtGui import QWheelEvent
+
+    dlg, free, _taken = _free_and_taken(main_window)
+    combo = dlg._instance_combo
+    event = QWheelEvent(QPointF(2.0, 2.0), QPointF(2.0, 2.0),
+                        QPoint(0, 0), QPoint(0, -120),
+                        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                        Qt.ScrollPhase.NoScrollPhase, False)
+    combo.wheelEvent(event)
+    assert combo.currentText() == free.label, (
+        f"колесо встало на занятую строку (Д1); текущая: {combo.currentText()!r}")
+    assert dlg.result_data()[1:] == ("A", "Ch0")
+
+
+def test_a_board_of_only_taken_rows_leaves_the_instance_box_empty(main_window):
+    """Д1: единственная строка — занятая → выпадашка пуста (занятые не
+    предвыбираются), и имя по умолчанию НЕ выведено из занятой строки."""
+    taken = _cand("B", "Ch0", entity_name="e_b")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[taken], snapshot_available=True)
+
+    assert dlg._instance_combo.count() == 1
+    assert dlg._instance_combo.currentIndex() == -1
+    assert dlg._instance_combo.currentText() == ""
+    assert "e_b" not in dlg._name_edit.text(), (
+        "занятая строка не имеет права подсказывать имя по умолчанию (Д1)")
+    assert dlg.result_data()[1:] == (None, None)
 
 
 def test_non_fitting_instances_are_not_rows_but_one_grey_counter(main_window):

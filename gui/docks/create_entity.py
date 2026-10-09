@@ -216,8 +216,15 @@ class CreateEntityDialog(QDialog):
     def _fill_instances(self) -> None:
         """Fill the instance combobox: the FREE fitting instances first (the row
         order ``instance_candidates`` already returns), then the TAKEN ones
-        greyed and non-selectable. Preselect a free row ONLY when there is
-        exactly one — two or more leave the box empty (the user must choose)."""
+        greyed AND DISABLED. Preselect a free row ONLY when there is exactly one
+        — two or more leave the box empty (the user must choose).
+
+        Disabled (``setEnabled(False)``), not merely "enabled but unselectable":
+        a row that stays ENABLED is still skipped-to by the QComboBox arrow keys
+        and the wheel (Д1 of the part-3 acceptance — the probe landed on a taken
+        row and wrote its "«already: …»" text into the record). Disabling takes
+        the row out of Qt's own navigation — the same shape the entity page's
+        cell combobox uses for its non-fitting row."""
         combo = self._instance_combo
         for cand in self._free:
             combo.addItem(cand.label, cand)
@@ -227,7 +234,7 @@ class CreateEntityDialog(QDialog):
         for i in range(len(self._free), combo.count()):
             item = model.item(i)
             if item is not None:
-                item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                item.setEnabled(False)
                 item.setForeground(QBrush(_GREY))
         if len(self._free) == 1:
             combo.setCurrentIndex(0)

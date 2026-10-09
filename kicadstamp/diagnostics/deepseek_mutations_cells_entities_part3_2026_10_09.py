@@ -12,11 +12,12 @@ WHAT IS BEING PROVEN. The guards are tests/gui/docks/test_create_entity_form.py
 (the form: one combobox, rows, preselect) and tests/gui/docks/
 test_create_entity_menu.py (the flow: the door, the rule, the record).
 
-  * M1  занятый выбирается (taken row selectable)        -> taken offered twice
+  * M1  занятой строке вернуть ItemIsEnabled (Д1)        -> keyboard lands on it
   * M2  неподходящие снова строки (others become rows)   -> huge list returns
   * M3  своё правило подбора (cell roles not applied)    -> every instance fits
   * M4  предвыбор при двух (preselect whenever any free) -> two preselected
   * M5  имя по умолчанию затирает правленое              -> typed name lost
+  * M6  ручной ввод делит только по em dash (Д2)         -> " - " pair lost
   * K1  cosmetic comment                                 -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -43,15 +44,16 @@ PY_BIN = _interpreter()
 
 FORM = ["test_create_entity_form.py"]
 MENU = ["test_create_entity_menu.py"]
+CAND = ["test_instance_candidates.py"]
 
 DIALOG_MOD = "gui/docks/create_entity.py"
 FLOW = "gui/docks/create_entity_flow.py"
+CAND_MOD = "gui/docks/instance_candidates.py"
 
 MUTATIONS = [
-    ("M1 занятый выбирается (taken selectable)", DIALOG_MOD,
-     "                item.setFlags(Qt.ItemFlag.ItemIsEnabled)\n",
-     "                item.setFlags(Qt.ItemFlag.ItemIsEnabled"
-     " | Qt.ItemFlag.ItemIsSelectable)  # MUTATION\n",
+    ("M1 занятой строке вернуть ItemIsEnabled (Д1)", DIALOG_MOD,
+     "                item.setEnabled(False)\n",
+     "                item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # MUTATION\n",
      "die", FORM, ()),
     ("M2 неподходящие снова строки (others rows)", DIALOG_MOD,
      "        for cand in self._free:\n            combo.addItem(cand.label, cand)\n",
@@ -71,6 +73,10 @@ MUTATIONS = [
      "            return\n",
      "        if False:  # MUTATION\n            return\n",
      "die", FORM, ()),
+    ("M6 ручной ввод делит только по em dash (Д2)", CAND_MOD,
+     'INSTANCE_LABEL_SEPS = (" — ", " – ", " - ")',
+     'INSTANCE_LABEL_SEPS = (" — ",)  # MUTATION',
+     "die", CAND, ()),
     ("K1 cosmetic comment (control)", DIALOG_MOD,
      "        self._candidates = list(candidates or ())",
      "        self._candidates = list(candidates or ())  # control",

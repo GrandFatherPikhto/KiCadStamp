@@ -54,14 +54,19 @@ __all__ = [
     "role_mismatch_reason", "cell_role_order", "instance_candidates",
     "cell_candidates", "choose_cells", "cell_row_label", "others_line",
     "others_tooltip", "instances_others_line", "instances_others_tooltip",
-    "parse_instance_label", "INSTANCE_LABEL_SEP", "instance_parts",
-    "snapshot_parts",
+    "parse_instance_label", "INSTANCE_LABEL_SEP", "INSTANCE_LABEL_SEPS",
+    "instance_parts", "snapshot_parts",
 ]
 
 # The separator an instance label joins its cluster and sheet with — and the ONE
 # place a hand-typed line is split back apart (``parse_instance_label``):
 # "КЛАСТЕР — лист".
 INSTANCE_LABEL_SEP = " — "
+# The separators a HAND-TYPED line may carry (Д2 of the part-3 acceptance): the
+# em dash the rows use is unreachable from the keyboard, so a plain hyphen and an
+# en dash, EACH WITH spaces around it, are accepted too. A hyphen with NO spaces
+# ("A-B") is part of the cluster name, never a separator — hence the spaces.
+INSTANCE_LABEL_SEPS = (" — ", " – ", " - ")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -371,23 +376,34 @@ def instances_others_tooltip(others, limit: int = 8) -> str:
 def parse_instance_label(text) -> tuple:
     """("CLUSTER — sheet") as typed by hand -> ``(cluster, sheet|None)``.
 
-    The reverse of :attr:`InstanceCandidate.label` and its ONE separator
-    (:data:`INSTANCE_LABEL_SEP`). A line with no separator is a cluster with no
-    sheet — the common "no sheet" case; an empty sheet part (or the translated
-    ``"(no sheet)"``) comes back as None. Blank text is ``(None, None)``. This is
-    the ONLY place a typed instance line is split, so the phrasing the rows use
-    and the phrasing the user may retype can never drift."""
+    The reverse of :attr:`InstanceCandidate.label`. The ROWS always join with
+    :data:`INSTANCE_LABEL_SEP` (the em dash), but a hand-typed line may carry any
+    of :data:`INSTANCE_LABEL_SEPS` — the em dash is unreachable from the keyboard
+    (Д2 of the part-3 acceptance), so a plain " - " and an en dash " – ", each
+    WITH spaces around it, are accepted too. A hyphen with NO spaces ("A-B") is
+    part of the cluster name, never a separator.
+
+    A line with no separator is a cluster with no sheet — the common "no sheet"
+    case; an empty sheet part (or the translated ``"(no sheet)"``) comes back as
+    None. Blank text is ``(None, None)``. This is the ONLY place a typed instance
+    line is split, so the phrasing the rows use and the phrasing the user may
+    retype can never drift."""
     text = (text or "").strip()
     if not text:
         return None, None
-    if INSTANCE_LABEL_SEP in text:
-        cluster, sheet = text.split(INSTANCE_LABEL_SEP, 1)
-        cluster = cluster.strip()
-        sheet = sheet.strip()
-        if sheet == _("(no sheet)"):
-            sheet = None
-        return (cluster or None), (sheet or None)
-    return text, None
+    found = None
+    for sep in INSTANCE_LABEL_SEPS:
+        idx = text.find(sep)
+        if idx != -1 and (found is None or idx < found[0]):
+            found = (idx, sep)
+    if found is None:
+        return text, None
+    idx, sep = found
+    cluster = text[:idx].strip()
+    sheet = text[idx + len(sep):].strip()
+    if sheet == _("(no sheet)"):
+        sheet = None
+    return (cluster or None), (sheet or None)
 
 
 def instance_parts(parts: Iterable[Part], cluster: str,

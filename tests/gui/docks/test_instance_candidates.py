@@ -30,6 +30,7 @@ from gui.docks.instance_candidates import (
     instance_parts,
     others_line,
     others_tooltip,
+    parse_instance_label,
     role_mismatch_reason,
     snapshot_parts,
 )
@@ -294,3 +295,28 @@ def test_others_tooltip_names_each_reason():
     two = (CellCandidate(name="a", fits=False, reason="role A: 0 of 1"),
            CellCandidate(name="b", fits=False, reason="role B: 0 of 1"))
     assert others_tooltip(two) == "a: role A: 0 of 1\nb: role B: 0 of 1"
+
+
+# ── Д2: ручной ввод принимает em/en dashes и дефис (с пробелами) ────────────
+
+@pytest.mark.parametrize("sep", [" — ", " – ", " - "])
+def test_parse_instance_label_accepts_em_en_and_hyphen_separators(sep):
+    """Д2 приёмки части 3: строки соединяются длинным тире « — », но с клавиатуры
+    его не набрать — ручной ввод обязан принимать также « – » (en dash) и « - »
+    (дефис), каждый С ПРОБЕЛАМИ вокруг. Все три дают одну и ту же пару."""
+    assert parse_instance_label("CL_A" + sep + "Channel_0") == ("CL_A", "Channel_0")
+
+
+def test_parse_instance_label_keeps_a_bare_hyphen_inside_the_cluster():
+    """Обратная сторона: дефис БЕЗ пробелов — часть имени кластера («A-B»), а не
+    разделитель; разделителем становится лишь дефис с пробелами."""
+    assert parse_instance_label("A-B") == ("A-B", None)
+    assert parse_instance_label("A-B - Channel_0") == ("A-B", "Channel_0")
+
+
+def test_parse_instance_label_none_and_blank_give_no_pair():
+    """Пусто/пробелы → (None, None), не пустые строки: "" сузило бы поиск
+    дубликата по пустой строке."""
+    assert parse_instance_label("") == (None, None)
+    assert parse_instance_label("   ") == (None, None)
+    assert parse_instance_label("CL_A") == ("CL_A", None)
