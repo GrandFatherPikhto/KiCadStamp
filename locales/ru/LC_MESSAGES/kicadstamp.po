@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-09 20:49+0300\n"
+"POT-Creation-Date: 2026-10-09 20:56+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -218,8 +218,8 @@ msgstr "Отпечатки"
 #: gui/dock_hub.py:1921 gui/dock_hub.py:2106 gui/dock_hub.py:2414
 #: gui/dock_hub.py:2791 gui/docks/add_entities_flow.py:84
 #: gui/docks/cell_editor.py:1643 gui/docks/cell_editor.py:1726
-#: gui/docks/cell_editor.py:2244 gui/docks/cell_editor.py:2551
-#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:189
+#: gui/docks/cell_editor.py:2241 gui/docks/cell_editor.py:2545
+#: gui/docks/cell_editor.py:2681 gui/docks/change_cell_flow.py:189
 #: gui/docks/change_cell_flow.py:228 gui/docks/imprint_place.py:731
 #: gui/docks/net_trace.py:305 gui/docks/net_trace.py:414
 #: gui/docks/net_trace.py:480 gui/docks/net_trace.py:566
@@ -234,8 +234,8 @@ msgid "Set the project root first."
 msgstr "Сначала задайте root проекта."
 
 #: gui/dock_hub.py:596 gui/dock_hub.py:1488 gui/docks/cell_editor.py:1720
-#: gui/docks/cell_editor.py:1823 gui/docks/cell_editor.py:2238
-#: gui/docks/cell_editor.py:2548 gui/docks/dedupe.py:136
+#: gui/docks/cell_editor.py:1820 gui/docks/cell_editor.py:2235
+#: gui/docks/cell_editor.py:2542 gui/docks/dedupe.py:136
 #: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
 #: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
 #: gui/docks/net_trace.py:302 gui/docks/net_trace.py:417
@@ -482,7 +482,7 @@ msgstr "Сущность с именем {name!r} уже существует."
 #: gui/docks/net_trace.py:527 gui/docks/placer.py:2493 gui/docks/placer.py:2558
 #: gui/docks/placer.py:2575 gui/docks/placer.py:2613 gui/docks/points.py:895
 #: gui/docks/root_metadata.py:719 gui/docks/root_metadata.py:800
-#: gui/docks/thermal_via.py:485 gui/docks/tools.py:233 gui/entity/page.py:581
+#: gui/docks/thermal_via.py:485 gui/docks/tools.py:233 gui/entity/page.py:625
 #: kicadstamp/extract_writer.py:121
 #, python-brace-format
 msgid "Write failed: {error}"
@@ -571,7 +571,7 @@ msgstr "Роль:"
 
 #: gui/docks/_cell_identity.py:61 gui/docks/create_entity.py:89
 #: gui/docks/instantiate_cell_dialog.py:197 gui/docks/placer.py:862
-#: gui/docks/tree_from_selection_dialog.py:208 gui/entity/page.py:163
+#: gui/docks/tree_from_selection_dialog.py:208 gui/entity/page.py:173
 #: gui/fieldstool_window.py:227
 msgid "Cluster:"
 msgstr "Кластер:"
@@ -1453,7 +1453,7 @@ msgstr ""
 "кластер у строк разный ({clusters}) — нажмите «Применить ко всем "
 "строкам», чтобы разметить одним кластером"
 
-#: gui/docks/cell_editor.py:2579 gui/select_cell.py:127
+#: gui/docks/cell_editor.py:2573 gui/select_cell.py:127
 #: gui/select_enclosed_copper.py:157
 #, python-brace-format
 msgid ""
@@ -1714,8 +1714,8 @@ msgstr ""
 msgid "{count} record(s) have no registry entry — not checked"
 msgstr "записей без ключа в реестре: {count} — не проверялись"
 
-#: gui/docks/cell_editor.py:1723 gui/docks/cell_editor.py:2241
-#: gui/docks/cell_editor.py:2554 gui/docks/cell_editor.py:2690
+#: gui/docks/cell_editor.py:1723 gui/docks/cell_editor.py:2238
+#: gui/docks/cell_editor.py:2548 gui/docks/cell_editor.py:2684
 #: gui/subtract_copper.py:370
 msgid "Load a cell with components first."
 msgstr "Сначала загрузите шаблон с компонентами."
@@ -1791,7 +1791,7 @@ msgstr "имя листа (сужает неоднозначную Role, нео�
 #: gui/docks/_anchor_origin.py:104 gui/docks/_cell_identity.py:54
 #: gui/docks/create_entity.py:96 gui/docks/instantiate_cell_dialog.py:191
 #: gui/docks/placer.py:861 gui/docks/tree_from_selection_dialog.py:200
-#: gui/entity/page.py:161
+#: gui/entity/page.py:171
 msgid "Sheet:"
 msgstr "Лист:"
 
@@ -1969,13 +1969,13 @@ msgstr "Имя:"
 
 #: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:502
 #: gui/docks/net_trace.py:109 gui/docks/placer.py:206 gui/docks/points.py:241
-#: gui/docks/thermal_via.py:112 gui/entity/page.py:129
+#: gui/docks/thermal_via.py:112 gui/entity/page.py:139
 msgid "optional free-form note"
 msgstr "опциональная свободная заметка"
 
 #: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:503
 #: gui/docks/net_trace.py:110 gui/docks/placer.py:865 gui/docks/points.py:242
-#: gui/docks/thermal_via.py:113 gui/entity/page.py:131
+#: gui/docks/thermal_via.py:113 gui/entity/page.py:141
 msgid "Comment:"
 msgstr "Комментарий:"
 
@@ -2291,7 +2291,7 @@ msgstr "Сеть"
 msgid "Apply"
 msgstr "Применить"
 
-#: gui/docks/cell_editor.py:400 gui/docks/cell_editor.py:2722
+#: gui/docks/cell_editor.py:400 gui/docks/cell_editor.py:2716
 msgid "Copy placement from cell"
 msgstr "Скопировать расстановку из шаблона"
 
@@ -2474,7 +2474,7 @@ msgid "Content:"
 msgstr "Содержимое:"
 
 #: gui/docks/cell_editor.py:814 gui/docks/instantiate_cell_dialog.py:128
-#: gui/docks/placer.py:796 gui/entity/page.py:141
+#: gui/docks/placer.py:796 gui/entity/page.py:151
 msgid "Cell:"
 msgstr "Шаблон:"
 
@@ -2619,20 +2619,16 @@ msgstr "Перезаписал"
 msgid "Wrote"
 msgstr "Записал"
 
-#: gui/docks/cell_editor.py:1743
-msgid "Update needs an entity's address — open it from an ENTITY leaf."
-msgstr "Обновление требует адрес сущности — откройте из листа СУЩНОСТИ."
-
-#: gui/docks/cell_editor.py:1838
+#: gui/docks/cell_editor.py:1835
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr "Не удалось прочитать медные слои платы: {error}"
 
-#: gui/docks/cell_editor.py:1847 gui/docks/cell_layers.py:76
+#: gui/docks/cell_editor.py:1844 gui/docks/cell_layers.py:76
 msgid "Layers to read"
 msgstr "Слои для чтения"
 
-#: gui/docks/cell_editor.py:1848
+#: gui/docks/cell_editor.py:1845
 msgid ""
 "No layer is selected. Refresh deletes every track record of this cell. "
 "Continue?"
@@ -2640,42 +2636,42 @@ msgstr ""
 "Не выбран ни один слой. Refresh удалит из ячейки все записи дорожек. "
 "Продолжить?"
 
-#: gui/docks/cell_editor.py:1866
+#: gui/docks/cell_editor.py:1863
 #, python-brace-format
 msgid "read layers: {layers}"
 msgstr "прочитаны слои: {layers}"
 
-#: gui/docks/cell_editor.py:1869
+#: gui/docks/cell_editor.py:1866
 msgid "no layer of the selection was read"
 msgstr "ни один слой выделения не прочитан"
 
-#: gui/docks/cell_editor.py:1873
+#: gui/docks/cell_editor.py:1870
 #, python-brace-format
 msgid "skipped {layer}: unchecked by hand"
 msgstr "пропущен {layer}: снят вручную"
 
-#: gui/docks/cell_editor.py:1877
+#: gui/docks/cell_editor.py:1874
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr "пропущен {layer}: пусто в выделении"
 
-#: gui/docks/cell_editor.py:1978
+#: gui/docks/cell_editor.py:1975
 #, python-brace-format
 msgid ""
 "the selection has no copper — all {count} copper records of the cell were"
 " removed"
 msgstr "в выделении нет меди — вся медь ячейки удалена ({count} записей)"
 
-#: gui/docks/cell_editor.py:2036
+#: gui/docks/cell_editor.py:2033
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Ничего не изменилось — выделение уже совпадает с геометрией этого шаблона."
 
-#: gui/docks/cell_editor.py:2088
+#: gui/docks/cell_editor.py:2085
 #, python-brace-format
 msgid "removed {count} record(s) not in the selection"
 msgstr "удалено {count} записей, которых нет в выделении"
 
-#: gui/docks/cell_editor.py:2092
+#: gui/docks/cell_editor.py:2089
 #, python-brace-format
 msgid ""
 "Updated cell {name!r} from selection — {updated} record(s) updated, "
@@ -2686,12 +2682,12 @@ msgstr ""
 "добавлено via/track записей: {added}, удалено записей: {removed}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2102
+#: gui/docks/cell_editor.py:2099
 #, python-brace-format
 msgid "Refresh failed: {error}"
 msgstr "Сбой обновления: {error}"
 
-#: gui/docks/cell_editor.py:2254
+#: gui/docks/cell_editor.py:2251
 msgid ""
 "No layer is selected — no track will be read (vias and components are "
 "read as usual)."
@@ -2699,17 +2695,13 @@ msgstr ""
 "Не выбран ни один слой — дорожки не читаются (виа и компоненты читаются "
 "как обычно)."
 
-#: gui/docks/cell_editor.py:2261
-msgid "Import needs an entity's address — open it from an ENTITY leaf."
-msgstr "Добавление требует адрес сущности — откройте из листа СУЩНОСТИ."
-
-#: gui/docks/cell_editor.py:2395
+#: gui/docks/cell_editor.py:2389
 msgid ""
 "Nothing to import — every selected via/track is already described by this"
 " cell."
 msgstr "Импортировать нечего — все via/track из выделения уже описаны этим целлом."
 
-#: gui/docks/cell_editor.py:2404
+#: gui/docks/cell_editor.py:2398
 #, python-brace-format
 msgid ""
 "Imported {count} new record(s) from selection into {name!r}. Save to "
@@ -2718,22 +2710,22 @@ msgstr ""
 "Импортировано новых записей: {count} — из выделения в {name!r}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2412
+#: gui/docks/cell_editor.py:2406
 #, python-brace-format
 msgid "Import failed: {error}"
 msgstr "Импорт не удался: {error}"
 
-#: gui/docks/cell_editor.py:2508 gui/docks/cell_editor.py:2527
+#: gui/docks/cell_editor.py:2502 gui/docks/cell_editor.py:2521
 #, python-brace-format
 msgid "cell {name!r} is not in the config — cannot select it"
 msgstr "ячейка {name!r} не найдена в конфиге — выделить её нельзя"
 
-#: gui/docks/cell_editor.py:2617 gui/docks/cell_editor.py:2659
+#: gui/docks/cell_editor.py:2611 gui/docks/cell_editor.py:2653
 #, python-brace-format
 msgid "Select cluster failed: {error}"
 msgstr "Не удалось выделить кластер: {error}"
 
-#: gui/docks/cell_editor.py:2622
+#: gui/docks/cell_editor.py:2616
 #, python-brace-format
 msgid ""
 "the remembered refs are stale ({reasons}) — nothing was selected; "
@@ -2744,7 +2736,7 @@ msgstr ""
 "идентифицируйте экземпляр заново кнопкой «Заполнить по выделению» на "
 "странице якоря ячейки"
 
-#: gui/docks/cell_editor.py:2639
+#: gui/docks/cell_editor.py:2633
 #, python-brace-format
 msgid ""
 "Selected the {count} identified footprint(s) of this cell on the board — "
@@ -2753,7 +2745,7 @@ msgstr ""
 "Выделено {count} опознанных посадочных мест этой ячейки на плате — готово"
 " для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2645
+#: gui/docks/cell_editor.py:2639
 #, python-brace-format
 msgid ""
 "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready"
@@ -2762,7 +2754,7 @@ msgstr ""
 "Выделено {count} посадочных мест кластера {cluster!r} на плате — готово "
 "для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2651
+#: gui/docks/cell_editor.py:2645
 #, python-brace-format
 msgid ""
 "No footprint of cluster {cluster!r} is on the current board — the "
@@ -2771,12 +2763,12 @@ msgstr ""
 "На текущей плате нет ни одного футпринта кластера {cluster!r} — "
 "запомненный контекст больше не резолвится; выберите кластер вручную."
 
-#: gui/docks/cell_editor.py:2684
+#: gui/docks/cell_editor.py:2678
 msgid "Pick a cell to copy into first."
 msgstr "Сначала выберите шаблон, в который копировать."
 
 # ===== Copy placement from cell, context-menu flow (2026-09-06) =====
-#: gui/docks/cell_editor.py:2696
+#: gui/docks/cell_editor.py:2690
 msgid "No other cell fits this one's roles to copy from."
 msgstr "Ни один другой шаблон не подходит по ролям для копирования."
 
@@ -2786,7 +2778,7 @@ msgstr "Ни один другой шаблон не подходит по ро�
 # plan_2026_09_23_cell_placement_copy_replaces_copper): подтверждение +
 # переписанная строка успеха; старый «дописывающий» вариант ниже выведен из
 # употребления.
-#: gui/docks/cell_editor.py:2723
+#: gui/docks/cell_editor.py:2717
 #, python-brace-format
 msgid ""
 "Cell {name!r} already has copper: {target_vias} via(s) and "
@@ -2797,7 +2789,7 @@ msgstr ""
 "track будут ЗАМЕНЕНЫ на {source_vias} via и {source_tracks} track из "
 "{source!r}."
 
-#: gui/docks/cell_editor.py:2738
+#: gui/docks/cell_editor.py:2732
 #, python-brace-format
 msgid ""
 "Copied placement from {source!r} into {name!r} — {components} "
@@ -4150,7 +4142,7 @@ msgstr "Длина"
 msgid "Touches"
 msgstr "Касается"
 
-#: gui/docks/explode_page.py:196 gui/entity/page.py:341
+#: gui/docks/explode_page.py:196 gui/entity/page.py:382
 msgid "Explode"
 msgstr "Разнести"
 
@@ -4702,7 +4694,7 @@ msgstr ""
 msgid "Place Imprint"
 msgstr "Разместить Imprint"
 
-#: gui/docks/imprint_place.py:212 gui/entity/page.py:156
+#: gui/docks/imprint_place.py:212 gui/entity/page.py:166
 msgid "Imprint:"
 msgstr "Imprint:"
 
@@ -4990,7 +4982,7 @@ msgid "Instance name"
 msgstr "Имя копии"
 
 #: gui/docks/instances_dialog.py:154 gui/docks/placer.py:218
-#: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:445
+#: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:488
 msgid "Anchor"
 msgstr "Якорь"
 
@@ -5628,7 +5620,7 @@ msgstr "Один компонент"
 
 #: gui/docks/placer.py:774 gui/docks/profile_import.py:35
 #: gui/docks/profile_import.py:39 gui/docks/tree_from_selection_dialog.py:145
-#: gui/docks/trees_dock.py:6661 gui/entity/page.py:111
+#: gui/docks/trees_dock.py:6661 gui/entity/page.py:116
 msgid "Entity"
 msgstr "Сущность"
 
@@ -6367,7 +6359,7 @@ msgstr "Ссылки (роль -> поз.обозначение):"
 msgid "Pick an Entity first."
 msgstr "Сначала выберите сущность."
 
-#: gui/docks/tools.py:236 gui/entity/page.py:586
+#: gui/docks/tools.py:236 gui/entity/page.py:630
 #, python-brace-format
 msgid "Wrote entity {name!r} in {path}"
 msgstr "Записана сущность {name!r} в {path}"
@@ -7466,6 +7458,14 @@ msgstr ""
 "выделение — {cluster} / {sheet}, а не сущность {entity!r} — ничего не "
 "прочитано"
 
+#: gui/entity/address.py:193
+msgid "Import needs an entity's address — open it from an ENTITY leaf."
+msgstr "Добавление требует адрес сущности — откройте из листа СУЩНОСТИ."
+
+#: gui/entity/address.py:195
+msgid "Update needs an entity's address — open it from an ENTITY leaf."
+msgstr "Обновление требует адрес сущности — откройте из листа СУЩНОСТИ."
+
 #: gui/entity/anchor_tab.py:122
 msgid "Component anchor"
 msgstr "Компонентный якорь"
@@ -7820,41 +7820,41 @@ msgstr ""
 "выберите более конкретный Кластер/Лист или редактируйте якорь, когда в "
 "контексте ровно одно размещение этой ячейки"
 
-#: gui/entity/page.py:164
+#: gui/entity/page.py:174
 msgid "Reference"
 msgstr "Справка"
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:170
+#: gui/entity/page.py:180
 msgid "Placements (trees):"
 msgstr "Размещения (деревья):"
 
-#: gui/entity/page.py:179
+#: gui/entity/page.py:189
 msgid "Placements"
 msgstr "Размещения"
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:259
+#: gui/entity/page.py:277
 #, python-brace-format
 msgid "Entity {name!r} not found."
 msgstr "Сущность {name!r} не найдена."
 
-#: gui/entity/page.py:374
+#: gui/entity/page.py:416
 msgid "Refs"
 msgstr "Refs"
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:540
+#: gui/entity/page.py:584
 msgid "Not placed in any tree."
 msgstr "Не размещена ни в одном дереве."
 
 # entity page (S3, 2026-09-05)
-#: gui/entity/page.py:543
+#: gui/entity/page.py:587
 #, python-brace-format
 msgid "{n} placement(s) — click to open the tree"
 msgstr "{n} размещений — клик, чтобы открыть дерево"
 
-#: gui/entity/read_only.py:106
+#: gui/entity/read_only.py:109
 msgid ""
 "this entity is not saved in the project yet — save it first; the board "
 "tabs stay off until then"
@@ -7862,11 +7862,11 @@ msgstr ""
 "эта сущность ещё не сохранена в проекте — сначала сохраните её; вкладки "
 "платы будут выключены до этого"
 
-#: gui/entity/read_only.py:109
+#: gui/entity/read_only.py:112
 msgid "this entity's cell is missing from the project — pick a cell to fix it"
 msgstr "ячейки этой сущности нет в проекте — выберите ячейку, чтобы починить"
 
-#: gui/entity/read_only.py:112
+#: gui/entity/read_only.py:115
 msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr "экземпляра этой сущности нет на плате — выберите подходящую ячейку"
 

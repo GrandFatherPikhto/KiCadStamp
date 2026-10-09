@@ -113,7 +113,7 @@ from ..worker import start_long_op
 from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
-from ..entity.address import read_instance_of
+from ..entity.address import read_instance_of, read_instance_or_report
 from .explode_page import adapter_of
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
@@ -1735,15 +1735,12 @@ class CellDock(QWidget):
         # boxes unchecked) alike.
         if _is_empty_layer_set(layers) and not self._confirm_empty_layers():
             return
-        # Step 5: the door's address IS the instance (the dock's OWN entry falls
-        # back to the address it was LOADED with); the store is gone.
-        if expected_address is None:
-            expected_address = self._expected_address
-        if expected_address is None:
-            self._show_message(_("Update needs an entity's address — open it "
-                                 "from an ENTITY leaf."), _ERROR_STYLE)
+        # Step 5: the door's address wins, else the loaded one; with neither — refuse.
+        instance, refusal = read_instance_or_report(
+            expected_address, self._expected_address, "Update")
+        if refusal is not None:
+            self._show_message(refusal, _ERROR_STYLE)
             return
-        instance = read_instance_of(expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_refresh_plan never mutates them, and the records
         # it returns are the SAME dict objects, so Apply lands on the loaded
@@ -2254,14 +2251,11 @@ class CellDock(QWidget):
                 _("No layer is selected — no track will be read (vias and "
                   "components are read as usual)."),
                 _WARN_STYLE)
-        # Step 5: same ONE rule as the refresh read.
-        if expected_address is None:
-            expected_address = self._expected_address
-        if expected_address is None:
-            self._show_message(_("Import needs an entity's address — open it "
-                                 "from an ENTITY leaf."), _ERROR_STYLE)
+        instance, refusal = read_instance_or_report(
+            expected_address, self._expected_address, "Import")
+        if refusal is not None:
+            self._show_message(refusal, _ERROR_STYLE)
             return
-        instance = read_instance_of(expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_import_plan never mutates them, and the plan's
         # new records are brand-new dicts to APPEND on Apply (existing records

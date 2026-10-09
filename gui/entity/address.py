@@ -42,7 +42,7 @@ from kicadstamp.selection_narrowing import record_address_matches
 __all__ = [
     "InstanceAddress", "entity_address", "entity_address_named",
     "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
-    "ReadInstance", "read_instance_of",
+    "ReadInstance", "read_instance_of", "read_instance_or_report",
 ]
 
 
@@ -176,3 +176,21 @@ def read_instance_of(address) -> ReadInstance:
         return ReadInstance()
     return ReadInstance(address=address, cluster=address.cluster,
                         sheet=address.sheet, refs=address.refs)
+
+
+def read_instance_or_report(expected_address, dock_address, verb: str):
+    """`(instance, refusal_line)` for a board READ of a CELL (Update / Import).
+
+    The address a DOOR handed over WINS; else the one the dock was LOADED with;
+    with NEITHER there is nothing to read, so the caller gets the ONE refusal line
+    (the two reads differ only in `verb` — "Update" / "Import"). The caller shows
+    the line and stops when it is not None; otherwise it reads with `instance`.
+    """
+    address = expected_address if expected_address is not None else dock_address
+    if address is not None:
+        return read_instance_of(address), None
+    if verb == "Import":
+        return None, _("Import needs an entity's address — open it from an "
+                       "ENTITY leaf.")
+    return None, _("Update needs an entity's address — open it from an "
+                   "ENTITY leaf.")
