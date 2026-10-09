@@ -56,6 +56,7 @@ from .connection import ui_thread_board_read
 # are one-liners over them.
 from . import entity_doors
 from .docks.add_entities_flow import add_entities_from_tree
+from .docks.change_cell_flow import change_cell_for_entity
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import (
     CellAnchorView,
@@ -1018,6 +1019,7 @@ class DockHub:
         self.config_tree_dock.add_entity_requested.connect(
             self._create_entity_from_tree)
         self.config_tree_dock.add_entities_requested.connect(partial(add_entities_from_tree, self))
+        self.config_tree_dock.change_cell_requested.connect(partial(change_cell_for_entity, self))
         # Placer/Thermal via/Extract/Points -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
