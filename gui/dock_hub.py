@@ -1016,6 +1016,13 @@ class DockHub:
         # entities: record fills. Config-only: no board access at all (Т4/С7).
         self.config_tree_dock.add_entity_requested.connect(
             self._create_entity_from_tree)
+        # "Add entities…" (plan_2026_10_09_cells_and_entities, part 1): the
+        # BATCH sibling of "Create entity" on a cells: leaf — one entities:
+        # record per CHECKED instance, written in ONE working-set edit. The
+        # flow lives in gui/docks/add_entities_flow.py; here is only the wiring
+        # (rule 45).
+        self.config_tree_dock.add_entities_requested.connect(
+            self._add_entities_from_tree)
         # Placer/Thermal via/Extract/Points -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
@@ -2759,6 +2766,14 @@ class DockHub:
 
     def _edit_cell_anchor_for_entity(self, name, file_path, entity) -> None:
         entity_doors.open_cell_anchor_for_entity(self, name, file_path, entity)
+
+    def _add_entities_from_tree(self, cell_name, file_path) -> None:
+        """ConfigTreeDock's add_entities_requested delegate (plan_2026_10_09_
+        cells_and_entities, part 1). The flow lives in
+        gui/docks/add_entities_flow.py — this hub keeps only the wiring
+        (rule 45), the same shape as the entity_doors delegates above."""
+        from .docks.add_entities_flow import add_entities_from_tree
+        add_entities_from_tree(self, cell_name, file_path)
 
     def _create_entity_from_tree(self, source_kind: str, source_name: str,
                                  file_path) -> None:

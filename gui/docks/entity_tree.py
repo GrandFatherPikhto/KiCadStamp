@@ -222,6 +222,33 @@ class EntityTreeMixin:
 
     # ── Cell / orphan context-menu blocks ──────────────────────────────────
 
+    def add_cell_menu(self, menu, item, old_name, file_path) -> bool:
+        """The CELLS leaf's menu block (moved here from the giant's context
+        menu, rule 45). Returns True when the leaf is an UNUSED cell (3б): such
+        a drawing keeps only "Create entity"/"Add entities…" and the generic
+        Delete — no paid items, no Rename. A PLACED cell without an entity
+        keeps the today behaviour (the CellDock items below).
+
+        "Create entity" (2026-09-20, plan_2026_09_20_create_entity_menu.md) is
+        the ONE item that gives an EXISTING cell an entities: record; "Add
+        entities…" (plan_2026_10_09_cells_and_entities, part 1) is its BATCH
+        sibling — one record per CHECKED instance of the cell. Both are found
+        by their objectName in the guards, never by the translated label."""
+        create_action = menu.addAction(_("Create entity"))
+        create_action.setObjectName("create_entity_action")
+        create_action.triggered.connect(
+            lambda checked=False, n=old_name, f=file_path:
+            self.add_entity_requested.emit("cell", n, f))
+        add_entities_action = menu.addAction(_("Add entities…"))
+        add_entities_action.setObjectName("add_entities_action")
+        add_entities_action.triggered.connect(
+            lambda checked=False, n=old_name, f=file_path:
+            self.add_entities_requested.emit(n, f))
+        if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:
+            return True
+        self._add_cell_menu_items(menu, old_name, file_path)
+        return False
+
     def _add_cell_menu_items(self, menu, old_name, file_path) -> None:
         """The cell's own menu block: Edit cell / anchor / Copy placement.
 

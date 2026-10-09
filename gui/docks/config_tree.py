@@ -308,6 +308,11 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
     # include graph. Deliberately NOT two separate items: the only difference
     # is which field the source fills.
     add_entity_requested = pyqtSignal(str, str, object)
+    # Fired by the context menu's "Add entities…" (plan_2026_10_09_cells_and_
+    # entities, part 1) on a CELLS leaf — the BATCH sibling of "Create entity":
+    # one entities: record per CHECKED instance of the cell, written in ONE
+    # working-set edit. The payload is (source_name, file_path).
+    add_entities_requested = pyqtSignal(str, object)
     # Fired when a Clone placement leaf is clicked — PlacerDock listens to
     # load it back into the form.
     placement_picked = pyqtSignal(object)
@@ -1275,25 +1280,14 @@ class ConfigTreeDock(EntityTreeMixin, QWidget):
                 if self.add_entity_menu(menu, item, file_path):
                     handled_orphan = True
             if section == "cells":
-                # "Create entity" (2026-09-20, plan_2026_09_20_create_entity_
-                # menu.md Т1): the ONE item that gives an EXISTING cell an
-                # entities: record — the same item also appears on an imprints
-                # leaf below, only the source field differs.
-                create_action = menu.addAction(_("Create entity"))
-                # С1 — same objectName as the imprint leg above: the guard
-                # finds the item by it, not by the translated label.
-                create_action.setObjectName("create_entity_action")
-                create_action.triggered.connect(
-                    lambda checked=False, n=old_name, f=file_path:
-                    self.add_entity_requested.emit("cell", n, f))
-                if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:
-                    # 3б: a cell with NO entity and NO placer is a drawing — its
-                    # only actions are "Create entity" and the generic Delete
-                    # below; no paid items, no Rename. A PLACED cell without an
-                    # entity keeps the today behaviour (below).
-                    suppress_rename = True
-                else:
-                    self._add_cell_menu_items(menu, old_name, file_path)
+                # The cells leaf's own block — "Create entity", the batch
+                # "Add entities…" and the CellDock items — lives in the
+                # entity-tree mixin (add_cell_menu) with the rest of the cell
+                # plumbing. Rule 45: this giant only shrinks, and the move pays
+                # for the new batch item several times over. True = the cell is
+                # an UNUSED drawing: keep only Create/Add + the generic Delete.
+                suppress_rename = self.add_cell_menu(menu, item, old_name,
+                                                     file_path)
             if not handled_orphan:
                 if not suppress_rename:
                     menu.addAction(_("Rename...")).triggered.connect(

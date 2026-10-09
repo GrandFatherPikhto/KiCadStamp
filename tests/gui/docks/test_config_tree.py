@@ -875,16 +875,12 @@ def _context_menu_actions(dock, item, monkeypatch):
 
 
 def _add_labels(labels):
-    """The context menu's "Add ..." block (incl. the unconditional "Add
-    included file...") — Rename/Delete/Edit/Export never start with 'Add '.
-
-    The whole-cell copper read ("Add selected copper...", the additive action
-    renamed from "Import from selection..." on 2026-10-06) also starts with
-    'Add ' but is NOT a section add — filtered out by name so this guard keeps
-    measuring the section Add action it is about."""
+    """section adds are taken from the product's own table, so a cell action
+    starting with 'Add ' (Add selected copper…, Add entities…) can never leak in."""
+    section_adds = {label for label, _signal
+                    in config_tree_mod._ADD_ACTION_BY_SECTION.values()}
     return [label for label in labels
-            if label.startswith("Add ")
-            and not label.startswith("Add selected copper")]
+            if label in section_adds or label == "Add included file..."]
 
 
 @pytest.mark.parametrize("category_label, expected_add", [
