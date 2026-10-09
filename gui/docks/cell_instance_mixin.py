@@ -52,7 +52,7 @@ from ..cell_entity_choice import (
 )
 from ._common import ERROR_STYLE, SUCCESS_STYLE, show_message
 from .cell_entity_picker import CellInstanceGate, EntityPicker, InstanceFields
-from .change_cell_flow import cell_role_order
+from .instance_candidates import cell_role_order
 from .rename import find_dict_entry_file, read_data as _read_data
 
 logger = logging.getLogger(__name__)
@@ -277,7 +277,7 @@ class CellInstanceMixin:
 
     def _cell_role_order(self) -> list:
         """The same roles in the CELL's own order (the Refs line and its tooltip
-        follow the cell, not the alphabet). ONE owner — change_cell_flow.
+        follow the cell, not the alphabet). ONE owner — instance_candidates.
         cell_role_order, the very function the Entity page's Refs tab and the cell
         picker use, so the roles a picker offers and the roles a table tags can
         never disagree."""

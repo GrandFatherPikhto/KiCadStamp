@@ -51,9 +51,9 @@ from .reead import sheet_of
 
 __all__ = [
     "Part", "InstanceCandidate", "CellSpec", "CellCandidate", "CellChoices",
-    "role_mismatch_reason", "instance_candidates", "cell_candidates",
-    "choose_cells", "cell_row_label", "others_line", "others_tooltip",
-    "instance_parts", "snapshot_parts",
+    "role_mismatch_reason", "cell_role_order", "instance_candidates",
+    "cell_candidates", "choose_cells", "cell_row_label", "others_line",
+    "others_tooltip", "instance_parts", "snapshot_parts",
 ]
 
 
@@ -110,6 +110,29 @@ class CellSpec:
     name: str
     roles: tuple = ()
     uuid: Optional[str] = None
+
+
+def cell_role_order(components) -> list:
+    """A cell's OWN component roles in the cell's own order — ONE entry per slot,
+    so multiplicity is the list itself (the order the Refs table and its tooltips
+    follow, never the alphabet). `components` is a loaded Cell's slot list OR the
+    raw ``components:`` list of a cell entry (objects and dicts are both read).
+
+    THE one place the "a cell's roles, in the cell's order" rule lives (its Qt-free
+    home, moved here from gui/docks/change_cell_flow.py): the CELL page's Refs line
+    (gui/docks/cell_instance_mixin._cell_role_order), the CELL-SPEC picker
+    (change_cell_flow._resolve_cells) and the ENTITY page's Refs tab
+    (gui/entity/page._cell_roles) all call it — the roles a picker offers and the
+    roles a table tags can never disagree. Deliberately ORDERED with multiplicity,
+    unlike tree_from_selection.cell_component_roles (a SET, for the "does the
+    cluster resolve every role" question)."""
+    out: list = []
+    for slot in components or ():
+        role = slot.get("role") if isinstance(slot, dict) \
+            else getattr(slot, "role", None)
+        if role:
+            out.append(role)
+    return out
 
 
 @dataclasses.dataclass(frozen=True)

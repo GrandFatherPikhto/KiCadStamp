@@ -50,10 +50,9 @@ from kicadstamp.utils.paths import overrides_path_for_config
 
 from ..docks._common import (ERROR_STYLE as _ERROR_STYLE,
                              SUCCESS_STYLE as _SUCCESS_STYLE)
-from ..docks.change_cell_flow import (apply_cell_change, cell_choices,
-                                      cell_role_order)
-from ..docks.instance_candidates import (cell_row_label, others_line,
-                                         others_tooltip)
+from ..docks.change_cell_flow import apply_cell_change, cell_choices
+from ..docks.instance_candidates import (cell_role_order, cell_row_label,
+                                         others_line, others_tooltip)
 from ..docks.rename import find_list_entry_file
 from ..role_table_model import records_from_items
 
@@ -439,9 +438,9 @@ class EntityPage(QWidget):
 
     def _cell_roles(self, cell_name: Optional[str]) -> list:
         """The roles of the ENTITY's cell in the cell's own order (Р2) — the ONE
-        owner change_cell_flow.cell_role_order, read off the loaded graph. A missing
-        cell or a dangling graph offers no role hints (the tab then says the fit was
-        not checked), never a board read."""
+        owner instance_candidates.cell_role_order, read off the loaded graph. A
+        missing cell or a dangling graph offers no role hints (the tab then says
+        the fit was not checked), never a board read."""
         if not cell_name or self._root_path is None:
             return []
         try:
