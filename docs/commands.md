@@ -342,27 +342,24 @@ plan) and `kicadstamp/explode_journal.py` (the journal and the execution).
 
 ### GUI tab "Разнос" (Explode)
 
-The same tool as the FIFTH tab of the CELL page (next to Source / Refs / Role
-anchor / Marker anchor; Р3а-0). It has NO lists of its own: the CELL is the one
-open on the page and the INSTANCE is the page's working (Cluster, Sheet) context
-— so the tab always shows exactly what the page shows. Open it from the cell
-window's "Explode…" button or the cell / entity context menu in the Config tree:
-a door opens the cell page on the requested cell (an entity names its own
-cluster/sheet; several records with no remembered context ask once, via the
-shared submenu) and switches to the Explode tab. The tab shows the area-margin
+The same tool as the **Explode** tab of the ENTITY page (next to Справка / Refs /
+Anchor; step 2 of plan `plan_2026_10_09_entity_page`). It has NO lists of its own:
+the address (cell, cluster, sheet) comes from the ENTITY record the page is open
+on. Open it from the entity context menu in the Config tree: the door opens the
+ENTITY page on that entity and switches to the Explode tab. The tab shows the area-margin
 and gap fields, the "Will leave" line, and the inter-cluster `net_traces` table
 with its take ticks (a `tee` / `multi` row is yellow); a row click highlights the
 piece on the board. "Explode" runs the plan on a worker and writes the journal
 first; "Restore" puts everything back by the recorded positions. Both are on the
 CLI too (above).
 
-While the clusters are exploded the tab holds the board: the CELL page's own tab
-strip (the other four tabs), its (Cluster, Sheet) context, the Config tree and the
-window's tab strip are disabled, the Config right view is pinned to the cell page,
+While the clusters are exploded the tab holds the board: the ENTITY page's own tab
+strip (the other tabs), the Config tree and the
+window's tab strip are disabled, the Config right view is pinned to the ENTITY page,
 and every other board operation — redraws, Apply, reads — is refused with a red
 Log line (they all pass through the one worker gate). A real quit asks "Restore and
 quit?" and closes only after the restore succeeds; hiding to the tray does not.
-After a crash the journal is still on disk, so the cell page opens on the Explode
+After a crash the journal is still on disk, so the ENTITY page opens on the Explode
 tab, exploded, with a banner offering "Restore" / "Show journal" / "Forget journal".
 
 "Re-read cell from selection" (Р3) is the ordinary "Update from selection" — with

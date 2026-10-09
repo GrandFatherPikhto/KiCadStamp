@@ -519,18 +519,23 @@ Since 2026-08-30 (Entity/Placement split, phase 5.6) each file node also shows a
 category**: it is shown as a **child of the cell (`cell_uuid`) or imprint (`imprint_uuid`) it
 references**, after that cell's nested placements, sorted by name. The link is matched by UUID,
 never by the name in `cell:`/`imprint:`, so a renamed cell keeps its entities. A single click on
-such a leaf opens the Config right-QView **Entity page** (Name/Cell/Sheet/Cluster read-only,
-Comment editable, plus a clickable placements list that jumps to the entity's tree in TreesDock); a
+such a leaf opens the Config right-QView **Entity page** — a "Справка" tab (Name read-only, Comment
+editable, the **Cell COMBOBOX** — picking a cell goes through the one `change_cell_flow` writer; Sheet
+/ Cluster read-only) plus a clickable placements list, and the board-touching tabs **Explode**,
+**Refs** and **Anchor** (steps 1–4 of plan `plan_2026_10_09_entity_page`). An **orphan** (a cell
+nowhere in the graph, or an instance the board does not carry) or an **unsaved** entity opens the page
+READ-ONLY: those three tabs are off while the Cell combobox stays usable (step 5, Т5-4). A
 **double click** opens the non-modal "Edit template" dialog (its electrical fields, see the
 [Tools](#tools) section).
 
 The file's own **Entities** category survives ONLY for **orphans** — an entity whose target is
 nowhere in the graph (a broken file; nothing explains it better, see the paragraph on a cell
 without an entity below). The orphan leaf carries a hint naming the missing record plus, when one is
-close enough, the loader's own `did you mean ...?` suggestion, and its menu offers exactly two
-items: **Point to cell...** / **Point to imprint...** (which writes `cell`/`cell_uuid` or
-`imprint`/`imprint_uuid` into the entity's OWN file, then the entity moves under the target) and
-**Delete entity**.
+close enough, the loader's own `did you mean ...?` suggestion. Since step 5 the CELL orphan's item is
+**Change cell...** — the same ONE item a healthy cell entity carries (part 2: `change_cell_flow`, one
+writer shared with the page's Cell combobox) — while an IMPRINT entity keeps **Point to imprint...**;
+one item is never two. Either writes `cell`/`cell_uuid` or `imprint`/`imprint_uuid` into the entity's
+OWN file, then the entity moves under the target. The menu also offers **Delete entity**.
 
 Since 2026-10-08 (часть 3 of the same plan) the **board actions live only where their address is
 visible**. The ENTITY leaf carries them — **Update from selection...**, **Add selected copper...**,
@@ -546,7 +551,8 @@ name is not an instance. Its menu keeps Edit cell, Cell anchor, Copy placement f
 Rename/Delete, and the entityless cell keeps Create entity. **CellDock is a map editor**: the six
 board buttons (Refresh geometry, Add copper, Subtract copper, Select cell components, Select cell,
 Explode) are gone with their connection gate — the same workers are driven from the entity leaf and
-from the cell page's dropdown, which is the one place the instance is on screen. Tools → Config →
+from the ENTITY page (its Cell combobox and its Explode / Refs / Anchor tabs), where the instance is on
+screen. Tools → Config →
 "Update cell from selection..." / "Add selected copper..." act on the selected ENTITY leaf; on a cell
 leaf they log «pick an entity of cell '...'» and read nothing.
 
@@ -600,8 +606,10 @@ Entity is config-only: no board is read (it works with KiCad closed) and no tree
 
 **A cell without any entity is a second kind of orphan (2026-10-08).** When NOTHING places it
 either, it is a **drawing**: shown with a warning mark and, in the context menu, ONLY **Create
-entity** and **Delete...**; a single click opens the cell page **read-only** (fields disabled,
-nothing is staged) with the hint "create an entity to edit this cell". A cell that is placed WITHOUT
+entity** and **Delete...**; a single click opens the CELL's MAP (CellDock — it reads no board). The
+read-only page is the ENTITY page: an orphan or unsaved entity disables Explode / Refs / Anchor while
+the "Справка" tab (with the Cell combobox) stays usable (step 5 of plan `plan_2026_10_09_entity_page`).
+A cell that is placed WITHOUT
 an entity (a chain spoke, a `clone_placements:` record, a nested `CellPlacement`) keeps the today
 behaviour on purpose — it is marked "placed by ..." but stays editable, so live spokes are not
 broken. A cell WITH an entity is unmarked and unchanged.
