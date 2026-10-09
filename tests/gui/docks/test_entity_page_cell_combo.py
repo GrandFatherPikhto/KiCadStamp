@@ -5,10 +5,13 @@
 
 Свойства (правило 37 — имя описывает свойство):
   * комбобокс показывает ячейку сущности текущей и предлагает остальные;
-  * неподходящие ячейки — серые, недоступные, со СВОЕЙ причиной;
+  * неподходящие ЧУЖИЕ ячейки — не строки списка, а одна серая строка-счётчик
+    «K other cells do not fit» с причинами в подсказке (Денис, 09.10.2026);
   * выбор уходит в ОДНУ запись change_cell_flow.apply_cell_change (мутация
     «комбобокс пишет своей записью мимо apply_cell_change» должна погибнуть);
   * нет снимка (подбор не проверялся) — предложены ВСЕ ячейки;
+  * Д1 плана plan_2026_10_09_entity_page: push снимка ПЕРЕСЧИТЫВАЕТ список по
+    пришедшему снимку и при этом ничего не пишет;
   * старый модуль gui/docks/entity_page.py — ОДИН алиас, не вторая реализация.
 
 Полный путь идёт через настоящий хаб (real_main_window) — комбобокс берёт адрес
@@ -168,6 +171,55 @@ def test_without_a_snapshot_every_cell_is_offered(
     assert page.cell_combo.count() == 2
     assert all(page.cell_combo.model().item(i).isEnabled()
                for i in range(page.cell_combo.count()))
+
+
+# ── Д1: push снимка пересчитывает список ─────────────────────────────────
+
+def test_a_push_narrows_the_cell_list_to_the_fitting_cells(
+        real_main_window, tmp_path):
+    """Д1: без снимка предложены ВСЕ ячейки («подбор не проверялся») → push С
+    экземпляром сужает список до подходящей, а чужая неподходящая остаётся
+    только серой строкой-счётчиком.
+
+    Снимок соединения нарочно оставлен пустым: судить надо по ПРИШЕДШЕМУ снимку
+    (мутации «push не пересчитывает» и «push читает connection.snapshot» краснят
+    эту клетку)."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]},
+                  "c_bad": {"components": [{"role": "CAP"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [])
+    page = hub.entity_dock
+    page.load_entity("e1")
+    assert page.cell_combo.count() == 2, "без снимка — все ячейки"
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    names = {page.cell_combo.itemData(i)
+             for i in range(page.cell_combo.count())}
+    assert names == {"c_ok"}, "подходящая + текущая; чужая неподходящая — не строка"
+    assert page.cell_others_label.text() == "1 other cells do not fit"
+
+
+def test_a_push_does_not_write_the_cell(real_main_window, tmp_path, monkeypatch):
+    """Д1: пересчёт комбобокса НЕ пишет — apply_cell_change за push не зовётся, а
+    текущая ячейка остаётся выбранной (blockSignals в _fill_cell_combo)."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]},
+                  "c_bad": {"components": [{"role": "CAP"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [])
+    page = hub.entity_dock
+    page.load_entity("e1")
+
+    calls = []
+    monkeypatch.setattr(page_mod, "apply_cell_change",
+                        lambda *a: calls.append(a))
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert calls == [], "пересчёт комбобокса не смеет писать"
+    assert page.cell_combo.currentData() == "c_ok", "текущая ячейка осталась"
 
 
 # ── cell_choices — чистый слой (без Qt) ──────────────────────────────────

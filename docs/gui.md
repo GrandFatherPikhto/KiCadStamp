@@ -524,7 +524,10 @@ editable, the **Cell COMBOBOX** — picking a cell goes through the one `change_
 / Cluster read-only) plus a clickable placements list, and the board-touching tabs **Explode**,
 **Refs** and **Anchor** (steps 1–4 of plan `plan_2026_10_09_entity_page`). An **orphan** (a cell
 nowhere in the graph, or an instance the board does not carry) or an **unsaved** entity opens the page
-READ-ONLY: those three tabs are off while the Cell combobox stays usable (step 5, Т5-4). A
+READ-ONLY: those three tabs are off while the Cell combobox stays usable (step 5, Т5-4). Both the
+combobox's list and that read-only rule follow the LAST board snapshot the page is handed — every
+push re-judges them, not only the open (Д1), so plugging KiCad in and refreshing revives the tabs
+without re-opening the entity; the page itself never reads the board. A
 **double click** opens the non-modal "Edit template" dialog (its electrical fields, see the
 [Tools](#tools) section).
 

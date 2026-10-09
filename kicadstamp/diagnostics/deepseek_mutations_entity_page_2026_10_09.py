@@ -31,9 +31,14 @@ editor).
   * M14 отказ чужому кластеру снят (Read from selection)    -> чужой адрес прошёл
   * M15 таб Anchor не добавлен на страницу сущности         -> таба нет
   * M16 адрес Anchor не от записи сущности (cell=None)      -> адрес пуст
+  * M17 CellDock без адреса читает плату                    -> адрес не спрошен
+  * M18 откат к хранилищу без адреса                        -> чужой адрес
+  * M19 push не пересчитывает страницу (Д1)                 -> старый вердикт
   * K1  cosmetic comment (control)                          -> MUST survive
   * K2  cosmetic comment в _sync_refs_tab (control)         -> MUST survive
   * K3  cosmetic comment в add_anchor_tab (control)         -> MUST survive
+  * K4  cosmetic comment в read_instance_or_report (control) -> MUST survive
+  * K5  cosmetic comment в _refresh_cell_state (control)    -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
 `KICADSTAMP_ACCEPT_ROOT`. An optional row-name prefix filter takes the rest of
@@ -74,6 +79,8 @@ ANCHOR = ["test_anchor_tab.py"]
 # ШАГ 5 (Т5-2/Т5-3): the ADDRESS is an ARGUMENT a door hands over; a dock with NO
 # address reads NOTHING, and the deleted working-instance store never answers.
 ADDRESS = ["test_entities_part3_address.py"]
+# Д1: push — это ПЕРЕСЧЁТ страницы (комбобокс + read-only) по ПРИШЕДШЕМУ снимку.
+REFRESH = ["test_entity_page_read_only.py", "test_entity_page_cell_combo.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
@@ -188,6 +195,15 @@ MUTATIONS = [
      "def read_instance_or_report(expected_address, dock_address, verb: str):\n",
      "def read_instance_or_report(expected_address, dock_address, verb: str):  # control\n",
      "survive", ADDRESS, ()),
+    # ── Д1: push — ПЕРЕСЧЁТ по пришедшему снимку ─────────────────────────
+    ("M19 push не пересчитывает страницу", PAGE,
+     "        self._refresh_cell_state()\n",
+     "        pass  # MUTATION: the push no longer re-judges the page\n",
+     "die", REFRESH, ()),
+    ("K5 cosmetic comment в _refresh_cell_state (control)", PAGE,
+     "        self._fill_cell_combo(self._snapshot)\n",
+     "        self._fill_cell_combo(self._snapshot)  # control\n",
+     "survive", REFRESH, ()),
 ]
 
 

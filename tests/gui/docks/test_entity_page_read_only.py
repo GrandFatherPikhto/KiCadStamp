@@ -8,8 +8,14 @@ plan_2026_10_09_entity_page; свойство перенесено со снят
 ячейки ЖИВА (сироту чинят именно ею). «НЕТ СНИМКА» сиротой НЕ считается: табы
 платы включены, иначе отключённый KiCad гасил бы рабочую страницу.
 
+Д1 (plan_2026_10_09_entity_page): приход снимка (push_known_lists →
+DockHub.push_snapshot → EntityPage.refresh_known_roles) — это ПЕРЕСЧЁТ: страница
+судит по ПРИШЕДШЕМУ снимку, а не по вердикту открытия и не по копии соединения.
+
 Имена описывают свойство (правило 37); движок гейта — gui/entity/read_only.py.
 """
+from types import SimpleNamespace
+
 from tests.gui.create_entity_helpers import open_project, write_config
 
 
@@ -137,3 +143,133 @@ def test_an_entity_with_no_record_on_disk_is_read_only(real_main_window, tmp_pat
 
     assert _tabs_on(page) is False
     assert "not saved in the project yet" in page._read_only_gate.note.text()
+
+
+# ── Д1: push — это ПЕРЕСЧЁТ по пришедшему снимку ─────────────────────────────
+
+def test_a_push_with_the_instance_turns_the_board_tabs_back_on(
+        real_main_window, tmp_path):
+    """Д1: сирота по ПЛАТЕ (снимок без экземпляра) → push С экземпляром: табы
+    платы ВКЛ, подсказка скрыта — БЕЗ повторного открытия сущности.
+
+    Снимок соединения нарочно оставлен СТАРЫМ (сиротским): страница обязана
+    судить по ПРИШЕДШЕМУ снимку (мутация «push читает connection.snapshot» и
+    мутация «push не пересчитывает» краснят эту клетку)."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "OTHER")])
+    page = hub.entity_dock
+    page.load_entity("e1")
+    assert _tabs_on(page) is False, "исходно — сирота по плате"
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert page._cell_choices.state == "checked"
+    assert _tabs_on(page) is True, "свежий снимок с экземпляром возвращает табы"
+    assert page._read_only_gate.note.isVisibleTo(page) is False
+
+
+def test_a_push_without_the_instance_turns_the_board_tabs_off(
+        real_main_window, tmp_path):
+    """Д1, обратная сторона: здоровая страница → push БЕЗ экземпляра: табы ВЫКЛ,
+    подсказка называет плату — страница не остаётся «рабочей» по старому
+    вердикту."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "CL")])
+    page = hub.entity_dock
+    page.load_entity("e1")
+    assert _tabs_on(page) is True
+
+    page.refresh_known_roles([_Sel("R1", "OTHER")])
+
+    assert _tabs_on(page) is False
+    assert "not on the board" in page._read_only_gate.note.text()
+
+
+def test_a_push_keeps_an_unchecked_page_on(real_main_window, tmp_path):
+    """Д1: «подбор не проверялся» (снимка не было) → push С экземпляром: табы
+    остаются ВКЛ (состояние становится проверенным, а не сиротским)."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [])
+    page = hub.entity_dock
+    page.load_entity("e1")
+    assert page._cell_choices.state == "unchecked" and _tabs_on(page) is True
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert page._cell_choices.state == "checked"
+    assert _tabs_on(page) is True
+    assert page._read_only_gate.note.isVisibleTo(page) is False
+
+
+def test_a_push_on_a_page_without_a_loaded_entity_changes_nothing(
+        real_main_window, tmp_path):
+    """Д1: страница НЕ открыта (запись не загружена) → push ничего не ломает:
+    комбобокс пуст, табы платы живы — судить нечего."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "OTHER")])
+    page = hub.entity_dock
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert page.cell_combo.count() == 0, "загруженной записи нет — заполнять нечего"
+    assert _tabs_on(page) is True, "пустая страница в read-only не уходит"
+
+
+def test_a_push_keeps_an_unsaved_entity_read_only(real_main_window, tmp_path):
+    """Д1: несохранённая («ghost») сущность остаётся read-only и после push —
+    её read-only держит ОТСУТСТВИЕ записи, а не снимок; комбобокс пуст."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "CL")])
+    page = hub.entity_dock
+    page.load_entity("e1")
+    page.load_entity("ghost")
+    assert _tabs_on(page) is False
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert _tabs_on(page) is False
+    assert "not saved in the project yet" in page._read_only_gate.note.text()
+    assert page.cell_combo.count() == 0
+
+
+def test_a_push_does_not_read_the_board(real_main_window, tmp_path):
+    """Д1: пересчёт берёт ТОЛЬКО пришедший снимок — адаптер платы на UI-потоке не
+    зовётся (дверь, правило 31)."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]}},
+        "entities": [{"name": "e1", "cell": "c_ok", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "OTHER")])
+    page = hub.entity_dock
+    page.load_entity("e1")
+
+    class _RecordingAdapter:
+        def __init__(self):
+            self.calls = []
+
+        def refresh_board(self):
+            self.calls.append("refresh_board")
+
+        def get_selected_items(self):
+            self.calls.append("get_selected_items")
+            return []
+
+        def get_footprints(self):
+            self.calls.append("get_footprints")
+            return []
+
+    adapter = _RecordingAdapter()
+    real_main_window.connection.board = SimpleNamespace(adapter=adapter)
+
+    page.refresh_known_roles([_Sel("R1", "CL")])
+
+    assert adapter.calls == [], f"UI-поток читал плату: {adapter.calls}"

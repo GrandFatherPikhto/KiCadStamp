@@ -301,22 +301,29 @@ class EntityPage(QWidget):
         self._sync_anchor_tab()
         self._apply_read_only()
 
-    def _fill_cell_combo(self) -> None:
+    def _fill_cell_combo(self, snapshot=None) -> None:
         """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
         cell (marked; when it does not fit its own row says "current, does not
         fit: <reason>"). Every other non-fitting cell is NOT a row — only the one
-        grey line under the box counts them. Candidates come from the LAST PUSHED
+        grey line under the box counts them. Candidates come from a board
         snapshot (change_cell_flow.cell_choices — NO board read on the UI thread);
         with no snapshot or on a dangling graph every cell is offered, fit not
-        checked (an orphan is fixed exactly this way)."""
+        checked (an orphan is fixed exactly this way).
+
+        `snapshot` — the copy to JUDGE by. None (the OPEN path) means the live
+        copy BoardConnection holds, which is what the hub pushes anyway; the push
+        path hands its own arriving copy, so a refill can never be judged by a
+        stale board. An EMPTY list is a real answer ("nothing was checked"), not
+        "no data" — hence the None sentinel rather than a falsy default."""
         combo = self.cell_combo
         combo.blockSignals(True)
         combo.clear()
         hub = self._hub()
         index = getattr(getattr(hub, "config_tree_dock", None),
                         "_entity_index", None)
-        snapshot = getattr(getattr(self._main_window, "connection", None),
-                           "snapshot", None)
+        if snapshot is None:
+            snapshot = getattr(getattr(self._main_window, "connection", None),
+                               "snapshot", None)
         choices = cell_choices(self._root_path, snapshot,
                                self._entity_data, index)
         self._cell_orphan = choices.orphan
@@ -335,6 +342,23 @@ class EntityPage(QWidget):
         self.cell_others_label.setText(others_line(choices.others))
         self.cell_others_label.setToolTip(others_tooltip(choices.others))
         self.cell_others_label.setVisible(bool(choices.others))
+
+    def _refresh_cell_state(self) -> None:
+        """Re-judge the page by the snapshot that JUST ARRIVED (Д1 of
+        plan_2026_10_09_entity_page): a push is a REFILL path, so the Cell
+        combobox and the read-only rule have to follow the fresh board instead of
+        keeping the verdict of the open — an orphan that got its instance back
+        used to stay grey until the entity was re-opened.
+
+        Nothing is judged while no record is loaded: an empty page has nothing to
+        show, and an unsaved ("ghost") one is read-only by its OWN flag, not by
+        the board. Deliberately no board read and no record reload — the copy the
+        hub handed over is the truth here (door rule 31); the combobox's own
+        blockSignals keeps a refill from writing anything."""
+        if not self._entity_data:
+            return
+        self._fill_cell_combo(self._snapshot)
+        self._apply_read_only()
 
     def _on_cell_chosen(self, index: int) -> None:
         """The user picked a cell in the combobox — the choice ITSELF, no dialog.
@@ -418,11 +442,13 @@ class EntityPage(QWidget):
         self._apply_read_only()
 
     def refresh_known_roles(self, snapshot) -> None:
-        """Feed the Refs tab the live-board snapshot (wired into
-        DockHub.push_snapshot like every other dock's own refresh_known_roles).
-        The snapshot is STORED and re-resolved against the cached config sheet map
-        — a live Board's own .sheet is all-None — and the tab then reads its board
-        columns from THIS page's copy, never from the board (door rule 31)."""
+        """Feed the page the live-board snapshot (wired into DockHub.push_snapshot
+        like every other dock's own refresh_known_roles). The snapshot is STORED
+        and re-resolved against the cached config sheet map — a live Board's own
+        .sheet is all-None — and the Refs tab then reads its board columns from
+        THIS page's copy, never from the board (door rule 31). The same arrival
+        re-judges the page itself (Д1): the Cell combobox and the read-only rule
+        follow the fresh snapshot — see _refresh_cell_state."""
         self._snapshot = list(snapshot or [])
         if self._sheet_names and all(hasattr(s, "fp") for s in self._snapshot):
             from ..docks.imprint import snapshot_with_resolved_sheets
@@ -435,6 +461,9 @@ class EntityPage(QWidget):
         self._sync_refs_tab()
         if self._anchor_tab is not None:
             self._anchor_tab.refresh_known_roles(self._snapshot)
+        # Д1 (plan_2026_10_09_entity_page): a push is a REFILL — the Cell combobox
+        # and the read-only rule follow the snapshot that just arrived.
+        self._refresh_cell_state()
 
     def reload_overrides(self) -> None:
         """Re-read the project's override store from its FILE and hand the fresh
