@@ -1,7 +1,8 @@
 # tests/gui/test_entity_page.py
-"""Tests for the Config right-QView Entity page (EntityInfoDock, 2026-09-05,
-design config_qview_chain_entity_pages §5) — a read-mostly Entity RECORD
-editor: "Справка" (Name read-only, Comment editable, Cell/Sheet/Cluster
+"""Tests for the Config right-QView Entity page (EntityPage, moved to
+gui/entity/page.py in step 1 of plan_2026_10_09_entity_page, 2026-09-05 design
+config_qview_chain_entity_pages §5) — a read-mostly Entity RECORD editor:
+"Справка" (Name read-only, Comment editable, the Cell COMBOBOX, Sheet/Cluster
 read-only) + the clickable placements list (trees whose node.ref names this
 Entity; today ≤1, designed for N)."""
 
@@ -9,8 +10,8 @@ import types
 
 import pytest
 
-import gui.docks.entity_page as entity_page_mod
-from gui.docks.entity_page import EntityInfoDock
+import gui.entity.page as entity_page_mod
+from gui.entity.page import EntityPage
 from kicadstamp.config.sexp_format import dict_to_sexp
 
 
@@ -26,7 +27,7 @@ def _make_dock(main_window, tmp_path, entities):
         "cells": {"c1": {"components": [{"role": "R1"}]}},
         "entities": entities,
     })
-    dock = EntityInfoDock(main_window)
+    dock = EntityPage(main_window)
     dock.set_root_path(root)
     return dock, root
 
@@ -48,7 +49,9 @@ def test_load_entity_renders_record(main_window, tmp_path):
 
     assert dock.name_label.text() == "E1"
     assert dock.comment_edit.text() == "note"
-    assert dock.cell_label.text() == "c1"
+    # Step 1 of plan_2026_10_09_entity_page: the read-only Cell row became a
+    # COMBOBOX, whose current item IS the entity's cell (same property).
+    assert dock.cell_combo.currentData() == "c1"
     assert dock.sheet_label.text() == "S"
     assert dock.cluster_label.text() == "CL"
     # A cell-based Entity has no Imprint identity — the row stays hidden.
@@ -123,12 +126,13 @@ def test_load_imprint_entity_shows_imprint_row(main_window, tmp_path):
         }],
         "entities": [{"name": "S1", "imprint": "psu", "sheet": "Channel_1"}],
     })
-    dock = EntityInfoDock(main_window)
+    dock = EntityPage(main_window)
     dock.set_root_path(root)
     dock.load_entity("S1")
 
     assert dock.name_label.text() == "S1"
-    assert dock.cell_label.text() == "—"
+    # No cell for an imprint-based Entity — the combobox has no current item.
+    assert dock.cell_combo.currentData() is None
     assert dock.imprint_label.text() == "psu"
     assert dock.imprint_label.isVisibleTo(dock) is True
     assert dock.sheet_label.text() == "Channel_1"

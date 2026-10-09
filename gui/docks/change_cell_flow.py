@@ -6,17 +6,34 @@ It generalizes the orphan's old "Point to cell…" to ANY cell entity and lives 
 its own module (rule 45, the shape of entity_doors.py / add_entities_flow.py);
 DockHub keeps only the one wiring line.
 
+THE CHOICE AND THE APPLY ARE SPLIT (Денис, 09.10.2026 — plan_2026_10_09_entity_page
+step 1):
+
+  * :func:`apply_cell_change` is THE ONE apply point — it writes `cell` +
+    `cell_uuid` into the entity's OWN file in ONE working-set edit, emits ONE
+    graph_changed and says what the change costs. BOTH callers go through it:
+    the "Change cell…" menu item and the Entity page's Cell combobox. There is
+    never a second writer (the rig's row «комбобокс пишет своей записью мимо
+    apply_cell_change» dies if one appears);
+  * :func:`change_cell_for_entity` is the CHOOSER: the door refreshes the
+    snapshot in the worker ("Add entities…" pattern), then a dialog picks the
+    cell and hands it to :func:`apply_cell_change`;
+  * :func:`cell_choices` is the same candidate rule for a picker that must NOT
+    block on a board read (the page's combobox) — it reads the LAST PUSHED
+    snapshot only; no snapshot (or a dangling graph) offers every cell, fit not
+    checked.
+
 What the flow does, end to end:
 
   1. the cell LIST is ``instance_candidates.cell_candidates`` — the project's ONE
      "which cells fit this instance" rule — fed with the parts of THIS entity's
      instance (its own (cluster, sheet)). The instance is read from a snapshot the
-     DOOR refreshes in the worker ("Add entities…" pattern), never on the UI
-     thread;
+     DOOR refreshes in the worker, never on the UI thread; the page reuses the
+     snapshot the hub already pushed;
   2. an ORPHAN (no cluster, or nothing of it on the board) has no instance to
      check against, so EVERY cell is offered with a yellow line saying the fit
      was not checked;
-  3. on OK the entity's OWN file gets `cell` + `cell_uuid` in ONE working-set
+  3. on apply the entity's OWN file gets `cell` + `cell_uuid` in ONE working-set
      edit (the record is matched by name, its uuid is kept — no second record);
   4. the Log says what the change costs: the copper the entity owns under the
      OLD cell (its registry keys, counted by the project's ONE ownership rule
@@ -48,8 +65,8 @@ logger = logging.getLogger(__name__)
 
 
 def all_cells_rows(cells) -> list:
-    """An orphan's rows: EVERY cell, fit not checked — the dialog says so in its
-    yellow line. One row type (CellCandidate), so the dialog stays simple."""
+    """An orphan's rows: EVERY cell, fit not checked — the picker says so in its
+    yellow line. One row type (CellCandidate), so the pickers stay simple."""
     from .instance_candidates import CellCandidate
     return [CellCandidate(name=c.name, uuid=c.uuid, fits=True, reason="")
             for c in cells]
@@ -87,24 +104,19 @@ def old_layout_copper_count(cfg, config_path, entity) -> int:
                                     own_addresses, address, refs))
 
 
-def change_cell_for_entity(hub, entity, file_path) -> None:
-    """ConfigTreeDock's `change_cell_requested` delegate (part 2)."""
-    root_path = hub.root_metadata_dock.root_path
-    if root_path is None:
-        show_message(_("Set the project root first."), _ERROR_STYLE, logger)
-        return
-    if not isinstance(entity, dict):
-        return
-    # A DANGLING graph (the entity names a cell that is nowhere) makes
-    # load_config FATAL — that is exactly what the RAW index exists for. The
-    # cells then come from the index (names + uuids only, no roles), the fit can
-    # only be "not checked", and the dialog says so.
-    index = getattr(hub.config_tree_dock, "_entity_index", None)
+def _resolve_cells(root_path, index=None):
+    """(cfg, ctx, cells) of the project graph rooted at `root_path`.
+
+    A DANGLING graph (the entity names a cell that is nowhere) makes load_config
+    FATAL — that is exactly what the RAW `index` (ConfigTreeDock's `_entity_index`)
+    exists for. The cells then come from the index (names + uuids only, no roles),
+    the fit can only be "not checked", and the picker says so. cfg is None in that
+    case — the callers key "orphan by graph" off it.
+    """
     try:
         cfg, ctx = load_config(str(root_path))
     except (ValidationError, OSError):
         cfg, ctx = None, None
-
     if cfg is not None:
         cells = [CellSpec(name=name, uuid=getattr(cell, "uuid", None),
                           roles=tuple(c.role for c in
@@ -114,6 +126,59 @@ def change_cell_for_entity(hub, entity, file_path) -> None:
         names = index.names_for("cells") if index is not None else []
         cells = [CellSpec(name=n, uuid=index.target_uuid("cells", n))
                  for n in names]
+    return cfg, ctx, cells
+
+
+def _candidates_from(parts, cfg, cluster, sheet, cells):
+    """(candidates, orphan) — the ONE candidate rule, shared by the door's dialog
+    and the page's combobox.
+
+    An orphan on EITHER count — the graph cannot place it (cfg is None), or
+    nothing of its instance is on the board — offers every cell, fit not checked.
+    """
+    instance = instance_parts(parts, cluster, sheet) if cluster else []
+    orphan = cfg is None or not instance
+    candidates = (all_cells_rows(cells) if orphan
+                  else cell_candidates(instance, cells))
+    return candidates, orphan
+
+
+def cell_choices(root_path, snapshot, entity, index=None):
+    """(candidates, orphan) for a Cell PICKER that must not read the board — the
+    Entity page's combobox.
+
+    `snapshot` is the LAST PUSHED board snapshot (``connection.snapshot``); the
+    sheet chains are resolved through the config, exactly as the door does, but
+    NO rebuild is triggered here — the picker never blocks the UI thread on a
+    board read. An empty snapshot (or a dangling graph) therefore offers every
+    cell, fit not checked.
+    """
+    if root_path is None:
+        return [], True
+    cfg, ctx, cells = _resolve_cells(root_path, index)
+    if not cells:
+        return [], True
+    parts = snapshot_parts(snapshot or [],
+                           dict(getattr(ctx, "sheet_names", None) or {}))
+    return _candidates_from(parts, cfg, (entity or {}).get("cluster"),
+                            (entity or {}).get("sheet"), cells)
+
+
+def change_cell_for_entity(hub, entity, file_path) -> None:
+    """ConfigTreeDock's `change_cell_requested` delegate (part 2) — the CHOOSER.
+
+    Opens a dialog over the SAME candidate rule (the door refreshes the snapshot
+    in the worker first); the apply itself is :func:`apply_cell_change`, shared
+    with the Entity page's Cell combobox.
+    """
+    root_path = hub.root_metadata_dock.root_path
+    if root_path is None:
+        show_message(_("Set the project root first."), _ERROR_STYLE, logger)
+        return
+    if not isinstance(entity, dict):
+        return
+    index = getattr(hub.config_tree_dock, "_entity_index", None)
+    cfg, ctx, cells = _resolve_cells(root_path, index)
     if not cells:
         show_message(_("The config has no cells to point at."),
                      _ERROR_STYLE, logger)
@@ -125,30 +190,43 @@ def change_cell_for_entity(hub, entity, file_path) -> None:
     def _open() -> None:
         parts = snapshot_parts(getattr(connection, "snapshot", None) or [],
                                sheet_names)
-        instance = instance_parts(parts, cluster, sheet) if cluster else []
-        # An orphan on EITHER count — the graph cannot place it, or nothing of
-        # its instance is on the board — offers every cell, fit not checked.
-        orphan = cfg is None or not instance
-        candidates = (all_cells_rows(cells) if orphan
-                      else cell_candidates(instance, cells))
+        candidates, orphan = _candidates_from(parts, cfg, cluster, sheet, cells)
         dialog = ChangeCellDialog(hub.main_window, candidates, orphan=orphan)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         chosen = dialog.result_data()
         if chosen:
-            _write(hub, cfg, root_path, entity, file_path, chosen, cells)
+            apply_cell_change(hub, entity, file_path, chosen)
 
     hub.refresh_snapshot_and_push(on_ready=_open)
 
 
-def _write(hub, cfg, config_path, entity, file_path, chosen, cells) -> None:
-    """Write cell + cell_uuid in ONE edit, then say what it costs."""
+def apply_cell_change(hub, entity, file_path, chosen) -> None:
+    """THE one apply point: set the entity's cell to `chosen`, in its OWN file,
+    in ONE working-set edit, then say what it costs.
+
+    BOTH the "Change cell…" chooser and the Entity page's Cell combobox call
+    THIS — the page never writes its own record. Nothing is written when the
+    entity already stands on `chosen` (byte-identical file, no graph_changed).
+    """
+    root_path = hub.root_metadata_dock.root_path
+    if root_path is None:
+        show_message(_("Set the project root first."), _ERROR_STYLE, logger)
+        return
+    if not isinstance(entity, dict) or not chosen:
+        return
     if chosen == entity.get("cell"):
         logger.info(_("entity {name!r} already uses cell {cell!r} — nothing "
                       "changed").format(name=entity.get("name"), cell=chosen))
         return
+    index = getattr(getattr(hub, "config_tree_dock", None), "_entity_index", None)
+    cfg, _ctx, cells = _resolve_cells(root_path, index)
+    if not cells:
+        show_message(_("The config has no cells to point at."),
+                     _ERROR_STYLE, logger)
+        return
     uuid = next((c.uuid for c in cells if c.name == chosen), None)
-    old_count = old_layout_copper_count(cfg, config_path, entity)
+    old_count = old_layout_copper_count(cfg, root_path, entity)
 
     updated = dict(entity)
     updated["cell"] = chosen
