@@ -36,7 +36,6 @@ TREE_CFG = ["test_entities_under_cells.py", "test_config_tree.py"]
 CFG = "gui/docks/config_tree.py"
 ET = "gui/docks/entity_tree.py"
 IDX = "gui/docks/entity_index.py"
-VIEW = "gui/docks/cell_anchor_view.py"
 
 ROWS = [
     # 1 — the entity file is taken from the visible ancestor, not the record (п.4).
@@ -69,11 +68,11 @@ ROWS = [
      "        orphans = [ref for ref in index.orphans if ref.file_path == node.path]",
      "        orphans = []  # MUTATION",
      "die", TREE_CFG, ()),
-    # 6 — "Point to cell…" writes the name but no cell_uuid (format 3 dangling).
-    ("M6 Point writes the name without the uuid", ET,
-     "        updated[field + \"_uuid\"] = index.target_uuid(section, chosen)",
-     "        updated[field + \"_uuid\"] = None  # MUTATION",
-     "die", TREE, ()),
+    # 6 (removed, step 5 of plan_2026_10_09_entity_page): this row pinned the TREE's
+    # "Point to cell…" uuid write, but a CELL orphan now re-points through
+    # "Change cell…" (gui/docks/change_cell_flow.py) and its guard moved there —
+    # the tree's cells branch is reached by NO menu item, so the mutation SURVIVED
+    # (finding: _point_to's cells branch is now unreachable; a later cleanup).
     # 7 — the orphan hint is own code, not the loader's close_name_hint.
     ("M7 orphan hint is own code", ET,
      "        return _(\"refers to a missing {kind} {name!r} ({uuid})\").format(\n"
@@ -87,16 +86,16 @@ ROWS = [
      "        if index.has_entity_for_cell(uuid):\n            return",
      "        if False:  # MUTATION\n            return",
      "die", TREE, ()),
-    # 9а — an unused, entityless cell keeps the full editable menu.
-    ("M9a unused cell keeps the full menu", CFG,
-     "                if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:",
-     "                if False:  # MUTATION",
-     "die", TREE, ()),
-    # 9б — the read-only page is not applied (fields stay editable).
-    ("M9b read-only page not applied", VIEW,
-     "        self._tabs.setEnabled(not self._read_only)",
-     "        self._tabs.setEnabled(True)  # MUTATION",
-     "die", TREE, ()),
+    # 9а (removed, step 5 of plan_2026_10_09_entity_page): the template
+    # "if item.data(0, _ROLE_CELL_MARK) == _CELL_UNUSED:" no longer matches (the
+    # marker wiring moved in config_tree.py) — a closed rig's dead row is deleted,
+    # not repaired (rule Д3). The live cell is
+    # test_entities_under_cells.test_unused_cell_menu_is_only_create_entity_and_delete.
+    # 9б (removed, step 5 of plan_2026_10_09_entity_page): the row pinned the
+    # deleted gui/docks/cell_anchor_view.py read-only page. Its property now
+    # lives on the ENTITY page and is guarded by
+    # tests/gui/docks/test_entity_page_read_only.py (rule Д3: a closed rig whose
+    # template points at deleted text loses the row, it is not repaired).
     # 10 — the "Entities" section is shown even with no orphans.
     ("M10 Entities section shown without orphans", ET,
      "        if not orphans:\n            return",
