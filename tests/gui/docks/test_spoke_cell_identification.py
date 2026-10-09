@@ -32,7 +32,8 @@ from gui.cell_identification import (
     SelectionRecord,
     identify_cell_instance,
 )
-from gui.docks import cell_anchor_view as view_mod
+from gui.entity import anchor_tab as anchor_mod
+from gui.entity.anchor_tab import AnchorTabWidget
 from gui.docks import live_position
 from gui.docks.cell_anchor_view import CellAnchorView
 from gui.docks.cell_editor import CellDock
@@ -489,7 +490,7 @@ def test_c7_role_not_in_the_cell_is_refused_with_both_names():
 def test_c9_all_three_overlay_workers_forward_the_refs(monkeypatch):
     """С9/М9: _ensure_bbox_worker, _ensure_marker_worker and _read_marker_worker
     each pass role_to_ref through (dropping it in ANY ONE of them must fail)."""
-    from gui.docks import cell_anchor_view as view_mod
+    from gui.entity import anchor_tab as anchor_mod
 
     seen = []
 
@@ -497,19 +498,19 @@ def test_c9_all_three_overlay_workers_forward_the_refs(monkeypatch):
         seen.append(role_to_ref)
         raise ValidationError("spy: the frame was reached, stop before the read")
 
-    monkeypatch.setattr(view_mod, "_live_cluster_frame", spy)
+    monkeypatch.setattr(anchor_mod, "_live_cluster_frame", spy)
     # The marker READER asks the overlay owner where the dragged marker is before
     # it derives the frame — stub that one lookup out.
-    monkeypatch.setattr(view_mod.overlay_markers.owner, "read_position",
+    monkeypatch.setattr(anchor_mod.overlay_markers.owner, "read_position",
                         lambda adapter, key: (1.0, 2.0))
 
     refs = {BULK: "C69", BYPASS: "C53"}
     workers = (
-        lambda: view_mod._ensure_bbox_worker(
+        lambda: anchor_mod._ensure_bbox_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", "User.KiCadStamp", refs),
-        lambda: view_mod._ensure_marker_worker(
+        lambda: anchor_mod._ensure_marker_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", "User.KiCadStamp", refs),
-        lambda: view_mod._read_marker_worker(
+        lambda: anchor_mod._read_marker_worker(
             None, _spoke_cell(), CLUSTER, "", {}, "key", refs),
     )
     for worker in workers:
@@ -857,20 +858,25 @@ def test_c6a_dispatch_hands_the_remembered_refs_to_the_worker(
     the overlay worker. С9 pins the three worker functions, but nothing pinned the
     CALL: with `None` in place of the refs (mutation C3) every overlay falls back
     to the cluster search — i.e. draws nothing at all on a spoke — and no test
-    noticed."""
+    noticed.
+
+    Step 4 of plan_2026_10_09_entity_page moved the anchor to the ENTITY page with
+    a FIXED address: the entity's refs now arrive through `set_context(...,
+    refs=...)` instead of a working-context combo, so the guard builds an
+    AnchorTabWidget and hands it that address."""
     root = _cell_config(tmp_path)
-    remember_cell_instance(root, "fpga_pwr_bank", Identification(
-        cluster=CLUSTER, sheet=None,
-        role_to_ref={BULK: "C69", BYPASS: "C53"}, kind="spoke"))
     main_window.connection.board = SimpleNamespace(adapter=SimpleNamespace())
-    view = _view_for(main_window, root)
-    assert view._cluster_combo.currentText() == CLUSTER
+    tab = AnchorTabWidget(main_window, connection=main_window.connection,
+                          parent=main_window)
+    tab.set_root_path(root)
+    tab.set_context("fpga_pwr_bank", CLUSTER, "", root,
+                    refs={BULK: "C69", BYPASS: "C53"}, entity_count=1)
 
     started = []
-    monkeypatch.setattr(view_mod, "start_long_op",
+    monkeypatch.setattr(anchor_mod, "start_long_op",
                         lambda *args, **kwargs: started.append(args) or object())
 
-    view._on_show_bbox()
+    tab._on_show_bbox()
 
     assert started, "the bbox worker must be dispatched"
     assert started[0][-1] == {BULK: "C69", BYPASS: "C53"}, \

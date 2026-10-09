@@ -27,8 +27,12 @@ editor).
   * M11 записи снимка не доходят до таба                    -> колонки пусты
   * M12 stop reload_overrides не перецелен                  -> чужая копия
   * M13 хук записи таба не поднят                           -> владельцы молчат
+  * M14 отказ чужому кластеру снят (Read from selection)    -> чужой адрес прошёл
+  * M15 таб Anchor не добавлен на страницу сущности         -> таба нет
+  * M16 адрес Anchor не от записи сущности (cell=None)      -> адрес пуст
   * K1  cosmetic comment (control)                          -> MUST survive
   * K2  cosmetic comment в _sync_refs_tab (control)         -> MUST survive
+  * K3  cosmetic comment в add_anchor_tab (control)         -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
 `KICADSTAMP_ACCEPT_ROOT`. An optional row-name prefix filter takes the rest of
@@ -64,12 +68,15 @@ EXPLODE = ["test_explode_page.py"]
 REFS = ["test_entity_page_refs_tab.py", "test_cell_refs_tab.py"]
 REFS_WIRED = ["test_entity_page_refs_tab.py", "test_phase3_wiring.py"]
 STORE_CHAIN = ["test_overrides_store_reload.py", "test_overrides_store_reload_gui.py"]
+# ШАГ 4: the ENTITY page's "Anchor" tab — the extracted Role + Marker anchor.
+ANCHOR = ["test_anchor_tab.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
 PURE = "gui/docks/instance_candidates.py"
 WIRING = "gui/explode_wiring.py"
 HUB = "gui/dock_hub.py"
+ANCHOR_FILE = "gui/entity/anchor_tab.py"
 
 MUTATIONS = [
     ("M1 комбобокс пишет мимо apply_cell_change", PAGE,
@@ -106,7 +113,9 @@ MUTATIONS = [
      "            hub.config_tree_dock.show_page(hub._cell_anchor_page)  # MUTATION\n",
      "die", EXPLODE, ()),
     ("M8 адрес Explode не от сущности", PAGE,
+     '        self._explode_page.set_context(\n'
      '            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),\n',
+     '        self._explode_page.set_context(\n'
      '            raw.get("cell"), None, raw.get("sheet"),  # MUTATION\n',
      "die", EXPLODE, ()),
     ("M9 таб Refs не добавлен на страницу сущности", PAGE,
@@ -137,6 +146,26 @@ MUTATIONS = [
      "        if self._refs_tab is None:\n",
      "        if self._refs_tab is None:  # control\n",
      "survive", REFS, ()),
+    # ── ШАГ 4: the Anchor tab extracted to the ENTITY page ────────────────
+    ("M14 отказ чужому кластеру снят", ANCHOR_FILE,
+     '        if self._cluster and read["cluster"] \\\n'
+     '                and not cluster_prefix_match(read["cluster"], self._cluster):\n',
+     "        if False:  # MUTATION\n",
+     "die", ANCHOR, ()),
+    ("M15 таб Anchor не добавлен на страницу", PAGE,
+     '        self.tabs.addTab(widget, _("Anchor"))\n',
+     "        pass  # MUTATION: the anchor tab is never added\n",
+     "die", ANCHOR, ()),
+    ("M16 адрес Anchor не от записи сущности", PAGE,
+     '        self._anchor_tab.set_context(\n'
+     '            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),\n',
+     '        self._anchor_tab.set_context(\n'
+     '            None, raw.get("cluster"), raw.get("sheet"),  # MUTATION\n',
+     "die", ANCHOR, ()),
+    ("K3 cosmetic comment в add_anchor_tab (control)", PAGE,
+     "        self._anchor_tab = widget\n",
+     "        self._anchor_tab = widget  # control\n",
+     "survive", ANCHOR, ()),
 ]
 
 

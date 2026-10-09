@@ -490,16 +490,15 @@ def test_a_placed_cell_without_entity_keeps_only_the_cell_items(
 # WA_ForceDisabled, which stays False when only the parent is off, so the second
 # half of the guard reads THAT flag — and the mutation "the gate no longer
 # touches the buttons" turns it red.
-_BOARD_BUTTONS = ("_read_selection_button", "_fill_selection_button",
-                  "_set_anchor_button", "_clear_anchor_button",
-                  "_place_marker_button", "_show_bbox_button",
-                  "_read_marker_button", "_remove_marker_button",
-                  "_hide_bbox_button", "_remove_overlay_button")
+# Step 4 of plan_2026_10_09_entity_page: the anchor/marker buttons MOVED to the
+# ENTITY page (gui/entity/anchor_tab.AnchorTabWidget), so the CELL page now has
+# ONE board button left — the Source tab's identification — and the gate guards
+# exactly it. The anchor tab's own board buttons are guarded by
+# tests/gui/docks/test_anchor_tab.py.
+_BOARD_BUTTONS = ("_fill_selection_button",)
 # The buttons the PAGE itself turns ON for a valid cell (`_reload_form`): for
 # them "off" has ONE explanation — the gate.
-_PAGE_ENABLED_BUTTONS = ("_read_selection_button", "_fill_selection_button",
-                         "_set_anchor_button", "_clear_anchor_button",
-                         "_place_marker_button", "_show_bbox_button")
+_PAGE_ENABLED_BUTTONS = ("_fill_selection_button",)
 
 
 def test_click_on_unused_cell_opens_the_cell_page_read_only(
@@ -590,8 +589,10 @@ def test_creating_an_entity_lifts_the_read_only_page(real_main_window, tmp_path,
 
 def test_click_on_cell_with_entity_opens_the_cell_page_editable(
         real_main_window, tmp_path):
-    """Обратная клетка: ячейка С сущностью открывается как прежде — правимой,
-    и кнопки платы гейт НЕ трогает (их включает сама страница по своим правилам)."""
+    """Обратная клетка: ячейка С сущностью открывается как прежде — ПРАВИМОЙ
+    (гейт «только для чтения» молчит и не трогает кнопки платы). Кнопка Fill
+    здесь выключена, но по ДРУГОМУ правилу — в силе строка-сущность, поля
+    экземпляра только показ (гейт экземпляра); это не признак «только чтение»."""
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
@@ -604,7 +605,10 @@ def test_click_on_cell_with_entity_opens_the_cell_page_editable(
     view = hub.cell_anchor_view
     assert view._tabs.isEnabled()
     assert view._read_only_gate.note.isHidden()
-    assert view._read_selection_button.isEnabled()
+    # The read-only gate left the board button alone; the OFF state has the
+    # ENTITY gate as its owner (the pinned instance), never the read-only one.
+    assert view.refs_field_is_pinned()
+    assert not view._fill_selection_button.isEnabled()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

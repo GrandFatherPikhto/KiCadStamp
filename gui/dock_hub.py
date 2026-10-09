@@ -58,11 +58,9 @@ from . import entity_doors
 from .docks.cell_tree_wiring import (connect_cell_tree_actions,
                                      inject_snapshot_refresher)
 from .docks.cell_dialog import CellDialog
-from .docks.cell_anchor_view import (
-    CellAnchorView,
-    cleanup_all_overlays_sync,
-)
+from .docks.cell_anchor_view import CellAnchorView
 from .docks.cell_refs_tab import RefsTabWidget
+from .entity.anchor_tab import AnchorTabWidget, cleanup_all_overlays_sync
 from .docks.cell_editor import CellDock
 from .docks.config_tree import ConfigTreeDock
 from .docks.entity_page import EntityInfoDock
@@ -322,6 +320,14 @@ class DockHub:
         # worker discipline unchanged (gui/docks/cell_refs_tab.py).
         self.refs_tab = RefsTabWidget(main_window, connection=connection)
         self.entity_dock.add_refs_tab(self.refs_tab)
+        # The "Anchor" tab (step 4 of plan_2026_10_09_entity_page): the Role
+        # anchor + Marker anchor the CELL page used to own move to the ENTITY
+        # page — the anchor writes the CELL template, so the address (the
+        # entity's own cell/cluster/sheet/refs) must be the visible one. Built
+        # once here and handed over; the old anchor code left the cell page in
+        # the SAME commit, so the board reads MOVED (door_lint stays flat).
+        self.anchor_tab = AnchorTabWidget(main_window, connection=connection)
+        self.entity_dock.add_anchor_tab(self.anchor_tab)
         # The entity page's "Refs" tab RECORDS Role/Cluster into the project's
         # override store (2026-09-18, plan_2026_09_18_field_overrides_store Т5;
         # before that it wrote them onto the board, which is why the hook below
@@ -2927,22 +2933,19 @@ class DockHub:
         self._focus_config_tree_dock()
         self.config_tree_dock.show_page(self._cell_anchor_page)
 
-    # ── Cell-anchor overlay cleanup (Phase D of plan_2026_09_09_cell_anchor_ ──
-    # v2_declarative_and_board_overlay, D.2) ────────────────────────────────
-
     def _on_config_right_page_changed(self, index: int) -> None:
-        """Config right-QView page switch — Phase D cleanup: when the user
-        navigates AWAY from the cell-anchor editor page, its drawn overlay
-        (marker + bbox) is removed from the board and forgotten. The overlay
-        is an editing aid shown only while the page is open; leaving it
-        (opening another Config tree node) is the explicit 'page close'.
+        """Config right-QView page switch. The pages of this QView host the
+        docks whose Role/Cluster/NET combos come from the live board, and a page
+        switch is the explicit "I am about to use them" moment — so it is the
+        freshness trigger for those lists (T2, S.2/S.3,
+        plan_2026_09_11_stale_snapshot_role_lists.md): a worker-thread rebuild +
+        push_known_lists; the row views are left alone, see push_known_lists.
 
-        T2 (S.2/S.3, plan_2026_09_11_stale_snapshot_role_lists.md): the pages
-        of this QView host the docks whose Role/Cluster/NET combos come from
-        the live board, and a page switch is the explicit "I am about to use
-        them" moment — so it is the freshness trigger for those lists (a
-        worker-thread rebuild + push_known_lists; the row views are left alone,
-        see push_known_lists)."""
+        Phase-D's page-leave overlay cleanup is GONE: step 4 of
+        plan_2026_10_09_entity_page moved the anchor (and the marker/bbox it
+        draws) to the ENTITY page, so leaving the CELL page has nothing to
+        clean — the anchor tab's overlays persist until removed explicitly or
+        at quit (cleanup_overlay_on_quit)."""
         # Р3а-0: while exploded the Config right view is PINNED to the cell page
         # (the "Explode" tab lives there) — any switch away is rolled back.
         # Д8 (Р3а-6): the pin and its line live in gui/explode_wiring.py.
@@ -2952,13 +2955,6 @@ class DockHub:
         self._config_right_page_index = index
         if index != prev:
             self.refresh_snapshot_and_push()
-        anchor_page = getattr(self, "_cell_anchor_page", None)
-        if anchor_page is None or prev != anchor_page or index == anchor_page:
-            return
-        try:
-            self.cell_anchor_view.cleanup()
-        except Exception:  # noqa: BLE001 — cleanup must never break the GUI
-            logger.exception("cell-anchor page-leave overlay cleanup failed")
 
     def cleanup_overlay_on_quit(self, connection) -> None:
         """GUI-shutdown overlay cleanup (Phase D D.2) — remove EVERY overlay

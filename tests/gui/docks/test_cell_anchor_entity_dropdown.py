@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import gui.docks.cell_anchor_view as view_mod
+import gui.entity.anchor_tab as anchor_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
@@ -22,7 +22,6 @@ from gui.cell_edit_context import (
     remembered_cell_edit_context,
     remembered_cell_refs,
 )
-import gui.docks.cell_instance_mixin as mixin_mod
 from gui.cell_entity_choice import (
     LAST_ENTITY_KEY,
     remembered_last_entity,
@@ -80,22 +79,6 @@ class _Ident:
         self.cluster = cluster
         self.sheet = sheet
         self.role_to_ref = role_to_ref
-
-
-def _capture_messages(monkeypatch) -> list:
-    """Collect every message the PAGE emits.
-
-    Two modules emit them now (rule 45): the giant for its own actions and the
-    instance MIXIN for the instance ones. Both are patched — a guard that watched
-    only one would silently stop seeing half of them."""
-    lines: list = []
-
-    def _sink(text, *args, **kwargs):
-        lines.append(str(text))
-
-    monkeypatch.setattr(view_mod, "show_message", _sink)
-    monkeypatch.setattr(mixin_mod, "show_message", _sink)
-    return lines
 
 
 def _labels(view) -> list:
@@ -239,22 +222,22 @@ def test_an_entity_without_refs_sends_none_to_the_marker_worker(main_window,
     одна оснастка на два файла, второй подделки здесь не заводим."""
     import gui.board_overlay as bo
     from kicadstamp.exceptions import ValidationError
-    from tests.gui.docks.test_cell_anchor_view import (_OverlayAdapter, _cell,
-                                                       _live_cluster_fps)
-    view_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
+    from tests.gui.docks.test_anchor_tab import (_OverlayAdapter, _cell,
+                                                 _live_cluster_fps)
+    anchor_mod.settings.state.set(bo.OVERLAY_LAYER_KEY, "User.KiCadStamp")
     root, index = _root(tmp_path, [_entity("ch1", cluster="CL")])
     view = _view(main_window, root, index)
 
     refs = view.active_refs()          # ровно то, что страница отдаёт воркеру
     assert refs is None
 
-    key = view_mod.overlay_markers.cell_anchor_key("/r", CELL, "marker")
-    assert view_mod._ensure_marker_worker(
+    key = anchor_mod.overlay_markers.cell_anchor_key("/r", CELL, "marker")
+    assert anchor_mod._ensure_marker_worker(
         _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
         "User.KiCadStamp", refs) is not None
 
     with pytest.raises(ValidationError):
-        view_mod._ensure_marker_worker(
+        anchor_mod._ensure_marker_worker(
             _OverlayAdapter(_live_cluster_fps()), _cell(), "CL", "", {}, key,
             "User.KiCadStamp", {})
 
@@ -284,55 +267,15 @@ def test_choosing_an_entity_never_writes_the_cells_remembered_context(
 # Проводка дока дерева (п.1: индекс — ОДИН)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Привязка к выбранной сущности: запись говорит, чтение отказывает (п.5/п.6)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def test_a_write_under_an_entity_tells_the_user_it_applies_to_every_entity(
-        main_window, tmp_path, monkeypatch):
-    """п.6: запись уходит в ЯЧЕЙКУ (один на все экземпляры) — и Лог говорит это
-    прямо, называя сущность, от которой пришла правка."""
-    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0")])
-    # A format-3 write resolves reference uuids against the ACTIVE graph root
-    # (kicadstamp.config_working_set — the GUI raises it when a project opens);
-    # the reader has already LIFTED this file to format 3 on disk, so a guard that
-    # writes must raise it too. monkeypatch puts it back afterwards.
-    import kicadstamp.config_working_set as working_set
-    monkeypatch.setattr(working_set, "_active_graph_root", root)
-    view = _view(main_window, root, index)
-    lines = _capture_messages(monkeypatch)
-
-    view._write_entry(view._current_entry(), "Set as anchor")
-
-    assert any("applies to every entity of the cell" in line for line in lines), \
-        lines
-    assert any("from entity 'ch0'" in line for line in lines), lines
-
-
-def test_a_read_of_another_instance_is_refused_while_an_entity_is_chosen(
-        main_window, tmp_path, monkeypatch):
-    """п.5: с выбранной сущностью чтение привязано к ней — выделение ДРУГОГО
-    экземпляра даёт красную строку, и в поля ничего не попадает."""
-    root, index = _root(tmp_path, [_entity("ch0", "DAC_BUF", "Channel_0")])
-    view = _view(main_window, root, index)
-    # The worker reads the SELECTION off the adapter first, and only then the
-    # (stubbed) reader runs — so the fake board still has to answer that one call.
-    main_window.connection.board = SimpleNamespace(
-        adapter=SimpleNamespace(get_selected_items=lambda: []))
-    monkeypatch.setattr(view_mod, "read_anchor_source",
-                        lambda *a, **k: {"kind": "footprint", "cluster": "OTHER",
-                                         "role": "R", "pad": None})
-    lines = _capture_messages(monkeypatch)
-
-    view._on_read_from_selection()
-
-    # часть 3, п.6: the refusal names the selection's own address too; this read
-    # carries a cluster and no sheet, so the sheet half says so.
-    assert lines == ["the selection is OTHER / (no sheet), not entity 'ch0' — "
-                     "nothing read"], lines
-    assert view._cluster_combo.currentText() == "DAC_BUF"   # untouched
-    assert view._role_combo.currentText() == ""             # nothing read in
-    assert view._entity_picker.current_address().entity_name == "ch0"
+# п.5/п.6 of part 2 — "a write under an entity names the cell" and "a read of a
+# foreign instance is refused" — were RE-WRITTEN in step 4 of
+# plan_2026_10_09_entity_page: the anchor moved to the ENTITY page with a FIXED
+# address (the entity record's own). There the two properties are guarded by
+# tests/gui/docks/test_anchor_tab.py — the applies line by
+# test_the_applies_line_names_the_cell_and_the_entity_count, the refusal by
+# test_read_from_selection_refuses_a_foreign_cluster. The old guards drove
+# `view._write_entry` / `view._on_read_from_selection`, which no longer exist on
+# the cell page (its job is now the Source tab alone).
 
 
 def test_a_pick_publishes_the_working_instance_the_cell_dock_reads(

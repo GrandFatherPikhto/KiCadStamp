@@ -39,6 +39,7 @@ from types import SimpleNamespace
 import gui.cell_edit_context as ctx_mod
 import gui.docks.cell_anchor_view as view_mod
 import gui.docks.cell_editor as cell_editor_mod
+import gui.entity.anchor_tab as anchor_mod
 from gui import settings
 from gui.cell_edit_context import (
     CELL_EDIT_CONTEXT_KEY,
@@ -53,6 +54,7 @@ from gui.cell_edit_context import (
 from gui.cell_identification import Identification
 from gui.docks.cell_anchor_view import CellAnchorView
 from gui.docks.cell_editor import CellDock
+from gui.entity.anchor_tab import AnchorTabWidget
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
@@ -213,35 +215,24 @@ def _make_view(main_window, tmp_path, adapter=None, data=None):
     return view, root
 
 
-def test_view_prefills_remembered_context_and_narrows(main_window, tmp_path):
-    """Opening the cell-anchor page for a cell with a remembered Cluster that
-    IS on the live board sets the Cluster combo AND narrows the Role combo —
-    no click on the board needed (Phase E's main consumer).
+def test_view_prefills_remembered_context(main_window, tmp_path):
+    """Opening the cell-anchor page for a cell with a remembered Cluster sets the
+    working Cluster combo — no click on the board needed (Phase E's main consumer).
 
-    Э3 (plan_2026_09_14_ui_thread_offenders): the narrowing is served by the board
-    SNAPSHOT (role/cluster as field VALUES), so that is what the page is given; the
-    _FakeAdapter below stays because the page's OTHER paths (read-from-selection, the
-    marker/bbox workers) legitimately read the live board."""
-    adapter = _FakeAdapter()
-    c1 = _fp("fp1", "R1")
-    c2 = _fp("fp2", "R2")          # C2 lives on a DIFFERENT cluster
-    adapter.footprints = [c1, c2]
-    adapter.set_field(c1, CLUSTER_FIELD_NAME, "PIF_3V3_VDD")
-    adapter.set_field(c1, ROLE_FIELD_NAME, "C1")
-    adapter.set_field(c2, CLUSTER_FIELD_NAME, "AD_DAC/IC2")
-    adapter.set_field(c2, ROLE_FIELD_NAME, "C2")
-    main_window.connection.snapshot = [
-        SimpleNamespace(role="C1", cluster="PIF_3V3_VDD"),
-        SimpleNamespace(role="C2", cluster="AD_DAC/IC2")]
+    Э3 (plan_2026_09_14_ui_thread_offenders): the working-context prefill is served
+    by the interface state alone, never a board read — an EMPTY snapshot means
+    "nothing read yet", so the remembered pair is a HINT and is applied as-is.
+
+    Step 4 of plan_2026_10_09_entity_page MOVED the Role combo (and its narrowing)
+    to the ENTITY page's anchor (guarded by tests/gui/docks/test_anchor_tab.py,
+    test_role_hint_reads_the_fed_snapshot_not_the_board), so this guard covers
+    only the Cluster prefill that stayed on the Source tab."""
     remember_cell_edit_context(tmp_path / "root.sexp", "cell1",
                                "PIF_3V3_VDD", None)
 
-    view, _ = _make_view(main_window, tmp_path, adapter=adapter)
+    view, _ = _make_view(main_window, tmp_path)
 
     assert view._cluster_combo.currentText().strip() == "PIF_3V3_VDD"
-    roles = [view._role_combo.itemText(i)
-             for i in range(view._role_combo.count())]
-    assert roles == ["C1"]            # C2 is not on the remembered cluster
 
 
 def test_view_stale_remembered_cluster_leaves_fields_empty(main_window,
@@ -267,10 +258,6 @@ def test_view_stale_remembered_cluster_leaves_fields_empty(main_window,
 
     assert view._cluster_combo.currentText().strip() == ""
     assert view._sheet_combo.currentText().strip() == ""
-    # The page still functions: the full role set is available.
-    roles = [view._role_combo.itemText(i)
-             for i in range(view._role_combo.count())]
-    assert roles == ["C1", "C2"]
 
 
 def test_view_no_record_is_today_behaviour(main_window, tmp_path):
@@ -304,24 +291,6 @@ def test_view_opening_another_cell_drops_previous_context(main_window,
     # not the previous cell's remembered cluster.
     view.load_entry("ghost", root)
     assert view._cluster_combo.currentText().strip() == ""
-
-
-def test_read_from_selection_updates_remembered_context(main_window, tmp_path,
-                                                        monkeypatch):
-    """"Read from selection" brings a fresh Cluster — it overwrites the cell's
-    remembered (last-used) context (sheet optional, stored as whatever the
-    Sheet combo holds)."""
-    adapter = _FakeAdapter()
-    main_window.connection.board = SimpleNamespace(adapter=adapter)
-    monkeypatch.setattr(
-        view_mod, "read_anchor_source",
-        lambda *a, **k: {"kind": "footprint", "role": "C1", "pad": None,
-                         "cluster": "PIF_3V3_VDD"})
-    view, root = _make_view(main_window, tmp_path, adapter=adapter)
-
-    view._on_read_from_selection()
-
-    assert remembered_cell_edit_context(root, "cell1") == ("PIF_3V3_VDD", None)
 
 
 # ── Two Phase C gaps fixed in this phase (same file, same commit) ─────────
@@ -895,7 +864,11 @@ def test_c4a_opening_and_context_never_reach_the_adapter_on_the_ui_thread(
         main_window, tmp_path, monkeypatch):
     """С4а/М4а: П3.1 — the prefill, the form reload and `_context()` collect their
     inputs from the interface state alone. The adapter is a RECORDER: the list of
-    calls must stay empty (see _RecordingAdapter for why a raising spy is wrong)."""
+    calls must stay empty (see _RecordingAdapter for why a raising spy is wrong).
+
+    Step 4 of plan_2026_10_09_entity_page moved `_context()` to the ENTITY page's
+    anchor, so the second half of the guard builds an AnchorTabWidget: its
+    `_context()` is pure UI-thread validation too, and must read no board."""
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
     remember_cell_edit_context(root, "cell1", "PIF_3V3_VDD", "MCU")
@@ -908,7 +881,12 @@ def test_c4a_opening_and_context_never_reach_the_adapter_on_the_ui_thread(
     view.set_root_path(root)
     view.load_entry("cell1", root)
     view._reload_form()
-    ctx = view._context()
+
+    tab = AnchorTabWidget(main_window, connection=main_window.connection,
+                          parent=main_window)
+    tab.set_root_path(root)
+    tab.set_context("cell1", "PIF_3V3_VDD", "MCU", root)
+    ctx = tab._context()
 
     assert adapter.calls == [], f"the UI thread read the board: {adapter.calls}"
     assert ctx is not None
@@ -920,37 +898,32 @@ def test_c5a_identified_refs_make_the_working_cluster_optional(
     """С5а/М5а: Ф6/Р5 — with an identified pair the Cluster is not a prerequisite:
     "Show bbox" must dispatch the frame worker WITH the refs instead of refusing
     with "pick the working Cluster first" (the exact WARNING Denis saw after
-    reopening the editor)."""
+    reopening the editor).
+
+    Step 4 of plan_2026_10_09_entity_page moved the anchor to the ENTITY page with
+    the entity's FIXED address: model the lost cluster of the live session by
+    handing the tab an entity that carries its refs but NO cluster."""
     root = tmp_path / "root.sexp"
     _write(root, _cell_data())
-    remember_cell_instance(root, "cell1", _identification(
-        cluster="PIF_3V3_VDD", refs={"C1": "C74", "C2": "C58"}))
     main_window.connection.board = SimpleNamespace(adapter=_RecordingAdapter())
-    monkeypatch.setattr(view_mod, "load_config", _sheet_names_map("MCU"))
 
-    view = CellAnchorView(main_window, connection=main_window.connection,
+    tab = AnchorTabWidget(main_window, connection=main_window.connection,
                           parent=main_window)
-    view.set_root_path(root)
-    view.load_entry("cell1", root)
-    # Model the lost cluster of the live session: the combo is EMPTY while the
-    # refs are remembered (a manual clear, or a stale-context drop).
-    view._loading = True
-    try:
-        view._cluster_combo.setCurrentText("")
-    finally:
-        view._loading = False
+    tab.set_root_path(root)
+    tab.set_context("cell1", "", "", root,
+                    refs={"C1": "C74", "C2": "C58"}, entity_count=1)
 
     started = []
-    monkeypatch.setattr(view_mod, "start_long_op",
+    monkeypatch.setattr(anchor_mod, "start_long_op",
                         lambda *args, **kwargs: started.append(args) or object())
     caplog.clear()
 
-    view._on_show_bbox()
+    tab._on_show_bbox()
 
     assert started, ("the frame worker must start from the remembered refs — a "
                      "cluster is not required when the pair is identified")
     assert started[0][-1] == {"C1": "C74", "C2": "C58"}
-    assert "working Cluster" not in caplog.text
+    assert "no Cluster" not in caplog.text
 
 
 # ── The "Refs" tab's table in gui_state.json (2026-09-17, stage 2) ─────────

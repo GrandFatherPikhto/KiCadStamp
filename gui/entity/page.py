@@ -178,10 +178,11 @@ class EntityPage(QWidget):
         placements_layout.addStretch(1)
         self.tabs.addTab(placements, _("Placements"))
 
-        # The board-touching tabs DockHub hands in (the "Explode" page and, since
-        # step 3 of plan_2026_10_09_entity_page, the ONE "Refs" tab).
+        # The board-touching tabs DockHub hands in (the "Explode" page, the ONE
+        # "Refs" tab — step 3, and the ONE "Anchor" tab — step 4).
         self._explode_page = None
         self._refs_tab = None
+        self._anchor_tab = None
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
@@ -212,7 +213,10 @@ class EntityPage(QWidget):
                 ctx = None
             if ctx is not None:
                 self._sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
+        if self._anchor_tab is not None:
+            self._anchor_tab.set_root_path(path)
         self._sync_refs_tab()
+        self._sync_anchor_tab()
 
     def _hub(self):
         """The DockHub behind the window (None in a bare widget test) — the
@@ -276,6 +280,7 @@ class EntityPage(QWidget):
         self._load_placements(name)
         self._sync_explode_context()
         self._sync_refs_tab()
+        self._sync_anchor_tab()
 
     def _fill_cell_combo(self) -> None:
         """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
@@ -385,6 +390,8 @@ class EntityPage(QWidget):
             # (some guards) — nothing to re-resolve, use it as-is.
             self._resolved_snapshot = list(self._snapshot)
         self._sync_refs_tab()
+        if self._anchor_tab is not None:
+            self._anchor_tab.refresh_known_roles(self._snapshot)
 
     def reload_overrides(self) -> None:
         """Re-read the project's override store from its FILE and hand the fresh
@@ -423,6 +430,47 @@ class EntityPage(QWidget):
             self._root_path, cell_name, self._cell_roles(cell_name),
             self._refs_records(), sheet_names=self._sheet_names,
             overrides=self._overrides)
+
+    # ── The "Anchor" tab (step 4 of plan_2026_10_09_entity_page) ────────────
+    def add_anchor_tab(self, widget) -> None:
+        """DockHub hands the ONE AnchorTabWidget over (the Role anchor + Marker
+        anchor tabs the CELL page used to own); the page ONLY adds it and syncs
+        it. The address it is told is the loaded entity RECORD's own — its cell,
+        its (cluster, sheet), its refs — never a dropdown: the anchor writes the
+        cell TEMPLATE, shared by every entity of that cell."""
+        self._anchor_tab = widget
+        # A successful anchor/marker write refreshes the Config tree (the cell
+        # map changed) — the page's own `saved` already drives that.
+        widget.saved.connect(self.saved)
+        self.tabs.addTab(widget, _("Anchor"))
+        self._sync_anchor_tab()
+
+    def _sync_anchor_tab(self) -> None:
+        """Tell the "Anchor" tab the ENTITY's address: its cell, its (cluster,
+        sheet), its OWN file, its refs and how many entities share the cell (for
+        the applies line). An empty form (nothing loaded) clears the context."""
+        if self._anchor_tab is None:
+            return
+        raw = self._entity_data or {}
+        self._anchor_tab.set_context(
+            raw.get("cell"), raw.get("cluster"), raw.get("sheet"),
+            self._entity_file, refs=raw.get("refs"),
+            entity_count=self._entities_of_cell(raw.get("cell")))
+        self._anchor_tab.refresh_known_roles(self._snapshot)
+
+    def _entities_of_cell(self, cell_name) -> int:
+        """How many entities share this cell — the N of the "changes apply to
+        every entity of this cell (N)" line. A missing cell or a dangling graph
+        falls back to 1 (the record itself)."""
+        if not cell_name or self._root_path is None:
+            return 1
+        try:
+            cfg, _ctx = load_config(str(self._root_path))
+        except (ValidationError, OSError):
+            return 1
+        count = sum(1 for e in (getattr(cfg, "entities", None) or ())
+                    if getattr(e, "cell", None) == cell_name)
+        return max(count, 1)
 
     def _refs_records(self) -> list:
         """This page's own snapshot as role-table records — the SHEET-RESOLVED
