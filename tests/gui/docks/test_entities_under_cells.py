@@ -176,6 +176,32 @@ def test_cell_placed_without_entity_is_marked_as_placed(main_window, tmp_path):
     assert "placed by" in tip and "ch1" in tip, tip
 
 
+def test_a_placer_that_places_one_cell_twice_shows_a_single_counted_mention(
+        main_window, tmp_path):
+    """Доделка 1а, п.4 (закрывает выжившую мутацию M2 оснастки
+    deepseek_mutations_entities_1a_2026_10_08.py): ОДИН постановщик, ставящий
+    одну подъячейку ДВАЖДЫ, показывается ОДНИМ упоминанием С ЧИСЛОМ, а не двумя
+    строками: «nested placement in cell: c_outer (2)».
+
+    Ставит именно ВЛОЖЕННЫЙ постановщик (составная ячейка, `Cell.
+    clone_placements`), а не запись `clone_placements:` корня: вложенные живы и
+    после ухода Placer (plan_2026_10_08_remove_placer.md, п.3). Зонд формы —
+    kicadstamp/diagnostics/deepseek_probe_nested_placement_count_2026_10_09.py."""
+    root = tmp_path / "root.sexp"
+    write_config(root, {
+        "cells": {"c_a": {"components": [{"role": "R"}]},
+                  "c_outer": {"components": [{"role": "R"}],
+                              "clone_placements": [
+                                  {"name": "n1", "cell": "c_a"},
+                                  {"name": "n2", "cell": "c_a"}]}}})
+    dock = _dock(main_window, root)
+    cell = find_child(category(file_item(dock.tree, root), "cells"), "c_a")
+
+    assert _mark(cell) == _CELL_PLACED
+    tip = cell.toolTip(0)
+    assert "nested placement in cell: c_outer (2)" in tip, tip
+
+
 def test_cell_with_entity_is_not_marked(main_window, tmp_path):
     """С8 (обратная клетка): ячейка С сущностью — без пометки."""
     root = tmp_path / "root.sexp"

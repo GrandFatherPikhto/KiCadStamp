@@ -1,7 +1,7 @@
 # kicadstamp/diagnostics/deepseek_mutations_entities_1a_2026_10_08.py
 """Acceptance mutations for the 1a follow-up of plan_2026_10_05_entities_under_cells.md
 (ромб include:, выделение из другого файла, вынос read-only, подсказка «placed
-by», значок сироты, пункты меню), DeepSeek, 2026-10-08.
+by», значок сироты), DeepSeek, 2026-10-08.
 
 Grown from deepseek_mutations_entities_under_cells_2026_10_08.py (rule 38), whose
 machinery is deepseek_mutations_refresh_mixed_2026_10_05.py — the SAME guards:
@@ -16,12 +16,21 @@ WHAT IS BEING PROVEN (the cells live in tests/gui/docks/):
     (п.6: three points × two sources).
 
   * M1 the file is walked TWICE again (diamond)        -> п.1 cells
-  * M2 the placer count is dropped                     -> п.4 cell
+  * M2 the placer count is dropped                     -> п.4 cell, KILLED since
+    2026-10-09: test_a_placer_that_places_one_cell_twice_shows_a_single_counted_
+    mention now guards the "(N)" wording this row used to survive on
   * M3 the orphan loses its mark                       -> п.5 cell
   * M4 a leaf's identity takes the ANCESTOR's file     -> п.2 cell (same names)
-  * M5 the CELL's "Select cell" sends nothing          -> п.6 row (cell)
-  * M6 the ENTITY's "Select cell" keeps no instance    -> п.6 row (entity)
   * K1 a cosmetic comment                              -> MUST survive
+
+D3 of plan_2026_10_09_entity_page (2026-10-09): the rows M5/M6 ("Select cell")
+were REMOVED, not repaired — their templates do not exist in the code at all (the
+cell leaf's menu emits the FIVE-argument cell_select_requested, and
+config_tree.py has no `addAction(_("Select cell"))` block), so they could only
+ever report "the template occurs 0 times". M2 STAYS and is now killed: the
+surviving row was the signal that the "(N)" wording of `_placed_by_text` was
+unguarded, not that the property was dead — the nested CellPlacement that feeds
+it survives the Placer removal (plan_2026_10_08_remove_placer.md, п.3).
 
 п.3 (the read-only mode moved out of the giant) has no mutation here on purpose:
 its guard is the file size itself (D8/rule 45), which is read off `wc -l`, not
@@ -64,28 +73,13 @@ MUTATIONS = [
      "            return (\"leaf\", file_ctx[0], data[1], name)",
      "            return (\"leaf\", file_ctx[1], data[1], name)  # MUTATION",
      "die", ROWS_TEST, ()),
-    # 5 — the CELL's "Select cell" sends nothing (the defect the text-reading
-    # guards used to miss: `lambda: None` at entity_tree.py).
-    ("M5 the cell's Select cell sends nothing", ET,
-     "        select_action.triggered.connect(\n"
-     "            lambda: self.cell_select_requested.emit(\n"
-     "                old_name, file_path, None, None))\n",
-     "        select_action.triggered.connect(lambda: None)  # MUTATION\n",
-     "die", ROWS_TEST, ()),
-    # 6 — the ENTITY's "Select cell" loses its instance (config_tree.py).
-    ("M6 the entity's Select cell loses its instance", CFG,
-     "                    select_action = menu.addAction(_(\"Select cell\"))\n"
-     "                    select_action.setObjectName(\"select_cell_action\")\n"
-     "                    select_action.triggered.connect(\n"
-     "                        lambda checked=False, n=entity.get(\"cell\"),\n"
-     "                        c=entity.get(\"cluster\"), s=entity.get(\"sheet\"):\n"
-     "                        self.cell_select_requested.emit(n, None, c, s))\n",
-     "                    select_action = menu.addAction(_(\"Select cell\"))\n"
-     "                    select_action.setObjectName(\"select_cell_action\")\n"
-     "                    select_action.triggered.connect(\n"
-     "                        lambda checked=False, n=entity.get(\"cell\"):\n"
-     "                        self.cell_select_requested.emit(n, None, None, None))\n",
-     "die", ROWS_TEST, ()),
+    # M5/M6 ("Select cell") were REMOVED on 2026-10-09 (D3 of
+    # plan_2026_10_09_entity_page): their templates do not exist in the code at
+    # all — the cell leaf's menu emits the FIVE-argument cell_select_requested
+    # (gui/docks/entity_tree.py) and gui/docks/config_tree.py has no
+    # `addAction(_("Select cell"))` block — so the rows could only ever report
+    # "the template occurs 0 times". A row that cannot redden anything is a trap
+    # for the next reader, not a guard.
     # control — a cosmetic comment MUST survive.
     ("K1 cosmetic comment (control)", ET,
      "    def _placed_by_text(self, placed) -> str:",
