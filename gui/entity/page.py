@@ -51,10 +51,12 @@ from kicadstamp.utils.paths import overrides_path_for_config
 from ..docks._common import (ERROR_STYLE as _ERROR_STYLE,
                              SUCCESS_STYLE as _SUCCESS_STYLE)
 from ..docks.change_cell_flow import apply_cell_change, cell_choices
-from ..docks.instance_candidates import (cell_role_order, cell_row_label,
-                                         others_line, others_tooltip)
+from ..docks.instance_candidates import (CellChoices, cell_role_order,
+                                         cell_row_label, others_line,
+                                         others_tooltip)
 from ..docks.rename import find_list_entry_file
 from ..role_table_model import records_from_items
+from .read_only import ReadOnlyGate, reason_for
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,9 @@ class EntityPage(QWidget):
         # Whether the combobox offers every cell because the fit was never
         # checked (no snapshot / dangling graph / orphan instance).
         self._cell_orphan = True
+        # The last cell_choices(...) answer — its `state` decides the read-only
+        # rule (step 5, T5-4); empty until the first load.
+        self._cell_choices = CellChoices()
         # The board snapshot this page was last fed (refresh_known_roles) and its
         # SHEET-RESOLVED twin — the Refs tab's board columns come from here, never
         # from a board read on the UI thread (door rule 31).
@@ -121,6 +126,11 @@ class EntityPage(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("entity_page_tabs")
         layout.addWidget(self.tabs)
+
+        # The read-only gate (step 5, T5-4): its hint LIVES under the tab strip,
+        # and its ONE apply point turns the BOARD tabs (Explode/Refs/Anchor) off
+        # while "Справка" — and its Cell combobox — stays usable.
+        self._read_only_gate = ReadOnlyGate(layout)
 
         # ── Tab 1 — "Справка": identity + the Cell combobox ──────────────────
         guide = QWidget()
@@ -229,6 +239,10 @@ class EntityPage(QWidget):
         self._imprint_label_widget.setVisible(visible)
 
     def _clear_form(self) -> None:
+        # The record is dropped too: a later `_apply_read_only` on a MISSING
+        # entity has to see "no record", not the previous entity's.
+        self._entity_data = {}
+        self._entity_file = None
         self.name_label.setText("—")
         self.comment_edit.setText("")
         self.cell_combo.blockSignals(True)
@@ -238,6 +252,7 @@ class EntityPage(QWidget):
         self.cell_others_label.setToolTip("")
         self.cell_others_label.setVisible(False)
         self._cell_orphan = True
+        self._cell_choices = CellChoices()
         self._set_imprint_visible(False)
         self.sheet_label.setText("—")
         self.cluster_label.setText("—")
@@ -256,6 +271,9 @@ class EntityPage(QWidget):
             return
         found = self._load_entity_dict(name)
         if found is None:
+            # The record is in no file at all: the page is READ-ONLY (there is
+            # nothing to touch the board for) and says so.
+            self._apply_read_only()
             self._show_message(_("Entity {name!r} not found.").format(name=name))
             return
         raw, file_path = found
@@ -281,6 +299,7 @@ class EntityPage(QWidget):
         self._sync_explode_context()
         self._sync_refs_tab()
         self._sync_anchor_tab()
+        self._apply_read_only()
 
     def _fill_cell_combo(self) -> None:
         """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
@@ -301,6 +320,7 @@ class EntityPage(QWidget):
         choices = cell_choices(self._root_path, snapshot,
                                self._entity_data, index)
         self._cell_orphan = choices.orphan
+        self._cell_choices = choices
         for cand in choices.candidates:
             combo.addItem(cell_row_label(cand), cand.name)
             item = combo.model().item(combo.count() - 1)
@@ -331,6 +351,27 @@ class EntityPage(QWidget):
         if self._current_name:
             self.load_entity(self._current_name)
 
+    # ── Read-only (step 5, T5-4 of plan_2026_10_09_entity_page) ─────────────
+    def _apply_read_only(self) -> None:
+        """Apply the ENTITY page's read-only rule: an entity whose instance is
+        KNOWABLY absent (a dangling cell, or a board without it) — or whose record
+        is not on disk yet — opens READ-ONLY: the BOARD tabs (Explode / Refs /
+        Anchor) are off, while "Справка" and its Cell combobox stay usable (an
+        orphan is fixed exactly by the combobox). A missing SNAPSHOT is NOT
+        read-only: nothing was checked (``CellChoices.state == "unchecked"``), so
+        unplugging KiCad never greys the page."""
+        choices = self._cell_choices
+        # "Unsaved" ONLY once a load was attempted: at construction the page holds
+        # no record yet, and the tabs must stay usable (the Explode door opens the
+        # Explode tab on a page that was never loaded with an entity).
+        unsaved = self._current_name is not None and not self._entity_data
+        self._read_only_gate.apply(
+            self.tabs,
+            read_only=bool(choices.read_only or unsaved),
+            board_widgets=(self._explode_page, self._refs_tab, self._anchor_tab),
+            reason=reason_for(choices.state, unsaved=unsaved),
+            home_index=0)
+
     # ── The "Explode" tab (step 2 of plan_2026_10_09_entity_page) ───────────
     def add_explode_tab(self, widget) -> None:
         """DockHub hands the ONE ExplodePage over; the page ONLY adds it — the tab
@@ -340,6 +381,7 @@ class EntityPage(QWidget):
         self._explode_page = widget
         self.tabs.addTab(widget, _("Explode"))
         self._sync_explode_context()
+        self._apply_read_only()
 
     def select_explode_tab(self) -> None:
         """Bring the "Explode" tab to the front — the door's last step."""
@@ -373,6 +415,7 @@ class EntityPage(QWidget):
         widget.on_board_written = self._on_refs_written
         self.tabs.addTab(widget, _("Refs"))
         self._sync_refs_tab()
+        self._apply_read_only()
 
     def refresh_known_roles(self, snapshot) -> None:
         """Feed the Refs tab the live-board snapshot (wired into
@@ -444,6 +487,7 @@ class EntityPage(QWidget):
         widget.saved.connect(self.saved)
         self.tabs.addTab(widget, _("Anchor"))
         self._sync_anchor_tab()
+        self._apply_read_only()
 
     def _sync_anchor_tab(self) -> None:
         """Tell the "Anchor" tab the ENTITY's address: its cell, its (cluster,

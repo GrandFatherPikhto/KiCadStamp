@@ -83,15 +83,18 @@ class ReadOnlyGate:
 
     def _apply(self) -> None:
         tabs = self._tabs
+        # Read the CURRENT tab BEFORE disabling: Qt itself moves the view off a
+        # tab the moment it is disabled (to the nearest enabled one), so asking
+        # afterwards would miss the board tab the user was actually on.
+        current = tabs.currentWidget()
+        was_board = current is not None and current in self._board_widgets
         enabled = not self._read_only
         for widget in self._board_widgets:
             index = tabs.indexOf(widget) if widget is not None else -1
             if index >= 0:
                 tabs.setTabEnabled(index, enabled)
-        if self._read_only:
-            current = tabs.currentWidget()
-            if current is not None and current in self._board_widgets:
-                tabs.setCurrentIndex(self._home_index)
+        if self._read_only and was_board:
+            tabs.setCurrentIndex(self._home_index)
         self.note.setVisible(self._read_only and bool(self.note.text()))
 
 
