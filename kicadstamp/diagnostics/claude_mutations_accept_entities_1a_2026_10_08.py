@@ -4,7 +4,8 @@
 
   * C1 the orphan entity's mark is a WARNING, not Critical (the decided level)
   * C2 the read-only gate never disables the board tabs (the hint alone remains;
-       retargeted 09.10 to the per-tab gate in gui/entity/read_only.py)
+       retargeted 09.10 to the per-tab gate in gui/entity/read_only.py;
+       C3 followed the gate again after Д2 dropped its remembered state)
   * C3 the read-only gate never shows its hint (the tabs go off silently)
   * C4 "placed by" groups by OWNER only — a chain and a clone_placement with the
        same name collapse into one mention
@@ -32,7 +33,7 @@ ROWS = [
      "                tabs.setTabEnabled(index, True)  # MUTATION",
      "die", T, ()),
     ("C3 read-only gate never shows hint", GATE,
-     "        self.note.setVisible(self._read_only and bool(self.note.text()))",
+     "        self.note.setVisible(bool(read_only) and bool(self.note.text()))",
      "        self.note.setVisible(False)  # MUTATION",
      "die", T, ()),
     ("C4 placed-by groups by owner only", TREE,
