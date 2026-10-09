@@ -11,8 +11,11 @@ EXACTLY how an orphan is fixed (Денис, 09.10.2026).
 Per-TAB, never the whole QTabWidget: disabling the widget would take the Cell
 combobox with it (the trap Денис named), so the rule works on the WIDGETS the page
 hands in (plain `indexOf`, so a tab that is not built yet is simply skipped).
-apply/reapply is the ONE application point, called after EVERY load and after a
-refill that did not come through the open path.
+`apply` is the ONE application point, and the page calls it after EVERY load AND
+after every refill (a board-snapshot push — gui/entity/page.py
+`_refresh_cell_state`). Nothing is remembered between calls, so no second entry
+point is needed: the former `reapply` is deleted (Д2 of
+plan_2026_10_09_entity_page).
 
 Qt is imported here (this is a widget), but nothing else: the module knows nothing
 about cells, entities or the tree, only "these tabs touch the board, turn them
@@ -20,7 +23,7 @@ off, and say why".
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable
 
 from PyQt6.QtWidgets import QLabel, QTabWidget
 
@@ -38,17 +41,11 @@ class ReadOnlyGate:
         self.note.setWordWrap(True)
         self.note.setVisible(False)
         layout.addWidget(self.note)
-        # What the last `apply` was given — `reapply` needs no second flag on the
-        # page, and ONE place keeps owning the rule.
-        self._tabs: Optional[QTabWidget] = None
-        self._board_widgets: tuple = ()
-        self._home_index = 0
-        self._read_only = False
 
     def apply(self, tabs: QTabWidget, read_only: bool,
               board_widgets: Iterable = (), reason: str = "",
               home_index: int = 0) -> None:
-        """Show/restore the page for the current open.
+        """Show/restore the page for the current open — the ONE entry point.
 
         A read-only open disables the BOARD tabs and shows the hint; any other
         open restores them. `board_widgets` are the widgets whose tab touches the
@@ -59,43 +56,24 @@ class ReadOnlyGate:
 
         Only DISABLING/re-enabling the BOARD tabs happens here; the page has just
         set every tab by its own rules, and the Cell combobox on "Справка" is
-        deliberately left alone."""
-        self._tabs = tabs
-        self._board_widgets = tuple(board_widgets)
-        self._home_index = home_index
-        self._read_only = bool(read_only)
-        self.note.setText(reason or "")
-        self._apply()
-
-    def reapply(self, read_only: Optional[bool] = None,
-                reason: Optional[str] = None) -> None:
-        """Run the rule again — for a REFILL that did not come through `apply`
-        (a root change, or an entity created on an orphan lifting the state).
-
-        None = use the remembered value. A no-op before the first `apply`."""
-        if self._tabs is None:
-            return
-        if read_only is not None:
-            self._read_only = bool(read_only)
-        if reason is not None:
-            self.note.setText(reason)
-        self._apply()
-
-    def _apply(self) -> None:
-        tabs = self._tabs
+        deliberately left alone. Nothing is REMEMBERED between calls — the page
+        calls `apply` again with the fresh flag on every load and every push, so
+        the deleted `reapply` had no state of its own to own."""
+        widgets = tuple(board_widgets)   # a generator must not be consumed twice
         # Read the CURRENT tab BEFORE disabling: Qt itself moves the view off a
         # tab the moment it is disabled (to the nearest enabled one), so asking
         # afterwards would miss the board tab the user was actually on.
         current = tabs.currentWidget()
-        was_board = current is not None and current in self._board_widgets
-        enabled = not self._read_only
-        for widget in self._board_widgets:
+        was_board = current is not None and current in widgets
+        enabled = not read_only
+        for widget in widgets:
             index = tabs.indexOf(widget) if widget is not None else -1
             if index >= 0:
                 tabs.setTabEnabled(index, enabled)
-        if self._read_only and was_board:
-            tabs.setCurrentIndex(self._home_index)
-        self.note.setVisible(self._read_only and bool(self.note.text()))
+        if read_only and was_board:
+            tabs.setCurrentIndex(home_index)
+        self.note.setText(reason or "")
+        self.note.setVisible(bool(read_only) and bool(self.note.text()))
 
 
 def reason_for(state: str, unsaved: bool = False) -> str:
