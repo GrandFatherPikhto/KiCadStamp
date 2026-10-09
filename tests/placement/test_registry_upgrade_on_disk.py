@@ -769,6 +769,39 @@ def test_the_detach_leaves_a_cell_key_carrying_the_spoke_literal(
         "a cell-copper key with the __spoke__ literal survives the detach")
 
 
+def test_a_long_detach_list_is_truncated_in_the_warning_and_full_in_debug(
+        tmp_path, format3, caplog):  # noqa: F811
+    """Д2, приёмка C1+C2: a long list is reported as NUMBER + first 10 + "…" in the
+    WARNING and in FULL at DEBUG. A live profile can carry ~355 spoke keys, so
+    neither "every key in the WARNING" (unreadable) nor "no DEBUG list" (nothing to
+    grep) is acceptable — both were the acceptor's surviving mutations."""
+    root = _write_graph(tmp_path)                 # no chains -> the lift detaches
+    via = registry_path_for_config(str(root))
+    keys = {f"pad:{i}|leaf|__spoke__|0": _VIA for i in range(1, 16)}   # 15 keys
+    _write_registry(via, keys, schema=2)
+
+    with caplog.at_level(logging.DEBUG, logger="kicadstamp.config.registry_upgrade"):
+        load_config(str(root))
+
+    after = _read(via)
+    assert after["schema_version"] == ru.TARGET_SCHEMA_VERSION
+    assert [k for k in after if k != "schema_version"] == [], "all 15 must be detached"
+
+    recs = [r for r in caplog.records
+            if r.name == "kicadstamp.config.registry_upgrade"]
+    detach = next(m for m in (r.getMessage() for r in recs
+                              if r.levelno == logging.WARNING) if "DETACHED" in m)
+    assert "15: " in detach, detach
+    assert detach.count("pad:") == 10, (
+        f"the WARNING must list the first 10 of 15, not all of them: {detach}")
+    assert "…" in detach, f"truncation needs the ellipsis: {detach}"
+
+    full = next(r.getMessage() for r in recs
+                if r.levelno == logging.DEBUG and "full list" in r.getMessage())
+    for i in (1, 8, 15):
+        assert f"pad:{i}|leaf|__spoke__|0" in full, full
+
+
 def _with_a_chain(data: dict) -> dict:
     """``data`` plus a non-empty ``chains:`` — a config that STILL plans spoke
     copper (nothing refuses it yet: Д1's load refusal is a separate step)."""

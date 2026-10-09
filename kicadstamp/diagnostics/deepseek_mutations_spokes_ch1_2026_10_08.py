@@ -23,6 +23,8 @@ kicadstamp/registry.py, the schema constants in kicadstamp/persistence.py):
   * M8 the `chains:` skip is dropped — the schema is raised although the config
        still PLANS the spoke copper (the file's copper is then re-created or pruned
        away: the hole the Д2 fix-up closes)
+  * M9 the WARNING lists EVERY entry (no "first 10 + …" truncation)
+  * M10 the truncated WARNING has no FULL list at DEBUG beside it
   * K1 a cosmetic comment in the lift -> MUST survive
 
 The guard set is tests/placement/test_registry_upgrade_on_disk.py (the whole Д2 axis:
@@ -104,6 +106,23 @@ MUTATIONS = [
      "                          [chain_effective_name(c) for c in chains])\n"
      "            continue\n",
      "            pass  # MUTATION: lift anyway\n",
+     "die", GUARDS, ()),
+    # 9 — the truncation is dropped: a live profile's ~355 keys would be printed in
+    # full in ONE WARNING line (the acceptor's surviving C1).
+    ("M9 the WARNING lists every entry", RU,
+     "    if len(items) > limit:\n"
+     "        shown += \", …\"\n",
+     "    if len(items) > limit:\n"
+     "        pass  # MUTATION: no truncation\n",
+     "die", GUARDS, ()),
+    # 10 — the full list is no longer logged at DEBUG, so the truncated WARNING has
+    # nothing to grep (the acceptor's surviving C2).
+    ("M10 no FULL list at DEBUG", RU,
+     "    if items:\n"
+     "        logger.debug(\"registry {path}: {what} (full list): {keys}\".format(\n"
+     "            path=path, what=what, keys=\", \".join(sorted(items))))\n",
+     "    if items:\n"
+     "        pass  # MUTATION: no DEBUG list\n",
      "die", GUARDS, ()),
     # K1 — a cosmetic comment in the lift: MUST survive.
     ("K1 a cosmetic comment in the lift", RU,
