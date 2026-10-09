@@ -103,12 +103,14 @@ def add_entities_from_tree(hub, cell_name: str, file_path) -> None:
     sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
     connection = hub.main_window.connection
 
-    def _taken(cluster, _sheet=None):
-        """The entity that already covers this (cell, cluster) — the project's
-        ONE duplicate rule. It matches a CELL by (cell, cluster) alone, so the
-        sheet is not part of the key (find_entity_for_source refuses a sheet
-        together with a cell)."""
-        existing = find_entity_for_source(cfg, cell=cell_name, cluster=cluster)
+    def _taken(cluster, sheet=None):
+        """The entity that already covers this INSTANCE — the project's ONE
+        duplicate rule, narrowed by the instance's own sheet too (fixed
+        09.10.2026): one cluster standing on several sheets is several
+        instances, so an entity on Channel_0 must not mark Channel_1 spent. An
+        entity WITHOUT a sheet still stands on any sheet."""
+        existing = find_entity_for_source(cfg, cell=cell_name, cluster=cluster,
+                                          sheet=sheet)
         return existing.name if existing is not None else None
 
     def _open() -> None:
@@ -153,8 +155,8 @@ def _write_chosen(hub, cfg, files, cell_name, file_path, chosen) -> None:
         if name_exists_in_list_section(files, "entities", row.name):
             skipped += 1
             continue
-        if find_entity_for_source(cfg, cell=cell_name,
-                                  cluster=row.cluster) is not None:
+        if find_entity_for_source(cfg, cell=cell_name, cluster=row.cluster,
+                                  sheet=row.sheet) is not None:
             skipped += 1
             continue
         seen.add(row.name)

@@ -79,14 +79,18 @@ def _door(hub, monkeypatch, *, run=True):
     return calls
 
 
-def _accepting_dialog(monkeypatch, made):
+def _accepting_dialog(monkeypatch, made, name_fn=None):
     """Подмена формы: принимает и возвращает по одной строке на каждый
-    СВОБОДНЫЙ подходящий экземпляр (имя детерминировано кластером)."""
+    СВОБОДНЫЙ подходящий экземпляр. По умолчанию имя — по кластеру; тест, где
+    ОДИН кластер стоит на нескольких листах, подаёт своё имя — иначе две строки
+    получили бы одно имя, и вторая была бы отброшена как дубликат."""
+    make_name = name_fn or (lambda c: "ent_" + c.cluster)
+
     class _Dialog:
         def __init__(self, parent, cell_name, candidates, existing_names):
             made["candidates"] = list(candidates)
             self._rows = [
-                ChosenEntity(name="ent_" + c.cluster, cluster=c.cluster,
+                ChosenEntity(name=make_name(c), cluster=c.cluster,
                              sheet=c.sheet)
                 for c in candidates if c.fits and not c.taken]
 
@@ -155,7 +159,7 @@ def test_checked_instances_are_written_in_one_edit(
     changes = []
     hub.config_tree_dock.graph_changed.connect(lambda: changes.append(1))
 
-    hub._add_entities_from_tree("my_cell", root)
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
 
     rows = {e["name"]: e for e in entities_of(root)}
     assert set(rows) == {"ent_CL_A", "ent_CL_B"}
@@ -177,7 +181,7 @@ def test_taken_instance_is_not_written(real_main_window, tmp_path, monkeypatch):
     made = {}
     _accepting_dialog(monkeypatch, made)
 
-    hub._add_entities_from_tree("my_cell", root)
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
 
     taken = [c for c in made["candidates"] if c.cluster == "CL_A"][0]
     assert taken.taken and taken.entity_name == "existing_e"
@@ -195,7 +199,7 @@ def test_non_fitting_instance_is_not_written(
     made = {}
     _accepting_dialog(monkeypatch, made)
 
-    hub._add_entities_from_tree("my_cell", root)
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
 
     assert [c.cluster for c in made["candidates"] if c.fits] == ["CL_OK"]
     assert [e["name"] for e in entities_of(root)] == ["ent_CL_OK"]
@@ -212,7 +216,7 @@ def test_no_tree_nodes_are_added(real_main_window, tmp_path, monkeypatch):
     _door(hub, monkeypatch)
     _accepting_dialog(monkeypatch, {})
 
-    hub._add_entities_from_tree("my_cell", root)
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
 
     assert load_config_data(root).get("trees") == before
 
@@ -231,7 +235,7 @@ def test_dialog_opens_only_after_the_snapshot_rebuild_request(
     made = {}
     _accepting_dialog(monkeypatch, made)
 
-    hub._add_entities_from_tree("my_cell", hub.root_metadata_dock.root_path)
+    flow_mod.add_entities_from_tree(hub, "my_cell", hub.root_metadata_dock.root_path)
     assert len(calls) == 1 and "candidates" not in made, (
         "диалог построен ДО запроса свежего снимка — дверь обойдена")
 
@@ -252,8 +256,63 @@ def test_open_log_names_fit_taken_and_lack(
     _accepting_dialog(monkeypatch, {})
 
     with caplog.at_level(logging.INFO):
-        hub._add_entities_from_tree("my_cell", root)
+        flow_mod.add_entities_from_tree(hub, "my_cell", root)
 
     assert any("2 instances fit cell my_cell, 1 taken, 1 lack roles" in r.message
                for r in caplog.records), \
         "Лог обязан назвать, сколько подходит / занято / без ролей"
+
+# ── Д1 приёмки: «занято» обязано видеть ЛИСТ ────────────────────────────
+
+def test_entity_on_another_sheet_does_not_take_the_instance(
+        real_main_window, tmp_path, monkeypatch):
+    """Д1: один кластер на нескольких листах — сущность на Channel_0 НЕ делает
+    занятыми Channel_1/Channel_2. Ветка `cell` в find_entity_for_source сужается
+    и по листу (sheet_in_path); иначе «Add entities» на канальной ячейке
+    упёрлось бы сюда, и добавить Channel_1/2 было бы нельзя."""
+    hub = real_main_window._dock_hub
+    root = _setup(hub, tmp_path, extra={"entities": [
+        {"name": "dac_buf_channel_0", "cell": "my_cell", "cluster": "DAC_BUF",
+         "sheet": "Channel_0"}]})
+    _set_snapshot(hub, monkeypatch, [
+        _Sel("R1", "DAC_BUF", sheet=("Channel_0",)),
+        _Sel("R2", "DAC_BUF", sheet=("Channel_1",)),
+        _Sel("R3", "DAC_BUF", sheet=("Channel_2",))])
+    _door(hub, monkeypatch)
+    made = {}
+    _accepting_dialog(monkeypatch, made,
+                      name_fn=lambda c: "ent_%s_%s" % (c.cluster, c.sheet))
+    writes = _counting_write(monkeypatch)
+
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
+
+    by_sheet = {c.sheet: c for c in made["candidates"]}
+    assert by_sheet["Channel_0"].taken, "Channel_0 уже занят — это верно"
+    assert not by_sheet["Channel_1"].taken, (
+        "сущность на Channel_0 не имеет права занимать Channel_1 (мутация "
+        "«лист снова не участвует»)")
+    assert not by_sheet["Channel_2"].taken
+    assert {e["name"] for e in entities_of(root)} == {
+        "dac_buf_channel_0", "ent_DAC_BUF_Channel_1", "ent_DAC_BUF_Channel_2"}
+    assert len(writes) == 1, "обе новые записи — одной правкой"
+
+
+def test_entity_without_a_sheet_takes_every_sheet(
+        real_main_window, tmp_path, monkeypatch):
+    """Сущность БЕЗ листа — «на любом листе» (строго, как было): занимает ВСЕ
+    экземпляры кластера, ни один не предлагается к добавлению."""
+    hub = real_main_window._dock_hub
+    root = _setup(hub, tmp_path, extra={"entities": [
+        {"name": "any_sheet", "cell": "my_cell", "cluster": "DAC_BUF"}]})
+    _set_snapshot(hub, monkeypatch, [
+        _Sel("R1", "DAC_BUF", sheet=("Channel_0",)),
+        _Sel("R2", "DAC_BUF", sheet=("Channel_1",))])
+    _door(hub, monkeypatch)
+    made = {}
+    _accepting_dialog(monkeypatch, made)
+
+    flow_mod.add_entities_from_tree(hub, "my_cell", root)
+
+    assert all(c.taken for c in made["candidates"]), (
+        "сущность без листа обязана занимать все листы кластера")
+    assert [e["name"] for e in entities_of(root)] == ["any_sheet"]

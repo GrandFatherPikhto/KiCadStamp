@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import sheet_in_path
 
 from .live_position import entity_mount_fallback_reason
 from kicadstamp.placement.anchor_identity import (
@@ -191,10 +192,15 @@ def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
     exactly one of `cell`/`imprint` is expected (the caller knows which node it
     came from):
 
-      - `cell` set: match on entity.cell == cell, narrowed by `cluster` when
-        it is given — two instances of ONE cell on different clusters are two
-        different Entities (the same (cell, cluster) identity
-        resolve_cluster_entity uses);
+      - `cell` set: match on entity.cell == cell, narrowed by `cluster` and by
+        `sheet` when they are given — two instances of ONE cell on different
+        clusters (or on different sheets of one cluster) are two different
+        Entities. The sheet is matched by the project's ONE "does this sheet
+        name this instance" rule (sheet_names.sheet_in_path); an Entity WITHOUT
+        a sheet stands on ANY sheet, strictly as before. Fixed 09.10.2026: the
+        branch used to narrow by cluster alone and REFUSED a sheet, so one
+        cluster standing on several sheets marked every instance spent by the
+        first — the very case the batch "Add entities..." exists for;
       - `imprint` set: match on entity.imprint == imprint, narrowed by `sheet`
         when it is given — an imprint-based Entity is a "clone of a recorded
         snapshot onto a (possibly twin) sheet" (config/models.py:704), where
@@ -203,9 +209,9 @@ def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
         carries no cluster at all (fatal at load, config/models.py:706), so a
         cluster-keyed search could never find one.
 
-    Each second field narrows its OWN branch and no other: `cluster` is the
-    cell branch's, `sheet` is the imprint branch's. Passing `sheet` with `cell`
-    is therefore a caller error, refused loudly rather than silently ignored.
+    Each second field narrows its OWN branch and no other: `cluster` and `sheet`
+    are the cell branch's, and `sheet` is the imprint branch's too — there it is
+    the TARGET sheet of twin-resolution, here the instance's own sheet.
 
     A None second field (nothing typed into the form's Cluster/Sheet field)
     means NO narrowing: ANY Entity on that source counts as the one already
@@ -220,9 +226,6 @@ def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
     if (cell is None) == (imprint is None):
         raise ValueError("exactly one of cell/imprint is required — an Entity "
                          "has precisely one source (config/models.py)")
-    if imprint is None and sheet is not None:
-        raise ValueError("sheet narrows an imprint-based Entity only — a "
-                         "cell's own second key field is cluster")
     for e in cfg.entities:
         if imprint is not None:
             if getattr(e, "imprint", None) != imprint:
@@ -234,6 +237,15 @@ def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
             continue
         if cluster is not None and getattr(e, "cluster", None) != cluster:
             continue
+        if sheet is not None:
+            e_sheet = getattr(e, "sheet", None)
+            # An Entity WITHOUT a sheet stands on ANY sheet; with one, the name
+            # is matched by the project's ONE rule (sheet_in_path). The
+            # instance's sheet identity is a one-element chain here, so this is
+            # the same "does this sheet name this instance" gate the (Cluster,
+            # sheet) addressing applies everywhere else.
+            if e_sheet and not sheet_in_path((sheet,), e_sheet):
+                continue
         return e
     return None
 

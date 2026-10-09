@@ -166,10 +166,9 @@ def instance_candidates(parts: Iterable[Part],
     ``taken`` — an optional callable ``(cluster, sheet) -> entity_name|None``
     answering "is this pair already an entity of this cell". The caller binds
     the project's ONE rule, ``tree_from_selection.find_entity_for_source``
-    (``find_entity_for_source(cfg, cell=..., cluster=...)``); this module never
-    restates it. Note that rule matches a CELL by (cell, cluster) alone — it
-    REFUSES a sheet together with a cell — so an implementation that only knows
-    the cluster may ignore the sheet argument.
+    (``find_entity_for_source(cfg, cell=..., cluster=..., sheet=...)``, which
+    narrows the cell branch by the instance's own sheet); this module never
+    restates it.
 
     Footprints without a Cluster tag do not form an instance and are skipped
     (the same convention ``group_selected`` uses). Non-fitting instances are
