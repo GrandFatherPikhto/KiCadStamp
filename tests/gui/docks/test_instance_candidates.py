@@ -212,3 +212,27 @@ def test_snapshot_parts_carries_role_in_force_and_uuid():
     assert len(parts) == 1
     assert parts[0] == Part(uuid="u-1", ref="R1", role="OVERRIDDEN_ROLE",
                             cluster="CL_A", sheet=("Ch0",))
+
+
+def test_snapshot_parts_resolves_a_hierarchical_sheet_to_names():
+    """Клетка C2 приёмки части 1: деталь с ИЕРАРХИЧЕСКИМ листом (цепочка uuid)
+    обязана приехать в Part.sheet ИМЕНАМИ из sheet_names — ровно это делает
+    импорт snapshot_with_resolved_sheets внутри конвертера. Без него у живого
+    снимка (BoardConnection соединяется без schematic_dir) Selected.sheet — всё
+    None, и подбор экземпляров шёл бы без листа.
+
+    Снимок — НАСТОЯЩИЙ explore.Selected (snapshot_with_resolved_sheets зовёт
+    dataclasses.replace), fp — подставной носитель цепочки uuid."""
+    from kicadstamp.explore import Selected
+
+    class _Fp:
+        uuid = "u-sym"
+        sheet_path_uuids = ("u-root", "u-sheet", "u-sym")
+
+    sel = Selected(ref="R1", role="RES", cluster="CL_A", sheet=[],
+                   nets={}, fp=_Fp())
+    parts = snapshot_parts([sel], {"u-root": "Top", "u-sheet": "Channel_0"})
+    assert parts[0].sheet == ("Top", "Channel_0"), (
+        "цепочка листа обязана разрешиться в ИМЕНА (мутация «snapshot_parts без "
+        "snapshot_with_resolved_sheets»), сейчас: " + repr(parts[0].sheet))
+    assert parts[0].uuid == "u-sym"

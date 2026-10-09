@@ -22,6 +22,8 @@ tests/gui/docks/test_add_entities_menu.py (the menu, the handler, the door).
   * M8  занятые помечены (checkbox on a taken row)          -> taken selectable
   * M9  конфликт имени не блокирует OK                      -> OK always enabled
   * M10 неполные не считаются (counter silenced)            -> "K lack roles" lost
+  * M11 лист снова не участвует (find_entity_for_source)   -> Channel_0 takes 1/2
+  * M12 snapshot_parts без разрешения листов               -> Part.sheet stays ()
   * K1  cosmetic comment                                    -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -106,6 +108,17 @@ MUTATIONS = [
      "            self._counter.setText(\"\")",
      "        self._counter.setText(\"\")  # MUTATION",
      "die", DIALOG, ()),
+    ("M11 лист снова не участвует", "gui/docks/tree_from_selection.py",
+     "        if sheet is not None:\n"
+     "            e_sheet = getattr(e, \"sheet\", None)\n",
+     "        if False:  # MUTATION\n"
+     "            e_sheet = getattr(e, \"sheet\", None)\n",
+     "die", MENU, ()),
+    ("M12 snapshot_parts без разрешения листов", CAND,
+     "    resolved = snapshot_with_resolved_sheets(list(snapshot or ()),\n"
+     "                                             sheet_names or {})\n",
+     "    resolved = list(snapshot or ())  # MUTATION\n",
+     "die", PURE, ()),
     ("K1 cosmetic comment (control)", CAND,
      "    out: list[InstanceCandidate] = []",
      "    out: list[InstanceCandidate] = []  # control",
