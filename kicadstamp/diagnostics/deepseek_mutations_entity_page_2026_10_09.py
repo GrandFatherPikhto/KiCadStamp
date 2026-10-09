@@ -1,8 +1,9 @@
 # kicadstamp/diagnostics/deepseek_mutations_entity_page_2026_10_09.py
-"""Acceptance mutations for plan_2026_10_09_entity_page.md, ШАГИ 1-3
+"""Acceptance mutations for plan_2026_10_09_entity_page.md, ШАГИ 1-5
 (страница сущности: перенос в gui/entity/page.py + комбобокс ячейки на потоке
-change_cell_flow; ШАГ 2 — Explode на странице сущности; ШАГ 3 — таб «Refs» со
-страницы ячейки на страницу сущности), 2026-10-09.
+change_cell_flow; ШАГ 2 — Explode на странице сущности; ШАГ 3 — таб «Refs»;
+ШАГ 4 — таб «Anchor»; ШАГ 5 — адрес как АРГУМЕНТ: док без адреса не читает
+плату, хранилище-откат мёртв), 2026-10-09.
 
 Grown from deepseek_mutations_cells_entities_part1_2026_10_09.py (rule 38): the
 SAME machinery — basename-resolved tests under tests/, `_drop_pyc` for the
@@ -70,6 +71,9 @@ REFS_WIRED = ["test_entity_page_refs_tab.py", "test_phase3_wiring.py"]
 STORE_CHAIN = ["test_overrides_store_reload.py", "test_overrides_store_reload_gui.py"]
 # ШАГ 4: the ENTITY page's "Anchor" tab — the extracted Role + Marker anchor.
 ANCHOR = ["test_anchor_tab.py"]
+# ШАГ 5 (Т5-2/Т5-3): the ADDRESS is an ARGUMENT a door hands over; a dock with NO
+# address reads NOTHING, and the deleted working-instance store never answers.
+ADDRESS = ["test_entities_part3_address.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
@@ -77,6 +81,7 @@ PURE = "gui/docks/instance_candidates.py"
 WIRING = "gui/explode_wiring.py"
 HUB = "gui/dock_hub.py"
 ANCHOR_FILE = "gui/entity/anchor_tab.py"
+ADDR = "gui/entity/address.py"
 
 MUTATIONS = [
     ("M1 комбобокс пишет мимо apply_cell_change", PAGE,
@@ -92,9 +97,9 @@ MUTATIONS = [
      "            if item is not None and not (cand.fits or choices.orphan):\n",
      "            if False:  # MUTATION\n",
      "die", COMBO, ()),
-    ("M3 нет снимка -> подбор включается", FLOW,
-     "    if cfg is None or not instance:\n",
-     "    if False:  # MUTATION\n",
+    ("M3 нет снимка -> подбор не раскрывается", FLOW,
+     "    if not instance:\n",
+     "    if False:  # MUTATION: no snapshot no longer offers every cell\n",
      "die", COMBO, ()),
     ("M4 текущая ячейка не выбрана", PAGE,
      "        pos = combo.findData(current) if current else -1\n",
@@ -108,9 +113,9 @@ MUTATIONS = [
      "                             reason=reason, current=(cell.name == current))\n",
      "                             reason=reason, current=False)  # MUTATION\n",
      "die", COMBO, ()),
-    ("M7 open_tab снова открывает страницу ячейки", WIRING,
+    ("M7 open_tab открывает не ту страницу", WIRING,
      "            hub.config_tree_dock.show_page(entity_page)\n",
-     "            hub.config_tree_dock.show_page(hub._cell_anchor_page)  # MUTATION\n",
+     "            hub.config_tree_dock.show_page(hub._points_page)  # MUTATION\n",
      "die", EXPLODE, ()),
     ("M8 адрес Explode не от сущности", PAGE,
      '        self._explode_page.set_context(\n'
@@ -166,6 +171,23 @@ MUTATIONS = [
      "        self._anchor_tab = widget\n",
      "        self._anchor_tab = widget  # control\n",
      "survive", ANCHOR, ()),
+    # ── ШАГ 5 (Т5-2/Т5-3): no address — no board read ────────────────────
+    ("M17 CellDock без адреса читает плату", ADDR,
+     "    if address is not None:\n"
+     "        return read_instance_of(address), None\n",
+     "    if True:  # MUTATION: reads even with no address\n"
+     "        return read_instance_of(address), None\n",
+     "die", ADDRESS, ()),
+    ("M18 откат к хранилищу без адреса", ADDR,
+     "    address = expected_address if expected_address is not None else dock_address\n",
+     "    address = expected_address if expected_address is not None else dock_address\n"
+     "    if address is None:  # MUTATION: the removed store answers a pair\n"
+     "        address = entity_address({\"cluster\": \"REMEMBERED\"})\n",
+     "die", ADDRESS, ()),
+    ("K4 cosmetic comment (control)", ADDR,
+     "def read_instance_or_report(expected_address, dock_address, verb: str):\n",
+     "def read_instance_or_report(expected_address, dock_address, verb: str):  # control\n",
+     "survive", ADDRESS, ()),
 ]
 
 

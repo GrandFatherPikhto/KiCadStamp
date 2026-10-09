@@ -358,3 +358,23 @@ def test_the_board_item_of_an_entity_leaf_reaches_the_dock_with_the_address(
     row = kwargs.get("expected_address")
     assert row is not None and row.entity_name == "e2", kwargs
     assert (row.cluster, row.sheet) == ("CL2", "S2"), kwargs
+
+
+def test_a_celldock_with_no_address_reads_no_board(
+        main_window, tmp_path, monkeypatch):
+    """Step 5, Т5-4: a CellDock loaded with NO door address (a bare cell leaf) has
+    no instance to work with — Update and Import REFUSE and start NO worker. The
+    mutations «CellDock без адреса читает плату» and «откат к хранилищу без
+    адреса» (deepseek_mutations_entity_page_2026_10_09) both redden THIS cell."""
+    root = tmp_path / "root.sexp"
+    _config_with_two_entities(root)
+    dock = CellDock(main_window)
+    dock.set_root_path(root)
+    dock.load_entry("c")                     # no address handed over
+    main_window.connection.board = SimpleNamespace(adapter=object())
+    payloads = _capture_payloads(monkeypatch)
+
+    dock.refresh_from_selection_requested("c", root)
+    dock.import_from_selection_requested("c", root)
+
+    assert payloads == [], "док без адреса не читает плату ни одним чтением"
