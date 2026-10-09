@@ -11809,18 +11809,22 @@ msgstr ""
 "— откат к имени расколол бы один реестр на именные и uuid-ключи, и prune "
 "удалил бы разницу"
 
-#: kicadstamp/registry.py:214
+#: kicadstamp/registry.py:222
 #, python-brace-format
 msgid ""
-"The copper registry {path} was not lifted to the current schema (spoke "
-"copper keys detached) — apply stopped, the board was not touched; reopen "
-"the profile (the lift runs on open) or check that the registry directory "
-"is writable"
+"The copper registry {path} was not lifted to the current schema — apply "
+"stopped, the board was not touched. This is expected while the profile still "
+"carries a non-empty chains: (the lift is skipped then, so the spoke copper "
+"keys stay attached): remove the chains: section and reopen the profile. If "
+"the profile has no chains:, the lift could not write the file — reopen the "
+"profile, and check that the registry directory is writable"
 msgstr ""
-"Реестр меди {path} не поднят до текущей схемы (спицевые ключи меди "
-"отвязаны) — применение остановлено, плата не тронута; откройте профиль "
-"заново (подъём выполняется при открытии) или проверьте, можно ли писать "
-"в каталог реестра"
+"Реестр меди {path} не поднят до текущей схемы — применение остановлено, "
+"плата не тронута. Это ожидаемо, пока в профиле есть непустая секция "
+"chains: (тогда подъём пропускается, и спицевые ключи меди остаются "
+"привязанными): удалите секцию chains: и откройте профиль заново. Если "
+"chains: нет, подъём не смог записать файл — откройте профиль заново и "
+"проверьте, можно ли писать в каталог реестра"
 
 #: kicadstamp/registry.py:251 kicadstamp/registry.py:269
 #, python-brace-format

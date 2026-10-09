@@ -201,6 +201,14 @@ def _refuse_unlifted_registry(raw: dict, path: str) -> None:
     still attached) is refused as well, because reading it would let reconcile
     prune the detached-elsewhere spoke copper and delete it.
 
+    The message names ``chains:`` FIRST, because that is the EXPECTED reason as of
+    Д2's fix-up: while the config still carries a non-empty ``chains:`` the lift
+    deliberately leaves the registry alone (registry_upgrade rule 7), so the file
+    stays at schema 2 on purpose. The second sentence covers the other reason (the
+    lift could not write) — the reader cannot tell the two apart: it sees only the
+    file, and carrying the Config down here for a message would point the registry
+    at the config package for no functional gain.
+
     A NON-integer ``schema_version`` is left to ``check_schema_version`` (a
     plain ``ValueError``), keeping its message and behaviour unchanged.
     """
@@ -212,10 +220,13 @@ def _refuse_unlifted_registry(raw: dict, path: str) -> None:
              and version < REGISTRY_SCHEMA_VERSION_FORMAT3)
     if version is None or older:
         raise ValidationError(_(
-            "The copper registry {path} was not lifted to the current schema "
-            "(spoke copper keys detached) — apply stopped, the board was not "
-            "touched; reopen the profile (the lift runs on open) or check that "
-            "the registry directory is writable"
+            "The copper registry {path} was not lifted to the current schema — "
+            "apply stopped, the board was not touched. This is expected while the "
+            "profile still carries a non-empty chains: (the lift is skipped then, "
+            "so the spoke copper keys stay attached): remove the chains: section "
+            "and reopen the profile. If the profile has no chains:, the lift could "
+            "not write the file — reopen the profile, and check that the registry "
+            "directory is writable"
         ).format(path=str(path)))
 
 

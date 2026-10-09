@@ -54,6 +54,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.registry import (PlacementRegistry, load_registry,
                                  load_track_registry, registries_empty_for)
+from kicadstamp.utils.file_cache import invalidate_graph_path, invalidate_path
 from kicadstamp.utils.paths import (registry_path_for_config,
                                     track_registry_path_for_config)
 from tests.fakes.format3 import det_uuid, format3, mint_format3  # noqa: F401
@@ -499,6 +500,19 @@ def test_format3_refuses_a_schema2_registry(tmp_path, format3):  # noqa: F811
         load_registry(str(p))
 
 
+def test_the_unlifted_refusal_names_chains_as_the_first_reason(tmp_path, format3):  # noqa: F811
+    """Д2 доделка п.1: a registry deliberately LEFT at schema 2 (the profile still
+    has `chains:`, so the lift skips it) is refused on read — and the message names
+    THAT reason with what to do, not merely "reopen the profile"."""
+    p = tmp_path / "via.registry.json"
+    _write_registry(str(p), {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
+    with pytest.raises(ValidationError) as e:
+        load_registry(str(p))
+    message = str(e.value)
+    assert "chains" in message, message
+    assert "remove the chains" in message, message
+
+
 def test_format3_refuses_a_schema1_registry(tmp_path, format3):  # noqa: F811
     """The gate: a schema-1 registry is a FATAL under format 3 — not a lenient
     read that would delete the copper (Н3)."""
@@ -764,29 +778,72 @@ def _with_a_chain(data: dict) -> dict:
     return data
 
 
-def test_spoke_keys_are_kept_while_the_config_still_plans_them(
-        tmp_path, format3):  # noqa: F811
-    """Д2 SAFETY: a config that still carries `chains:` PLANS the spoke copper, so
-    detaching its registry entry would make the next apply CREATE that copper
-    again — DUPLICATES on the board. With chains present the lift leaves the spoke
-    keys ATTACHED (the pre-Д2 behaviour) and only raises the schema.
+def test_a_non_empty_chains_section_leaves_the_registry_untouched(
+        tmp_path, format3, caplog):  # noqa: F811
+    """Д2 доделка п.1 (а): a config that still carries `chains:` PLANS its spoke
+    copper, so its registry is NOT lifted AT ALL — byte-for-byte, no `.bak`, the
+    schema stays 2.
 
-    This guard is what makes Д2 safe to land before Д1 (the load refusal for a
-    non-empty chains:), which would otherwise be a prerequisite."""
+    Why not "lift the schema but keep the keys" (what the first cut did): once the
+    `chains:` section is removed, a schema-target file makes the lift a NO-OP, so
+    the spoke keys stay attached while NOTHING plans them any more — and
+    ``reconcile`` then PRUNES them, deleting the copper. That is exactly what Д2
+    exists to prevent, so the file must be left alone until the chains are gone."""
     root = tmp_path / "root.sexp"
     root.write_text(dict_to_sexp(mint_format3(_with_a_chain(_config_data())),
                                  format_number=3), encoding="utf-8")
     via = registry_path_for_config(str(root))
-    # schema 2 (already uuid-keyed): the ONLY change the lift may make is the
-    # detach, so a kept key is unambiguous evidence the guard fired.
+    _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
+    before = Path(via).read_text(encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.config.registry_upgrade"):
+        load_config(str(root))
+
+    assert Path(via).read_text(encoding="utf-8") == before, (
+        "the registry was touched although the config still has chains:")
+    assert _read(via)["schema_version"] == 2, "the schema must stay 2"
+    assert list(Path(via).parent.glob("*.bak.*")) == [], (
+        "no write means no .bak")
+    warnings = [r.getMessage() for r in caplog.records
+                if r.name == "kicadstamp.config.registry_upgrade"
+                and r.levelno == logging.WARNING]
+    assert any("chains" in m and "ch1" in m for m in warnings), warnings
+
+
+def test_clearing_the_chains_lets_the_next_open_detach_and_lift(
+        tmp_path, format3):  # noqa: F811
+    """Д2 доделка п.1 (б): the cell above leaves the file at schema 2; once the
+    `chains:` section is gone the NEXT open detaches the spoke keys and stamps the
+    current schema. That pair is the whole reason the registry is left untouched
+    rather than half-lifted."""
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp(mint_format3(_with_a_chain(_config_data())),
+                                 format_number=3), encoding="utf-8")
+    via = registry_path_for_config(str(root))
     _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
 
+    load_config(str(root))                          # (а): the file is left alone
+    assert _read(via)["schema_version"] == 2
+    assert "pad:17|leaf|__spoke__|0" in _read(via)
+
+    # The chains: section is removed (the SAME graph, deterministic uuids) and the
+    # profile is opened again — now the lift detaches the key and stamps the schema.
+    root.write_text(dict_to_sexp(mint_format3(_config_data()), format_number=3),
+                    encoding="utf-8")
+    # Our OWN write: the two physical writes of THIS test can share one mtime tick
+    # (a coarse-timer filesystem — the `--coarse-mtime` leg — and then the
+    # mtime-keyed read cache serves the PREVIOUS text, chains and all). The
+    # writers' own contract is invalidate_path() right after the write
+    # (file_cache's docstring), so a hand-written test file must do it too.
+    invalidate_path(root)
+    invalidate_graph_path(root)
     load_config(str(root))
 
     after = _read(via)
     assert after["schema_version"] == ru.TARGET_SCHEMA_VERSION
-    assert "pad:17|leaf|__spoke__|0" in after, (
-        "a spoke key the config still plans must NOT be detached")
+    assert "pad:17|leaf|__spoke__|0" not in after, (
+        "the spoke key is detached once nothing plans it")
+    assert list(Path(via).parent.glob("*.bak.*")), "the detach writes a .bak"
 
 
 def test_the_cell_level_role_placeholder_literal_is_unchanged():

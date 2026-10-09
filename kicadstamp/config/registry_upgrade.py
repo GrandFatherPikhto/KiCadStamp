@@ -31,6 +31,14 @@ adoptable by the cell that now describes it) where a KEPT entry would be pruned
 by reconcile on the next apply — deleting the copper. Schema 2 (uuid keys, spokes
 still attached) is lifted too, by the detach alone.
 
+7. While the config STILL PLANS the spoke copper (a non-empty ``chains:``) the
+   registry is NOT lifted AT ALL — no write, no ``.bak``, the schema stays where
+   it is. Lifting it (even keeping the keys) would stamp the target schema and
+   turn the lift into a NO-OP for the open that runs AFTER the chains are removed:
+   the spoke keys would stay attached with nothing planning them, and reconcile
+   would PRUNE them — the very deletion Д2 prevents. Leaving the file alone keeps
+   the lift available for that later open, and a WARNING says why.
+
 What changes in a key is ONLY the record-identifying NAME parts (plan §6,
 Р-У5.1/Р-У5.2): ``name:<name>`` -> ``name:<uuid>``, ``point:<name>:ox:oy`` ->
 ``point:<uuid>:ox:oy``, ``thermal:<name>`` -> ``thermal:<uuid>``,
@@ -67,6 +75,7 @@ from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
 from .models import (
+    chain_effective_name,
     clone_placement_effective_name,
     entity_effective_name,
     net_trace_effective_name,
@@ -78,6 +87,27 @@ logger = logging.getLogger(__name__)
 # constant (REGISTRY_SCHEMA_VERSION_FORMAT3) so the reader, the writer and this
 # lift can never drift: 3 = UUID keys with the SPOKE copper keys detached (Д2).
 TARGET_SCHEMA_VERSION = REGISTRY_SCHEMA_VERSION_FORMAT3
+
+# How many keys/names a WARNING lists before "…"; the FULL list goes to DEBUG
+# right beside it (a live profile can carry ~355 of them — one line, not a wall).
+_LISTED_LIMIT = 10
+
+
+def _listed(items: list[str], limit: int = _LISTED_LIMIT) -> str:
+    """``"<N>: a, b, …"`` — the count plus the first ``limit`` entries, for a
+    WARNING. The full list goes to DEBUG beside it (:func:`_debug_listed`)."""
+    shown = ", ".join(items[:limit])
+    if len(items) > limit:
+        shown += ", …"
+    return "{count}: {shown}".format(count=len(items), shown=shown)
+
+
+def _debug_listed(path, what: str, items: list[str]) -> None:
+    """The FULL list at DEBUG, right beside its truncated WARNING — ONE owner of
+    the "count + first N + … in the WARNING, everything in DEBUG" rule."""
+    if items:
+        logger.debug("registry {path}: {what} (full list): {keys}".format(
+            path=path, what=what, keys=", ".join(sorted(items))))
 
 # The PREVIOUS format-3 schema (У5.4): UUID keys, but the spoke copper keys
 # (``pad:<pad>|…``) were still attached. A registry at this schema still needs
@@ -326,6 +356,10 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
     schema (``TARGET_SCHEMA_VERSION``): map name keys to uuids (schema 1) and
     DETACH the spoke copper keys (schema 1 and 2 — Д2).
 
+    A config that still carries a non-empty ``chains:`` PLANS its spoke copper, so
+    both registries are left UNTOUCHED (rule 7 above) — the lift waits for the
+    open that runs after the chains are gone.
+
     Returns the files written (empty when nothing needed lifting). Refuses a
     registry NEWER than this build BEFORE the first write (pre-pass); a failed
     write leaves that file as it was and logs the reason.
@@ -368,6 +402,15 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 .format(path=str(path), version=schema, expected=TARGET_SCHEMA_VERSION))
         schemas[path] = schema
 
+    # Д2 доделка п.1 (дыра первого захода, 09.10.2026): while the config STILL
+    # PLANS the spoke copper the registry must NOT be lifted AT ALL. Lifting it
+    # (even keeping the keys) would stamp the TARGET schema, and once the
+    # `chains:` section is removed the lift becomes a NO-OP for that file — the
+    # spoke keys stay attached with nothing planning them, and `reconcile` then
+    # PRUNES them (deleting the copper). Left alone, the file keeps the lift
+    # available for the open that runs AFTER the chains are gone.
+    chains = list(getattr(cfg, "chains", None) or [])
+
     idx = _build_index(cfg)
     lifted: list[Path] = []
     for path in paths:
@@ -378,19 +421,20 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
         if schema not in (REGISTRY_SCHEMA_VERSION, _UUID_KEY_SCHEMA_VERSION):
             # Unreachable: the pre-pass refuses anything NEWER than the target.
             continue
+        if chains:
+            logger.warning(
+                "registry {path}: left at schema {schema} — the config still has "
+                "chains: ({names}); the spoke copper keys are still PLANNED, so "
+                "they must stay attached. Remove the chains: section — the NEXT "
+                "open detaches the spoke copper and lifts the schema".format(
+                    path=path, schema=schema,
+                    names=_listed([chain_effective_name(c) for c in chains])))
+            _debug_listed(path, "chains",
+                          [chain_effective_name(c) for c in chains])
+            continue
         # Schema 1 (name keys) is mapped to uuids; schema 2 is already
         # uuid-keyed and only needs the spoke detach. Both end at the target.
         name_keyed = schema == REGISTRY_SCHEMA_VERSION
-        # Д2 SAFETY (finding, 09.10.2026) — never detach the spoke keys while the
-        # config STILL PLANS that copper. The detach exists because no plan
-        # produces a spoke key any more (chains are gone); a config that still
-        # carries a non-empty `chains:` DOES plan it, so detaching the entry would
-        # make the next apply CREATE the copper again — DUPLICATES on the board.
-        # With chains present the spoke keys are therefore LEFT ATTACHED, i.e. the
-        # pre-Д2 behaviour (mapped, kept, reconciled as before). Once Д1's load
-        # refusal lands no loadable config has chains and this guard is inert; it
-        # is what makes Д2 safe to land on its own, and it is pinned by a cell.
-        detach_spokes = not (getattr(cfg, "chains", None) or [])
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
@@ -402,9 +446,9 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             for key, value in entries.items():
                 # Д2: a spoke key is DETACHED — dropped, never mapped, so the
                 # board copper it named is left unowned instead of being pruned
-                # away on the next apply — UNLESS the config still plans it (see
-                # detach_spokes above).
-                if detach_spokes and _is_spoke_key(key):
+                # away on the next apply. (A config that still PLANS this copper
+                # never reaches here — see the `chains` skip above.)
+                if _is_spoke_key(key):
                     detached.append(key)
                     continue
                 new_key, problem = (map_registry_key(key, idx) if name_keyed
@@ -447,11 +491,11 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             continue
         if detached:
             logger.warning(
-                "registry {path}: {count} spoke copper key(s) DETACHED — the "
+                "registry {path}: spoke copper key(s) DETACHED ({listed}) — the "
                 "copper stays on the board, unowned (adoptable by the cell that "
-                "now describes it); the entries were dropped: {keys}".format(
-                    path=path, count=len(detached),
-                    keys=", ".join(sorted(detached))))
+                "now describes it)".format(
+                    path=path, listed=_listed(sorted(detached))))
+            _debug_listed(path, "DETACHED spoke copper keys", detached)
         if problems:
             logger.warning(
                 "registry {path}: {count} key(s) are NOT lifted — the record name "

@@ -20,14 +20,17 @@ kicadstamp/registry.py, the schema constants in kicadstamp/persistence.py):
   * M5 the format-3 read gate accepts schema 2 again — the spoke copper would be pruned
   * M6 the format-3 registry schema stays 2 (the lift and the gate disagree)
   * M7 the `__spoke__` literal is renamed — every cell-copper key's role part changes
+  * M8 the `chains:` skip is dropped — the schema is raised although the config
+       still PLANS the spoke copper (the file's copper is then re-created or pruned
+       away: the hole the Д2 fix-up closes)
   * K1 a cosmetic comment in the lift -> MUST survive
 
 The guard set is tests/placement/test_registry_upgrade_on_disk.py (the whole Д2 axis:
 detach, the board double's zero deletions, the neighbour keys, `.bak`, the no-op, the
 schema-2 refusal).
 
-Д1 rows (the loader refusal for a non-empty chains: / a chain-kind tree node) are added
-in the SAME file once Ч1.2 lands — this harness is the ONE Ч1 instrument.
+Д1 (the loader refusal for a non-empty `chains:` / a chain-kind tree node) moved to
+Ч3 by the acceptance of 09.10 — its rows will be added there, not here.
 
     .venv/bin/python kicadstamp/diagnostics/deepseek_mutations_spokes_ch1_2026_10_08.py
 """
@@ -91,11 +94,16 @@ MUTATIONS = [
      "SPOKE_LEVEL_ROLE_PLACEHOLDER = \"__spoke__\"",
      "SPOKE_LEVEL_ROLE_PLACEHOLDER = \"__spoke_renamed__\"",
      "die", GUARDS, ()),
-    # 8 — the Д2 SAFETY guard is dropped: the detach fires even though the config
-    # still PLANS the spoke copper, so the next apply re-creates it (duplicates).
-    ("M8 the detach ignores a still-planned chain", RU,
-     "        detach_spokes = not (getattr(cfg, \"chains\", None) or [])\n",
-     "        detach_spokes = True  # MUTATION\n",
+    # 8 — the chains skip is dropped: the registry IS lifted while the config still
+    # plans the spoke copper. The file then gets the target schema with its spoke
+    # copper re-created (keys detached) or pruned later (keys kept) — the hole the
+    # Д2 fix-up closes. Both Д2 cells spell out "the file is left alone", so either
+    # shape of the hole kills them.
+    ("M8 the chains skip is dropped", RU,
+     "            _debug_listed(path, \"chains\",\n"
+     "                          [chain_effective_name(c) for c in chains])\n"
+     "            continue\n",
+     "            pass  # MUTATION: lift anyway\n",
      "die", GUARDS, ()),
     # K1 — a cosmetic comment in the lift: MUST survive.
     ("K1 a cosmetic comment in the lift", RU,

@@ -30,7 +30,6 @@ either present and carried, or the cell is vacuous):
   cells/points       the anchor records every other form points at
   entities           a tree-placed entity -> a materialized clone, keyed `name:`
   clone_placements   absolute / anchor_ref / anchor_role / anchor_point / nested
-  chains             a `pad:`-anchored spoke with its own cell
   thermal_via_arrays a `thermal:` keyed matrix
   net_traces         a `net:` keyed trace
   trees              the tree that places the entity
@@ -71,9 +70,6 @@ from kicadstamp.persistence import REGISTRY_SCHEMA_VERSION_FORMAT3
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import (
     ClonePositionCalculator,
-)
-from kicadstamp.placement.services.manual_position_calculator import (
-    ManualPositionCalculator,
 )
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
@@ -168,8 +164,10 @@ def _root_data() -> dict:
             {"name": "csub", "cluster": "csub", "cell": "subcell",
              "anchor_point": "P2", "xy": [0.0, 0.0]},
         ],
-        "chains": [{"net": "GND", "name": "ch1", "anchor_ref": "U1",
-                    "spokes": [{"pad": "1", "cell": "leaf"}]}],
+        # NO ``chains`` section: a profile that still carries one has its registry
+        # DELIBERATELY left untouched by the lift (Д2 доделка п.1), so it could not
+        # witness "the whole graph lifts and the second apply is empty" — that
+        # subject now belongs to the chain-free forms below.
         "thermal_via_arrays": [{"name": "tva1", "anchor_ref": "U1", "pad": "1",
                                 "net": "GND", "rows": 1, "cols": 1, "margin_mm": 0.0,
                                 "pattern": "grid", "drill_mm": 0.3, "diameter_mm": 0.6}],
@@ -228,16 +226,12 @@ def _write_graph(tmp_path: Path) -> Path:
 def _all_commands(cfg, adapter):
     """Every command the profile produces: all clone_placements (hand-written,
     entity-materialized, tree_instances- and sheet_templates-generated), the
-    chains, the matrix and the net traces. Combined so the second apply is the
-    WHOLE graph's, not one form's."""
+    matrix and the net traces. Combined so the second apply is the WHOLE graph's,
+    not one form's."""
     vias, tracks = [], []
     clones = list(cfg.clone_placements) + materialize_entity_placements(
         adapter, cfg, {})
     _p, v, t = ClonePositionCalculator(adapter, cfg, {}).compute_raw_positions(clones)
-    vias += v
-    tracks += t
-    _p, v, t = ManualPositionCalculator(adapter, cfg).compute_raw_positions(
-        list(cfg.chains))
     vias += v
     tracks += t
     vias += ViaPlanner(adapter, cfg).plan_vias([], [])
@@ -347,7 +341,6 @@ def _assert_every_form_is_bound(commands) -> None:
         "point:P2",                   # csub — cross-file point
         "anchor:U1",                  # cref — anchor_ref
         "role:FPGA",                  # crole — anchor_role
-        "pad:1",                      # chain spoke
         "thermal:tva1",               # thermal_via_arrays matrix
         "net:nt1",                    # net_traces trace
     ) if not _form_is_bound(parts, form)]

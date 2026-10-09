@@ -90,7 +90,7 @@ release (most releases do not change the grammar). The name is borrowed from KiC
 | No number at all | format **1** — every file written before the number existed looks like this |
 | Current format | **3** |
 | What the 1 → 2 step changes | only the number itself; the content does not change |
-| What the 2 → 3 step changes | record identity: every record gains a `uuid`, every reference gains its target's UUID beside the name, each section gains a folder table, and the profile's copper registry is lifted to schema 3 — the spoke copper keys (`pad:<pad>|…`) are **DETACHED** (dropped from the registry, NOT deleted from the board: the copper stays, unowned, ready for the cell that now describes that position to adopt it). A registry the config still plans (a non-empty `chains:`) keeps its spoke keys. See [Identity: UUID](#identity-uuid) |
+| What the 2 → 3 step changes | record identity: every record gains a `uuid`, every reference gains its target's UUID beside the name, each section gains a folder table, and the profile's copper registry is lifted to schema 3 — the spoke copper keys (`pad:<pad>|…`) are **DETACHED** (dropped from the registry, NOT deleted from the board: the copper stays, unowned, ready for the cell that now describes that position to adopt it). While the profile STILL carries a `chains:` section its registries are **left completely untouched** (no write, no `.bak`, the schema stays where it is) — that copper is still planned, and lifting the schema there would prune it later; remove `chains:` and the next open detaches it. See [Identity: UUID](#identity-uuid) |
 | Who writes the number | the writer, always. Never write it by hand — saving the config adds it |
 
 ### What happens to an old file
