@@ -168,10 +168,19 @@ def create_entity_action(dock, item, monkeypatch):
 
 def capture_hub_messages(monkeypatch) -> list:
     """Захват пользовательских строк хаба (тот же стаб, что в
-    tests/gui/test_phase3_wiring.py): отказ обязан ГОВОРИТЬ, что случилось."""
+    tests/gui/test_phase3_wiring.py): отказ обязан ГОВОРИТЬ, что случилось.
+
+    Part 3, Т3.0 moved the "Create entity" flow into
+    ``gui/docks/create_entity_flow.py``, which owns its OWN ``show_message``
+    import — so the stub is installed on BOTH the hub (whose other flows still
+    speak through it) and the flow module. Infrastructure retarget only: no
+    assertion of any cell changed."""
+    import gui.docks.create_entity_flow as create_entity_flow_mod
+
     messages: list = []
-    monkeypatch.setattr(dock_hub_mod, "show_message",
-                        lambda text, style="", logger=None: messages.append(text))
+    stub = lambda text, style="", logger=None: messages.append(text)  # noqa: E731
+    monkeypatch.setattr(dock_hub_mod, "show_message", stub)
+    monkeypatch.setattr(create_entity_flow_mod, "show_message", stub)
     return messages
 
 
