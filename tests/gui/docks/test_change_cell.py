@@ -239,3 +239,63 @@ def test_change_cell_menu_item_exists_on_a_healthy_entity(
     assert len(change) == 1, ("у здоровой сущности нет ровно одного "
                               "change_cell_action; видели: "
                               + repr([l for l, _ in actions]))
+
+
+# ── Приёмка части 2, доделки ─────────────────────────────────────────────
+
+def test_entity_whose_parts_are_absent_offers_every_cell_with_the_warning(
+        real_main_window, tmp_path, monkeypatch):
+    """C3 приёмки: граф ГРУЗИТСЯ (ячейка на месте), но деталей экземпляра в
+    снимке НЕТ — тогда сирота по СНИМКУ, а не по графу: все ячейки выбираемы и
+    жёлтая строка говорит, что подбор не проверялся. Роняет мутация
+    «orphan = cfg is None» (она оставляла такие экземпляры подбором)."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "Ch0"}]})
+    open_project(hub, root)
+    monkeypatch.setattr(hub.main_window.connection, "_snapshot", [])
+    monkeypatch.setattr(hub, "refresh_snapshot_and_push",
+                        lambda on_ready=None: on_ready and on_ready())
+    made = {}
+    monkeypatch.setattr(flow_mod, "ChangeCellDialog",
+                        _accepting_change("c", made))
+
+    entity = {"name": "e1", "cell": "c", "cluster": "CL", "sheet": "Ch0"}
+    flow_mod.change_cell_for_entity(hub, entity, root)
+
+    assert made["orphan"] is True, (
+        "деталей экземпляра в снимке нет — подбор проверить нельзя")
+    assert all(c.fits for c in made["cells"]), (
+        "сирота предлагает ВСЕ ячейки (мутация «orphan = cfg is None»)")
+
+
+def test_choosing_the_same_cell_writes_nothing_and_emits_nothing(
+        real_main_window, tmp_path, monkeypatch, caplog):
+    """C4 приёмки: выбрана ТА ЖЕ ячейка → файл БАЙТ-В-БАЙТ, graph_changed не
+    испущен, в Логе — «already uses cell». Роняет мутация, снимающая ранний
+    выход из _write."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "Ch0"}]})
+    open_project(hub, root)
+    monkeypatch.setattr(hub.main_window.connection, "_snapshot", [_Sel("R1", "CL")])
+    monkeypatch.setattr(hub, "refresh_snapshot_and_push",
+                        lambda on_ready=None: on_ready and on_ready())
+    monkeypatch.setattr(flow_mod, "ChangeCellDialog",
+                        _accepting_change("c", {}))
+    before = root.read_bytes()
+    changes = []
+    hub.config_tree_dock.graph_changed.connect(lambda: changes.append(1))
+
+    entity = {"name": "e1", "cell": "c", "cluster": "CL", "sheet": "Ch0"}
+    with caplog.at_level(logging.INFO):
+        flow_mod.change_cell_for_entity(hub, entity, root)
+
+    assert root.read_bytes() == before, "та же ячейка — конфиг не трогаем"
+    assert changes == [], "нечего менять — graph_changed не испускается"
+    assert any("already uses cell" in r.message for r in caplog.records), \
+        "Лог обязан сказать, что менять нечего"
