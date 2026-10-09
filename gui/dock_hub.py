@@ -55,8 +55,8 @@ from .connection import ui_thread_board_read
 # The ENTITY doors' rules live in their own module (2в, п.1); the delegates below
 # are one-liners over them.
 from . import entity_doors
-from .docks.add_entities_flow import add_entities_from_tree
-from .docks.change_cell_flow import change_cell_for_entity
+from .docks.cell_tree_wiring import (connect_cell_tree_actions,
+                                     inject_snapshot_refresher)
 from .docks.cell_dialog import CellDialog
 from .docks.cell_anchor_view import (
     CellAnchorView,
@@ -167,13 +167,7 @@ class DockHub:
         # the user finds "tree" in one place.
         self.config_tree_dock = ConfigTreeDock(main_window)
         self.trees_dock = TreesDock(main_window)
-        # S.3.2 (plan_2026_09_11_stale_snapshot_role_lists.md): the tree dock's
-        # dialogs read their Role/Cluster candidates lazily from
-        # connection.snapshot, so it gets the SAME "rebuild the snapshot, then
-        # distribute it" operation the other docks receive through
-        # push_snapshot — injected here instead of reached for through
-        # main_window._dock_hub (see TreesDock.set_snapshot_refresher).
-        self.trees_dock.set_snapshot_refresher(self.refresh_snapshot_and_push)
+        inject_snapshot_refresher(self)
 
         # Tab labels at the BOTTOM, matching the tab bar the dock area used
         # (plan_2026_09_04_trees_dock_master_detail.md §4, confirmed with Denis:
@@ -1018,8 +1012,7 @@ class DockHub:
         # entities: record fills. Config-only: no board access at all (Т4/С7).
         self.config_tree_dock.add_entity_requested.connect(
             self._create_entity_from_tree)
-        self.config_tree_dock.add_entities_requested.connect(partial(add_entities_from_tree, self))
-        self.config_tree_dock.change_cell_requested.connect(partial(change_cell_for_entity, self))
+        connect_cell_tree_actions(self)
         # Placer/Thermal via/Extract/Points -> Config tree: a
         # successful Save refreshes the whole tree (walk_include_tree() is
         # re-run) so a brand new (or renamed) entry shows up without
