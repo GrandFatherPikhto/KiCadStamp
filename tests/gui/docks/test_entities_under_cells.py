@@ -436,7 +436,7 @@ def test_change_cell_writes_cell_and_uuid_into_the_entitys_own_file(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Ячейка без сущности: неиспользуемая (3б) — меню из двух, страница read-only
+# Ячейка без сущности: неиспользуемая (3б) — меню из двух
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_unused_cell_menu_is_only_create_entity_and_delete(
@@ -480,25 +480,6 @@ def test_a_placed_cell_without_entity_keeps_only_the_cell_items(
                       "Explode…"):
         assert forbidden not in labels, (forbidden, labels)
 
-
-# 2б, п.3: the page's board buttons, by THEIR OWN names.
-#
-# `isEnabled()` alone is NOT enough: a disabled ANCESTOR (the tab widget) makes
-# every child read as disabled, so a guard on it would be green for the wrong
-# reason — exactly what Denis refused ("сторож, зелёный чужим эффектом, не
-# годится"). Qt marks the widget that was disabled BY ITS OWN CALL with
-# WA_ForceDisabled, which stays False when only the parent is off, so the second
-# half of the guard reads THAT flag — and the mutation "the gate no longer
-# touches the buttons" turns it red.
-# Step 4 of plan_2026_10_09_entity_page: the anchor/marker buttons MOVED to the
-# ENTITY page (gui/entity/anchor_tab.AnchorTabWidget), so the CELL page now has
-# ONE board button left — the Source tab's identification — and the gate guards
-# exactly it. The anchor tab's own board buttons are guarded by
-# tests/gui/docks/test_anchor_tab.py.
-_BOARD_BUTTONS = ("_fill_selection_button",)
-# The buttons the PAGE itself turns ON for a valid cell (`_reload_form`): for
-# them "off" has ONE explanation — the gate.
-_PAGE_ENABLED_BUTTONS = ("_fill_selection_button",)
 
 
 def _diamond_root(tmp_path) -> Path:

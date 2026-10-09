@@ -38,6 +38,7 @@ import gui.docks.tree_from_selection as tfs_mod
 import gui.docks.tree_from_selection_dialog as tfsd_mod
 import kicadstamp.net_trace_extract as net_trace_extract_mod
 
+from tests.gui.create_entity_helpers import open_project, write_config
 from tests.fakes.write_later import write_later
 
 
@@ -640,6 +641,59 @@ def test_edit_cell_requested_loads_cell_and_opens_dialog(real_main_window, tmp_p
 
     assert hub.cells_dock.name_edit.text() == "one_role"
     assert hub.cell_dialog.isVisible()
+
+
+def test_cell_anchor_requested_opens_the_same_map_as_edit_cell(real_main_window,
+                                                              tmp_path):
+    """Step 5 of plan_2026_10_09_entity_page: the CELL leaf's "Cell anchor..." has
+    no page of its own any more — it opens the SAME map as "Edit cell..."
+    (CellDock's form + the non-modal Cell dialog). A CELL leaf names no instance,
+    so no address rides along."""
+    root = tmp_path / "root.sexp"
+    _write(root, {"cells": {"one_role": {"components": []}}})
+    hub = real_main_window._dock_hub
+    hub.cells_dock.set_root_path(root)
+
+    real_main_window.config_tree_dock.cell_anchor_requested.emit("one_role", root)
+
+    assert hub.cells_dock.name_edit.text() == "one_role"
+    assert hub.cells_dock._expected_address is None, \
+        "у листа ЯЧЕЙКИ адреса экземпляра нет — карта открывается без него"
+    assert hub.cell_dialog.isVisible()
+
+
+def test_a_board_door_for_an_entity_never_leaves_the_entity_page(
+        real_main_window, tmp_path, monkeypatch):
+    """Step 5 of plan_2026_10_09_entity_page: the tree's board doors work the
+    CellDock (the cell's MAP) and NEVER navigate the Config right-QView away from
+    the ENTITY page the user is on — the flows refresh no page of their own any
+    more (the CELL page is gone, and a board read does not change the entity
+    RECORD). The address the door hands over is the entity's own."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
+                        "entities": [{"name": "e1", "cell": "c",
+                                      "cluster": "CL", "sheet": "S"}]})
+    open_project(hub, root)
+    calls = []
+    monkeypatch.setattr(hub.cells_dock, "subtract_from_selection_requested",
+                        lambda name, path, **kw: calls.append((name, path, kw)))
+    monkeypatch.setattr(hub.cells_dock, "refresh_from_selection_requested",
+                        lambda name, path, **kw: calls.append((name, path, kw)))
+
+    hub._load_entity_page("e1")
+    assert (real_main_window.config_tree_dock.current_right_page_index()
+            == hub._entity_page)
+
+    hub._subtract_cell_from_selection("c", root, "CL", "S", "e1")
+    hub._refresh_cell_from_selection("c", root, "CL", "S", "e1")
+
+    assert (real_main_window.config_tree_dock.current_right_page_index()
+            == hub._entity_page), "дверь платы не уводит правую страницу с СУЩНОСТИ"
+    assert calls, "дверь обязана звать карту ячейки"
+    for _name, _path, kw in calls:
+        row = kw.get("expected_address")
+        assert row is not None and row.entity_name == "e1"
 
 
 def test_add_cell_requested_opens_blank_form_and_dialog(real_main_window, tmp_path):
