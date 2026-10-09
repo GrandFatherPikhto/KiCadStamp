@@ -30,8 +30,9 @@ from tests.gui.create_entity_helpers import (
 
 # ── Диалог ───────────────────────────────────────────────────────────────
 
-def _row(name, fits=True, reason=""):
-    return CellCandidate(name=name, uuid="u-" + name, fits=fits, reason=reason)
+def _row(name, fits=True, reason="", current=False):
+    return CellCandidate(name=name, uuid="u-" + name, fits=fits, reason=reason,
+                         current=current)
 
 
 def _ok(dlg):
@@ -43,17 +44,42 @@ def _labelled(dlg, object_name):
             if getattr(w, "objectName", lambda: "")() == object_name]
 
 
-def test_fitting_cells_are_selectable_and_unfitting_are_greyed_with_reason(qapp):
-    """Подходящие — сверху и выбираемы; неподходящие — серые, с ПРИЧИНОЙ;
-    ни одна ячейка не спрятана."""
-    dlg = ChangeCellDialog(None, [_row("good"),
-                                  _row("bad", fits=False, reason="role CAP: 1 of 2")])
+def test_fitting_cells_are_listed_and_selectable(qapp):
+    """Подходящие — сверху и выбираемы; в списке ровно то, что дали."""
+    dlg = ChangeCellDialog(None, [_row("good"), _row("also")])
     assert dlg._list.count() == 2
+    assert dlg._list.item(0).flags() & Qt.ItemFlag.ItemIsSelectable
+    assert dlg.result_data() == "good", "первая ПОДХОДЯЩАЯ предвыбрана"
+
+
+def test_the_current_cell_that_does_not_fit_is_marked_and_grey(qapp):
+    """Текущая ячейка сущности в списке ВСЕГДА; не подходит — серая, и её строка
+    говорит почему (Денис, 09.10.2026)."""
+    dlg = ChangeCellDialog(None, [
+        _row("good"),
+        _row("bad", fits=False, reason="role CAP: 1 of 2", current=True)])
     good, bad = dlg._list.item(0), dlg._list.item(1)
     assert good.flags() & Qt.ItemFlag.ItemIsSelectable
     assert not (bad.flags() & Qt.ItemFlag.ItemIsSelectable)
-    assert "role CAP: 1 of 2" in bad.text()
-    assert dlg.result_data() == "good", "первая ПОДХОДЯЩАЯ предвыбрана"
+    assert "current, does not fit: role CAP: 1 of 2" in bad.text()
+
+
+def test_the_grey_line_counts_the_cells_left_out(qapp):
+    """Одна серая строка «K other cells do not fit», причины — в подсказке."""
+    others = [_row("x", fits=False, reason="role A: 0 of 1"),
+              _row("y", fits=False, reason="role B: 0 of 1")]
+    dlg = ChangeCellDialog(None, [_row("good")], others=others)
+    label = _labelled(dlg, "change_cell_others")[0]
+    assert label.text() == "2 other cells do not fit"
+    assert "x: role A: 0 of 1" in label.toolTip()
+    assert label.isVisibleTo(dlg) is True
+
+
+def test_the_grey_line_is_hidden_when_nothing_was_left_out(qapp):
+    dlg = ChangeCellDialog(None, [_row("good")])
+    label = _labelled(dlg, "change_cell_others")[0]
+    assert label.text() == ""
+    assert label.isVisibleTo(dlg) is False
 
 
 def test_orphan_offers_every_cell_with_the_fit_warning(qapp):
@@ -67,6 +93,8 @@ def test_orphan_offers_every_cell_with_the_fit_warning(qapp):
     warning = _labelled(dlg, "change_cell_fit_warning")
     assert warning and "no instance on the board" in warning[0].text()
     assert "(no sheet)" not in warning[0].text()
+    # An orphan has nothing to count — the grey line stays hidden.
+    assert _labelled(dlg, "change_cell_others")[0].isVisibleTo(dlg) is False
 
 
 def test_ok_is_disabled_without_a_selectable_choice(qapp):
@@ -157,9 +185,10 @@ class _Sel:
 
 def _accepting_change(chosen, made):
     class _Dialog:
-        def __init__(self, parent, cells, *, orphan=False):
+        def __init__(self, parent, cells, *, orphan=False, others=()):
             made["cells"] = list(cells)
             made["orphan"] = orphan
+            made["others"] = list(others)
 
         def exec(self):
             return QDialog.DialogCode.Accepted
@@ -205,8 +234,12 @@ def test_change_cell_offers_fitting_first_and_writes_one_edit(
     assert made["cells"], "диалог обязан получить список ячеек"
     assert made["cells"][0].name == "c_dst" and made["cells"][0].fits
     assert made["orphan"] is False
-    assert any(c.name == "c_src" and not c.fits for c in made["cells"]), \
-        "старая ячейка без роли R остаётся в списке серой, с причиной"
+    # The CURRENT cell is always a row — even though it no longer fits; other
+    # non-fitting cells would only be counted, never listed.
+    assert any(c.name == "c_src" and c.current and not c.fits
+               for c in made["cells"]), \
+        "текущая ячейка показана всегда, даже не подходя"
+    assert made["others"] == [], "неподходящих ЧУЖИХ ячеек здесь нет"
     saved = _entities_of(root)[0]
     assert saved["cell"] == "c_dst"
     assert saved.get("cell_uuid"), "cell_uuid обязан быть записан"

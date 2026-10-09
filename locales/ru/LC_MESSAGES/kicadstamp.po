@@ -19533,6 +19533,14 @@ msgstr "роль {role} ×{got} на {want} слотов"
 msgid "role {role}: {got} of {want}"
 msgstr "роль {role}: {got} из {want}"
 
+#: gui/docks/instance_candidates.py
+msgid "current, does not fit:"
+msgstr "текущая, не подходит:"
+
+#: gui/docks/instance_candidates.py
+msgid "{count} other cells do not fit"
+msgstr "ещё не подходят ячеек: {count}"
+
 #: gui/docks/add_entities_flow.py
 msgid "{count} checked instance(s) were skipped — already accounted for."
 msgstr "Пропущено отмеченных экземпляров: {count} — уже учтены."

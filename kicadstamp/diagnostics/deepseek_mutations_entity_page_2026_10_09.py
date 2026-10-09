@@ -14,9 +14,11 @@ WHAT IS BEING PROVEN. The guards are tests/gui/docks/test_entity_page_cell_combo
 editor).
 
   * M1  комбобокс пишет своей записью мимо apply_cell_change  -> обход потока
-  * M2  неподходящая ячейка не серая (enabled)              -> выбор неверной
-  * M3  нет снимка -> подбор включается (orphan снят)        -> всё серое
+  * M2  текущая неподходящая ячейка не серая (enabled)      -> выбор неверной
+  * M3  нет снимка -> подбор включается (orphan снят)        -> список сжался
   * M4  текущая ячейка не выбрана (pos всегда 0)            -> чужая текущая
+  * M5  неподходящие снова в списке (choose_cells)          -> чужие в списке
+  * M6  текущая ячейка не помечена (current=False)          -> текущей нет
   * K1  cosmetic comment (control)                          -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -42,9 +44,14 @@ def _interpreter() -> str:
 PY_BIN = _interpreter()
 
 COMBO = ["test_entity_page_cell_combo.py", "test_entity_page.py"]
+PART2 = ["test_change_cell.py", "test_entities_under_cells.py"]
+# The cells that actually exercise a non-fitting OTHER cell (the combo page and
+# the pure rule) — PART2 alone has no such cell, so M5 would survive there.
+CHOICE = ["test_instance_candidates.py", "test_entity_page_cell_combo.py"]
 
 PAGE = "gui/entity/page.py"
 FLOW = "gui/docks/change_cell_flow.py"
+PURE = "gui/docks/instance_candidates.py"
 
 MUTATIONS = [
     ("M1 комбобокс пишет мимо apply_cell_change", PAGE,
@@ -56,21 +63,29 @@ MUTATIONS = [
      "        _up(_P(self._entity_file), \"entities\", _d,\n"
      "            key_fn=lambda e: e.get(\"name\"))  # MUTATION\n",
      "die", COMBO, ()),
-    ("M2 неподходящая ячейка не серая", PAGE,
-     "            if item is not None and not (cand.fits or orphan):\n",
+    ("M2 текущая неподходящая не серая", PAGE,
+     "            if item is not None and not (cand.fits or choices.orphan):\n",
      "            if False:  # MUTATION\n",
      "die", COMBO, ()),
     ("M3 нет снимка -> подбор включается", FLOW,
-     "    orphan = cfg is None or not instance\n",
-     "    orphan = cfg is None  # MUTATION\n",
+     "    if cfg is None or not instance:\n",
+     "    if False:  # MUTATION\n",
      "die", COMBO, ()),
     ("M4 текущая ячейка не выбрана", PAGE,
      "        pos = combo.findData(current) if current else -1\n",
      "        pos = 0  # MUTATION\n",
      "die", COMBO, ()),
+    ("M5 неподходящие снова в списке", PURE,
+     "        if cand.fits or cand.current:\n",
+     "        if True:  # MUTATION\n",
+     "die", CHOICE, ()),
+    ("M6 текущая ячейка не помечена", PURE,
+     "                             reason=reason, current=(cell.name == current))\n",
+     "                             reason=reason, current=False)  # MUTATION\n",
+     "die", COMBO, ()),
     ("K1 cosmetic comment (control)", PAGE,
-     "        self._cell_orphan = orphan\n",
-     "        self._cell_orphan = orphan  # control\n",
+     "        self._cell_orphan = choices.orphan\n",
+     "        self._cell_orphan = choices.orphan  # control\n",
      "survive", COMBO, ()),
 ]
 

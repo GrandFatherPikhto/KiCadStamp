@@ -25,11 +25,13 @@ step 1):
 
 What the flow does, end to end:
 
-  1. the cell LIST is ``instance_candidates.cell_candidates`` — the project's ONE
+  1. the cell LIST is ``instance_candidates.choose_cells`` — the project's ONE
      "which cells fit this instance" rule — fed with the parts of THIS entity's
-     instance (its own (cluster, sheet)). The instance is read from a snapshot the
-     DOOR refreshes in the worker, never on the UI thread; the page reuses the
-     snapshot the hub already pushed;
+     instance (its own (cluster, sheet)); only FITTING cells plus the entity's
+     CURRENT cell become rows, the rest are counted (Денис, 09.10.2026: no huge
+     list of every cell). The instance is read from a snapshot the DOOR refreshes
+     in the worker, never on the UI thread; the page reuses the snapshot the hub
+     already pushed;
   2. an ORPHAN (no cluster, or nothing of it on the board) has no instance to
      check against, so EVERY cell is offered with a yellow line saying the fit
      was not checked;
@@ -58,8 +60,8 @@ from kicadstamp.i18n import _
 from ._common import ERROR_STYLE as _ERROR_STYLE, show_message, upsert_list_entry
 from .change_cell import ChangeCellDialog
 from .entity_delete import backup_file
-from .instance_candidates import (CellSpec, cell_candidates, instance_parts,
-                                  snapshot_parts)
+from .instance_candidates import (CellChoices, CellSpec, choose_cells,
+                                  instance_parts, snapshot_parts)
 
 logger = logging.getLogger(__name__)
 
@@ -129,39 +131,36 @@ def _resolve_cells(root_path, index=None):
     return cfg, ctx, cells
 
 
-def _candidates_from(parts, cfg, cluster, sheet, cells):
-    """(candidates, orphan) — the ONE candidate rule, shared by the door's dialog
-    and the page's combobox.
+def cell_choices(root_path, snapshot, entity, index=None) -> CellChoices:
+    """WHICH cells a picker offers for ONE entity — the ONE rule for BOTH places
+    of choice (the Entity page's combobox and the "Change cell…" dialog).
 
-    An orphan on EITHER count — the graph cannot place it (cfg is None), or
-    nothing of its instance is on the board — offers every cell, fit not checked.
-    """
-    instance = instance_parts(parts, cluster, sheet) if cluster else []
-    orphan = cfg is None or not instance
-    candidates = (all_cells_rows(cells) if orphan
-                  else cell_candidates(instance, cells))
-    return candidates, orphan
-
-
-def cell_choices(root_path, snapshot, entity, index=None):
-    """(candidates, orphan) for a Cell PICKER that must not read the board — the
-    Entity page's combobox.
+    The rows are the FITTING cells plus the entity's CURRENT cell (always offered,
+    marked; when it does not fit its row says so); every other non-fitting cell is
+    NOT a row, only counted in ``others`` (Денис, 09.10.2026 — "зачем этот
+    огромный список со всеми целлами?"). An ORPHAN — a dangling graph (cfg is
+    None) or nothing of the instance on the board — cannot be checked at all:
+    then EVERY cell is offered, fit not checked (that is how an orphan is fixed),
+    and there is nothing to count.
 
     `snapshot` is the LAST PUSHED board snapshot (``connection.snapshot``); the
-    sheet chains are resolved through the config, exactly as the door does, but
-    NO rebuild is triggered here — the picker never blocks the UI thread on a
-    board read. An empty snapshot (or a dangling graph) therefore offers every
-    cell, fit not checked.
+    sheet chains are resolved through the config, exactly as the door does, but NO
+    rebuild is triggered here — the picker never blocks the UI thread on a board
+    read.
     """
     if root_path is None:
-        return [], True
+        return CellChoices()
     cfg, ctx, cells = _resolve_cells(root_path, index)
     if not cells:
-        return [], True
+        return CellChoices()
     parts = snapshot_parts(snapshot or [],
                            dict(getattr(ctx, "sheet_names", None) or {}))
-    return _candidates_from(parts, cfg, (entity or {}).get("cluster"),
-                            (entity or {}).get("sheet"), cells)
+    cluster = (entity or {}).get("cluster")
+    sheet = (entity or {}).get("sheet")
+    instance = instance_parts(parts, cluster, sheet) if cluster else []
+    if cfg is None or not instance:
+        return CellChoices(candidates=tuple(all_cells_rows(cells)), orphan=True)
+    return choose_cells(instance, cells, (entity or {}).get("cell"))
 
 
 def change_cell_for_entity(hub, entity, file_path) -> None:
@@ -178,20 +177,21 @@ def change_cell_for_entity(hub, entity, file_path) -> None:
     if not isinstance(entity, dict):
         return
     index = getattr(hub.config_tree_dock, "_entity_index", None)
-    cfg, ctx, cells = _resolve_cells(root_path, index)
+    _cfg, _ctx, cells = _resolve_cells(root_path, index)
     if not cells:
         show_message(_("The config has no cells to point at."),
                      _ERROR_STYLE, logger)
         return
-    cluster, sheet = entity.get("cluster"), entity.get("sheet")
-    sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
     connection = hub.main_window.connection
 
     def _open() -> None:
-        parts = snapshot_parts(getattr(connection, "snapshot", None) or [],
-                               sheet_names)
-        candidates, orphan = _candidates_from(parts, cfg, cluster, sheet, cells)
-        dialog = ChangeCellDialog(hub.main_window, candidates, orphan=orphan)
+        # The SAME rule the Entity page's combobox uses — one function, so the
+        # dialog and the box can never offer a different set of cells.
+        choices = cell_choices(root_path,
+                               getattr(connection, "snapshot", None) or [],
+                               entity, index)
+        dialog = ChangeCellDialog(hub.main_window, choices.candidates,
+                                  orphan=choices.orphan, others=choices.others)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         chosen = dialog.result_data()

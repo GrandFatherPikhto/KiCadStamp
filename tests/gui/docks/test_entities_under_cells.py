@@ -351,9 +351,10 @@ def _orphan_dock(main_window, tmp_path):
 def _accepting_change(chosen):
     """Подмена ChangeCellDialog: «приняла» и вернула заданную ячейку."""
     class _Dialog:
-        def __init__(self, parent, cells, *, orphan=False):
+        def __init__(self, parent, cells, *, orphan=False, others=()):
             self.cells = list(cells)
             self.orphan = orphan
+            self.others = list(others)
 
         def exec(self):
             return QDialog.DialogCode.Accepted

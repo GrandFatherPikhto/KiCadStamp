@@ -20,11 +20,16 @@ from collections import Counter
 import pytest
 
 from gui.docks.instance_candidates import (
+    CellCandidate,
     CellSpec,
     Part,
     cell_candidates,
+    cell_row_label,
+    choose_cells,
     instance_candidates,
     instance_parts,
+    others_line,
+    others_tooltip,
     role_mismatch_reason,
     snapshot_parts,
 )
@@ -236,3 +241,56 @@ def test_snapshot_parts_resolves_a_hierarchical_sheet_to_names():
         "цепочка листа обязана разрешиться в ИМЕНА (мутация «snapshot_parts без "
         "snapshot_with_resolved_sheets»), сейчас: " + repr(parts[0].sheet))
     assert parts[0].uuid == "u-sym"
+
+
+# ── choose_cells: что показывать в списке (Денис, 09.10.2026) ───────────────
+
+def _cells():
+    return [CellSpec(name="c_ok", roles=("R",)),
+            CellSpec(name="c_bad", roles=("CAP",))]
+
+
+def test_choose_cells_shows_only_fitting_and_the_current_one():
+    """Список — только подходящие + ТЕКУЩАЯ ячейка; текущая не подходит — всё
+    равно в списке, помечена current."""
+    choices = choose_cells([_p("R1", "R", "CL")], _cells(), current="c_bad")
+    assert [c.name for c in choices.candidates] == ["c_ok", "c_bad"]
+    assert choices.candidates[1].current and not choices.candidates[1].fits
+    assert choices.others == ()
+
+
+def test_choose_cells_counts_the_non_fitting_others():
+    """Неподходящая и НЕ текущая ячейка — не строка, а счёт в others."""
+    choices = choose_cells([_p("R1", "R", "CL")], _cells(), current="c_ok")
+    assert [c.name for c in choices.candidates] == ["c_ok"]
+    assert [c.name for c in choices.others] == ["c_bad"]
+
+
+def test_choose_cells_never_lists_another_non_fitting_cell():
+    """Роняет мутацию «неподходящие снова в списке»: чужая неподходящая ячейка
+    НЕ становится строкой списка."""
+    choices = choose_cells([_p("R1", "R", "CL")], _cells(), current=None)
+    assert choices.candidates and all(c.fits for c in choices.candidates)
+    assert "c_bad" not in {c.name for c in choices.candidates}
+
+
+def test_cell_row_label_marks_the_current_cell_that_does_not_fit():
+    cand = CellCandidate(name="c_bad", fits=False, reason="role CAP: 0 of 1",
+                         current=True)
+    assert cell_row_label(cand) == "c_bad — current, does not fit: role CAP: 0 of 1"
+
+
+def test_cell_row_label_is_just_the_name_for_a_fitting_cell():
+    assert cell_row_label(CellCandidate(name="c_ok")) == "c_ok"
+
+
+def test_others_line_is_empty_without_others_and_counts_them_with_them():
+    assert others_line(()) == ""
+    two = (CellCandidate(name="a"), CellCandidate(name="b"))
+    assert others_line(two) == "2 other cells do not fit"
+
+
+def test_others_tooltip_names_each_reason():
+    two = (CellCandidate(name="a", fits=False, reason="role A: 0 of 1"),
+           CellCandidate(name="b", fits=False, reason="role B: 0 of 1"))
+    assert others_tooltip(two) == "a: role A: 0 of 1\nb: role B: 0 of 1"

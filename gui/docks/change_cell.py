@@ -3,11 +3,13 @@
 (plan_2026_10_09_cells_and_entities, part 2).
 
 The item behind it generalizes the orphan's old "Point to cell…" to ANY cell
-entity ("Change cell…"), and the rows are ``cell_candidates`` — the SAME
-function "Add entities…" uses, in its reverse direction: fitting cells first
-(selectable), the rest greyed out with the reason that decided it ("role CAP:
-1 of 2"), so the user SEES why a cell is out of reach instead of meeting an
-empty list. No cell is ever hidden: an unfitting one is offered greyed.
+entity ("Change cell…"), and the rows come from
+``instance_candidates.choose_cells`` via ``change_cell_flow.cell_choices`` — the
+SAME rule the Entity page's Cell combobox uses (Денис, 09.10.2026): only FITTING
+cells and the entity's CURRENT cell are listed, the rest are not a huge list at
+all but ONE grey line under it ("K other cells do not fit", their reasons in the
+tooltip). The current cell is always offered; when it does not fit its own row
+says so ("current, does not fit: role CAP: 0 of 1").
 
 An ORPHAN — an entity whose instance is not on the board at all (no cluster, or
 nothing of it in the snapshot) — cannot have its fit checked: EVERY cell is
@@ -30,6 +32,7 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget,
 from kicadstamp.i18n import _
 
 from ..ui_utils import persist_dialog_size, restore_dialog_size
+from .instance_candidates import cell_row_label, others_line, others_tooltip
 
 _GREY = QColor("#888888")
 
@@ -37,9 +40,13 @@ _GREY = QColor("#888888")
 class ChangeCellDialog(QDialog):
     """Pick the cell of an entity. Outcome via :meth:`result_data`."""
 
-    def __init__(self, parent, cells: Sequence, *, orphan: bool = False) -> None:
+    def __init__(self, parent, cells: Sequence, *, orphan: bool = False,
+                 others=()) -> None:
         super().__init__(parent)
         self._orphan = bool(orphan)
+        # The cells that do not fit and are NOT the current one — never rows, only
+        # the one grey line below the list (and its tooltip).
+        self._others = tuple(others or ())
         self.setWindowTitle(_("Change cell"))
         self.setMinimumWidth(420)
         restore_dialog_size(self)
@@ -58,6 +65,15 @@ class ChangeCellDialog(QDialog):
         layout.addWidget(self._list)
         for cand in cells or ():
             self._add_row(cand)
+
+        # The ONE grey line: how many cells were left out, reasons in the tooltip.
+        self._others_label = QLabel(others_line(self._others))
+        self._others_label.setObjectName("change_cell_others")
+        self._others_label.setWordWrap(True)
+        self._others_label.setStyleSheet("color: #888888;")
+        self._others_label.setToolTip(others_tooltip(self._others))
+        self._others_label.setVisible(bool(self._others))
+        layout.addWidget(self._others_label)
 
         self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
                                          | QDialogButtonBox.StandardButton.Cancel)
@@ -78,13 +94,11 @@ class ChangeCellDialog(QDialog):
     # ── Rows ────────────────────────────────────────────────────────────
 
     def _add_row(self, cand) -> None:
-        """A fitting cell (selectable) or a greyed one with its reason. An
-        orphan offers EVERY cell: the fit was never checked."""
+        """One offered cell: fitting (selectable) or the entity's OWN cell that
+        does not fit (greyed, its row says "current, does not fit: <reason>"). An
+        orphan offers EVERY cell, selectable — the fit was never checked."""
         selectable = bool(cand.fits) or self._orphan
-        label = cand.name if selectable and not cand.reason else (
-            "{name} — {reason}".format(name=cand.name, reason=cand.reason)
-            if cand.reason else cand.name)
-        item = QListWidgetItem(label)
+        item = QListWidgetItem(cell_row_label(cand))
         item.setData(Qt.ItemDataRole.UserRole, cand.name)
         if not selectable:
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)

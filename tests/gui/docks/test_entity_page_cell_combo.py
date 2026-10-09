@@ -16,7 +16,6 @@
 """
 import gui.entity.page as page_mod
 from gui.docks.change_cell_flow import cell_choices
-from kicadstamp.config import load_config
 
 from tests.gui.create_entity_helpers import entities_of, open_project, write_config
 
@@ -69,10 +68,11 @@ def test_the_combobox_shows_the_entities_cell_and_offers_the_rest(
     assert names == {"c_a", "c_b"}, "предложены ВСЕ ячейки конфига"
 
 
-def test_a_cell_that_does_not_fit_is_greyed_out_with_its_reason(
+def test_a_cell_that_does_not_fit_is_left_out_and_counted(
         real_main_window, tmp_path):
-    """Экземпляр несёт роль R; клетка c_bad хочет CAP — не подходит и показана
-    серой, недоступной, с причиной «role CAP: 0 of 1»."""
+    """Экземпляр несёт роль R; клетка c_bad хочет CAP и это НЕ текущая ячейка —
+    её НЕТ в списке, только серая строка «1 other cells do not fit» с причиной в
+    подсказке (Денис, 09.10.2026: список не разрастается)."""
     hub, _root = _open(real_main_window, tmp_path, {
         "cells": {"c_ok": {"components": [{"role": "R"}]},
                   "c_bad": {"components": [{"role": "CAP"}]}},
@@ -81,13 +81,31 @@ def test_a_cell_that_does_not_fit_is_greyed_out_with_its_reason(
     page = hub.entity_dock
     page.load_entity("e1")
 
-    by_name = {page.cell_combo.itemData(i): i
-               for i in range(page.cell_combo.count())}
-    bad = page.cell_combo.model().item(by_name["c_bad"])
-    ok = page.cell_combo.model().item(by_name["c_ok"])
-    assert ok.isEnabled() is True
-    assert bad.isEnabled() is False, "неподходящая ячейка недоступна для выбора"
-    assert "role CAP: 0 of 1" in bad.text(), "серая строка называет причину"
+    names = {page.cell_combo.itemData(i)
+             for i in range(page.cell_combo.count())}
+    assert names == {"c_ok"}, "неподходящая ЧУЖАЯ ячейка — не строка списка"
+    assert page.cell_others_label.text() == "1 other cells do not fit"
+    assert "role CAP: 0 of 1" in page.cell_others_label.toolTip()
+    assert page.cell_others_label.isVisibleTo(page) is True
+
+
+def test_the_current_cell_that_does_not_fit_is_marked(
+        real_main_window, tmp_path):
+    """Текущая ячейка сущности остаётся в списке, даже не подходя — с пометкой
+    «current, does not fit: <причина>» и недоступная для выбора."""
+    hub, _root = _open(real_main_window, tmp_path, {
+        "cells": {"c_ok": {"components": [{"role": "R"}]},
+                  "c_bad": {"components": [{"role": "CAP"}]}},
+        "entities": [{"name": "e1", "cell": "c_bad", "cluster": "CL",
+                      "sheet": "Ch0"}]}, [_Sel("R1", "CL")])
+    page = hub.entity_dock
+    page.load_entity("e1")
+
+    assert page.cell_combo.currentData() == "c_bad"
+    item = page.cell_combo.model().item(page.cell_combo.currentIndex())
+    assert item.isEnabled() is False
+    assert "current, does not fit: role CAP: 0 of 1" in item.text()
+    assert page.cell_others_label.isVisibleTo(page) is False
 
 
 def test_choosing_a_cell_goes_through_apply_cell_change(
@@ -159,26 +177,36 @@ def test_cell_choices_without_a_snapshot_offers_everything_fit_not_checked(
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]},
                                   "c_bad": {"components": [{"role": "CAP"}]}}})
-    candidates, orphan = cell_choices(root, None, {"cluster": "CL",
-                                                   "sheet": "Ch0"})
-    assert orphan is True
-    assert {c.name for c in candidates} == {"c_ok", "c_bad"}
-    assert all(c.fits for c in candidates)
+    choices = cell_choices(root, None, {"cluster": "CL", "sheet": "Ch0"})
+    assert choices.orphan is True
+    assert {c.name for c in choices.candidates} == {"c_ok", "c_bad"}
+    assert all(c.fits for c in choices.candidates)
+    assert choices.others == ()
 
 
-def test_cell_choices_with_a_snapshot_greys_the_unfitting_cell(tmp_path):
+def test_cell_choices_lists_only_fitting_cells_and_counts_the_rest(tmp_path):
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]},
                                   "c_bad": {"components": [{"role": "CAP"}]}}})
-    cfg, _ctx = load_config(str(root))
-    assert cfg is not None
-    candidates, orphan = cell_choices(root, [_Sel("R1", "CL")],
-                                      {"cluster": "CL", "sheet": "Ch0"})
-    assert orphan is False
-    by_name = {c.name: c for c in candidates}
-    assert by_name["c_ok"].fits and not by_name["c_bad"].fits
-    assert by_name["c_bad"].reason == "role CAP: 0 of 1"
-    assert candidates[0].name == "c_ok", "подходящие идут первыми"
+    choices = cell_choices(root, [_Sel("R1", "CL")],
+                           {"cluster": "CL", "sheet": "Ch0"})
+    assert choices.orphan is False
+    assert [c.name for c in choices.candidates] == ["c_ok"]
+    assert [c.name for c in choices.others] == ["c_bad"]
+    assert choices.others[0].reason == "role CAP: 0 of 1"
+
+
+def test_cell_choices_keeps_the_current_cell_even_when_it_does_not_fit(
+        tmp_path):
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"c_ok": {"components": [{"role": "R"}]},
+                                  "c_bad": {"components": [{"role": "CAP"}]}}})
+    choices = cell_choices(root, [_Sel("R1", "CL")],
+                           {"cluster": "CL", "sheet": "Ch0", "cell": "c_bad"})
+    assert [c.name for c in choices.candidates] == ["c_ok", "c_bad"]
+    cur = choices.candidates[1]
+    assert cur.current and not cur.fits
+    assert choices.others == (), "текущая ячейка не считается «другой»"
 
 
 # ── Шим старого модуля ───────────────────────────────────────────────────

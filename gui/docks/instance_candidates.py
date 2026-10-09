@@ -50,8 +50,9 @@ from kicadstamp.sheet_names import sheet_in_path
 from .reead import sheet_of
 
 __all__ = [
-    "Part", "InstanceCandidate", "CellSpec", "CellCandidate",
+    "Part", "InstanceCandidate", "CellSpec", "CellCandidate", "CellChoices",
     "role_mismatch_reason", "instance_candidates", "cell_candidates",
+    "choose_cells", "cell_row_label", "others_line", "others_tooltip",
     "instance_parts", "snapshot_parts",
 ]
 
@@ -113,15 +114,39 @@ class CellSpec:
 
 @dataclasses.dataclass(frozen=True)
 class CellCandidate:
-    """One cell considered for an instance (the reverse direction)."""
+    """One cell considered for an instance (the reverse direction).
+
+    ``current`` marks the entity's OWN cell — the one it stands on now. It is
+    always offered (so the user always sees where the entity is), even when it
+    does not fit; then the row says so through :func:`cell_row_label`.
+    """
     name: str
     uuid: Optional[str] = None
     fits: bool = True
     reason: str = ""
+    current: bool = False
 
     @property
     def taken(self) -> bool:
         return False
+
+
+@dataclasses.dataclass(frozen=True)
+class CellChoices:
+    """The cells a PICKER offers for ONE entity (Денис, 09.10.2026: no huge list
+    of every cell).
+
+    ``candidates`` — the rows to show, fitting ones first: every FITTING cell plus
+    the entity's CURRENT cell (always, even when it does not fit — then it carries
+    ``current=True`` and the row says so). ``others`` — the cells that do not fit
+    and are NOT the current one; they are NOT listed, only counted (the picker's
+    one grey line and its tooltip). ``orphan`` — the fit could not be checked at
+    all (no snapshot / dangling graph / no instance on the board): then
+    ``candidates`` is EVERY cell, fit not checked, and ``others`` is empty.
+    """
+    candidates: tuple = ()
+    orphan: bool = False
+    others: tuple = ()
 
 
 def role_mismatch_reason(instance_roles: Counter,
@@ -214,6 +239,59 @@ def cell_candidates(instance_parts: Iterable[Part],
                                  fits=not reason, reason=reason))
     out.sort(key=lambda c: (not c.fits, c.name.lower()))
     return out
+
+
+def choose_cells(instance_parts: Iterable[Part], cells: Iterable[CellSpec],
+                 current: Optional[str] = None) -> CellChoices:
+    """The ONE "which cells does a picker show" rule (Денис, 09.10.2026).
+
+    Both the page's combobox and the "Change cell…" dialog reach it through
+    ``change_cell_flow.cell_choices`` — one function, never a second copy. Only
+    FITTING cells become rows, plus the entity's CURRENT cell: always offered (so
+    the user always sees where the entity stands), marked ``current`` and, when it
+    does not fit, saying so in its row. Every OTHER non-fitting cell is not a row
+    at all — it is counted in ``others`` for the picker's one grey line. The role
+    rule itself is the SAME :func:`role_mismatch_reason`.
+    """
+    got = _role_counts(p.role for p in instance_parts or ())
+    shown: list = []
+    others: list = []
+    for cell in cells or ():
+        reason = role_mismatch_reason(got, _role_counts(cell.roles))
+        cand = CellCandidate(name=cell.name, uuid=cell.uuid, fits=not reason,
+                             reason=reason, current=(cell.name == current))
+        if cand.fits or cand.current:
+            shown.append(cand)
+        else:
+            others.append(cand)
+    # Fitting first, then the (non-fitting) current row — the dropdown order.
+    shown.sort(key=lambda c: (not c.fits, c.name.lower()))
+    others.sort(key=lambda c: c.name.lower())
+    return CellChoices(candidates=tuple(shown), others=tuple(others))
+
+
+def cell_row_label(cand) -> str:
+    """One picker ROW (a combobox item / a dialog row): the cell name; the
+    CURRENT cell that does not fit says so, with its reason."""
+    if cand.current and cand.reason:
+        return "{name} — {marker} {reason}".format(
+            name=cand.name, marker=_("current, does not fit:"), reason=cand.reason)
+    return cand.name
+
+
+def others_line(others) -> str:
+    """The ONE grey line under a picker: "K other cells do not fit"; empty when
+    nothing was left out (the caller hides the label then)."""
+    if not others:
+        return ""
+    return _("{count} other cells do not fit").format(count=len(others))
+
+
+def others_tooltip(others, limit: int = 8) -> str:
+    """The grey line's tooltip — the first reasons, one per line (the full list
+    can be long; the line itself only counts)."""
+    return "\n".join("{name}: {reason}".format(name=c.name, reason=c.reason)
+                     for c in (others or ())[:limit])
 
 
 def instance_parts(parts: Iterable[Part], cluster: str,

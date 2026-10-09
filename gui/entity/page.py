@@ -43,6 +43,8 @@ from kicadstamp.i18n import _
 from ..docks._common import (ERROR_STYLE as _ERROR_STYLE,
                              SUCCESS_STYLE as _SUCCESS_STYLE)
 from ..docks.change_cell_flow import apply_cell_change, cell_choices
+from ..docks.instance_candidates import (cell_row_label, others_line,
+                                         others_tooltip)
 from ..docks.rename import find_list_entry_file
 
 logger = logging.getLogger(__name__)
@@ -52,14 +54,6 @@ logger = logging.getLogger(__name__)
 _PLACEMENT_KINDS = (None, "placement", "clone")
 
 _GREY = QColor("#888888")
-
-
-def _cell_row_label(cand) -> str:
-    """One Cell-combobox row: the cell name, or "name — reason" when the cell
-    does not fit this entity's instance (so the greyed row still SAYS why)."""
-    if cand.reason:
-        return "{name} — {reason}".format(name=cand.name, reason=cand.reason)
-    return cand.name
 
 
 class EntityPage(QWidget):
@@ -110,6 +104,14 @@ class EntityPage(QWidget):
         self.cell_combo.setObjectName("entity_cell_combo")
         self.cell_combo.activated.connect(self._on_cell_chosen)
         form.addRow(_("Cell:"), self.cell_combo)
+        # The ONE grey line under the box: how many OTHER cells do not fit (their
+        # reasons in the tooltip) — no huge list of every cell (Денис, 09.10.2026).
+        self.cell_others_label = QLabel("")
+        self.cell_others_label.setObjectName("entity_cell_others")
+        self.cell_others_label.setWordWrap(True)
+        self.cell_others_label.setStyleSheet("color: #888888;")
+        self.cell_others_label.setVisible(False)
+        form.addRow("", self.cell_others_label)
         # Imprint row (2026-09-06, P6 Stage 4 .cell audit): a
         # imprint-based Entity (cell=None) shows its recorded-snapshot
         # identity here instead of a misleading blank Cell. Hidden for a
@@ -167,6 +169,9 @@ class EntityPage(QWidget):
         self.cell_combo.blockSignals(True)
         self.cell_combo.clear()
         self.cell_combo.blockSignals(False)
+        self.cell_others_label.setText("")
+        self.cell_others_label.setToolTip("")
+        self.cell_others_label.setVisible(False)
         self._cell_orphan = True
         self._set_imprint_visible(False)
         self.sheet_label.setText("—")
@@ -210,10 +215,12 @@ class EntityPage(QWidget):
         self._load_placements(name)
 
     def _fill_cell_combo(self) -> None:
-        """Fill the Cell combobox: fitting cells first, the rest greyed with
-        their reason. Candidates come from the LAST PUSHED snapshot
-        (change_cell_flow.cell_choices — NO board read on the UI thread); with
-        no snapshot or on a dangling graph every cell is offered, fit not
+        """Fill the Cell combobox: the FITTING cells plus the entity's CURRENT
+        cell (marked; when it does not fit its own row says "current, does not
+        fit: <reason>"). Every other non-fitting cell is NOT a row — only the one
+        grey line under the box counts them. Candidates come from the LAST PUSHED
+        snapshot (change_cell_flow.cell_choices — NO board read on the UI thread);
+        with no snapshot or on a dangling graph every cell is offered, fit not
         checked (an orphan is fixed exactly this way)."""
         combo = self.cell_combo
         combo.blockSignals(True)
@@ -223,19 +230,23 @@ class EntityPage(QWidget):
                         "_entity_index", None)
         snapshot = getattr(getattr(self._main_window, "connection", None),
                            "snapshot", None)
-        candidates, orphan = cell_choices(self._root_path, snapshot,
-                                          self._entity_data, index)
-        self._cell_orphan = orphan
-        for cand in candidates:
-            combo.addItem(_cell_row_label(cand), cand.name)
+        choices = cell_choices(self._root_path, snapshot,
+                               self._entity_data, index)
+        self._cell_orphan = choices.orphan
+        for cand in choices.candidates:
+            combo.addItem(cell_row_label(cand), cand.name)
             item = combo.model().item(combo.count() - 1)
-            if item is not None and not (cand.fits or orphan):
+            if item is not None and not (cand.fits or choices.orphan):
                 item.setEnabled(False)
                 item.setForeground(QBrush(_GREY))
         current = (self._entity_data or {}).get("cell")
         pos = combo.findData(current) if current else -1
         combo.setCurrentIndex(pos)
         combo.blockSignals(False)
+        # The ONE grey line under the box (hidden when nothing was left out).
+        self.cell_others_label.setText(others_line(choices.others))
+        self.cell_others_label.setToolTip(others_tooltip(choices.others))
+        self.cell_others_label.setVisible(bool(choices.others))
 
     def _on_cell_chosen(self, index: int) -> None:
         """The user picked a cell in the combobox — the choice ITSELF, no dialog.

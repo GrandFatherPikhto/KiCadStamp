@@ -18535,6 +18535,14 @@ msgstr ""
 msgid "role {role}: {got} of {want}"
 msgstr ""
 
+#: gui/docks/instance_candidates.py
+msgid "current, does not fit:"
+msgstr ""
+
+#: gui/docks/instance_candidates.py
+msgid "{count} other cells do not fit"
+msgstr ""
+
 #: gui/docks/add_entities_flow.py
 msgid "{count} checked instance(s) were skipped — already accounted for."
 msgstr ""
