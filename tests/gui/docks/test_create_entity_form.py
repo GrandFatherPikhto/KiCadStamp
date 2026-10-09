@@ -1,407 +1,329 @@
-# tests/gui/test_create_entity_form.py
+# tests/gui/docks/test_create_entity_form.py
 """Сторожа ФОРМЫ «Создать сущность» — слой, который читает САМУ форму.
 
-Заход: plan_2026_09_21_guard_file_by_property.md, Т1/Т2/Т3. Здесь ровно одна
-дверь наружу — CreateEntityDialog.result_data() (для имени ещё accept() →
-_validate()). Всё, что идёт через меню, обработчик хаба и запись в конфиг,
-живёт в tests/gui/test_create_entity_menu.py; общие строители — в
-tests/gui/create_entity_helpers.py (Т1: дублей на слои не держим).
+Заходы: plan_2026_09_21_guard_file_by_property.md (Т1/Т2/Т3, форма с двумя
+полями Cluster/Sheet) и plan_2026_10_09_cells_and_entities, часть 3, Т3.1 —
+два поля у ЯЧЕЙКИ СВЁРНУТЫ в ОДНУ редактируемую выпадашку «КЛАСТЕР — лист»
+(два независимых поля давали бы пару, которой нет на плате). Поэтому клетки
+«поле Cluster» / «поле Sheet у ячейки» переписаны под выпадашку; СВОЙСТВО
+нормализации (пусто → None; набрано → доезжает обрезанным) сохранено, адреса
+остались раздельными.
 
-Имена функций описывают СВОЙСТВО и не несут номера плана (правило 37): номер
-С-сторожа и имя плана названы в докстринге каждой функции.
+Здесь ровно одна дверь наружу — CreateEntityDialog.result_data() (для имени
+ещё accept() → _validate()). Всё, что идёт через меню, обработчик хаба и запись
+в конфиг, живёт в tests/gui/docks/test_create_entity_menu.py; общие строители —
+в tests/gui/create_entity_helpers.py.
 
-МАТРИЦА КЛЕТОК (Т2). Предмет — три поля формы на двух ветках:
+Имена функций описывают СВОЙСТВО и не несут номера плана (правило 37).
 
-  | поле    | направление | ветка            | ожидание                       |
-  |---------|-------------|------------------|--------------------------------|
-  | имя     | пусто       | ячейка/отпечаток | не уходит из формы (сообщение) |
-  | имя     | набрано     | ячейка           | доезжает обрезанным            |
-  | имя     | набрано     | отпечаток        | доезжает обрезанным            |
-  | кластер | пусто       | ячейка           | None                           |
-  | кластер | набрано     | ячейка           | доезжает обрезанным            |
-  | кластер | —           | отпечаток        | поля нет вовсе, на выходе None |
-  | лист    | пусто       | ячейка           | None                           |
-  | лист    | пусто       | отпечаток        | None                           |
-  | лист    | набрано     | ячейка           | доезжает обрезанным            |
-  | лист    | набрано     | отпечаток        | доезжает обрезанным            |
+МАТРИЦА КЛЕТОК (Т2 + Т3.1). Предмет — три поля формы на двух ветках:
 
-Каждая клетка существует отдельным адресом ниже. Обе формы пустоты ("" и
-"   ") и обе формы набранного ("CH0" и " CH0 ") — ПАРАМЕТРЫ, а не отдельные
-функции.
+  | поле     | направление | ветка            | ожидание                       |
+  |----------|-------------|------------------|--------------------------------|
+  | имя      | пусто       | ячейка/отпечаток | не уходит из формы (сообщение) |
+  | имя      | набрано     | ячейка           | доезжает обрезанным            |
+  | имя      | набрано     | отпечаток        | доезжает обрезанным            |
+  | пара     | пусто       | ячейка           | (None, None)                   |
+  | кластер  | набрано     | ячейка           | левая половина доезжает        |
+  | лист у яч.| набрано     | ячейка           | правая половина доезжает       |
+  | кластер  | —           | отпечаток        | поля нет вовсе, на выходе None |
+  | лист     | пусто       | отпечаток        | None                           |
+  | лист     | набрано     | отпечаток        | доезжает обрезанным            |
 
-СЛИТНАЯ СТРОКА — ЭТО ОБЕЩАНИЕ, А НЕ СОКРАЩЕНИЕ (правка правила 35 от
-21.09.2026). Приёмка захода plan_2026_09_21_guard_file_by_property.md сняла
-.strip() у имени ТОЛЬКО на ветке отпечатка — 41 passed, ни один сторож не
-заметил: строка «имя | набрано | ячейка/отпечаток» стояла слитной, а её
-единственный сторож строил ячейку. Отсюда две строки вместо одной и мутация М11
-в оснастке. Строка «имя | пусто | ячейка/отпечаток» остаётся слитной ЗАКОННО:
-её параметры (EMPTY_NAME_ORDERS) несут ветку — среди восьми заказов есть
-«отпечаток без имени» с kind="imprint", то есть обе ветки проверены отдельными
-случаями параметра.
-
-Ветки с разным СМЫСЛОМ живут РАЗНЫМИ функциями, и это не стилистика: оснастка
-мутаций различает сторожей только по имени функции (failing_guards срезает
-параметр). На слиянии «листа у ячейки» и «листа у отпечатка» утверждение М7
-«С7 умирает, С6 зелёный» дало бы ложное «collaterally killed» и вердикт WRONG;
-ровно так же на слиянии «набранного имени у ячейки» и «у отпечатка» мутация М11
-(снятый .strip() только на ветке отпечатка) стала бы неотличима от М10.
-Отдельные функции здесь — требование ворот.
+Плюс Т3.1: свободные подходящие сверху; занятый серый и невыбираемый;
+неподходящие не строки + серая строка-счётчик; ровно один свободный —
+предвыбран, два — нет; без снимка — форма открыта, жёлтая строка; ручная пара
+не с платы — жёлтая строка, но OK проходит; у отпечатка кластера нет, лист — из
+списка.
 """
 
 import pytest
 
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QDialog, QDialogButtonBox
+
+from gui.docks.instance_candidates import InstanceCandidate
+from kicadstamp.i18n import _
 
 from tests.gui.create_entity_helpers import (
     RealCreateEntityDialog,
     capture_warnings,
+    instance_line,
 )
 
-
-def _form_after(parent, source_kind, source_name, actions):
-    """Настоящая форма ПОСЛЕ действий пользователя: `actions` — список
-    ("name"|"cluster"|"sheet", значение) в том порядке, в каком их делали."""
-    dlg = RealCreateEntityDialog(parent, source_kind, source_name, [])
-    for field, value in actions:
-        {"name": dlg._name_edit, "cluster": dlg._cluster_edit,
-         "sheet": dlg._sheet_edit}[field].setText(value)
-    return dlg
+_GREY = QColor("#888888")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# ПУСТО → None. Каждая ветка — свой адрес (М2 требует различать их по имени).
-# ═══════════════════════════════════════════════════════════════════════════
-
-@pytest.mark.parametrize("typed", ["", "   "])
-def test_a_blank_cluster_on_a_cell_comes_out_as_none(main_window, typed):
-    """С1 плана empty_cluster_normalisation, клетка «кластер | пусто | ячейка»:
-    через CreateEntityDialog.result_data() — не мимо неё — пустое поле
-    КЛАСТЕРА у ячейки обязано выйти как None, а не как "".
-
-    С "" сужение в find_entity_for_source пойдёт по пустой строке, ни с одной
-    существующей сущностью не совпадёт — и на ту же ячейку родится ВТОРАЯ
-    сущность, хотя Т3 обещает обратное; в запись кластер при этом не попадёт
-    (`if source_field == "cell" and cluster:` — "" ложна).
-
-    Лист здесь тоже держится (assert sheet is None) и ОСТАВЛЕН НА МЕСТЕ
-    намеренно: именно им убивается мутация М2 (§Т4 задания: свой адрес новой
-    клетке — добавлением, а не переносом этого assert'а).
-
-    Мутация М1 (убрать `or None` у кластера) роняет сторож: на выходе "".
-    """
-    dlg = RealCreateEntityDialog(main_window, "cell", "my_cell", [])
-    assert dlg._cluster_edit is not None, (
-        "у ячейки поле Cluster обязано быть — иначе сторожа нормализации "
-        "проверяли бы не тот путь")
-    dlg._cluster_edit.setText(typed)
-    dlg._sheet_edit.clear()  # пусты оба поля
-
-    name, cluster, sheet = dlg.result_data()
-
-    assert name == "my_cell", (
-        f"имя берётся из поля источника и правится: получили {name!r}")
-    assert cluster is None, (
-        "пустое поле кластера обязано выйти из result_data() как None, а не "
-        "как пустая строка: сужение в find_entity_for_source работает на "
-        "`cluster is not None`, и с \"\" вторая сущность на ту же ячейку "
-        f"создастся (мутация М1); получили: {cluster!r}")
-    assert sheet is None, (
-        "пустое поле листа — тоже None, не пустая строка: этот assert здесь "
-        "намеренно держит мутацию М2 и с места не снимался (задание §Т4); "
-        f"получили: {sheet!r}")
+def _cand(cluster, sheet, *, fits=True, reason="", entity_name=None):
+    return InstanceCandidate(cluster=cluster, sheet=sheet, refs=(),
+                             fits=fits, reason=reason, entity_name=entity_name)
 
 
-@pytest.mark.parametrize("typed", ["", "   "])
-def test_a_blank_sheet_on_a_cell_comes_out_as_none(main_window, typed):
-    """Клетка «лист | пусто | ячейка» — свой адрес, ДОБАВЛЕННЫЙ заходом
-    plan_2026_09_21_guard_file_by_property.md (§Т2/§Т4).
-
-    Преемника среди прежних функций у неё нет: до этого захода пустой лист у
-    ячейки проверялся внутри сторожа пустого кластера (С1), и своего адреса
-    клетка не имела. Оснастка мутаций различает сторожей только по имени
-    функции, поэтому асимметрия «ячейка / отпечаток» у листа не могла быть
-    измерена отдельно — ровно на такой асимметрии дыра выжила в прошлый раз
-    (§2 задания). Сторож добавлен РЯДОМ с С1, а не вместо его assert'а.
-
-    Роняют его: М2 (снятый `or None` у листа) — оба параметра; М6л/М8 (снятый
-    .strip()) — параметр "   ", потому что `"   " or None` это "   ", то есть
-    непусто.
-    """
-    dlg = RealCreateEntityDialog(main_window, "cell", "my_cell", [])
-    assert dlg._sheet_edit is not None, "поле Sheet у формы обязано быть"
-    dlg._sheet_edit.setText(typed)
-
-    _name, _cluster, sheet = dlg.result_data()
-
-    assert sheet is None, (
-        "пустое поле ЛИСТА у ЯЧЕЙКИ обязано выйти из result_data() как None, "
-        "а не как пустая строка: лист у ячейки сужает резолв роли "
-        "(build_role_anchor / anchor_sheet) и проверяется на `sheet is not "
-        f"None`; набрано {typed!r}, получили {sheet!r}")
-
-
-@pytest.mark.parametrize("typed", ["", "   "])
-def test_a_blank_sheet_on_an_imprint_comes_out_as_none(main_window, typed):
-    """С2 плана empty_cluster_normalisation, клетка «лист | пусто | отпечаток».
-
-    У imprint-сущности кластера нет вовсе — поля не строятся (Т2а плана
-    create_entity_menu: не предлагать, а не предлагать и отбрасывать), и
-    второе ключевое поле пары — `sheet`, целевой лист twin-резолва
-    (config/models.py:704). Пустой лист обязан выйти как None: тем же токеном
-    держится сужение пары (imprint, sheet), и с "" один отпечаток на двух
-    близнецовых листах слился бы в одну сущность — или наоборот, второй лист
-    перестал бы находить первый.
-
-    Мутация М2 (убрать `or None` у листа) роняет сторож: на выходе "".
-    """
-    dlg = RealCreateEntityDialog(main_window, "imprint", "amp", [])
-    assert dlg._cluster_edit is None, (
-        "у отпечатка поля Cluster нет вовсе (Т2а): не предлагать, а не "
-        "предлагать и отбрасывать")
-    assert dlg._sheet_edit is not None, "поле Sheet у отпечатка обязано быть"
-    dlg._sheet_edit.setText(typed)
-
-    name, cluster, sheet = dlg.result_data()
-
-    assert name == "amp", (
-        f"имя предзаполняется именем записи: получили {name!r}")
-    assert cluster is None, (
-        "кластер на imprint-сущности фатален при загрузке (models.py:706) и "
-        f"обязан быть None: получили {cluster!r}")
-    assert sheet is None, (
-        "пустое поле листа обязано выйти из result_data() как None, а не как "
-        "пустая строка: сужение пары (imprint, sheet) работает на "
-        f"`sheet is not None` (мутация М2); получили: {sheet!r}")
+def _form(parent, source_kind, source_name, *, candidates=(), sheet_names=(),
+          snapshot_available=False):
+    return RealCreateEntityDialog(parent, source_kind, source_name, [],
+                                  candidates=candidates, sheet_names=sheet_names,
+                                  snapshot_available=snapshot_available)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# НАБРАНО → доезжает обрезанным. Тоже каждая ветка своим адресом.
+# НОРМАЛИЗАЦИЯ ЯЧЕЙКИ: одна выпадашка → (cluster, sheet)
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("typed,expected", [("CH0", "CH0"), (" CH0 ", "CH0")])
-def test_a_typed_cluster_on_a_cell_reaches_result_data(main_window, typed,
+@pytest.mark.parametrize("typed,cluster,sheet", [
+    ("", None, None),
+    ("   ", None, None),
+    ("CH0", "CH0", None),
+    ("  CH0  ", "CH0", None),
+    ("CH0 — Sheet_1", "CH0", "Sheet_1"),
+    ("  CH0 —  Sheet_1 ", "CH0", "Sheet_1"),
+])
+def test_the_cell_pair_survives_the_one_combobox(main_window, typed, cluster,
+                                                 sheet):
+    """Клетка Т3.1: пара ячейки набирается ОДНОЙ строкой «КЛАСТЕР — лист» и
+    разбирается parse_instance_label. Пусто (в т.ч. из пробелов) → (None,
+    None), а не пустые строки: "" в find_entity_for_source сузило бы по пустой
+    строке и родило бы вторую сущность на ту же ячейку; набранное доезжает
+    ОБРЕЗАННЫМ по краям каждой половины."""
+    dlg = _form(main_window, "cell", "my_cell")
+    assert dlg._instance_combo is not None, (
+        "у ячейки обязана быть выпадашка экземпляра — иначе сторожа проверяли "
+        "бы не тот путь")
+    dlg._instance_combo.setEditText(typed)
+
+    name, got_cluster, got_sheet = dlg.result_data()
+
+    assert name == "my_cell"
+    assert (got_cluster, got_sheet) == (cluster, sheet), (
+        f"набрано {typed!r} → ждали ({cluster!r}, {sheet!r}), получили "
+        f"({got_cluster!r}, {got_sheet!r})")
+
+
+def test_a_typed_name_on_a_cell_reaches_result_data_trimmed(main_window):
+    """Имя на ветке ЯЧЕЙКИ доезжает обрезанным (прежний С8, сохранён под
+    выпадашку): дубликат имени ловится ТОЧНЫМ совпадением, так что « my » и
+    «my» для него — два имени."""
+    dlg = _form(main_window, "cell", "seed_cell")
+    dlg._name_edit.setText("  my_cell  ")
+
+    name, _cluster, _sheet = dlg.result_data()
+
+    assert name == "my_cell", (name,)
+
+
+def test_a_typed_name_on_an_imprint_reaches_result_data_trimmed(main_window):
+    """Имя на ветке ОТПЕЧАТКА — отдельным адресом: падение одной половины не
+    прячет другую, а снятый .strip() только на этой ветке (прежняя М11) обязан
+    её уронить, не трогая ячейковую."""
+    dlg = _form(main_window, "imprint", "amp")
+    dlg._name_edit.setText("  my_imprint  ")
+
+    name, _cluster, _sheet = dlg.result_data()
+
+    assert name == "my_imprint", (name,)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# НОРМАЛИЗАЦИЯ ОТПЕЧАТКА: листа кластера нет, лист — своя выпадашка
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_an_imprint_has_no_instance_combobox_and_a_sheet_list(main_window):
+    """Т3.1: у imprint-сущности кластера нет ВООБЩЕ (кластер на ней фатален при
+    загрузке, models.py:706), поэтому выпадашки экземпляра у неё нет; лист —
+    редактируемая выпадашка из переданных ctx.sheet_names."""
+    dlg = _form(main_window, "imprint", "amp",
+                sheet_names=["Channel_0", "Channel_1"])
+    assert dlg._instance_combo is None, (
+        "у отпечатка выпадашки экземпляра быть не должно (Т2а/Т3.1)")
+    combo = dlg._sheet_combo
+    assert combo is not None and combo.isEditable()
+    assert [combo.itemText(i) for i in range(combo.count())] == \
+        ["Channel_0", "Channel_1"]
+    assert dlg.result_data()[1] is None, "у отпечатка кластер обязан быть None"
+
+
+@pytest.mark.parametrize("typed,expected", [
+    ("", None),
+    ("   ", None),
+    ("Channel_1", "Channel_1"),
+    (" Channel_1 ", "Channel_1"),
+])
+def test_a_blank_sheet_on_an_imprint_comes_out_as_none(main_window, typed,
                                                        expected):
-    """С5 плана empty_cluster_normalisation, клетка «кластер | набрано |
-    ячейка»: человек НАБРАЛ кластер у ячейки — он обязан выйти из формы как
-    есть, а с пробелами по краям — обрезанным, но не выброшенным.
-
-    Ловит обе правки, оставлявшие прогон зелёным:
-      * М5 — безусловное `cluster = None`: набранное выбрасывается вовсе;
-      * М6 — снятый .strip() при живом `or None`: ловится ТОЛЬКО случаем
-        " CH0 " (в остальных случаях .strip() нечего делать).
-    """
-    dlg = RealCreateEntityDialog(main_window, "cell", "my_cell", [])
-    assert dlg._cluster_edit is not None, (
-        "у ячейки поле Cluster обязано быть — иначе сторож проверял бы не тот "
-        "путь")
-    dlg._cluster_edit.setText(typed)
+    """Клетка «лист | … | отпечаток»: пустое (в т.ч. из пробелов) → None, не
+    пустая строка — сужение пары (imprint, sheet) работает на `sheet is not
+    None`, и с "" один отпечаток на двух близнецовых листах слился бы в одну
+    сущность. Набранное доезжает обрезанным."""
+    dlg = _form(main_window, "imprint", "amp",
+                sheet_names=["Channel_0", "Channel_1"])
+    dlg._sheet_combo.setEditText(typed)
 
     name, cluster, sheet = dlg.result_data()
 
-    assert name == "my_cell", (
-        f"имя берётся из поля источника и правится: получили {name!r}")
-    assert cluster == expected, (
-        "то, что человек напечатал в поле Cluster, обязано доехать из формы "
-        "как есть (мутация М5: `cluster = None`), а пробелы по краям — "
-        f"обрезаться (мутация М6: снятый .strip()); набрано {typed!r}, "
-        f"получили {cluster!r}, ждали {expected!r}")
+    assert name == "amp"
+    assert cluster is None
+    assert sheet == expected, (typed, sheet, expected)
 
 
-@pytest.mark.parametrize(
-    "typed,expected", [("Channel_1", "Channel_1"), (" Channel_1 ", "Channel_1")])
-def test_a_typed_sheet_on_a_cell_reaches_result_data(main_window, typed,
-                                                     expected):
-    """С7 плана typed_value_survives_the_form, клетка «лист | набрано |
-    ячейка»: человек НАБРАЛ лист у ЯЧЕЙКИ — он обязан выйти из формы как
-    есть, а с пробелами по краям — обрезанным, но не выброшенным.
+# ═══════════════════════════════════════════════════════════════════════════
+# Т3.1: строки выпадашки — подбор, а не список наугад
+# ═══════════════════════════════════════════════════════════════════════════
 
-    Отдельной функцией от «набранного листа у отпечатка» (приём С5а/С5б, и
-    прямое требование оснастки): мутация М7 (лист обнуляется ТОЛЬКО на
-    ячейковой ветке) обязана убить эту функцию и НЕ тронуть ту — на слиянии
-    веток вердикт стал бы WRONG, и дыра прошлого захода переоткрылась бы под
-    другим номером.
+def test_free_rows_come_first_and_the_taken_is_grey_and_not_selectable(
+        main_window):
+    """Клетка плана: свободный подходящий экземпляр — строка сверху; ЗАНЯТЫЙ —
+    серый и НЕВЫБИРАЕМЫЙ, с подписью «already: <сущность>» (иначе его можно
+    было бы выбрать и создать второй раз)."""
+    free = _cand("FPGA_VCCIO_1", "Ch0")
+    taken = _cand("FPGA_VCCIO_4", "Ch1", entity_name="fpga_vccio_4")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[free, taken], snapshot_available=True)
 
-    Последствие потери здесь тише, чем у отпечатка (там сущность клонируется
-    не на тот лист), и потому опаснее: у ячейки лист сужает резолв роли, а
-    роль с потерянным листом не падает — она начинает разрешаться
-    неоднозначно, молча и позже.
+    combo = dlg._instance_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == \
+        [free.label, dlg._taken_label(taken)]
+    assert "already: fpga_vccio_4" in combo.itemText(1)
 
-    Роняют сторож обе правки:
-      * М7 — лист обнуляется ТОЛЬКО на ячейковой ветке (`None if
-        self._cluster_edit is not None else ...`): набранное выбрасывается;
-      * М8 — снятый .strip() при живом `or None`: ловится ТОЛЬКО случаем
-        " Channel_1 ".
-    """
-    dlg = RealCreateEntityDialog(main_window, "cell", "my_cell", [])
-    assert dlg._cluster_edit is not None, (
-        "у ячейки поле Cluster обязано быть — иначе сторож стоял бы не на той "
-        "ветке формы, где живёт дыра М7")
-    dlg._sheet_edit.setText(typed)
-
-    name, cluster, sheet = dlg.result_data()
-
-    assert name == "my_cell", (
-        f"имя берётся из поля источника и правится: получили {name!r}")
-    assert cluster is None, (
-        "кластер здесь не набирался и обязан быть None — иначе сторож ловил бы "
-        f"чужую правку, а не лист: получили {cluster!r}")
-    assert sheet == expected, (
-        "напечатанный лист у ЯЧЕЙКИ обязан доехать из формы как есть (мутация "
-        "М7: лист обнулён только на ячейковой ветке), а пробелы по краям — "
-        "обрезаться (мутация М8: снятый .strip()); набрано "
-        f"{typed!r}, получили {sheet!r}, ждали {expected!r}")
+    model = combo.model()
+    taken_item = model.item(1)
+    assert not (taken_item.flags() & Qt.ItemFlag.ItemIsSelectable), (
+        "занятая строка не имеет права выбираться")
+    assert taken_item.foreground().color() == _GREY, (
+        "занятая строка обязана быть серой")
 
 
-@pytest.mark.parametrize(
-    "typed,expected", [("Channel_1", "Channel_1"), (" Channel_1 ", "Channel_1")])
-def test_a_typed_sheet_on_an_imprint_reaches_result_data(main_window, typed,
-                                                         expected):
-    """С6 плана empty_cluster_normalisation, клетка «лист | набрано |
-    отпечаток»: набранный ЛИСТ обязан доехать — это целевой лист twin-резолва
-    (config/models.py:704), и потеря его значит сущность клонируется не на тот
-    лист.
+def test_non_fitting_instances_are_not_rows_but_one_grey_counter(main_window):
+    """Клетка плана: неподходящий экземпляр — НЕ строка, а ОДНА серая строка-
+    счётчик под выпадашкой (Денис: «зачем этот огромный список»); он посчитан,
+    а не потерян."""
+    free = _cand("CL_A", "Ch0")
+    other = _cand("CL_B", "Ch0", fits=False, reason="role CAP: 0 of 1")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[free, other], snapshot_available=True)
 
-    Отдельной функцией — падение половины про ячейку не должно прятать эту, и
-    ровно эта функция служит утверждению М7 «must_survive». Роняют её те же
-    М5л/М6л (и М8) по полю листа: безусловное `sheet = None` и снятый .strip().
-    """
-    dlg = RealCreateEntityDialog(main_window, "imprint", "amp", [])
-    assert dlg._cluster_edit is None, (
-        "у отпечатка поля Cluster нет вовсе (Т2а плана create_entity_menu)")
-    dlg._sheet_edit.setText(typed)
-
-    name, cluster, sheet = dlg.result_data()
-
-    assert name == "amp", (
-        f"имя предзаполняется именем записи: получили {name!r}")
-    assert cluster is None, (
-        "кластер на imprint-сущности фатален при загрузке (models.py:706) и "
-        f"обязан быть None: получили {cluster!r}")
-    assert sheet == expected, (
-        "напечатанный лист обязан доехать из формы как есть (мутация М5л: "
-        "`sheet = None`), а пробелы по краям — обрезаться (мутация М6л/М8: "
-        f"снятый .strip()); набрано {typed!r}, получили {sheet!r}, "
-        f"ждали {expected!r}")
+    combo = dlg._instance_combo
+    labels = [combo.itemText(i) for i in range(combo.count())]
+    assert all("CL_B" not in lab for lab in labels), labels
+    assert dlg._others_label.text() == _(
+        "{count} other instances lack roles").format(count=1)
+    assert dlg._others_label.isVisibleTo(dlg), (
+        "счётчик неполных обязан быть показан, когда они есть")
 
 
-@pytest.mark.parametrize(
-    "typed,expected", [("my_cell", "my_cell"), ("  my_cell  ", "my_cell")])
-def test_a_typed_name_on_a_cell_reaches_result_data_trimmed(main_window, typed,
-                                                            expected):
-    """С8 плана typed_value_survives_the_form, клетка «имя | набрано | ячейка»:
-    набранное ИМЯ обязано доехать из формы ОБРЕЗАННЫМ — и
-    обрезанным именно тогда, когда оно НЕПУСТО, а не только тогда, когда
-    обнуляется.
-
-    Имя предзаполнено именем источника, поэтому человек его стирает и печатает
-    своё — сторож и берёт случай «набрано поверх предзаполнения».
-
-    Почему это не косметика: дубликат имени ловится ТОЧНЫМ совпадением строки
-    (name_exists_in_list_section), так что " my_cell " и "my_cell" для неё —
-    два разных имени.
-
-    .strip() при ПУСТОМ имени держит отдельный сторож («имя из одних
-    пробелов»): М9 обязана уронить ИМЕННО ЭТУ функцию и оставить тот зелёным,
-    и этим доказывается, что проверено ровно то, чего он не видел.
-
-    Отдельной функцией от «набранного имени у отпечатка» — Т5 захода
-    plan_2026_09_21_guard_file_by_property.md: мутация М11 (снятый .strip()
-    ТОЛЬКО на ветке отпечатка) обязана убить imprint-половину и НЕ тронуть эту.
-    На слиянии веток в одну функцию М11 стала бы неотличима от М10, и дыра
-    приёмки переоткрылась бы под другим номером.
-
-    Роняют сторож две правки:
-      * М9 — .strip() работает ровно тогда, когда обнуляет
-        (`_raw = self._name_edit.text(); name = _raw if _raw.strip()
-        else _raw.strip()`): ловится ТОЛЬКО случаем "  my_cell  ";
-      * М10 — .strip() снят у имени целиком (контроль: красны и этот сторож,
-        и сторож пустого имени).
-    """
-    dlg = RealCreateEntityDialog(main_window, "cell", "seed_cell", [])
-    assert dlg._cluster_edit is not None, (
-        "сторож стоит на ветке ЯЧЕЙКИ — иначе он проверял бы не тот путь, на "
-        "котором живёт дыра М11")
-    dlg._name_edit.setText(typed)
-    assert dlg._name_edit.text() == typed, (
-        "форма обязана держать ровно то, что набрали, — иначе сторож проверял "
-        f"бы не тот случай: в поле {dlg._name_edit.text()!r}")
-
-    name, _cluster, _sheet = dlg.result_data()
-
-    assert name == expected, (
-        "набранное имя обязано доехать из формы обрезанным по краям (мутация "
-        "М9: .strip() работает только когда обнуляет; М10: .strip() снят "
-        f"целиком); набрано {typed!r}, получили {name!r}, ждали {expected!r}")
+def test_no_counter_line_when_every_instance_fits(main_window):
+    """Обратная сторона счётчика: подходящие все — серая строка не показана и
+    пуста."""
+    free = _cand("CL_A", "Ch0")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[free], snapshot_available=True)
+    assert dlg._others_label.text() == ""
+    assert not dlg._others_label.isVisibleTo(dlg)
 
 
-@pytest.mark.parametrize(
-    "typed,expected", [("my_imprint", "my_imprint"),
-                       ("  my_imprint  ", "my_imprint")])
-def test_a_typed_name_on_an_imprint_reaches_result_data_trimmed(
-        main_window, typed, expected):
-    """Клетка «имя | набрано | отпечаток» — вторая половина строки, разделённой
-    заходом plan_2026_09_21_guard_file_by_property.md (§Т5, находка приёмки).
+def test_a_single_free_instance_is_preselected_but_two_are_not(main_window):
+    """Клетка плана: РОВНО один свободный подходящий — выбран; два — не
+    предвыбран (пользователь обязан выбрать сам)."""
+    one = _cand("CL_A", "Ch0")
+    dlg1 = _form(main_window, "cell", "my_cell",
+                 candidates=[one], snapshot_available=True)
+    assert dlg1._instance_combo.currentText() == one.label
+    assert dlg1.result_data()[1:] == ("CL_A", "Ch0")
 
-    До Т5 строка называла две ветки одной функцией, а держала только ячейку:
-    приёмка сняла .strip() у имени на ветке отпечатка и получила 41 passed — ни
-    один сторож не заметил. Преемника среди прежних функций у этой клетки нет:
-    своего адреса у imprint-половины не было вовсе.
+    two = _cand("CL_B", "Ch1")
+    dlg2 = _form(main_window, "cell", "my_cell",
+                 candidates=[one, two], snapshot_available=True)
+    assert dlg2._instance_combo.currentIndex() == -1
+    assert dlg2._instance_combo.currentText() == ""
 
-    Роняют её те же М9/М10 по полю имени, и — это её собственный предмет —
-    М11: .strip() снят ТОЛЬКО на ветке отпечатка. Ячейковая половина при этом
-    обязана остаться зелёной, и это записано утверждением оснастки
-    must_survive («typed_name_on_a_cell»).
-    """
-    dlg = RealCreateEntityDialog(main_window, "imprint", "amp", [])
-    assert dlg._cluster_edit is None, (
-        "сторож стоит на ветке ОТПЕЧАТКА — ровно на той, где М11 снимает "
-        ".strip(); у отпечатка поля Cluster нет вовсе (Т2а)")
-    dlg._name_edit.setText(typed)
-    assert dlg._name_edit.text() == typed, (
-        "форма обязана держать ровно то, что набрали, — иначе сторож проверял "
-        f"бы не тот случай: в поле {dlg._name_edit.text()!r}")
 
-    name, _cluster, _sheet = dlg.result_data()
+def test_a_taken_only_board_preselects_nothing(main_window):
+    """Занятый НЕ предвыбирается даже когда он единственный: предвыбор — только
+    среди СВОБОДНЫХ."""
+    taken = _cand("CL_A", "Ch0", entity_name="e1")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[taken], snapshot_available=True)
+    assert dlg._instance_combo.currentIndex() == -1
 
-    assert name == expected, (
-        "набранное имя обязано доехать из формы обрезанным по краям и на ветке "
-        "ОТПЕЧАТКА (мутация М11 — .strip() снят только здесь; М9: .strip() "
-        "работает только когда обнуляет; М10: .strip() снят целиком); набрано "
-        f"{typed!r}, получили {name!r}, ждали {expected!r}")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Т3.1: жёлтая строка — предупреждение, никогда не запрет
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_a_pair_not_on_the_board_warns_yellow_but_ok_still_passes(main_window):
+    """Клетка плана: ручная пара, которой нет на плате, — ЖЁЛТАЯ строка «not on
+    the board — fit not checked», и OK ВСЁ РАВНО проходит (предупреждение, не
+    запрет)."""
+    free = _cand("CL_A", "Ch0")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[free], snapshot_available=True)
+    dlg._instance_combo.setEditText(instance_line("CL_X", "Ch9"))
+
+    assert dlg._fit_warning.text() == _("not on the board — fit not checked")
+    assert dlg._fit_warning.isVisibleTo(dlg)
+
+    dlg._name_edit.setText("e")
+    dlg.accept()
+    assert dlg.result() == QDialog.DialogCode.Accepted, (
+        "жёлтая строка — не запрет: пара не с платы имеет право быть записана")
+    assert dlg.result_data() == ("e", "CL_X", "Ch9")
+
+
+def test_a_bad_pair_hides_the_warning_again(main_window):
+    """Обратная сторона: как только набрана пара, которую плата несёт, жёлтая
+    строка гаснет."""
+    free = _cand("CL_A", "Ch0")
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=[free], snapshot_available=True)
+    dlg._instance_combo.setEditText(instance_line("CL_X", "Ch9"))
+    assert dlg._fit_warning.isVisibleTo(dlg)
+    dlg._instance_combo.setEditText(free.label)
+    assert dlg._fit_warning.text() == ""
+
+
+def test_without_a_snapshot_the_dialog_opens_with_the_yellow_line(main_window):
+    """Клетка плана: KiCad закрыт (снимка нет) — диалог ВСЁ РАВНО открывается
+    (создание сущности без платы законно, Т4/С7), выпадашка пуста и
+    редактируема, жёлтая строка говорит «no board snapshot — fit not checked»."""
+    dlg = _form(main_window, "cell", "my_cell",
+                candidates=(), snapshot_available=False)
+    assert dlg._instance_combo.count() == 0
+    assert dlg._instance_combo.isEditable(), (
+        "без снимка экземпляр вводят руками — выпадашка обязана быть "
+        "редактируемой")
+    assert dlg._fit_warning.text() == _("no board snapshot — fit not checked")
+    assert dlg._fit_warning.isVisibleTo(dlg)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ИМЯ: пустое из формы не выходит
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# ЗАМЕР, А НЕ РАССУЖДЕНИЕ. У имени, в отличие от кластера и листа, нет токена
-# `or None`: `name = self._name_edit.text().strip()` — и это верно. Пустое имя
-# держит не нормализация, а гейт `if not name:` в _validate, и вопрос звучит
-# так: не выходит ли пустое имя из формы при КАКОМ-НИБУДЬ порядке действий.
-# Ответ получен перебором (заказы полей — параметром, живой клик по кнопке OK —
-# отдельным сторожем).
-#
-# Почему перебора достаточно: наружу ведёт ровно одна дверь — accept(). На
-# кнопке OK стоит сигнал QDialogButtonBox.accepted, подключённый в __init__ к
-# self.accept; Enter жмёт ту же кнопку (она default); `done(Accepted)` мимо
-# accept() пользователю недоступен, а крестик/Esc дают reject.
+# ЗАМЕР, А НЕ РАССУЖДЕНИЕ. У имени нет токена `or None`: `name =
+# self._name_edit.text().strip()`. Пустое имя держит гейт `if not name:` в
+# _validate, и вопрос звучит так: не выходит ли пустое имя из формы при
+# КАКОМ-НИБУДЬ порядке действий. Наружу ведёт ровно одна дверь — accept().
 
-# Заказы действий, которыми пользователь может получить пустое имя. Каждый —
-# отдельный случай параметра, поэтому падение одного не прячет остальные.
 EMPTY_NAME_ORDERS = [
     ("имя стёрто и оставлено пустым", "cell", "my_cell", [("name", "")]),
     ("имя из одних пробелов", "cell", "my_cell", [("name", "   ")]),
-    ("имя стёрто, кластер заполнен", "cell", "my_cell",
-     [("name", ""), ("cluster", "CH1")]),
-    ("имя стёрто, лист заполнен", "cell", "my_cell",
-     [("name", ""), ("sheet", "Sheet_1")]),
     ("имя набрано и стёрто", "cell", "my_cell",
      [("name", "buf"), ("name", "")]),
-    ("имя стёрто последним действием, лист заполнен первым", "cell",
-     "my_cell", [("sheet", "Sheet_1"), ("name", "")]),
     ("поле источника пусто (ячейка без имени)", "cell", "", []),
     ("отпечаток без имени", "imprint", "", []),
 ]
+
+
+def _form_after(parent, source_kind, source_name, actions):
+    """Настоящая форма ПОСЛЕ действий пользователя: `actions` — список
+    ("name"|"instance", значение) в том порядке, в каком их делали."""
+    dlg = RealCreateEntityDialog(parent, source_kind, source_name, [])
+    for field, value in actions:
+        if field == "name":
+            dlg._name_edit.setText(value)
+        elif field == "instance":
+            dlg._instance_combo.setEditText(value)
+    return dlg
 
 
 @pytest.mark.parametrize(
@@ -410,25 +332,17 @@ EMPTY_NAME_ORDERS = [
     ids=[label for label, _k, _s, _a in EMPTY_NAME_ORDERS])
 def test_an_empty_name_never_leaves_the_form(main_window, monkeypatch, kind,
                                              source, actions):
-    """С4 плана empty_cluster_normalisation, Т3: пустое имя не уходит из формы
-    НИ ПРИ КАКОМ порядке действий. Проверка идёт через настоящий accept() и
-    подтверждается тремя вещами сразу: диалог не принят, человеку СКАЗАНО,
-    почему, и форма не выдумала имя сама (иначе сторож проверял бы не тот
-    случай).
-
-    Мутация М4 (пропускать пустое имя — снять `if not name:` в _validate)
-    роняет сторож: диалог принялся бы с пустым именем, и дальше в конфиг ушла
-    бы entities:-запись без имени — а её потом не назвать ни в дереве, ни по
-    кластеру. Мутация М10 (снять .strip() у имени целиком) роняет его на
-    параметре «имя из одних пробелов».
-    """
+    """Т3/С4: пустое имя не уходит из формы НИ ПРИ КАКОМ порядке действий.
+    Проверка идёт через настоящий accept() и подтверждается тремя вещами
+    сразу: диалог не принят, человеку СКАЗАНО почему, и форма не выдумала имя
+    сама."""
     warnings = capture_warnings(monkeypatch)
     dlg = _form_after(main_window, kind, source, actions)
 
     dlg.accept()
 
     assert dlg.result() != QDialog.DialogCode.Accepted, (
-        f"порядок действий {actions!r}: форма приняла пустое имя (мутация М4); "
+        f"порядок действий {actions!r}: форма приняла пустое имя; "
         f"result_data() = {dlg.result_data()!r}")
     assert warnings, (
         "отказ обязан ГОВОРИТЬ, что имени нет: молчащая кнопка — это «не "
@@ -440,9 +354,8 @@ def test_an_empty_name_never_leaves_the_form(main_window, monkeypatch, kind,
 
 def test_a_filled_name_is_accepted(main_window):
     """КОНТРОЛЬ против ложной зелени сторожа пустого имени: без него все его
-    случаи были бы зелёными и в том случае, если бы _validate отказывал
-    ВСЕГДА («кнопка никогда не работает»). Непустое имя — принимается, имя
-    уходит как есть."""
+    случаи были бы зелёными и в том случае, если бы _validate отказывал ВСЕГДА
+    («кнопка никогда не работает»). Непустое имя — принимается."""
     dlg = _form_after(main_window, "cell", "my_cell", [])
 
     dlg.accept()
@@ -454,16 +367,8 @@ def test_a_filled_name_is_accepted(main_window):
 
 
 def test_the_ok_button_refuses_an_empty_name(main_window, monkeypatch):
-    """Не только прямой accept(): кнопка OK идёт тем же путём — сигнал
-    accepted → self.accept() → _validate. Здесь по ней КЛИКАЮТ, как человек, а
-    не зовут accept() вручную: иначе сторож держался бы за внутренний вызов, а
-    не за ту дверь, которой пользуется пользователь (Enter жмёт эту же кнопку —
-    она default).
-
-    Роняет его мутация М4 (снятый гейт `if not name:`).
-    """
-    from PyQt6.QtWidgets import QDialogButtonBox
-
+    """Не только прямой accept(): кнопка OK идёт тем же путём — сигнал accepted
+    → self.accept() → _validate. Здесь по ней КЛИКАЮТ, как человек."""
     warnings = capture_warnings(monkeypatch)
     dlg = _form_after(main_window, "cell", "my_cell", [("name", "")])
     ok = dlg.findChild(QDialogButtonBox).button(
@@ -474,6 +379,5 @@ def test_the_ok_button_refuses_an_empty_name(main_window, monkeypatch):
 
     assert dlg.result() != QDialog.DialogCode.Accepted, (
         "кнопка OK обязана идти через accept()/_validate, а не закрывать "
-        "диалог напрямую — иначе пустое имя выходит из формы мимо гейта "
-        "(мутация М4)")
+        "диалог напрямую — иначе пустое имя выходит из формы мимо гейта")
     assert warnings, "человеку обязано быть сказано, что имени нет"

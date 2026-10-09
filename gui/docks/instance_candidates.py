@@ -53,8 +53,15 @@ __all__ = [
     "Part", "InstanceCandidate", "CellSpec", "CellCandidate", "CellChoices",
     "role_mismatch_reason", "cell_role_order", "instance_candidates",
     "cell_candidates", "choose_cells", "cell_row_label", "others_line",
-    "others_tooltip", "instance_parts", "snapshot_parts",
+    "others_tooltip", "instances_others_line", "instances_others_tooltip",
+    "parse_instance_label", "INSTANCE_LABEL_SEP", "instance_parts",
+    "snapshot_parts",
 ]
+
+# The separator an instance label joins its cluster and sheet with — and the ONE
+# place a hand-typed line is split back apart (``parse_instance_label``):
+# "КЛАСТЕР — лист".
+INSTANCE_LABEL_SEP = " — "
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,8 +106,9 @@ class InstanceCandidate:
     @property
     def label(self) -> str:
         """The dropdown/table line of the instance: "CLUSTER — sheet"."""
-        return "{cluster} — {sheet}".format(
-            cluster=self.cluster, sheet=self.sheet or _("(no sheet)"))
+        return "{cluster}{sep}{sheet}".format(
+            cluster=self.cluster, sep=INSTANCE_LABEL_SEP,
+            sheet=self.sheet or _("(no sheet)"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -343,6 +351,43 @@ def others_tooltip(others, limit: int = 8) -> str:
     can be long; the line itself only counts)."""
     return "\n".join("{name}: {reason}".format(name=c.name, reason=c.reason)
                      for c in (others or ())[:limit])
+
+
+def instances_others_line(others) -> str:
+    """The ONE grey line under an INSTANCE picker: "K other instances lack
+    roles"; empty when nothing was left out (the caller hides the label then).
+    Mirrors :func:`others_line` for the instance direction."""
+    if not others:
+        return ""
+    return _("{count} other instances lack roles").format(count=len(others))
+
+
+def instances_others_tooltip(others, limit: int = 8) -> str:
+    """The instance grey line's tooltip — the first reasons, one per line."""
+    return "\n".join("{label}: {reason}".format(label=c.label, reason=c.reason)
+                     for c in (others or ())[:limit])
+
+
+def parse_instance_label(text) -> tuple:
+    """("CLUSTER — sheet") as typed by hand -> ``(cluster, sheet|None)``.
+
+    The reverse of :attr:`InstanceCandidate.label` and its ONE separator
+    (:data:`INSTANCE_LABEL_SEP`). A line with no separator is a cluster with no
+    sheet — the common "no sheet" case; an empty sheet part (or the translated
+    ``"(no sheet)"``) comes back as None. Blank text is ``(None, None)``. This is
+    the ONLY place a typed instance line is split, so the phrasing the rows use
+    and the phrasing the user may retype can never drift."""
+    text = (text or "").strip()
+    if not text:
+        return None, None
+    if INSTANCE_LABEL_SEP in text:
+        cluster, sheet = text.split(INSTANCE_LABEL_SEP, 1)
+        cluster = cluster.strip()
+        sheet = sheet.strip()
+        if sheet == _("(no sheet)"):
+            sheet = None
+        return (cluster or None), (sheet or None)
+    return text, None
 
 
 def instance_parts(parts: Iterable[Part], cluster: str,

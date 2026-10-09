@@ -75,10 +75,15 @@ def _fake_dialog(name, cluster, sheet):
     одно: result_data() и то, что диалог был «принят». Сохраняем и аргументы
     конструктора — они ниже проверяются там, где это важно."""
     class _FakeDialog:
-        def __init__(self, parent, source_kind, source_name, existing_names):
+        def __init__(self, parent, source_kind, source_name, existing_names,
+                     **kwargs):
             self.source_kind = source_kind
             self.source_name = source_name
             self.existing_names = set(existing_names or ())
+            # Т3.1: the flow now hands the dialog its candidates / sheet names
+            # / snapshot flag — the fake keeps them only so its signature stays
+            # honest; this layer does not read them.
+            self.kwargs = kwargs
 
         def exec(self):
             return QDialog.DialogCode.Accepted
@@ -686,6 +691,145 @@ def test_a_typed_sheet_through_the_real_form_reaches_the_record(
         "напечатанный лист обязан доехать до записи — это целевой лист "
         "twin-резолва, без него сущность клонируется не на тот лист; сейчас: "
         + repr(entities_of(root)))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Т3.1: дверь зовётся, экземпляры идут из instance_candidates, ручная пара
+# не с платы всё равно пишется — сквозь поток до байтов конфига
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _Fp:
+    def __init__(self, uuid):
+        self.uuid = uuid
+
+
+class _Sel:
+    """Достаточно того, что читает snapshot_parts: ref/role/cluster/sheet/fp."""
+
+    def __init__(self, ref, cluster, role="R", sheet=("Ch0",)):
+        self.ref = ref
+        self.role = role
+        self.cluster = cluster
+        self.sheet = sheet
+        self.fp = _Fp("u-" + ref)
+
+
+def _set_snapshot(hub, monkeypatch, sels):
+    monkeypatch.setattr(hub.main_window.connection, "_snapshot", list(sels))
+
+
+def _door(hub, monkeypatch):
+    """Двойник ДВЕРИ: запоминает on_ready и сразу его зовёт — «пересборка снимка
+    в воркере, затем продолжение в потоке UI» (как test_add_entities_menu)."""
+    calls = []
+
+    def _fake(on_ready=None):
+        calls.append(on_ready)
+        if on_ready is not None:
+            on_ready()
+
+    monkeypatch.setattr(hub, "refresh_snapshot_and_push", _fake)
+    return calls
+
+
+def _recording_dialog(monkeypatch, made, result):
+    """Подмена формы, ПРИНИМАЮЩАЯ и запоминающая, ЧТО ей передал поток."""
+
+    class _Dialog:
+        def __init__(self, parent, source_kind, source_name, existing_names,
+                     **kwargs):
+            made["source_kind"] = source_kind
+            made["source_name"] = source_name
+            made["kwargs"] = kwargs
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def result_data(self):
+            return result
+
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog", _Dialog)
+
+
+def test_the_door_is_asked_and_candidates_come_from_the_rule(
+        real_main_window, tmp_path, monkeypatch):
+    """Т3.1c: поток обязан спросить ДВЕРЬ (refresh_snapshot_and_push) и брать
+    экземпляры только у instance_candidates — подходящий приходит fits=True,
+    а неполный fits=False. Своё правило подбора (например «все подходят»)
+    уронило бы вердикт неполного."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": minimal_cells("my_cell")})
+    open_project(hub, root)
+    # minimal_cells gives the cell the single role "R": CL_A fits, CL_B lacks it.
+    _set_snapshot(hub, monkeypatch, [_Sel("R1", "CL_A"),
+                                     _Sel("R2", "CL_B", role="CAP")])
+    calls = _door(hub, monkeypatch)
+    made = {}
+    _recording_dialog(monkeypatch, made, ("ent", "CL_A", None))
+
+    leaf = find_child(category(file_item(hub.config_tree_dock.tree, root),
+                               "cells"), "my_cell")
+    create_entity_action(hub.config_tree_dock, leaf, monkeypatch).trigger()
+
+    assert calls and calls[0] is not None, "поток обязан спросить дверь"
+    by_cluster = {c.cluster: c for c in made["kwargs"]["candidates"]}
+    assert by_cluster["CL_A"].fits is True
+    assert by_cluster["CL_B"].fits is False, (
+        "неполный экземпляр обязан прийти с вердиктом от instance_candidates")
+    assert made["kwargs"]["snapshot_available"] is True
+
+
+def test_without_a_board_the_dialog_is_still_opened(
+        real_main_window, tmp_path, monkeypatch):
+    """Т3.1c: снимка нет (KiCad закрыт) — диалог ОТКРЫВАЕТСЯ ВСЁ РАВНО
+    (создание сущности без платы законно, Т4/С7), с snapshot_available=False,
+    и запись проходит."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": minimal_cells("my_cell")})
+    open_project(hub, root)
+    _set_snapshot(hub, monkeypatch, [])
+    _door(hub, monkeypatch)
+    made = {}
+    _recording_dialog(monkeypatch, made, ("ent", None, None))
+
+    leaf = find_child(category(file_item(hub.config_tree_dock.tree, root),
+                               "cells"), "my_cell")
+    create_entity_action(hub.config_tree_dock, leaf, monkeypatch).trigger()
+
+    assert made.get("kwargs") is not None, (
+        "диалог обязан открыться и без платы (Т4/С7)")
+    assert made["kwargs"]["snapshot_available"] is False
+    assert names_of(root) == ["ent"], (
+        "сущность без платы обязана записаться; сейчас: "
+        + repr(entities_of(root)))
+
+
+def test_a_manual_pair_not_on_the_board_is_written_through_the_real_form(
+        real_main_window, tmp_path, monkeypatch):
+    """Клетка плана Т3.1: пара, которой нет на плате, — предупреждение, НЕ
+    запрет: набранная руками через НАСТОЯЩУЮ форму, она доезжает до записи."""
+    hub = real_main_window._dock_hub
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": minimal_cells("my_cell")})
+    open_project(hub, root)
+    _set_snapshot(hub, monkeypatch, [_Sel("R1", "CL_A")])
+    _door(hub, monkeypatch)
+
+    leaf = find_child(category(file_item(hub.config_tree_dock.tree, root),
+                               "cells"), "my_cell")
+    action = create_entity_action(hub.config_tree_dock, leaf, monkeypatch)
+    monkeypatch.setattr(create_entity_mod, "CreateEntityDialog",
+                        accepted_real_form(cluster="CL_X", sheet="Ch9"))
+
+    action.trigger()
+
+    assert without_identity(entities_of(root)) == [
+        {"name": "my_cell", "cell": "my_cell", "cluster": "CL_X",
+         "sheet": "Ch9"}], (
+        "ручная пара не с платы обязана записаться (жёлтая строка — не запрет); "
+        "сейчас: " + repr(entities_of(root)))
 
 
 def test_an_empty_name_through_the_real_form_writes_nothing(

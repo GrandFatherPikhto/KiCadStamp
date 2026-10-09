@@ -205,23 +205,43 @@ def capture_warnings(monkeypatch) -> list:
 RealCreateEntityDialog = create_entity_mod.CreateEntityDialog
 
 
+def instance_line(cluster, sheet) -> str:
+    """The one line a CELL's instance combobox spells: "CLUSTER — sheet" — the
+    SAME separator the rows use (instance_candidates.INSTANCE_LABEL_SEP), never
+    a second copy. Absent halves are simply left out (a cluster with no sheet is
+    the common "no sheet" case)."""
+    from gui.docks.instance_candidates import INSTANCE_LABEL_SEP
+
+    parts = [str(p) for p in (cluster, sheet) if p is not None]
+    return INSTANCE_LABEL_SEP.join(parts)
+
+
 def accepted_real_form(*, name=None, cluster=None, sheet=None):
     """Класс НАСТОЯЩЕЙ формы, которая «нажала OK». По умолчанию поля остаются
-    такими, как их построил диалог (имя — имя источника, кластер и лист
-    пусты); переданное сюда — то, что человек напечатал. accept() вызывается
+    такими, как их построил диалог (имя — имя источника, выпадашка пуста;
+    переданное сюда — то, что человек напечатал. accept() вызывается
     по-настоящему, поэтому валидация имени внутри диалога тоже отрабатывает —
-    это не обход формы, а её принятие без показа окна."""
+    это не обход формы, а её принятие без показа окна.
+
+    Для ЯЧЕЙКИ cluster и sheet задают ОДНУ строку-экземпляр (Т3.1: два поля
+    свёрнуты в одну выпадашку); для ОТПЕЧАТКА кластера нет вовсе (Т2а), и
+    передача его — ошибка сторожа."""
     class _AcceptedRealForm(RealCreateEntityDialog):
         def exec(self):
             if name is not None:
                 self._name_edit.setText(name)
-            if cluster is not None:
-                assert self._cluster_edit is not None, (
+            if self._instance_combo is not None:
+                if cluster is not None or sheet is not None:
+                    self._instance_combo.setEditText(
+                        instance_line(cluster, sheet))
+            else:
+                assert cluster is None, (
                     "кластер передан форме отпечатка, у которой поля Cluster "
                     "нет вовсе (Т2а)")
-                self._cluster_edit.setText(cluster)
-            if sheet is not None:
-                self._sheet_edit.setText(sheet)
+                if sheet is not None:
+                    assert self._sheet_combo is not None, (
+                        "у отпечатка обязана быть выпадашка Sheet")
+                    self._sheet_combo.setEditText(sheet)
             self.accept()  # the user's OK: validation still runs
             return self.result()
 
@@ -232,6 +252,6 @@ __all__ = [
     "RealCreateEntityDialog", "accepted_real_form", "capture_hub_messages",
     "capture_warnings", "category", "context_menu_actions",
     "create_entity_action", "entities_of", "file_item", "find_child",
-    "load_config_data", "minimal_cells", "minimal_imprint", "names_of",
-    "open_project", "write_config",
+    "instance_line", "load_config_data", "minimal_cells", "minimal_imprint",
+    "names_of", "open_project", "write_config",
 ]
