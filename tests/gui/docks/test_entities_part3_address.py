@@ -1,18 +1,17 @@
 # tests/gui/docks/test_entities_part3_address.py
-"""Сторожа ЧАСТИ 3 плана plan_2026_10_05_entities_under_cells: адрес экземпляра
-идёт В АРГУМЕНТЕ, а не из невидимого хранилища `cell_working_instance` (п.2).
+"""Сторожа адреса экземпляра (часть 3 плана plan_2026_10_05_entities_under_cells;
+step 5 of plan_2026_10_09_entity_page): адрес идёт В АРГУМЕНТЕ от двери, и
+НЕОТКУДА взять его иначе — хранилище `cell_working_instance` удалено вместе с
+выпадашкой экземпляров. Нет адреса → чтения платы нет (см. соседние клетки).
 
 Слой: дверь (`gui/entity_doors.py`, индекс части 1 на настоящем конфиге в
 tmp_path) + настоящий CellDock на настоящем конфиге + сама проводка DockHub.
-Хранилище рабочего экземпляра ставится НА ДРУГУЮ сущность той же ячейки — тот
-самый живой случай Дениса 08.10, где кнопка CellDock прочла выделение как
-экземпляр ЭТОЙ сущности и отказала, а человек не видел, с чем работает.
 
 Имена функций описывают СВОЙСТВО (правило 37), пункт плана назван в докстринге.
 """
 from types import SimpleNamespace
 
-from gui.cell_entity_choice import entity_address, remember_working_instance
+from gui.entity.address import entity_address
 from gui.dock_hub import DockHub
 from gui.docks.cell_editor import CellDock
 from gui.docks.entity_index import build_entity_index
@@ -141,12 +140,12 @@ def _capture_payloads(monkeypatch):
     return payloads
 
 
-def test_the_read_bodies_take_the_doors_address_not_the_store(
+def test_the_read_bodies_take_the_doors_address(
         main_window, tmp_path, monkeypatch):
-    """Живой случай Дениса: хранилище стоит на `e1`, а читать зовут `e2` — и
-    читается ИМЕННО `e2` (payload воркера несёт адрес сущности), на обоих
-    чтениях и на обоих ходах (быстрый и с диалогом слоёв). Без адреса (путь
-    страницы) отвечает хранилище, как раньше."""
+    """Step 5 of plan_2026_10_09_entity_page: the read uses the address its DOOR
+    passed (the payload's `expected_entity` IS that instance), on both reads and
+    on both legs (the fast one and the layer dialog) — and with NO address at all
+    it reads NOTHING (the store that used to answer is gone)."""
     root = tmp_path / "root.sexp"
     _config_with_two_entities(root)
     dock = CellDock(main_window)
@@ -154,9 +153,6 @@ def test_the_read_bodies_take_the_doors_address_not_the_store(
     dock.load_entry("c")
     main_window.connection.board = SimpleNamespace(adapter=object())
     payloads = _capture_payloads(monkeypatch)
-
-    remember_working_instance(root, "c", entity_address(dict(_E1)))
-    assert dock._read_instance().cluster == "CL1", "хранилище стоит на e1"
 
     dock.refresh_from_selection_requested("c", root,
                                           expected_address=entity_address(dict(_E2)))
@@ -180,10 +176,10 @@ def test_the_read_bodies_take_the_doors_address_not_the_store(
     calls["on_ok"]({"F.Cu"}, set())
     assert payloads[-1]["expected_entity"].entity_name == "e2"
 
-    # …and with NO address the store answers, exactly as before part 3.
+    # …and with NO address at all NOTHING is read: the store is gone.
+    before = len(payloads)
     dock.refresh_from_selection_requested("c", root)
-    assert payloads[-1]["expected_entity"].entity_name == "e1"
-    assert payloads[-1]["remembered_cluster"] == "CL1"
+    assert len(payloads) == before, "a read with no address must read nothing"
 
 
 def test_the_subtract_flow_takes_the_address_over_the_store(
@@ -214,10 +210,8 @@ def test_the_subtract_flow_takes_the_address_over_the_store(
     assert captured[-1]["refs"] == {"R": "R7"}, "пины сущности обязаны доехать"
     assert captured[-1]["cell_name"] == "c"
 
-    # Without an address the PAGE's row answers — the SAME working-instance store
-    # every read uses (an entity without refs keeps refs None, never {}).
-    remember_working_instance(root, "c", entity_address(dict(_E1)))
-    wiring.open()
+    # An address WITHOUT pins keeps refs None, NEVER {} (the live 2б fatal).
+    wiring.open(entity_address(dict(_E1)))
     assert (captured[-1]["cluster"], captured[-1]["sheet"]) == ("CL1", "S1")
     assert captured[-1]["refs"] is None, "сущность без refs — None, не {}"
 
@@ -301,6 +295,7 @@ def test_the_cell_reads_never_touch_the_board_handle(main_window, tmp_path,
                 "the cell read must not ask for the board handle (часть 3, п.7)")
 
     main_window.connection = _Conn()
+    dock._expected_address = entity_address(dict(_E2))
     payloads = _capture_payloads(monkeypatch)
 
     dock.refresh_from_selection_requested("c", root)
@@ -341,15 +336,13 @@ def test_a_cell_leaf_carries_no_board_item_at_all(real_main_window, tmp_path,
 def test_the_board_item_of_an_entity_leaf_reaches_the_dock_with_the_address(
         real_main_window, tmp_path, monkeypatch):
     """Сквозь проводку: пункт листа сущности → сигнал → делегат хаба → адрес ЭТОЙ
-    сущности в АРГУМЕНТЕ действия (живой случай: хранилище стоит на e1)."""
-    from gui.cell_entity_choice import remember_working_instance
+    сущности в АРГУМЕНТЕ действия."""
     from tests.gui.create_entity_helpers import context_menu_actions, open_project
 
     root = tmp_path / "root.sexp"
     _config_with_two_entities(root)
     hub = real_main_window._dock_hub
     open_project(hub, root)
-    remember_working_instance(root, "c", entity_address(dict(_E1)))
 
     captured = []
     monkeypatch.setattr(

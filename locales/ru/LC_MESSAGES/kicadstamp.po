@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-09 17:25+0300\n"
+"POT-Creation-Date: 2026-10-09 18:02+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -49,69 +49,7 @@ msgstr ""
 "User.KiCadStamp); подметание меди, шелкографии или Edge.Cuts сотрёт "
 "реальное содержимое платы"
 
-#: gui/cell_entity_choice.py:141
-#, python-brace-format
-msgid "{name} — refs {refs}"
-msgstr "{name} — ссылки {refs}"
-
-#: gui/cell_entity_choice.py:146
-#, python-brace-format
-msgid "{name} — {cluster} on {sheet}"
-msgstr "{name} — {cluster} на {sheet}"
-
-#: gui/cell_entity_choice.py:148 gui/cell_entity_choice.py:302
-#: gui/cell_entity_choice.py:306 gui/cell_entity_choice.py:322
-#: gui/docks/add_entities.py:160 gui/docks/instance_candidates.py:103
-#: gui/mixed_selection.py:122 gui/mixed_selection.py:173
-#: gui/mixed_selection.py:288 gui/select_cell.py:144 gui/select_cell.py:239
-#: gui/select_enclosed_copper.py:86 gui/subtract_copper.py:67
-msgid "(no sheet)"
-msgstr "(без листа)"
-
-#: gui/cell_entity_choice.py:149
-#, python-brace-format
-msgid "{name} — not placed"
-msgstr "{name} — не размещена"
-
-#: gui/cell_entity_choice.py:196
-msgid "Manual…"
-msgstr "Вручную…"
-
-#: gui/cell_entity_choice.py:277
-#, python-brace-format
-msgid ""
-"the selection carries no Cluster — cannot verify it is entity {entity!r};"
-" reading it as that entity's instance"
-msgstr ""
-"у выделения нет тега Cluster — нельзя проверить, что это сущность "
-"{entity!r}; читается экземпляр этой сущности"
-
-#: gui/cell_entity_choice.py:299
-#, python-brace-format
-msgid ""
-"the selection is {cluster} / {sheet} — entity {selection!r} of this cell,"
-" not {entity!r}; use the item under {selection!r} — nothing read"
-msgstr ""
-"выделение — {cluster} / {sheet}: сущность {selection!r} этой ячейки, а не"
-" {entity!r}; выберите пункт под {selection!r} — ничего не прочитано"
-
-#: gui/cell_entity_choice.py:304
-#, python-brace-format
-msgid "the selection is {cluster} / {sheet}, not entity {entity!r} — nothing read"
-msgstr ""
-"выделение — {cluster} / {sheet}, а не сущность {entity!r} — ничего не "
-"прочитано"
-
-#: gui/cell_entity_choice.py:319
-#, python-brace-format
-msgid ""
-"cell {cell!r} updated from entity {entity!r} ({cluster} on {sheet}) — the"
-" change applies to every entity of the cell"
-msgstr ""
-"ячейка {cell!r} обновлена из сущности {entity!r} ({cluster} на {sheet}) —"
-" изменение применится ко всем сущностям ячейки"
-
-#: gui/cell_identification.py:168 gui/docks/cell_anchor_view.py:100
+#: gui/cell_identification.py:168
 #, python-brace-format
 msgid ""
 "nothing is selected on the board — select the components of ONE instance "
@@ -120,7 +58,7 @@ msgstr ""
 "на плате ничего не выделено — выделите компоненты ОДНОГО экземпляра "
 "ячейки {cell!r}"
 
-#: gui/cell_identification.py:170 gui/docks/cell_anchor_view.py:103
+#: gui/cell_identification.py:170
 msgid ""
 "a spoke cell is identified by exactly ONE pair; an ordinary cluster can "
 "be identified from any part of it"
@@ -252,7 +190,7 @@ msgstr ""
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr "Чтение живой платы из UI-потока без знака: {site}"
 
-#: gui/dock_hub.py:178 gui/docks/cell_editor.py:639 gui/docks/imprint.py:1336
+#: gui/dock_hub.py:178 gui/docks/cell_editor.py:641 gui/docks/imprint.py:1336
 #: gui/docks/role_cluster_tree.py:339
 msgid "Components"
 msgstr "Компоненты"
@@ -265,23 +203,23 @@ msgstr "Конфиг"
 msgid "Trees"
 msgstr "Деревья"
 
-#: gui/dock_hub.py:562 gui/dock_hub.py:591
+#: gui/dock_hub.py:558 gui/dock_hub.py:587
 msgid "Select an Imprint record first."
 msgstr "Сначала выберите запись Imprint."
 
-#: gui/dock_hub.py:585 gui/dock_hub.py:590 gui/dock_hub.py:1495
-#: gui/dock_hub.py:1559 gui/dock_hub.py:1565 gui/dock_hub.py:1571
+#: gui/dock_hub.py:581 gui/dock_hub.py:586 gui/dock_hub.py:1479
+#: gui/dock_hub.py:1543 gui/dock_hub.py:1549 gui/dock_hub.py:1555
 #: gui/docks/config_tree.py:159 gui/docks/imprint.py:873
 #: gui/docks/imprint.py:901 gui/main_window.py:481
 msgid "Imprints"
 msgstr "Отпечатки"
 
-#: gui/dock_hub.py:586 gui/dock_hub.py:1496 gui/dock_hub.py:1882
-#: gui/dock_hub.py:1937 gui/dock_hub.py:2122 gui/dock_hub.py:2430
-#: gui/dock_hub.py:2808 gui/docks/add_entities_flow.py:84
-#: gui/docks/cell_editor.py:1641 gui/docks/cell_editor.py:1725
-#: gui/docks/cell_editor.py:2238 gui/docks/cell_editor.py:2535
-#: gui/docks/cell_editor.py:2671 gui/docks/change_cell_flow.py:176
+#: gui/dock_hub.py:582 gui/dock_hub.py:1480 gui/dock_hub.py:1866
+#: gui/dock_hub.py:1921 gui/dock_hub.py:2106 gui/dock_hub.py:2414
+#: gui/dock_hub.py:2791 gui/docks/add_entities_flow.py:84
+#: gui/docks/cell_editor.py:1643 gui/docks/cell_editor.py:1726
+#: gui/docks/cell_editor.py:2244 gui/docks/cell_editor.py:2551
+#: gui/docks/cell_editor.py:2687 gui/docks/change_cell_flow.py:176
 #: gui/docks/change_cell_flow.py:215 gui/docks/imprint_place.py:731
 #: gui/docks/net_trace.py:305 gui/docks/net_trace.py:414
 #: gui/docks/net_trace.py:480 gui/docks/net_trace.py:566
@@ -291,26 +229,26 @@ msgstr "Отпечатки"
 #: gui/docks/points.py:883 gui/docks/profile_import.py:222
 #: gui/docks/thermal_via.py:354 gui/docks/thermal_via.py:474
 #: gui/explode_wiring.py:114 gui/select_enclosed_copper.py:134
-#: gui/subtract_copper.py:369
+#: gui/subtract_copper.py:373
 msgid "Set the project root first."
 msgstr "Сначала задайте root проекта."
 
-#: gui/dock_hub.py:600 gui/dock_hub.py:1504 gui/docks/cell_editor.py:1719
-#: gui/docks/cell_editor.py:1817 gui/docks/cell_editor.py:2232
-#: gui/docks/cell_editor.py:2532 gui/docks/dedupe.py:136
+#: gui/dock_hub.py:596 gui/dock_hub.py:1488 gui/docks/cell_editor.py:1720
+#: gui/docks/cell_editor.py:1823 gui/docks/cell_editor.py:2238
+#: gui/docks/cell_editor.py:2548 gui/docks/dedupe.py:136
 #: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
 #: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
 #: gui/docks/net_trace.py:302 gui/docks/net_trace.py:417
 #: gui/fieldstool_window.py:818 gui/select_enclosed_copper.py:138
-#: gui/subtract_copper.py:363
+#: gui/subtract_copper.py:367
 msgid "Connect to KiCad first."
 msgstr "Сначала подключитесь к KiCad."
 
-#: gui/dock_hub.py:652 gui/dock_hub.py:659 gui/dock_hub.py:672
+#: gui/dock_hub.py:648 gui/dock_hub.py:655 gui/dock_hub.py:668
 msgid "Cannot re-source Imprint"
 msgstr "Нельзя переисточить Imprint"
 
-#: gui/dock_hub.py:660 gui/dock_hub.py:1572 gui/docks/imprint.py:874
+#: gui/dock_hub.py:656 gui/dock_hub.py:1556 gui/docks/imprint.py:874
 msgid ""
 "No footprints to record — pick a sheet that has footprints on the 'By "
 "sheet' tab, or select footprints on the board for 'By selection'."
@@ -324,8 +262,8 @@ msgstr ""
 # статус-баре
 # было видно, КАКАЯ работа с платой идёт («Работа с платой: расстановка»).
 # Операция без своего слова получает общую формулировку выше.
-#: gui/dock_hub.py:711 gui/dock_hub.py:1612 gui/dock_hub.py:1686
-#: gui/dock_hub.py:1800 gui/dock_hub.py:2046 gui/docks/dedupe.py:143
+#: gui/dock_hub.py:707 gui/dock_hub.py:1596 gui/dock_hub.py:1670
+#: gui/dock_hub.py:1784 gui/dock_hub.py:2030 gui/docks/dedupe.py:143
 #: gui/docks/imprint.py:882 gui/docks/imprint.py:1582
 #: gui/docks/net_trace.py:324 gui/docks/trees_dock.py:3297
 #: gui/docks/trees_dock.py:3495 gui/docks/trees_dock.py:3544
@@ -334,7 +272,7 @@ msgstr ""
 msgid "reading the board"
 msgstr "чтение платы"
 
-#: gui/dock_hub.py:1318
+#: gui/dock_hub.py:1302
 msgid ""
 "The board is busy — using the previously read board snapshot; the "
 "Role/Cluster suggestions may be slightly out of date."
@@ -342,22 +280,22 @@ msgstr ""
 "Плата занята — используется ранее прочитанный снимок платы; подсказки "
 "Role/Cluster могут быть немного устаревшими."
 
-#: gui/dock_hub.py:1560 gui/docks/add_entities.py:261
-#: gui/docks/cell_editor.py:1568 gui/docks/create_entity.py:161
+#: gui/dock_hub.py:1544 gui/docks/add_entities.py:261
+#: gui/docks/cell_editor.py:1570 gui/docks/create_entity.py:161
 #: gui/docks/points.py:367 gui/docks/points.py:536 gui/docks/thermal_via.py:272
 msgid "Name is required."
 msgstr "Требуется имя."
 
-#: gui/dock_hub.py:1581
+#: gui/dock_hub.py:1565
 msgid "Cannot record Imprint"
 msgstr "Не удаётся записать Imprint"
 
-#: gui/dock_hub.py:1660 gui/dock_hub.py:1695 gui/dock_hub.py:1709
-#: gui/dock_hub.py:1723
+#: gui/dock_hub.py:1644 gui/dock_hub.py:1679 gui/dock_hub.py:1693
+#: gui/dock_hub.py:1707
 msgid "Record failed"
 msgstr "Запись не удалась"
 
-#: gui/dock_hub.py:1714
+#: gui/dock_hub.py:1698
 #, python-brace-format
 msgid ""
 "Recorded Imprint {name!r} — {components} components, {vias} vias, "
@@ -366,18 +304,18 @@ msgstr ""
 "Записан Imprint {name!r} — {components} компон., {vias} виа, {tracks} "
 "треков -> {path}"
 
-#: gui/dock_hub.py:1724 gui/dock_hub.py:1843 gui/docks/dedupe.py:203
+#: gui/dock_hub.py:1708 gui/dock_hub.py:1827 gui/docks/dedupe.py:203
 #: gui/docks/net_trace.py:402
 #, python-brace-format
 msgid "Operation failed: {error}"
 msgstr "Операция не удалась: {error}"
 
-#: gui/dock_hub.py:1776 gui/dock_hub.py:1809 gui/dock_hub.py:1828
-#: gui/dock_hub.py:1842
+#: gui/dock_hub.py:1760 gui/dock_hub.py:1793 gui/dock_hub.py:1812
+#: gui/dock_hub.py:1826
 msgid "Re-source failed"
 msgstr "Сбой Re-source"
 
-#: gui/dock_hub.py:1833
+#: gui/dock_hub.py:1817
 #, python-brace-format
 msgid ""
 "Re-sourced Imprint {name!r} — {components} components, {vias} vias, "
@@ -386,21 +324,21 @@ msgstr ""
 "Переисточён Imprint {name!r} — {components} компон., {vias} виа, {tracks}"
 " треков -> {path}"
 
-#: gui/dock_hub.py:1851
+#: gui/dock_hub.py:1835
 msgid "Pick an Imprint in the Config tree first."
 msgstr "Сначала выберите Imprint в дереве Config."
 
-#: gui/dock_hub.py:1881 gui/dock_hub.py:1888 gui/docks/instances_dialog.py:129
+#: gui/dock_hub.py:1865 gui/dock_hub.py:1872 gui/docks/instances_dialog.py:129
 msgid "Tree instances"
 msgstr "Копии шаблона"
 
-#: gui/dock_hub.py:1889 gui/dock_hub.py:2129 gui/dock_hub.py:2437
-#: gui/dock_hub.py:2837 gui/docks/add_entities_flow.py:92
+#: gui/dock_hub.py:1873 gui/dock_hub.py:2113 gui/dock_hub.py:2421
+#: gui/dock_hub.py:2820 gui/docks/add_entities_flow.py:92
 #, python-brace-format
 msgid "Failed to load config: {error}"
 msgstr "Не удалось загрузить конфиг: {error}"
 
-#: gui/dock_hub.py:1936 gui/docks/instantiate_cell_dialog.py:89
+#: gui/dock_hub.py:1920 gui/docks/instantiate_cell_dialog.py:89
 #: gui/docks/trees_dock.py:4246 gui/docks/trees_dock.py:4295
 #: gui/docks/trees_dock.py:4301 gui/docks/trees_dock.py:4311
 #: gui/docks/trees_dock.py:4386 gui/docks/trees_dock.py:4392
@@ -409,7 +347,7 @@ msgstr "Не удалось загрузить конфиг: {error}"
 msgid "Instantiate from Cell"
 msgstr "Инстанцировать из Cell"
 
-#: gui/dock_hub.py:2054
+#: gui/dock_hub.py:2038
 msgid ""
 "The board is busy — the cluster list comes from the previously read board"
 " snapshot: a component added to a cluster since then may be missing, so a"
@@ -421,15 +359,15 @@ msgstr ""
 "поэтому частично выбранный кластер может выглядеть выбранным полностью — "
 "проверьте извлечённое дерево на пропущенный компонент."
 
-#: gui/dock_hub.py:2066 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
+#: gui/dock_hub.py:2050 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
 #, python-brace-format
 msgid "Could not refresh the board snapshot: {error}"
 msgstr "Не удалось перестроить снимок платы: {error}"
 
-#: gui/dock_hub.py:2078 gui/dock_hub.py:2108 gui/dock_hub.py:2116
-#: gui/dock_hub.py:2121 gui/dock_hub.py:2128 gui/dock_hub.py:2156
-#: gui/dock_hub.py:2237 gui/dock_hub.py:2243 gui/dock_hub.py:2303
-#: gui/dock_hub.py:2378 gui/dock_hub.py:2388
+#: gui/dock_hub.py:2062 gui/dock_hub.py:2092 gui/dock_hub.py:2100
+#: gui/dock_hub.py:2105 gui/dock_hub.py:2112 gui/dock_hub.py:2140
+#: gui/dock_hub.py:2221 gui/dock_hub.py:2227 gui/dock_hub.py:2287
+#: gui/dock_hub.py:2362 gui/dock_hub.py:2372
 #: gui/docks/tree_from_selection_dialog.py:88
 #: gui/docks/tree_from_selection_dialog.py:415
 #: gui/docks/tree_from_selection_dialog.py:423
@@ -438,7 +376,7 @@ msgstr "Не удалось перестроить снимок платы: {err
 msgid "Extract tree"
 msgstr "Извлечь дерево"
 
-#: gui/dock_hub.py:2109 gui/dock_hub.py:2117 gui/dock_hub.py:2425
+#: gui/dock_hub.py:2093 gui/dock_hub.py:2101 gui/dock_hub.py:2409
 #: gui/docks/placer.py:1993 gui/docks/points.py:438 gui/docks/points.py:543
 #: gui/docks/points.py:720 gui/docks/points.py:771
 #: gui/docks/role_cluster_tree.py:905 gui/docks/role_cluster_tree.py:917
@@ -447,7 +385,7 @@ msgstr "Извлечь дерево"
 msgid "Not connected."
 msgstr "Нет подключения."
 
-#: gui/dock_hub.py:2157 gui/dock_hub.py:2462
+#: gui/dock_hub.py:2141 gui/dock_hub.py:2446
 msgid ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
@@ -455,15 +393,15 @@ msgstr ""
 "Не найден полностью выделенный кластер — выдели ВСЕ компоненты кластера "
 "(его тег Cluster + лист) сначала."
 
-#: gui/dock_hub.py:2238
+#: gui/dock_hub.py:2222
 msgid "No clusters selected."
 msgstr "Не выбрано ни одного кластера."
 
-#: gui/dock_hub.py:2244 gui/docks/tree_from_selection_dialog.py:432
+#: gui/dock_hub.py:2228 gui/docks/tree_from_selection_dialog.py:432
 msgid "Role is required for the tree anchor."
 msgstr "Для якоря дерева требуется Role."
 
-#: gui/dock_hub.py:2304
+#: gui/dock_hub.py:2288
 #, python-brace-format
 msgid ""
 "Cannot build the tree:\n"
@@ -472,24 +410,24 @@ msgstr ""
 "Не удалось построить дерево:\n"
 "{errors}"
 
-#: gui/dock_hub.py:2379
+#: gui/dock_hub.py:2363
 #, python-brace-format
 msgid "Saved, but the round-trip check failed: {error}"
 msgstr "Сохранено, но проверка round-trip не прошла: {error}"
 
-#: gui/dock_hub.py:2389
+#: gui/dock_hub.py:2373
 #, python-brace-format
 msgid "Tree {name!r} saved to {path}."
 msgstr "Дерево {name!r} сохранено в {path}."
 
-#: gui/dock_hub.py:2400 gui/dock_hub.py:2424 gui/dock_hub.py:2429
-#: gui/dock_hub.py:2436 gui/dock_hub.py:2461 gui/dock_hub.py:2483
-#: gui/dock_hub.py:2511 gui/dock_hub.py:2520 gui/dock_hub.py:2536
-#: gui/dock_hub.py:2541 gui/docks/extract_cluster_dialog.py:54
+#: gui/dock_hub.py:2384 gui/dock_hub.py:2408 gui/dock_hub.py:2413
+#: gui/dock_hub.py:2420 gui/dock_hub.py:2445 gui/dock_hub.py:2467
+#: gui/dock_hub.py:2495 gui/dock_hub.py:2504 gui/dock_hub.py:2520
+#: gui/dock_hub.py:2525 gui/docks/extract_cluster_dialog.py:54
 msgid "Extract cluster"
 msgstr "Извлечь кластер"
 
-#: gui/dock_hub.py:2484 gui/dock_hub.py:2512
+#: gui/dock_hub.py:2468 gui/dock_hub.py:2496
 #, python-brace-format
 msgid ""
 "Entity {name!r} already exists for this Cluster + sheet — reused, nothing"
@@ -498,31 +436,31 @@ msgstr ""
 "Entity {name!r} для этого кластера + листа уже существует — "
 "переиспользована, ничего нового не создано."
 
-#: gui/dock_hub.py:2521
+#: gui/dock_hub.py:2505
 #, python-brace-format
 msgid "Failed to save the Entity: {error}"
 msgstr "Не удалось сохранить Entity: {error}"
 
-#: gui/dock_hub.py:2537
+#: gui/dock_hub.py:2521
 #, python-brace-format
 msgid "Entity {name!r} with its new cell {cell!r} saved to {path}."
 msgstr "Entity {name!r} с новым cell {cell!r} сохранена в {path}."
 
-#: gui/dock_hub.py:2542
+#: gui/dock_hub.py:2526
 #, python-brace-format
 msgid "Entity {name!r} saved to {path} (cell {cell!r} already existed)."
 msgstr "Entity {name!r} сохранена в {path} (cell {cell!r} уже существовал)."
 
-#: gui/dock_hub.py:2666
+#: gui/dock_hub.py:2649
 msgid "Pick a cell in the Config tree first."
 msgstr "Сначала выбери ячейку в дереве Config."
 
-#: gui/dock_hub.py:2671
+#: gui/dock_hub.py:2654
 #, python-brace-format
 msgid "pick an entity of cell {cell!r}"
 msgstr "выбери сущность ячейки {cell!r}"
 
-#: gui/dock_hub.py:2848
+#: gui/dock_hub.py:2831
 #, python-brace-format
 msgid ""
 "Entity {name!r} already exists for this source — reused, nothing new was "
@@ -531,15 +469,15 @@ msgstr ""
 "Сущность {name!r} для этого источника уже существует — переиспользована, "
 "ничего нового не создано."
 
-#: gui/dock_hub.py:2858 gui/docks/add_entities.py:264
+#: gui/dock_hub.py:2841 gui/docks/add_entities.py:264
 #: gui/docks/create_entity.py:166 gui/docks/imprint_place.py:715
 #: gui/docks/instantiate_cell_dialog.py:528
 #, python-brace-format
 msgid "An entity named {name!r} already exists."
 msgstr "Сущность с именем {name!r} уже существует."
 
-#: gui/dock_hub.py:2875 gui/docks/add_entities_flow.py:177
-#: gui/docks/cell_editor.py:1647 gui/docks/cell_refs_tab.py:1143
+#: gui/dock_hub.py:2858 gui/docks/add_entities_flow.py:177
+#: gui/docks/cell_editor.py:1649 gui/docks/cell_refs_tab.py:1143
 #: gui/docks/change_cell_flow.py:240 gui/docks/create_project_dialog.py:168
 #: gui/docks/net_trace.py:527 gui/docks/placer.py:2493 gui/docks/placer.py:2558
 #: gui/docks/placer.py:2575 gui/docks/placer.py:2613 gui/docks/points.py:895
@@ -550,12 +488,12 @@ msgstr "Сущность с именем {name!r} уже существует."
 msgid "Write failed: {error}"
 msgstr "Запись не удалась: {error}"
 
-#: gui/dock_hub.py:2882
+#: gui/dock_hub.py:2865
 #, python-brace-format
 msgid "Entity {name!r} saved to {path}."
 msgstr "Сущность {name!r} сохранена в {path}."
 
-#: gui/dock_hub.py:3247
+#: gui/dock_hub.py:3190
 msgid ""
 "This config has no schematic_dir/schematic_files — sheet names cannot be "
 "resolved, so sheet-based narrowing (Extract cluster/tree, anchor_sheet) "
@@ -623,11 +561,11 @@ msgstr "Нет подключения"
 msgid "Nothing selected"
 msgstr "Ничего не выбрано"
 
-#: gui/docks/_anchor_origin.py:92 gui/docks/cell_editor.py:540
-#: gui/docks/cell_editor.py:599 gui/docks/cell_editor.py:682
-#: gui/docks/cell_editor.py:758 gui/docks/cell_editor.py:820
+#: gui/docks/_anchor_origin.py:92 gui/docks/cell_editor.py:542
+#: gui/docks/cell_editor.py:601 gui/docks/cell_editor.py:684
+#: gui/docks/cell_editor.py:760 gui/docks/cell_editor.py:822
 #: gui/docks/placer.py:863 gui/docks/tree_from_selection_dialog.py:216
-#: gui/entity/anchor_tab.py:538 gui/fieldstool_window.py:223
+#: gui/entity/anchor_tab.py:126 gui/fieldstool_window.py:223
 msgid "Role:"
 msgstr "Роль:"
 
@@ -1332,6 +1270,14 @@ msgstr ""
 "прочитан экземпляр {cluster} на {sheet}; пропущено {count} компонент(ов) "
 "других кластеров: {clusters}"
 
+#: gui/docks/add_entities.py:160 gui/docks/instance_candidates.py:103
+#: gui/entity/address.py:142 gui/entity/address.py:146
+#: gui/mixed_selection.py:122 gui/mixed_selection.py:173
+#: gui/mixed_selection.py:288 gui/select_cell.py:144 gui/select_cell.py:239
+#: gui/select_enclosed_copper.py:86 gui/subtract_copper.py:67
+msgid "(no sheet)"
+msgstr "(без листа)"
+
 #: gui/mixed_selection.py:135
 #, python-brace-format
 msgid ""
@@ -1507,7 +1453,7 @@ msgstr ""
 "кластер у строк разный ({clusters}) — нажмите «Применить ко всем "
 "строкам», чтобы разметить одним кластером"
 
-#: gui/docks/cell_editor.py:2563 gui/select_cell.py:127
+#: gui/docks/cell_editor.py:2579 gui/select_cell.py:127
 #: gui/select_enclosed_copper.py:157
 #, python-brace-format
 msgid ""
@@ -1768,13 +1714,17 @@ msgstr ""
 msgid "{count} record(s) have no registry entry — not checked"
 msgstr "записей без ключа в реестре: {count} — не проверялись"
 
-#: gui/docks/cell_editor.py:1722 gui/docks/cell_editor.py:2235
-#: gui/docks/cell_editor.py:2538 gui/docks/cell_editor.py:2674
-#: gui/subtract_copper.py:366
+#: gui/docks/cell_editor.py:1723 gui/docks/cell_editor.py:2241
+#: gui/docks/cell_editor.py:2554 gui/docks/cell_editor.py:2690
+#: gui/subtract_copper.py:370
 msgid "Load a cell with components first."
 msgstr "Сначала загрузите шаблон с компонентами."
 
-#: gui/subtract_copper.py:426
+#: gui/subtract_copper.py:381
+msgid "Subtract needs an entity's address — open it from an ENTITY leaf."
+msgstr "Вычитание требует адрес сущности — откройте из листа СУЩНОСТИ."
+
+#: gui/subtract_copper.py:429
 #, python-brace-format
 msgid "Subtract selected copper failed: {error}"
 msgstr "Не удалось вычесть выделенное: {error}"
@@ -1845,17 +1795,17 @@ msgstr "имя листа (сужает неоднозначную Role, нео�
 msgid "Sheet:"
 msgstr "Лист:"
 
-#: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:542
-#: gui/docks/cell_editor.py:615 gui/docks/tree_from_selection_dialog.py:219
+#: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:544
+#: gui/docks/cell_editor.py:617 gui/docks/tree_from_selection_dialog.py:219
 #: gui/docks/trees_dock.py:6788
 msgid "pad (optional)"
 msgstr "пад (необязательно)"
 
-#: gui/docks/_anchor_origin.py:109 gui/docks/cell_editor.py:543
-#: gui/docks/cell_editor.py:686 gui/docks/cell_editor.py:762
+#: gui/docks/_anchor_origin.py:109 gui/docks/cell_editor.py:545
+#: gui/docks/cell_editor.py:688 gui/docks/cell_editor.py:764
 #: gui/docks/placer.py:261 gui/docks/thermal_via.py:131
 #: gui/docks/tree_from_selection_dialog.py:221 gui/docks/trees_dock.py:6789
-#: gui/entity/anchor_tab.py:541
+#: gui/entity/anchor_tab.py:129
 msgid "Pad:"
 msgstr "Пад:"
 
@@ -1877,11 +1827,11 @@ msgstr "X мм"
 msgid "Y mm"
 msgstr "Y мм"
 
-#: gui/docks/_anchor_origin.py:184 gui/docks/cell_editor.py:828
+#: gui/docks/_anchor_origin.py:184 gui/docks/cell_editor.py:830
 msgid "X:"
 msgstr "X:"
 
-#: gui/docks/_anchor_origin.py:186 gui/docks/cell_editor.py:830
+#: gui/docks/_anchor_origin.py:186 gui/docks/cell_editor.py:832
 msgid "Y:"
 msgstr "Y:"
 
@@ -1906,7 +1856,7 @@ msgstr "Радиус:"
 msgid "radius mm"
 msgstr "радиус, мм"
 
-#: gui/docks/_anchor_origin.py:214 gui/docks/cell_editor.py:608
+#: gui/docks/_anchor_origin.py:214 gui/docks/cell_editor.py:610
 msgid "Angle:"
 msgstr "Угол:"
 
@@ -1940,7 +1890,7 @@ msgid "Shift Y:"
 msgstr "Сдвиг Y:"
 
 #: gui/docks/_anchor_origin.py:409 gui/docks/_anchor_origin.py:418
-#: gui/docks/cell_editor.py:957 gui/docks/placer.py:382
+#: gui/docks/cell_editor.py:959 gui/docks/placer.py:382
 #: gui/docks/placer.py:1483 gui/docks/thermal_via.py:256
 #, python-brace-format
 msgid "{label}: {text!r} is not a number."
@@ -1957,16 +1907,16 @@ msgid "Radius"
 msgstr "Радиус"
 
 #: gui/docks/_anchor_origin.py:466 gui/docks/_anchor_origin.py:527
-#: gui/docks/cell_editor.py:1116 gui/docks/placer.py:444
+#: gui/docks/cell_editor.py:1118 gui/docks/placer.py:444
 #: gui/docks/placer.py:480
 msgid "Angle"
 msgstr "Угол"
 
-#: gui/docks/_anchor_origin.py:472 gui/docks/cell_editor.py:1488
+#: gui/docks/_anchor_origin.py:472 gui/docks/cell_editor.py:1490
 msgid "X"
 msgstr "X"
 
-#: gui/docks/_anchor_origin.py:475 gui/docks/cell_editor.py:1491
+#: gui/docks/_anchor_origin.py:475 gui/docks/cell_editor.py:1493
 msgid "Y"
 msgstr "Y"
 
@@ -2010,20 +1960,20 @@ msgstr ""
 msgid "same as Cluster unless changed (identity for Save/--only)"
 msgstr ""
 
-#: gui/docks/_cell_identity.py:67 gui/docks/cell_editor.py:487
-#: gui/docks/cell_editor.py:800 gui/docks/create_entity.py:79
+#: gui/docks/_cell_identity.py:67 gui/docks/cell_editor.py:489
+#: gui/docks/cell_editor.py:802 gui/docks/create_entity.py:79
 #: gui/docks/imprint.py:669 gui/docks/imprint.py:684 gui/docks/placer.py:864
 #: gui/docks/points.py:236 gui/docks/thermal_via.py:110
 msgid "Name:"
 msgstr "Имя:"
 
-#: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:500
+#: gui/docks/_cell_identity.py:71 gui/docks/cell_editor.py:502
 #: gui/docks/net_trace.py:109 gui/docks/placer.py:206 gui/docks/points.py:241
 #: gui/docks/thermal_via.py:112 gui/entity/page.py:129
 msgid "optional free-form note"
 msgstr "опциональная свободная заметка"
 
-#: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:501
+#: gui/docks/_cell_identity.py:72 gui/docks/cell_editor.py:503
 #: gui/docks/net_trace.py:110 gui/docks/placer.py:865 gui/docks/points.py:242
 #: gui/docks/thermal_via.py:113 gui/entity/page.py:131
 msgid "Comment:"
@@ -2062,9 +2012,9 @@ msgstr "Зарегистрировать существующую медь в р
 msgid "Add / update"
 msgstr "Добавить / обновить"
 
-#: gui/docks/_common.py:624 gui/docks/cell_editor.py:634
-#: gui/docks/cell_editor.py:704 gui/docks/cell_editor.py:776
-#: gui/docks/cell_editor.py:851
+#: gui/docks/_common.py:624 gui/docks/cell_editor.py:636
+#: gui/docks/cell_editor.py:706 gui/docks/cell_editor.py:778
+#: gui/docks/cell_editor.py:853
 msgid "Remove selected"
 msgstr "Удалить выбранное"
 
@@ -2256,136 +2206,6 @@ msgstr "Перерисовка леса: {name!r} — ok"
 msgid "Forest redraw: {name!r} — FAILED: {error}"
 msgstr "Перерисовка леса: {name!r} — ОШИБКА: {error}"
 
-#: gui/docks/cell_anchor_view.py:173
-msgid "Sheet (optional)"
-msgstr "Лист (необязательно)"
-
-#: gui/docks/cell_anchor_view.py:174
-msgid "Cluster of the placed cell"
-msgstr "Кластер размещённой ячейки"
-
-#: gui/docks/cell_anchor_view.py:180
-msgid ""
-"(Cluster, Sheet) set the working context for the identification — they "
-"decide which placed instance of this cell is pinned."
-msgstr ""
-
-#: gui/docks/cell_anchor_view.py:189 gui/docks/placer.py:868
-msgid "Source"
-msgstr "Источник"
-
-#: gui/docks/cell_anchor_view.py:411 gui/entity/anchor_tab.py:463
-#, python-brace-format
-msgid ""
-"cell {cell!r}: several clone placements match cluster {cluster!r} — "
-"{names}"
-msgstr ""
-"ячейка {cell!r}: кластеру {cluster!r} соответствует несколько "
-"clone-размещений — {names}"
-
-#: gui/docks/cell_anchor_view.py:466
-#, python-brace-format
-msgid "Identity save failed: {error}"
-msgstr "Не удалось сохранить идентичность: {error}"
-
-#: gui/docks/cell_anchor_view.py:469
-#, python-brace-format
-msgid "Cell {name!r}: placement identity stored."
-msgstr "Ячейка {name!r}: идентичность размещения сохранена."
-
-#: gui/docks/cell_anchor_view.py:478 gui/docks/cell_refs_tab.py:832
-msgid "Pick a Cell in the Config tree."
-msgstr "Выберите ячейку в дереве Config."
-
-#: gui/docks/cell_anchor_view.py:483
-#, python-brace-format
-msgid "Cell {name!r}"
-msgstr "Ячейка {name!r}"
-
-#: gui/docks/cell_anchor_view.py:486 gui/entity/anchor_tab.py:817
-#: gui/entity/anchor_tab.py:867
-#, python-brace-format
-msgid "Cell {name!r} not found in the project config"
-msgstr "Ячейка {name!r} не найдена в конфигурации проекта"
-
-#: gui/docks/cell_anchor_view.py:527
-msgid "Identification needs a project root — open a project first."
-msgstr "Для идентификации нужен корень проекта — сначала откройте проект."
-
-#: gui/docks/cell_anchor_view.py:533
-#, python-brace-format
-msgid "Identification: failed to load the project config: {error}"
-msgstr "Идентификация: не удалось загрузить конфиг проекта: {error}"
-
-#: gui/docks/cell_anchor_view.py:537 gui/docks/live_position.py:174
-#: gui/entity/anchor_tab.py:966
-#: kicadstamp/placement/services/board_items_resolver.py:202
-#, python-brace-format
-msgid "cell {cell!r} not found in config"
-msgstr "ячейка {cell!r} не найдена в конфиге"
-
-#: gui/docks/cell_anchor_view.py:564 gui/docks/cell_refs_tab.py:1006
-msgid ""
-"the board is busy (another operation is reading it) — try again in a "
-"moment"
-msgstr "плата занята (другая операция её читает) — попробуйте через момент"
-
-#: gui/docks/cell_anchor_view.py:588
-msgid "No live board connection — connect to KiCad."
-msgstr ""
-
-#: gui/docks/cell_anchor_view.py:611
-#, python-brace-format
-msgid "Fill from selection failed: {message}"
-msgstr "Заполнение по выделению не удалось: {message}"
-
-#: gui/docks/cell_anchor_view.py:638
-msgid ""
-"no live board read yet — connect to KiCad (or press Refresh) before "
-"typing refs by hand"
-msgstr ""
-"живая плата ещё не прочитана — подключитесь к KiCad (или нажмите "
-"«Обновить»), прежде чем вписывать рефы руками"
-
-#: gui/docks/cell_anchor_view.py:646
-#, python-brace-format
-msgid ""
-"the refs {refs} are not in the last board read — press Refresh, or check "
-"the refdes"
-msgstr ""
-"рефов {refs} нет в последнем чтении платы — нажмите «Обновить» или "
-"проверьте реф"
-
-#: gui/docks/cell_anchor_view.py:686
-#, python-brace-format
-msgid ""
-"identified as a SPOKE: role {role!r} occurs {count} times in cluster "
-"{cluster!r} — this pair is pinned: {refs}"
-msgstr ""
-"идентифицировано как СПИЦА: роль {role!r} встречается в кластере "
-"{cluster!r} {count} раз — эта пара закреплена: {refs}"
-
-#: gui/docks/cell_anchor_view.py:695
-#, python-brace-format
-msgid ""
-"{selected} of {total} components of cluster {cluster!r} selected — the "
-"instance was pinned from what was selected"
-msgstr ""
-
-#: gui/docks/cell_anchor_view.py:700
-#, python-brace-format
-msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
-msgstr "идентифицирована ячейка {cell!r} в кластере {cluster!r}: {refs}"
-
-#: gui/docks/cell_anchor_view.py:707
-#, python-brace-format
-msgid ""
-"the cluster has no component for these role(s) of the cell: {roles} — "
-"they stay unpinned until a pair is tagged"
-msgstr ""
-"в кластере нет компонента для этих ролей ячейки: {roles} — они останутся "
-"незакреплёнными, пока не будет размечена пара"
-
 #: gui/docks/cell_dialog.py:40
 msgid "Edit Cell"
 msgstr "Изменить шаблон"
@@ -2471,7 +2291,7 @@ msgstr "Сеть"
 msgid "Apply"
 msgstr "Применить"
 
-#: gui/docks/cell_editor.py:400 gui/docks/cell_editor.py:2706
+#: gui/docks/cell_editor.py:400 gui/docks/cell_editor.py:2722
 msgid "Copy placement from cell"
 msgstr "Скопировать расстановку из шаблона"
 
@@ -2485,21 +2305,21 @@ msgstr "Копировать из шаблона:"
 msgid "Copy"
 msgstr "Копировать"
 
-#: gui/docks/cell_editor.py:486
+#: gui/docks/cell_editor.py:488
 msgid "name (referenced by cell: elsewhere)"
 msgstr "имя (на него ссылаются cell: в другом месте)"
 
-#: gui/docks/cell_editor.py:490 gui/docks/cell_editor.py:610
-#: gui/docks/cell_editor.py:766 gui/docks/cell_editor.py:839
+#: gui/docks/cell_editor.py:492 gui/docks/cell_editor.py:612
+#: gui/docks/cell_editor.py:768 gui/docks/cell_editor.py:841
 #: gui/docks/placer.py:927 gui/docks/root_metadata.py:321
 msgid "Layer:"
 msgstr "Слой:"
 
-#: gui/docks/cell_editor.py:498
+#: gui/docks/cell_editor.py:500
 msgid "Content layers:"
 msgstr "Слои с содержимым:"
 
-#: gui/docks/cell_editor.py:512 gui/docks/profile_import.py:81
+#: gui/docks/cell_editor.py:514 gui/docks/profile_import.py:81
 #: gui/docks/role_cluster_tree.py:791 gui/docks/role_cluster_tree.py:813
 #: kicadstamp/config/profile_copy.py:94 kicadstamp/config/profile_copy.py:138
 #: kicadstamp/config/profile_copy.py:333 kicadstamp/config/profile_copy.py:347
@@ -2508,307 +2328,311 @@ msgstr "Слои с содержимым:"
 msgid "(none)"
 msgstr "(нет)"
 
-#: gui/docks/cell_editor.py:513 gui/docks/cell_editor.py:802
+#: gui/docks/cell_editor.py:515 gui/docks/cell_editor.py:804
 #: gui/docks/cell_refs_tab.py:379 gui/docks/imprint_refs_tab.py:133
 #: gui/docks/role_cluster_tree.py:240 gui/docks/tools.py:74
 #: gui/docks/tools.py:86 gui/docks/trees_dock.py:6620
 msgid "Role"
 msgstr "Роль"
 
-#: gui/docks/cell_editor.py:515 gui/docks/placer.py:258
+#: gui/docks/cell_editor.py:517 gui/docks/placer.py:258
 #: gui/docks/trees_dock.py:6720
 msgid "Anchor:"
 msgstr "Якорь:"
 
-#: gui/docks/cell_editor.py:601 gui/docks/cell_editor.py:656
+#: gui/docks/cell_editor.py:603 gui/docks/cell_editor.py:658
 msgid "offset along mm (0)"
 msgstr "смещение вдоль, мм (0)"
 
-#: gui/docks/cell_editor.py:602 gui/docks/cell_editor.py:657
+#: gui/docks/cell_editor.py:604 gui/docks/cell_editor.py:659
 msgid "Offset along:"
 msgstr "Смещение вдоль:"
 
-#: gui/docks/cell_editor.py:604 gui/docks/cell_editor.py:659
+#: gui/docks/cell_editor.py:606 gui/docks/cell_editor.py:661
 msgid "offset across mm (0)"
 msgstr "смещение поперёк, мм (0)"
 
-#: gui/docks/cell_editor.py:605 gui/docks/cell_editor.py:660
+#: gui/docks/cell_editor.py:607 gui/docks/cell_editor.py:662
 msgid "Offset across:"
 msgstr "Смещение поперёк:"
 
-#: gui/docks/cell_editor.py:607
+#: gui/docks/cell_editor.py:609
 msgid "angle deg (0)"
 msgstr "угол, град (0)"
 
-#: gui/docks/cell_editor.py:612
+#: gui/docks/cell_editor.py:614
 msgid "optional — TemplatePlacer role matching"
 msgstr "необязательно — сопоставление роли TemplatePlacer"
 
-#: gui/docks/cell_editor.py:613
+#: gui/docks/cell_editor.py:615
 msgid "Net template:"
 msgstr "Шаблон цепи:"
 
-#: gui/docks/cell_editor.py:616
+#: gui/docks/cell_editor.py:618
 msgid "Net template pad:"
 msgstr "Пад шаблона цепи:"
 
-#: gui/docks/cell_editor.py:624
+#: gui/docks/cell_editor.py:626
 msgid "Same net as role:"
 msgstr "Та же цепь, что у роли:"
 
-#: gui/docks/cell_editor.py:628 gui/docks/cell_editor.py:698
-#: gui/docks/cell_editor.py:770 gui/docks/cell_editor.py:845
+#: gui/docks/cell_editor.py:630 gui/docks/cell_editor.py:700
+#: gui/docks/cell_editor.py:772 gui/docks/cell_editor.py:847
 msgid "Add"
 msgstr "Добавить"
 
-#: gui/docks/cell_editor.py:631 gui/docks/cell_editor.py:701
-#: gui/docks/cell_editor.py:773 gui/docks/cell_editor.py:848
+#: gui/docks/cell_editor.py:633 gui/docks/cell_editor.py:703
+#: gui/docks/cell_editor.py:775 gui/docks/cell_editor.py:850
 msgid "Update selected"
 msgstr "Обновить выбранное"
 
-#: gui/docks/cell_editor.py:662 gui/docks/cell_editor.py:742
+#: gui/docks/cell_editor.py:664 gui/docks/cell_editor.py:744
 msgid "Literal"
 msgstr "Литерал"
 
-#: gui/docks/cell_editor.py:662 gui/docks/cell_editor.py:742
+#: gui/docks/cell_editor.py:664 gui/docks/cell_editor.py:744
 msgid "From role"
 msgstr "Из роли"
 
-#: gui/docks/cell_editor.py:664 gui/docks/cell_editor.py:744
+#: gui/docks/cell_editor.py:666 gui/docks/cell_editor.py:746
 msgid "Net source:"
 msgstr "Источник цепи:"
 
-#: gui/docks/cell_editor.py:670 gui/docks/cell_editor.py:750
+#: gui/docks/cell_editor.py:672 gui/docks/cell_editor.py:752
 msgid "optional — blank means the rule's own net"
 msgstr "необязательно — пусто означает собственную цепь правила"
 
-#: gui/docks/cell_editor.py:671 gui/docks/cell_editor.py:751
+#: gui/docks/cell_editor.py:673 gui/docks/cell_editor.py:753
 #: gui/docks/net_trace.py:107 gui/docks/thermal_via.py:135
 msgid "Net:"
 msgstr "Цепь:"
 
-#: gui/docks/cell_editor.py:685 gui/docks/cell_editor.py:761
+#: gui/docks/cell_editor.py:687 gui/docks/cell_editor.py:763
 msgid "optional pad — blank means the role's single non-rule net"
 msgstr "необязательный пад — пусто означает единственную не-rule цепь роли"
 
-#: gui/docks/cell_editor.py:690
+#: gui/docks/cell_editor.py:692
 msgid "drill mm (0.3)"
 msgstr "сверло, мм (0.3)"
 
-#: gui/docks/cell_editor.py:691
+#: gui/docks/cell_editor.py:693
 msgid "Drill:"
 msgstr "Сверло:"
 
-#: gui/docks/cell_editor.py:693
+#: gui/docks/cell_editor.py:695
 msgid "diameter mm (0.6)"
 msgstr "диаметр, мм (0.6)"
 
-#: gui/docks/cell_editor.py:694
+#: gui/docks/cell_editor.py:696
 msgid "Diameter:"
 msgstr "Диаметр:"
 
-#: gui/docks/cell_editor.py:710
+#: gui/docks/cell_editor.py:712
 msgid "Vias"
 msgstr "Via"
 
-#: gui/docks/cell_editor.py:728
+#: gui/docks/cell_editor.py:730
 msgid "Start along:"
 msgstr "Начало вдоль:"
 
-#: gui/docks/cell_editor.py:731
+#: gui/docks/cell_editor.py:733
 msgid "Start across:"
 msgstr "Начало поперёк:"
 
-#: gui/docks/cell_editor.py:734
+#: gui/docks/cell_editor.py:736
 msgid "End along:"
 msgstr "Конец вдоль:"
 
-#: gui/docks/cell_editor.py:737
+#: gui/docks/cell_editor.py:739
 msgid "End across:"
 msgstr "Конец поперёк:"
 
-#: gui/docks/cell_editor.py:739
+#: gui/docks/cell_editor.py:741
 msgid "width mm (0.25)"
 msgstr "ширина, мм (0.25)"
 
-#: gui/docks/cell_editor.py:740
+#: gui/docks/cell_editor.py:742
 msgid "Width:"
 msgstr "Ширина:"
 
-#: gui/docks/cell_editor.py:782
+#: gui/docks/cell_editor.py:784
 msgid "Tracks"
 msgstr "Треки"
 
-#: gui/docks/cell_editor.py:799
+#: gui/docks/cell_editor.py:801
 msgid "name (registry key, must be unique in this cell)"
 msgstr "имя (ключ реестра, должно быть уникально в этом шаблоне)"
 
-#: gui/docks/cell_editor.py:802 gui/docks/placer.py:774
+#: gui/docks/cell_editor.py:804 gui/docks/placer.py:774
 #: gui/docks/profile_import.py:35 gui/docks/profile_import.py:38
 #: gui/docks/tree_from_selection_dialog.py:145
 msgid "Cell"
 msgstr "Шаблон"
 
-#: gui/docks/cell_editor.py:804
+#: gui/docks/cell_editor.py:806
 msgid "Content:"
 msgstr "Содержимое:"
 
-#: gui/docks/cell_editor.py:812 gui/docks/instantiate_cell_dialog.py:128
+#: gui/docks/cell_editor.py:814 gui/docks/instantiate_cell_dialog.py:128
 #: gui/docks/placer.py:796 gui/entity/page.py:141
 msgid "Cell:"
 msgstr "Шаблон:"
 
-#: gui/docks/cell_editor.py:837 gui/docks/imprint_place.py:253
+#: gui/docks/cell_editor.py:839 gui/docks/imprint_place.py:253
 #: gui/docks/placer.py:924 gui/docks/trees_dock.py:5041
 msgid "Rotation (deg):"
 msgstr "Поворот (град):"
 
-#: gui/docks/cell_editor.py:841 gui/docks/placer.py:935
+#: gui/docks/cell_editor.py:843 gui/docks/placer.py:935
 msgid "Mirror"
 msgstr "Mirror"
 
-#: gui/docks/cell_editor.py:857
+#: gui/docks/cell_editor.py:859
 msgid "Nested cells"
 msgstr "Вложенные шаблоны"
 
-#: gui/docks/cell_editor.py:1001
+#: gui/docks/cell_editor.py:1003
 msgid "(no copper records)"
 msgstr "(медных записей нет)"
 
-#: gui/docks/cell_editor.py:1010
+#: gui/docks/cell_editor.py:1012
 msgid "Read-only indicator: this cell has copper records on this layer"
 msgstr "Индикатор только для чтения: у ячейки есть записи меди на этом слое"
 
-#: gui/docks/cell_editor.py:1071
+#: gui/docks/cell_editor.py:1073
 msgid "yes"
 msgstr "да"
 
-#: gui/docks/cell_editor.py:1108 gui/docks/trees_dock.py:7617
+#: gui/docks/cell_editor.py:1110 gui/docks/trees_dock.py:7617
 msgid "Role is required."
 msgstr "Требуется Role."
 
-#: gui/docks/cell_editor.py:1110 gui/docks/cell_editor.py:1238
+#: gui/docks/cell_editor.py:1112 gui/docks/cell_editor.py:1240
 msgid "Offset along"
 msgstr "Смещение вдоль"
 
-#: gui/docks/cell_editor.py:1113 gui/docks/cell_editor.py:1241
+#: gui/docks/cell_editor.py:1115 gui/docks/cell_editor.py:1243
 msgid "Offset across"
 msgstr "Смещение поперёк"
 
-#: gui/docks/cell_editor.py:1140
+#: gui/docks/cell_editor.py:1142
 msgid "Net template pad requires a net template."
 msgstr "Пад шаблона цепи требует сеть (net template)."
 
-#: gui/docks/cell_editor.py:1150
+#: gui/docks/cell_editor.py:1152
 msgid "Same net as role requires a net template."
 msgstr "«Та же цепь, что у роли» требует сеть (net template)."
 
-#: gui/docks/cell_editor.py:1153
+#: gui/docks/cell_editor.py:1155
 msgid "Pick one: a fixed pad number or a same-net role reference, not both."
 msgstr ""
 "Выберите одно: фиксированный номер пада или ссылку на роль с той же "
 "цепью, не оба."
 
-#: gui/docks/cell_editor.py:1181 gui/docks/cell_editor.py:1193
+#: gui/docks/cell_editor.py:1183 gui/docks/cell_editor.py:1195
 msgid "Pick a component row first."
 msgstr "Сначала выберите строку компонента."
 
-#: gui/docks/cell_editor.py:1244 gui/docks/thermal_via.py:320
+#: gui/docks/cell_editor.py:1246 gui/docks/thermal_via.py:320
 msgid "Drill"
 msgstr "Сверло"
 
-#: gui/docks/cell_editor.py:1247 gui/docks/thermal_via.py:324
+#: gui/docks/cell_editor.py:1249 gui/docks/thermal_via.py:324
 msgid "Diameter"
 msgstr "Диаметр"
 
-#: gui/docks/cell_editor.py:1258 gui/docks/cell_editor.py:1381
+#: gui/docks/cell_editor.py:1260 gui/docks/cell_editor.py:1383
 msgid "Net source: From role — pick a Role first."
 msgstr "Источник цепи: из роли — сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1291 gui/docks/cell_editor.py:1303
+#: gui/docks/cell_editor.py:1293 gui/docks/cell_editor.py:1305
 msgid "Pick a via row first."
 msgstr "Сначала выберите строку via."
 
-#: gui/docks/cell_editor.py:1352
+#: gui/docks/cell_editor.py:1354
 msgid "Start along"
 msgstr "Начало вдоль"
 
-#: gui/docks/cell_editor.py:1355
+#: gui/docks/cell_editor.py:1357
 msgid "Start across"
 msgstr "Начало поперёк"
 
-#: gui/docks/cell_editor.py:1358
+#: gui/docks/cell_editor.py:1360
 msgid "End along"
 msgstr "Конец вдоль"
 
-#: gui/docks/cell_editor.py:1361
+#: gui/docks/cell_editor.py:1363
 msgid "End across"
 msgstr "Конец поперёк"
 
-#: gui/docks/cell_editor.py:1364
+#: gui/docks/cell_editor.py:1366
 msgid "Width"
 msgstr "Ширина"
 
-#: gui/docks/cell_editor.py:1413 gui/docks/cell_editor.py:1425
+#: gui/docks/cell_editor.py:1415 gui/docks/cell_editor.py:1427
 msgid "Pick a track row first."
 msgstr "Сначала выберите строку трека."
 
-#: gui/docks/cell_editor.py:1472
+#: gui/docks/cell_editor.py:1474
 msgid "Nested cell: name is required."
 msgstr "Вложенный шаблон: требуется имя."
 
-#: gui/docks/cell_editor.py:1478 gui/docks/placer.py:1519
+#: gui/docks/cell_editor.py:1480 gui/docks/placer.py:1519
 msgid "Pick a Cell first."
 msgstr "Сначала выберите шаблон."
 
-#: gui/docks/cell_editor.py:1484
+#: gui/docks/cell_editor.py:1486
 msgid "Pick a Role first."
 msgstr "Сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1496 gui/docks/instances_dialog.py:153
+#: gui/docks/cell_editor.py:1498 gui/docks/instances_dialog.py:153
 #: gui/docks/placer.py:426 gui/docks/placer.py:1596 gui/docks/placer.py:2568
 msgid "Rotation"
 msgstr "Поворот"
 
-#: gui/docks/cell_editor.py:1532 gui/docks/cell_editor.py:1544
+#: gui/docks/cell_editor.py:1534 gui/docks/cell_editor.py:1546
 msgid "Pick a nested-cell row first."
 msgstr "Сначала выберите строку вложенного шаблона."
 
-#: gui/docks/cell_editor.py:1591
+#: gui/docks/cell_editor.py:1593
 msgid "Anchor: pick a Role first."
 msgstr "Якорь: сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1652 gui/docks/placer.py:2498
+#: gui/docks/cell_editor.py:1654 gui/docks/placer.py:2498
 #: gui/docks/placer.py:2617 gui/docks/points.py:900
 #: gui/docks/thermal_via.py:490 kicadstamp/extract_writer.py:136
 #, python-brace-format
 msgid "{action} {name!r} in {path}"
 msgstr "{action} {name!r} в {path}"
 
-#: gui/docks/cell_editor.py:1653 gui/docks/net_trace.py:532
+#: gui/docks/cell_editor.py:1655 gui/docks/net_trace.py:532
 #: gui/docks/placer.py:2499 gui/docks/placer.py:2581 gui/docks/placer.py:2618
 #: gui/docks/points.py:901 gui/docks/thermal_via.py:491
 #: kicadstamp/extract_writer.py:137
 msgid "Overwrote"
 msgstr "Перезаписал"
 
-#: gui/docks/cell_editor.py:1653 gui/docks/net_trace.py:532
+#: gui/docks/cell_editor.py:1655 gui/docks/net_trace.py:532
 #: gui/docks/placer.py:2499 gui/docks/placer.py:2581 gui/docks/placer.py:2618
 #: gui/docks/points.py:901 gui/docks/thermal_via.py:491
 #: kicadstamp/extract_writer.py:137
 msgid "Wrote"
 msgstr "Записал"
 
-#: gui/docks/cell_editor.py:1832
+#: gui/docks/cell_editor.py:1743
+msgid "Update needs an entity's address — open it from an ENTITY leaf."
+msgstr "Обновление требует адрес сущности — откройте из листа СУЩНОСТИ."
+
+#: gui/docks/cell_editor.py:1838
 #, python-brace-format
 msgid "Could not read the board's copper layers: {error}"
 msgstr "Не удалось прочитать медные слои платы: {error}"
 
-#: gui/docks/cell_editor.py:1841 gui/docks/cell_layers.py:76
+#: gui/docks/cell_editor.py:1847 gui/docks/cell_layers.py:76
 msgid "Layers to read"
 msgstr "Слои для чтения"
 
-#: gui/docks/cell_editor.py:1842
+#: gui/docks/cell_editor.py:1848
 msgid ""
 "No layer is selected. Refresh deletes every track record of this cell. "
 "Continue?"
@@ -2816,42 +2640,42 @@ msgstr ""
 "Не выбран ни один слой. Refresh удалит из ячейки все записи дорожек. "
 "Продолжить?"
 
-#: gui/docks/cell_editor.py:1860
+#: gui/docks/cell_editor.py:1866
 #, python-brace-format
 msgid "read layers: {layers}"
 msgstr "прочитаны слои: {layers}"
 
-#: gui/docks/cell_editor.py:1863
+#: gui/docks/cell_editor.py:1869
 msgid "no layer of the selection was read"
 msgstr "ни один слой выделения не прочитан"
 
-#: gui/docks/cell_editor.py:1867
+#: gui/docks/cell_editor.py:1873
 #, python-brace-format
 msgid "skipped {layer}: unchecked by hand"
 msgstr "пропущен {layer}: снят вручную"
 
-#: gui/docks/cell_editor.py:1871
+#: gui/docks/cell_editor.py:1877
 #, python-brace-format
 msgid "skipped {layer}: empty in the selection"
 msgstr "пропущен {layer}: пусто в выделении"
 
-#: gui/docks/cell_editor.py:1972
+#: gui/docks/cell_editor.py:1978
 #, python-brace-format
 msgid ""
 "the selection has no copper — all {count} copper records of the cell were"
 " removed"
 msgstr "в выделении нет меди — вся медь ячейки удалена ({count} записей)"
 
-#: gui/docks/cell_editor.py:2030
+#: gui/docks/cell_editor.py:2036
 msgid "Nothing changed — the selection already matches this cell's geometry."
 msgstr "Ничего не изменилось — выделение уже совпадает с геометрией этого шаблона."
 
-#: gui/docks/cell_editor.py:2082
+#: gui/docks/cell_editor.py:2088
 #, python-brace-format
 msgid "removed {count} record(s) not in the selection"
 msgstr "удалено {count} записей, которых нет в выделении"
 
-#: gui/docks/cell_editor.py:2086
+#: gui/docks/cell_editor.py:2092
 #, python-brace-format
 msgid ""
 "Updated cell {name!r} from selection — {updated} record(s) updated, "
@@ -2862,12 +2686,12 @@ msgstr ""
 "добавлено via/track записей: {added}, удалено записей: {removed}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2096
+#: gui/docks/cell_editor.py:2102
 #, python-brace-format
 msgid "Refresh failed: {error}"
 msgstr "Сбой обновления: {error}"
 
-#: gui/docks/cell_editor.py:2248
+#: gui/docks/cell_editor.py:2254
 msgid ""
 "No layer is selected — no track will be read (vias and components are "
 "read as usual)."
@@ -2875,13 +2699,17 @@ msgstr ""
 "Не выбран ни один слой — дорожки не читаются (виа и компоненты читаются "
 "как обычно)."
 
-#: gui/docks/cell_editor.py:2385
+#: gui/docks/cell_editor.py:2261
+msgid "Import needs an entity's address — open it from an ENTITY leaf."
+msgstr "Добавление требует адрес сущности — откройте из листа СУЩНОСТИ."
+
+#: gui/docks/cell_editor.py:2395
 msgid ""
 "Nothing to import — every selected via/track is already described by this"
 " cell."
 msgstr "Импортировать нечего — все via/track из выделения уже описаны этим целлом."
 
-#: gui/docks/cell_editor.py:2394
+#: gui/docks/cell_editor.py:2404
 #, python-brace-format
 msgid ""
 "Imported {count} new record(s) from selection into {name!r}. Save to "
@@ -2890,22 +2718,22 @@ msgstr ""
 "Импортировано новых записей: {count} — из выделения в {name!r}. "
 "Сохраните, чтобы записать изменение."
 
-#: gui/docks/cell_editor.py:2402
+#: gui/docks/cell_editor.py:2412
 #, python-brace-format
 msgid "Import failed: {error}"
 msgstr "Импорт не удался: {error}"
 
-#: gui/docks/cell_editor.py:2494 gui/docks/cell_editor.py:2511
+#: gui/docks/cell_editor.py:2508 gui/docks/cell_editor.py:2527
 #, python-brace-format
 msgid "cell {name!r} is not in the config — cannot select it"
 msgstr "ячейка {name!r} не найдена в конфиге — выделить её нельзя"
 
-#: gui/docks/cell_editor.py:2601 gui/docks/cell_editor.py:2643
+#: gui/docks/cell_editor.py:2617 gui/docks/cell_editor.py:2659
 #, python-brace-format
 msgid "Select cluster failed: {error}"
 msgstr "Не удалось выделить кластер: {error}"
 
-#: gui/docks/cell_editor.py:2606
+#: gui/docks/cell_editor.py:2622
 #, python-brace-format
 msgid ""
 "the remembered refs are stale ({reasons}) — nothing was selected; "
@@ -2916,7 +2744,7 @@ msgstr ""
 "идентифицируйте экземпляр заново кнопкой «Заполнить по выделению» на "
 "странице якоря ячейки"
 
-#: gui/docks/cell_editor.py:2623
+#: gui/docks/cell_editor.py:2639
 #, python-brace-format
 msgid ""
 "Selected the {count} identified footprint(s) of this cell on the board — "
@@ -2925,7 +2753,7 @@ msgstr ""
 "Выделено {count} опознанных посадочных мест этой ячейки на плате — готово"
 " для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2629
+#: gui/docks/cell_editor.py:2645
 #, python-brace-format
 msgid ""
 "Selected {count} footprint(s) of cluster {cluster!r} on the board — ready"
@@ -2934,7 +2762,7 @@ msgstr ""
 "Выделено {count} посадочных мест кластера {cluster!r} на плате — готово "
 "для «Update from selection…»."
 
-#: gui/docks/cell_editor.py:2635
+#: gui/docks/cell_editor.py:2651
 #, python-brace-format
 msgid ""
 "No footprint of cluster {cluster!r} is on the current board — the "
@@ -2943,12 +2771,12 @@ msgstr ""
 "На текущей плате нет ни одного футпринта кластера {cluster!r} — "
 "запомненный контекст больше не резолвится; выберите кластер вручную."
 
-#: gui/docks/cell_editor.py:2668
+#: gui/docks/cell_editor.py:2684
 msgid "Pick a cell to copy into first."
 msgstr "Сначала выберите шаблон, в который копировать."
 
 # ===== Copy placement from cell, context-menu flow (2026-09-06) =====
-#: gui/docks/cell_editor.py:2680
+#: gui/docks/cell_editor.py:2696
 msgid "No other cell fits this one's roles to copy from."
 msgstr "Ни один другой шаблон не подходит по ролям для копирования."
 
@@ -2958,7 +2786,7 @@ msgstr "Ни один другой шаблон не подходит по ро�
 # plan_2026_09_23_cell_placement_copy_replaces_copper): подтверждение +
 # переписанная строка успеха; старый «дописывающий» вариант ниже выведен из
 # употребления.
-#: gui/docks/cell_editor.py:2707
+#: gui/docks/cell_editor.py:2723
 #, python-brace-format
 msgid ""
 "Cell {name!r} already has copper: {target_vias} via(s) and "
@@ -2969,7 +2797,7 @@ msgstr ""
 "track будут ЗАМЕНЕНЫ на {source_vias} via и {source_tracks} track из "
 "{source!r}."
 
-#: gui/docks/cell_editor.py:2722
+#: gui/docks/cell_editor.py:2738
 #, python-brace-format
 msgid ""
 "Copied placement from {source!r} into {name!r} — {components} "
@@ -2988,82 +2816,6 @@ msgid ""
 msgstr ""
 "anchor_role {role!r} — не роль этой ячейки — значение сохранено; "
 "поправьте на странице «Якорь ячейки»"
-
-#: gui/docks/cell_instance_mixin.py:93
-msgid ""
-"refdes of the identified instance — filled by “Fill from selection”, "
-"editable by hand"
-msgstr ""
-"рефы идентифицированного экземпляра — заполняются кнопкой «Заполнить по "
-"выделению», можно править руками"
-
-#: gui/docks/cell_instance_mixin.py:99
-#, python-brace-format
-msgid "role → refdes of the identified instance: {pairs}"
-msgstr "роль → рефы идентифицированного экземпляра: {pairs}"
-
-#: gui/docks/cell_instance_mixin.py:122
-msgid "Identified instance"
-msgstr "Идентифицированный экземпляр"
-
-#: gui/docks/cell_instance_mixin.py:126
-msgid ""
-"The placed instance of this cell: every action of this page uses the "
-"address of the chosen Entity. “Manual…” keeps the hand-typed "
-"Sheet/Cluster/refs."
-msgstr ""
-"Размещённый экземпляр этой ячейки: каждое действие страницы берёт адрес "
-"выбранной сущности. «Manual…» оставляет поля лист/кластер/refs, введённые"
-" вручную."
-
-#: gui/docks/cell_instance_mixin.py:129 gui/docks/placer.py:809
-#: gui/docks/tools.py:70
-msgid "Entity:"
-msgstr "Сущность:"
-
-#: gui/docks/cell_instance_mixin.py:130
-msgid ""
-"With an Entity chosen, Sheet/Cluster/refs are its address and are read-"
-"only here — edit them in the entity's own form. “Manual…” hands the three"
-" fields back to you."
-msgstr ""
-"С выбранной сущностью лист/кластер/refs — её адрес, и здесь они только "
-"для чтения: правьте их в форме сущности. «Manual…» возвращает эти три "
-"поля вам."
-
-#: gui/docks/cell_instance_mixin.py:140
-msgid "Fill from selection"
-msgstr "Заполнить по выделению"
-
-#: gui/docks/cell_instance_mixin.py:142
-msgid ""
-"Identify ONE placed instance of this cell from the components selected on"
-" the board: fills Sheet, Cluster and the refs of that pair (a spoke is "
-"identified by one pair)."
-msgstr ""
-"Определить ОДИН поставленный экземпляр этой ячейки по выделенным на плате"
-" компонентам: заполняет «Лист», «Кластер» и рефы этой пары (спица "
-"идентифицируется одной парой)."
-
-#: gui/docks/cell_instance_mixin.py:150
-msgid "C43, C44"
-msgstr "C43, C44"
-
-#: gui/docks/cell_instance_mixin.py:153
-msgid "Refs:"
-msgstr "Рефы:"
-
-#: gui/docks/cell_instance_mixin.py:154
-msgid ""
-"The refdes of the identified components, in the order of the cell's roles"
-" — editable by hand (comma or space separated). They are checked against "
-"the board every time they are used; a changed or missing component is "
-"reported as a stale identification."
-msgstr ""
-"Рефы идентифицированных компонентов, в порядке ролей ячейки — можно "
-"править руками (через запятую или пробел). Они проверяются по плате при "
-"каждом использовании; изменившийся или пропавший компонент сообщается как"
-" устаревшая идентификация."
 
 #: gui/docks/cell_layers.py:83
 msgid ""
@@ -3270,6 +3022,10 @@ msgstr ""
 "Добавить компонент по рефу — проверяется по последнему чтению платы, "
 "обращение к плате не требуется."
 
+#: gui/docks/cell_refs_tab.py:832
+msgid "Pick a Cell in the Config tree."
+msgstr "Выберите ячейку в дереве Config."
+
 #: gui/docks/cell_refs_tab.py:948
 msgid "the table is empty"
 msgstr "таблица пуста"
@@ -3283,6 +3039,12 @@ msgstr "у {count} строк нет поля Cluster — не заполнен�
 #, python-brace-format
 msgid "No live board — {what} needs KiCad."
 msgstr "Нет живой платы — для «{what}» нужен KiCad."
+
+#: gui/docks/cell_refs_tab.py:1006
+msgid ""
+"the board is busy (another operation is reading it) — try again in a "
+"moment"
+msgstr "плата занята (другая операция её читает) — попробуйте через момент"
 
 #: gui/docks/cell_refs_tab.py:1023
 msgid "reading the selection"
@@ -5416,6 +5178,12 @@ msgstr "ячейки {cell!r} нет в конфиге"
 msgid "the Entity has no cluster"
 msgstr "у Entity нет кластера"
 
+#: gui/docks/live_position.py:174 gui/entity/anchor_tab.py:554
+#: kicadstamp/placement/services/board_items_resolver.py:202
+#, python-brace-format
+msgid "cell {cell!r} not found in config"
+msgstr "ячейка {cell!r} не найдена в конфиге"
+
 #: gui/docks/live_position.py:175
 #: kicadstamp/placement/services/board_items_resolver.py:203
 msgid "extract/save the cell and make sure include: is wired (see Extract)"
@@ -5879,6 +5647,14 @@ msgstr "выберите шаблон"
 #: gui/docks/placer.py:807 gui/docks/tools.py:68
 msgid "pick an Entity"
 msgstr "выберите сущность"
+
+#: gui/docks/placer.py:809 gui/docks/tools.py:70
+msgid "Entity:"
+msgstr "Сущность:"
+
+#: gui/docks/placer.py:868
+msgid "Source"
+msgstr "Источник"
 
 #: gui/docks/placer.py:889 gui/docks/trees_dock.py:6665
 msgid "Coordinate"
@@ -7669,126 +7445,62 @@ msgstr "{old!r} → {new!r}: за узлом следует точка подв�
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr "{old!r} → {new!r}: за узлом следует якорь дерева (self)."
 
-#: gui/entity/anchor_tab.py:322
+#: gui/entity/address.py:122
 #, python-brace-format
 msgid ""
-"{label}: nothing is selected on the board — select one component (or one "
-"of its pads) of cell {cell!r}"
+"the selection carries no Cluster — cannot verify it is entity {entity!r};"
+" reading it as that entity's instance"
 msgstr ""
-"{label}: на плате ничего не выделено — выберите один компонент (или один "
-"из его падов) ячейки {cell!r}"
+"у выделения нет тега Cluster — нельзя проверить, что это сущность "
+"{entity!r}; читается экземпляр этой сущности"
 
-#: gui/entity/anchor_tab.py:325
-msgid ""
-"click a component (or one of its pads) of this cell in the PCB editor, "
-"then press the button again"
-msgstr ""
-"кликните компонент (или один из его падов) этой ячейки в редакторе PCB и "
-"нажмите кнопку снова"
-
-#: gui/entity/anchor_tab.py:337
-#, python-brace-format
-msgid "{label}: the selected pad {pad!r} has no footprint owner on the live board"
-msgstr "{label}: у выбранного пада {pad!r} нет футпринта-владельца на живой плате"
-
-#: gui/entity/anchor_tab.py:340
-msgid ""
-"the board changed since it was loaded — press Refresh and select the pad "
-"again"
-msgstr "плата изменилась с момента загрузки — нажмите Refresh и снова выберите пад"
-
-#: gui/entity/anchor_tab.py:364
-#, python-brace-format
-msgid "{label}: the selection spans several clusters — {listing}"
-msgstr "{label}: выделение охватывает несколько кластеров — {listing}"
-
-#: gui/entity/anchor_tab.py:366
-msgid ""
-"an anchor belongs to ONE placed instance of the cell; select components "
-"of a single cluster only, then press the button again"
-msgstr ""
-"якорь относится к ОДНОМУ размещённому инстансу ячейки; выделяйте "
-"компоненты только одного кластера и нажмите кнопку снова"
-
-#: gui/entity/anchor_tab.py:391
-#, python-brace-format
-msgid "{label}: the selection contains several roles — {listing}"
-msgstr "{label}: выделение содержит несколько ролей — {listing}"
-
-#: gui/entity/anchor_tab.py:393
-msgid ""
-"select exactly ONE component (or its pad) of this cell, then press the "
-"button again"
-msgstr ""
-"выделите ровно ОДИН компонент (или его пад) этой ячейки и нажмите кнопку "
-"снова"
-
-#: gui/entity/anchor_tab.py:400
-#, python-brace-format
-msgid "{label}: the selected footprint has no Role field"
-msgstr "{label}: у выбранного футпринта нет поля Role"
-
-#: gui/entity/anchor_tab.py:401
-msgid ""
-"tag the component with a Role (Tools -> tree -> Tag selected) or pick "
-"another component"
-msgstr ""
-"пометите компонент ролью (Tools -> дерево -> Tag selected) или выберите "
-"другой компонент"
-
-#: gui/entity/anchor_tab.py:405
-#, python-brace-format
-msgid "{label}: role {role!r} is not a component of cell {cell!r}"
-msgstr "{label}: роль {role!r} не является компонентом ячейки {cell!r}"
-
-#: gui/entity/anchor_tab.py:407
+#: gui/entity/address.py:139
 #, python-brace-format
 msgid ""
-"the cell anchor must name one of this cell's own components — select a "
-"component of cell {cell!r}"
+"the selection is {cluster} / {sheet} — entity {selection!r} of this cell,"
+" not {entity!r}; use the item under {selection!r} — nothing read"
 msgstr ""
-"якорь ячейки должен указывать на один из собственных компонентов ячейки —"
-" выберите компонент ячейки {cell!r}"
+"выделение — {cluster} / {sheet}: сущность {selection!r} этой ячейки, а не"
+" {entity!r}; выберите пункт под {selection!r} — ничего не прочитано"
 
-#: gui/entity/anchor_tab.py:465
-msgid ""
-"pick a more specific Cluster/Sheet, or edit the anchor while exactly one "
-"placement of this cell is in context"
+#: gui/entity/address.py:144
+#, python-brace-format
+msgid "the selection is {cluster} / {sheet}, not entity {entity!r} — nothing read"
 msgstr ""
-"выберите более конкретный Кластер/Лист или редактируйте якорь, когда в "
-"контексте ровно одно размещение этой ячейки"
+"выделение — {cluster} / {sheet}, а не сущность {entity!r} — ничего не "
+"прочитано"
 
-#: gui/entity/anchor_tab.py:534
+#: gui/entity/anchor_tab.py:122
 msgid "Component anchor"
 msgstr "Компонентный якорь"
 
-#: gui/entity/anchor_tab.py:537
+#: gui/entity/anchor_tab.py:125
 msgid "pick this cell's component role"
 msgstr "выберите роль компонента этой ячейки"
 
-#: gui/entity/anchor_tab.py:540
+#: gui/entity/anchor_tab.py:128
 msgid "pad number (optional)"
 msgstr "номер пада (необязательно)"
 
-#: gui/entity/anchor_tab.py:543
+#: gui/entity/anchor_tab.py:131
 msgid "Read from selection"
 msgstr "Считать из выделения"
 
-#: gui/entity/anchor_tab.py:545
+#: gui/entity/anchor_tab.py:133
 msgid ""
 "Fill Role (+ Pad) from ONE selected component or pad of THIS entity's "
 "instance on the live board."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:549 gui/entity/anchor_tab.py:888
+#: gui/entity/anchor_tab.py:137 gui/entity/anchor_tab.py:476
 msgid "Set as anchor"
 msgstr "Назначить якорем"
 
-#: gui/entity/anchor_tab.py:552 gui/entity/anchor_tab.py:901
+#: gui/entity/anchor_tab.py:140 gui/entity/anchor_tab.py:489
 msgid "Clear anchor"
 msgstr "Очистить якорь"
 
-#: gui/entity/anchor_tab.py:556
+#: gui/entity/anchor_tab.py:144
 msgid ""
 "Without a pad the anchor is the component's stored centre (offline). With"
 " a pad the pad's point is resolved at Apply from a live instance of this "
@@ -7798,43 +7510,43 @@ msgstr ""
 "пада резолвится при Apply из живого инстанса этой роли — anchor_xy "
 "удаляется, чтобы живой резолв действительно включился."
 
-#: gui/entity/anchor_tab.py:565
+#: gui/entity/anchor_tab.py:153
 msgid "Role anchor"
 msgstr "Якорь по роли"
 
-#: gui/entity/anchor_tab.py:573
+#: gui/entity/anchor_tab.py:161
 msgid "Marker"
 msgstr "Маркер"
 
-#: gui/entity/anchor_tab.py:581
+#: gui/entity/anchor_tab.py:169
 msgid "Place marker"
 msgstr "Поставить маркер"
 
-#: gui/entity/anchor_tab.py:584
+#: gui/entity/anchor_tab.py:172
 msgid "Read position"
 msgstr "Считать позицию"
 
-#: gui/entity/anchor_tab.py:587
+#: gui/entity/anchor_tab.py:175
 msgid "Remove marker"
 msgstr "Убрать маркер"
 
-#: gui/entity/anchor_tab.py:592
+#: gui/entity/anchor_tab.py:180
 msgid "Show bbox"
 msgstr "Показать bbox"
 
-#: gui/entity/anchor_tab.py:595
+#: gui/entity/anchor_tab.py:183
 msgid "Hide bbox"
 msgstr "Скрыть bbox"
 
-#: gui/entity/anchor_tab.py:600
+#: gui/entity/anchor_tab.py:188
 msgid "Remove overlay"
 msgstr "Убрать оверлей"
 
-#: gui/entity/anchor_tab.py:602
+#: gui/entity/anchor_tab.py:190
 msgid "Removes this cell's drawn marker and bbox from the board."
 msgstr "Убирает нарисованные маркер и bbox этой ячейки с платы."
 
-#: gui/entity/anchor_tab.py:606
+#: gui/entity/anchor_tab.py:194
 msgid ""
 "Places a marker at the cell's current anchor (or the bbox centre when "
 "there is no anchor). Drag it with KiCad's own tools, then “Read position”"
@@ -7842,11 +7554,11 @@ msgid ""
 "the cell to be placed on this entity's Cluster."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:616
+#: gui/entity/anchor_tab.py:204
 msgid "Marker anchor"
 msgstr "Якорь по маркеру"
 
-#: gui/entity/anchor_tab.py:623
+#: gui/entity/anchor_tab.py:211
 msgid ""
 "This tab edits the CELL TEMPLATE (cells:) — every placed instance of this"
 " cell changes at once."
@@ -7854,26 +7566,31 @@ msgstr ""
 "Эта вкладка правит ШАБЛОН ячейки (cells:) — все размещённые экземпляры "
 "этой ячейки меняются сразу."
 
-#: gui/entity/anchor_tab.py:728
+#: gui/entity/anchor_tab.py:316
 msgid "No live board connection — the overlay needs KiCad."
 msgstr "Нет подключения к живой плате — оверлею нужен KiCad."
 
-#: gui/entity/anchor_tab.py:768
+#: gui/entity/anchor_tab.py:356
 #, python-brace-format
 msgid "Cell “{cell}” — changes apply to every entity of this cell ({n})."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:811
+#: gui/entity/anchor_tab.py:399
 msgid ""
 "No live board — “Read from selection” needs KiCad. Pick Role/Pad by hand "
 "instead."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:823
+#: gui/entity/anchor_tab.py:405 gui/entity/anchor_tab.py:455
+#, python-brace-format
+msgid "Cell {name!r} not found in the project config"
+msgstr "Ячейка {name!r} не найдена в конфигурации проекта"
+
+#: gui/entity/anchor_tab.py:411
 msgid "cell anchor"
 msgstr "якорь ячейки"
 
-#: gui/entity/anchor_tab.py:829
+#: gui/entity/anchor_tab.py:417
 msgid ""
 "A Via (or a non-component item) is selected — that is the Marker tab's "
 "case: switch to the Marker tab, place the marker at the desired point, "
@@ -7883,23 +7600,23 @@ msgstr ""
 "переключитесь на таб «Маркер», поставьте маркер в нужную точку и нажмите "
 "«Считать позицию»."
 
-#: gui/entity/anchor_tab.py:840
+#: gui/entity/anchor_tab.py:428
 #, python-brace-format
 msgid ""
 "Read from selection: the selected component sits in cluster {other!r}, "
 "but this entity is {cluster!r} — select a component of THIS instance."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:851
+#: gui/entity/anchor_tab.py:439
 #, python-brace-format
 msgid "pad {pad!r}"
 msgstr "пад {pad!r}"
 
-#: gui/entity/anchor_tab.py:852
+#: gui/entity/anchor_tab.py:440
 msgid "footprint"
 msgstr "компонент"
 
-#: gui/entity/anchor_tab.py:854
+#: gui/entity/anchor_tab.py:442
 #, python-brace-format
 msgid ""
 "Read from selection: {what} of role {role!r} (cluster {cluster!r}) — "
@@ -7908,26 +7625,26 @@ msgstr ""
 "Считано из выделения: {what} роли {role!r} (кластер {cluster!r}) — "
 "нажмите «Задать как якорь», чтобы сохранить."
 
-#: gui/entity/anchor_tab.py:872
+#: gui/entity/anchor_tab.py:460
 msgid "Set as anchor: pick a Role of this cell first."
 msgstr "Назначить якорем: сначала выберите роль этой ячейки."
 
-#: gui/entity/anchor_tab.py:877
+#: gui/entity/anchor_tab.py:465
 #, python-brace-format
 msgid "Set as anchor: role {role!r} is not a component of cell {name!r}"
 msgstr "Назначить якорем: роль {role!r} не является компонентой ячейки {name!r}"
 
-#: gui/entity/anchor_tab.py:912
+#: gui/entity/anchor_tab.py:500
 #, python-brace-format
 msgid "{desc} failed: no config file for cell {name!r}"
 msgstr "{desc} не удалось: нет конфиг-файла для ячейки {name!r}"
 
-#: gui/entity/anchor_tab.py:920
+#: gui/entity/anchor_tab.py:508
 #, python-brace-format
 msgid "{desc} failed: {error}"
 msgstr "{desc} не удалось: {error}"
 
-#: gui/entity/anchor_tab.py:923
+#: gui/entity/anchor_tab.py:511
 #, python-brace-format
 msgid ""
 "Cell {name!r}: {desc} stored — placed instances shift on the next "
@@ -7936,68 +7653,68 @@ msgstr ""
 "Ячейка {name!r}: {desc} сохранён — размещённые инстансы сдвинутся при "
 "следующем Redraw/Apply."
 
-#: gui/entity/anchor_tab.py:938
+#: gui/entity/anchor_tab.py:526
 msgid "Marker needs a project root — open a project first."
 msgstr "Маркеру нужен корень проекта — сначала откройте проект."
 
-#: gui/entity/anchor_tab.py:942
+#: gui/entity/anchor_tab.py:530
 msgid "Marker: this entity has no Cluster — set one on the entity record first."
 msgstr ""
 
-#: gui/entity/anchor_tab.py:948
+#: gui/entity/anchor_tab.py:536
 #, python-brace-format
 msgid "Marker: failed to load the project config: {error}"
 msgstr "Маркер: не удалось загрузить конфиг проекта: {error}"
 
-#: gui/entity/anchor_tab.py:990
+#: gui/entity/anchor_tab.py:578
 msgid "Place marker: the cell has no geometry on the board."
 msgstr "Поставить маркер: у ячейки нет геометрии на плате."
 
-#: gui/entity/anchor_tab.py:993
+#: gui/entity/anchor_tab.py:581
 msgid "Marker placed — drag it in KiCad, then press “Read position”."
 msgstr "Маркер поставлен — перетащите его в KiCad и нажмите «Считать позицию»."
 
-#: gui/entity/anchor_tab.py:998
+#: gui/entity/anchor_tab.py:586
 #, python-brace-format
 msgid "Place marker failed: {message}"
 msgstr "Не удалось поставить маркер: {message}"
 
-#: gui/entity/anchor_tab.py:1010
+#: gui/entity/anchor_tab.py:598
 msgid "Show bbox: the cell has no geometry."
 msgstr "Показать bbox: у ячейки нет геометрии."
 
-#: gui/entity/anchor_tab.py:1013
+#: gui/entity/anchor_tab.py:601
 msgid "Bbox drawn."
 msgstr "Bbox нарисован."
 
-#: gui/entity/anchor_tab.py:1017
+#: gui/entity/anchor_tab.py:605
 #, python-brace-format
 msgid "Show bbox failed: {message}"
 msgstr "Не удалось показать bbox: {message}"
 
-#: gui/entity/anchor_tab.py:1025
+#: gui/entity/anchor_tab.py:613
 msgid "No marker to read — place one first."
 msgstr "Нечего считывать — сначала поставьте маркер."
 
-#: gui/entity/anchor_tab.py:1031
+#: gui/entity/anchor_tab.py:619
 msgid "Marker not found on the board (deleted or swept?) — place a new one."
 msgstr "Маркер не найден на плате (удалён или подметён?) — поставьте новый."
 
-#: gui/entity/anchor_tab.py:1042
+#: gui/entity/anchor_tab.py:630
 msgid "marker point"
 msgstr "точка маркера"
 
-#: gui/entity/anchor_tab.py:1046
+#: gui/entity/anchor_tab.py:634
 #, python-brace-format
 msgid "Read marker failed: {message}"
 msgstr "Не удалось считать маркер: {message}"
 
-#: gui/entity/anchor_tab.py:1067
+#: gui/entity/anchor_tab.py:655
 #, python-brace-format
 msgid "Remove overlay failed: {message}"
 msgstr "Не удалось убрать оверлей: {message}"
 
-#: gui/entity/anchor_tab.py:1098
+#: gui/entity/anchor_tab.py:686
 #, python-brace-format
 msgid ""
 "Overlay is drawn on the layer “{layer}” as real KiCad graphics; there is "
@@ -8008,6 +7725,104 @@ msgstr ""
 " цвета нет — графика берёт цвет своего слоя (управляется в KiCad). "
 "Используйте отдельный пользовательский слой, чтобы подметание по слою "
 "было безопасным."
+
+#: gui/entity/anchor_workers.py:295
+#, python-brace-format
+msgid ""
+"{label}: nothing is selected on the board — select one component (or one "
+"of its pads) of cell {cell!r}"
+msgstr ""
+"{label}: на плате ничего не выделено — выберите один компонент (или один "
+"из его падов) ячейки {cell!r}"
+
+#: gui/entity/anchor_workers.py:298
+msgid ""
+"click a component (or one of its pads) of this cell in the PCB editor, "
+"then press the button again"
+msgstr ""
+"кликните компонент (или один из его падов) этой ячейки в редакторе PCB и "
+"нажмите кнопку снова"
+
+#: gui/entity/anchor_workers.py:310
+#, python-brace-format
+msgid "{label}: the selected pad {pad!r} has no footprint owner on the live board"
+msgstr "{label}: у выбранного пада {pad!r} нет футпринта-владельца на живой плате"
+
+#: gui/entity/anchor_workers.py:313
+msgid ""
+"the board changed since it was loaded — press Refresh and select the pad "
+"again"
+msgstr "плата изменилась с момента загрузки — нажмите Refresh и снова выберите пад"
+
+#: gui/entity/anchor_workers.py:337
+#, python-brace-format
+msgid "{label}: the selection spans several clusters — {listing}"
+msgstr "{label}: выделение охватывает несколько кластеров — {listing}"
+
+#: gui/entity/anchor_workers.py:339
+msgid ""
+"an anchor belongs to ONE placed instance of the cell; select components "
+"of a single cluster only, then press the button again"
+msgstr ""
+"якорь относится к ОДНОМУ размещённому инстансу ячейки; выделяйте "
+"компоненты только одного кластера и нажмите кнопку снова"
+
+#: gui/entity/anchor_workers.py:364
+#, python-brace-format
+msgid "{label}: the selection contains several roles — {listing}"
+msgstr "{label}: выделение содержит несколько ролей — {listing}"
+
+#: gui/entity/anchor_workers.py:366
+msgid ""
+"select exactly ONE component (or its pad) of this cell, then press the "
+"button again"
+msgstr ""
+"выделите ровно ОДИН компонент (или его пад) этой ячейки и нажмите кнопку "
+"снова"
+
+#: gui/entity/anchor_workers.py:373
+#, python-brace-format
+msgid "{label}: the selected footprint has no Role field"
+msgstr "{label}: у выбранного футпринта нет поля Role"
+
+#: gui/entity/anchor_workers.py:374
+msgid ""
+"tag the component with a Role (Tools -> tree -> Tag selected) or pick "
+"another component"
+msgstr ""
+"пометите компонент ролью (Tools -> дерево -> Tag selected) или выберите "
+"другой компонент"
+
+#: gui/entity/anchor_workers.py:378
+#, python-brace-format
+msgid "{label}: role {role!r} is not a component of cell {cell!r}"
+msgstr "{label}: роль {role!r} не является компонентом ячейки {cell!r}"
+
+#: gui/entity/anchor_workers.py:380
+#, python-brace-format
+msgid ""
+"the cell anchor must name one of this cell's own components — select a "
+"component of cell {cell!r}"
+msgstr ""
+"якорь ячейки должен указывать на один из собственных компонентов ячейки —"
+" выберите компонент ячейки {cell!r}"
+
+#: gui/entity/anchor_workers.py:436
+#, python-brace-format
+msgid ""
+"cell {cell!r}: several clone placements match cluster {cluster!r} — "
+"{names}"
+msgstr ""
+"ячейка {cell!r}: кластеру {cluster!r} соответствует несколько "
+"clone-размещений — {names}"
+
+#: gui/entity/anchor_workers.py:438
+msgid ""
+"pick a more specific Cluster/Sheet, or edit the anchor while exactly one "
+"placement of this cell is in context"
+msgstr ""
+"выберите более конкретный Кластер/Лист или редактируйте якорь, когда в "
+"контексте ровно одно размещение этой ячейки"
 
 #: gui/entity/page.py:164
 msgid "Reference"
@@ -19502,4 +19317,212 @@ msgstr "Всего спиц: {count}"
 #~ "на паде {pad} уже есть спица — "
 #~ "поставьте галочку «Replace», чтобы "
 #~ "перезаписать"
+
+#~ msgid "{name} — refs {refs}"
+#~ msgstr "{name} — ссылки {refs}"
+
+#~ msgid "{name} — {cluster} on {sheet}"
+#~ msgstr "{name} — {cluster} на {sheet}"
+
+#~ msgid "{name} — not placed"
+#~ msgstr "{name} — не размещена"
+
+#~ msgid "Manual…"
+#~ msgstr "Вручную…"
+
+#~ msgid ""
+#~ "cell {cell!r} updated from entity "
+#~ "{entity!r} ({cluster} on {sheet}) — the"
+#~ " change applies to every entity of"
+#~ " the cell"
+#~ msgstr ""
+#~ "ячейка {cell!r} обновлена из сущности "
+#~ "{entity!r} ({cluster} на {sheet}) — "
+#~ "изменение применится ко всем сущностям "
+#~ "ячейки"
+
+#~ msgid "Sheet (optional)"
+#~ msgstr "Лист (необязательно)"
+
+#~ msgid "Cluster of the placed cell"
+#~ msgstr "Кластер размещённой ячейки"
+
+#~ msgid ""
+#~ "(Cluster, Sheet) set the working context"
+#~ " for the identification — they decide"
+#~ " which placed instance of this cell"
+#~ " is pinned."
+#~ msgstr ""
+
+#~ msgid "Identity save failed: {error}"
+#~ msgstr "Не удалось сохранить идентичность: {error}"
+
+#~ msgid "Cell {name!r}: placement identity stored."
+#~ msgstr "Ячейка {name!r}: идентичность размещения сохранена."
+
+#~ msgid "Cell {name!r}"
+#~ msgstr "Ячейка {name!r}"
+
+#~ msgid "Identification needs a project root — open a project first."
+#~ msgstr "Для идентификации нужен корень проекта — сначала откройте проект."
+
+#~ msgid "Identification: failed to load the project config: {error}"
+#~ msgstr "Идентификация: не удалось загрузить конфиг проекта: {error}"
+
+#~ msgid "No live board connection — connect to KiCad."
+#~ msgstr ""
+
+#~ msgid "Fill from selection failed: {message}"
+#~ msgstr "Заполнение по выделению не удалось: {message}"
+
+#~ msgid ""
+#~ "no live board read yet — connect"
+#~ " to KiCad (or press Refresh) before"
+#~ " typing refs by hand"
+#~ msgstr ""
+#~ "живая плата ещё не прочитана — "
+#~ "подключитесь к KiCad (или нажмите "
+#~ "«Обновить»), прежде чем вписывать рефы "
+#~ "руками"
+
+#~ msgid ""
+#~ "the refs {refs} are not in the "
+#~ "last board read — press Refresh, "
+#~ "or check the refdes"
+#~ msgstr ""
+#~ "рефов {refs} нет в последнем чтении "
+#~ "платы — нажмите «Обновить» или проверьте"
+#~ " реф"
+
+#~ msgid ""
+#~ "identified as a SPOKE: role {role!r} "
+#~ "occurs {count} times in cluster "
+#~ "{cluster!r} — this pair is pinned: "
+#~ "{refs}"
+#~ msgstr ""
+#~ "идентифицировано как СПИЦА: роль {role!r} "
+#~ "встречается в кластере {cluster!r} {count} "
+#~ "раз — эта пара закреплена: {refs}"
+
+#~ msgid ""
+#~ "{selected} of {total} components of "
+#~ "cluster {cluster!r} selected — the "
+#~ "instance was pinned from what was "
+#~ "selected"
+#~ msgstr ""
+
+#~ msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
+#~ msgstr "идентифицирована ячейка {cell!r} в кластере {cluster!r}: {refs}"
+
+#~ msgid ""
+#~ "the cluster has no component for "
+#~ "these role(s) of the cell: {roles} "
+#~ "— they stay unpinned until a pair"
+#~ " is tagged"
+#~ msgstr ""
+#~ "в кластере нет компонента для этих "
+#~ "ролей ячейки: {roles} — они останутся"
+#~ " незакреплёнными, пока не будет размечена"
+#~ " пара"
+
+#~ msgid ""
+#~ "refdes of the identified instance — "
+#~ "filled by “Fill from selection”, "
+#~ "editable by hand"
+#~ msgstr ""
+#~ "рефы идентифицированного экземпляра — "
+#~ "заполняются кнопкой «Заполнить по выделению»,"
+#~ " можно править руками"
+
+#~ msgid "role → refdes of the identified instance: {pairs}"
+#~ msgstr "роль → рефы идентифицированного экземпляра: {pairs}"
+
+#~ msgid "Identified instance"
+#~ msgstr "Идентифицированный экземпляр"
+
+#~ msgid ""
+#~ "The placed instance of this cell: "
+#~ "every action of this page uses the"
+#~ " address of the chosen Entity. "
+#~ "“Manual…” keeps the hand-typed "
+#~ "Sheet/Cluster/refs."
+#~ msgstr ""
+#~ "Размещённый экземпляр этой ячейки: каждое "
+#~ "действие страницы берёт адрес выбранной "
+#~ "сущности. «Manual…» оставляет поля "
+#~ "лист/кластер/refs, введённые вручную."
+
+#~ msgid ""
+#~ "With an Entity chosen, Sheet/Cluster/refs "
+#~ "are its address and are read-only"
+#~ " here — edit them in the "
+#~ "entity's own form. “Manual…” hands the"
+#~ " three fields back to you."
+#~ msgstr ""
+#~ "С выбранной сущностью лист/кластер/refs — "
+#~ "её адрес, и здесь они только для"
+#~ " чтения: правьте их в форме сущности."
+#~ " «Manual…» возвращает эти три поля "
+#~ "вам."
+
+#~ msgid "Fill from selection"
+#~ msgstr "Заполнить по выделению"
+
+#~ msgid ""
+#~ "Identify ONE placed instance of this "
+#~ "cell from the components selected on "
+#~ "the board: fills Sheet, Cluster and "
+#~ "the refs of that pair (a spoke "
+#~ "is identified by one pair)."
+#~ msgstr ""
+#~ "Определить ОДИН поставленный экземпляр этой"
+#~ " ячейки по выделенным на плате "
+#~ "компонентам: заполняет «Лист», «Кластер» и "
+#~ "рефы этой пары (спица идентифицируется "
+#~ "одной парой)."
+
+#~ msgid "C43, C44"
+#~ msgstr "C43, C44"
+
+#~ msgid "Refs:"
+#~ msgstr "Рефы:"
+
+#~ msgid ""
+#~ "The refdes of the identified components,"
+#~ " in the order of the cell's "
+#~ "roles — editable by hand (comma or"
+#~ " space separated). They are checked "
+#~ "against the board every time they "
+#~ "are used; a changed or missing "
+#~ "component is reported as a stale "
+#~ "identification."
+#~ msgstr ""
+#~ "Рефы идентифицированных компонентов, в порядке"
+#~ " ролей ячейки — можно править руками"
+#~ " (через запятую или пробел). Они "
+#~ "проверяются по плате при каждом "
+#~ "использовании; изменившийся или пропавший "
+#~ "компонент сообщается как устаревшая "
+#~ "идентификация."
+
+#~ msgid ""
+#~ "Subtract needs an entity's address — "
+#~ "open this from an ENTITY leaf of"
+#~ " the Config tree (a CELL leaf "
+#~ "names no instance)."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Update from selection needs an entity's"
+#~ " address — open this from an "
+#~ "ENTITY leaf of the Config tree (a"
+#~ " CELL leaf names no instance)."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Import from selection needs an entity's"
+#~ " address — open this from an "
+#~ "ENTITY leaf of the Config tree (a"
+#~ " CELL leaf names no instance)."
+#~ msgstr ""
 

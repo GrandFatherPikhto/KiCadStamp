@@ -1973,40 +1973,6 @@ def test_mouse_click_does_not_emit_file_selected_twice(main_window, tmp_path,
     assert cells == ["one_role"]
 
 
-def test_keyboard_switch_to_another_cell_reloads_the_anchor_page(
-        real_main_window, tmp_path):
-    """End-to-end G.4 + G.5 (Denis's live symptom): with the anchor page open
-    for cell A and Sheet/Cluster set, an arrow-key move to cell B must reload
-    the page and clear the working context. Before G.5 the keyboard move never
-    reached cell_picked, so the fields stayed put."""
-    hub = real_main_window._dock_hub
-    target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp({"cells": {
-        "A": {"components": [{"role": "C1", "offset_along_mm": 0.0,
-                              "offset_across_mm": 0.0}]},
-        "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
-                              "offset_across_mm": 0.0}]},
-    }}, format_number=2), encoding="utf-8")
-
-    hub.config_tree_dock.set_root_file(target)
-    hub.cell_anchor_view.set_root_path(target)
-    hub.cell_anchor_view.load_entry("A", target)
-    hub.cell_anchor_view._cluster_combo.setCurrentText("PIF_3V3_VDD")
-    hub.cell_anchor_view._sheet_combo.setCurrentText("MCU")
-    hub.config_tree_dock.show_page(hub._cell_anchor_page)
-
-    cells = _find(hub.config_tree_dock.tree.topLevelItem(0), "Cells")
-    leaf_b = _find(cells, "B")
-
-    # The arrow key: move the CURRENT item, no itemClicked.
-    hub.config_tree_dock.tree.setCurrentItem(leaf_b)
-    QApplication.processEvents()
-
-    assert hub.cell_anchor_view._cell_name == "B"
-    assert hub.cell_anchor_view._cluster_combo.currentText() == ""
-    assert hub.cell_anchor_view._sheet_combo.currentText() == ""
-
-
 @pytest.fixture(autouse=True)
 def _active_graph_root(tmp_path):
     """У3.5 A, class (в): the format-3 writer resolves a reference's UUID against

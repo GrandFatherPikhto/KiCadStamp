@@ -80,7 +80,7 @@ def test_reverse_edge_names_every_known_importer():
     property."""
     text = pm.build_map(ROOT)
     line = _reverse_line(text, "kicadstamp/selection_narrowing.py")
-    for importer in ("gui.docks.cell_anchor_view", "gui.explode_guard",
+    for importer in ("gui.docks.change_cell_flow", "gui.explode_guard",
                      "gui.mixed_selection", "gui.select_cell",
                      "kicadstamp.explode"):
         assert importer in line, f"{importer} missing from: {line}"

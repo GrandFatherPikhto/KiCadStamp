@@ -1252,42 +1252,6 @@ def test_extract_tree_remembers_new_cells_context(real_main_window,
                                         "sheet": "Channel_1"}
 
 
-def test_push_snapshot_feeds_cell_anchor_view(real_main_window, monkeypatch):
-    """Phase C gap fixed in Phase E: DockHub.push_snapshot now feeds the
-    cell-anchor view like every other dock — its working-context Cluster combo
-    is populated from the live snapshot (the view previously had no
-    refresh_known_roles and was never subscribed)."""
-    hub = real_main_window._dock_hub
-    # Stub the sibling docks' refresh handlers — this test is about the wiring.
-    for name in ("tree_dock", "placer_dock", "thermal_via_dock", "points_dock",
-                 "net_trace_dock", "cells_dock", "tools_dock"):
-        dock = getattr(hub, name, None)
-        if dock is None:
-            continue
-        monkeypatch.setattr(dock, "set_footprints",
-                            lambda snapshot: None, raising=False)
-        monkeypatch.setattr(dock, "refresh_known_roles",
-                            lambda snapshot: None, raising=False)
-        # Since plan_2026_09_13_ui_thread_net_reads Э2 these take the COLLECTED
-        # net-name lists, never the board.
-        monkeypatch.setattr(dock, "refresh_known_nets",
-                            lambda net_names: None, raising=False)
-    received = []
-    monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
-                        lambda snapshot: received.append(snapshot))
-    # Step 3 of plan_2026_10_09_entity_page: the ENTITY page's "Refs" tab is fed on
-    # the same tick (its board columns come from this copy, never the board).
-    received_entity = []
-    monkeypatch.setattr(hub.entity_dock, "refresh_known_roles",
-                        lambda snapshot: received_entity.append(snapshot))
-
-    snapshot = [SimpleNamespace(cluster="PIF_3V3_VDD", role="C1")]
-    hub.push_snapshot(snapshot, [], [])
-
-    assert received == [snapshot]
-    assert received_entity == [snapshot]
-
-
 def test_extract_cluster_existing_entity_reuse_writes_nothing(
         real_main_window, tmp_path, monkeypatch):
     """A cluster whose (cluster, sheet) Entity already exists -> OK REUSES it:
@@ -1387,99 +1351,6 @@ def test_file_selected_no_longer_switches_the_right_page(real_main_window, tmp_p
 
     assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
             is real_main_window.placer_dock)
-
-
-def test_cell_picked_opens_the_merged_cell_page(real_main_window):
-    """Task V (prompt_2026_09_11_cell_page_merge.md): a Cell-leaf click fires
-    file_selected THEN cell_picked in that order (see config_tree.py's
-    _on_clicked) and lands on the ONE merged cell page — the Placer is no
-    longer the cell's editor."""
-    hub = real_main_window._dock_hub
-    real_main_window.config_tree_dock.file_selected.emit(None)
-    real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
-
-    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
-    assert hub.config_tree_dock.current_right_page_index() == hub._cell_anchor_page
-
-
-# ── G.4: the anchor page follows the Config-tree cell selection ────────────
-
-def test_cell_click_reloads_the_anchor_page_when_active(real_main_window,
-                                                        monkeypatch):
-    """While the Cell-anchor editor is the active Config right page, a cell
-    click reloads THAT cell there (G.4) — and the click must NOT jump to the
-    Placer page."""
-    hub = real_main_window._dock_hub
-    calls = []
-    # load_entry grew a read_only flag (3б of plan_2026_10_05_entities_under_cells):
-    # the spy accepts it, the guarded property (this cell reloads here) is unchanged.
-    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
-                        lambda name, file_path, read_only=False:
-                        calls.append((name, file_path)))
-    hub.cell_anchor_view._cell_name = "pif_3v3_vdd"
-    hub.config_tree_dock.show_page(hub._cell_anchor_page)
-
-    real_main_window.config_tree_dock.cell_picked.emit("pif_3v3_vdda")
-
-    assert calls == [("pif_3v3_vdda", None)]
-    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
-
-
-def test_cell_click_reload_clears_the_working_context(real_main_window, tmp_path):
-    """End to end: the reload goes through the real load_entry, so the previous
-    cell's Sheet/Cluster are cleared by _prefill_cell_context (the live leak
-    Denis reported)."""
-    hub = real_main_window._dock_hub
-    target = tmp_path / "root.sexp"
-    target.write_text(dict_to_sexp({"cells": {
-        "A": {"components": [{"role": "C1", "offset_along_mm": 0.0,
-                              "offset_across_mm": 0.0}]},
-        "B": {"components": [{"role": "C1", "offset_along_mm": 0.0,
-                              "offset_across_mm": 0.0}]},
-    }}, format_number=2), encoding="utf-8")
-    hub.cell_anchor_view.set_root_path(target)
-    hub.cell_anchor_view.load_entry("A", target)
-    hub.cell_anchor_view._cluster_combo.setCurrentText("PIF_3V3_VDD")
-    hub.cell_anchor_view._sheet_combo.setCurrentText("MCU")
-    hub.config_tree_dock.show_page(hub._cell_anchor_page)
-
-    real_main_window.config_tree_dock.cell_picked.emit("B")
-
-    assert hub.cell_anchor_view._cluster_combo.currentText() == ""
-    assert hub.cell_anchor_view._sheet_combo.currentText() == ""
-    assert hub.cell_anchor_view._cell_name == "B"
-
-
-def test_cell_click_opens_the_merged_cell_page(real_main_window, monkeypatch):
-    """Task V: a cell click now OPENS the page even when a different right
-    page was active (it used to reveal the Placer instead) and loads the
-    picked cell into it."""
-    hub = real_main_window._dock_hub
-    calls = []
-    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
-                        lambda *a, **k: calls.append(a))
-    hub.config_tree_dock.set_current_page(0)   # placeholder, not the cell page
-
-    real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
-
-    assert calls == [("ldo_adj", None)]
-    assert hub.config_tree_dock.current_right_page() is hub.cell_anchor_view
-
-
-def test_repeat_cell_click_is_a_noop_for_the_anchor_page(real_main_window,
-                                                         monkeypatch):
-    """Re-clicking the cell already loaded must not reload it — that would drop
-    unsaved input and remove the overlay the user is working with."""
-    hub = real_main_window._dock_hub
-    calls = []
-    monkeypatch.setattr(hub.cell_anchor_view, "load_entry",
-                        lambda *a, **k: calls.append(a))
-    hub.cell_anchor_view._cell_name = "pif_3v3_vdd"
-    hub.config_tree_dock.show_page(hub._cell_anchor_page)
-
-    real_main_window.config_tree_dock.cell_picked.emit("pif_3v3_vdd")
-
-    assert calls == []
 
 
 def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
@@ -1990,10 +1861,7 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     # before — the regression fix).
     monkeypatch.setattr(hub.tools_dock, "refresh_known_nets",
                         lambda n: pushed.setdefault("tools_nets", []).append(n))
-    # cell_anchor_view (Phase E, 2026-09-09) — the working-context Cluster
     # combo is populated from the live snapshot on the same tick.
-    monkeypatch.setattr(hub.cell_anchor_view, "refresh_known_roles",
-                        lambda s: pushed.setdefault("anchor_roles", []).append(s))
     # entity_dock (step 3 of plan_2026_10_09_entity_page) — the entity page's
     # "Refs" tab is fed the live snapshot on the same tick.
     monkeypatch.setattr(hub.entity_dock, "refresh_known_roles",
@@ -2010,7 +1878,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     assert pushed["thermal_nets"] == [net_names]
     assert pushed["points_roles"] == [snapshot]
     assert pushed["cells_roles"] == [snapshot]
-    assert pushed["anchor_roles"] == [snapshot]
     assert pushed["entity_roles"] == [snapshot]
     assert pushed["net_trace_roles"] == [snapshot]
     assert pushed["net_trace_nets"] == [copper_net_names]

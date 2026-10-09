@@ -61,7 +61,7 @@ from kicadstamp.selection_narrowing import (
 )
 from kicadstamp.sheet_names import resolve_sheet_path_names
 
-from .cell_entity_choice import (
+from .entity.address import (
     address_matches_selection,
     cannot_verify_line,
     not_the_entity_line,

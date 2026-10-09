@@ -2036,6 +2036,13 @@ def _capture_payloads(monkeypatch):
     return payloads
 
 
+def _address(cluster="PIF_3V3_VDD", sheet=None, refs=None):
+    """An EXPLICIT address (step 5 of plan_2026_10_09_entity_page): the dock's
+    board actions read the instance its door LOADED it with, never a store."""
+    from gui.entity.address import InstanceAddress
+    return InstanceAddress(cluster=cluster, sheet=sheet, refs=refs)
+
+
 def test_the_fast_path_runs_with_the_remembered_layer_set(main_window, tmp_path,
                                                           monkeypatch):
     """P.3.1: one click, no dialog, and NO board read for the set itself — the
@@ -2043,6 +2050,7 @@ def test_the_fast_path_runs_with_the_remembered_layer_set(main_window, tmp_path,
     yet = every layer, i.e. the old behaviour)."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _RefreshBoard([])
     payloads = _capture_payloads(monkeypatch)
 
@@ -2065,6 +2073,7 @@ def test_the_refresh_dialog_path_is_fed_the_distributed_selection(
     becomes the payload of the read it continues into."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _RefreshBoard([])
     track = _dto_track_on(BoardLayer.BL_F_Cu, "GND", 1.0, 1.0, 2.0, 1.0)
     dock.set_board_selection([track], [])
@@ -2093,6 +2102,7 @@ def test_the_import_dialog_path_continues_into_the_import_read(
         main_window, tmp_path, monkeypatch):
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _ImportBoard([])
     calls = {}
 
@@ -2421,6 +2431,7 @@ def test_an_empty_layer_set_asks_before_refresh_deletes_tracks(main_window,
     changes nothing, OK runs the read."""
     dock, _ = _make_dock(main_window, tmp_path, _cell_with_two_layer_tracks())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _RefreshBoard([])
     payloads = _capture_payloads(monkeypatch)
     before = (list(dock._tracks), list(dock._vias))
@@ -2464,6 +2475,7 @@ def test_only_a_provided_and_empty_set_asks(main_window, tmp_path, monkeypatch):
     and a set with layers in it both ask NOTHING."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _RefreshBoard([])
     payloads = _capture_payloads(monkeypatch)
     calls = _answer_question(monkeypatch, _OK)
@@ -2480,6 +2492,7 @@ def test_an_empty_layer_set_only_logs_on_import(main_window, tmp_path, monkeypat
     empty set silences ONLY the tracks, and the read still makes sense."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
+    dock._expected_address = _address()
     main_window.connection.board = _ImportBoard([])
     payloads = _capture_payloads(monkeypatch)
     messages = []

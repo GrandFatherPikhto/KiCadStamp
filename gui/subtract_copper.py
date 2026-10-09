@@ -51,7 +51,7 @@ import logging
 
 from kicadstamp.i18n import _
 
-from .cell_entity_choice import instance_for_read
+from .entity.address import read_instance_of
 from .connection import worker_timeout_ms
 from .docks._common import ERROR_STYLE as _ERROR_STYLE, style_for_level
 from .worker import start_long_op
@@ -338,9 +338,13 @@ class SubtractWiring:
         self._dock = dock
 
     # ── the door ────────────────────────────────────────────────────────────
-    def open(self) -> None:
-        """Button / context action: subtract the cell records the selection names."""
-        self._open_with_instance(None)
+    def open(self, expected_address=None) -> None:
+        """Button / context action: subtract the cell records the selection names.
+
+        `expected_address` is the DOOR's address (step 5): the dock's own entry
+        passes the address it was LOADED with; a CELL leaf passes nothing and the
+        refusal inside `_open_with_instance` answers — nothing is read."""
+        self._open_with_instance(expected_address)
 
     def _open_with_instance(self, expected_address) -> None:
         """The ONE subtraction door (С-2; часть 3, п.2 grew it an address).
@@ -370,15 +374,14 @@ class SubtractWiring:
             return
         if dock._active_op is not None:
             return
-        # часть 3, п.2 + доделка 3а, п.2: the SAME ONE instance rule every READ
-        # uses — the door's own address wins (its cluster / sheet AND the entity's
-        # `refs:` pins), else the PAGE's row (the working-instance store, else the
-        # remembered context / identified refs). The old code took only
-        # (cluster, sheet) from the address — dropping the pins — and else asked
-        # the dock's remembered fields directly, i.e. a second rule.
-        instance = instance_for_read(dock._root_path,
-                                     dock.name_edit.text().strip(),
-                                     expected_address)
+        # Step 5 of plan_2026_10_09_entity_page: the address comes from the DOOR
+        # and ONLY from it — the working-instance store is gone. A CELL leaf names
+        # no instance, so NOTHING is read: never a fallback to a remembered pair.
+        if expected_address is None:
+            dock._show_message(_("Subtract needs an entity's address — open it "
+                                 "from an ENTITY leaf."), _ERROR_STYLE)
+            return
+        instance = read_instance_of(expected_address)
         payload = {
             "timeout_ms": worker_timeout_ms(connection),
             "components": list(dock._components),

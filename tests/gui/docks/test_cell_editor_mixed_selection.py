@@ -350,13 +350,13 @@ def test_a_read_that_refuses_never_touches_the_selection(main_window, tmp_path):
     another address) builds nothing — and the board selection is left exactly as
     the user had it: mutating it would destroy the very selection he is about to
     fix by hand."""
-    from gui.cell_entity_choice import InstanceAddress
+    from gui.entity.address import InstanceAddress
 
     dock, _ = _make_dock(main_window, tmp_path)
     board = _MixedBoard()
     payload = _payload(dock, board)
     payload["expected_entity"] = InstanceAddress(
-        source="entity", label="dac0", cluster="OTHER_BANK", entity_name="dac0")
+        cluster="OTHER_BANK", entity_name="dac0")
 
     result = dock._run_refresh_geometry(payload)
 

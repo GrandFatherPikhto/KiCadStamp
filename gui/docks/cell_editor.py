@@ -113,7 +113,7 @@ from ..worker import start_long_op
 from ..connection import worker_timeout_ms
 from ..select_cell_copper import run_select_cell_worker, select_identified_refs
 from ..subtract_copper import SubtractWiring
-from ..cell_entity_choice import instance_for_read, read_instance
+from ..entity.address import read_instance_of
 from .explode_page import adapter_of
 from ..mixed_selection import ERROR as _SELECTION_ERROR
 from ..mixed_selection import narrow_mixed_selection
@@ -442,6 +442,8 @@ class CellDock(QWidget):
         self._main_window = main_window
         self._path: Optional[Path] = None
         self._root_path: Optional[Path] = None
+        # The address the DOOR opened this dock with (step 5); no store exists.
+        self._expected_address = None
 
         self._components: List[Dict[str, Any]] = []
         self._vias: List[Dict[str, Any]] = []
@@ -1660,11 +1662,10 @@ class CellDock(QWidget):
 
 
     def _read_instance(self):
-        """The instance a READ of this cell must use — the ONE call into
-        gui/cell_entity_choice (part 2, п.1): the cell page's "Entity" dropdown
-        first (the entity's own cluster/sheet/pins, read at the moment of use),
-        else this cell's remembered context and identified refs, as before."""
-        return read_instance(self._root_path, self.name_edit.text().strip())
+        """The instance a READ of this cell must use — the address the DOOR
+        LOADED the dock with (step 5). NO store to fall back on: no address —
+        no instance."""
+        return read_instance_of(self._expected_address)
 
     def _remembered_cluster_value(self) -> Optional[str]:
         """The Cluster a read targets (subtract_copper asks by THIS name)."""
@@ -1734,10 +1735,15 @@ class CellDock(QWidget):
         # boxes unchecked) alike.
         if _is_empty_layer_set(layers) and not self._confirm_empty_layers():
             return
-        # часть 3, п.2: the door's own address wins; else the page's row.
-        instance = instance_for_read(self._root_path,
-                                     self.name_edit.text().strip(),
-                                     expected_address)
+        # Step 5: the door's address IS the instance (the dock's OWN entry falls
+        # back to the address it was LOADED with); the store is gone.
+        if expected_address is None:
+            expected_address = self._expected_address
+        if expected_address is None:
+            self._show_message(_("Update needs an entity's address — open it "
+                                 "from an ENTITY leaf."), _ERROR_STYLE)
+            return
+        instance = read_instance_of(expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_refresh_plan never mutates them, and the records
         # it returns are the SAME dict objects, so Apply lands on the loaded
@@ -2248,10 +2254,14 @@ class CellDock(QWidget):
                 _("No layer is selected — no track will be read (vias and "
                   "components are read as usual)."),
                 _WARN_STYLE)
-        # часть 3, п.2: same ONE rule as the refresh read.
-        instance = instance_for_read(self._root_path,
-                                     self.name_edit.text().strip(),
-                                     expected_address)
+        # Step 5: same ONE rule as the refresh read.
+        if expected_address is None:
+            expected_address = self._expected_address
+        if expected_address is None:
+            self._show_message(_("Import needs an entity's address — open it "
+                                 "from an ENTITY leaf."), _ERROR_STYLE)
+            return
+        instance = read_instance_of(expected_address)
         # Snapshot the current lists — the worker reads them while the UI may
         # keep ticking; build_import_plan never mutates them, and the plan's
         # new records are brand-new dicts to APPEND on Apply (existing records
@@ -2424,7 +2434,7 @@ class CellDock(QWidget):
     # delegates onto it (the one wiring instance is built in __init__).
 
     def _on_subtract_selected_copper(self) -> None:
-        return self._subtract_flow.open()
+        return self._subtract_flow.open(self._expected_address)
 
     def _read_subtract_from_selection(self) -> None:
         return self._subtract_flow.open()
@@ -2478,13 +2488,17 @@ class CellDock(QWidget):
             return None
 
     def select_cell_requested(self, name: str, file_path,
-                              cluster=None, sheet=None) -> None:
+                              cluster=None, sheet=None,
+                              expected_address=None) -> None:
         """The ONE entry point of "Select cell" for the config tree menu and any
         other door (Н5/Н5б). It reloads the form ONLY when a DIFFERENT cell is
         open (compare by NAME — a same-cell call never discards unsaved edits),
         and it loads the cell from its OWN file: an entity door sends
         file_path=None, so the file is resolved from the config and the entity's
         file can never become the cell's save target (a second copy)."""
+        # Step 5 of plan_2026_10_09_entity_page: the door's address drives the
+        # instance rule below (its `refs:` pins included) — never a store.
+        self._expected_address = expected_address
         if self.name_edit.text().strip() != name:
             target = file_path
             if target is None:
@@ -2494,14 +2508,16 @@ class CellDock(QWidget):
                     _("cell {name!r} is not in the config — cannot select it")
                     .format(name=name), _ERROR_STYLE)
                 return
-            self.load_entry(name, target)
+            self.load_entry(name, target, expected_address=expected_address)
         self._on_select_cell(cluster=cluster, sheet=sheet, with_copper=True)
 
     def select_cell_components_requested(self, name: str, file_path,
-                                         cluster=None, sheet=None) -> None:
+                                         cluster=None, sheet=None,
+                                         expected_address=None) -> None:
         """СЦ-1: the "Select cell components" entry — the instance's components
         ONLY. Same reload rule and the SAME instance resolver as "Select cell";
         only the recorded copper is left out."""
+        self._expected_address = expected_address
         if self.name_edit.text().strip() != name:
             target = file_path
             if target is None:
@@ -2511,7 +2527,7 @@ class CellDock(QWidget):
                     _("cell {name!r} is not in the config — cannot select it")
                     .format(name=name), _ERROR_STYLE)
                 return
-            self.load_entry(name, target)
+            self.load_entry(name, target, expected_address=expected_address)
         self._on_select_cell(cluster=cluster, sheet=sheet, with_copper=False)
 
     def _on_select_cell(self, cluster=None, sheet=None, with_copper=True) -> None:
@@ -2809,7 +2825,8 @@ class CellDock(QWidget):
 
     # ── Loading an already-saved entry back into the form ───────────────
 
-    def load_entry(self, name: str, file_path: Optional[Path] = None) -> None:
+    def load_entry(self, name: str, file_path: Optional[Path] = None,
+                   expected_address=None) -> None:
         """Reverse of _build_cell_dict() — called by ConfigTreeDock's Cells
         category (via cell_edit_requested, NOT cell_picked — see config_
         tree.py's module docstring on why editing needs its own action
@@ -2822,6 +2839,8 @@ class CellDock(QWidget):
         so a Save updates that file instead of duplicating the cell into the
         root (2026-08-21 review fix)."""
         self._show_message("")
+        # Step 5: the address the DOOR opened this dock with (None = a CELL leaf).
+        self._expected_address = expected_address
         if file_path is None:
             file_path = find_dict_entry_file(self._root_path, "cells", name)
         if file_path is not None:

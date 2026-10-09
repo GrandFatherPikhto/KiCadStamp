@@ -3,18 +3,14 @@
 
 The rules of доделка 2б, п.4 and of часть 3, п.2 live here and nowhere else:
 
-  * `pin_door_instance` — publish the entity as the cell's WORKING INSTANCE
-    (`cell_working_instance`, owned by gui/cell_entity_choice) so the cell PAGE
-    remembers what its dropdown showed, and move an ALREADY OPEN page onto that
-    entity (2в, п.2: one writer, one store). Since часть 3 this is VISIBILITY,
-    not the address a board read uses;
   * `door_address` — the entity's EXPLICIT address (cluster, sheet and its own
     `refs:` pins), resolved from the NAME the signal carries through the part-1
     index and handed to the action AS AN ARGUMENT (`expected_address`). That is
     what stops a read from working whichever entity the cell page was last on —
     Denis' live case of 08.10;
-  * `open_cell_anchor_for_entity` — open the cell PAGE pinned to that entity
-    (`opened_from`), so the dropdown lands on the entity the item came from;
+  * `open_cell_dock_for_entity` — open the CELL's map (CellDock) for that entity,
+    its own address riding along (step 5 of plan_2026_10_09_entity_page: the CELL
+    page and its instance dropdown are gone, so "Edit cell..." shows the MAP);
   * `refresh_cell_from_selection` / `import_cell_from_selection` /
     `subtract_cell_from_selection` — the board doors of the tree: ONE function
     per action, each handing the resolved address over.
@@ -33,43 +29,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .cell_entity_choice import (
+from .entity.address import (
     InstanceAddress,
     entity_address,
     entity_address_named,
-    pin_working_instance,
 )
-
-
-def pin_door_instance(hub, cell_name, entity_name) -> bool:
-    """Make the entity a door came from the cell's WORKING INSTANCE — the page's
-    memory of what its dropdown shows, and the mover of an open page.
-
-    The page's "Entity" dropdown owns the store (2в, п.2: one writer, one store).
-    Since часть 3, п.2 the store is NOT the address a board read uses — a board
-    door hands its own address over (`door_address`); this function is what keeps
-    the PAGE showing the entity a tree item was clicked under.
-
-    When the cell PAGE is already open on this cell, the dropdown — not this
-    module — is the writer: the page is asked to move to that entity and its own
-    apply publishes the record. Otherwise the record is written here, as before.
-
-    The name is resolved through the part-1 index the tree already built — never
-    a second walk of it. A name the graph no longer knows clears the record
-    (the door's own explicit cluster/sheet is then in charge); no name at all (a
-    CELL leaf) writes nothing. Returns True when the record was published.
-
-    Nothing is read from `hub` beyond the docks it owns, so a stand-in hub
-    works."""
-    if not entity_name:
-        return False
-    view = getattr(hub, "cell_anchor_view", None)
-    if getattr(view, "_cell_name", None) == cell_name:
-        if view.show_entity_instance(entity_name):
-            return True
-    index = getattr(getattr(hub, "config_tree_dock", None), "_entity_index", None)
-    root = getattr(getattr(hub, "root_metadata_dock", None), "root_path", None)
-    return pin_working_instance(root, cell_name, entity_name, index)
 
 
 def door_address(hub, entity_name, cluster=None,
@@ -100,20 +64,17 @@ def door_address(hub, entity_name, cluster=None,
     return None
 
 
-def open_cell_anchor_for_entity(hub, cell_name, file_path, entity_name) -> None:
-    """Open the cell PAGE on that entity — the entity leaf's "Edit cell...".
+def open_cell_dock_for_entity(hub, cell_name, file_path, entity_name) -> None:
+    """Open the CELL's MAP for that entity — the entity leaf's "Edit cell...".
 
-    Same page as the cell menu's "Cell anchor..." (`DockHub._edit_cell_anchor`),
-    but the dropdown lands on THIS entity instead of the cell's last/first one,
-    and the working instance is published first: a page that silently works
-    another channel is exactly what this item exists to stop. A name the graph
-    no longer knows still opens the page (the honest default decides) — the
-    store is simply cleared by `pin_door_instance`."""
-    pin_door_instance(hub, cell_name, entity_name)
-    hub.cell_anchor_view.load_entry(cell_name, file_path,
-                                    opened_from=entity_name)
-    hub._focus_config_tree_dock()
-    hub.config_tree_dock.show_page(hub._cell_anchor_page)
+    Step 5 of plan_2026_10_09_entity_page: the CELL page is GONE, so this item
+    shows the SAME map editor a CELL leaf's "Edit cell..." does (CellDock's form
+    + the Cell dialog), but hands it the entity's OWN address (`door_address`) so
+    the dock's board actions work on THAT instance and never guess one. The map
+    itself reads no board."""
+    address = door_address(hub, entity_name)
+    hub.cells_dock.load_entry(cell_name, file_path, expected_address=address)
+    hub._open_cell_dialog()
 
 
 def select_cell_from_tree(hub, name, file_path, cluster=None, sheet=None,
@@ -123,24 +84,24 @@ def select_cell_from_tree(hub, name, file_path, cluster=None, sheet=None,
     not the currently open one and runs the SAME worker the CellDock button runs
     — one function for every door). An ENTITY leaf sends the explicit
     (cluster, sheet) AND its name; a CELL leaf sends None for both."""
-    pin_door_instance(hub, name, entity)
-    hub.cells_dock.select_cell_requested(name, file_path, cluster, sheet)
+    hub.cells_dock.select_cell_requested(
+        name, file_path, cluster, sheet,
+        expected_address=door_address(hub, entity, cluster, sheet))
 
 
 def select_cell_components_from_tree(hub, name, file_path, cluster=None,
                                      sheet=None, entity=None) -> None:
     """ConfigTreeDock's cell_select_components_requested delegate (СЦ-1) — drive
     CellDock's components-only entry point (same instance rules)."""
-    pin_door_instance(hub, name, entity)
-    hub.cells_dock.select_cell_components_requested(name, file_path, cluster,
-                                                    sheet)
+    hub.cells_dock.select_cell_components_requested(
+        name, file_path, cluster, sheet,
+        expected_address=door_address(hub, entity, cluster, sheet))
 
 
 def select_enclosed_copper_from_tree(hub, name, file_path=None, cluster=None,
                                      sheet=None, entity=None) -> None:
     """ConfigTreeDock's cell_select_enclosed_requested delegate — the ONE door of
     the context-menu item (gui/select_enclosed_copper.py)."""
-    pin_door_instance(hub, name, entity)
     from .select_enclosed_copper import select_enclosed_copper
     select_enclosed_copper(hub, name, file_path, cluster, sheet)
 
@@ -153,7 +114,6 @@ def open_explode(hub, name, file_path=None, cluster=None, sheet=None,
     opened ON it and the address is read from that entity's record. A door without
     an entity is refused by `open_tab` (there is none left — the CELL leaf has no
     Explode item, and the CellDock button is gone)."""
-    pin_door_instance(hub, name, entity)
     hub.explode_wiring.open_tab(entity, file_path)
 
 

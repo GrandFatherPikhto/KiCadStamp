@@ -526,7 +526,8 @@ def test_hub_delegate_components_calls_the_shared_entry():
     calls = []
 
     class _Cells:
-        def select_cell_components_requested(self, name, fp, cluster, sheet):
+        def select_cell_components_requested(self, name, fp, cluster, sheet,
+                                             expected_address=None):
             calls.append((name, fp, cluster, sheet))
 
     hub = SimpleNamespace(cells_dock=_Cells())

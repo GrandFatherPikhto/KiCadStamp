@@ -58,7 +58,6 @@ from . import entity_doors
 from .docks.cell_tree_wiring import (connect_cell_tree_actions,
                                      inject_snapshot_refresher)
 from .docks.cell_dialog import CellDialog
-from .docks.cell_anchor_view import CellAnchorView
 from .docks.cell_refs_tab import RefsTabWidget
 from .entity.anchor_tab import AnchorTabWidget
 from .entity.anchor_workers import cleanup_all_overlays_sync
@@ -292,13 +291,11 @@ class DockHub:
         # set_root_path / saved. connection is needed for Resolve.
         self.points_dock = PointsDock(main_window, connection=connection)
         self._points_page = self.config_tree_dock.add_right_page(self.points_dock)
-        # Cell anchor (2026-09-09, Phase C of plan_2026_09_09_cell_anchor_v2_
-        # declarative_and_board_overlay): the dedicated anchor editor
-        # (Component/Marker tabs) is a Config right-QView page, opened from the
-        # Cells context menu ("Cell anchor..." -> cell_anchor_requested).
-        self.cell_anchor_view = CellAnchorView(main_window, connection=connection)
-        self._cell_anchor_page = self.config_tree_dock.add_right_page(
-            self.cell_anchor_view)
+        # The CELL page (CellAnchorView) is GONE (step 5 of
+        # plan_2026_10_09_entity_page): its Anchor/Refs/Explode tabs moved to the
+        # ENTITY page and the Source tab was replaced by the entity page's cell
+        # combobox. A CELL leaf's items now open the CellDock MAP (see the
+        # delegates below); nothing here is a Config right-QView page any more.
         # "Разнос" (Р2/Р3а-0, plan_2026_10_05_explode_r2_r3_tab_and_reread): the
         # ExplodeGuard holds the "clusters are exploded" state — read from the
         # JOURNAL on disk — and installs the worker gate. Step 2 of
@@ -343,12 +340,10 @@ class DockHub:
         # made here only becomes visible there when that copy re-reads the file.
         # Two hooks, two owners — never one callback doing both by luck.
         self.entity_dock.on_overrides_written = self._on_overrides_written
-        # Part 2 (п.1) + 2в, п.5: BOTH readers of "who places this cell" — the
-        # page's dropdown and the CellDock's buttons — take the ONE entity index
-        # from the Config tree dock (a second walker is what that module exists
-        # to prevent).
+        # 2в, п.5: the ONE reader left of "who places this cell" — the CellDock —
+        # takes the entity index from the Config tree dock (a second walker is
+        # what that module exists to prevent).
         provider = lambda: getattr(self.config_tree_dock, "_entity_index", None)
-        self.cell_anchor_view.entity_index_provider = provider
         self.cells_dock.entity_index_provider = provider
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
@@ -814,9 +809,6 @@ class DockHub:
         # Cell anchor (Phase C, 2026-09-09): the marker/bbox live frame and the
         # Sheet combo need the project root — same root_changed source as every
         # other dock.
-        self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "cell_anchor_view.set_root_path",
-                    self.cell_anchor_view.set_root_path))
         # Р2в: the permanent "Explode" tab's CELL list comes from the root
         # config — same root_changed source as every dock above.
         self.root_metadata_dock.root_changed.connect(
@@ -903,14 +895,9 @@ class DockHub:
         # wiring, same target methods, unified single source).
         self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
         self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
-        # A cell-leaf click normally reveals the Placer page, but while the
-        # Cell-anchor editor is the active Config right page it must make THAT
-        # page follow the tree selection instead (G.4) — see _on_cell_picked.
-        self.config_tree_dock.cell_picked.connect(self._on_cell_picked)
-        # 3б: the same page, but for a cell with no entity and no placer — it
-        # opens READ-ONLY ("create an entity to edit this cell").
-        self.config_tree_dock.cell_picked_read_only.connect(
-            self._on_cell_picked_read_only)
+        # 3б (step 5 of plan_2026_10_09_entity_page): with the CELL page gone the
+        # "just a drawing" read-only page no longer exists; a cell-leaf click keeps
+        # ONLY its original "pick as placement content" meaning (wired above).
         # Entities leaf (2026-09-05, design config_qview_chain_entity_pages):
         # a single click opens the Entity right-QView page (record editor) —
         # NO longer routed into Placer's Entity mode (that mode stays available
@@ -1058,9 +1045,6 @@ class DockHub:
         self.imprint_place_dock.saved.connect(
             self.config_tree_dock.graph_changed.emit)
         self.cells_dock.saved.connect(self.config_tree_dock.refresh)
-        # Cell anchor (Phase C, 2026-09-09): a saved anchor rewrites the cell
-        # entry — refresh the Config tree's leaf display.
-        self.cell_anchor_view.saved.connect(self.config_tree_dock.refresh)
         # Cell anchor (Phase D, 2026-09-09, D.2): leaving the anchor editor
         # page (a Config right-QView page) drops the cell's drawn overlay —
         # the overlay is an editing aid shown only while the page is open.
@@ -1225,7 +1209,6 @@ class DockHub:
         self.points_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_roles(snapshot)
         self.cells_dock.refresh_known_roles(snapshot)
-        self.cell_anchor_view.refresh_known_roles(snapshot)
         # ... and the ENTITY page's "Refs" tab, fed the same whole-board snapshot
         # (step 3 of plan_2026_10_09_entity_page) — the tab reads its board columns
         # from this copy, never from the board.
@@ -2636,7 +2619,6 @@ class DockHub:
         self.tools_dock.set_root_path(root_path)
         self.entity_dock.set_root_path(root_path)
         self.points_dock.set_root_path(root_path)
-        self.cell_anchor_view.set_root_path(root_path)
         # Р2в: the permanent "Разнос" tab gets the root so its CELL list is the
         # file's own cells before any door is used.
         self.explode_page.set_root_path(root_path)
@@ -2776,7 +2758,7 @@ class DockHub:
             self, name, file_path, cluster, sheet, entity)
 
     def _edit_cell_anchor_for_entity(self, name, file_path, entity) -> None:
-        entity_doors.open_cell_anchor_for_entity(self, name, file_path, entity)
+        entity_doors.open_cell_dock_for_entity(self, name, file_path, entity)
 
     def _create_entity_from_tree(self, source_kind: str, source_name: str,
                                  file_path) -> None:
@@ -2896,43 +2878,15 @@ class DockHub:
         no Cell dialog, no entity/net editor pops up (Denis 2026-09-06)."""
         self.cells_dock.copy_from_cell_requested(name, file_path)
 
-    def _on_cell_picked_read_only(self, name: str) -> None:
-        """3б: an entityless, unplaced cell is a drawing — the merged cell page
-        opens for READING only. Same page and same handler as a normal pick."""
-        self._on_cell_picked(name, read_only=True)
-
-    def _on_cell_picked(self, name: str, read_only: bool = False) -> None:
-        """A Config-tree cell selection ALWAYS opens the ONE merged cell page
-        (task V, prompt_2026_09_11_cell_page_merge.md) — whether it came from a
-        mouse click, an arrow key (G.5) or the context menu. It used to reveal
-        the Placer page and merely FOLLOW while the anchor page happened to be
-        active; the two editors are one page now, so every cell pick goes there.
-
-        The page reloads the picked cell through load_entry, which first clears
-        the previous cell's working-context combos (_prefill_cell_context), so
-        the Sheet/Cluster of the previously edited cell never leak (G.4). A
-        repeat pick of the cell already loaded is a no-op — it must not drop
-        unsaved input or remove the overlay the user is working with."""
-        anchor_page = getattr(self, "_cell_anchor_page", None)
-        if anchor_page is None:
-            self._show_config_placer()
-            return
-        self._focus_config_tree_dock()
-        self.config_tree_dock.show_page(anchor_page)
-        if (getattr(self.cell_anchor_view, "_cell_name", None) == name
-                and getattr(self.cell_anchor_view, "_read_only", False) == read_only):
-            return
-        self.cell_anchor_view.load_entry(name, None, read_only=read_only)
-
     def _edit_cell_anchor(self, name, file_path) -> None:
-        """ConfigTreeDock's cell_anchor_requested delegate (2026-09-09, Phase C
-        of plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay) — the
-        context menu's "Cell anchor...": load the cell into the dedicated
-        anchor editor and show it as the Config dock's right-QView page (never
-        goes through _on_clicked, so the owning file is passed explicitly)."""
-        self.cell_anchor_view.load_entry(name, file_path)
-        self._focus_config_tree_dock()
-        self.config_tree_dock.show_page(self._cell_anchor_page)
+        """ConfigTreeDock's cell_anchor_requested delegate — the CELL leaf's
+        "Cell anchor...".
+
+        Step 5 of plan_2026_10_09_entity_page: the dedicated CELL page is gone and
+        the numeric anchor lives in the CellDock MAP, so this item opens the SAME
+        map as "Edit cell..." (a CELL leaf names no instance, so no address rides
+        along). Kept as its own delegate because the menu item remains."""
+        self._edit_cell(name, file_path)
 
     def _on_config_right_page_changed(self, index: int) -> None:
         """Config right-QView page switch. The pages of this QView host the
@@ -3127,8 +3081,6 @@ class DockHub:
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
-        self._safe_call("cell_anchor_view.set_root_path",
-                        self.cell_anchor_view.set_root_path, path)
         self._safe_call("explode_page.set_root_path",
                         self.explode_page.set_root_path, path)
         self._safe_call("net_trace_dock.set_root_path",

@@ -165,7 +165,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
 
     Lazy imports: every gui.* module has to be imported AFTER _select_language()
     (see its docstring), so these cannot sit at module level."""
-    from gui.docks.cell_anchor_view import CellAnchorView
     from gui.docks.cell_dialog import CellDialog
     from gui.docks.cell_editor import CellDock
     from gui.docks.cell_layers import CellLayersDialog
@@ -235,7 +234,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
         # The spoke/cell editor page — a Config right-hand page, NOT part of the
         # Cell dialog (gui/dock_hub.py:281); measured so the report can say
         # whether it is a second offender.
-        ("CellAnchorView", lambda: CellAnchorView(window, connection=connection)),
         ("FieldsToolDock.window", fieldstool_window),
         ("LogDock", lambda: LogDock(window, verbose=False)),
         # Dialog shells built from live docks the app already owns.

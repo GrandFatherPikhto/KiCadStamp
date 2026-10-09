@@ -40,7 +40,6 @@ from gui.cell_edit_context import (
     remembered_cell_refs,
     remembered_role_table,
 )
-from gui.docks.cell_anchor_view import CellAnchorView
 from gui.docks.cell_refs_tab import RefsTabWidget, read_selection_rows_worker
 from gui.role_table_model import (
     SKIP_NO_SYMBOL_UUID,
@@ -864,23 +863,14 @@ def test_c2k_fill_from_selection_fills_an_empty_table_and_never_a_filled_one(
 
 def test_the_refs_tab_moved_to_the_entity_page(main_window, tmp_path):
     """Step 3 of plan_2026_10_09_entity_page: the ONE Refs tab is on the ENTITY
-    page, and the CELL page no longer carries one (mutation «the tab stayed on the
-    cell page» / «two tabs»)."""
+    page. Step 5 removed the CELL page entirely, so there is no second host left
+    to check — the tab has exactly the one home (mutation «the tab stayed on the
+    cell page» is no longer expressible: there IS no cell page)."""
     root = tmp_path / "root.sexp"
     _write(root, _entity_cell_data())
 
     page = _entity_page(main_window, root)
     assert "Refs" in [page.tabs.tabText(i) for i in range(page.tabs.count())]
-
-    # parent=main_window ON PURPOSE — see the note in the _tab helper above.
-    view = CellAnchorView(main_window, connection=main_window.connection,
-                          parent=main_window)
-    view.set_root_path(root)
-    view.load_entry("cell1", root)
-    cell_titles = [view._tabs.tabText(i) for i in range(view._tabs.count())]
-    assert "Refs" not in cell_titles, (
-        "the cell page still carries a Refs tab — the table lives on the entity "
-        "page now")
 
 
 class _FailingSelectionAdapter(_FakeAdapter):

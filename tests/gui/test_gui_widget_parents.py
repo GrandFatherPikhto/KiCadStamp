@@ -36,8 +36,10 @@ from tests.paths import REPO_ROOT as _REPO_ROOT
 
 _GUI_TESTS = _REPO_ROOT / "tests" / "gui"
 
-# The two widgets that pull a whole editor page into a test process.
-_WIDGETS = ("CellAnchorView", "RefsTabWidget")
+# The widget that pulls a whole editor page into a test process (the CELL page
+# was removed by step 5 of plan_2026_10_09_entity_page, so only the Refs tab
+# remains).
+_WIDGETS = ("RefsTabWidget",)
 
 
 def _called_name(node: ast.Call):

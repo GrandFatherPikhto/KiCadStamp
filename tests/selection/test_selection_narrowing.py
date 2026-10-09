@@ -416,7 +416,7 @@ def _pinned_cfg():
 
 
 def _pinned_entity(name="ch0", cluster="DAC_BUF", sheet="Channel_0"):
-    from gui.cell_entity_choice import entity_address
+    from gui.entity.address import entity_address
     return entity_address({"name": name, "cluster": cluster, "sheet": sheet})
 
 
@@ -425,7 +425,7 @@ def test_a_selection_of_another_instance_is_refused_for_a_pinned_read(
     """п.5: с выбранной сущностью чтение привязано к ней — выделение ДРУГОГО
     экземпляра (та же ячейка, другой канал) даёт отказ, а не молчаливое чтение
     чужой пары."""
-    from gui.cell_entity_choice import entity_address
+    from gui.entity.address import entity_address
     from gui.mixed_selection import narrow_mixed_selection
 
     config_path = tmp_path / "config.sexp"
@@ -463,7 +463,7 @@ def test_the_refusal_names_the_selections_own_entity_of_the_cell(gate, tmp_path)
     ``FPGA_VCCIO_139``): сущность обязана находиться правилом адреса
     (``record_address_matches`` — кластер по префиксу), а не равенством строк, иначе
     строка вернулась бы к прежнему виду (см. мутацию M3)."""
-    from gui.cell_entity_choice import entity_address
+    from gui.entity.address import entity_address
     from gui.mixed_selection import narrow_mixed_selection
 
     config_path = tmp_path / "config.sexp"

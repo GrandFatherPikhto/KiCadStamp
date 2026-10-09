@@ -465,6 +465,10 @@ def test_the_dock_hands_its_profile_to_the_worker_and_its_adapter(
     payload (the wiring's `open`, with `start_long_op` CAPTURED instead of started)
     -> the worker -> the adapter factory."""
     dock, _ = _make_dock(main_window, tmp_path)
+    # Step 5 of plan_2026_10_09_entity_page: a board subtrahend needs the
+    # address its door LOADED the dock with — the store is gone.
+    dock._expected_address = SimpleNamespace(cluster="DAC_BUF", sheet=None,
+                                             refs=None)
     payloads = []
     monkeypatch.setattr("gui.subtract_copper.start_long_op",
                         lambda connection, widgets, fn, ok, err, *args, **kwargs:
