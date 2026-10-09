@@ -20,7 +20,6 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from gui.docks.entity_index import (
     PLACED_BY_CLONE,
     PLACED_BY_NESTED,
-    PLACED_BY_SPOKE,
     build_entity_index,
 )
 
@@ -181,17 +180,6 @@ def test_entity_without_any_reference_is_an_orphan(tmp_path):
 # «Кто ставит ячейку» (3б) — тем же проходом
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_cell_placed_by_chain_spoke(tmp_path):
-    idx, _ = _index(tmp_path, {
-        "cells": {"c_a": _cell(CELL_A)},
-        "chains": [{"net": "N", "spokes": [{"pad": "1", "cell": "c_a",
-                                            "cell_uuid": CELL_A}]}],
-    })
-    placed = idx.placed_by_cell(CELL_A)
-    assert [p.kind for p in placed] == [PLACED_BY_SPOKE]
-    assert placed[0].section == "chains"
-
-
 def test_cell_placed_by_clone_placement_and_nested(tmp_path):
     idx, _ = _index(tmp_path, {
         "cells": {"c_a": _cell(CELL_A),
@@ -263,8 +251,7 @@ def test_a_diamond_include_is_collected_once(tmp_path):
     _write(tmp_path / "shared.sexp", {
         "cells": {"c_a": _cell(CELL_A)},
         "entities": [_entity("e1", cell="c_a", cell_uuid=CELL_A)],
-        "chains": [{"name": "ch", "net": "N",
-                    "spokes": [{"pad": "1", "cell": "c_a", "cell_uuid": CELL_A}]}],
+        "clone_placements": [{"name": "ch", "cell": "c_a", "cell_uuid": CELL_A}],
     })
     _write(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
     _write(tmp_path / "b.sexp", {"include": ["shared.sexp"]})

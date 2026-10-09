@@ -159,11 +159,10 @@ def test_unused_cell_without_entity_is_marked(main_window, tmp_path):
 
 def test_cell_placed_without_entity_is_marked_as_placed(main_window, tmp_path):
     """С8 (вторая клетка таблицы): вид «ставится БЕЗ сущности» — по графу
-    (спица цепочки), и подсказка называет, кто ставит."""
+    (clone_placement), и подсказка называет, кто ставит."""
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "chains": [{"name": "ch1", "net": "N",
-                                    "spokes": [{"pad": "1", "cell": "c"}]}]})
+                        "clone_placements": [{"name": "ch1", "cell": "c"}]})
     dock = _dock(main_window, root)
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
 
@@ -439,14 +438,13 @@ def test_unused_cell_menu_is_only_create_entity_and_delete(
 
 def test_a_placed_cell_without_entity_keeps_only_the_cell_items(
         main_window, tmp_path, monkeypatch):
-    """3б (вторая половина) + часть 3, п.3: ячейка, поставленная спицей БЕЗ
-    сущности, по-прежнему правится и удаляется (живые спицы не ломаем), но
-    ПУНКТОВ ПЛАТЫ у листа ячейки нет НИ У КОГО — без исключения «одна
-    сущность»: адрес экземпляра живёт под листом сущности, где он назван."""
+    """3б (вторая половина) + часть 3, п.3: ячейка, поставленная БЕЗ сущности,
+    по-прежнему правится и удаляется, но ПУНКТОВ ПЛАТЫ у листа ячейки нет НИ
+    У КОГО — без исключения «одна сущность»: адрес экземпляра живёт под листом
+    сущности, где он назван."""
     root = tmp_path / "root.sexp"
     write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "chains": [{"name": "ch1", "net": "N",
-                                    "spokes": [{"pad": "1", "cell": "c"}]}]})
+                        "clone_placements": [{"name": "ch1", "cell": "c"}]})
     dock = _dock(main_window, root)
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
     labels = [label for label, _ in context_menu_actions(dock, cell, monkeypatch)]
@@ -598,8 +596,7 @@ def _diamond_root(tmp_path) -> Path:
                  {"cells": {"c": {"components": [{"role": "R"}]},
                             "c2": {"components": [{"role": "R"}]}},
                   "entities": [{"name": "e1", "cell": "c"}],
-                  "chains": [{"name": "ch", "net": "N",
-                              "spokes": [{"pad": "1", "cell": "c2"}]}]})
+                  "clone_placements": [{"name": "ch", "cell": "c2"}]})
     write_config(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
     write_config(tmp_path / "b.sexp", {"include": ["shared.sexp"]})
     root = tmp_path / "root.sexp"
@@ -611,11 +608,10 @@ def test_a_diamond_include_shows_the_entity_and_the_placer_once(
         main_window, tmp_path):
     """Доделка 1а, п.1 (дерево) — файл, подключённый двумя ветками, не должен
     давать ДВУХ одинаковых листьев под одной ячейкой и не должен повторять
-    одного постановщика в подсказке «placed by» (часть 2, п.2а: ячейку ставят
-    только спицы — «is placed by chain(s) ch», и свойство то же).
+    одного постановщика в подсказке «placed by».
 
     Мутация: снять пропуск по `node.path` из `_iter_nodes` — этот сторож
-    краснеет (два листа `e1`; цепочка в подсказке дважды)."""
+    краснеет (два листа `e1`; постановщик в подсказке дважды)."""
     root = _diamond_root(tmp_path)
     dock = _dock(main_window, root)
     cells = category(file_item(dock.tree, tmp_path / "shared.sexp"), "cells")
@@ -625,7 +621,7 @@ def test_a_diamond_include_shows_the_entity_and_the_placer_once(
         "под ячейкой — ОДИН лист сущности; два значит, что файл собран дважды")
 
     placed = find_child(cells, "c2")
-    assert placed.toolTip(0).count("chain(s) ch") == 1, placed.toolTip(0)
+    assert placed.toolTip(0).count("clone placement: ch") == 1, placed.toolTip(0)
 
 
 def test_the_selection_of_an_entity_from_another_file_survives_refresh(
@@ -695,69 +691,6 @@ def test_the_selection_picks_its_own_file_among_same_named_entities(
 # ═══════════════════════════════════════════════════════════════════════════
 # Доделка 1а: подсказка без повторов, значок сироты, пункты меню (п.4–п.6)
 # ═══════════════════════════════════════════════════════════════════════════
-
-def test_the_placed_by_hint_names_each_placer_once(main_window, tmp_path):
-    """Доделка 1а, п.4 — три спицы ОДНОЙ цепочки ставят одну ячейку: подсказка
-    называет постановщика ОДИН раз, с числом. На живом профиле
-    `mcu_pwr_bank` это читалось как «spoke of chain: MCU Vdd» трижды.
-
-    Часть 2 (п.2а) сменила СЛОВА подсказки для такой ячейки: её ставит спица, и
-    «no entity» в ней не при чём — теперь «is placed by chain(s) MCU Vdd (3)».
-    Свойство, ради которого сторож написан, то же: одна цепочка — одно упоминание,
-    и число на виду (мутация «снять группировку по имени» — краснеет)."""
-    root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "chains": [{"name": "MCU Vdd", "net": "N",
-                                    "spokes": [{"pad": str(n), "cell": "c"}
-                                               for n in (1, 2, 3)]}]})
-    dock = _dock(main_window, root)
-    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
-
-    tooltip = cell.toolTip(0)
-    assert tooltip.count("MCU Vdd") == 1, tooltip
-    assert "(3)" in tooltip, tooltip
-
-
-def test_a_cell_placed_only_by_chains_names_the_chains(main_window, tmp_path):
-    """п.2а: ячейку ставят ТОЛЬКО спицы — подсказка говорит «is placed by
-    chain(s)», без «has no entity»: спица — законный адрес экземпляра, и слово
-    «сирота» к такой ячейке не относится (жёлтый «!» тоже остаётся незанятым)."""
-    root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "chains": [
-                            {"name": "MCU Vdd", "net": "N1",
-                             "spokes": [{"pad": "A1", "cell": "c"},
-                                        {"pad": "A2", "cell": "c"}]},
-                            {"name": "FPGA PWR", "net": "N2",
-                             "spokes": [{"pad": "B1", "cell": "c"}]}]})
-    dock = _dock(main_window, root)
-    cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
-
-    assert _mark(cell) == _CELL_PLACED
-    assert _icon_image(cell) == _standard_image(
-        dock, QStyle.StandardPixmap.SP_MessageBoxInformation)
-    tip = cell.toolTip(0)
-    assert "is placed by chain(s)" in tip, tip
-    assert "MCU Vdd (2)" in tip and "FPGA PWR" in tip, tip
-    assert "has no entity" not in tip, tip
-
-
-def test_a_cell_placed_by_anything_but_chains_keeps_the_no_entity_wording(
-        main_window, tmp_path):
-    """Смешанный случай: помимо спицы ячейку ставит clone_placement — тут
-    «no entity» и есть суть, и подсказка называет ВИДЫ постановщиков, как в части 1."""
-    from gui.docks.entity_index import PLACED_BY_CLONE, PlacedBy
-
-    root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}}})
-    dock = _dock(main_window, root)
-
-    hint = dock._placed_hint("c", [
-        PlacedBy("spoke", "chains", {"name": "MCU Vdd"}),
-        PlacedBy(PLACED_BY_CLONE, "clone_placements", {"cluster": "CL"})])
-
-    assert "has no entity" in hint and "spoke of chain" in hint, hint
-
 
 def test_an_orphan_entity_carries_a_mark_not_only_a_hint(main_window, tmp_path):
     """Доделка 1а, п.5 — у сироты-сущности была ТОЛЬКО подсказка, а п.3 задания
@@ -892,8 +825,8 @@ def test_the_page_is_editable_for_a_placed_cell_and_read_only_for_an_unplaced_on
     """2в, п.5 + часть 3, п.4: with the CellDock buttons gone, the ONE surface that
     still gates board actions is the cell PAGE, and its rule is the index's: a cell
     nobody places (and no entity claims) is a drawing — read-only; a cell WITH an
-    entity, and one placed by a CHAIN SPOKE, are editable (Claude's C8: «no entity»
-    alone must never gate it)."""
+    entity, and one placed by a CLONE PLACEMENT, are editable (Claude's C8: «no
+    entity» alone must never gate it)."""
     from types import SimpleNamespace
     hub = real_main_window._dock_hub
     root = tmp_path / "root.sexp"
@@ -901,9 +834,7 @@ def test_the_page_is_editable_for_a_placed_cell_and_read_only_for_an_unplaced_on
                                   "d": {"components": [{"role": "R"}]},
                                   "s": {"components": [{"role": "R"}]}},
                         "entities": [{"name": "e1", "cell": "c"}],
-                        "chains": [{"name": "ch", "net": "N1",
-                                    "anchor_ref": "R1",
-                                    "spokes": [{"pad": "1", "cell": "s"}]}]})
+                        "clone_placements": [{"name": "ch", "cell": "s"}]})
     open_project(hub, root)
     real_main_window.connection.board = SimpleNamespace(adapter=object())
     view = hub.cell_anchor_view
@@ -917,7 +848,7 @@ def test_the_page_is_editable_for_a_placed_cell_and_read_only_for_an_unplaced_on
 
     view.load_entry("s", root)
     assert view._tabs.isEnabled(), \
-        "ячейку ставит спица — страница правимая (C8: «нет сущности» ≠ чертёж)"
+        "ячейку ставит clone — страница правимая (C8: «нет сущности» ≠ чертёж)"
 
 
 def _signal_recorder(dock, signal_name):

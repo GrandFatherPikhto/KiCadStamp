@@ -13,10 +13,9 @@ a hint that rots.
 
 Part 2 (Денис, 08.10) replaces that source of the instance with an EXPLICIT
 address. An address is an entity of this cell (`entities:` — name, cell link,
-cluster, sheet, `refs`) or, since п.2а, a chain spoke that places it. The
-dropdown shows them all; the chosen row IS the instance for every tab of the
-page and for the CellDock, and "Manual…" (always the last row) keeps today's
-hand-typed behaviour for a cell that has neither.
+cluster, sheet, `refs`). The dropdown shows them all; the chosen row IS the
+instance for every tab of the page and for the CellDock, and "Manual…" (always
+the last row) keeps today's hand-typed behaviour for a cell that has none.
 
 Qt-free on purpose (the rule of this module): the address list, the labels, the
 default pick and the "last entity of the cell" store are pure logic, so their
@@ -42,10 +41,10 @@ from .cell_edit_context import remembered_cell_edit_context, remembered_cell_ref
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "MANUAL", "SOURCE_ENTITY", "SOURCE_SPOKE",
+    "MANUAL", "SOURCE_ENTITY",
     "LAST_ENTITY_KEY", "WORKING_INSTANCE_KEY",
     "InstanceAddress", "entity_address", "entity_address_named",
-    "manual_address", "spoke_address",
+    "manual_address",
     "build_choices", "default_index", "explicit_kwargs",
     "address_matches_selection", "cannot_verify_line", "not_the_entity_line",
     "write_applies_line", "remember_last_entity", "remembered_last_entity",
@@ -54,10 +53,9 @@ __all__ = [
     "pin_working_instance",
 ]
 
-# The three kinds of an address row. "Manual…" is a row too: it is not "no
+# The kinds of an address row. "Manual…" is a row too: it is not "no
 # instance", it is "type the instance by hand, exactly as before".
 SOURCE_ENTITY = "entity"
-SOURCE_SPOKE = "spoke"
 MANUAL = "manual"
 
 # The gui_state.json key holding "the entity this cell was last worked with",
@@ -79,8 +77,8 @@ WORKING_INSTANCE_KEY = "cell_working_instance"
 class InstanceAddress:
     """One row of the cell's Entity dropdown — an ADDRESS of an instance.
 
-    `source` is SOURCE_ENTITY for an entity of this cell, SOURCE_SPOKE for a
-    chain spoke that places it (п.2а) or MANUAL for the "Manual…" fallback.
+    `source` is SOURCE_ENTITY for an entity of this cell or MANUAL for the
+    "Manual…" fallback.
     `label` is what the user reads; the addressing fields are what an action
     passes on as its OWN instance (`explicit_kwargs`), never the remembered
     context.
@@ -91,10 +89,6 @@ class InstanceAddress:
     reader branches on `role_to_ref is not None`, so an empty map would send it
     down the "identified by refs" path with nothing to identify — the
     "stale identification" fatal Denis hit live on 08.10 (доделка 2б, п.1).
-
-    `resolved` is False for a spoke whose parts the planner cannot find on the
-    board (п.2а): the ROW still exists, but an action on it must report a red
-    line instead of reading anything.
     """
     source: str
     label: str
@@ -102,9 +96,6 @@ class InstanceAddress:
     cluster: Optional[str] = None
     sheet: Optional[str] = None
     refs: Optional[dict] = None
-    chain: Optional[str] = None
-    pad: object = None
-    resolved: bool = True
 
     @property
     def is_manual(self) -> bool:
@@ -114,7 +105,7 @@ class InstanceAddress:
     def key(self):
         """Stable identity of the row — what the widget re-selects by after a
         rebuild (`label` is in it too, so a renamed entity is a different row)."""
-        return (self.source, self.entity_name, self.chain, self.pad, self.label)
+        return (self.source, self.entity_name, self.label)
 
 
 def _refs_map(raw) -> Optional[dict]:
@@ -205,30 +196,10 @@ def manual_address() -> InstanceAddress:
     return InstanceAddress(source=MANUAL, label=_("Manual…"))
 
 
-def spoke_address(chain_name, pad, *, cluster=None, sheet=None,
-                  resolved=True) -> InstanceAddress:
-    """One chain spoke as an address row (п.2а): "<chain> — pad <pad>".
-
-    The row is built from what the PLANNER resolved for that spoke (its chain,
-    its pad, its (cluster, sheet)) — this module never derives an instance from
-    a cluster/sheet by itself. A spoke whose parts are not on the board keeps
-    its row with `resolved=False`, so the action can report a red line."""
-    return InstanceAddress(
-        source=SOURCE_SPOKE,
-        label=_("{chain} — pad {pad}").format(chain=chain_name, pad=pad),
-        cluster=(str(cluster) if cluster else None),
-        sheet=(str(sheet) if sheet else None),
-        chain=str(chain_name) if chain_name else None,
-        pad=pad,
-        resolved=bool(resolved),
-    )
-
-
-def build_choices(entities=(), spokes=(), *, manual: bool = True) -> list:
-    """The dropdown in the plan's order (п.1 / п.2а): the cell's ENTITIES first
-    (the index already sorted them by name), then its SPOKES (grouped by chain
-    by the caller), then the "Manual…" fallback LAST."""
-    rows = list(entities) + list(spokes)
+def build_choices(entities=(), *, manual: bool = True) -> list:
+    """The dropdown in the plan's order (п.1): the cell's ENTITIES first (the
+    index already sorted them by name), then the "Manual…" fallback LAST."""
+    rows = list(entities)
     if manual:
         rows.append(manual_address())
     return rows
@@ -240,10 +211,9 @@ def default_index(choices, *, opened_from: Optional[str] = None,
 
     Opened FROM an entity (its "Edit cell…" / click / menu) — that entity's row,
     by NAME. Opened from the CELL — the last entity chosen for this cell
-    (`last_entity`), else the first entity by name, else the first RESOLVABLE
-    spoke. A cell with neither keeps "Manual…" selected, so a cell placed by
-    spokes behaves exactly as today. -1 when there is nothing to select (a cell
-    without an entity and without a placer: the dropdown is empty, п.3)."""
+    (`last_entity`), else the first entity by name, else "Manual…". -1 when
+    there is nothing to select (a cell without an entity and without a placer:
+    the dropdown is empty, п.3)."""
     if opened_from:
         for i, row in enumerate(choices):
             if row.source == SOURCE_ENTITY and row.entity_name == opened_from:
@@ -254,9 +224,6 @@ def default_index(choices, *, opened_from: Optional[str] = None,
                 return i
     for i, row in enumerate(choices):
         if row.source == SOURCE_ENTITY:
-            return i
-    for i, row in enumerate(choices):
-        if row.source == SOURCE_SPOKE and row.resolved:
             return i
     for i, row in enumerate(choices):
         if row.is_manual:

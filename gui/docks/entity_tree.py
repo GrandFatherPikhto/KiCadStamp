@@ -30,7 +30,7 @@ from kicadstamp.i18n import _
 
 from ._common import upsert_list_entry
 from .entity_delete import backup_file
-from .entity_index import PLACED_BY_CLONE, PLACED_BY_NESTED, PLACED_BY_SPOKE
+from .entity_index import PLACED_BY_CLONE, PLACED_BY_NESTED
 from .rename import entry_effective_name
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,6 @@ _CELL_UNUSED = "unused"
 _CELL_PLACED = "placed"
 # "placed by" kind -> its human label, the {what} of the cell hint.
 _PLACED_BY_LABEL = {
-    PLACED_BY_SPOKE: _("spoke of chain"),
     PLACED_BY_CLONE: _("clone placement"),
     PLACED_BY_NESTED: _("nested placement in cell"),
 }
@@ -164,44 +163,19 @@ class EntityTreeMixin:
         self._append_tooltip(leaf, hint)
 
     def _placed_hint(self, name: str, placed) -> str:
-        """The hint of a cell that IS placed but has no entity.
-
-        A cell placed by CHAINS only says exactly that — "cell {name!r} is placed
-        by chain(s) {names}" (п.2а of the plan): a spoke is a legitimate instance
-        address, so such a cell is not an orphan, and the "no entity" half of the
-        old wording only invited a question the chain already answers.
-
-        Anything else that places it (a clone placement, a nested one) keeps the
-        part-1 wording that NAMES the kinds — there "no entity" is the point."""
-        if all(pb.kind == PLACED_BY_SPOKE for pb in placed):
-            return _("cell {name!r} is placed by chain(s) {names}").format(
-                name=name, names=self._named_counts(placed))
+        """The hint of a cell that IS placed but has no entity — the part-1
+        wording that NAMES the kinds ("no entity" is the point)."""
         return _("cell {name!r} has no entity — placed by {what}").format(
             name=name, what=self._placed_by_text(placed))
-
-    def _named_counts(self, placed) -> str:
-        """The placers' display names, each ONCE, with its count where the count
-        says more than the name: "MCU Vdd (3), FPGA PWR". Through the ONE
-        effective-name rule (the same `entry_effective_name` the "placed by" text
-        uses) — a second name rule is exactly what that helper exists to stop."""
-        counts: dict = {}
-        for pb in placed:
-            owner = (pb.owner_name if pb.owner_name is not None
-                     else entry_effective_name(pb.section, pb.owner))
-            counts[owner] = counts.get(owner, 0) + 1
-        return ", ".join(
-            _("{name} ({count})").format(name=owner, count=count) if count > 1
-            else owner for owner, count in counts.items())
 
     def _placed_by_text(self, placed) -> str:
         """The {what} token of a placed-but-entityless cell hint — the owner
         display name resolved through the ONE effective-name rule.
 
-        ONE placer is ONE mention, with its count (доделка 1а, п.4): a chain
-        whose three spokes place the same cell used to read "spoke of chain:
-        MCU Vdd, spoke of chain: MCU Vdd, spoke of chain: MCU Vdd" on the live
-        profile, which says nothing the single mention with "(3)" does not. The
-        order is the order the index found them in, so the hint is stable."""
+        ONE placer is ONE mention, with its count (доделка 1а, п.4): several
+        placements of the same cell by ONE placer read as one mention with "(3)",
+        not three identical lines. The order is the order the index found them
+        in, so the hint is stable."""
         counts: dict = {}
         for pb in placed:
             owner = (pb.owner_name if pb.owner_name is not None

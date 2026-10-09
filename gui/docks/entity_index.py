@@ -23,7 +23,7 @@ never validate.
 Qt-free on purpose (the rule for this module): it is pure graph logic, so its
 unit guards call it DIRECTLY, with no dock and no QApplication.
 
-The "who places it" side (3б) finds a cell used by a chain spoke, a
+The "who places it" side (3б) finds a cell used by a
 `clone_placements:` record or a nested `CellPlacement` — each by `cell_uuid`,
 the same UUID rule as the entity side. It only REPORTS; nothing is migrated
 here (the plan keeps the today behaviour for a placed-but-entityless cell).
@@ -38,14 +38,13 @@ from typing import Iterator, Optional
 from kicadstamp.config.includes import IncludeTreeNode
 
 __all__ = [
-    "PLACED_BY_SPOKE", "PLACED_BY_CLONE", "PLACED_BY_NESTED",
+    "PLACED_BY_CLONE", "PLACED_BY_NESTED",
     "RecordRef", "EntityRef", "PlacedBy", "EntityIndex", "build_entity_index",
     "file_parent_map",
 ]
 
 # The WHAT token of a "placed by" note (3б). The human sentence is built where
 # it is shown (config_tree), so this module stays i18n-free.
-PLACED_BY_SPOKE = "spoke"
 PLACED_BY_CLONE = "clone_placement"
 PLACED_BY_NESTED = "nested_cell"
 
@@ -206,14 +205,6 @@ def build_entity_index(root: IncludeTreeNode) -> EntityIndex:
                 entities.append(EntityRef(rec, node.path,
                                           rec.get("cell_uuid"),
                                           rec.get("imprint_uuid")))
-
-        for chain in (sections.get("chains") or []):
-            if not isinstance(chain, dict):
-                continue
-            for spoke in chain.get("spokes") or []:
-                if isinstance(spoke, dict) and spoke.get("cell") is not None:
-                    _add_placed(placed, spoke.get("cell_uuid"),
-                                PLACED_BY_SPOKE, "chains", chain)
 
         for cp in (sections.get("clone_placements") or []):
             if isinstance(cp, dict) and cp.get("cell") is not None:

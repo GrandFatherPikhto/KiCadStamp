@@ -26,7 +26,6 @@ from gui.cell_entity_choice import (
     LAST_ENTITY_KEY,
     MANUAL,
     SOURCE_ENTITY,
-    SOURCE_SPOKE,
     WORKING_INSTANCE_KEY,
     address_matches_selection,
     build_choices,
@@ -39,7 +38,6 @@ from gui.cell_entity_choice import (
     remembered_last_entity,
     remember_last_entity,
     remember_working_instance,
-    spoke_address,
     working_instance,
     write_applies_line,
 )
@@ -154,22 +152,12 @@ def test_the_entities_of_a_cell_come_from_the_part_one_index(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Порядок списка и выбор по умолчанию (п.1 / п.2а / п.4)
+# Порядок списка и выбор по умолчанию (п.1 / п.4)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _entity_rows(*names):
     return [entity_address(_entity(n, cluster="DAC_BUF", sheet=f"Ch_{n}"))
             for n in names]
-
-
-def test_the_choices_are_entities_then_spokes_then_manual():
-    """п.1/п.2а: сущности → спицы → «Manual…» последним."""
-    choices = build_choices(_entity_rows("ch0", "ch1"),
-                            [spoke_address("MCU Vdd", "A1")])
-    assert [r.source for r in choices] == [
-        SOURCE_ENTITY, SOURCE_ENTITY, SOURCE_SPOKE, MANUAL]
-    assert choices[-1].label == "Manual…"
-    assert choices[-2].label == "MCU Vdd — pad A1"
 
 
 def test_the_default_row_is_the_entity_the_page_came_from():
@@ -192,30 +180,10 @@ def test_the_default_row_falls_back_to_the_first_entity_by_name():
     assert choices[default_index(choices, last_entity="gone")].entity_name == "ch0"
 
 
-def test_a_cell_without_entities_starts_on_its_first_resolvable_spoke():
-    """п.2а: «Manual…» по умолчанию — только пока у ячейки нет ни сущностей, ни
-    РАЗРЕШИМЫХ спиц."""
-    choices = build_choices(
-        (),
-        [spoke_address("MCU Vdd", "A1", resolved=False),
-         spoke_address("MCU Vdd", "A2")])
-    assert choices[default_index(choices)].label == "MCU Vdd — pad A2"
-
-
-def test_an_unresolvable_spoke_has_a_row_but_is_never_the_default():
-    """п.2а: неразрешимая спица — пункт ЕСТЬ, но умолчанием не станет, и
-    строка помечена resolved=False (действие по ней даёт красную строку)."""
-    bad = spoke_address("MCU Vdd", "A1", resolved=False)
-    choices = build_choices((), [bad])
-    assert [r.label for r in choices] == ["MCU Vdd — pad A1", "Manual…"]
-    assert bad.resolved is False
-    assert choices[default_index(choices)].is_manual is True
-
-
 def test_a_cell_with_nothing_to_choose_is_empty_and_starts_on_manual():
     """п.3: ячейку не ставит никто — выпадашка пуста; без пункта «Manual…»
     выбирать нечего (индекс -1, а не «первый попавшийся»)."""
-    assert build_choices((), (), manual=False) == []
+    assert build_choices((), manual=False) == []
     assert default_index([]) == -1
     only_manual = build_choices(())
     assert [r.source for r in only_manual] == [MANUAL]
