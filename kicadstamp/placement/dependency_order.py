@@ -34,7 +34,7 @@ from dataclasses import dataclass
 
 
 from ..config import (Config, Chain, ClonePlacement, Point,
-                      clone_placement_effective_name, chain_effective_name)
+                      clone_placement_effective_name)
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
 from .services.manual_position_calculator import (resolve_chain_anchor_ref,
@@ -154,8 +154,7 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
     return set(role_to_ref.values())
 
 
-def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None,
-                 isolate_spokes: dict[str, set[str]] | None = None) -> list[Item]:
+def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
     """Read-only: resolves every non-retired chain/clone_placement's anchor ref and
     produced refs against the board as it is RIGHT NOW. No board mutation —
     lightweight ref-resolution only, no geometry computation (see
@@ -173,9 +172,7 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None,
 
     for chain in cfg.chains:
         anchor_ref = resolve_chain_anchor_ref(adapter, cfg, chain, sheet_names=_sn)
-        produces = _resolve_chain_produces(
-            adapter, cfg, chain,
-            active_pads=(isolate_spokes or {}).get(chain_effective_name(chain)))
+        produces = _resolve_chain_produces(adapter, cfg, chain)
         items.append(Item(
             kind='chain', obj=chain, label=_("chain (net {net!r})").format(net=chain.net),
             anchor_ref=anchor_ref, produces=produces,
@@ -200,8 +197,7 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None,
     return items
 
 
-def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None,
-                            isolate_spokes: dict[str, set[str]] | None = None) -> list[Item]:
+def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
     """
     Read-only: resolves cfg.chains + cfg.clone_placements (already filtered by
     drop_disabled_chains/apply_only_filter/apply_cluster_filter) into
@@ -209,7 +205,7 @@ def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names
     cycle — a config where two or more items anchor on each other's output has
     no valid order and must be fixed in the YAML.
     """
-    items = _build_items(adapter, cfg, sheet_names=sheet_names, isolate_spokes=isolate_spokes)
+    items = _build_items(adapter, cfg, sheet_names=sheet_names)
 
     producer_of = {}  # ref -> Item that produces it
     for item in items:

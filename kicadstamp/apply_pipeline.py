@@ -534,7 +534,6 @@ class ApplyPipeline:
         only: list[str] | None = None,
         cluster: list[str] | None = None,
         position_overrides=None,
-        isolate_spokes: dict[str, set[str]] | None = None,
         preloaded_cfg=None,
         preloaded_ctx=None,
     ):
@@ -553,15 +552,6 @@ class ApplyPipeline:
         # replaces the record's own position/rotation resolution for this run
         # only; the saved config is never rewritten. None/empty = normal.
         self.position_overrides = position_overrides or {}
-        # GUI "Redraw spoke" isolation (2026-09-05): chain effective name ->
-        # set of spoke pad numbers that must actually be placed this run. The
-        # siblings of such a chain stay in the config (no skip) but only RESERVE
-        # their shared ComponentPool slots — full-chain consumption, so an
-        # isolated spoke keeps the exact components a full chain redraw assigns
-        # to it (bug: "Redraw spoke ворует компоненты у соседней спицы").
-        # Non-persistent, per-run only; None/empty = normal (no isolation).
-        self.isolate_spokes = isolate_spokes or {}
-
         # Internal state
         self.cfg = preloaded_cfg
         # Bug #3 fix (2026-08-30): the FULL, pre-filter config. _filter_config()
@@ -723,15 +713,13 @@ class ApplyPipeline:
                               "into the apply plan").format(count=len(self._scheme_plans)))
         logger.info(_("Resolving item execution order (dependency chain — see dependency_order.py)..."))
         self.items = resolve_execution_order(
-            self.adapter, self.cfg, sheet_names=self.sheet_names,
-            isolate_spokes=self.isolate_spokes)
+            self.adapter, self.cfg, sheet_names=self.sheet_names)
         logger.info(_("Execution order: {order}")
                     .format(order=" -> ".join(it.label for it in self.items)))
 
     def _create_planner(self) -> None:
         self.planner = PlacementPlanner(self.adapter, self.cfg, sheet_names=self.sheet_names,
-                                        position_overrides=self.position_overrides,
-                                        isolate_spokes=self.isolate_spokes)
+                                        position_overrides=self.position_overrides)
 
     def plan_copper(self) -> tuple[list, list]:
         """Plan the run's copper — ``(vias, tracks)``, board untouched.

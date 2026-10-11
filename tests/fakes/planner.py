@@ -35,8 +35,8 @@ Both drift directions are pinned by the conformance cell:
     `plan_vias()`, `plan_tracks()` and `plan_item(item)`, with those names.
 
 ONE DELIBERATE DIVERGENCE, written down rather than smuggled in: the real
-constructor is `(adapter, config, sheet_names=None, position_overrides=None,
-isolate_spokes=None)` — adapter and config are REQUIRED — while this base gives
+constructor is `(adapter, config, sheet_names=None, position_overrides=None)`
+— adapter and config are REQUIRED — while this base gives
 them `None` defaults, because three of the four install sites put the stand-in on
 a pipeline that already exists and have nothing to hand it. The cell asserts the
 real requiredness and the fake's relaxation separately, so relaxing further (or
@@ -56,14 +56,13 @@ class FakePlanner:
     PLAN_TRACKS_RESULT: tuple = ()
 
     def __init__(self, adapter=None, config=None, sheet_names=None,
-                 position_overrides=None, isolate_spokes=None) -> None:
+                 position_overrides=None) -> None:
         # The attribute names mirror the real class: it stores `self.cfg` (the
-        # parameter is `config`) and normalises the three optional mappings.
+        # parameter is `config`) and normalises the two optional mappings.
         self.adapter = adapter
         self.cfg = config
         self.sheet_names = sheet_names or {}
         self.position_overrides = position_overrides or {}
-        self.isolate_spokes = isolate_spokes or {}
 
     def begin_planning(self) -> None:
         """Nothing to reset: the results are class attributes, not accumulators."""
