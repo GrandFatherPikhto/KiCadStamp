@@ -132,18 +132,18 @@ def test_the_whole_graph_is_lifted_and_the_old_bytes_are_kept(tmp_path, pin_form
 
 def test_the_lift_rebuilds_so_a_legacy_alias_comes_out_canonical(tmp_path):
     """У1 from the other side: the rebuild is what makes the first lift NORMALIZE
-    a live file — the legacy `rules:` alias comes out as `(chains)`. Inserting the
-    number instead would leave `(rules)` in place."""
+    a live file — the legacy `scheme_lists:` alias comes out as `(imprints)`.
+    Inserting the number instead would leave `(scheme_lists)` in place."""
     root = tmp_path / "root.sexp"
-    root.write_text(_old_text({"rules": []}), encoding="utf-8")
-    assert "(rules)" in root.read_text(encoding="utf-8")
+    root.write_text(_old_text({"scheme_lists": []}), encoding="utf-8")
+    assert "(scheme_lists)" in root.read_text(encoding="utf-8")
 
     load_config(str(root))
 
     text = root.read_text(encoding="utf-8")
-    assert "(chains)" in text
-    assert "rules" not in text
-    assert text == dict_to_sexp({"chains": []})
+    assert "(imprints)" in text
+    assert "scheme_lists" not in text
+    assert text == dict_to_sexp({"imprints": []})
 
 
 def test_the_lift_warns_with_the_path_to_the_previous_version(tmp_path, caplog,

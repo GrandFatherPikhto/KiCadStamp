@@ -9,7 +9,8 @@ CHANGED (KiCadStamp 4.0): previously explicit refs in config
 are selected from ComponentPool by (real net, role). The main protection is now
 built into ComponentPool.pop() itself (fatal on shortage), but here we do the
 same accounting IN ADVANCE to see all shortages at once, rather than stopping
-at the first spoke.
+at the first problem. (The spoke-specific checks this module used to carry are
+gone with the `chains:` section — 2026-10-11, config/retired_sections.py.)
 """
 import logging
 import difflib
@@ -17,9 +18,8 @@ from pathlib import Path
 
 
 from .config import (
-    Config, Chain, ManualSpoke, clone_placement_effective_name,
-    coordinate_placement_effective_name, chain_effective_name,
-    entity_effective_name,
+    Config, clone_placement_effective_name,
+    coordinate_placement_effective_name, entity_effective_name,
 )
 from .geometry.cell_copper_connectivity import (
     cell_copper_components, component_containing, component_role_pads,
@@ -29,150 +29,14 @@ from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .net_resolution import resolve_net
-from .placement.services.component_pool import ComponentPool
 from .placement.services.clone_role_resolver import (
     _prefix_remap_local_net,
     clone_uses_selection_mode,
-    resolve_footprint_by_role,
 )
 from .placement.services.coordinate_position_calculator import resolve_footprint_by_cluster_role
 from .i18n import _
 
 logger = logging.getLogger(__name__)
-
-
-def check_cells_and_pads_exist(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> None:
-    """
-    Every spoke must reference an existing cell and an existing pad of the
-    target component — otherwise the spoke is simply skipped silently (which
-    would make it easy to miss a typo in the cell name/pad number).
-    """
-    problems = []
-    anchors = {}
-    for chain in cfg.chains:
-        # Resolve anchor: either anchor_ref or anchor_role
-        if chain.anchor_ref is not None:
-            fp = adapter.get_footprint(chain.anchor_ref)
-            if fp is None:
-                problems.append(_("chain (net {net!r}): anchor {anchor!r} not found on board")
-                                .format(net=chain.net, anchor=chain.anchor_ref))
-            anchors[chain.anchor_ref] = fp
-        else:
-            try:
-                fp = resolve_footprint_by_role(
-                    adapter,
-                    chain.anchor_role,
-                    chain.anchor_sheet,
-                    chain.anchor_cluster,
-                    sheet_names or {},
-                    label=_("chain (net {net!r})").format(net=chain.net)
-                )
-                anchors[f"role:{chain.anchor_role}"] = fp
-            except ValidationError as e:
-                problems.append(str(e))
-
-    for chain in cfg.chains:
-        if chain.anchor_ref is not None:
-            target_fp = anchors.get(chain.anchor_ref)
-        else:
-            target_fp = anchors.get(f"role:{chain.anchor_role}")
-        if target_fp is None:
-            continue
-        for spoke in chain.spokes:
-            if spoke.retired:
-                continue
-            if spoke.cell not in cfg.cells:
-                problems.append(_("spoke (pad {pad}, net {net!r}): cell {cell!r} not found in cells")
-                                .format(pad=spoke.pad, net=chain.net, cell=spoke.cell))
-                continue
-            pad = adapter.get_pad_by_number(target_fp, spoke.pad) if target_fp else None
-            if target_fp is not None and pad is None:
-                anchor_name = chain.anchor_ref if chain.anchor_ref is not None else chain.anchor_role
-                problems.append(_("spoke (cell {cell!r}, net {net!r}): {anchor!r} has no pad {pad!r}")
-                                .format(cell=spoke.cell, net=chain.net,
-                                        anchor=anchor_name, pad=spoke.pad))
-
-    if problems:
-        raise ValidationError(format_fatal_error(
-            _("spoke references a non‑existent cell or pad"),
-            problems
-        ))
-    logger.debug(_("Cell/pad checks for spokes: all references valid"))
-
-
-def check_role_pool_sufficiency(adapter: KiCadBoardAdapter, cfg: Config) -> None:
-    """
-    For each chain net, pre‑counts how many components of each role are required
-    by all its spokes for each cluster, and checks against the actual number of
-    components on the board (same net + Role field + Cluster field) — fatal with
-    a list of all shortages at once.
-    """
-    problems = []
-
-    for chain in cfg.chains:
-        # Collect all roles needed for this chain
-        roles_needed = set()
-        for spoke in chain.spokes:
-            if spoke.retired:
-                continue
-            cell = cfg.cells.get(spoke.cell)
-            if cell is None:
-                continue
-            for slot in cell.components:
-                roles_needed.add(slot.role)
-
-        if not roles_needed:
-            continue
-
-        # Collect all clusters used in spokes (including None)
-        clusters_needed = set()
-        for spoke in chain.spokes:
-            if spoke.retired:
-                continue
-            clusters_needed.add(spoke.cluster)  # None is allowed
-
-        # Initialise requirement dictionary per cluster
-        needed_by_cluster: dict[str | None, dict[str, int]] = {
-            cluster: {role: 0 for role in roles_needed}
-            for cluster in clusters_needed
-        }
-
-        # Fill requirements
-        for spoke in chain.spokes:
-            if spoke.retired:
-                continue
-            cell = cfg.cells.get(spoke.cell)
-            if cell is None:
-                continue
-            cluster = spoke.cluster
-            for slot in cell.components:
-                needed_by_cluster[cluster][slot.role] += 1
-
-        # For each cluster, check sufficiency
-        for cluster, needed_counts in needed_by_cluster.items():
-            if not any(needed_counts.values()):
-                continue
-
-            pool = ComponentPool(adapter, chain.net, roles=sorted(roles_needed), cluster=cluster)
-            for role, needed in needed_counts.items():
-                if needed == 0:
-                    continue
-                available = pool.remaining_count(role)
-                if available < needed:
-                    cluster_label = _(" (cluster {cluster!r})").format(cluster=cluster) if cluster is not None else ""
-                    problems.append(
-                        _("net {net!r}, role {role!r}{cluster}: need {needed}, found {available} "
-                          "(check the Role and Cluster fields in the schematic and the actual net connection)")
-                        .format(net=chain.net, role=role, cluster=cluster_label,
-                                needed=needed, available=available)
-                    )
-
-    if problems:
-        raise ValidationError(format_fatal_error(
-            _("not enough components for cell roles"),
-            problems
-        ))
-    logger.debug(_("Role pool sufficiency checks passed"))
 
 
 def check_clone_cells_exist(cfg: Config) -> None:
@@ -424,89 +288,6 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
     logger.debug(_("anchor_sheet/sheet_names check passed"))
 
 
-def _spoke_roles(cfg: Config, spoke: ManualSpoke) -> set:
-    """The set of component Role fields a spoke's cell needs — the SAME roles
-    ComponentPool is built with (see manual_position_calculator.py:112-118)."""
-    cell = cfg.cells.get(spoke.cell)
-    if cell is None:
-        return set()
-    return {slot.role for slot in cell.components}
-
-
-def check_no_candidate_pool_collisions(cfg: Config) -> None:
-    """Pure config check (no live board). Two chains sharing one net and
-    consuming the SAME (role, spoke-cluster) candidate pool will silently
-    steal each other's components: ComponentPool is rebuilt per chain
-    (manual_position_calculator.py), filtering candidates ONLY by net + Role +
-    (if set) spoke cluster (component_pool.py) — no ownership registry, no
-    distance heuristic — so whichever chain plans later pops the same
-    candidates first (natural order). Cluster is the documented mechanism for
-    splitting several chains on one net (Chain's own docstring) but nothing
-    enforced/checked it.
-
-    Reported on the FULL config (before --only/--cluster narrow it) — this is
-    exactly when it must fire: a Redraw (--only=<one chain>) would otherwise
-    hide the collision by filtering the sibling chain out before it is ever
-    seen (apply_only_filter), which is the live incident that motivated this
-    check. Fatal (never a proximity heuristic): each problem names both chains,
-    the net, the shared role and the spoke cluster (or "no cluster"); the hint
-    points at the standard fix — a distinguishing spoke cluster: on one of
-    them."""
-    problems = []
-    seen: set[tuple] = set()
-    chains_by_net: dict[str, list[Chain]] = {}
-    for chain in cfg.chains:
-        if chain.retired or chain.skip:
-            continue  # drop_inactive_items drops these before planning
-        chains_by_net.setdefault(chain.net, []).append(chain)
-
-    for net, chains in chains_by_net.items():
-        if len(chains) < 2:
-            continue
-        for i in range(len(chains)):
-            for j in range(i + 1, len(chains)):
-                a, b = chains[i], chains[j]
-                for sa in a.spokes:
-                    if sa.retired or sa.skip:
-                        continue
-                    roles_a = _spoke_roles(cfg, sa)
-                    if not roles_a:
-                        continue
-                    for sb in b.spokes:
-                        if sb.retired or sb.skip:
-                            continue
-                        if sa.cluster != sb.cluster:
-                            continue
-                        shared = roles_a & _spoke_roles(cfg, sb)
-                        if not shared:
-                            continue
-                        for role in sorted(shared):
-                            key = (chain_effective_name(a), chain_effective_name(b),
-                                   role, sa.cluster)
-                            if key in seen:
-                                continue
-                            seen.add(key)
-                            cluster_hint = (_(" (cluster {cluster!r})").format(cluster=sa.cluster)
-                                            if sa.cluster is not None else _(" (no cluster)"))
-                            problems.append(
-                                _("chains {a!r} and {b!r} on net {net!r} both consume role "
-                                  "{role!r} from the same component pool{cluster_hint}")
-                                .format(a=chain_effective_name(a), b=chain_effective_name(b),
-                                        net=net, role=role, cluster_hint=cluster_hint)
-                            )
-
-    if problems:
-        raise ValidationError(format_fatal_error(
-            _("chains on the same net compete for the same component pool"),
-            problems + [_("fix: give a distinguishing cluster: to the spokes of one of them, "
-                          "so each chain takes components from its own pool — see Chain's "
-                          "docstring (Cluster is the standard mechanism for splitting several "
-                          "chains on one net); a chain redrawn alone (Redraw / --only) will "
-                          "otherwise silently take components meant for its neighbour")]
-        ))
-    logger.debug(_("Candidate-pool collision checks passed"))
-
-
 def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> None:
     """
     Resolves the nets a clone's apply would USE and checks each against the real
@@ -676,7 +457,6 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
-    check_no_candidate_pool_collisions(cfg)
 
 
 def _fatal_title_line(e: ValidationError) -> str:
@@ -917,8 +697,6 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     check_config_structure(cfg, sheet_names=_sn)
     check_bridging_pad_hints_are_self_consistent(cfg)
     check_single_selection_based_clone(cfg, adapter=adapter, sheet_names=_sn)
-    check_cells_and_pads_exist(adapter, cfg, sheet_names=_sn)
-    check_role_pool_sufficiency(adapter, cfg)
     check_clone_nets_exist_on_board(adapter, cfg)
     check_coordinate_placements_exist(adapter, cfg, sheet_names=_sn)
     logger.info(_("All pre‑validation checks passed"))

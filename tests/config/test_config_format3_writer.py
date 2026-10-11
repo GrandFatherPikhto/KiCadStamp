@@ -96,25 +96,23 @@ def test_new_record_gets_uuid4_json(format3, active_root, tmp_path):
 
 def test_new_reference_resolves_by_full_name(format3, active_root, tmp_path):
     root = tmp_path / "root.sexp"
-    _write_graph(tmp_path, {"root.sexp": {"cells": {"cap": {}}, "chains": []}})
+    _write_graph(tmp_path, {"root.sexp": {"cells": {"cap": {}}}})
     active_root(root)
 
-    upsert_list_entry(root, "chains",
-                      {"name": "c1", "spokes": [{"cell": "cap", "pad": "1"}]})
+    upsert_list_entry(root, "entities", {"name": "e1", "cell": "cap"})
 
-    chain = _read(root)["chains"][0]
-    assert chain["spokes"][0]["cell_uuid"] == det_uuid("cells:cap")
+    entry = _read(root)["entities"][0]
+    assert entry["cell_uuid"] == det_uuid("cells:cap")
 
 
 def test_unknown_new_reference_refuses_the_whole_write(format3, active_root, tmp_path):
     root = tmp_path / "root.sexp"
-    _write_graph(tmp_path, {"root.sexp": {"cells": {"cap": {}}, "chains": []}})
+    _write_graph(tmp_path, {"root.sexp": {"cells": {"cap": {}}}})
     active_root(root)
     before = root.read_text(encoding="utf-8")
 
     with pytest.raises(OSError):
-        upsert_list_entry(root, "chains",
-                          {"name": "c1", "spokes": [{"cell": "ghost", "pad": "1"}]})
+        upsert_list_entry(root, "entities", {"name": "e1", "cell": "ghost"})
 
     assert root.read_text(encoding="utf-8") == before, "file untouched"
 
@@ -344,8 +342,7 @@ def _graph_root(tmp_path):
     pytest.param(lambda r: merge_write(r, {"cells": {"c2": {}}}, section="cells"),
                  True, id="merge_write"),
     pytest.param(lambda r: upsert_list_entry(
-        r, "chains", {"name": "c1", "net": "GND", "anchor_ref": "IC1",
-                      "spokes": [{"cell": "cap", "pad": "1"}]}),
+        r, "entities", {"name": "e2", "cell": "cap"}),
         True, id="upsert_list_entry"),
     pytest.param(lambda r: upsert_entity(r, {"name": "e2", "cell": "cap"}),
                  True, id="upsert_entity"),

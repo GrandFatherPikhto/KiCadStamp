@@ -49,15 +49,15 @@ class TestConfigBoardNameLoad:
         config_file.write_text(
             "(kicadstamp-config\n"
             '  (board_name "3CH-AWG-TIA-v102")\n'
-            "  (rules\n"
-            "    (rule\n"
-            '      (net "+3V3")\n'
+            "  (thermal_via_arrays\n"
+            "    (thermal_via_array\n"
+            '      (name "t")\n'
             '      (anchor_role "FPGA")\n'
-            "      (spokes\n"
-            '        (spoke (pad "17") (cell "t") (retierd false)))))\n'
+            '      (pad "17")\n'
+            "      (rowss 4)))\n"
             "  (cells))\n",
             encoding="utf-8")
-        with pytest.raises(ValidationError, match="retierd"):
+        with pytest.raises(ValidationError, match="rowss"):
             load_config(str(config_file))
 
 
@@ -125,8 +125,8 @@ class TestPathBasenameStem:
 
 class TestRunAllChecksOrdering:
     def test_board_identity_checked_first_in_chain(self):
-        """With a config that has nothing else to validate (no rules/clones/
-        cells/coordinate_placements), a board mismatch must be the error that
+        """With a config that has nothing else to validate (no clones/cells/
+        coordinate_placements), a board mismatch must be the error that
         run_all_checks reports — i.e. the check runs BEFORE all others (a
         wrong board makes every other check misleading)."""
         cfg = Config(board_name="3CH-AWG-TIA-v102")

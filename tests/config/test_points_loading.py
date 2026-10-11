@@ -15,15 +15,13 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 
 
-def _cfg(points=None, rules=None, cells=None, clone_placements=None,
+def _cfg(points=None, cells=None, clone_placements=None,
          thermal_via_arrays=None) -> dict:
-    """Base config dict with the standard minimal sections (layer/rules/cells);
+    """Base config dict with the standard minimal sections (layer/cells);
     each optional section overrides the base default when given."""
-    data = {"layer": "B.Cu", "rules": [], "cells": {}}
+    data = {"layer": "B.Cu", "cells": {}}
     if points is not None:
         data["points"] = points
-    if rules is not None:
-        data["rules"] = rules
     if cells is not None:
         data["cells"] = cells
     if clone_placements is not None:
@@ -92,7 +90,6 @@ class TestPointBasicLoading:
         config_file.write_text(
             "(kicadstamp-config\n"
             '  (layer "B.Cu")\n'
-            "  (rules)\n"
             "  (cells)\n"
             "  (points\n"
             '    (point "bad" (anchor_role "FPGA") (typo_field 1))))\n',
@@ -176,12 +173,13 @@ class TestBoardOriginPoint:
         cfg, _ = load_config(str(config_file))
         assert cfg.points["offset_from_drill"].shift_x_mm == 5.0
 
-    def test_rule_anchor_point_to_board_origin_is_fatal(self, tmp_path):
-        """Same wall as xy — a board origin has no pads to look up spoke.pad
-        from."""
+    def test_thermal_via_array_anchor_point_to_board_origin_is_fatal(self, tmp_path):
+        """Same wall as xy — a board origin has no pads to look up a thermal via
+        array's pad from."""
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"board_zero": {"anchor_origin": "drill"}},
-            rules=[{"net": "GND", "anchor_point": "board_zero", "spokes": []}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "anchor_point": "board_zero",
+                                 "pad": "145"}]))
         with pytest.raises(ValidationError, match="has no footprint to anchor on"):
             load_config(str(config_file))
 
@@ -235,51 +233,40 @@ class TestAnchorPointOnConsumers:
         with pytest.raises(ValidationError, match="anchor_point together with anchor_pad"):
             load_config(str(config_file))
 
-    def test_rule_anchor_point_loads_with_footprint_eligible_point(self, tmp_path):
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"fpga_center": {"anchor_role": "FPGA"}},
-            rules=[{"net": "GND", "anchor_point": "fpga_center", "spokes": []}]))
-        cfg, _ = load_config(str(config_file))
-        assert cfg.rules[0].anchor_point == "fpga_center"
-
-    def test_rule_anchor_point_with_shifted_point_is_fatal(self, tmp_path):
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"shifted": {"anchor_role": "FPGA", "shift_x_mm": 5.0}},
-            rules=[{"net": "GND", "anchor_point": "shifted", "spokes": []}]))
-        with pytest.raises(ValidationError, match="has no footprint to anchor on"):
-            load_config(str(config_file))
-
-    def test_rule_anchor_point_with_xy_literal_point_is_fatal(self, tmp_path):
+    def test_thermal_via_array_anchor_point_with_xy_literal_point_is_fatal(self, tmp_path):
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"literal": {"xy": [1.0, 2.0]}},
-            rules=[{"net": "GND", "anchor_point": "literal", "spokes": []}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "anchor_point": "literal",
+                                 "pad": "145"}]))
         with pytest.raises(ValidationError, match="has no footprint to anchor on"):
             load_config(str(config_file))
 
-    def test_rule_anchor_point_through_chain_to_shifted_point_is_fatal(self, tmp_path):
+    def test_thermal_via_array_anchor_point_through_chain_to_shifted_point_is_fatal(self, tmp_path):
         """Footprint-eligibility walks the WHOLE anchor_point chain, not just
         the immediately-referenced point."""
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"base": {"anchor_role": "FPGA", "shift_x_mm": 5.0},
                     "alias": {"anchor_point": "base"}},
-            rules=[{"net": "GND", "anchor_point": "alias", "spokes": []}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "anchor_point": "alias",
+                                 "pad": "145"}]))
         with pytest.raises(ValidationError, match="has no footprint to anchor on"):
             load_config(str(config_file))
 
-    def test_rule_anchor_point_through_chain_of_shift_free_points_is_fine(self, tmp_path):
+    def test_thermal_via_array_anchor_point_through_chain_of_shift_free_points_is_fine(self, tmp_path):
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"base": {"anchor_role": "FPGA"},
                     "alias": {"anchor_point": "base"}},
-            rules=[{"net": "GND", "anchor_point": "alias", "spokes": []}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "anchor_point": "alias",
+                                 "pad": "145"}]))
         cfg, _ = load_config(str(config_file))
-        assert cfg.rules[0].anchor_point == "alias"
+        assert cfg.thermal_via_arrays[0].anchor_point == "alias"
 
-    def test_rule_anchor_point_with_anchor_ref_together_is_fatal(self, tmp_path):
+    def test_thermal_via_array_anchor_point_with_anchor_ref_together_is_fatal(self, tmp_path):
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"fpga_center": {"anchor_role": "FPGA"}},
-            rules=[{"net": "GND", "anchor_ref": "U5",
-                    "anchor_point": "fpga_center", "spokes": []}]))
-        with pytest.raises(ValidationError, match="anchor_point together with anchor_ref/anchor_role"):
+            thermal_via_arrays=[{"name": "fpga_thermal", "anchor_ref": "U5",
+                                 "anchor_point": "fpga_center", "pad": "145"}]))
+        with pytest.raises(ValidationError, match="anchor_point together with"):
             load_config(str(config_file))
 
     def test_thermal_via_array_anchor_point_loads(self, tmp_path):

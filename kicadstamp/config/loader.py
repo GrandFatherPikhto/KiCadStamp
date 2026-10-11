@@ -53,10 +53,8 @@ from .entries import (
     _load_clone_placement,
     _load_coordinate_placement,
     _load_entity,
-    _load_manual_spoke,
     _load_net_trace,
     _load_point,
-    _load_chain,
     _load_imprint,
     _load_template_component_slot,
     _load_template_track,
@@ -72,7 +70,7 @@ from .sheet_templates import expand_sheet_templates
 from .tree_instances import expand_tree_instances
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
-    ImprintConfig, chain_effective_name, coordinate_placement_effective_name,
+    ImprintConfig, coordinate_placement_effective_name,
     clone_placement_effective_name, net_trace_effective_name,
     entity_effective_name, imprint_effective_name,
 )
@@ -348,28 +346,10 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     points_data = dict(data.get('points', {}) or {})
     points = {name: _load_point(name, pdata) for name, pdata in points_data.items()}
 
-    chains = [_load_chain(chain_data) for chain_data in data.get('chains', [])]
-
-    # Fatal on collision: two chains resolving to the same --only identity
-    # (same net, neither disambiguated with an explicit name) would silently
-    # both match the same --only call — catch it at load time, not at --only
-    # time, and point at exactly which chains collided.
-    seen_names: dict[str, list[str]] = {}
-    for chain in chains:
-        seen_names.setdefault(chain_effective_name(chain), []).append(
-            chain.anchor_ref or chain.anchor_role or "?"
-        )
-    for effective_name, anchors in seen_names.items():
-        if len(anchors) > 1:
-            raise ValidationError(format_fatal_error(
-                _("{count} chains resolve to the same --only identity {name!r} "
-                  "(anchors: {anchors})").format(count=len(anchors), name=effective_name,
-                                                  anchors=", ".join(anchors)),
-                [_("give at least one of them an explicit name: to disambiguate "
-                   "(e.g. name: {name}_a) – --only cannot tell them apart otherwise")
-                 .format(name=effective_name)]
-            ))
-
+    # `chains:` is NOT loaded: the section is RETIRED (2026-10-11, decision Д1)
+    # and refused while the file text is parsed (config/retired_sections.py,
+    # called from sexp_format.sexp_to_dict / aliases.normalize_section_aliases),
+    # so no load path can reach this point with chains data at all.
     clone_placements = [_load_clone_placement(cp) for cp in data.get('clone_placements', [])]
 
     # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
@@ -507,12 +487,12 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
             ))
 
     # Cross-validation of anchor_point references — every value must name an
-    # existing points: entry; Rule/thermal_via_array additionally need a
-    # footprint-eligible target (see _point_is_footprint_eligible), because
-    # they look up a specific named pad on the resolved component
-    # (spoke.pad/tva.pad) — a bare coordinate doesn't work for them.
-    # ClonePlacement and Point-to-Point chains only ever need a coordinate,
-    # so any point (shifted, xy-literal, or not) is fine there.
+    # existing points: entry; a thermal_via_array additionally needs a
+    # footprint-eligible target (see _point_is_footprint_eligible), because it
+    # looks up a specific named pad on the resolved component — a bare
+    # coordinate doesn't work for it. ClonePlacement and Point-to-Point
+    # references only ever need a coordinate, so any point (shifted,
+    # xy-literal, or not) is fine there.
     def _check_anchor_point(owner_label: str, anchor_point: str | None, needs_footprint: bool):
         if anchor_point is None:
             return
@@ -538,9 +518,6 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     for pname, point in points.items():
         _check_anchor_point(_("point {name!r}").format(name=pname), point.anchor_point,
                             needs_footprint=False)
-    for chain in chains:
-        _check_anchor_point(_("chain (net {net!r})").format(net=chain.net), chain.anchor_point,
-                            needs_footprint=True)
     for cp in clone_placements:
         _check_anchor_point(_("clone_placement {name!r}").format(
             name=clone_placement_effective_name(cp)), cp.anchor_point,
@@ -628,7 +605,6 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
         points=points,
         thermal_via_arrays=thermal_vias,
         imprints=imprints,
-        chains=chains,
         entities=entities,
         clone_placements=clone_placements,
         coordinate_placements=coordinate_placements,
@@ -657,9 +633,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # anchor or the tree's own (role ...) anchor — must never name a role the
     # same tree places, or every Redraw silently drifts. Fatal, not a warning.
     check_mount_anchor_drift(cfg)
-    total_spokes = sum(len(c.spokes) for c in cfg.chains)
-    logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, chains={chains}, "
-                   "spokes={spokes}, clone_placements={clones}").format(
+    logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, "
+                   "clone_placements={clones}").format(
                        layer=cfg.layer, cells=len(cfg.cells), points=len(cfg.points),
-                       chains=len(cfg.chains), spokes=total_spokes, clones=len(cfg.clone_placements)))
+                       clones=len(cfg.clone_placements)))
     return cfg, ctx

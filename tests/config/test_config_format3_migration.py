@@ -182,9 +182,6 @@ _FORMS = {
     "coordinate_anchor_point":
         lambda: {"points": {"P": {}},
                  "coordinate_placements": [{"name": "C", "anchor_point": "P"}]},
-    "chain_spoke_cell":
-        lambda: {"cells": _cell(),
-                 "chains": [{"name": "ch", "spokes": [{"pad": "1", "cell": "c"}]}]},
     "point_anchor_point":
         lambda: {"points": {"P": {"anchor_point": "Q"}, "Q": {}}},
     "cell_nested_clone_cell":

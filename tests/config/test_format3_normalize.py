@@ -86,23 +86,6 @@ def _f_clone_anchor_point(hint):
             lambda cfg: cfg.clone_placements[0].anchor_point)
 
 
-def _f_chain_anchor_point(hint):
-    return ({"points": _points(),
-             "chains": [{"net": "GND", "name": "ch", "anchor_point": hint,
-                         "anchor_point_uuid": _u("point:A"),
-                         "uuid": _u("chain:ch"), "spokes": []}]},
-            lambda cfg: cfg.chains[0].anchor_point)
-
-
-def _f_chain_spoke_cell(hint):
-    return ({"cells": _cells(),
-             "chains": [{"net": "GND", "name": "ch", "anchor_ref": "IC1",
-                         "uuid": _u("chain:ch"),
-                         "spokes": [{"pad": "1", "cell": hint,
-                                     "cell_uuid": _u("cell:A")}]}]},
-            lambda cfg: cfg.chains[0].spokes[0].cell)
-
-
 def _f_coordinate_anchor_point(hint):
     return ({"points": _points(),
              "coordinate_placements": [{"name": "c", "cluster": "CL", "role": "R",
@@ -207,8 +190,6 @@ _FORMS = {
     "entity_imprint": _f_entity_imprint,
     "clone_cell": _f_clone_cell,
     "clone_anchor_point": _f_clone_anchor_point,
-    "chain_anchor_point": _f_chain_anchor_point,
-    "chain_spoke_cell": _f_chain_spoke_cell,
     "coordinate_anchor_point": _f_coordinate_anchor_point,
     "tva_anchor_point": _f_tva_anchor_point,
     "point_anchor_point": _f_point_anchor_point,

@@ -118,9 +118,6 @@ def stamp_config(cfg):
         _link(rec)
     for rec in (getattr(cfg, "entities", None) or []):
         _one(rec, "entities", rec.name)
-    for rec in (getattr(cfg, "chains", None) or []):
-        _one(rec, "chains", rec.name)
-        _link(rec)
     for rec in (getattr(cfg, "net_traces", None) or []):
         _one(rec, "net_traces", rec.name or rec.net)
     return cfg
@@ -132,7 +129,7 @@ def stamp_config(cfg):
 # product's `loader._f3_refs`, so the test cannot drift from the shipped form
 # table.
 _DICT_SECTIONS = ("cells", "points")
-_LIST_SECTIONS = ("chains", "clone_placements", "thermal_via_arrays",
+_LIST_SECTIONS = ("clone_placements", "thermal_via_arrays",
                   "coordinate_placements", "net_traces", "entities", "imprints")
 _FREE_SECTIONS = ("extract_profiles", "clone_profiles", "sheet_templates")
 

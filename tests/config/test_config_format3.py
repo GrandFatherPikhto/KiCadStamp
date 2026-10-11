@@ -22,23 +22,19 @@ from tests.fakes.format3 import active_root, det_uuid, format3  # noqa: F401 (fi
 D_CELL = det_uuid("cell")
 D_POINT = det_uuid("point")
 D_ENTITY = det_uuid("entity")
-D_CHAIN = det_uuid("chain")
 D_FOLDER_P = det_uuid("folder-Power")
 D_FOLDER_L = det_uuid("folder-Power/LDO")
 
 
 def _data() -> dict:
     """A minimal format-3 dict: a dict section (cells) with a uuid and a folder
-    table, a points entry, an entity referencing the cell, and a chain
-    referencing the point. No default-valued keys (the writer omits those)."""
+    table, a points entry and an entity referencing the cell. No default-valued
+    keys (the writer omits those)."""
     return {
         "cells": {"Power/LDO/ldo": {"layer": "B.Cu", "uuid": D_CELL}},
         "points": {"p1": {"anchor_ref": "IC1", "uuid": D_POINT}},
         "entities": [{"name": "E1", "cell": "Power/LDO/ldo",
                       "cell_uuid": D_CELL, "uuid": D_ENTITY}],
-        "chains": [{"net": "GND", "name": "ch1", "anchor_point": "p1",
-                    "anchor_point_uuid": D_POINT, "uuid": D_CHAIN,
-                    "spokes": []}],
         "folders": {"cells": {"Power": D_FOLDER_P, "Power/LDO": D_FOLDER_L}},
     }
 
@@ -100,7 +96,6 @@ def test_json_shape_record_uuid_and_reference_sibling_key(format3, tmp_path):
     assert cfg.cells["Power/LDO/ldo"].uuid == D_CELL
     assert cfg.entities[0].uuid == D_ENTITY
     assert cfg.entities[0].cell_uuid == D_CELL
-    assert cfg.chains[0].anchor_point_uuid == D_POINT
     assert cfg.folders["cells"]["Power"] == D_FOLDER_P
 
 
@@ -154,17 +149,6 @@ def _dangling(format3, tmp_path, data, needle="references uuid"):
         load_config(str(p))
     assert needle in str(e.value)
     assert str(p) in str(e.value)
-
-
-def test_chain_spoke_cell_reference_uuid(format3, tmp_path):
-    """R4: chains[*].spokes[].cell -> cells. Round-trips and dangles."""
-    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
-            "chains": [{"net": "GND", "name": "ch", "anchor_ref": "IC1",
-                        "uuid": D_CHAIN,
-                        "spokes": [{"pad": "1", "cell": "c", "cell_uuid": D_CELL}]}]}
-    assert sexp_to_dict(dict_to_sexp(data, format_number=3)) == data
-    data["chains"][0]["spokes"][0]["cell_uuid"] = det_uuid("nope")
-    _dangling(format3, tmp_path, data)
 
 
 def test_nested_cell_placement_reference_uuid(format3, tmp_path):
@@ -298,12 +282,13 @@ def test_duplicate_full_name_within_one_file_is_fatal(format3, tmp_path):
 
 
 def test_unnamed_record_is_fatal_not_a_phantom_duplicate(format3, tmp_path):
-    """П2: two unnamed chains in two files -> "no name", not "duplicate name"."""
+    """П2: two unnamed records of one list section in two files -> "no name",
+    not "duplicate name"."""
     root = tmp_path / "root.sexp"
     sub = tmp_path / "sub.sexp"
-    _write_sexp(sub, {"chains": [{"net": "GND", "anchor_ref": "IC2", "spokes": []}]})
+    _write_sexp(sub, {"net_traces": [{"net": "N1", "anchor_role": "R1"}]})
     _write_sexp(root, {"include": ["sub.sexp"],
-                       "chains": [{"net": "GND", "anchor_ref": "IC1", "spokes": []}]})
+                       "net_traces": [{"net": "N2", "anchor_role": "R2"}]})
     with pytest.raises(ValidationError) as e:
         load_config(str(root))
     assert "without a name" in str(e.value)

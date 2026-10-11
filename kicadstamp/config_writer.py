@@ -124,9 +124,11 @@ def _read_data(path: Path) -> dict:
                 # A raw JSON dict has no parse layer of its own, so the lift
                 # belongs here. normalize_section_aliases runs FIRST, like
                 # includes._load_config_file does, so a step sees canonical keys
-                # (legacy `rules:` -> `chains:`, 2026-09-01 rename).
+                # AND a retired section
+                # (`chains:`) is refused before this read-merge-write path could
+                # rewrite the file without it (2026-10-11, decision Д1).
                 return lift_loaded_dict(
-                    normalize_section_aliases(json.load(f) or {}), str(p))
+                    normalize_section_aliases(json.load(f) or {}, str(p)), str(p))
         elif suffix == ".sexp":
             kind = "s-expr"
 
@@ -907,7 +909,7 @@ def disable_include(path: Path, target: Path) -> bool:
 # blindly in that case leaves the including file unloadable next time
 # anything reads it.
 INCLUDABLE_KEYS = frozenset(
-    {"chains", "clone_placements", "cells", "points", "extract_profiles", "clone_profiles",
+    {"clone_placements", "cells", "points", "extract_profiles", "clone_profiles",
      "trees", "include"})
 
 

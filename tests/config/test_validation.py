@@ -5,30 +5,26 @@ import pytest
 from unittest.mock import MagicMock
 
 from kicadstamp.config import (
-    Config, ManualSpoke, Cell,
-    TemplateComponentSlot, TemplateTrack, TemplateVia, Rule, ClonePlacement
+    Config, Cell,
+    TemplateComponentSlot, TemplateTrack, TemplateVia, ClonePlacement
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.validation import (
-    check_cells_and_pads_exist,
-    check_role_pool_sufficiency,
     check_no_duplicate_clone_anchors,
     check_clone_nets_exist_on_board,
     check_single_selection_based_clone,
     check_config_structure,
-    check_no_candidate_pool_collisions,
     check_bridging_pad_hints_are_self_consistent,
     check_bridging_pad_hints_consistent_in_cell,
 )
 
 
-def _cfg(rules=None, cells=None, clone_placements=None, layer='B.Cu'):
+def _cfg(cells=None, clone_placements=None, layer='B.Cu'):
     return Config(
         layer=layer,
         cells=cells or {"t": Cell(name="t", components=[
             TemplateComponentSlot(role="HEAVY"), TemplateComponentSlot(role="LIGHT")
         ])},
-        chains=rules or [],
         clone_placements=clone_placements or [],
     )
 
@@ -48,104 +44,6 @@ def _adapter_with_pads(pad_numbers):
     return adapter
 
 
-class TestCellsAndPadsExist:
-    def test_valid_config_passes(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="t")])])
-        adapter = _adapter_with_pads(["17"])
-        check_cells_and_pads_exist(adapter, cfg)
-
-    def test_unknown_cell_raises(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="does_not_exist")])])
-        adapter = _adapter_with_pads(["17"])
-        with pytest.raises(ValidationError, match="does_not_exist"):
-            check_cells_and_pads_exist(adapter, cfg)
-
-    def test_unknown_pad_raises(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="999", cell="t")])])
-        adapter = _adapter_with_pads(["17"])
-        with pytest.raises(ValidationError, match="999"):
-            check_cells_and_pads_exist(adapter, cfg)
-
-    def test_target_ref_not_found_raises(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="t")])])
-        adapter = MagicMock()
-        adapter.get_footprint.return_value = None
-        with pytest.raises(ValidationError, match="IC1"):
-            check_cells_and_pads_exist(adapter, cfg)
-
-    def test_retired_spoke_not_checked(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[
-            ManualSpoke(pad="999", cell="does_not_exist", retired=True)
-        ])])
-        adapter = _adapter_with_pads(["17"])
-        check_cells_and_pads_exist(adapter, cfg)
-
-
-class TestRolePoolSufficiency:
-    def _adapter_with_pool(self, components):
-        fps = []
-        for ref, role, net_name in components:
-            fp = MagicMock()
-            fp.ref = ref
-            pad = MagicMock()
-            pad.net_name = net_name
-            fp._pads = [pad]
-            fp._role = role
-            fps.append(fp)
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
-        adapter.get_footprint_pads.side_effect = lambda fp: fp._pads
-        return adapter
-
-    def test_sufficient_pool_passes(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[
-            ManualSpoke(pad="17", cell="t"),
-            ManualSpoke(pad="26", cell="t"),
-        ])])
-        adapter = self._adapter_with_pool([
-            ("C5", "LIGHT", "+3V3"), ("C6", "LIGHT", "+3V3"),
-            ("C30", "HEAVY", "+3V3"), ("C31", "HEAVY", "+3V3"),
-        ])
-        check_role_pool_sufficiency(adapter, cfg)
-
-    def test_insufficient_pool_raises_with_exact_counts(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[
-            ManualSpoke(pad="17", cell="t"),
-            ManualSpoke(pad="26", cell="t"),
-        ])])
-        adapter = self._adapter_with_pool([
-            ("C5", "LIGHT", "+3V3"), ("C6", "LIGHT", "+3V3"),
-            ("C30", "HEAVY", "+3V3"),
-        ])
-        with pytest.raises(ValidationError, match="HEAVY"):
-            check_role_pool_sufficiency(adapter, cfg)
-
-    def test_wrong_net_component_not_counted(self):
-        cfg = _cfg([Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="t")])])
-        adapter = self._adapter_with_pool([
-            ("C5", "LIGHT", "+3V3"),
-            ("C30", "HEAVY", "+1V2_VCCINT"),
-        ])
-        with pytest.raises(ValidationError, match="HEAVY"):
-            check_role_pool_sufficiency(adapter, cfg)
-
-    def test_multiple_rules_checked_independently(self):
-        cell = Cell(name="t", components=[TemplateComponentSlot(role="HEAVY")])
-        cfg = _cfg(
-            [
-                Rule(net="+3V3", anchor_ref='IC1', spokes=[ManualSpoke(pad="17", cell="t")]),
-                Rule(net="+1V2", anchor_ref='IC1', spokes=[ManualSpoke(pad="40", cell="t")]),
-            ],
-            cells={"t": cell},
-        )
-        adapter = self._adapter_with_pool([
-            ("C30", "HEAVY", "+3V3"), ("C31", "HEAVY", "+3V3"),
-        ])
-        with pytest.raises(ValidationError, match="\\+1V2"):
-            check_role_pool_sufficiency(adapter, cfg)
-
-
 class TestNoDuplicateCloneAnchors:
     def test_no_duplicates_passes(self):
         clones = [
@@ -154,7 +52,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="b", cell="t", xy=(0, 0),
                            anchor_ref="IC1", anchor_pad="18"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
     def test_duplicate_anchor_raises(self):
@@ -164,7 +62,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="b", cell="t", xy=(0, 0),
                            anchor_ref="IC1", anchor_pad="17"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -175,7 +73,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="b", cell="t", xy=(0, 0),
                            anchor_role="MASTER", anchor_sheet="Sheet1"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -184,7 +82,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
             ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -200,7 +98,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="n5v", cell="t", xy=(7.0, 6.0),
                            anchor_role="CONN_PM5V", anchor_pad="1"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
     def test_same_anchor_same_origin_role_based_raises(self):
@@ -210,7 +108,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="b", cell="t", xy=(1.0, 2.0),
                            anchor_role="CONN_PM5V", anchor_pad="1"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -228,7 +126,7 @@ class TestNoDuplicateCloneAnchors:
                            anchor_role="C_OUT_BYPASS", anchor_pad="1",
                            anchor_cluster="In_Pi_Filter_Neg"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
     def test_same_anchor_same_cluster_role_based_raises(self):
@@ -240,7 +138,7 @@ class TestNoDuplicateCloneAnchors:
                            anchor_role="C_OUT_BYPASS", anchor_pad="1",
                            anchor_cluster="In_Pi_Filter_Pos"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -252,7 +150,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="a", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
             ClonePlacement(cluster="b", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -261,7 +159,7 @@ class TestNoDuplicateCloneAnchors:
             ClonePlacement(cluster="a", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
             ClonePlacement(cluster="b", cell="t", xy=(8.0, -69.0), anchor_point="Origin"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
     def test_same_anchor_different_polar_radius_is_not_a_duplicate(self):
@@ -277,7 +175,7 @@ class TestNoDuplicateCloneAnchors:
                            radius_mm=7.0, angle_deg=0.0,
                            anchor_role="CONN_PM5V", anchor_pad="1"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
 
     def test_same_anchor_same_polar_radius_raises(self):
@@ -289,7 +187,7 @@ class TestNoDuplicateCloneAnchors:
                            radius_mm=5.0, angle_deg=0.0,
                            anchor_role="CONN_PM5V", anchor_pad="1"),
         ]
-        cfg = _cfg(rules=[], clone_placements=clones)
+        cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
@@ -303,7 +201,7 @@ class TestCloneNetsExistOnBoard:
     def test_valid_nets_passes(self):
         tpl = Cell(name="t", vias=[TemplateVia(net="GND")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         check_clone_nets_exist_on_board(adapter, cfg)  # не должно бросить
@@ -311,7 +209,7 @@ class TestCloneNetsExistOnBoard:
     def test_missing_net_raises(self):
         tpl = Cell(name="t", vias=[TemplateVia(net="NON_EXISTENT")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         with pytest.raises(ValidationError, match="NON_EXISTENT"):
@@ -322,7 +220,7 @@ class TestCloneNetsExistOnBoard:
             TemplateComponentSlot(role="X", vias=[TemplateVia(net="VCC")])
         ])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         with pytest.raises(ValidationError, match="VCC"):
@@ -335,7 +233,7 @@ class TestCloneNetsExistOnBoard:
         tpl = Cell(name="t", components=[
             TemplateComponentSlot(role="X", net_template="NON_EXISTENT")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         with pytest.raises(ValidationError, match="NON_EXISTENT"):
@@ -347,7 +245,7 @@ class TestCloneNetsExistOnBoard:
         tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
                                nets={"X": "NON_EXISTENT"})
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         with pytest.raises(ValidationError, match="NON_EXISTENT"):
@@ -357,7 +255,7 @@ class TestCloneNetsExistOnBoard:
         tpl = Cell(name="t", components=[
             TemplateComponentSlot(role="X", net_template="GND")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         check_clone_nets_exist_on_board(adapter, cfg)  # не должно бросить
@@ -369,7 +267,7 @@ class TestCloneNetsExistOnBoard:
         tpl = Cell(name="t", components=[
             TemplateComponentSlot(role="DAC_DB1_CAP", net_template="/Channel_0/DAC/DB1")])
         clone = ClonePlacement(cluster="Channel_1", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
 
         ok = MagicMock()
         ok.get_all_nets.return_value = [self._make_net_mock("/Channel_1/DAC/DB1")]
@@ -389,7 +287,7 @@ class TestCloneNetsExistOnBoard:
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
                                params={"PWR_OUT": "+5V"},
                                net_overrides={"+5V": "+5V_DVD"})  # typo
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("+5V")]
         # "+" is a regex metacharacter — match the stable substring.
@@ -402,7 +300,7 @@ class TestCloneNetsExistOnBoard:
         template to validate, so the check passes without a board net for it."""
         tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0))
-        cfg = _cfg(rules=[], cells={"t": tpl}, clone_placements=[clone])
+        cfg = _cfg(cells={"t": tpl}, clone_placements=[clone])
         adapter = MagicMock()
         adapter.get_all_nets.return_value = [self._make_net_mock("GND")]
         check_clone_nets_exist_on_board(adapter, cfg)  # не должно бросить
@@ -410,13 +308,13 @@ class TestCloneNetsExistOnBoard:
 
 class TestSingleSelectionBasedClone:
     def test_single_selection_passes(self):
-        cfg = _cfg(rules=[], clone_placements=[
+        cfg = _cfg(clone_placements=[
             ClonePlacement(cluster="a", cell="t", xy=(0, 0))
         ])
         check_single_selection_based_clone(cfg)
 
     def test_two_selection_based_raises(self):
-        cfg = _cfg(rules=[], clone_placements=[
+        cfg = _cfg(clone_placements=[
             ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
             ClonePlacement(cluster="b", cell="t", xy=(0, 0)),
         ])
@@ -424,7 +322,7 @@ class TestSingleSelectionBasedClone:
             check_single_selection_based_clone(cfg)
 
     def test_mixed_modes_passes(self):
-        cfg = _cfg(rules=[], clone_placements=[
+        cfg = _cfg(clone_placements=[
             ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
             ClonePlacement(cluster="b", cell="t", xy=(0, 0),
                            nets={"X": "GND"}),
@@ -605,100 +503,6 @@ def test_coordinate_placements_fatal_embeds_titles_under_ru(monkeypatch):
     assert text.count(heading) == 1, "a nested fatal's heading leaked into the problem list"
     verdict = ru("Placement stopped, board not modified. Fix the config and run again.")
     assert text.count(verdict) == 1, "a nested block's verdict leaked into the problem list"
-
-
-class TestCandidatePoolCollisions:
-    """2026-08-20: two rules sharing one net and consuming the SAME
-    (role, spoke-cluster) candidate pool silently steal each other's
-    components (ComponentPool rebuilt per rule, no ownership/distance) — a
-    loud fatal on the FULL config is the fix, so a Redraw (--only=<one rule>)
-    can't hide the collision by filtering the sibling out first."""
-
-    @staticmethod
-    def _cell(role: str):
-        return Cell(name=f"cell_{role}", components=[TemplateComponentSlot(role=role)])
-
-    def _cfg(self, rules):
-        # Build the cells referenced by the spokes: cell name "cell_<ROLE>"
-        # implies the single Role the pool for that cell needs.
-        built = {}
-        for rule in rules:
-            for spoke in rule.spokes:
-                role = spoke.cell.split("_", 1)[1] if "_" in spoke.cell else "DECOUP"
-                built[spoke.cell] = self._cell(role)
-        return Config(cells=built, chains=rules)
-
-    def test_same_net_same_role_no_cluster_is_fatal(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+3V3", anchor_ref='IC2',
-                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
-        ]
-        cfg = self._cfg(rules)
-        with pytest.raises(ValidationError) as exc_info:
-            check_no_candidate_pool_collisions(cfg)
-        text = str(exc_info.value)
-        assert "+3V3" in text
-        assert "DECOUP" in text
-
-    def test_same_net_same_role_different_clusters_ok(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP", cluster="Left")]),
-            Rule(net="+3V3", anchor_ref='IC2',
-                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP", cluster="Right")]),
-        ]
-        check_no_candidate_pool_collisions(self._cfg(rules))  # no raise
-
-    def test_same_net_same_role_cluster_vs_none_ok(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+3V3", anchor_ref='IC2',
-                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP", cluster="Right")]),
-        ]
-        check_no_candidate_pool_collisions(self._cfg(rules))  # clusters differ -> no collision
-
-    def test_different_nets_ok(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+1V2", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="40", cell="cell_DECOUP")]),
-        ]
-        check_no_candidate_pool_collisions(self._cfg(rules))  # different nets -> separate pools
-
-    def test_different_roles_ok(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+3V3", anchor_ref='IC2',
-                 spokes=[ManualSpoke(pad="26", cell="cell_BYPASS")]),
-        ]
-        check_no_candidate_pool_collisions(self._cfg(rules))  # disjoint roles -> separate pools
-
-    def test_retired_rule_ignored(self):
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+3V3", anchor_ref='IC2', retired=True,
-                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
-        ]
-        check_no_candidate_pool_collisions(self._cfg(rules))  # retired rule never plans
-
-    def test_wired_into_check_config_structure(self):
-        """Runs on the FULL config — so a Redraw (--only=<one rule>), which
-        filters the sibling out before validation, still sees the collision."""
-        rules = [
-            Rule(net="+3V3", anchor_ref='IC1',
-                 spokes=[ManualSpoke(pad="17", cell="cell_DECOUP")]),
-            Rule(net="+3V3", anchor_ref='IC2',
-                 spokes=[ManualSpoke(pad="26", cell="cell_DECOUP")]),
-        ]
-        cfg = self._cfg(rules)
-        with pytest.raises(ValidationError, match="compete for the same component pool"):
-            check_config_structure(cfg)
 
 
 class TestBridgingPadHintsSelfConsistent:

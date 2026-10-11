@@ -81,25 +81,25 @@ def test_export_merge_preserves_the_target_files_other_content(tmp_path):
     assert data["include"] == ["somewhere.sexp"]
 
 
-def test_export_merge_matches_a_nameless_chain_by_net_fallback(tmp_path):
-    """chains: falls back to net: as identity when name: is absent (config/
-    models.py's chain_effective_name()) — exporting into a target that
-    already has a chain with the same net must REPLACE it, not duplicate.
+def test_export_merge_matches_a_nameless_net_trace_by_net_fallback(tmp_path):
+    """net_traces: falls back to net: as identity when name: is absent —
+    exporting into a target that already has a net_trace with the same net must
+    REPLACE it, not duplicate.
     SUBJECT is the format-2 net fallback, but the WRITE path is the same one
     the format-3 refusal gates, so the refusal is what is asserted there."""
     source = _write(tmp_path / "config.sexp", {
-        "chains": [{"net": "+3V3", "anchor_role": "NEW_MCU"}]})
+        "net_traces": [{"net": "+3V3", "anchor_role": "NEW_MCU"}]})
     target = _write(tmp_path / "out.sexp", {
-        "chains": [{"net": "+3V3", "anchor_role": "OLD_MCU"}]})
-    item = ExportItem(source_path=source, section="chains", name="+3V3",
+        "net_traces": [{"net": "+3V3", "anchor_role": "OLD_MCU"}]})
+    item = ExportItem(source_path=source, section="net_traces", name="+3V3",
                       payload={"net": "+3V3", "anchor_role": "NEW_MCU"})
 
     if _refused_export(target, [item], overwrite=False):
         return
 
-    chains = _load(target)["chains"]
-    assert len(chains) == 1
-    assert chains[0]["anchor_role"] == "NEW_MCU"
+    traces = _load(target)["net_traces"]
+    assert len(traces) == 1
+    assert traces[0]["anchor_role"] == "NEW_MCU"
 
 
 def test_export_overwrite_replaces_the_targets_whole_content(tmp_path):

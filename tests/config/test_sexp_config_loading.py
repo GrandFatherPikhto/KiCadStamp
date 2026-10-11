@@ -13,40 +13,27 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 
 
-MINIMAL_SEXP = """\
-(kicadstamp-config
-  (layer "B.Cu")
-  (place_components false)
-  (rules
-    (rule
-      (net "+3V3_VCCIO")
-      (anchor_role "FPGA")
-      (spokes
-        (spoke (pad "17") (cell "fpga_pwr_bank")
-               (shift_x_mm 1.2) (shift_y_mm -1.5) (rotation_deg 90.0)
-               (cluster "FPGA_PWR_BANK")))))
-  (cells
-    (cell "dac_buf"
-      (layer "B.Cu")
-      (components
-        (component (role "DAC_BUF") (offset_along_mm 1.0)
-                   (offset_across_mm 0.0) (angle_deg 0.0))))
-    (cell "fpga_pwr_bank")))
-"""
+MINIMAL_DATA = {
+    "layer": "B.Cu",
+    "place_components": False,
+    "clone_placements": [
+        {"name": "CH0", "cluster": "CH0", "cell": "dac_buf", "xy": [1.2, -1.5]},
+    ],
+    "cells": {
+        "dac_buf": {"layer": "B.Cu", "components": [
+            {"role": "DAC_BUF", "offset_along_mm": 1.0, "offset_across_mm": 0.0,
+             "angle_deg": 0.0}]},
+        "fpga_pwr_bank": {},
+    },
+}
+
+# The s-expr the WRITER emits for MINIMAL_DATA — so the reader below is exercised
+# against real writer output, not a hand-copy that could drift from the grammar.
+MINIMAL_SEXP = dict_to_sexp(MINIMAL_DATA, format_number=2)
 
 MINIMAL_YAML = """\
 layer: B.Cu
 place_components: false
-rules:
-- net: +3V3_VCCIO
-  anchor_role: FPGA
-  spokes:
-  - pad: '17'
-    cell: fpga_pwr_bank
-    shift_x_mm: 1.2
-    shift_y_mm: -1.5
-    rotation_deg: 90.0
-    cluster: FPGA_PWR_BANK
 cells:
   dac_buf:
     layer: B.Cu
@@ -75,10 +62,9 @@ def test_sexp_profile_loads(tmp_path):
 
     assert cfg_sexp.layer == "B.Cu"
     assert cfg_sexp.place_components is False
-    assert [r.net for r in cfg_sexp.rules] == ["+3V3_VCCIO"]
-    assert cfg_sexp.rules[0].anchor_role == "FPGA"
-    assert cfg_sexp.rules[0].spokes[0].pad == "17"
-    assert cfg_sexp.rules[0].spokes[0].shift_x_mm == 1.2
+    assert [c.cluster for c in cfg_sexp.clone_placements] == ["CH0"]
+    assert cfg_sexp.clone_placements[0].cell == "dac_buf"
+    assert cfg_sexp.clone_placements[0].xy == (1.2, -1.5)
     assert cfg_sexp.cells["dac_buf"].layer == "B.Cu"
     assert cfg_sexp.cells["dac_buf"].components[0].role == "DAC_BUF"
 
@@ -86,33 +72,28 @@ def test_sexp_profile_loads(tmp_path):
 def test_sexp_include_graph(tmp_path):
     """An include: graph written in .sexp resolves the same way as YAML: the
     root includes sub.sexp and both load into one merged Config."""
-    # У3.5 К3, row 7: an unnamed rule in EACH file makes the 2->3 converter
-    # mint the SAME name (chain_001) in both, which the include merge fatals on;
-    # a format-3 record needs a name, so the source gives one. The cells record
-    # the spokes reference is added too.
+    # У3.5 К3, row 7: an UNNAMED record in EACH file makes the 2->3 converter
+    # mint the SAME name in both, which the include merge fatals on; a format-3
+    # record needs a name, so the source gives one.
     _write(tmp_path, "sub.sexp", dict_to_sexp({
-        "rules": [
-            {"name": "+1V2_VCCINT_rule", "net": "+1V2_VCCINT",
-             "anchor_role": "FPGA",
-             "spokes": [{"pad": "5", "cell": "fpga_pwr_bank",
-                         "shift_x_mm": 1.2, "shift_y_mm": 2.0}]},
+        "clone_placements": [
+            {"name": "SUB_CL", "cluster": "SUB_CL", "cell": "fpga_pwr_bank",
+             "xy": [1.2, 2.0]},
         ],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "cells": {"fpga_pwr_bank": {}},
-        "rules": [
-            {"name": "+3V3_VCCIO_rule", "net": "+3V3_VCCIO",
-             "anchor_role": "FPGA",
-             "spokes": [{"pad": "17", "cell": "fpga_pwr_bank",
-                         "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},
+        "clone_placements": [
+            {"name": "ROOT_CL", "cluster": "ROOT_CL", "cell": "fpga_pwr_bank",
+             "xy": [1.2, -1.5]},
         ],
         "include": ["sub.sexp"],
     }, format_number=2))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
-    # both rules merged: root's own first, then the include's
-    assert [r.net for r in cfg.rules] == ["+3V3_VCCIO", "+1V2_VCCINT"]
+    # both list sections merged: root's own first, then the include's
+    assert [c.cluster for c in cfg.clone_placements] == ["ROOT_CL", "SUB_CL"]
 
 
 def test_mixed_include_graph_sexp_json(tmp_path):
@@ -142,10 +123,12 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     from kicadstamp.config.includes import walk_include_tree
 
     _write(tmp_path, "sub.sexp", dict_to_sexp({
-        "chains": [{"net": "N", "spokes": [{"pad": "1", "cell": "c"}]}],
+        "clone_placements": [{"name": "SUB", "cluster": "SUB", "cell": "c",
+                              "xy": [0.0, 0.0]}],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
-        "chains": [{"net": "M", "spokes": [{"pad": "2", "cell": "c"}]}],
+        "clone_placements": [{"name": "ROOT", "cluster": "ROOT", "cell": "c",
+                              "xy": [1.0, 1.0]}],
         "include": ["sub.sexp"],
     }, format_number=2))
 
@@ -154,8 +137,8 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     assert len(tree.children) == 1
     assert tree.children[0].path.name == "sub.sexp"
     # each node carries only its OWN directly-declared sections
-    assert [r["net"] for r in tree.sections["chains"]] == ["M"]
-    assert [r["net"] for r in tree.children[0].sections["chains"]] == ["N"]
+    assert [r["cluster"] for r in tree.sections["clone_placements"]] == ["ROOT"]
+    assert [r["cluster"] for r in tree.children[0].sections["clone_placements"]] == ["SUB"]
 
 
 def test_broken_sexp_invalid_top_level_raises_validation_error(tmp_path):

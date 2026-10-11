@@ -2629,18 +2629,18 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
 
 # ── Kind-filtered "Ref:" combo (plan_2026_08_29_trees_node_kind_filtered_combo.md) ──
 
-# A root config with records in all 4 placeable sections, INCLUDING a name
-# collision between sections (SHARED exists as BOTH a clone and a rule) — the
-# case the node dialog's auto mode must show prefixed ({kind}:{name}).
+# A root config with records in the placeable sections, INCLUDING a name
+# collision between sections (SHARED exists as BOTH a clone and a placement) —
+# the case the node dialog's auto mode must show prefixed ({kind}:{name}).
 KIND_FILTER_CFG = {
     "cells": {"t": {}},
     "clone_placements": [
         {"name": "CL_A", "cluster": "c", "cell": "t", "xy": [1.0, 2.0]},
         {"name": "SHARED", "cluster": "c2", "cell": "t", "xy": [3.0, 4.0]},
     ],
-    "chains": [
-        {"name": "R_B", "net": "+3V3", "anchor_role": "FPGA", "spokes": []},
-        {"name": "SHARED", "net": "+5V", "anchor_role": "FPGA", "spokes": []},
+    "entities": [
+        {"name": "E_B", "cell": "t", "cluster": "c3"},
+        {"name": "SHARED", "cell": "t", "cluster": "c4"},
     ],
     "coordinate_placements": [
         {"name": "COORD_C", "cluster": "CHAN", "role": "R",
@@ -2664,7 +2664,7 @@ def test_all_ref_candidates_returns_kind_name_pairs(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     assert dock._all_ref_candidates() == [
         ("clone", "CL_A"), ("clone", "SHARED"),
-        ("chain", "R_B"), ("chain", "SHARED"),
+        ("placement", "E_B"), ("placement", "SHARED"),
         ("coordinate", "COORD_C"), ("point", "PNT_D"),
     ]
 
@@ -2753,7 +2753,7 @@ def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
     """The ANCHOR dialog consumes plain names and an anchor auto-resolves by
     name (a section collision is fatal there) — so SHARED appears once."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    assert dock._all_ref_names() == ["CL_A", "SHARED", "R_B", "COORD_C", "PNT_D"]
+    assert dock._all_ref_names() == ["CL_A", "SHARED", "E_B", "COORD_C", "PNT_D"]
 
 
 def test_node_dialog_kind_coordinate_lists_only_coordinates(main_window, tmp_path):
@@ -2777,8 +2777,8 @@ def test_node_dialog_kind_coordinate_lists_only_coordinates(main_window, tmp_pat
 
 
 def test_node_dialog_kind_clone_lists_only_clones(main_window, tmp_path):
-    """Kind = clone -> only clone_placements names (plain) — never a rule or a
-    coordinate/point leaking in."""
+    """Kind = clone -> only clone_placements names (plain) — never a placement
+    or a coordinate/point leaking in."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
@@ -2797,11 +2797,11 @@ def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path
 
     assert dlg.kind_combo.currentData() is None  # auto by default
     assert _combo_texts(dlg.ref_combo) == [
-        "CL_A", "clone:SHARED", "R_B", "chain:SHARED", "COORD_C", "PNT_D",
+        "CL_A", "clone:SHARED", "E_B", "placement:SHARED", "COORD_C", "PNT_D",
     ]
     assert dlg.ref_combo.itemData(0) == (None, "CL_A")
     assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
-    assert dlg.ref_combo.itemData(3) == ("chain", "SHARED")
+    assert dlg.ref_combo.itemData(3) == ("placement", "SHARED")
     assert dlg.ref_combo.itemData(5) == (None, "PNT_D")
 
 

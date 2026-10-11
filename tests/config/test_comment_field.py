@@ -1,7 +1,9 @@
 # tests/test_comment_field.py
-"""comment — optional free-form note field on all 7 top-level config
-entities (Cell/Rule/ClonePlacement/CoordinatePlacement/
-ThermalViaArrayConfig/NetTrace/Point, handoff_2026_08_27_entity_comment_field.md).
+"""comment — optional free-form note field on the top-level config
+entities (Cell/ClonePlacement/CoordinatePlacement/
+ThermalViaArrayConfig/NetTrace/Point, handoff_2026_08_27_entity_comment_field.md;
+the same set as before minus Rule, which went with the `chains:` section
+2026-10-11).
 A plain schema field (NOT a syntactic comment): survives the s-expr/YAML
 dict round-trip and shows up in the GUI. Here: read through load_config(),
 absent -> None, like every other optional field."""
@@ -14,8 +16,6 @@ FULL_DATA = {
     "layer": "B.Cu",
     "cells": {"c1": {"layer": "B.Cu", "comment": "cell note", "components": []}},
     "points": {"p1": {"anchor_role": "LDO1", "comment": "point note"}},
-    "rules": [{"net": "+3V3", "anchor_role": "FPGA", "comment": "rule note",
-               "spokes": []}],
     "clone_placements": [{"cluster": "CH0", "cell": "c1", "xy": [0.0, 0.0],
                           "comment": "clone note"}],
     "coordinate_placements": [{"cluster": "CH0", "role": "R_FILT",
@@ -47,11 +47,10 @@ def _load(data: dict, tmp_path, name="cfg.sexp"):
     return cfg
 
 
-def test_comment_read_for_all_7_entities(tmp_path):
+def test_comment_read_for_every_entity(tmp_path):
     cfg = _load(FULL_DATA, tmp_path)
     assert cfg.cells["c1"].comment == "cell note"
     assert cfg.points["p1"].comment == "point note"
-    assert cfg.rules[0].comment == "rule note"
     assert cfg.clone_placements[0].comment == "clone note"
     assert cfg.coordinate_placements[0].comment == "coord note"
     assert cfg.thermal_via_arrays[0].comment == "tva note"
@@ -62,7 +61,6 @@ def test_absent_comment_defaults_to_none(tmp_path):
     cfg = _load(NO_COMMENT_DATA, tmp_path)
     assert cfg.cells["c1"].comment is None
     assert cfg.points["p1"].comment is None
-    assert cfg.rules[0].comment is None
     assert cfg.clone_placements[0].comment is None
     assert cfg.coordinate_placements[0].comment is None
     assert cfg.thermal_via_arrays[0].comment is None

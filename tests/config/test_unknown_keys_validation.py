@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""check_unknown_keys coverage for the two loading paths that were missing it
-until now: ManualSpoke (spokes: inside a rule) and thermal_via_array:. Same
-bug class as origin-by-via-net (dash typo) hit live on boards/3ch-awg-tia —
-a typo'd/wrong field name in these two blocks was previously silently
-ignored, no error at all. See _MANUAL_SPOKE_KNOWN_KEYS/
-_THERMAL_VIA_ARRAY_KNOWN_KEYS in config/loader.py.
+"""check_unknown_keys coverage for thermal_via_array: (a typo'd/wrong field
+name in that block used to be silently ignored, no error at all — same bug
+class as origin-by-via-net, a dash typo, hit live on boards/3ch-awg-tia).
+The spoke counterpart is gone with the `chains:` section (2026-10-11,
+config/retired_sections.py); the suggestion path is still covered here on
+thermal_via_array:. See _THERMAL_VIA_ARRAY_KNOWN_KEYS in config/entries.py.
 
 2026-08-28, core_yaml_removal: the typo-fatals are hand-written s-expr (a
 typo'd record key now dies in the s-expr parser's "unknown key in a record"
@@ -27,66 +27,6 @@ def _write(tmp_path, name, data) -> Path:
     else:
         p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
     return p
-
-
-class TestManualSpokeUnknownKeys:
-    def test_typo_field_in_spoke_is_fatal(self, tmp_path):
-        """Hand-written s-expr: dict_to_sexp would itself fatal on the typo'd
-        key at SERIALIZE time. In s-expr the rejection is the parser's
-        "unknown key in a record" — it still names the typo'd key."""
-        config_file = tmp_path / "test.sexp"
-        config_file.write_text(
-            "(kicadstamp-config\n"
-            '  (layer "B.Cu")\n'
-            "  (cells)\n"
-            "  (rules\n"
-            '    (rule (net "+3V3_VCCIO") (anchor_role "FPGA")\n'
-            "      (spokes\n"
-            '        (spoke (pad "17") (cell "t") (retierd false))))))\n',
-            encoding="utf-8")
-        with pytest.raises(ValidationError, match="retierd"):
-            load_config(str(config_file))
-
-    def test_suggests_close_match(self, tmp_path):
-        """The loader's check_unknown_keys close-match SUGGESTION is only
-        reachable on the .json path (raw dict -> loader); s-expr rejects the
-        key before the loader runs, so keep this coverage on JSON."""
-        config_file = _write(tmp_path, "test.json", {
-            "layer": "B.Cu",
-            "cells": {"t": {}},
-            # Canonical `chains` (not the legacy `rules`): under format 3 a JSON
-            # legacy-key record is not visited by the lift and reaches the graph
-            # check without a uuid, which would preempt the unknown-key check.
-            # The section key is irrelevant to this cell's subject (the spoke
-            # suggestion), so the canonical key is used.
-            "chains": [{
-                "name": "r1", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
-                "spokes": [{"pad": "17", "cell": "t", "retierd": False}],
-            }],
-        })
-        with pytest.raises(ValidationError, match="retired"):
-            load_config(str(config_file))
-
-    def test_all_known_spoke_fields_load_fine(self, tmp_path):
-        config_file = _write(tmp_path, "test.sexp", {
-            "layer": "B.Cu",
-            # The spoke's cell target: a format-3 load resolves the reference.
-            "cells": {"t": {}},
-            "rules": [{
-                "name": "r1", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
-                "spokes": [{
-                    "pad": "17", "cell": "t",
-                    "shift_x_mm": 1.0, "shift_y_mm": -1.0,
-                    "rotation_deg": 90.0, "retired": False,
-                    "cluster": "Channel_0", "skip": True,
-                }],
-            }],
-        })
-        cfg, _ = load_config(str(config_file))
-        spoke = cfg.rules[0].spokes[0]
-        assert spoke.cluster == "Channel_0"
-        assert spoke.retired is False
-        assert spoke.skip is True
 
 
 class TestThermalViaArrayUnknownKeys:

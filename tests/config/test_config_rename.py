@@ -35,8 +35,8 @@ def _plan(tmp_path, root_data, include_data=None, renames=None):
 
 def test_rename_role_only_semantic_fields(tmp_path):
     """Only the semantic role fields change — not a net template value, not a
-    rule name, not a coordinate_placement identity name — even when all of
-    them contain the exact same string. (.sexp has no comments to preserve.)"""
+    coordinate_placement identity name — even when all of them contain the
+    exact same string. (.sexp has no comments to preserve.)"""
     comp = {
         "cells": {
             "one": {
@@ -49,9 +49,6 @@ def test_rename_role_only_semantic_fields(tmp_path):
     }
     root = {
         "include": ["components.sexp"],
-        "rules": [
-            {"net": "GND", "name": "OLD_ROLE", "anchor_ref": "U1"},
-        ],
         "coordinate_placements": [
             {"cluster": "C", "role": "OLD_ROLE", "name": "OLD_ROLE",
              "x_mm": 1.0, "y_mm": 1.0, "rotation_deg": 0.0},
@@ -68,18 +65,16 @@ def test_rename_role_only_semantic_fields(tmp_path):
     assert root_data["coordinate_placements"][0]["role"] == "NEW_ROLE"
     # Non-role occurrences of the SAME string untouched:
     assert comp_data["cells"]["one"]["components"][0]["net_template"] == "OLD_ROLE"
-    # Two `name: OLD_ROLE` must survive: the rule name and the coordinate
-    # placement identity name (neither is a role field).
-    assert root_data["chains"][0]["name"] == "OLD_ROLE"
+    # A `name: OLD_ROLE` is an identity, not a role field — must survive.
     assert root_data["coordinate_placements"][0]["name"] == "OLD_ROLE"
     assert unmatched == []
 
 
 def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
     root = {
-        "chains": [
-            {"net": "GND", "anchor_role": "U1", "anchor_cluster": "FPGA",
-             "spokes": [{"pad": "1", "cluster": "FPGA_PWR"}]},
+        "net_traces": [
+            {"name": "nt1", "net": "GND", "anchor_role": "U1",
+             "anchor_cluster": "FPGA"},
         ],
         "coordinate_placements": [
             {"cluster": "FPGA", "role": "R1", "x_mm": 0.0, "y_mm": 0.0,
@@ -87,8 +82,7 @@ def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
         ],
     }
     mutated, report, unmatched = _plan(
-        tmp_path, root, renames={"Cluster": {"FPGA": "FPGA_V2",
-                                             "FPGA_PWR": "FPGA_PWR_V2"}})
+        tmp_path, root, renames={"Cluster": {"FPGA": "FPGA_V2"}})
     def _values(obj):
         if isinstance(obj, dict):
             for v in obj.values():
@@ -100,8 +94,7 @@ def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
             yield obj
 
     root_data = mutated[str(tmp_path / "root.sexp")]
-    assert root_data["chains"][0]["anchor_cluster"] == "FPGA_V2"
-    assert root_data["chains"][0]["spokes"][0]["cluster"] == "FPGA_PWR_V2"
+    assert root_data["net_traces"][0]["anchor_cluster"] == "FPGA_V2"
     assert root_data["coordinate_placements"][0]["cluster"] == "FPGA_V2"
     # no exact "FPGA" value remains anywhere
     assert "FPGA" not in list(_values(root_data))
@@ -141,9 +134,8 @@ def test_hierarchical_cluster_not_renamed_exact_match_only(tmp_path):
     rename tool is exact-value only (same as the schematic side): renaming
     'Channel_1' must NOT rewrite 'Channel_1/sub'."""
     root = {
-        "rules": [
-            {"net": "GND", "anchor_ref": "U1",
-             "spokes": [{"pad": "1", "cluster": "Channel_1/sub"}]},
+        "clone_placements": [
+            {"cluster": "Channel_1/sub", "cell": "one", "xy": [0.0, 0.0]},
         ],
     }
     mutated, report, unmatched = _plan(
@@ -312,7 +304,7 @@ def _write_profile(tmp_path, data):
 
 def test_cli_also_profile_dry_run_by_default(tmp_path, monkeypatch, capsys):
     _make_schematic(tmp_path, role="NEW_ROLE")  # schematic already renamed -> no schematic edits
-    profile = _write_profile(tmp_path, {"rules": [{"net": "GND", "anchor_role": "OLD_ROLE"}]})
+    profile = _write_profile(tmp_path, {"net_traces": [{"name": "nt", "net": "GND", "anchor_role": "OLD_ROLE"}]})
     cfg = _write_renames(tmp_path, "root.kicad_sch", {"Role": {"OLD_ROLE": "NEW_ROLE"}})
     monkeypatch.setattr(sys, "argv", ["fieldstool_cli.py", "rename", str(cfg),
                                       "--also-profile", str(profile)])
@@ -325,7 +317,7 @@ def test_cli_also_profile_dry_run_by_default(tmp_path, monkeypatch, capsys):
 
 def test_cli_also_profile_write(tmp_path, monkeypatch, capsys):
     _make_schematic(tmp_path, role="NEW_ROLE")
-    profile = _write_profile(tmp_path, {"rules": [{"net": "GND", "anchor_role": "OLD_ROLE"}]})
+    profile = _write_profile(tmp_path, {"net_traces": [{"name": "nt", "net": "GND", "anchor_role": "OLD_ROLE"}]})
     cfg = _write_renames(tmp_path, "root.kicad_sch", {"Role": {"OLD_ROLE": "NEW_ROLE"}})
     monkeypatch.setattr(sys, "argv", ["fieldstool_cli.py", "rename", str(cfg),
                                       "--also-profile", str(profile), "--write"])
@@ -338,7 +330,7 @@ def test_cli_also_profile_write(tmp_path, monkeypatch, capsys):
 
 def test_cli_profile_unmatched_warning_printed(tmp_path, monkeypatch, capsys):
     _make_schematic(tmp_path)  # no role at all -> schematic side matches nothing either
-    profile = _write_profile(tmp_path, {"rules": []})
+    profile = _write_profile(tmp_path, {"cells": {}})
     cfg = _write_renames(tmp_path, "root.kicad_sch", {"Role": {"NEVER_SEEN": "X"}})
     monkeypatch.setattr(sys, "argv", ["fieldstool_cli.py", "rename", str(cfg),
                                       "--also-profile", str(profile)])

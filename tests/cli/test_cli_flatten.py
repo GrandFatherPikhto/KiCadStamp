@@ -26,7 +26,7 @@ def _build_project(tmp_path: Path) -> dict:
     _write(root, {
         "layer": "B.Cu",
         "include": ["components.sexp", "fpga_spokes.sexp"],
-        "chains": [{"net": "+3V3", "anchor_role": "FPGA", "spokes": []}],
+        "net_traces": [{"name": "nt_root", "net": "+3V3", "anchor_role": "FPGA"}],
     })
     _write(components, {
         "cells": {"cap_pair": {"components": []}},
@@ -52,7 +52,7 @@ class TestFlattenMerge:
         data = _load(paths["root"])
         # Every section from every file is present, the include: key is gone.
         assert data["layer"] == "B.Cu"
-        assert data["chains"][0]["net"] == "+3V3"
+        assert data["net_traces"][0]["net"] == "+3V3"
         assert "cap_pair" in data["cells"]          # empty cell -> default-stripped {}
         assert "origin_a" in data["points"]         # empty point -> default-stripped {}
         assert data["clone_placements"][0]["name"] == "fpga_clone"
@@ -64,10 +64,10 @@ class TestFlattenMerge:
         flatten_config(root=str(paths["root"]))
         data = _load(paths["root"])
         # Nothing in this project contributes coordinate_placements:/
-        # net_traces:/extract_profiles:/clone_profiles:/sheet_templates: —
+        # entities:/extract_profiles:/clone_profiles:/sheet_templates: —
         # they must not be written back as empty noise.
         assert "coordinate_placements" not in data
-        assert "net_traces" not in data
+        assert "entities" not in data
         assert "extract_profiles" not in data
         assert "clone_profiles" not in data
         assert "sheet_templates" not in data
@@ -88,7 +88,7 @@ class TestFlattenDryRun:
         paths = _build_project(tmp_path)
         report = flatten_config(root=str(paths["root"]), dry_run=True)
         joined = "\n".join(report)
-        for section in ("chains", "cells", "points",
+        for section in ("net_traces", "cells", "points",
                         "clone_placements", "thermal_via_arrays"):
             assert section in joined
         assert "Would write to" in joined

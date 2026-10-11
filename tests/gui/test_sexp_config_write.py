@@ -59,14 +59,13 @@ def test_write_data_sexp_roundtrips(tmp_path):
     data = {
         "layer": "B.Cu",
         "place_components": False,
-        # the spoke's cell target and an explicit chain name (under the gate the
-        # lift mints a name for a nameless record — the round-trip would carry
-        # one the input dict does not).
+        # an explicit record name (under the gate the lift mints one for a
+        # nameless record — the round-trip would carry a name the input dict
+        # does not).
         "cells": {"fpga_pwr_bank": {}},
-        "chains": [
-            {"name": "+3V3_VCCIO", "net": "+3V3_VCCIO", "anchor_role": "FPGA",
-             "spokes": [{"pad": "17", "cell": "fpga_pwr_bank",
-                         "shift_x_mm": 1.2, "shift_y_mm": -1.5}]},
+        "clone_placements": [
+            {"name": "CH0", "cluster": "CH0", "cell": "fpga_pwr_bank",
+             "xy": [1.2, -1.5]},
         ],
     }
     from kicadstamp.config_writer import _write_data

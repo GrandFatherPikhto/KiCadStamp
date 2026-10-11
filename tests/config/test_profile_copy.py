@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from kicadstamp.config import load_cell, load_chain, load_entity
-from kicadstamp.config.profile_copy import copy_cell, copy_chain, copy_entity, copy_items
+from kicadstamp.config import load_cell, load_entity
+from kicadstamp.config.profile_copy import copy_cell, copy_entity, copy_items
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 
@@ -36,7 +36,8 @@ def _read(path: Path) -> dict:
 
 def _make_source(tmp_path, extra: dict | None = None) -> Path:
     """A small, realistic source profile: a leaf cell, a composite cell two
-    levels deep, an entity and a rule (with a chained point)."""
+    levels deep, and two entities over overlapping cells (for the multi-select
+    closure cell)."""
     data = {
         "layer": "F.Cu",
         "cells": {
@@ -54,19 +55,10 @@ def _make_source(tmp_path, extra: dict | None = None) -> Path:
                 "clone_placements": [{"name": "n2", "cell": "mid", "xy": [3.0, 4.0]}],
             },
         },
-        "points": {
-            "origin": {"anchor_origin": "grid"},
-            "fpga_origin": {"anchor_point": "origin"},
-        },
         "entities": [
             {"name": "E_FILTER", "cell": "top", "cluster": "CH0",
              "nets": {"R1": "/NET_A"}, "params": {"X": "1"}, "sheet": "Sheet_0"},
-        ],
-        "chains": [
-            {"name": "rule_5v", "net": "+5V",
-             "anchor_point": "fpga_origin",
-             "spokes": [{"pad": "1", "cell": "top", "shift_x_mm": 1.0},
-                        {"pad": "2", "cell": "mid", "shift_x_mm": 1.0}]},
+            {"name": "E_MID", "cell": "mid"},
         ],
     }
     if extra:
@@ -252,89 +244,26 @@ def test_copy_entity_missing_name_is_explicit_error(tmp_path):
 
 # ── copy_rule ──────────────────────────────────────────────────────────────
 
-def test_copy_rule_copies_rule_cells_and_points(tmp_path):
-    source = _make_source(tmp_path)
-    target = _write_sexp(tmp_path / "target.sexp", {
-        "cells": {}, "points": {}, "chains": []})
-
-    copied = copy_chain(source, "rule_5v", target)
-
-    assert set(copied) == {"top", "mid", "leaf", "fpga_origin", "origin"}
-    data = _read(target)
-    assert data["chains"][0]["name"] == "rule_5v"
-    assert data["chains"][0]["anchor_point"] == "fpga_origin"
-    assert set(data["cells"]) == {"top", "mid", "leaf"}
-    assert set(data["points"]) == {"fpga_origin", "origin"}  # chained point copied
-    chain = load_chain(data["chains"][0])
-    assert chain.spokes[0].cell == "top"
-    assert chain.spokes[1].cell == "mid"
-
-
-def test_copy_rule_matches_by_net_fallback(tmp_path):
-    """A rule WITHOUT name: is matched by its net: identity (rule_effective_
-    name's fallback) — the same identity used for the collision check."""
-    _write_sexp(tmp_path / "sub.sexp", {"cells": {"c1": {"layer": "F.Cu"}}})
-    source = _write_sexp(tmp_path / "source.sexp", {
-        "cells": {"c1": {"layer": "F.Cu", "components": [{"role": "R1"}]}},
-        "rules": [{"net": "+3V3", "anchor_role": "FPGA",
-                   "spokes": [{"pad": "1", "cell": "c1"}]}]})
-    target = _write_sexp(tmp_path / "target.sexp", {"cells": {}, "chains": []})
-
-    copied = copy_chain(source, "+3V3", target)
-
-    assert copied == ["c1"]
-    assert _read(target)["chains"][0]["net"] == "+3V3"
-
-
-def test_copy_rule_collision_refuses_and_leaves_file_unchanged(tmp_path):
-    source = _make_source(tmp_path)
-    target = _write_sexp(tmp_path / "target.sexp", {
-        "cells": {}, "points": {}, "chains": [{"name": "rule_5v", "net": "+5V"}]})
-    before = target.read_bytes()
-
-    with pytest.raises(ValidationError) as exc:
-        copy_chain(source, "rule_5v", target)
-
-    assert "already exists" in str(exc.value)
-    assert target.read_bytes() == before
-
-
-def test_copy_rule_missing_identity_is_explicit_error(tmp_path):
-    source = _make_source(tmp_path)
-    target = _write_sexp(tmp_path / "target.sexp", {"chains": []})
-
-    with pytest.raises(ValidationError) as exc:
-        copy_chain(source, "no_such_net", target)
-
-    assert "not found" in str(exc.value)
-
-
 # ── copy_items (multi-select) ───────────────────────────────────────────────
 
 def test_copy_items_imports_multiple_records_with_shared_closure(tmp_path):
-    """Entity and Rule on the SAME cells import together: their overlapping
+    """Two entities on the SAME cells import together: their overlapping
     dependency closures are merged, so the second record does NOT trip on the
     cells the first one just wrote (a naive per-record loop would)."""
     source = _make_source(tmp_path)
     target = _write_sexp(tmp_path / "target.sexp", {
-        "cells": {}, "points": {}, "entities": [], "chains": []})
+        "cells": {}, "entities": []})
 
     result = copy_items(source, [
         {"kind": "entity", "name": "E_FILTER"},
-        {"kind": "chain", "name": "rule_5v"},
+        {"kind": "entity", "name": "E_MID"},
     ], target)
 
     assert set(result["cells"]) == {"top", "mid", "leaf"}
-    assert set(result["points"]) == {"fpga_origin", "origin"}
-    assert result["entities"] == ["E_FILTER"]
-    assert result["chains"] == ["rule_5v"]
+    assert result["entities"] == ["E_FILTER", "E_MID"]
     data = _read(target)
     assert set(data["cells"]) == {"top", "mid", "leaf"}
-    assert set(data["points"]) == {"fpga_origin", "origin"}
-    assert data["entities"] == [
-        {"name": "E_FILTER", "cell": "top", "cluster": "CH0",
-         "nets": {"R1": "/NET_A"}, "params": {"X": "1"}, "sheet": "Sheet_0"}]
-    assert data["chains"][0]["name"] == "rule_5v"
+    assert {e["name"] for e in data["entities"]} == {"E_FILTER", "E_MID"}
     # the shared closure is written ONCE (no duplicate cells section)
     assert data["cells"]["top"]["clone_placements"][0]["cell"] == "mid"
 
@@ -342,21 +271,21 @@ def test_copy_items_imports_multiple_records_with_shared_closure(tmp_path):
 def test_copy_items_collision_is_atomic_across_all_records(tmp_path):
     """The collision check covers the UNION of all selected records' closures
     BEFORE any write — if one record's closure collides, NOTHING (including a
-    perfectly clean rule) is written."""
+    perfectly clean one) is written."""
     source = _make_source(tmp_path)
     target = _write_sexp(tmp_path / "target.sexp", {
-        "cells": {"leaf": {"layer": "F.Cu"}},  # collides via entity's closure
-        "points": {}, "entities": [], "chains": []})
+        "cells": {"top": {"layer": "F.Cu"}},  # collides via E_FILTER's closure
+        "entities": []})
     before = target.read_bytes()
 
     with pytest.raises(ValidationError) as exc:
         copy_items(source, [
             {"kind": "entity", "name": "E_FILTER"},
-            {"kind": "chain", "name": "rule_5v"},  # its own names are free
+            {"kind": "entity", "name": "E_MID"},  # its own names are free
         ], target)
 
     assert "already exists" in str(exc.value)
-    assert target.read_bytes() == before  # neither entity, rule, nor cells written
+    assert target.read_bytes() == before  # neither entity nor any cell written
 
 
 def test_copy_items_unknown_kind_is_explicit_error(tmp_path):
@@ -394,7 +323,7 @@ def test_copy_items_on_collision_skip_keeps_existing_and_imports_rest(tmp_path):
     source = _make_source(tmp_path)  # entity E_FILTER -> cell top -> mid -> leaf
     target = _write_sexp(tmp_path / "target.sexp", {
         "cells": {"top": {"layer": "F.Cu"}},  # collides, must be kept as-is
-        "points": {}, "entities": [], "chains": []})
+        "entities": []})
 
     result = copy_items(source, [{"kind": "entity", "name": "E_FILTER"}], target,
                         on_collision=lambda collisions: "skip")
@@ -414,7 +343,7 @@ def test_copy_items_on_collision_skip_keeps_existing_and_imports_rest(tmp_path):
 def test_copy_items_on_collision_cancel_raises_nothing_written(tmp_path):
     source = _make_source(tmp_path)
     target = _write_sexp(tmp_path / "target.sexp", {
-        "cells": {"leaf": {"layer": "F.Cu"}}, "points": {}, "entities": [], "chains": []})
+        "cells": {"leaf": {"layer": "F.Cu"}}, "entities": []})
     before = target.read_bytes()
 
     with pytest.raises(ValidationError) as exc:

@@ -62,9 +62,7 @@ from .models import (
     Config,
     CoordinatePlacement,
     Entity,
-    ManualSpoke,
     NetTrace,
-    Chain,
     ImprintBoundaryNet,
     ImprintComponentRecord,
     ImprintConfig,
@@ -78,6 +76,10 @@ from .models import (
     TreeInstance,
 )
 from .points import Point
+from .retired_sections import (
+    refuse_retired_node_kinds,
+    refuse_retired_section_node,
+)
 
 TOP_TAG = "kicadstamp-config"
 
@@ -86,13 +88,11 @@ FALSE_SYM = sexpdata.Symbol("false")
 
 # ── record class -> singular tag (FORK-C, design grammar §3.2) ─────────────
 _TAG_BY_CLASS = {
-    ManualSpoke: "spoke",
     TemplateVia: "via",
     TemplateComponentSlot: "component",
     TemplateTrack: "track",
     CellPlacement: "clone_placement",
     Cell: "cell",
-    Chain: "chain",
     ClonePlacement: "clone_placement",
     Entity: "entity",
     CoordinatePlacement: "coordinate_placement",
@@ -110,8 +110,9 @@ _TAG_BY_CLASS = {
 _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 
 # list sections (concatenated) and their record class — mirrors _LIST_SECTIONS.
+# (`chains:` is NOT here: the section is retired — refused on its raw name in
+# the parse loop, before this dispatch, see config/retired_sections.py.)
 _LIST_SECTION_CLASS = {
-    "chains": Chain,
     "clone_placements": ClonePlacement,
     "thermal_via_arrays": ThermalViaArrayConfig,
     "coordinate_placements": CoordinatePlacement,
@@ -139,8 +140,6 @@ _REF_FIELDS = {
     (Entity, "imprint"),
     (ClonePlacement, "cell"),
     (ClonePlacement, "anchor_point"),
-    (Chain, "anchor_point"),
-    (ManualSpoke, "cell"),
     (CoordinatePlacement, "anchor_point"),
     (ThermalViaArrayConfig, "anchor_point"),
     (Point, "anchor_point"),
@@ -1199,11 +1198,12 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
     have produced for the equivalent YAML. The top-level node MUST be
     (kicadstamp-config ...).
 
-    apply_aliases=True (default) maps a legacy `(rules ...)` section key to
-    `chains` at parse time (2026-09-01 Rule -> Chain rename) — every normal
-    reader wants this. The converter tools/convert_rules_to_chains.py passes
-    apply_aliases=False so it can still SEE a legacy `rules` key on disk and
-    rewrite the file to the canonical `(chains ...)` form.
+    apply_aliases=True (default) maps a legacy `(scheme_lists ...)` section key
+    to `imprints` at parse time (2026-09-20 Scheme List -> Imprint rename) —
+    every normal reader wants this. The `(rules ...)` -> `(chains ...)` alias is
+    GONE (2026-10-11, Б4): the section itself is retired and refused on its RAW
+    name before the aliases (config/retired_sections.py), so there is no
+    spelling of it left to map. apply_aliases=False keeps the raw key.
 
     raw_trees=True skips trees.py's grammar validation for the trees: section
     (trees.raw_tree_from_sexp): the one-way own_anchor -> mount converter
@@ -1258,6 +1258,15 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
                 "s-expr: expected a (key ...) node at the top level",
                 [_("got {value!r}").format(value=child)])
         key = sval(child[0])
+        # Д1 (2026-10-11): a retired SECTION (`chains:` / the legacy `rules:`
+        # spelling) is refused HERE — on the RAW section name, before the
+        # aliases and before the section-key dispatch, so a file that still
+        # carries one reads as "retired", never as an unknown section or a
+        # free-form field. An empty one is dropped in silence: it must not reach
+        # the dict, or the next write would emit it again. See
+        # config/retired_sections.py.
+        if refuse_retired_section_node(key, child, file_path):
+            continue
         # Root `(version N)` — the file's format number, taken out HERE (see the
         # docstring): it must never survive into the dict, and it must be gone
         # before the include merge (a non-root file carrying it used to be a
@@ -1265,13 +1274,14 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
         if key == VERSION_KEY:
             version_seen.append(_root_version(child, file_path, version_seen))
             continue
-        # Legacy section-key aliases (2026-09-01 Rule -> Chain, 2026-09-20
-        # Scheme List -> Imprint): an old profile written with `(rules ...)` or
-        # `(scheme_lists ...)` must parse as the canonical record class, not as
-        # an unknown free field. Same map as config/aliases.py's
-        # normalize_section_aliases, applied at parse time so the emitted dict
-        # already carries the canonical `chains:` / `imprints:` key.
-        # apply_aliases=False (the migration converter) keeps the raw key.
+        # Legacy section-key alias (2026-09-20 Scheme List -> Imprint): an old
+        # profile written with `(scheme_lists ...)` must parse as the canonical
+        # record class, not as an unknown free field. Same map as
+        # config/aliases.py's normalize_section_aliases, applied at parse time
+        # so the emitted dict already carries the canonical `imprints:` key.
+        # The `rules` -> `chains` alias was removed with the section itself
+        # (Б4) — such a node never gets here, see the refusal above.
+        # apply_aliases=False keeps the raw key.
         if apply_aliases:
             key = _SECTION_ALIASES.get(key, key)
         path = f"<{key}>"
@@ -1299,7 +1309,6 @@ def sexp_to_dict(text: str, apply_aliases: bool = True,
     # Д1 (2026-10-10): a tree node of a retired kind (chain / legacy rule) is
     # refused HERE — the ONE "text -> dict" point every reader (loader, writer,
     # on-disk lift, GUI, CLI) passes through. See config/retired_sections.py.
-    from .retired_sections import refuse_retired_node_kinds
     refuse_retired_node_kinds(out.get("trees"), file_path)
 
     # The number, once, after the whole root is read: the node may sit anywhere

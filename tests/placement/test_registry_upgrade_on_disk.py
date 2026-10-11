@@ -802,34 +802,35 @@ def test_a_long_detach_list_is_truncated_in_the_warning_and_full_in_debug(
         assert f"pad:{i}|leaf|__spoke__|0" in full, full
 
 
-def _with_a_chain(data: dict) -> dict:
-    """``data`` plus a non-empty ``chains:`` — a config that STILL plans spoke
-    copper (nothing refuses it yet: Д1's load refusal is a separate step)."""
-    data = json.loads(json.dumps(data))          # deep copy
-    data["chains"] = [{"net": "GND", "name": "ch1", "anchor_ref": "U1",
-                       "spokes": [{"pad": "17", "cell": "leaf"}]}]
-    return data
+# A config file that still carries the retired `chains:` section — written BY
+# HAND: the writer cannot express it any more (dict_to_sexp has no chain tag),
+# and that is the point of this fixture — such a file exists on disk from an
+# older build, and the reader must REFUSE it (Д1, Б4).
+CHAINED_TEXT = (
+    '(kicadstamp-config (version 3)\n'
+    '  (cells (cell "leaf" (layer "B.Cu")))\n'
+    '  (chains\n'
+    '    (chain (name "ch1") (net "GND") (anchor_ref "U1")\n'
+    '           (spokes (spoke (pad "17") (cell "leaf"))))))\n')
 
 
-def test_a_non_empty_chains_section_leaves_the_registry_untouched(
-        tmp_path, format3, caplog):  # noqa: F811
-    """Д2 доделка п.1 (а): a config that still carries `chains:` PLANS its spoke
-    copper, so its registry is NOT lifted AT ALL — byte-for-byte, no `.bak`, the
-    schema stays 2.
+def test_a_non_empty_chains_section_refuses_the_open_and_keeps_registry_schema_2(
+        tmp_path, format3):  # noqa: F811
+    """Д1 (Б4) + Д2 доделка п.1 (а): a config that still carries `chains:` is
+    REFUSED while the file text is parsed — before any registry discipline runs.
+    So its registry is not lifted at all: byte-for-byte, no `.bak`, schema 2.
 
-    Why not "lift the schema but keep the keys" (what the first cut did): once the
-    `chains:` section is removed, a schema-target file makes the lift a NO-OP, so
-    the spoke keys stay attached while NOTHING plans them any more — and
-    ``reconcile`` then PRUNES them, deleting the copper. That is exactly what Д2
-    exists to prevent, so the file must be left alone until the chains are gone."""
+    That is the same outcome the earlier "left at schema 2 with a WARNING" cut
+    aimed at, reached one step earlier: while the chains are there nothing plans
+    the spoke keys, so lifting the schema would let ``reconcile`` PRUNE them —
+    deleting the copper, exactly what Д2 exists to prevent."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(mint_format3(_with_a_chain(_config_data())),
-                                 format_number=3), encoding="utf-8")
+    root.write_text(CHAINED_TEXT, encoding="utf-8")
     via = registry_path_for_config(str(root))
     _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
     before = Path(via).read_text(encoding="utf-8")
 
-    with caplog.at_level(logging.WARNING, logger="kicadstamp.config.registry_upgrade"):
+    with pytest.raises(ValidationError, match="no longer supported"):
         load_config(str(root))
 
     assert Path(via).read_text(encoding="utf-8") == before, (
@@ -837,25 +838,21 @@ def test_a_non_empty_chains_section_leaves_the_registry_untouched(
     assert _read(via)["schema_version"] == 2, "the schema must stay 2"
     assert list(Path(via).parent.glob("*.bak.*")) == [], (
         "no write means no .bak")
-    warnings = [r.getMessage() for r in caplog.records
-                if r.name == "kicadstamp.config.registry_upgrade"
-                and r.levelno == logging.WARNING]
-    assert any("chains" in m and "ch1" in m for m in warnings), warnings
 
 
 def test_clearing_the_chains_lets_the_next_open_detach_and_lift(
         tmp_path, format3):  # noqa: F811
-    """Д2 доделка п.1 (б): the cell above leaves the file at schema 2; once the
-    `chains:` section is gone the NEXT open detaches the spoke keys and stamps the
-    current schema. That pair is the whole reason the registry is left untouched
-    rather than half-lifted."""
+    """Д1 (Б4) + Д2 доделка п.1 (б): the cell above leaves the file at schema 2
+    because the chains REFUSE the open; once the section is gone the NEXT open
+    detaches the spoke keys and stamps the current schema. That pair is the whole
+    reason the registry is left untouched rather than half-lifted."""
     root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp(mint_format3(_with_a_chain(_config_data())),
-                                 format_number=3), encoding="utf-8")
+    root.write_text(CHAINED_TEXT, encoding="utf-8")
     via = registry_path_for_config(str(root))
     _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=2)
 
-    load_config(str(root))                          # (а): the file is left alone
+    with pytest.raises(ValidationError):
+        load_config(str(root))                      # (а): nothing is touched
     assert _read(via)["schema_version"] == 2
     assert "pad:17|leaf|__spoke__|0" in _read(via)
 

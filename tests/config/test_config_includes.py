@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for kicadstamp/config/includes.py — generic `include:` for splitting
 a profile config into subsystem files (extract_profiles + clone_placements +
-rules + cells together, unlike per-section *_file keys). s-expr fixtures since
+cells together, unlike per-section *_file keys). s-expr fixtures since
 2026-08-28 (core_yaml_removal)."""
 from pathlib import Path
 
@@ -44,7 +44,7 @@ def test_include_merges_clone_placements_and_rules(tmp_path):
 def test_include_merges_thermal_via_arrays(tmp_path):
     """2026-08-02: thermal_via_arrays: generalized from a single always-root
     field to a real list section — must now split across include: files the
-    same way rules:/clone_placements: already do (a second IC needing
+    same way clone_placements: already does (a second IC needing
     thermal vias, e.g. AD9707 per-channel, shouldn't have to crowd into the
     root config just because the first one — FPGA — historically did)."""
     _write(tmp_path, "sub.sexp", {"thermal_via_arrays": [
@@ -151,7 +151,7 @@ def test_unsupported_key_in_included_file_is_fatal(tmp_path):
     then dropped by the caller (only _LIST_SECTIONS/_DICT_SECTIONS are
     pulled up), a real bug hit live on boards/3ch-awg-tia (layer: in
     rules/fpga_spokes.yaml, thermal_via_array: in fpga_thermal_vias.yaml)."""
-    _write(tmp_path, "sub.sexp", {"layer": "B.Cu", "chains": []})
+    _write(tmp_path, "sub.sexp", {"layer": "B.Cu", "clone_placements": []})
 
     root = _write(tmp_path, "root.sexp", {"include": ["sub.sexp"]})
 
@@ -247,7 +247,7 @@ def test_walk_single_file_no_includes(tmp_path):
 
     assert node.path == root.resolve()
     assert list(node.sections["cells"].keys()) == ["one_role"]
-    assert node.sections["chains"] == []
+    assert node.sections["clone_placements"] == []
     assert node.children == []
 
 

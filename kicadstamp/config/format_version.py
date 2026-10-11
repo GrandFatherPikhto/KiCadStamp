@@ -205,7 +205,6 @@ def _step_1_to_2(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
 # test pins this table against the product's `_F3_LIST_SECTIONS`, so a new list
 # section cannot slip in without a singular (and a cell).
 _SECTION_SINGULAR = {
-    "chains": "chain",
     "clone_placements": "clone_placement",
     "thermal_via_arrays": "thermal_via_array",
     "coordinate_placements": "coordinate_placement",
@@ -480,11 +479,12 @@ def parse_raw_text(text: str, suffix: str,
     carried.
 
     `suffix` picks the grammar the way every reader does — by file extension —
-    so the two cannot drift. Section ALIASES are normalized (that is part of
-    reading a file at all, `sexp_to_dict(apply_aliases=True)` /
-    `normalize_section_aliases`), which is what lets the on-disk sweep write
-    canonical section names (`rules` -> `chains`) instead of carrying the old
-    ones along (У1).
+    so the two cannot drift. Section ALIASES are normalized AND a RETIRED
+    section is refused (both part of reading a file at all — `sexp_to_dict` for
+    `.sexp`, `normalize_section_aliases` for `.json`), which is what lets the
+    on-disk sweep write canonical section names instead of carrying the
+    pre-rename ones along (У1) — and what keeps it from rewriting, at all, a
+    file that still carries a `chains:` section.
 
     Used by :func:`parse_raw_file` and by the on-disk sweep's pre-write check,
     which must parse the exact text it is about to write, through the same
@@ -517,7 +517,7 @@ def parse_raw_text(text: str, suffix: str,
         # about for no gain.
         from .aliases import normalize_section_aliases
 
-        data = normalize_section_aliases(dict(data))
+        data = normalize_section_aliases(dict(data), path)
         return data, take_version(data, path)
     return {}, 1
 

@@ -79,7 +79,7 @@ def test_collect_all_cell_names_unions_across_the_whole_graph(tmp_path):
 
 
 def test_collect_all_cell_names_empty_when_no_cells_anywhere(tmp_path):
-    root = _write(tmp_path / "root.sexp", {"rules": []})
+    root = _write(tmp_path / "root.sexp", {})
 
     assert collect_all_cell_names(root) == []
 
@@ -137,7 +137,7 @@ def test_collect_all_sheet_names_dedupes_and_sorts(tmp_path):
 
 
 def test_collect_all_sheet_names_empty_when_no_schematic_dir(tmp_path):
-    root = _write(tmp_path / "root.sexp", {"rules": []})
+    root = _write(tmp_path / "root.sexp", {})
 
     assert collect_all_sheet_names(root) == []
 
@@ -207,21 +207,21 @@ def test_rename_list_entry_renames_clone_placement_by_name(tmp_path):
     assert data["clone_placements"][0]["cell"] == "ldo"  # other fields untouched
 
 
-def test_rename_list_entry_gives_a_nameless_chain_an_explicit_name(tmp_path, pin_format2):
-    """chains: entries may have no name: at all, falling back to net: as
-    their effective display name (config/models.py's chain_effective_name())
-    — renaming one is what GIVES it an explicit name: for the first time.
+def test_rename_list_entry_gives_a_nameless_net_trace_an_explicit_name(tmp_path, pin_format2):
+    """net_traces: entries may have no name: at all, falling back to net: as
+    their effective display name — renaming one is what GIVES it an explicit
+    name: for the first time.
 
     SUBJECT is the format-2 nameless grammar: under format 3 the 2 -> 3 lift
     MINTS a name for the record, so it is never nameless — pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
-        "chains": [{"net": "+3V3", "anchor_role": "MCU"}]})
+        "net_traces": [{"net": "+3V3", "anchor_role": "MCU"}]})
 
-    rename_list_entry(path, "chains", "+3V3", "power_chain")
+    rename_list_entry(path, "net_traces", "+3V3", "power_net")
 
     data = _load(path)
-    assert data["chains"][0]["name"] == "power_chain"
-    assert data["chains"][0]["net"] == "+3V3"  # net: itself is never touched
+    assert data["net_traces"][0]["name"] == "power_net"
+    assert data["net_traces"][0]["net"] == "+3V3"  # net: itself is never touched
 
 
 def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_name(
@@ -231,7 +231,7 @@ def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_nam
     coordinate_placement_effective_name()) — renaming one by that display
     name is what GIVES it an explicit name: for the first time (2026-08-12,
     Group 1: coordinate_placements is a normal named-records section now,
-    addressable in the tree exactly like rules:' net: fallback).
+    addressable in the tree exactly like net_traces' net: fallback).
 
     SUBJECT is the format-2 nameless grammar: the format-3 lift mints a name
     — pinned to 2."""
@@ -326,7 +326,7 @@ def test_rename_entry_cascades_a_cell_rename_across_the_graph(tmp_path):
 
 
 def test_rename_entry_does_not_cascade_for_a_non_referenced_section(tmp_path):
-    """clone_placements:/thermal_via_arrays:/extract_profiles:/rules:/
+    """clone_placements:/thermal_via_arrays:/extract_profiles:/
     clone_profiles: are never referenced by name from elsewhere in the config
     graph (see gui/docks/rename.py's module docstring) — only the one file
     the entry itself lives in should ever be touched."""

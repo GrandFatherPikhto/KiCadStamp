@@ -37,8 +37,6 @@ def _root_data() -> dict:
         "entities": [{"name": "E1", "cell": "Cell/A"},
                      {"name": "E2", "imprint": "imp1"}],
         "imprints": [{"name": "imp1", "components": [{"ref": "C1"}]}],
-        "chains": [{"net": "GND", "name": "ch1", "anchor_point": "P/A",
-                    "spokes": [{"pad": "1", "cell": "Cell/A"}]}],
         "clone_placements": [{"cluster": "K1", "cell": "Cell/A",
                               "anchor_point": "P/A", "name": "cp1",
                               "xy": [0.0, 0.0]}],

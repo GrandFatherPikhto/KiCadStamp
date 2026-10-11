@@ -44,13 +44,14 @@ def load_data(path: Optional[Path]) -> dict:
     def _uncached_read(p: Path) -> dict:
         with open(p, "r", encoding="utf-8") as f:
             if p.suffix.lower() == ".json":
-                # normalize_section_aliases: legacy `rules:` key -> `chains:`
-                # (2026-09-01 rename) so read-only browsing sees the canonical key.
+                # normalize_section_aliases: a retired `chains:` section is
+                # refused (read-only browsing must not pretend it is simply
+                # gone) and a pre-rename section key is named canonically.
                 # lift_loaded_dict: the format number comes out and the content
                 # is lifted to CURRENT_FORMAT (the s-expr branch gets both from
                 # sexp_to_dict itself).
                 return lift_loaded_dict(
-                    normalize_section_aliases(json.load(f) or {}), str(p))
+                    normalize_section_aliases(json.load(f) or {}, str(p)), str(p))
             if p.suffix.lower() == ".sexp":
                 return normalize_section_aliases(
                     sexp_to_dict(f.read(), path=str(p)) or {})

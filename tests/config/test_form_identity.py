@@ -14,8 +14,7 @@ import pytest
 from kicadstamp.config.form_identity import (FormReferenceMissing, identify,
                                              node_ref_uuid, section_uuids)
 from kicadstamp.config.format3 import _F3_NODE_KIND_TARGET
-from kicadstamp.config.models import (Cell, Chain, Config, ManualSpoke,
-                                      ThermalViaArrayConfig)
+from kicadstamp.config.models import Cell, Config, ThermalViaArrayConfig
 from kicadstamp.config.points import Point
 
 
@@ -25,7 +24,6 @@ def _cfg() -> Config:
         points={"p1": Point(name="p1", anchor_role="FPGA", uuid="U-POINT")},
         thermal_via_arrays=[
             ThermalViaArrayConfig(name="tva1", pad="1", uuid="U-TVA")],
-        chains=[Chain(net="CL", uuid="U-CHAIN", spokes=[])],
     )
 
 
@@ -69,17 +67,6 @@ def test_a_name_hint_resolves_the_reference_uuid():
     assert out["anchor_point_uuid"] == "U-POINT"
 
 
-def test_a_chain_spokes_cell_resolves_to_cell_uuid():
-    cfg = _cfg()
-    cfg.chains = [Chain(net="CL", name="CL", uuid="U-CHAIN",
-                        spokes=[ManualSpoke(pad="1", cell="c1")])]
-    out = identify({"name": "CL", "spokes": [{"pad": "1", "cell": "c1"}]},
-                   "chains", cfg=cfg, identity="CL",
-                   identity_of=lambda m: m.name or m.net)
-    assert out["uuid"] == "U-CHAIN"
-    assert out["spokes"][0]["cell_uuid"] == "U-CELL"
-
-
 def test_a_clone_placement_resolves_cell_and_anchor_point():
     cfg = _cfg()
     out = identify({"cluster": "C1", "cell": "c1", "anchor_point": "p1"},
@@ -115,7 +102,6 @@ def test_a_target_without_a_uuid_carries_nothing_and_is_not_a_refusal():
 _RECORDS = {
     "entities": ("E1", "U-ENT"),
     "clone_placements": ("CP1", "U-CP"),
-    "chains": ("CH1", "U-CHAIN"),
     "coordinate_placements": ("K1", "U-COORD"),
     "net_traces": ("NT1", "U-NT"),
     "points": ("P1", "U-POINT"),

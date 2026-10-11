@@ -93,27 +93,6 @@ class TestDumpRoundTrip:
         assert loaded.xy == original.xy
         assert loaded.rotation_deg == original.rotation_deg
 
-    def test_rules_round_trip(self, tmp_path):
-        rules = [
-            Rule(net="+3V3_VCCIO", name="+3V3_VCCIO", anchor_role="FPGA",
-                spokes=[ManualSpoke(pad="17", cell="cap_pair_standard",
-                                    shift_y_mm=-0.5, rotation_deg=90.0, cluster="FPGA_PWR_BANK")]),
-        ]
-        out = tmp_path / "generated_rules.sexp"
-        root = _fragment_profile_root(tmp_path, ["cap_pair_standard"],
-                                      "generated_rules.sexp")
-        dump_rules(rules, str(out), graph_root=str(root))
-
-        cfg, _ = load_config(str(root))
-        assert len(cfg.rules) == 1
-        loaded = cfg.rules[0]
-        assert loaded.net == "+3V3_VCCIO"
-        assert loaded.anchor_role == "FPGA"
-        assert len(loaded.spokes) == 1
-        assert loaded.spokes[0].pad == "17"
-        assert loaded.spokes[0].shift_y_mm == -0.5
-        assert loaded.spokes[0].cluster == "FPGA_PWR_BANK"
-
     def test_minimal_clone_placement_omits_defaults_in_sexp_text(self, tmp_path):
         """Sanity check on the actual written text, not just the round-trip —
         confirms the s-expr stays close to the hand-written minimal style."""

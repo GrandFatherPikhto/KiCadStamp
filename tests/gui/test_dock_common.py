@@ -205,10 +205,9 @@ def test_upsert_list_entry_refuses_non_list(config_path):
 
 
 def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path, monkeypatch):
-    """chains: needs this (2026-09-01, plan rules_to_chains — was rules:) — a
-    Chain's identity falls back to net: when name: is absent
-    (config/models.py's chain_effective_name()), unlike thermal_via_arrays:/
-    clone_placements: which always require an explicit name:.
+    """net_traces: needs this — a NetTrace's identity falls back to net: when
+    name: is absent, unlike thermal_via_arrays:/clone_placements: which always
+    require an explicit name:.
 
     The nameless fallback is format-2 semantics: under the format-3 gate the
     lift mints a name for a nameless record, so the key becomes the minted name
@@ -217,21 +216,23 @@ def test_upsert_list_entry_key_fn_matches_by_name_or_net(config_path, monkeypatc
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     identity = lambda e: e.get("name") or e.get("net")  # noqa: E731
     config_path.write_text(
-        _dump(config_path, {"chains": [{"net": "+3V3", "anchor_role": "FPGA"}]}),
+        _dump(config_path, {"net_traces": [{"net": "+3V3", "anchor_role": "FPGA"}]}),
         encoding="utf-8")
 
     overwritten = upsert_list_entry(
-        config_path, "chains", {"net": "+3V3", "anchor_role": "FPGA_2"}, key_fn=identity)
+        config_path, "net_traces", {"net": "+3V3", "anchor_role": "FPGA_2"},
+        key_fn=identity)
     assert overwritten is True
     data = _load(config_path)
-    assert data["chains"] == [{"net": "+3V3", "anchor_role": "FPGA_2"}]
+    assert data["net_traces"] == [{"net": "+3V3", "anchor_role": "FPGA_2"}]
 
     appended = upsert_list_entry(
-        config_path, "chains", {"net": "+1V2", "name": "explicit", "anchor_role": "FPGA"},
+        config_path, "net_traces",
+        {"net": "+1V2", "name": "explicit", "anchor_role": "FPGA"},
         key_fn=identity)
     assert appended is False
     data = _load(config_path)
-    assert len(data["chains"]) == 2
+    assert len(data["net_traces"]) == 2
 
 
 # ── add_include / disable_include (ConfigTreeDock's Add/Remove file, ─────
@@ -290,7 +291,7 @@ def test_non_includable_keys_flags_root_only_scalars(config_path):
 
 def test_non_includable_keys_empty_for_a_clean_subsystem_file(config_path):
     config_path.write_text(
-        _dump(config_path, {"cells": {}, "chains": []}), encoding="utf-8")
+        _dump(config_path, {"cells": {}}), encoding="utf-8")
     assert non_includable_keys(config_path) == set()
 
 

@@ -2,11 +2,11 @@
 """
 includes.py — generic `include:` for splitting one profile YAML into several
 files (e.g. by subsystem: ldo.yaml, pi_filters.yaml, dac_channels.yaml — each
-carrying whatever mix of extract_profiles/clone_placements/rules/cells
-that subsystem needs).
+carrying whatever mix of extract_profiles/clone_placements/thermal_via_arrays/
+cells that subsystem needs).
 
-include: is general-purpose and used by BOTH load_config() (rules/
-clone_placements/thermal_via_arrays/cells/points) and load_profile() in
+include: is general-purpose and used by BOTH load_config() (clone_placements/
+thermal_via_arrays/entities/cells/points) and load_profile() in
 kicadstamp_cli.py (extract_profiles/clone_profiles) — the two existing,
 otherwise-independent YAML-reading entry points — since a subsystem file is
 meant to carry extract_profiles AND clone_placements together, not just one
@@ -43,9 +43,10 @@ logger = logging.getLogger(__name__)
 
 # List sections: concatenated (this file's own entries first, then each
 # include's, in listed order). YAML order has no functional effect —
-# dependency_order.py already reorders rules/clone_placements by real anchor
-# dependency at apply time.
-_LIST_SECTIONS = ('chains', 'clone_placements', 'thermal_via_arrays', 'coordinate_placements',
+# dependency_order.py already reorders clone_placements by real anchor
+# dependency at apply time. (`chains:` left this tuple with the retired
+# section, 2026-10-11 — see config/retired_sections.py.)
+_LIST_SECTIONS = ('clone_placements', 'thermal_via_arrays', 'coordinate_placements',
                   'net_traces', 'entities', 'trees', 'tree_instances', 'imprints')
 
 # Dict sections: merged key-by-key, fatal on a key defined in two different
@@ -95,10 +96,14 @@ def _load_config_file(path: Path) -> dict:
             # step context: a step that needs the profile path refuses a bare
             # "<config>" instead of inventing a seed.
             return normalize_section_aliases(
-                sexp_to_dict(f.read(), path=str(path)) or {})
+                sexp_to_dict(f.read(), path=str(path)) or {}, str(path))
         if suffix == '.json':
+            # A raw JSON dict has no parse layer of its own, so the retired-
+            # section refusal comes from normalize_section_aliases (the ONE dict
+            # entry every raw reader shares): a .json profile with a `chains:`
+            # section is refused here, never silently rewritten without it.
             return lift_loaded_dict(
-                normalize_section_aliases(json.load(f) or {}), str(path))
+                normalize_section_aliases(json.load(f) or {}, str(path)), str(path))
         if suffix in ('.yaml', '.yml'):
             raise yaml_removed_config_error(path)
         raise unknown_extension_config_error(path, suffix)
@@ -159,7 +164,7 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
     # scalar-shaped block under its old singular name thermal_via_array: —
     # generalized to a real list section 2026-08-02, see
     # handoff_2026_08_02_thermal_via_arrays_list.md, so it's fine to include
-    # now, same as rules:/clone_placements:.)
+    # now, same as clone_placements:.)
     if not is_root:
         # `folders` (format 3, step 2->3) is a graph-wide table, not a per-file
         # section: a row may stand in each file that has records under it (В39),
@@ -257,7 +262,7 @@ def _resolve(path: str, data: dict[str, Any], ancestors: set[Path], resolved: se
 def resolve_includes(path: str, data: dict[str, Any]) -> dict[str, Any]:
     """
     Recursively resolves data['include'] (if present), merging list sections
-    (rules/clone_placements — concatenated) and dict sections (cells/
+    (clone_placements — concatenated) and dict sections (cells/
     extract_profiles/clone_profiles — merged, fatal on key collision) from
     every included file into data. Returns a new dict; does not mutate data.
 

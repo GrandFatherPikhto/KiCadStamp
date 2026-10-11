@@ -28,7 +28,7 @@ from .name_hint import close_name_hint
 logger = logging.getLogger(__name__)
 
 # ── the §0 sections and the reference forms (moved from loader.py) ─────────
-_F3_LIST_SECTIONS = ("chains", "clone_placements", "thermal_via_arrays",
+_F3_LIST_SECTIONS = ("clone_placements", "thermal_via_arrays",
                      "coordinate_placements", "net_traces", "entities",
                      "imprints")
 _F3_DICT_SECTIONS = ("cells", "points")
@@ -128,8 +128,8 @@ def _f3_refs(data: dict):
 
     A reference is emitted whenever its NAME field is present; whether it also
     carries a UUID is the check's business (У2.2 fatal), never a reason to skip
-    it. Forms: a record's own fields (_F3_REF_TARGET), chain spokes, points ->
-    points, cells' nested clone_placements, sheet_templates' nested
+    it. Forms: a record's own fields (_F3_REF_TARGET), points -> points, cells'
+    nested clone_placements, sheet_templates' nested
     clone_placements/coordinate_placements, tree nodes (_F3_NODE_KIND_TARGET)
     and a tree's / a tree_instances declaration's (anchor (point …))."""
     for section in _F3_LIST_SECTIONS:
@@ -141,11 +141,6 @@ def _f3_refs(data: dict):
             for field, target in _F3_REF_TARGET.items():
                 if rec.get(field) is not None:
                     yield _F3Ref(label, target, rec, field, field + "_uuid")
-            if section == "chains":
-                for sp in rec.get("spokes") or []:
-                    if isinstance(sp, dict) and sp.get("cell") is not None:
-                        yield _F3Ref(f"chain {nm!r} spoke {sp.get('pad')!r}",
-                                     "cells", sp, "cell", "cell_uuid")
     # tree_instances: a LIST section in the include merge, but NOT a §0 record
     # section (a declaration gets no UUID of its own). Its OWN `anchor:` is the
     # TREE anchor grammar, so a (point …) there references a points: record and

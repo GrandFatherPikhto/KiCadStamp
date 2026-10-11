@@ -21,7 +21,7 @@ from ..trees import Tree, anchor_from_dict, anchor_to_dict, tree_from_dict
 from .aliases import normalize_entity_aliases
 from .models import (
     ThermalViaArrayConfig, TemplateVia, TemplateComponentSlot, TemplateTrack,
-    Cell, CellPlacement, ManualSpoke, Chain, ClonePlacement, CoordinatePlacement,
+    Cell, CellPlacement, ClonePlacement, CoordinatePlacement,
     NetTrace, Entity, ImprintConfig, ImprintComponentRecord,
     ImprintScopePreset, ImprintViaRecord, ImprintTrackRecord,
     ImprintBoundaryNet, TreeInstance,
@@ -512,8 +512,8 @@ def _load_point(name: str, data: dict[str, Any]) -> Point:
 def _point_is_footprint_eligible(points: dict[str, Point], name: str, _visited=None) -> bool:
     """True if the point named `name` (transitively, through any anchor_point
     chain) resolves to a live footprint with no shift applied anywhere along
-    the way — the requirement for Rule/ThermalViaArrayConfig's anchor_point,
-    which need a component to look up named pads from (spoke.pad/tva.pad),
+    the way — the requirement for ThermalViaArrayConfig's anchor_point,
+    which needs a component to look up a named pad from,
     not just a coordinate (see ThermalViaArrayConfig.anchor_point docstring
     in config/models.py). Pure static walk over points: definitions — no live
     board access, shift/xy are literal YAML values. A cycle in the walk just
@@ -545,7 +545,7 @@ def _point_is_footprint_eligible(points: dict[str, Point], name: str, _visited=N
 def _load_mutually_exclusive_position(data: dict[str, Any], mode_specs, label: str) -> str | None:
     """Shared "exactly one position mode" validator — the "fatal if both /
     fatal if half-populated" branches were manually copied in
-    _load_manual_spoke / _load_clone_placement / _load_coordinate_placement;
+    _load_clone_placement / _load_coordinate_placement;
     this is the single copy (2026-08-12, Group 3 consolidation).
 
     mode_specs: iterable of (mode_name, fields, all_required) where
@@ -598,109 +598,6 @@ def _load_mutually_exclusive_position(data: dict[str, Any], mode_specs, label: s
             [_("missing: {missing}").format(missing=", ".join(missing))]
         ))
     return active[0] if active else None
-
-
-_MANUAL_SPOKE_KNOWN_KEYS = {
-    'pad', 'cell', 'shift_x_mm', 'shift_y_mm', 'rotation_deg',
-    'radius_mm', 'angle_deg',
-    'retired', 'cluster', 'skip',
-    'cell_uuid',
-}
-
-
-def _load_manual_spoke(data: dict[str, Any], rule_label: str) -> ManualSpoke:
-    check_unknown_keys(data, _MANUAL_SPOKE_KNOWN_KEYS,
-                       _("unknown fields in spoke (pad {pad!r}) of rule (net {net!r})")
-                       .format(pad=data.get('pad', '?'), net=rule_label))
-
-    # Position — EXACTLY ONE of two mutually exclusive modes (see ManualSpoke's
-    # docstring): Cartesian shift (shift_x_mm/shift_y_mm, the default) OR polar
-    # (radius_mm/angle_deg). Fatal if BOTH are given, or if only ONE of the
-    # polar pair is — shared validator, see _load_mutually_exclusive_position.
-    _load_mutually_exclusive_position(
-        data,
-        [("Cartesian", ("shift_x_mm", "shift_y_mm"), False),
-         ("polar", ("radius_mm", "angle_deg"), True)],
-        _("spoke (pad {pad!r}) of rule (net {net!r})")
-        .format(pad=data.get('pad', '?'), net=rule_label),
-    )
-
-    return ManualSpoke(
-        pad=data['pad'],
-        cell=data['cell'],
-        shift_x_mm=data.get('shift_x_mm', 0.0),
-        shift_y_mm=data.get('shift_y_mm', 0.0),
-        rotation_deg=data.get('rotation_deg', 0.0),
-        radius_mm=data.get('radius_mm'),
-        angle_deg=data.get('angle_deg'),
-        retired=data.get('retired', False),
-        cluster=data.get('cluster'),
-        skip=data.get('skip', False),
-        cell_uuid=data.get('cell_uuid'),
-    )
-
-
-_CHAIN_KNOWN_KEYS = {
-    'net', 'spokes', 'anchor_ref', 'anchor_role', 'anchor_sheet',
-    'anchor_cluster', 'anchor_point', 'name', 'sheet', 'retired', 'skip',
-    'comment',
-    'uuid', 'anchor_point_uuid',
-}
-
-
-def _load_chain(chain_data: dict[str, Any]) -> Chain:
-    """Extracted 2026-08-05 from load_config's own inline loop (same
-    standalone-per-entry shape as _load_point/_load_thermal_via_array/
-    _load_clone_placement) so gui/docks/chain.py can validate a single Chain
-    the same clean way those docks already validate their own entry type.
-    The cross-chain name/net collision check stays in load_config — it
-    needs the WHOLE chains list, not just one entry."""
-    chain_net = chain_data.get('net')
-    check_unknown_keys(chain_data, _CHAIN_KNOWN_KEYS,
-                       _("unknown fields in chain (net {net!r})").format(net=chain_net))
-    anchor_ref = chain_data.get('anchor_ref')
-    anchor_role = chain_data.get('anchor_role')
-    anchor_sheet = chain_data.get('anchor_sheet')
-    anchor_cluster = chain_data.get('anchor_cluster')
-    anchor_point = chain_data.get('anchor_point')
-    sheet = chain_data.get('sheet')
-
-    if anchor_ref and anchor_role:
-        raise ValidationError(format_fatal_error(
-            _("anchor_ref and anchor_role together in chain (net {net!r})").format(net=chain_net),
-            [_("mutually exclusive: either by refdes (anchor_ref) or by Role field "
-               "(anchor_role), not both")]
-        ))
-    if anchor_sheet and not anchor_role:
-        raise ValidationError(format_fatal_error(
-            _("anchor_sheet without anchor_role in chain (net {net!r})").format(net=chain_net),
-            [_("anchor_sheet only narrows ambiguity of anchor_role, it is not an anchor itself")]
-        ))
-    if anchor_point and (anchor_ref or anchor_role):
-        raise ValidationError(format_fatal_error(
-            _("anchor_point together with anchor_ref/anchor_role in chain (net {net!r})")
-            .format(net=chain_net),
-            [_("anchor_point={point!r} names a points: entry that already carries its own "
-               "anchor — mutually exclusive with anchor_ref/anchor_role").format(point=anchor_point)]
-        ))
-    if not anchor_ref and not anchor_role and not anchor_point:
-        raise ValidationError(format_fatal_error(
-            _("chain (net {net!r}) without anchor_ref/anchor_role/anchor_point").format(net=chain_net),
-            [_("a spoke chain must have an anchor – anchor_ref: <ref> (component whose "
-               "pads are listed in spokes), anchor_role: <ROLE> (survives re‑annotation), "
-               "or anchor_point: <name from points:>")]
-        ))
-    spokes = [_load_manual_spoke(spoke_data, chain_net) for spoke_data in chain_data.get('spokes', [])]
-    return Chain(net=chain_net, spokes=spokes, anchor_ref=anchor_ref,
-                anchor_role=anchor_role, anchor_sheet=anchor_sheet,
-                anchor_cluster=anchor_cluster, anchor_point=anchor_point,
-                sheet=sheet,
-                name=chain_data.get('name'),
-                retired=chain_data.get('retired', False),
-                skip=chain_data.get('skip', False),
-                comment=chain_data.get('comment'),
-                uuid=chain_data.get('uuid'),
-                anchor_point_uuid=chain_data.get('anchor_point_uuid'))
 
 
 _NET_TRACE_KNOWN_KEYS = {
