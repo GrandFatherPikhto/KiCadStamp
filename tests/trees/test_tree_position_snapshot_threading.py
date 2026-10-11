@@ -21,20 +21,23 @@ fallback one had been threaded):
 
   1  the node's OWN anchor     base_anchor                 1 sweep   -> 0
   2a the tree's own anchor     parent_node=None, ROLE      1 sweep   -> 0
-  2b the tree's own anchor     parent_node=None, REF       2 sweeps  -> 0  (Т2-7)
-                               (a RECORD: chain/nettrace)
   3  a MOUNT parent            kind == "mount"             2 sweeps  -> 0
-  4  any other parent NODE     read_record_live_pose       2 sweeps  -> 0
+  4  any other parent NODE     read_record_live_pose       1 sweep   -> 0
+                               (a RECORD: net_trace)       (rotation inert)
   5  an ENTITY parent          sub-branch of 4             5 sweeps  -> 0  (Кj)
                                (cell+cluster)              1665 field scans -> 0
 
-Row 2 is SPLIT, and the merge it replaces was WRONG in the way rule 35 keeps
-describing: it said "the tree's own anchor -> 0" while its only cell drove the
-ROLE mode. An anchor's mode is a fork of FIVE (origin/self/role/point/ref), and a
-REF anchor is not "a single named thing" either — it dispatches by the RECORD's
-kind, so a kind that reaches a ComponentResolver (chain, net_trace) paid a sweep
-on BOTH calls, position and rotation, until Т2-7 forwarded the snapshot into that
-branch. Rows 2a/2b are those two modes, one cell each.
+Row 2 keeps only its ROLE half: the merge it replaces was WRONG in the way rule 35
+keeps describing (it claimed "the tree's own anchor -> 0" while driving the ROLE
+mode). The former REF half (row 2b, the tree's own REF anchor resolving a chain
+RECORD) is GONE with the chain kind: a ref anchor auto-resolves only over
+`_PLACEABLE_KINDS` (clone/placement/point/coordinate), NONE of which owns a
+snapshot, so the REF forward is INERT — the mutation "remove snapshot= there" is
+EQUIVALENT, not a lost guard (named in
+tree_position._anchor_base_live_position's docstring). An anchor's mode stays a
+fork of FIVE (origin/self/role/point/ref). Row 4 still proves the threading at the
+RECORD-selecting branch, but its record is now a NET_TRACE: its POSITION pays one
+ComponentResolver sweep, its ROTATION is inert, so one historical sweep remains.
 
 Cells left empty ON PURPOSE: nothing here asserts the sub-seams that have no
 snapshot parameter of their own (tree_pivot_offset's pivot half,
@@ -220,6 +223,45 @@ def test_branch_3_a_mount_parent_resolves_from_the_snapshot():
     td_mod._resolve_node_base_pose(cfg, swept, {}, tree, mount, None)
     assert swept.sweeps == 2, \
         "the historical mount path sweeps twice (tree base + the mount's own)"
+
+
+def test_branch_4_a_record_parent_resolves_from_the_snapshot(monkeypatch):
+    """Cell 4 — any other parent node, i.e. the branch that reaches
+    `read_record_live_pose` (the record dispatcher).
+
+    `_resolve_probe_ref` is stubbed here (it resolves the config's own records — a
+    different mechanism than the cost this cell pins). The record is a NET_TRACE —
+    the surviving ComponentResolver-backed kind: its POSITION resolve sweeps the
+    board through `ComponentResolver(snapshot=…)`, while its ROTATION is inert (a
+    net_trace has no rotation of its own), so the historical path pays ONE sweep
+    instead of the retired chain's two.
+
+    Mutation check: drop `snapshot=snapshot` at
+    `live_position.read_record_live_pose` and the snapshot side fails (the sweep
+    reappears)."""
+    adapter, tree = _CountingAdapter(), _tree()
+    cfg = _cfg(tree)
+    record = SimpleNamespace(
+        kind="net_trace", name="probe_nt", anchor_ref=None,
+        anchor_role=ANCHOR_ROLE, anchor_sheet=None, anchor_cluster=ANCHOR_CLUSTER,
+        obj=SimpleNamespace(anchor_role=ANCHOR_ROLE, anchor_sheet=None,
+                            anchor_cluster=ANCHOR_CLUSTER, anchor_pad=None))
+    parent_node = td_mod.TreeNode(ref="probe_nt", kind="net_trace", xy=None,
+                                  polar=None, rotation=0.0, name=None, group=None,
+                                  children=[])
+    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda _cfg, _ref, _kind: (record, False))
+
+    pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,
+                                          None, snapshot=_snapshot(adapter))
+    _assert_resolved_anchor(pose)
+    assert adapter.sweeps == 0, "a record parent still swept the board"
+
+    swept = _CountingAdapter()
+    td_mod._resolve_node_base_pose(cfg, swept, {}, tree, parent_node, None)
+    assert swept.sweeps == 1, (
+        "the historical record path sweeps once — the net_trace POSITION resolve; "
+        "its rotation is inert, so there is no second resolver to sweep")
 
 
 def _entity_rig(tree):
