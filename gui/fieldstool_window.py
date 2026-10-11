@@ -89,7 +89,7 @@ from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
                             show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
 from .schema_model import SchematicComponent, SchematicInstance
-from .schematic_freshness import SchematicFreshness
+from .schematic_freshness import SchematicFreshness, adopt_read
 from .settings import Settings
 from .worker import start_long_op
 
@@ -429,7 +429,7 @@ class MainWindow(QMainWindow):
                 _WARN_STYLE, logger))
 
     def _rescan(self) -> None:
-        """The Rescan BUTTON: force a read (the fallback for the stat probe's one
+        """The Rescan BUTTON: force a read (the fallback for the stat probe's
         blind spot — an identical mtime_ns AND size) and recompute. Its failure
         keeps the "Rescan failed" modal: an explicit click may show one."""
         if self._root_sheet is None:
@@ -438,22 +438,8 @@ class MainWindow(QMainWindow):
         if error is not None:
             QMessageBox.warning(self, _("Rescan failed"), error)
             return
-        self._adopt_schematic_read(view)
+        adopt_read(self, view)
         self._recompute_pending()
-
-    def _adopt_schematic_read(self, view) -> None:
-        """Adopt a read (components, path_index, files): store it, refresh the
-        pickable combos and drop the notes the sheet now carries (Т6/С5)."""
-        components, path_index, _files = view
-        self._components = components
-        self._path_index = path_index
-        roles = {c.role for c in components if c.role}
-        clusters = {c.cluster for c in components if c.cluster}
-        roles |= {s.role for s in self._live_snapshot if s.role}
-        clusters |= {s.cluster for s in self._live_snapshot if s.cluster}
-        self._set_combo_items(self.role_combo, sorted(roles))
-        self._set_combo_items(self.cluster_combo, sorted(clusters))
-        self._forget_the_notes_the_sheet_carries()
 
     def _maybe_reread_schematic(self) -> bool:
         """The cheap gate every trigger runs (poll, Apply, Sync): re-read the
@@ -463,7 +449,7 @@ class MainWindow(QMainWindow):
         view, _error = self._freshness.reread_if_stale(self._root_sheet)
         if view is None:
             return False
-        self._adopt_schematic_read(view)
+        adopt_read(self, view)
         self._pending_edits = compute_pending_edits(
             self._components, self._live_snapshot, self._path_index,
             self._overrides)
@@ -1116,9 +1102,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, _("No root sheet"), _("Pick a root sheet first."))
             return
         # plan_2026_10_11_fieldstool_stale_schematic: decide on a FRESH read —
-        # _maybe_reread_schematic re-reads the schematic AND recomputes the diff
-        # when its files changed, so a save since the last look is not judged
-        # stale. No board needed for this (Apply runs with KiCad closed anyway).
+        # _maybe_reread_schematic re-reads AND recomputes the diff when its
+        # files changed. No board needed (Apply runs with KiCad closed anyway).
         self._maybe_reread_schematic()
         # Apply requires KiCad closed anyway (check below), so there is no
         # point holding on to a stale connection handle while it's gone —

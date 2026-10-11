@@ -56,10 +56,10 @@ MUTATIONS = [
     # was, so a save since then makes it answer "Nothing to apply" wrongly
     # -> C4 red.
     ("M3 Apply without the freshness gate", WINDOW,
-     "        # stale. No board needed for this (Apply runs with KiCad closed anyway).\n"
+     "        # files changed. No board needed (Apply runs with KiCad closed anyway).\n"
      "        self._maybe_reread_schematic()\n"
      "        # Apply requires KiCad closed anyway (check below), so there is no\n",
-     "        # stale. No board needed for this (Apply runs with KiCad closed anyway).\n"
+     "        # files changed. No board needed (Apply runs with KiCad closed anyway).\n"
      "        pass  # MUTATION: no freshness check in Apply\n"
      "        # Apply requires KiCad closed anyway (check below), so there is no\n",
      "die", GUARDS, ()),

@@ -44,7 +44,13 @@ class SchematicFreshness:
         """Force a read of the hierarchy. Returns (view, None) on success where
         view = (components, path_index, files), or (None, error_text) on an
         OSError/ValueError. On success the recorded signature is replaced; on
-        failure nothing is touched, so the caller keeps its last good read."""
+        failure nothing is touched, so the caller keeps its last good read.
+
+        The signature is taken AFTER the read (load_schematic_view, then
+        hierarchy_signature), so a write that lands between the read and the
+        stat is NOT seen — the stamp recorded is the one the new write left, and
+        it is noticed only at the NEXT change. The Rescan button is the fallback
+        for that window: it re-reads regardless of the signature."""
         try:
             components, path_index, files = load_schematic_view(str(root_sheet))
         except (OSError, ValueError) as e:
@@ -73,3 +79,26 @@ class SchematicFreshness:
                   "keeping the previous read; it will be retried. If this "
                   "persists, use Rescan once the file is readable."))
         return None, error
+
+
+def adopt_read(window, view) -> None:
+    """Adopt a read (components, path_index, files) into `window`: store the
+    view on it, refresh the pickable Role/Cluster combos (unioned with the live
+    board's values this session — a value set on the board is not in the
+    schematic until Apply, so a read alone would never surface it as pickable)
+    and run the Т6/С5 "our note is redundant now" pass.
+
+    Moved out of gui/fieldstool_window.py so the 800-line giant keeps only calls
+    (rule 45); behaviour is byte-for-byte the old private method. It takes the
+    window because this bookkeeping IS window state (the combos and the override
+    store it forgets from)."""
+    components, path_index, _files = view
+    window._components = components
+    window._path_index = path_index
+    roles = {c.role for c in components if c.role}
+    clusters = {c.cluster for c in components if c.cluster}
+    roles |= {s.role for s in window._live_snapshot if s.role}
+    clusters |= {s.cluster for s in window._live_snapshot if s.cluster}
+    window._set_combo_items(window.role_combo, sorted(roles))
+    window._set_combo_items(window.cluster_combo, sorted(clusters))
+    window._forget_the_notes_the_sheet_carries()
